@@ -80,11 +80,21 @@ edge case worth knowing rather than relying on.
 ships as an **empty array** — package configs merge into the app's config by array concat, so
 anything shipped non-empty here would sit in every app's scan set forever with no way to switch it
 off. When the configured value is absent or empty, the source falls back to `src/migrations`,
-`lib/migrations`, `dist/migrations`, `lib/cjs/migrations`, `lib/mjs/migrations`, `build/migrations`
-and bare `migrations`, resolved against the process's current working directory — one entry per
-build layout a project in this ecosystem might have been compiled to, `lib/cjs` and `lib/mjs`
-included since that is what `npm run compile` / `compile:cjs` actually produce. Configuring a value
-**replaces** this fallback rather than adding to it:
+`lib/migrations`, `dist/migrations`, `build/migrations` and bare `migrations`, resolved against the
+process's current working directory, **plus one more**: `lib/cjs/migrations` or
+`lib/mjs/migrations`, whichever matches the format the current process is actually running as.
+
+Only one of that last pair is ever scanned, never both. `lib/cjs` and `lib/mjs` are the same
+migration source compiled twice — into two module formats — and every package in this repo ships
+`"type": "module"` with no `package.json` written into `lib/cjs`, so Node parses a `lib/cjs/*.js`
+file as ESM and a bare import of it throws. Scanning both unconditionally means a package that
+ships both builds (every package here) always has one sibling the running process cannot load, and
+a `.js` import failure is a hard throw by design (see below) — so the format that does not match
+the runtime is never scanned at all, rather than scanned and its failure tolerated. Which format is
+current is read off the same `__esmMode__` DI flag `@spinajs/configuration`'s own dual-build config
+glob already keys off (`packages/configuration/src/sources.ts`); a process that never called
+`DI.setESMModuleSupport()` is treated as CommonJS, matching `DI.__spinajs_require__`'s own fallback.
+Configuring a value **replaces** this fallback rather than adding to it:
 
 ```js
 // config file

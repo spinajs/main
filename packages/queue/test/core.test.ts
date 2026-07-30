@@ -111,6 +111,14 @@ describe('queue core - dedup & persistence', function () {
 
   beforeEach(async () => {
     DI.clearCache();
+    // `Orm.resolve()` discovers migrations through `FilesystemMigrationSource`, which falls back
+    // to `DEFAULT_MIGRATION_DIRS` here ( nothing configures `system.dirs.migrations` ) - and that
+    // fallback now includes this package's own compiled `lib/mjs/migrations` (or `lib/cjs`,
+    // whichever this runtime is). `DI.__spinajs_require__` needs the ESM flag to know how to load
+    // it, same as every other file-discovery suite in the repo sets it - `asValue` registrations
+    // live in the DI cache, so the `clearCache()` above wipes it and it must be re-applied on
+    // every run, not once in a top-level `before()`.
+    DI.setESMModuleSupport();
     InMemoryQueueClient.Subs.clear();
     InMemoryQueueClient.Last = undefined;
     DI.register(CoreConnectionConf).as(Configuration);

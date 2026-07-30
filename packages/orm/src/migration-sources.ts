@@ -14,19 +14,51 @@ import { MIGRATION_FILE_REGEXP } from './symbols.js';
 /**
  * Fallback for `system.dirs.migrations` when that key is absent or empty - see the comment on it
  * in `config/orm.ts` for why the defaults live here rather than shipping in the config value
- * itself. One entry per build layout a project might have been compiled to; a migration reachable
- * through more than one resolves to the same class name twice and is deduped by `Orm`.
+ * itself. One entry per format-independent build layout a project might have been compiled to; a
+ * migration reachable through more than one resolves to the same class name twice and is deduped
+ * by `Orm`.
  *
  * `lib/migrations` alone used to stand in for "the compiled layout", but every package in this
  * repo compiles to `lib/cjs` and `lib/mjs` - there is no bare `lib/migrations` anywhere spinajs
  * itself produces, which made the filesystem source a silent no-op for a deployment built the
- * spinajs way. `lib/cjs/migrations`, `lib/mjs/migrations`, `build/migrations` and bare
- * `migrations` are added alongside the original three rather than replacing them, so an existing
- * `src/lib/dist` layout keeps working unchanged.
+ * spinajs way. `build/migrations` and bare `migrations` are added alongside the original three
+ * rather than replacing them, so an existing `src/lib/dist` layout keeps working unchanged.
+ *
+ * `lib/cjs/migrations` and `lib/mjs/migrations` are deliberately NOT in this list, even though
+ * they are exactly such a build layout: they are the SAME source compiled twice into two module
+ * formats, only one of which the running process can ever load - every package here ships
+ * `"type": "module"` with no `package.json` written into `lib/cjs`, so Node parses `lib/cjs/*.js`
+ * as ESM and a bare import of it throws (by design - see the `.js`-failure-throws comment below).
+ * Scanning both unconditionally turned the sibling this runtime cannot load into a hard boot
+ * failure the moment a package actually shipped both builds. `currentBuildMigrationDir()` below
+ * picks the one that matches the current runtime instead, mirroring how
+ * `@spinajs/configuration`'s `BaseFileSource` already picks ONE of its own dual-build config globs
+ * off the same DI flag (`packages/configuration/src/sources.ts`).
  */
-export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist', path.join('lib', 'cjs'), path.join('lib', 'mjs'), 'build', '.'].map((d) =>
-  path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))),
-);
+export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist', 'build', '.'].map((d) => path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))));
+
+/**
+ * Whether the current process is running under `@spinajs/di`'s ESM mode.
+ *
+ * `DI.setESMModuleSupport()` (`packages/di/src/root.ts`) registers `{ mjs: true }` - an object, not
+ * a bare boolean - under `__esmMode__`, and `DI.__spinajs_require__` itself reads it back as
+ * `isESM && isESM.mjs`. A consumer that never called `setESMModuleSupport()` leaves the value
+ * unregistered (`DI.get` returns `null`), which this treats the same way `__spinajs_require__`
+ * does: fall back to CJS.
+ */
+function isESMRuntime(): boolean {
+  const flag = DI.get<{ mjs?: boolean } | boolean>('__esmMode__');
+  return typeof flag === 'boolean' ? flag : Boolean(flag?.mjs);
+}
+
+/**
+ * The one directory, of `lib/cjs/migrations` and `lib/mjs/migrations`, that the CURRENTLY RUNNING
+ * process can actually import migrations from - see the comment on `DEFAULT_MIGRATION_DIRS` for
+ * why the other one is never scanned at all rather than scanned-and-tolerated.
+ */
+export function currentBuildMigrationDir(): string {
+  return path.resolve(path.normalize(path.join(process.cwd(), 'lib', isESMRuntime() ? 'mjs' : 'cjs', 'migrations')));
+}
 
 /**
  * `env` ( normalized `process.env.APP_ENV` ) is interpolated straight into a glob pattern in
@@ -74,8 +106,11 @@ export class FilesystemMigrationSource extends MigrationSource {
     const configured = this.Configuration.get<string[]>('system.dirs.migrations', []) ?? [];
 
     // a configured value REPLACES the defaults rather than adding to them - the config key itself
-    // ships empty for exactly this reason, see `config/orm.ts`
-    const dirs = configured.length > 0 ? configured : DEFAULT_MIGRATION_DIRS;
+    // ships empty for exactly this reason, see `config/orm.ts`. The format-specific build dir is
+    // computed here rather than folded into `DEFAULT_MIGRATION_DIRS` itself: which one applies
+    // depends on the `__esmMode__` DI flag, which is not knowable at module-load time and can
+    // change between calls in a test process that flips it.
+    const dirs = configured.length > 0 ? configured : [...DEFAULT_MIGRATION_DIRS, currentBuildMigrationDir()];
 
     const env = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
 
