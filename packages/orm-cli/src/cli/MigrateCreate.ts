@@ -44,15 +44,18 @@ export const ENV_NAME_REGEXP = /^[A-Za-z][A-Za-z0-9-]*$/;
 const RESERVED_ENV_NAMES = ['test', 'spec', 'd'];
 
 /**
- * Reads `--env` directly off `process.argv`, in the same shape `Configuration` reads its own
- * `--env` ( `packages/configuration/src/util.ts`'s `parseArgv` - not exported from that package's
- * public surface, so duplicated here rather than imported ).
+ * Reads `--env` directly off `process.argv`, deliberately more flexible than `Configuration`'s own
+ * `parseArgv` ( `packages/configuration/src/util.ts` - not exported from that package's public surface,
+ * so this logic is duplicated rather than imported ).
  *
- * This is not decoration: `packages/cli/src/args.ts` strips `--env <value>` ( and `--env=value` )
- * out of the argv commander itself receives, because `Configuration` consumes the framework-level
- * `--env` directly - so commander's own `-e, --env` option NEVER receives a value for the long
- * form, and `options.env` is silently `undefined` no matter what was typed. `-e` is untouched by
- * that strip and reaches commander normally, so it needs no duplicate handling here.
+ * `parseArgv` handles only the space-separated form ( `--env local` ), but this helper also accepts
+ * the equals form ( `--env=local` ). This is correct here: `packages/cli/src/args.ts` strips both
+ * forms from commander's argv, because `Configuration` consumes the framework-level `--env` directly.
+ * With `--env=local`, the value is stripped but `Configuration`'s `parseArgv` cannot recognize the
+ * equals form, so the CLI process boots under the default environment while the scaffolded file gets
+ * its `.local` suffix — harmless for this command, which uses the value only as a filename tag and
+ * a decorator string. `-e` is untouched by the strip and reaches commander normally, so it needs no
+ * duplicate handling here.
  */
 export function parseEnvArgv(argv: string[] = process.argv): string | undefined {
   for (let i = 0; i < argv.length; i++) {

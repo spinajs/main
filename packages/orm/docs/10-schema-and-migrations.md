@@ -119,9 +119,11 @@ silently scanning nothing or the wrong files.
 
 A class living in a scanned directory is only ever treated as a migration when its own name carries
 the same `_yyyy_MM_dd_HH_mm_ss` stamp every migration is stamped with — the same anchor
-`parseMigrationFileEnv` reads a file's tag through. A shared abstract base class, or a barrel
-re-exporting one, is skipped rather than reported: registering it would surface later as a boot
-failure naming a file nobody meant to write as a migration.
+`parseMigrationFileEnv` reads a file's tag through. A shared abstract base class is skipped rather
+than reported: registering it would surface later as a boot failure naming a file nobody meant to
+write as a migration. A barrel re-exporting a legitimate migration does register it — but the barrel
+loses the filename's environment tag (since `index.ts` carries no `.<env>` segment), so the migration
+runs in every environment unless its decorator specifies one with `@Migration({ Env })`.
 
 A `.ts` file that fails to import is tolerated silently (logged at trace level): the default search
 includes `src/migrations`, so a compiled deployment routinely fails to import the `.ts` copy of
