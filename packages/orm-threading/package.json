@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-threading",
-  "version": "2.0.486",
+  "version": "2.0.487",
   "description": "utility functions shared across @spinajs framework",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -49,11 +49,11 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/exceptions": "^2.0.486",
-    "@spinajs/di": "^2.0.486",
-    "@spinajs/log-common": "^2.0.486",
-    "@spinajs/orm": "2.0.486",
-    "@spinajs/threading": "^2.0.486",
+    "@spinajs/exceptions": "^2.0.487",
+    "@spinajs/di": "^2.0.487",
+    "@spinajs/log-common": "^2.0.487",
+    "@spinajs/orm": "2.0.487",
+    "@spinajs/threading": "^2.0.487",
     "luxon": "3.5.0"
   },
   "homepage": "https://github.com/spinajs/main#readme",
