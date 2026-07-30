@@ -16,6 +16,136 @@ Migration file X have invalid name format ( invalid migration name, expected:
 some_name_yyyy_MM_dd_HH_mm_ss got X )
 ```
 
+### Environments
+
+A migration may belong to one environment. The environment is a dot-suffix on the FILE name — the
+same convention `@spinajs/configuration` uses for config files:
+
+```
+src/migrations/
+  CreateUsers_2026_07_29_10_00_00.ts         every environment
+  SeedTestData_2026_07_29_10_05_00.local.ts  APP_ENV=local only
+  SeedFixtures_2026_07_29_10_06_00.dev.ts    APP_ENV=dev or development
+```
+
+The tag is matched after the same normalization config files get: `development` and `dev` are one
+environment, `production` and `prod` are another, anything else is taken verbatim, and an unset
+`APP_ENV` means `prod`. Case is not folded — `Local` and `local` are different.
+
+A migration belonging to another environment is **entirely invisible**: it is never imported, never
+registered, and absent from `migrate-up`, `migrate-down` and `migrate-status` alike. One
+consequence is worth knowing before you rely on it — a `.local` migration applied on a machine that
+later boots as another environment leaves a tracking row with no migration behind it, and
+`migrate-down` reports that row as an orphan whose file was "deleted or renamed". Nothing is
+actually wrong; do not follow that advice for such a row.
+
+Scaffold one with the CLI:
+
+```bash
+spinajs migrate-create --name SeedTestData --env local
+```
+
+#### How the tag is read
+
+The parser looks only at the file's basename, and only trusts a filename that is a migration file
+in the first place: its first dot-segment must carry the same `_yyyy_MM_dd_HH_mm_ss` stamp every
+migration class name is stamped with. A name that doesn't carry that stamp — a test helper, a
+Storybook file, anything else that merely has dots in its name — has no tag to read, no matter how
+many dots follow.
+
+Given a file whose first segment does carry the stamp:
+
+- **two segments** (`Name_...ts`, `Name_...js`) — unsuffixed, every environment;
+- **three segments** where the middle one is `d` and the extension is `ts` (`.d.ts`), or the middle
+  one is `test` or `spec` with extension `ts` or `js` — these are carved out by name rather than
+  read as a tag, because they name a *kind of file* the migration produced (a declaration file, a
+  test suite named after the migration it tests), not an environment it should run in;
+- **any other three-segment name** — the middle segment, normalized, is the tag;
+- **more than three segments**, or an empty middle segment (`Foo..ts`) — the boot throws, because a
+  migration cannot carry two tags or an empty one.
+
+`.d.js` is not a declaration-file convention, so `Foo_..._00.d.js` is read as environment `d` — an
+edge case worth knowing rather than relying on.
+
+#### Where migrations are found
+
+`FilesystemMigrationSource` scans the directories configured at `system.dirs.migrations`. That key
+ships as an **empty array** — package configs merge into the app's config by array concat, so
+anything shipped non-empty here would sit in every app's scan set forever with no way to switch it
+off. When the configured value is absent or empty, the source falls back to `src/migrations`,
+`lib/migrations` and `dist/migrations`, resolved against the process's current working directory —
+one entry per build layout a project might have been compiled to. Configuring a value **replaces**
+this fallback rather than adding to it:
+
+```js
+// config file
+export default {
+  system: {
+    dirs: {
+      migrations: [`${process.cwd()}/lib/migrations`],
+    },
+  },
+};
+```
+
+Within each configured directory, two globs run: unsuffixed files (every environment) and files
+tagged for the current one. A file belonging to another environment is never matched by either
+glob, so it is never imported — importing it would fire its `@Migration` decorator and register it
+regardless of what filter ran afterwards.
+
+A `.ts` file that fails to import is tolerated silently (logged at trace level): the default search
+includes `src/migrations`, so a compiled deployment routinely fails to import the `.ts` copy of
+every migration under a plain JS runtime while its compiled `.js` copy is found by the same scan.
+A `.js` file that fails to import is not given the same pass — a `.js` file is never a source
+artifact tried on spec, so a broken one means a real syntax error or a throwing module body, and
+the boot fails with the original error rather than silently reporting "nothing pending".
+
+A migration reached by `import` rather than by discovery — a package re-exporting its migrations
+from `index.ts` — declares its environment on the decorator instead:
+
+```ts
+@Migration('default', { Env: 'local' })
+export class SeedTestData_2026_07_29_10_05_00 extends OrmMigration {}
+```
+
+Both may be present, and `migrate-create --env` writes both. They must agree: a file suffixed
+`.local` whose decorator says `dev` fails the boot rather than picking a winner.
+
+A migration file living under a scanned directory needs no re-export — the filesystem source finds
+it directly. Re-export it from an `index.ts` only when it does **not** live under a scanned
+directory; that import is what makes its `@Migration` decorator run and register it.
+
+#### Plugging in your own discovery
+
+`Orm` takes migrations from every `MigrationSource` registered in the container. Two ship with the
+package — one scanning the filesystem, one reading the `@Migration` registrations — and another is
+a class away:
+
+```ts
+import { ClassInfo, Injectable } from '@spinajs/di';
+import { MigrationSource, OrmMigration } from '@spinajs/orm';
+
+@Injectable(MigrationSource)
+export class ManifestMigrationSource extends MigrationSource {
+  public async getMigrations(): Promise<Array<ClassInfo<OrmMigration>>> {
+    return [{ file: '<manifest>', name: MyMigration_2026_07_29_10_00_00.name, type: MyMigration_2026_07_29_10_00_00 }];
+  }
+}
+```
+
+A source only discovers — it never constructs or runs anything. The `file` it reports is what the
+tag rule above reads, so a source that has no real file should report a sentinel and declare the
+environment on the decorator instead.
+
+#### Known limitations
+
+- Under a TypeScript runtime (`ts-node`, `ts-mocha`), a genuinely broken `.ts` migration is silently
+  skipped rather than reported — the same tolerance that lets a compiled deployment's unusable
+  `.ts` copies pass quietly applies equally to a `.ts` file that is broken for real.
+- A migration exported as `export default` rather than as a named export is invisible to the
+  filesystem scan, which only recognizes named exports whose value is a class extending
+  `OrmMigration`.
+
 ### The three hooks
 
 ```ts sample
