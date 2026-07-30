@@ -9,6 +9,7 @@ export interface IMigrateCreateCommandOptions {
   name: string;
   dir?: string;
   connection?: string;
+  env?: string;
 }
 
 /**
@@ -25,6 +26,13 @@ export const MIGRATION_NAME_REGEXP = /^[A-Za-z][A-Za-z0-9]*$/;
  */
 export const CONNECTION_NAME_REGEXP = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
+/**
+ * The env tag becomes a dot-segment in the file name AND a string literal inside `@Migration()`,
+ * so it may carry neither a dot ( which would read as a second tag ) nor anything that could close
+ * that literal.
+ */
+export const ENV_NAME_REGEXP = /^[A-Za-z][A-Za-z0-9-]*$/;
+
 export const DEFAULT_MIGRATION_DIR = './src/migrations';
 
 export const DEFAULT_MIGRATION_CONNECTION = 'default';
@@ -34,14 +42,14 @@ export const DEFAULT_MIGRATION_CONNECTION = 'default';
  * bodies are meant to be filled in immediately - and the eslint pragma on the first line is the
  * repo's own convention for a migration whose `down()` legitimately ignores it.
  */
-export function migrationTemplate(cls: string, connection: string): string {
+export function migrationTemplate(cls: string, connection: string, env?: string): string {
   return `/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 
 /**
  * TODO: describe the schema change this migration makes.
  */
-@Migration('${connection}')
+@Migration('${connection}'${env ? `, { Env: '${env}' }` : ''})
 export class ${cls} extends OrmMigration {
   /**
    * Schema changes. Models are NOT wired up yet at this point - reach the database through
@@ -71,6 +79,7 @@ export class ${cls} extends OrmMigration {
 @Option('-n, --name [name]', true, 'migration name prefix - a plain class-name prefix, letters and digits only')
 @Option('-d, --dir [dir]', false, `target directory, default ${DEFAULT_MIGRATION_DIR}`)
 @Option('-c, --connection [connection]', false, `connection the migration runs on, default "${DEFAULT_MIGRATION_CONNECTION}"`)
+@Option('-e, --env [env]', false, 'environment this migration belongs to, eg. local - omit to run it in every environment')
 export class MigrateCreateCommand extends CliCommand {
   @Logger('ORM-CLI')
   protected Log: Log;
@@ -87,18 +96,22 @@ export class MigrateCreateCommand extends CliCommand {
       throw new InvalidArgument(`Invalid connection name "${connection}" - expected the name of a connection from db.Connections, eg. "default"`);
     }
 
+    if (options.env !== undefined && !ENV_NAME_REGEXP.test(options.env)) {
+      throw new InvalidArgument(`Invalid environment name "${options.env}" - a letter followed by letters, digits or dashes. It becomes both a file suffix and a string inside @Migration().`);
+    }
+
     // The timestamp is not decoration: it is the ONLY ordering the migration runner has, and it is
     // read back out of the class name rather than out of the file's mtime or its position on disk.
     const cls = `${name}_${DateTime.now().toFormat('yyyy_MM_dd_HH_mm_ss')}`;
     const dir = options.dir ?? DEFAULT_MIGRATION_DIR;
-    const file = path.join(dir, `${cls}.ts`);
+    const file = path.join(dir, `${cls}${options.env ? `.${options.env}` : ''}.ts`);
 
     fs.mkdirSync(dir, { recursive: true });
 
     try {
       // 'wx' - never clobber. Two `migrate-create` runs inside the same second produce the same
       // class name, and silently overwriting the first one would delete work that was just written.
-      fs.writeFileSync(file, migrationTemplate(cls, connection), { flag: 'wx', encoding: 'utf-8' });
+      fs.writeFileSync(file, migrationTemplate(cls, connection, options.env), { flag: 'wx', encoding: 'utf-8' });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new IOFail(`Migration file ${file} already exists - a migration with this name was created in the same second. Wait a second and run it again, or pass a different --name.`, err as Error);
@@ -112,6 +125,6 @@ export class MigrateCreateCommand extends CliCommand {
     // eslint-disable-next-line no-console
     console.log(file);
 
-    this.Log.info(`Created migration ${cls} for connection "${connection}". It only takes effect once the class is imported - re-export it from your package or application index, the way src/migrations files are re-exported elsewhere, so the @Migration decorator runs and registers it.`);
+    this.Log.info(`Created migration ${cls} for connection "${connection}"${options.env ? ` in environment "${options.env}"` : ''}. A file under system.dirs.migrations is discovered automatically. Re-export it from your package or application index only when it does not live in a scanned directory, so the @Migration decorator runs and registers it.`);
   }
 }

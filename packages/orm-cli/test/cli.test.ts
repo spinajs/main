@@ -1109,4 +1109,45 @@ describe('migrate-create', () => {
     expect(err).to.be.instanceOf(InvalidArgument);
     expect(fs.existsSync(dir)).to.equal(false);
   });
+
+  it('writes an env-suffixed file and tags the class to match', async () => {
+    const dir = path.join(scratch, 'env');
+    const cmd = await DI.resolve(MigrateCreateCommand);
+
+    await captureStdout(() => cmd.execute({ name: 'SeedTestData', dir, connection: 'default', env: 'local' }));
+
+    const file = fs.readdirSync(dir)[0];
+    expect(file).to.match(/^SeedTestData_\d{4}(_\d{2}){5}\.local\.ts$/);
+
+    const cls = file.replace(/\.local\.ts$/, '');
+    const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+
+    // both, on purpose: they agree so the conflict check passes, and the tag then survives
+    // whichever way the file ends up registered - discovered from disk, or re-exported
+    expect(content).to.contain(`@Migration('default', { Env: 'local' })`);
+    expect(content).to.contain(`export class ${cls} extends OrmMigration {`);
+  });
+
+  it('writes no suffix and no Env when --env is absent', async () => {
+    const dir = path.join(scratch, 'no-env');
+    const cmd = await DI.resolve(MigrateCreateCommand);
+
+    await captureStdout(() => cmd.execute({ name: 'NoEnv', dir }));
+
+    const file = fs.readdirSync(dir)[0];
+    expect(file).to.match(/^NoEnv_\d{4}(_\d{2}){5}\.ts$/);
+    expect(fs.readFileSync(path.join(dir, file), 'utf-8')).to.contain(`@Migration('default')`);
+  });
+
+  it('refuses an env name that could not be a file suffix', async () => {
+    const dir = path.join(scratch, 'bad-env');
+    const cmd = await DI.resolve(MigrateCreateCommand);
+
+    for (const env of ['', 'has space', 'has.dot', "quote')"]) {
+      const err = await thrownBy(() => cmd.execute({ name: 'Fine', dir, env }));
+      expect(err, `"${env}" was accepted`).to.be.instanceOf(InvalidArgument);
+    }
+
+    expect(fs.existsSync(dir), 'a refused env still created its target directory').to.equal(false);
+  });
 });
