@@ -56,6 +56,13 @@ describe('parseMigrationFileEnv', () => {
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.js'))).to.equal(undefined);
   });
 
+  it('treats stamped .test.cjs / .spec.mjs as unsuffixed too - the same carve-out, extended alongside FilesystemMigrationSource\'s own extension list', () => {
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.test.cjs'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.mjs'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.test.mjs'))).to.equal(undefined);
+    expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.spec.cjs'))).to.equal(undefined);
+  });
+
   it('treats .d.ts as unsuffixed but reads .d.js as environment d', () => {
     // `.d.ts` is a TypeScript declaration file convention, carved out for `.ts` only
     expect(parseMigrationFileEnv(p('Foo_2026_07_29_10_00_00.d.ts'))).to.equal(undefined);

@@ -30,6 +30,22 @@ class MigrationEnvTest_Decorated_2026_07_29_10_02_00 extends OrmMigration {
   public async down(_c: OrmDriver): Promise<void> {}
 }
 
+@Migration('sqlite', { Env: 'local' })
+class MigrationEnvTest_InheritanceParent_2026_07_29_10_04_00 extends OrmMigration {
+  public async up(_c: OrmDriver): Promise<void> {}
+  public async down(_c: OrmDriver): Promise<void> {}
+}
+
+/**
+ * No `@Migration()` of its own, deliberately - it exercises the read side of the same fix
+ * `decorators.ts` already applies on the write side: `target[MIGRATION_DESCRIPTION_SYMBOL]`
+ * resolves through the prototype chain, so a naive read of THIS class's descriptor returns its
+ * parent's - `Env: 'local'` included. `Orm.discoverMigrations()` must read `Env` OWN-only, so this
+ * subclass is registered for every environment rather than silently inheriting 'local' and
+ * vanishing under 'prod'.
+ */
+class MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00 extends MigrationEnvTest_InheritanceParent_2026_07_29_10_04_00 {}
+
 /**
  * A source under the test's control, so these cases never depend on files on disk. It reports
  * exactly the entries a test hands it, `file` included - which is what carries the env suffix.
@@ -68,6 +84,7 @@ describe('Orm migration environments', () => {
     // `@Migration` registers into the ROOT container and the registration outlives this file -
     // migration.test.ts asserts on how many migrations the Orm found
     DI.unregister(MigrationEnvTest_Decorated_2026_07_29_10_02_00);
+    DI.unregister(MigrationEnvTest_InheritanceParent_2026_07_29_10_04_00);
     // registered into the ROOT container in `before()` above - left in place, `EnvConf` (and
     // whatever `EnvConf.Env` its last test set) would outlive this file as every other suite's
     // `Configuration`, and the 'mysql' driver every other suite resolves would stay this file's fake
@@ -232,5 +249,29 @@ describe('Orm migration environments', () => {
     }
 
     expect(err, 'two environments for one migration were accepted').to.be.instanceOf(OrmException);
+  });
+
+  it('does not let an undecorated subclass inherit its parent Env - it is visible in every environment', async () => {
+    EnvConf.Env = 'prod';
+    FakeMigrationSource.Entries = [entry(MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00, '/app/MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00.js')];
+
+    // before the fix: a naive read of the descriptor resolves the PARENT's ( Env: 'local' )
+    // through the prototype chain, and the subclass silently vanishes under 'prod'
+    const orm = await DI.resolve(Orm);
+
+    expect(orm.Migrations.map((m) => m.name), "inherited the parent's Env and vanished under prod").to.include('MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00');
+  });
+
+  it('does not throw when an undecorated subclass\'s file suffix merely disagrees with its parent\'s Env', async () => {
+    EnvConf.Env = 'dev';
+    // suffixed 'dev' - if Env were read through the chain here, this would compare 'dev' ( from
+    // the file ) against 'local' ( the PARENT's decorator, which this subclass never declared
+    // itself ) and throw "declares environment 'local' via @Migration", naming a decorator that
+    // is not on this class at all
+    FakeMigrationSource.Entries = [entry(MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00, '/app/MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00.dev.js')];
+
+    const orm = await DI.resolve(Orm);
+
+    expect(orm.Migrations.map((m) => m.name)).to.include('MigrationEnvTest_UndecoratedSubclass_2026_07_29_10_05_00');
   });
 });

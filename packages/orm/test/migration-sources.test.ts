@@ -105,6 +105,23 @@ describe('FilesystemMigrationSource under prod', () => {
 
     MigrationSourcesConf.Dirs = [FIXTURES];
   });
+
+  it('refuses an APP_ENV that is not a plain identifier rather than silently building a broken glob', async () => {
+    MigrationSourcesConf.Env = 'weird!name';
+
+    let caught: unknown;
+
+    try {
+      await discover();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught, 'an APP_ENV carrying glob metacharacters must not silently scan nothing').to.be.instanceOf(OrmException);
+    expect((caught as OrmException).message).to.contain('weird!name');
+
+    MigrationSourcesConf.Env = 'prod';
+  });
 });
 
 describe('FilesystemMigrationSource under local', () => {
@@ -192,6 +209,78 @@ describe('FilesystemMigrationSource default directories', () => {
   });
 });
 
+/**
+ * `lib/cjs/migrations`, `lib/mjs/migrations`, `build/migrations` and bare `migrations` joined
+ * `src/lib/dist` in `DEFAULT_MIGRATION_DIRS` because every package in this repo actually compiles
+ * to `lib/cjs` and `lib/mjs` - there is no bare `lib/migrations` anywhere spinajs itself produces,
+ * which made the old three-entry fallback a silent no-op for a deployment built the spinajs way.
+ *
+ * The membership checks below are deliberately NOT a filesystem round-trip through
+ * `lib/cjs/migrations` / `lib/mjs/migrations` specifically: those two are this very package's OWN
+ * real compile output directories, and once `npm run compile` / `compile:cjs` has run, each carries
+ * its own `package.json` ( `{ "type": "commonjs" }` / `{ "type": "module" }`, written by
+ * `scripts/generate-packages-for-modules.mjs` ) - a boundary a dynamically-imported `.ts` FIXTURE
+ * placed there sits right under, which made this suite flake ( a `.ts` import failure is tolerated
+ * silently, so the failure mode is an empty result, not an error ). The fallback-scan MECHANISM
+ * itself - that every entry in `DEFAULT_MIGRATION_DIRS` is actually scanned, not just the first
+ * three - is already proven generically by the unmodified `dist/migrations` round-trip above, which
+ * exercises the exact same loop these two entries go through. `build/migrations` below is round-
+ * tripped for that same generic reason, in a location `tsc` never writes to.
+ */
+describe('FilesystemMigrationSource default directories - lib/cjs, lib/mjs, build, bare migrations', () => {
+  const cjsDir = DEFAULT_MIGRATION_DIRS.find((d) => d.replace(/\\/g, '/').endsWith('lib/cjs/migrations'));
+  const mjsDir = DEFAULT_MIGRATION_DIRS.find((d) => d.replace(/\\/g, '/').endsWith('lib/mjs/migrations'));
+  const buildDir = DEFAULT_MIGRATION_DIRS.find((d) => d.replace(/\\/g, '/').endsWith('/build/migrations'));
+  const bareDir = DEFAULT_MIGRATION_DIRS.find((d) => d.replace(/\\/g, '/').match(/(^|\/)migrations$/) && !d.replace(/\\/g, '/').match(/(src|lib|dist|cjs|mjs|build)\/migrations$/));
+
+  it('carries lib/cjs/migrations and lib/mjs/migrations', () => {
+    expect(cjsDir, 'DEFAULT_MIGRATION_DIRS no longer carries a lib/cjs/migrations entry').to.be.a('string');
+    expect(mjsDir, 'DEFAULT_MIGRATION_DIRS no longer carries a lib/mjs/migrations entry').to.be.a('string');
+  });
+
+  it('carries build/migrations and bare migrations', () => {
+    expect(buildDir, 'DEFAULT_MIGRATION_DIRS no longer carries a build/migrations entry').to.be.a('string');
+    expect(bareDir, 'DEFAULT_MIGRATION_DIRS no longer carries a bare migrations entry').to.be.a('string');
+  });
+
+  function writeFallbackMigration(dir: string, name: string): void {
+    const importDir = path.relative(dir, path.join(process.cwd(), 'src')).replace(/\\/g, '/');
+    const file = path.join(dir, `${name}.ts`);
+
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      file,
+      [`import { OrmDriver } from '${importDir}/driver.js';`, `import { OrmMigration } from '${importDir}/interfaces.js';`, '', `export class ${name} extends OrmMigration {`, '  public async up(_connection: OrmDriver): Promise<void> {}', '  public async down(_connection: OrmDriver): Promise<void> {}', '}', ''].join('\n'),
+    );
+  }
+
+  // `build/`, unlike `lib/cjs` and `lib/mjs`, is never a real compile output directory in this
+  // repo - free of the package.json-boundary trap described above, so a plain filesystem
+  // round-trip is safe here.
+  function cleanup(dir: string): void {
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const parent = path.dirname(dir);
+    if (fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
+      fs.rmdirSync(parent);
+    }
+  }
+
+  it('falls back to build/migrations when the configured value is empty', async () => {
+    writeFallbackMigration(buildDir!, 'DefaultDirsBuildFallback_2026_07_29_10_08_00');
+
+    try {
+      MigrationSourcesConf.Dirs = [];
+      const found = await discover();
+
+      expect(found.map((f) => f.name)).to.include('DefaultDirsBuildFallback_2026_07_29_10_08_00');
+    } finally {
+      cleanup(buildDir!);
+      MigrationSourcesConf.Dirs = [FIXTURES];
+    }
+  });
+});
+
 describe('FilesystemMigrationSource import failures', () => {
   let scratch: string;
 
@@ -251,11 +340,118 @@ describe('FilesystemMigrationSource import failures', () => {
     expect(warn.called, 'a .ts import failure must not be logged at warn').to.equal(false);
     expect(trace.getCalls().some((c) => String(c.args[0]).includes(brokenFile)), 'expected the failure to be logged at trace, naming the file').to.equal(true);
   });
+
+  it('matches .cjs files at all - a broken one throws, naming the file', async () => {
+    // before the extension list grew to include cjs/mjs, this file was never even MATCHED by the
+    // glob, so `discover()` returned [] with no error at all - the throw below is the proof the
+    // scan now reaches it in the first place, not merely that a broken file is handled once found
+    const brokenFile = path.join(scratch, 'BrokenCjs_2026_07_29_10_09_00.cjs');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional cjs import failure');\n");
+
+    let caught: unknown;
+
+    try {
+      await discover();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught, 'a .cjs file must be matched by the scan and its failure surfaced').to.be.instanceOf(OrmException);
+    expect((caught as OrmException).message).to.contain(brokenFile);
+  });
+
+  it('matches .mjs files at all - a broken one throws, naming the file', async () => {
+    const brokenFile = path.join(scratch, 'BrokenMjs_2026_07_29_10_10_00.mjs');
+    fs.writeFileSync(brokenFile, "throw new Error('boom - intentional mjs import failure');\n");
+
+    let caught: unknown;
+
+    try {
+      await discover();
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught, 'a .mjs file must be matched by the scan and its failure surfaced').to.be.instanceOf(OrmException);
+    expect((caught as OrmException).message).to.contain(brokenFile);
+  });
+});
+
+/**
+ * Before the harvest was gated on `MIGRATION_FILE_REGEXP`, a class extending `OrmMigration` whose
+ * name carried no timestamp was reported like any other migration - and later crashed the boot in
+ * `Orm.registerMigration()`, which throws `OrmException` for a name it cannot order. That failure
+ * named the FILE this source reported - a shared abstract base class an app never meant to
+ * register, or (worse) the barrel that merely re-exported one from somewhere else entirely.
+ */
+describe('FilesystemMigrationSource skips non-migration classes', () => {
+  // parented under this package's OWN `test/mocks`, not `os.tmpdir()` - so the relative import of
+  // `src/driver.js` / `src/interfaces.js` the fixtures below need stays a short, reliable path
+  // instead of crossing from a system temp directory back into the repository.
+  const scratchRoot = path.join(process.cwd(), 'test', 'mocks');
+
+  it('skips a class with no timestamp in its name, living directly in a scanned directory', async () => {
+    const scratch = fs.mkdtempSync(path.join(scratchRoot, 'harvest-base-'));
+    const importDir = path.relative(scratch, path.join(process.cwd(), 'src')).replace(/\\/g, '/');
+
+    try {
+      fs.writeFileSync(
+        path.join(scratch, 'BaseSeedMigration.ts'),
+        [`import { OrmDriver } from '${importDir}/driver.js';`, `import { OrmMigration } from '${importDir}/interfaces.js';`, '', 'export abstract class BaseSeedMigration extends OrmMigration {', '  public async up(_connection: OrmDriver): Promise<void> {}', '  public async down(_connection: OrmDriver): Promise<void> {}', '}', ''].join('\n'),
+      );
+
+      MigrationSourcesConf.Dirs = [scratch];
+      const found = await discover();
+
+      expect(found.map((f) => f.name), 'a class carrying no timestamp must never be reported as a migration').to.not.include('BaseSeedMigration');
+    } finally {
+      MigrationSourcesConf.Dirs = [FIXTURES];
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a migration base class re-exported from a barrel file outside the scanned directory', async () => {
+    const root = fs.mkdtempSync(path.join(scratchRoot, 'harvest-barrel-'));
+    const scanned = path.join(root, 'migrations');
+    const shared = path.join(root, 'shared');
+
+    fs.mkdirSync(scanned, { recursive: true });
+    fs.mkdirSync(shared, { recursive: true });
+
+    const importDir = path.relative(shared, path.join(process.cwd(), 'src')).replace(/\\/g, '/');
+
+    try {
+      // lives OUTSIDE the scanned directory - the scan never reaches it directly, only through
+      // the barrel's re-export below, exactly the shape a package's shared base class takes
+      fs.writeFileSync(
+        path.join(shared, 'BaseSeedMigration.ts'),
+        [`import { OrmDriver } from '${importDir}/driver.js';`, `import { OrmMigration } from '${importDir}/interfaces.js';`, '', 'export class BaseSeedMigration extends OrmMigration {', '  public async up(_connection: OrmDriver): Promise<void> {}', '  public async down(_connection: OrmDriver): Promise<void> {}', '}', ''].join('\n'),
+      );
+
+      // dotless, so it matches the unsuffixed glob just like any other migration file would
+      fs.writeFileSync(path.join(scanned, 'index.ts'), "export * from '../shared/BaseSeedMigration.js';\n");
+
+      MigrationSourcesConf.Dirs = [scanned];
+      const found = await discover();
+
+      expect(found.map((f) => f.name), 'a barrel re-exporting a non-migration base class must not report it - under the barrel file or otherwise').to.not.include('BaseSeedMigration');
+    } finally {
+      MigrationSourcesConf.Dirs = [FIXTURES];
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('DiRegistryMigrationSource', () => {
   after(() => {
     DI.unregister(MigrationSourcesTest_Registered_2026_07_29_10_00_00);
+
+    // `MigrationSourcesConf` was registered as `Configuration` in the very first `before()` in
+    // this file and never unregistered - this is the LAST describe this file defines, so this is
+    // where that registration stops leaking `system.dirs.migrations` and `process.env.APP_ENV`
+    // into whatever test file a full-glob mocha run moves on to next. `migration-env.test.ts`
+    // does this cleanup properly; this matches it.
+    DI.unregister(MigrationSourcesConf);
   });
 
   it('yields DI-registered migrations with the file the decorator captured', async () => {
