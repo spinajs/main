@@ -29,8 +29,15 @@ src/migrations/
 ```
 
 The tag is matched after the same normalization config files get: `development` and `dev` are one
-environment, `production` and `prod` are another, anything else is taken verbatim, and an unset
-`APP_ENV` means `prod`. Case is not folded — `Local` and `local` are different.
+environment, `production` and `prod` are another, anything else is taken verbatim. Case is not
+folded — `Local` and `local` are different.
+
+An explicitly empty `APP_ENV`, or `process.env.APP_ENV` read with nothing set at all, normalizes to
+`prod` — but a real boot never reaches that fallback. `Configuration` sets `process.env.APP_ENV`
+itself, before the ORM ever reads it, to `this.Env ?? env?.APP_ENV ?? process.env.NODE_ENV ??
+'development'` (`packages/configuration/src/configuration.ts`). So a process started with neither
+`--env` / `APP_ENV` nor `NODE_ENV` set runs as `development`, normalized to `dev` — **not** `prod`.
+The `.dev.ts` example above is exactly what such a box runs.
 
 A migration belonging to another environment is **entirely invisible**: it is never imported, never
 registered, and absent from `migrate-up`, `migrate-down` and `migrate-status` alike. One
@@ -73,9 +80,11 @@ edge case worth knowing rather than relying on.
 ships as an **empty array** — package configs merge into the app's config by array concat, so
 anything shipped non-empty here would sit in every app's scan set forever with no way to switch it
 off. When the configured value is absent or empty, the source falls back to `src/migrations`,
-`lib/migrations` and `dist/migrations`, resolved against the process's current working directory —
-one entry per build layout a project might have been compiled to. Configuring a value **replaces**
-this fallback rather than adding to it:
+`lib/migrations`, `dist/migrations`, `lib/cjs/migrations`, `lib/mjs/migrations`, `build/migrations`
+and bare `migrations`, resolved against the process's current working directory — one entry per
+build layout a project in this ecosystem might have been compiled to, `lib/cjs` and `lib/mjs`
+included since that is what `npm run compile` / `compile:cjs` actually produce. Configuring a value
+**replaces** this fallback rather than adding to it:
 
 ```js
 // config file
@@ -89,16 +98,27 @@ export default {
 ```
 
 Within each configured directory, two globs run: unsuffixed files (every environment) and files
-tagged for the current one. A file belonging to another environment is never matched by either
-glob, so it is never imported — importing it would fire its `@Migration` decorator and register it
-regardless of what filter ran afterwards.
+tagged for the current one, over `.ts`, `.js`, `.cjs` and `.mjs` alike — the same extension set
+`@spinajs/configuration`'s own config-file loader recognizes. A file belonging to another
+environment is never matched by either glob, so it is never imported — importing it would fire its
+`@Migration` decorator and register it regardless of what filter ran afterwards.
+
+`APP_ENV` is interpolated straight into that glob, so it is required to be a plain identifier
+(letters, digits, `_` or `-`); anything else — a stray `{`, `[`, `!` or `*` — throws rather than
+silently scanning nothing or the wrong files.
+
+A class living in a scanned directory is only ever treated as a migration when its own name carries
+the same `_yyyy_MM_dd_HH_mm_ss` stamp every migration is stamped with — the same anchor
+`parseMigrationFileEnv` reads a file's tag through. A shared abstract base class, or a barrel
+re-exporting one, is skipped rather than reported: registering it would surface later as a boot
+failure naming a file nobody meant to write as a migration.
 
 A `.ts` file that fails to import is tolerated silently (logged at trace level): the default search
 includes `src/migrations`, so a compiled deployment routinely fails to import the `.ts` copy of
-every migration under a plain JS runtime while its compiled `.js` copy is found by the same scan.
-A `.js` file that fails to import is not given the same pass — a `.js` file is never a source
-artifact tried on spec, so a broken one means a real syntax error or a throwing module body, and
-the boot fails with the original error rather than silently reporting "nothing pending".
+every migration under a plain JS runtime while its compiled `.js`/`.cjs`/`.mjs` copy is found by
+the same scan. A compiled file that fails to import is not given the same pass — it is never a
+source artifact tried on spec, so a broken one means a real syntax error or a throwing module body,
+and the boot fails with the original error rather than silently reporting "nothing pending".
 
 A migration reached by `import` rather than by discovery — a package re-exporting its migrations
 from `index.ts` — declares its environment on the decorator instead:
@@ -111,9 +131,13 @@ export class SeedTestData_2026_07_29_10_05_00 extends OrmMigration {}
 Both may be present, and `migrate-create --env` writes both. They must agree: a file suffixed
 `.local` whose decorator says `dev` fails the boot rather than picking a winner.
 
-A migration file living under a scanned directory needs no re-export — the filesystem source finds
-it directly. Re-export it from an `index.ts` only when it does **not** live under a scanned
-directory; that import is what makes its `@Migration` decorator run and register it.
+A migration file living under one of the **application's own** scanned directories needs no
+re-export — the filesystem source finds it directly, because `system.dirs.migrations` resolves
+against the running process's cwd, which is the application. A migration scaffolded **inside a
+package** sits under that package's own `src/migrations` — a directory this same fallback list
+would scan too, but only for a process whose cwd is the package itself, which a consumer never is.
+So a package must always re-export its migrations from its own `index.ts`; that import is what
+makes the `@Migration` decorator run and register them at the consumer's runtime.
 
 #### Plugging in your own discovery
 
