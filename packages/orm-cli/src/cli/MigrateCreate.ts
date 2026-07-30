@@ -33,6 +33,43 @@ export const CONNECTION_NAME_REGEXP = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
  */
 export const ENV_NAME_REGEXP = /^[A-Za-z][A-Za-z0-9-]*$/;
 
+/**
+ * The three middle segments `parseMigrationFileEnv` provably cannot read back as an environment
+ * tag - they are carved out by name there ( a test suite named after its migration, a TypeScript
+ * declaration file ), not because they collide with a real tag but because a `<Name>.<tag>.ts` file
+ * whose tag is one of these is never read as tagged at all. `--env test` would therefore write a
+ * file whose suffix channel is silently dead - and one many projects' `**\/*.test.ts` globs would
+ * try to execute as a test suite besides. Refused here rather than left to surprise someone later.
+ */
+const RESERVED_ENV_NAMES = ['test', 'spec', 'd'];
+
+/**
+ * Reads `--env` directly off `process.argv`, in the same shape `Configuration` reads its own
+ * `--env` ( `packages/configuration/src/util.ts`'s `parseArgv` - not exported from that package's
+ * public surface, so duplicated here rather than imported ).
+ *
+ * This is not decoration: `packages/cli/src/args.ts` strips `--env <value>` ( and `--env=value` )
+ * out of the argv commander itself receives, because `Configuration` consumes the framework-level
+ * `--env` directly - so commander's own `-e, --env` option NEVER receives a value for the long
+ * form, and `options.env` is silently `undefined` no matter what was typed. `-e` is untouched by
+ * that strip and reaches commander normally, so it needs no duplicate handling here.
+ */
+export function parseEnvArgv(argv: string[] = process.argv): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (arg === '--env') {
+      return argv[i + 1];
+    }
+
+    if (arg.startsWith('--env=')) {
+      return arg.slice('--env='.length);
+    }
+  }
+
+  return undefined;
+}
+
 export const DEFAULT_MIGRATION_DIR = './src/migrations';
 
 export const DEFAULT_MIGRATION_CONNECTION = 'default';
@@ -88,6 +125,12 @@ export class MigrateCreateCommand extends CliCommand {
     const name = options.name ?? '';
     const connection = options.connection ?? DEFAULT_MIGRATION_CONNECTION;
 
+    // An explicit `options.env` wins - that is how the tests in this suite call `execute()`
+    // directly - and falls back to a direct argv read for the real CLI path, where
+    // `packages/cli/src/args.ts` has already stripped `--env <value>` out of what commander sees.
+    // See `parseEnvArgv()`.
+    const env = options.env ?? parseEnvArgv();
+
     if (!MIGRATION_NAME_REGEXP.test(name)) {
       throw new InvalidArgument(`Invalid migration name "${name}" - it must be a plain class-name prefix: a letter followed by letters or digits, no spaces, dashes or underscores. The _yyyy_MM_dd_HH_mm_ss suffix is appended here.`);
     }
@@ -96,22 +139,28 @@ export class MigrateCreateCommand extends CliCommand {
       throw new InvalidArgument(`Invalid connection name "${connection}" - expected the name of a connection from db.Connections, eg. "default"`);
     }
 
-    if (options.env !== undefined && !ENV_NAME_REGEXP.test(options.env)) {
-      throw new InvalidArgument(`Invalid environment name "${options.env}" - a letter followed by letters, digits or dashes. It becomes both a file suffix and a string inside @Migration().`);
+    if (env !== undefined) {
+      if (!ENV_NAME_REGEXP.test(env)) {
+        throw new InvalidArgument(`Invalid environment name "${env}" - a letter followed by letters, digits or dashes. It becomes both a file suffix and a string inside @Migration().`);
+      }
+
+      if (RESERVED_ENV_NAMES.includes(env)) {
+        throw new InvalidArgument(`Invalid environment name "${env}" - "test", "spec" and "d" are carved out by the migration file parser as file-kind markers (a test suite, a TypeScript declaration file), never read back as an environment tag. Choose a different name.`);
+      }
     }
 
     // The timestamp is not decoration: it is the ONLY ordering the migration runner has, and it is
     // read back out of the class name rather than out of the file's mtime or its position on disk.
     const cls = `${name}_${DateTime.now().toFormat('yyyy_MM_dd_HH_mm_ss')}`;
     const dir = options.dir ?? DEFAULT_MIGRATION_DIR;
-    const file = path.join(dir, `${cls}${options.env ? `.${options.env}` : ''}.ts`);
+    const file = path.join(dir, `${cls}${env ? `.${env}` : ''}.ts`);
 
     fs.mkdirSync(dir, { recursive: true });
 
     try {
       // 'wx' - never clobber. Two `migrate-create` runs inside the same second produce the same
       // class name, and silently overwriting the first one would delete work that was just written.
-      fs.writeFileSync(file, migrationTemplate(cls, connection, options.env), { flag: 'wx', encoding: 'utf-8' });
+      fs.writeFileSync(file, migrationTemplate(cls, connection, env), { flag: 'wx', encoding: 'utf-8' });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
         throw new IOFail(`Migration file ${file} already exists - a migration with this name was created in the same second. Wait a second and run it again, or pass a different --name.`, err as Error);
@@ -125,6 +174,12 @@ export class MigrateCreateCommand extends CliCommand {
     // eslint-disable-next-line no-console
     console.log(file);
 
-    this.Log.info(`Created migration ${cls} for connection "${connection}"${options.env ? ` in environment "${options.env}"` : ''}. A file under system.dirs.migrations is discovered automatically. Re-export it from your package or application index only when it does not live in a scanned directory, so the @Migration decorator runs and registers it.`);
+    // The scan is about the APPLICATION's own directories ( `system.dirs.migrations`, resolved
+    // against ITS cwd at runtime ) - not about where this file happened to be scaffolded. Scaffold
+    // it inside a package under `<pkg>/src/migrations` and it sits in a directory this same list
+    // would scan too, but only when the consumer boots FROM that package's own cwd, which almost
+    // never happens: the running process's cwd is the application, not any of its dependencies. A
+    // package's migrations must always be re-exported from its own index, or they never run.
+    this.Log.info(`Created migration ${cls} for connection "${connection}"${env ? ` in environment "${env}"` : ''}. A file under the application's own system.dirs.migrations is discovered automatically. Inside a package, always re-export it from the package's index - a package's own directories are never scanned at a consumer's runtime - so the @Migration decorator runs and registers it.`);
   }
 }

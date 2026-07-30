@@ -1150,4 +1150,87 @@ describe('migrate-create', () => {
 
     expect(fs.existsSync(dir), 'a refused env still created its target directory').to.equal(false);
   });
+
+  it('refuses "test", "spec" and "d" - tags parseMigrationFileEnv provably cannot read back', async () => {
+    const dir = path.join(scratch, 'reserved-env');
+    const cmd = await DI.resolve(MigrateCreateCommand);
+
+    for (const env of ['test', 'spec', 'd']) {
+      const err = await thrownBy(() => cmd.execute({ name: 'Fine', dir, env }));
+      expect(err, `"${env}" was accepted despite being unreadable as a file suffix`).to.be.instanceOf(InvalidArgument);
+    }
+
+    expect(fs.existsSync(dir), 'a refused env still created its target directory').to.equal(false);
+  });
+
+  /**
+   * The bug this whole finding is about: `packages/cli/src/args.ts` strips `--env <value>` (and
+   * `--env=value`) out of the argv commander itself receives, because `Configuration` consumes the
+   * framework-level `--env` directly. So `options.env` is silently `undefined` for the exact
+   * command these docs ship as an example - `spinajs migrate-create --name Seed --env local` -
+   * and an UNTAGGED migration is written that runs in every environment, prod included.
+   *
+   * Calling `cmd.execute({ env: 'local' })` directly - what the suite above does everywhere else -
+   * never exercises this: it hands `env` straight to the command, bypassing the argv strip
+   * entirely. These go through `process.argv`, the one thing the real bug depends on.
+   */
+  describe('--env read from process.argv (the args.ts strip)', () => {
+    const originalArgv = process.argv;
+
+    afterEach(() => {
+      process.argv = originalArgv;
+    });
+
+    it('reads --env <value> off process.argv when options.env never arrived', async () => {
+      const dir = path.join(scratch, 'argv-env-space');
+      const cmd = await DI.resolve(MigrateCreateCommand);
+
+      // exactly what commander would call execute() with after args.ts's strip: no `env` key at
+      // all, because the option carried no value on commander's side
+      process.argv = ['node', 'spinajs', 'migrate-create', '--name', 'Seed', '--env', 'local'];
+
+      await captureStdout(() => cmd.execute({ name: 'Seed', dir, connection: 'default' }));
+
+      const file = fs.readdirSync(dir)[0];
+      expect(file, 'the argv --env value never reached the written file').to.match(/^Seed_\d{4}(_\d{2}){5}\.local\.ts$/);
+      expect(fs.readFileSync(path.join(dir, file), 'utf-8')).to.contain(`@Migration('default', { Env: 'local' })`);
+    });
+
+    it('reads --env=value off process.argv too', async () => {
+      const dir = path.join(scratch, 'argv-env-equals');
+      const cmd = await DI.resolve(MigrateCreateCommand);
+
+      process.argv = ['node', 'spinajs', 'migrate-create', '--name', 'Seed', '--env=local'];
+
+      await captureStdout(() => cmd.execute({ name: 'Seed', dir, connection: 'default' }));
+
+      const file = fs.readdirSync(dir)[0];
+      expect(file).to.match(/^Seed_\d{4}(_\d{2}){5}\.local\.ts$/);
+    });
+
+    it('an explicit options.env wins over argv', async () => {
+      const dir = path.join(scratch, 'argv-env-precedence');
+      const cmd = await DI.resolve(MigrateCreateCommand);
+
+      // argv says 'dev'; the explicit option says 'local' and must win
+      process.argv = ['node', 'spinajs', 'migrate-create', '--name', 'Seed', '--env', 'dev'];
+
+      await captureStdout(() => cmd.execute({ name: 'Seed', dir, connection: 'default', env: 'local' }));
+
+      const file = fs.readdirSync(dir)[0];
+      expect(file, 'argv overrode an explicitly passed options.env').to.match(/^Seed_\d{4}(_\d{2}){5}\.local\.ts$/);
+    });
+
+    it('the charset guard still runs on an argv-sourced env, before any file is created', async () => {
+      const dir = path.join(scratch, 'argv-env-invalid');
+      const cmd = await DI.resolve(MigrateCreateCommand);
+
+      process.argv = ['node', 'spinajs', 'migrate-create', '--name', 'Seed', '--env', "quote')"];
+
+      const err = await thrownBy(() => cmd.execute({ name: 'Seed', dir, connection: 'default' }));
+
+      expect(err, 'an unsafe argv-sourced env was accepted').to.be.instanceOf(InvalidArgument);
+      expect(fs.existsSync(dir), 'a refused argv env still created its target directory').to.equal(false);
+    });
+  });
 });
