@@ -3,17 +3,16 @@ import { Configuration, normalizeEnvironment } from '@spinajs/configuration-comm
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
-import { IDriverOptions, IMigrationDescriptor, OrmMigration } from './interfaces.js';
+import { IDriverOptions, OrmMigration } from './interfaces.js';
 import { ModelBase, MODEL_STATIC_MIXINS, updateModelDescriptor } from './model.js';
 import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
-import { extractModelDescriptor } from './descriptor.js';
+import { extractModelDescriptor, extractOwnMigrationDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
 import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
-import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
 import { MigrationSource } from './migration-sources.js';
 
@@ -352,7 +351,10 @@ export class Orm extends AsyncService {
 
     for (const source of sources) {
       for (const found of await source.getMigrations()) {
-        const descriptor = (found.type as unknown as Record<symbol, IMigrationDescriptor | undefined>)[MIGRATION_DESCRIPTION_SYMBOL];
+        // OWN only - see the note on `extractOwnMigrationDescriptor`. A subclass that carries no
+        // `@Migration()` of its own must be read as "no Env declared", not as whatever its nearest
+        // decorated ancestor declared: a subclass does not inherit WHERE its parent runs.
+        const descriptor = extractOwnMigrationDescriptor(found.type);
         const env = resolveMigrationEnv(found.name, found.file, descriptor?.Env);
         const previous = merged.get(found.name);
 

@@ -5,18 +5,35 @@ import glob from 'glob';
 import _ from 'lodash';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { extractMigrationDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
-import { IMigrationDescriptor, OrmMigration } from './interfaces.js';
+import { OrmMigration } from './interfaces.js';
 import { MIGRATION_DI_SOURCE } from './migration-environment.js';
-import { MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
+import { MIGRATION_FILE_REGEXP } from './symbols.js';
 
 /**
  * Fallback for `system.dirs.migrations` when that key is absent or empty - see the comment on it
  * in `config/orm.ts` for why the defaults live here rather than shipping in the config value
  * itself. One entry per build layout a project might have been compiled to; a migration reachable
  * through more than one resolves to the same class name twice and is deduped by `Orm`.
+ *
+ * `lib/migrations` alone used to stand in for "the compiled layout", but every package in this
+ * repo compiles to `lib/cjs` and `lib/mjs` - there is no bare `lib/migrations` anywhere spinajs
+ * itself produces, which made the filesystem source a silent no-op for a deployment built the
+ * spinajs way. `lib/cjs/migrations`, `lib/mjs/migrations`, `build/migrations` and bare
+ * `migrations` are added alongside the original three rather than replacing them, so an existing
+ * `src/lib/dist` layout keeps working unchanged.
  */
-export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist'].map((d) => path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))));
+export const DEFAULT_MIGRATION_DIRS: string[] = ['src', 'lib', 'dist', path.join('lib', 'cjs'), path.join('lib', 'mjs'), 'build', '.'].map((d) =>
+  path.resolve(path.normalize(path.join(process.cwd(), d, 'migrations'))),
+);
+
+/**
+ * `env` ( normalized `process.env.APP_ENV` ) is interpolated straight into a glob pattern in
+ * `FilesystemMigrationSource.getMigrations()` - a plain identifier-ish token only, so it cannot
+ * carry glob metacharacters (`{`, `[`, `!`, `*`, a path separator, ...) into a pattern nobody wrote.
+ */
+export const SAFE_ENV_NAME_REGEXP = /^[A-Za-z0-9_-]+$/;
 
 /**
  * Supplies migration types to `Orm`.
@@ -62,8 +79,20 @@ export class FilesystemMigrationSource extends MigrationSource {
 
     const env = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
 
-    // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free
-    const patterns = ['/**/!(*.*).{ts,js}', `/**/*.${env}.{ts,js}`];
+    // `env` is interpolated straight into the glob below - an APP_ENV containing `{`, `[`, `!`,
+    // `*` or a path separator would stop being a literal tag and become pattern syntax, silently
+    // matching zero files (or the wrong ones) instead of the ones this environment owns. Refused
+    // rather than escaped: a deployment whose APP_ENV cannot be a plain identifier has a bigger
+    // problem than this scan, and failing loudly here is what surfaces it.
+    if (!SAFE_ENV_NAME_REGEXP.test(env)) {
+      throw new OrmException(`APP_ENV '${env}' is not a plain identifier ( letters, digits, '_' or '-' only ) and cannot be used to build the migration discovery glob safely - refusing to scan rather than silently matching the wrong files.`);
+    }
+
+    // `!(*.*)` - a basename with no dot at all, so it also excludes `*.d.ts` for free. `cjs` and
+    // `mjs` join `ts`/`js` because that is what this source's own default directories
+    // ( `lib/cjs/migrations`, `lib/mjs/migrations` ) actually contain - the same extension set
+    // `@spinajs/configuration`'s own config-file loader recognizes.
+    const patterns = ['/**/!(*.*).{ts,js,cjs,mjs}', `/**/*.${env}.{ts,js,cjs,mjs}`];
 
     const files = _.uniq(dirs)
       .filter((d) => {
@@ -112,7 +141,21 @@ export class FilesystemMigrationSource extends MigrationSource {
           continue;
         }
 
-        result.push({ file, name: (exported as Class<OrmMigration>).name || name, type: exported as Class<OrmMigration> });
+        const className = (exported as Class<OrmMigration>).name || name;
+
+        // The same anchor `parseMigrationFileEnv` reads a file's own tag through: a class whose
+        // name carries no `_yyyy_MM_dd_HH_mm_ss` timestamp is not a migration, however it got
+        // harvested - a shared abstract base class living directly in a scanned directory
+        // (`BaseSeedMigration.ts`), or a barrel (`index.ts`) that re-exports one from elsewhere.
+        // Without this gate, `Orm.registerMigration` throws on it later, naming this FILE - the
+        // barrel or the base class's own file, never a migration anyone meant to register - and
+        // takes the whole boot down. Skipped here instead, at trace.
+        if (!MIGRATION_FILE_REGEXP.test(className)) {
+          this.Log.trace(`${file} exports ${className}, which extends OrmMigration but carries no _yyyy_MM_dd_HH_mm_ss timestamp - not a migration, skipped`);
+          continue;
+        }
+
+        result.push({ file, name: className, type: exported as Class<OrmMigration> });
       }
     }
 
@@ -135,7 +178,10 @@ export class DiRegistryMigrationSource extends MigrationSource {
     const types = (DI.getRegisteredTypes<OrmMigration>('__migrations__') ?? []) as Array<Class<OrmMigration>>;
 
     return types.map((type) => {
-      const descriptor = (type as unknown as Record<symbol, IMigrationDescriptor | undefined>)[MIGRATION_DESCRIPTION_SYMBOL];
+      // chain-walking is fine here without being load-bearing: every entry in `__migrations__` is
+      // a class `@Migration()` was applied to directly, so "chain" and "own" always agree - see
+      // the note on `extractMigrationDescriptor`.
+      const descriptor = extractMigrationDescriptor(type);
 
       return { file: descriptor?.SourceFile ?? MIGRATION_DI_SOURCE, name: type.name, type };
     });

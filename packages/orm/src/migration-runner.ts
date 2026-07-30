@@ -2,8 +2,9 @@ import { Class, ClassInfo } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import { DateTime } from 'luxon';
 import { OrmDriver } from './driver.js';
-import { IMigrationDescriptor, OrmMigration } from './interfaces.js';
-import { MIGRATION_DESCRIPTION_SYMBOL, MIGRATION_FILE_REGEXP } from './symbols.js';
+import { OrmMigration } from './interfaces.js';
+import { MIGRATION_FILE_REGEXP } from './symbols.js';
+import { extractMigrationDescriptor } from './descriptor.js';
 import { OrmException } from './exceptions.js';
 import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, MigrationResolveAction, OrmMigrationService } from './migration-service.js';
 
@@ -224,7 +225,10 @@ export class MigrationRunner {
     const gated = new Set<OrmDriver>();
 
     for (const u of units) {
-      const md = (u.type as unknown as Record<symbol, IMigrationDescriptor | undefined>)[MIGRATION_DESCRIPTION_SYMBOL];
+      // chain-walking, deliberately: a subclass is still the same migration on the same
+      // connection whether or not it re-declares @Migration() - unlike Env ( own-only, see
+      // Orm.discoverMigrations() ), Connection is meant to be inherited.
+      const md = extractMigrationDescriptor(u.type);
 
       // none of the three skips below throws: a connection missing from this deployment's
       // configuration, or switched off for startup, is a normal state - taking the whole boot

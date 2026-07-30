@@ -1,6 +1,6 @@
 import { isConstructor, collapseInheritedDescriptor } from '@spinajs/di';
-import { IModelDescriptor } from "./interfaces.js";
-import { MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
+import { IMigrationDescriptor, IModelDescriptor } from "./interfaces.js";
+import { MIGRATION_DESCRIPTION_SYMBOL, MODEL_DESCTRIPTION_SYMBOL } from "./symbols.js";
 
 export function createDefaultModelDescriptor(): IModelDescriptor {
   return {
@@ -63,4 +63,42 @@ export function extractModelDescriptor(targetOrForward: any): IModelDescriptor |
   // ORM analysis). Reading name-keyed here against an own-metadata write returns null
   // for every model.
   return (Reflect.getOwnMetadata(MODEL_DESCTRIPTION_SYMBOL, target) as IModelDescriptor) ?? null;
+}
+
+/**
+ * The one `MIGRATION_DESCRIPTION_SYMBOL` cast, shared by every reader instead of repeated at each
+ * call site (`orm.ts`, `migration-sources.ts`, `migration-runner.ts` each used to carry their own
+ * copy). Unlike a model's descriptor - written with `Reflect.getOwnMetadata`, own-per-class by
+ * construction - `@Migration()` writes this one as a plain property, which the prototype chain
+ * resolves through automatically: reading it off a subclass that carries no `@Migration()` of its
+ * own returns its nearest decorated ANCESTOR's descriptor.
+ *
+ * That is exactly what `MigrationRunner.plan()` wants for `Connection` - a subclass is still the
+ * same migration on the same connection whether or not it re-declares `@Migration()` - so this
+ * chain-walking read is the correct one there, and for `DiRegistryMigrationSource` ( whose entries
+ * are, by construction, only ever classes `@Migration()` was applied to directly, so "chain" and
+ * "own" agree ).
+ */
+export function extractMigrationDescriptor(target: unknown): IMigrationDescriptor | undefined {
+  return (target as Record<symbol, IMigrationDescriptor | undefined> | null | undefined)?.[MIGRATION_DESCRIPTION_SYMBOL];
+}
+
+/**
+ * The same descriptor, but OWN ONLY - `undefined` for a subclass that carries no `@Migration()` of
+ * its own, even though `extractMigrationDescriptor` above would resolve one through the prototype
+ * chain from its nearest decorated ancestor.
+ *
+ * `Orm.discoverMigrations()` needs exactly this for `Env`: a subclass does not inherit WHERE its
+ * parent runs, only what it does. Reading through the chain here would make an undecorated
+ * subclass of an `{ Env: 'local' }` migration silently inherit 'local' and vanish under every other
+ * environment - and, the other direction, throw a spurious "declares environment X via @Migration"
+ * for a subclass whose file suffix merely disagrees with an ancestor's declaration it never made
+ * itself.
+ */
+export function extractOwnMigrationDescriptor(target: unknown): IMigrationDescriptor | undefined {
+  if (!target || !Object.prototype.hasOwnProperty.call(target, MIGRATION_DESCRIPTION_SYMBOL)) {
+    return undefined;
+  }
+
+  return (target as Record<symbol, IMigrationDescriptor | undefined>)[MIGRATION_DESCRIPTION_SYMBOL];
 }

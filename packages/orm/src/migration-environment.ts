@@ -33,6 +33,8 @@ export const MIGRATION_DI_SOURCE = '<di>';
  *   Foo_2026_07_29_10_00_00.test.js   -> undefined  ( same, .js compiled artifact of test suite )
  *   Foo_2026_07_29_10_00_00.spec.ts   -> undefined  ( same, .spec naming convention )
  *   Foo_2026_07_29_10_00_00.spec.js   -> undefined  ( same, .js compiled artifact of spec suite )
+ *   Foo_2026_07_29_10_00_00.test.cjs  -> undefined  ( same carve-out, cjs/mjs compiled artifacts )
+ *   Foo_2026_07_29_10_00_00.spec.mjs  -> undefined  ( same )
  *   Foo_2026_07_29_10_00_00.d.ts      -> undefined  ( TypeScript declaration file )
  *   Foo_2026_07_29_10_00_00.d.js      -> 'd'        ( .d.js is not a declaration convention,
  *                                                      so 'd' is a legitimate environment name )
@@ -78,8 +80,9 @@ export function parseMigrationFileEnv(file: string): string | undefined {
     if (segments[1] === 'd' && segments[2] === 'ts') {
       return undefined;
     }
-    // `.test` and `.spec` are carve-outs for both `.ts` and `.js` (compiled test artifacts)
-    if (['test', 'spec'].includes(segments[1]) && (segments[2] === 'ts' || segments[2] === 'js')) {
+    // `.test` and `.spec` are carve-outs for `.ts`, `.js`, `.cjs` and `.mjs` (compiled test
+    // artifacts) - kept in step with the extensions `FilesystemMigrationSource` admits
+    if (['test', 'spec'].includes(segments[1]) && ['ts', 'js', 'cjs', 'mjs'].includes(segments[2])) {
       return undefined;
     }
   }
