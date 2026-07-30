@@ -1,5 +1,5 @@
 import { BooleanValueConverter, DatetimeValueConverter, IValueConverter, TimeValueConverter } from './interfaces.js';
-import { Configuration } from '@spinajs/configuration-common';
+import { Configuration, normalizeEnvironment } from '@spinajs/configuration-common';
 import { AsyncService, ClassInfo, Autoinject, Container, Class, DI, IContainer } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
 import _ from 'lodash';
@@ -9,10 +9,12 @@ import { OrmDriver } from './driver.js';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { OrmException } from './exceptions.js';
 import { DateTime } from 'luxon';
-import { extractModelDescriptor } from './descriptor.js';
+import { extractModelDescriptor, extractOwnMigrationDescriptor } from './descriptor.js';
 import { buildModelJsonSchema } from './schema.js';
 import { TimeSpan } from '@spinajs/util';
 import { MIGRATION_FILE_REGEXP, MigrationRunner } from './migration-runner.js';
+import { MIGRATION_DI_SOURCE, mergeMigrationEnv, resolveMigrationEnv } from './migration-environment.js';
+import { MigrationSource } from './migration-sources.js';
 
 /**
  * Used to exclude sensitive data to others. eg. removed password field from cfg
@@ -169,12 +171,11 @@ export class Orm extends AsyncService {
 
     await this.createConnections();
 
-    // add all registered migrations via DI
-    const migrations = DI.getRegisteredTypes<OrmMigration>('__migrations__');
-    if (migrations) {
-      migrations.forEach((m) => {
-        this.registerMigration(m);
-      });
+    // Every registered MigrationSource, merged, env-filtered and deduped. Deliberately BEFORE the
+    // model registration below: a discovered file may declare models as well, and importing it
+    // has to happen before `__models__` is read.
+    for (const m of await this.discoverMigrations()) {
+      this.registerMigration(m.type, m.file);
     }
 
     const models = DI.getRegisteredTypes<ModelBase>('__models__');
@@ -331,6 +332,74 @@ export class Orm extends AsyncService {
   }
 
   /**
+   * Everything every `MigrationSource` found, reduced to the migrations this environment runs.
+   *
+   * Three passes, in this order and for a reason each:
+   *
+   * - env resolution happens per ENTRY, before anything is merged, because it is the entry's FILE
+   *   that carries the suffix;
+   * - dedupe merges entries sharing a class name - the normal case, since a file discovered on
+   *   disk is also registered through DI by the import that discovered it, and `src` and `lib`
+   *   hold the same class twice;
+   * - filtering happens here rather than in `MigrationRunner.plan()` so a migration belonging to
+   *   another environment never enters `Orm.Migrations` at all, and is therefore absent from
+   *   `up`, `down` AND `status` alike.
+   */
+  protected async discoverMigrations(): Promise<Array<{ type: Class<OrmMigration>; file: string }>> {
+    const sources = await this.Container.resolve(Array.ofType(MigrationSource));
+    const merged = new Map<string, { type: Class<OrmMigration>; file: string; env?: string }>();
+
+    for (const source of sources) {
+      for (const found of await source.getMigrations()) {
+        // OWN only - see the note on `extractOwnMigrationDescriptor`. A subclass that carries no
+        // `@Migration()` of its own must be read as "no Env declared", not as whatever its nearest
+        // decorated ancestor declared: a subclass does not inherit WHERE its parent runs.
+        const descriptor = extractOwnMigrationDescriptor(found.type);
+        const env = resolveMigrationEnv(found.name, found.file, descriptor?.Env);
+        const previous = merged.get(found.name);
+
+        if (!previous) {
+          merged.set(found.name, { type: found.type, file: found.file, env });
+          continue;
+        }
+
+        if (previous.type !== found.type) {
+          // two DIFFERENT classes under one name - the runner records migrations by name, so only
+          // one of them can ever be tracked. Nothing here can tell which is meant. The env merge
+          // below is skipped on purpose: merging environments across two unrelated classes would
+          // surface as "the same migration cannot belong to two environments", contradicting the
+          // warning just logged - so the first entry is kept untouched instead.
+          this.Log.warn(`Two different migration classes are both named ${found.name} ( ${previous.file} and ${found.file} ) - keeping the first. Rename one of them.`);
+          continue;
+        }
+
+        // Prefer a real path over the '<di>' sentinel: each ClassInfo.file is meant to carry the
+        // migration's actual origin, and a DI registration that resolved before the file-scan
+        // source ran must not make the survivor forget the real path the same class was also
+        // discovered at.
+        const file = previous.file === MIGRATION_DI_SOURCE && found.file !== MIGRATION_DI_SOURCE ? found.file : previous.file;
+
+        merged.set(found.name, {
+          type: previous.type,
+          file,
+          env: mergeMigrationEnv(found.name, { env: previous.env, file: previous.file }, { env, file: found.file }),
+        });
+      }
+    }
+
+    const environment = normalizeEnvironment(this.Configuration.get<string>('process.env.APP_ENV', undefined));
+
+    return [...merged.values()].filter((m) => {
+      if (m.env === undefined || m.env === environment) {
+        return true;
+      }
+
+      this.Log.trace(`Migration ${m.type.name} belongs to environment '${m.env}' and this process runs as '${environment}' - it is not registered`);
+      return false;
+    });
+  }
+
+  /**
    *
    * Register migration to ORM programatically so ORM can see it and use it. Sometimes dynamical migration discovery is not possible eg.
    * in webpack evnironment. In such case we must tell ORM manually what to load.
@@ -339,7 +408,7 @@ export class Orm extends AsyncService {
    *
    * @param model - model to register
    */
-  protected registerMigration<T extends OrmMigration>(migration: Class<T>) {
+  protected registerMigration<T extends OrmMigration>(migration: Class<T>, file?: string) {
     // validated here as well as in the runner, and deliberately: this is the earliest point the
     // class is seen, so a migration nobody can order is refused before the Orm reports itself
     // resolved rather than at the first migration run, possibly in another process
@@ -351,7 +420,7 @@ export class Orm extends AsyncService {
     }
 
     this.Migrations.push({
-      file: `${migration.name}.registered`,
+      file: file ?? `${migration.name}.registered`,
       name: `${migration.name}`,
       type: migration,
     });

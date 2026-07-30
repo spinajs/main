@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -9,6 +9,7 @@ import { ManyQueryRelationList, Relation } from './relation-objects.js';
 import { Orm } from './orm.js';
 import { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
+import { captureSourceFile } from './source-file.js';
 
 export { MODEL_DESCTRIPTION_SYMBOL, MIGRATION_DESCRIPTION_SYMBOL } from './symbols.js';
 
@@ -121,15 +122,31 @@ export function extractDecoratorDescriptor(callback: (model: IModelDescriptor, t
 }
 
 /**
+ * The frames that sit between `@Migration()` and the migration's own file: this module, and the
+ * transpiler / metadata helpers that call into it.
+ */
+const MIGRATION_SOURCE_SKIP_MARKERS = ['decorators.ts', 'decorators.js', 'source-file.ts', 'source-file.js', 'tslib', 'reflect-metadata', '__decorate', '__esDecorate', 'node:internal'];
+
+/**
  * Sets migration option
  *
  * @param connection - connection name, must exists in configuration file
+ * @param options - optional migration options, eg. the environment it belongs to
  */
-export function Migration(connection: string) {
+export function Migration(connection: string, options?: IMigrationOptions) {
+  // captured OUTSIDE the returned function on purpose: this is the frame the user's file called,
+  // so the stack still points at their migration source rather than at the decorator application
+  const sourceFile = captureSourceFile(MIGRATION_SOURCE_SKIP_MARKERS);
+
   return (target: any) => {
+    // Static properties are inherited through the constructor's prototype chain. A plain
+    // truthiness check would find the parent's descriptor and mutate it in place, silently
+    // rewriting the parent migration's connection, environment, and source file. Only create a
+    // new descriptor if the target does NOT own this symbol already.
+    const hasOwnDescriptor = Object.prototype.hasOwnProperty.call(target, MIGRATION_DESCRIPTION_SYMBOL);
     let metadata = target[MIGRATION_DESCRIPTION_SYMBOL] as IMigrationDescriptor;
 
-    if (!metadata) {
+    if (!hasOwnDescriptor) {
       metadata = {
         Connection: '',
       };
@@ -137,6 +154,8 @@ export function Migration(connection: string) {
     }
 
     metadata.Connection = connection;
+    metadata.Env = options?.Env;
+    metadata.SourceFile = sourceFile;
 
     DI.register(target).as('__migrations__');
   };

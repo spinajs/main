@@ -407,3 +407,27 @@ describe('workspace root detection', () => {
     expect(process.env.WORKSPACE_ROOT_PATH).to.equal('D:\explicit\root');
   });
 });
+
+describe('environment resolution', () => {
+  /**
+   * `getEnvironment` is protected, and the config it reads is only ever asked for one value - so a
+   * stub answering that value is the whole fixture. Reaching into a JsFileSource this way is the
+   * same access the suites above use for `CommonDirs`.
+   */
+  const envOf = (appEnv: string | undefined) => (new JsFileSource() as unknown as { getEnvironment(config: unknown): string }).getEnvironment({ get: () => appEnv });
+
+  it('treats an explicitly empty APP_ENV as production', () => {
+    // `APP_ENV=` and `--env=` both reach here as ''. This used to be returned verbatim, making the
+    // config glob `*..{cjs,js}` - which matched no file, so such a deployment loaded no env config
+    // at all. Pinned because the fix reads like an accident and would be easy to "correct" back.
+    expect(envOf('')).to.equal('prod');
+  });
+
+  it('resolves the aliases and passes any other name through', () => {
+    expect(envOf('development')).to.equal('dev');
+    expect(envOf('dev')).to.equal('dev');
+    expect(envOf('production')).to.equal('prod');
+    expect(envOf('local')).to.equal('local');
+    expect(envOf(undefined)).to.equal('prod');
+  });
+});

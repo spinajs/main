@@ -6,7 +6,7 @@ import { findBasePath, mergeArrays } from './util.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource, IConfigLike, normalizeEnvironment } from '@spinajs/configuration-common';
 
 export abstract class BaseFileSource extends ConfigurationSource {
   /**
@@ -189,18 +189,12 @@ export abstract class BaseFileSource extends ConfigurationSource {
     return config;
   }
 
+  /**
+   * Delegates to `normalizeEnvironment` so config file loading and migration file loading can
+   * never disagree about what an environment name means. Signature kept - subclasses override it.
+   */
   protected getEnvironment(config: Configuration) {
-    let env = config.get<string>('process.env.APP_ENV', undefined) ?? this.Env ?? 'production';
-    switch (env) {
-      case 'dev':
-      case 'development':
-        return 'dev';
-      case 'prod':
-      case 'production':
-        return 'prod';
-      default:
-        return env;
-    }
+    return normalizeEnvironment(config.get<string>('process.env.APP_ENV', undefined) ?? this.Env);
   }
 }
 

@@ -447,11 +447,37 @@ export interface IDriverOptions {
   DefaultConnection?: boolean;
 }
 
+/**
+ * Options a migration may declare alongside its connection.
+ */
+export interface IMigrationOptions {
+  /**
+   * Environment this migration belongs to, eg. `local`. Absent means every environment.
+   *
+   * This is the declaration for migrations registered by IMPORT, where no file path is in play -
+   * a package re-exporting its migrations from `index.ts`. For migrations discovered from disk the
+   * filename suffix says the same thing, and the two must agree.
+   */
+  Env?: string;
+}
+
 export interface IMigrationDescriptor {
   /**
    * Whitch connection migration will be executed
    */
   Connection: string;
+
+  /**
+   * Environment this migration belongs to - see IMigrationOptions.Env
+   */
+  Env?: string;
+
+  /**
+   * Absolute path of the file `@Migration()` was applied in, captured off the V8 stack at
+   * decoration time. Best-effort: `undefined` under a bundler that mangles paths, in which case
+   * `Env` above is the only env signal the migration has.
+   */
+  SourceFile?: string;
 }
 
 export interface IValueConverterDescriptor {
