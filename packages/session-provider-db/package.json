@@ -54,7 +54,7 @@
     "@spinajs/exceptions": "^2.0.488",
     "@spinajs/log": "^2.0.488",
     "@spinajs/orm": "2.0.488",
-    "@spinajs/rbac": "2.0.488",
+    "@spinajs/rbac": "^2.0.488",
     "@spinajs/reflection": "^2.0.488",
     "@spinajs/util": "^2.0.488",
     "luxon": "^3.6.1"

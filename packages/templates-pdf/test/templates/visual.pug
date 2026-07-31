@@ -1,0 +1,48 @@
+doctype html
+html
+  head
+    meta(charset='utf-8')
+    title Visual regression fixture
+    style.
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        width: 600px;
+        padding: 20px;
+        background: #ffffff;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      h1 {
+        font-size: 28px;
+        line-height: 40px;
+        color: #202020;
+        margin-bottom: 16px;
+      }
+      .frame {
+        border: 6px solid #333333;
+        padding: 12px;
+      }
+      .swatches { font-size: 0; }
+      .swatch {
+        display: inline-block;
+        width: 120px;
+        height: 80px;
+      }
+      .red { background: #e01b24; }
+      .green { background: #26a269; }
+      .blue { background: #1c71d8; }
+      .gradient {
+        margin-top: 12px;
+        width: 360px;
+        height: 60px;
+        background: linear-gradient(to right, #000000, #ffffff);
+      }
+  body
+    h1 Visual Regression Fixture
+    .frame
+      .swatches
+        .swatch.red
+        .swatch.green
+        .swatch.blue
+      .gradient
