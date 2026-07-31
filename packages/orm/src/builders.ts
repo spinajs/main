@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -2101,6 +2101,96 @@ export class DropViewQueryBuilder extends QueryBuilder {
   }
 }
 
+/**
+ * Creates a whole database ( schema in some engines ), eg.
+ *
+ * CREATE DATABASE IF NOT EXISTS `db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+ *
+ * Not every engine supports this - sqlite has no notion of a server side database,
+ * and its driver rejects the statement instead of emitting SQL it cannot run.
+ */
+@NewInstance()
+export class CreateDatabaseQueryBuilder extends QueryBuilder {
+  /**
+   * Name of the database to create. Kept apart from `Database` of the base builder,
+   * which qualifies a table with the database it lives in - here the database IS the subject.
+   */
+  public Name: string;
+
+  public Exists: boolean;
+
+  public Charset: string;
+
+  public Collation: string;
+
+  constructor(container: Container, driver: OrmDriver, name: string) {
+    super(container, driver, undefined);
+
+    this.Name = name;
+    this.Exists = false;
+    this.Charset = '';
+    this.Collation = '';
+
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  /**
+   * Adds IF NOT EXISTS clause, so creating an already existing database is not an error.
+   */
+  public ifNotExists() {
+    this.Exists = true;
+    return this;
+  }
+
+  /**
+   * Default character set of the database eg. utf8mb4
+   */
+  public charset(charset: string) {
+    this.Charset = charset;
+    return this;
+  }
+
+  /**
+   * Default collation of the database eg. utf8mb4_unicode_ci
+   */
+  public collation(collation: string) {
+    this.Collation = collation;
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<CreateDatabaseCompiler>(CreateDatabaseCompiler, [this]).compile();
+  }
+}
+
+@NewInstance()
+export class DropDatabaseQueryBuilder extends QueryBuilder {
+  public Name: string;
+
+  public Exists: boolean;
+
+  constructor(container: Container, driver: OrmDriver, name: string) {
+    super(container, driver, undefined);
+
+    this.Name = name;
+    this.Exists = false;
+
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  /**
+   * Adds IF EXISTS clause, so dropping a missing database is not an error.
+   */
+  public ifExists() {
+    this.Exists = true;
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<DropDatabaseCompiler>(DropDatabaseCompiler, [this]).compile();
+  }
+}
+
 @NewInstance()
 export class AlterTableQueryBuilder extends QueryBuilder {
   protected _columns: ColumnQueryBuilder[];
@@ -2561,6 +2651,33 @@ export class SchemaQueryBuilder {
 
   public dropView(name: string, schema?: string) {
     return new DropViewQueryBuilder(this.container, this.driver, name, schema);
+  }
+
+  /**
+   * Creates database eg.
+   *
+   * CREATE DATABASE IF NOT EXISTS `db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+   *
+   * @param name - database name
+   * @param callback - optional callback, options can also be set fluently on returned builder
+   */
+  public createDatabase(name: string, callback?: (database: CreateDatabaseQueryBuilder) => void) {
+    const builder = new CreateDatabaseQueryBuilder(this.container, this.driver, name);
+
+    if (callback) {
+      callback.call(this, builder);
+    }
+
+    return builder;
+  }
+
+  /**
+   * Drops whole database with all its content.
+   *
+   * @param name - database name
+   */
+  public dropDatabase(name: string) {
+    return new DropDatabaseQueryBuilder(this.container, this.driver, name);
   }
 
   public async tableExists(name: string, schema?: string) {

@@ -3,6 +3,9 @@
 /* eslint-disable prettier/prettier */
 import { expect } from 'chai';
 import 'mocha';
+// Registers the concrete logger. Without it every `@Logger` field resolves the abstract
+// `Log` from log-common and the first `Log.trace()` in Orm.resolve() throws.
+import '@spinajs/log';
 import { SelectQueryBuilder, SchemaQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, RawQuery, TableQueryBuilder, Orm, IWhereBuilder, Wrapper, IndexQueryBuilder, ReferentialAction, ICompilerOutput, ISelectQueryBuilder, ModelBase, SortOrder, AlterColumnQueryCompiler } from '@spinajs/orm';
 import { SqlAlterColumnQueryCompiler } from '../src/compilers.js';
 import { DI } from '@spinajs/di';
@@ -1337,6 +1340,39 @@ describe('schema building', () => {
   it('should drop table if exists', () => {
     const result = schqb().dropTable('users', 'test').ifExists().toDB();
     expect(result.expression).to.eq('DROP TABLE IF EXISTS `test`.`users`');
+  });
+
+  it('should create database', () => {
+    const result = schqb().createDatabase('yourscreen-db').toDB();
+    expect(result.expression).to.eq('CREATE DATABASE `yourscreen-db`');
+  });
+
+  it('should create database if not exists with charset and collation', () => {
+    const result = schqb().createDatabase('yourscreen-db').ifNotExists().charset('utf8mb4').collation('utf8mb4_unicode_ci').toDB();
+    expect(result.expression).to.eq('CREATE DATABASE IF NOT EXISTS `yourscreen-db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+  });
+
+  it('should create database with callback', () => {
+    const result = schqb()
+      .createDatabase('yourscreen-db', (db) => {
+        db.ifNotExists().charset('utf8mb4');
+      })
+      .toDB();
+    expect(result.expression).to.eq('CREATE DATABASE IF NOT EXISTS `yourscreen-db` CHARACTER SET utf8mb4');
+  });
+
+  it('should reject invalid charset name', () => {
+    expect(() => schqb().createDatabase('db').charset("utf8mb4' ; DROP DATABASE x --").toDB()).to.throw();
+  });
+
+  it('should drop database', () => {
+    const result = schqb().dropDatabase('yourscreen-db').toDB();
+    expect(result.expression).to.eq('DROP DATABASE `yourscreen-db`');
+  });
+
+  it('should drop database if exists', () => {
+    const result = schqb().dropDatabase('yourscreen-db').ifExists().toDB();
+    expect(result.expression).to.eq('DROP DATABASE IF EXISTS `yourscreen-db`');
   });
 
   it('table with one foreigk key', () => {
