@@ -7,7 +7,7 @@ export class RBACInitial_2022_06_28_01_13_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
     await connection.schema().createTable('users', (table) => {
       table.int('Id').primaryKey().autoIncrement();
-      table.uuid('Uuid').notNull();
+      table.string('Uuid', 36).notNull();
       table.string('Email', 64).unique().notNull();
       table.string('Password', 128).notNull();
       table.string('Login', 64).notNull();
