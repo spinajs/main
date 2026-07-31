@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter } from '@spinajs/orm';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import _ from 'lodash';
@@ -756,6 +756,63 @@ export class SqlDropViewQueryCompiler extends DropViewCompiler {
   }
 }
 
+
+/**
+ * CHARACTER SET and COLLATE take a *name* - not a quotable identifier and not a bindable
+ * value, no engine here accepts a placeholder in that position. Nothing is left to escape
+ * with, so the name is validated instead: charset and collation names are alphanumeric
+ * plus underscore in every one of these engines, and anything else is refused rather than
+ * interpolated.
+ */
+export function assertCharsetName(name: string, clause: string): string {
+  if (!/^[A-Za-z0-9_]+$/.test(name)) {
+    throw new InvalidArgument(`invalid ${clause} name "${name}", only alphanumeric characters and underscore are allowed`);
+  }
+
+  return name;
+}
+
+@NewInstance()
+@Inject(Container)
+export class SqlCreateDatabaseQueryCompiler extends CreateDatabaseCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  constructor(protected container: Container, protected builder: CreateDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const exists = this.builder.Exists ? ' IF NOT EXISTS' : '';
+    const charset = this.builder.Charset ? ` CHARACTER SET ${assertCharsetName(this.builder.Charset, 'character set')}` : '';
+    const collation = this.builder.Collation ? ` COLLATE ${assertCharsetName(this.builder.Collation, 'collation')}` : '';
+
+    return {
+      bindings: [],
+      expression: `CREATE DATABASE${exists} ${this.Quoter.quote(this.builder.Name)}${charset}${collation}`,
+    };
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class SqlDropDatabaseQueryCompiler extends DropDatabaseCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  constructor(protected container: Container, protected builder: DropDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const exists = this.builder.Exists ? ' IF EXISTS' : '';
+
+    return {
+      bindings: [],
+      expression: `DROP DATABASE${exists} ${this.Quoter.quote(this.builder.Name)}`,
+    };
+  }
+}
 
 export interface SqlAlterTableQueryCompiler { }
 

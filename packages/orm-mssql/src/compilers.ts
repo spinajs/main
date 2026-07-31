@@ -1,8 +1,17 @@
 import { Configuration } from '@spinajs/configuration';
-import { IContainer, Inject, NewInstance } from '@spinajs/di';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier } from '@spinajs/orm-sql';
+import { Autoinject, IContainer, Inject, NewInstance } from '@spinajs/di';
+import { NotSupported } from '@spinajs/exceptions';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier, assertCharsetName } from '@spinajs/orm-sql';
 import _ from 'lodash';
+
+/**
+ * Escapes a T-SQL string literal by doubling embedded single quotes. Used for the dynamic
+ * CREATE DATABASE batch, where the statement itself has to travel as a literal.
+ */
+function escapeTsqlLiteral(value: string): string {
+  return String(value).replace(/'/g, "''");
+}
 
 @NewInstance()
 export class MsSqlOnDuplicateQueryCompiler extends SqlOnDuplicateQueryCompiler {
@@ -113,6 +122,56 @@ export class MsSqlTableExistsCompiler implements TableExistsCompiler {
     return {
       bindings,
       expression,
+    };
+  }
+}
+
+/**
+ * SQL Server spells database creation differently enough that none of the shared SQL applies:
+ * there is no CHARACTER SET ( collation carries both ), no IF NOT EXISTS, and CREATE DATABASE
+ * must be the only statement in its batch - so the guarded form goes through EXEC.
+ */
+@NewInstance()
+export class MsSqlCreateDatabaseQueryCompiler extends CreateDatabaseCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  constructor(protected builder: CreateDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    if (this.builder.Charset) {
+      throw new NotSupported('mssql has no CHARACTER SET for a database, use collation() instead');
+    }
+
+    const collation = this.builder.Collation ? ` COLLATE ${assertCharsetName(this.builder.Collation, 'collation')}` : '';
+    const create = `CREATE DATABASE ${this.Quoter.quote(this.builder.Name)}${collation}`;
+
+    return {
+      bindings: [],
+      // CREATE DATABASE cannot be nested in an IF, hence the dynamic batch. Both literals
+      // are the database name with its single quotes doubled - the T-SQL escaping rule.
+      expression: this.builder.Exists ? `IF DB_ID('${escapeTsqlLiteral(this.builder.Name)}') IS NULL EXEC('${escapeTsqlLiteral(create)}')` : create,
+    };
+  }
+}
+
+@NewInstance()
+export class MsSqlDropDatabaseQueryCompiler extends DropDatabaseCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  constructor(protected builder: DropDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    const exists = this.builder.Exists ? ' IF EXISTS' : '';
+
+    return {
+      bindings: [],
+      expression: `DROP DATABASE${exists} ${this.Quoter.quote(this.builder.Name)}`,
     };
   }
 }

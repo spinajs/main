@@ -814,10 +814,37 @@ gets its `data()` hook.
 | `dropView(name, schema?)` | `DropViewQueryBuilder` |
 | `cloneTable(cb)` | `CloneTableQueryBuilder` |
 | `tableExists(name, schema?)` | `Promise<boolean>` |
+| `createDatabase(name, cb?)` | `CreateDatabaseQueryBuilder` |
+| `dropDatabase(name)` | `DropDatabaseQueryBuilder` |
 | `event(name)` / `dropEvent(name)` | `EventQueryBuilder` / `DropEventQueryBuilder` |
 | `raw(query, bindings?)` | `RawSchemaQueryBuilder` |
 
 Every builder is thenable — `await` it to run it.
+
+## Creating and dropping a database
+
+```typescript
+await connection.schema().createDatabase('yourscreen-db').ifNotExists().charset('utf8mb4').collation('utf8mb4_unicode_ci');
+// CREATE DATABASE IF NOT EXISTS `yourscreen-db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+
+await connection.schema().dropDatabase('yourscreen-db').ifExists();
+// DROP DATABASE IF EXISTS `yourscreen-db`
+```
+
+The options can also be set from a callback, `createDatabase('db', (d) => d.ifNotExists())`.
+
+Charset and collation names are not quotable identifiers and cannot be bound as parameters, so
+they are validated instead: anything outside `[A-Za-z0-9_]` is rejected with an `InvalidArgument`
+rather than interpolated into the statement.
+
+Per driver:
+
+- **MySQL** — as above.
+- **MSSQL** — no `CHARACTER SET` (`charset()` throws, collation carries both), and since T-SQL
+  forbids `CREATE DATABASE` anywhere but alone in its batch, `ifNotExists()` compiles to
+  `IF DB_ID('db') IS NULL EXEC('CREATE DATABASE [db]')`.
+- **SQLite** — has no server-side database, so both statements throw `NotSupported`; a database
+  is the file the connection was opened on.
 
 ## Creating a table
 

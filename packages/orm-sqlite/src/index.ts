@@ -1,4 +1,4 @@
-import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler, SqliteAlterColumnQueryCompiler } from './compilers.js';
+import { SqliteTableExistsCompiler, SqliteColumnCompiler, SqliteTableQueryCompiler, SqliteOrderByCompiler, SqliteOnDuplicateQueryCompiler, SqliteInsertQueryCompiler, SqliteTruncateTableQueryCompiler, SqliteAlterColumnQueryCompiler, SqliteCreateDatabaseQueryCompiler, SqliteDropDatabaseQueryCompiler } from './compilers.js';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -14,7 +14,7 @@ export * from './compilers.js';
 // orm-foundation; ConnectionState / IPoolMetrics are the connection-resilience additions from
 // orm-infra. QueryBuilder / TransactionCallback / ITransaction went with the old
 // `{ commit, rollback }` shape.
-import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler } from '@spinajs/orm';
+import { IColumnDescriptor, QueryContext, ColumnQueryCompiler, AlterColumnQueryCompiler, TableQueryCompiler, OrmDriver, OrderByQueryCompiler, JoinStatement, OnDuplicateQueryCompiler, InsertQueryCompiler, TableExistsCompiler, DefaultValueBuilder, TruncateTableQueryCompiler, ModelToSqlConverter, OrmException, ValueConverter, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, LimitQueryCompiler, RecursiveQueryCompiler, AlterTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
 import sqlite3 from 'sqlite3';
 import { BacktickIdentifierQuoter, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import { Injectable, NewInstance } from '@spinajs/di';
@@ -354,6 +354,11 @@ export class SqliteOrmDriver extends SqlDriver {
     this.Container.register(SqliteModelToSqlConverter).as(ModelToSqlConverter);
     this.Container.register(SqliteServerResponseMapper).as(ServerResponseMapper);
     this.Container.register(SqliteInSetStatement).as(InSetStatement);
+
+    // Overrides the shared SQL compilers inherited from SqlDriver.resolve() - sqlite has no
+    // server side database to create or drop, so these refuse instead of emitting MySQL DDL.
+    this.Container.register(SqliteCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
+    this.Container.register(SqliteDropDatabaseQueryCompiler).as(DropDatabaseCompiler);
 
     // SQLite accepts MySQL's backticks. Registered explicitly rather than inherited:
     // nothing dialect-specific is registered in the shared base any more.

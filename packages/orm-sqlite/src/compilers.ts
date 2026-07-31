@@ -2,7 +2,8 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType } from '@spinajs/orm';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
+import { NotSupported } from '@spinajs/exceptions';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import _ from 'lodash';
@@ -102,6 +103,34 @@ export class SqliteTableExistsCompiler implements TableExistsCompiler {
       bindings: [this.builder.Table],
       expression: `SELECT name FROM sqlite_master WHERE type='table' AND name=? LIMIT 1;`,
     };
+  }
+}
+
+/**
+ * SQLite has no server side databases - a database IS the file the connection was opened on,
+ * so CREATE / DROP DATABASE has no meaning here. Registered so the statement fails with a
+ * clear message instead of inheriting the shared SQL compiler and shipping syntax sqlite
+ * would reject anyway.
+ */
+@NewInstance()
+export class SqliteCreateDatabaseQueryCompiler extends CreateDatabaseCompiler {
+  constructor(protected builder: CreateDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new NotSupported('sqlite does not support CREATE DATABASE, a database is the file the connection is opened on');
+  }
+}
+
+@NewInstance()
+export class SqliteDropDatabaseQueryCompiler extends DropDatabaseCompiler {
+  constructor(protected builder: DropDatabaseQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new NotSupported('sqlite does not support DROP DATABASE, delete the database file instead');
   }
 }
 

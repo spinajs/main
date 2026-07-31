@@ -194,6 +194,16 @@ Emits the history table and the triggers that populate it, giving each row `__ac
 
 `DROP TABLE|VIEW [IF EXISTS] <name>`, schema-qualified when `database()` was set.
 
+## `SqlCreateDatabaseQueryCompiler` / `SqlDropDatabaseQueryCompiler`
+
+`CREATE DATABASE [IF NOT EXISTS] <name> [CHARACTER SET <cs>] [COLLATE <col>]` and
+`DROP DATABASE [IF EXISTS] <name>`.
+
+`CHARACTER SET` / `COLLATE` take a name — not a quotable identifier, not a bindable value — so
+`assertCharsetName` rejects anything outside `[A-Za-z0-9_]` instead of interpolating it. MSSQL and
+SQLite replace both compilers: T-SQL has no `CHARACTER SET` and no `IF NOT EXISTS`, and SQLite has
+no server-side database at all.
+
 ## `SqlEventQueryCompiler` / `SqlDropEventQueryCompiler`
 
 Database scheduled events, from `EventQueryBuilder`. Both return arrays. Only meaningful where
