@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { replacer as baseReplacer, reviver as baseReviver, ICustomDataType } from '@spinajs/util';
 
 /**
@@ -141,10 +142,30 @@ export function encodeSessionData(data: Map<string, unknown>): string {
  * but a driver, a column type or a store that still yields a string must keep
  * decoding - and the sqlite driver used by the tests is exactly that case.
  *
+ * ANYTHING ELSE THROWS. The object branch is narrowed to a real object
+ * (`!== null && typeof === 'object'`) rather than being the `else` of the string
+ * test, because widening the parameter to `unknown` otherwise turns `null`,
+ * `undefined` and a stray number into a silently EMPTY session: every request
+ * carrying that session reads as authenticated-but-anonymous, and a store that
+ * started handing back the wrong shape would log out its entire user base
+ * without a single error line. A missing or malformed payload is a defect in the
+ * store, not a session with no data, and it is raised as one.
+ *
  * @param data - the serialized session data, as string or as parsed object
+ * @throws `InvalidArgument` when `data` is neither a string nor a non-null object
  */
 export function decodeSessionData(data: string | unknown): Map<string, unknown> {
-  const decoded = typeof data === 'string' ? JSON.parse(data, sessionReviver) : reviveSessionValue(data);
+  if (typeof data === 'string') {
+    const parsed = JSON.parse(data, sessionReviver);
 
-  return decoded instanceof Map ? (decoded as Map<string, unknown>) : new Map<string, unknown>();
+    return parsed instanceof Map ? (parsed as Map<string, unknown>) : new Map<string, unknown>();
+  }
+
+  if (data !== null && typeof data === 'object') {
+    const revived = reviveSessionValue(data);
+
+    return revived instanceof Map ? (revived as Map<string, unknown>) : new Map<string, unknown>();
+  }
+
+  throw new InvalidArgument(`Cannot decode session data: expected a JSON string or an already-parsed object, got ${data === null ? 'null' : typeof data}`, 'data');
 }
