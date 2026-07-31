@@ -155,7 +155,7 @@ export class DbSessionStore extends SessionProvider {
       UserId: row.UserId,
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
-      Data: decodeSessionData(row.Data),
+      Data: decodeSessionData(sessionDataAsJson(row.Data)),
     });
   }
 
@@ -165,4 +165,39 @@ export class DbSessionStore extends SessionProvider {
     }
     return a.toMillis() === b.toMillis();
   }
+}
+
+/**
+ * Normalizes whatever the driver hands back for `user_sessions.Data` into the
+ * JSON string `decodeSessionData` expects.
+ *
+ * mysql2 hands JSON columns back as objects it has already parsed; deployed
+ * installs have a text-typed column and keep the string path. A database whose
+ * table was created by the `table.json('Data')` revision of the migration
+ * therefore yields an object, and `JSON.parse` on it failed with
+ * `"[object Object]" is not valid JSON` - every session read, i.e. every
+ * request after login, 500'd.
+ *
+ * The object is re-serialized rather than handed to the decoder as-is because
+ * `decodeSessionData`'s reviver is what turns the payload back into a `Map`
+ * (and its tagged `DateTime` / `Set` values back into instances). Passing the
+ * raw object through would produce a silently EMPTY session instead of an
+ * error - a worse failure than the one being fixed. The round-trip runs once
+ * per session read and the payload is small.
+ *
+ * The write path is untouched: `encodeSessionData` still stores a string, which
+ * both a `text` and a `json` column accept.
+ */
+function sessionDataAsJson(data: unknown): string {
+  if (typeof data === 'string') {
+    return data;
+  }
+
+  // a blob-ish column can arrive as a Buffer; stringifying one would yield
+  // `{"type":"Buffer",...}` and decode to an empty session
+  if (Buffer.isBuffer(data)) {
+    return data.toString('utf8');
+  }
+
+  return JSON.stringify(data ?? null);
 }
