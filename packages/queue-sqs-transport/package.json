@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue-sqs-transport",
-  "version": "2.0.488",
+  "version": "2.0.489",
   "description": "spinajs queue transport based on Amazon SQS. Sends & reads queue messages ( jobs & events ) from an Amazon SQS queue.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -55,10 +55,10 @@
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.700.0",
-    "@spinajs/configuration": "^2.0.488",
-    "@spinajs/di": "^2.0.488",
-    "@spinajs/exceptions": "^2.0.488",
-    "@spinajs/log": "^2.0.488",
-    "@spinajs/queue": "^2.0.488"
+    "@spinajs/configuration": "^2.0.489",
+    "@spinajs/di": "^2.0.489",
+    "@spinajs/exceptions": "^2.0.489",
+    "@spinajs/log": "^2.0.489",
+    "@spinajs/queue": "^2.0.489"
   }
 }
