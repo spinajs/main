@@ -6,7 +6,7 @@ import { DI, Bootstrapper } from '@spinajs/di';
 import '../src/index.js';
 import { DbSessionStore } from '../src/index.js';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -197,6 +197,147 @@ describe('db session provider', function () {
       await store.truncate();
 
       expect(await store.cleanupExpired()).to.equal(0);
+    });
+  });
+
+  // `user_sessions.Data` is a MySQL `json` column, and mysql2 hands a json column
+  // back ALREADY PARSED - so the read path receives an object, not the string the
+  // write path stored. sqlite (what these tests run on) has no json type and
+  // returns the text, and so does any deployed database that has not yet run the
+  // converging migration. Both shapes therefore reach `toSession` in the wild, and
+  // both are pinned here.
+  //
+  // The failure this guards against is silent, not loud: the stored payload's top
+  // level is the tagged wrapper `{ dataType: 'Map', value: [...] }`, so a decoder
+  // that does not rebuild the tags returns an EMPTY session rather than raising -
+  // every request looks authenticated-but-anonymous.
+  describe('session Data: json column (object) and text column (string)', () => {
+    const CREATED = DateTime.fromISO('2030-01-02T03:04:05.000Z');
+    const EXPIRES = DateTime.fromISO('2030-01-02T04:04:05.000Z');
+
+    // A Map-typed VALUE inside the session map: the reviver has to rebuild a tag
+    // nested one level down, not just the top-level wrapper. A Set and a DateTime
+    // ride along because they are the other two tagged types the codec emits.
+    function payload() {
+      return new Map<string, unknown>([
+        ['User', '72beaf78-0000-4000-8000-000000000001'],
+        ['TwoFactorPending', true],
+        [
+          'Preferences',
+          new Map<string, unknown>([
+            ['lang', 'pl'],
+            ['perPage', 25],
+          ]),
+        ],
+        ['Roles', new Set(['admin', 'user'])],
+        ['Issued', CREATED],
+      ]);
+    }
+
+    function row(data: unknown): DbSession {
+      return {
+        SessionId: 'representation-probe',
+        UserId: 42,
+        CreatedAt: CREATED,
+        Expiration: EXPIRES,
+        Data: data,
+      } as unknown as DbSession;
+    }
+
+    function assertPayload(data: Map<string, unknown>, label: string) {
+      expect(data, `${label}: must decode to a Map`).to.be.instanceOf(Map);
+      expect(data.size, `${label}: entry count`).to.equal(5);
+      expect(data.get('User'), `${label}: User`).to.equal('72beaf78-0000-4000-8000-000000000001');
+      expect(data.get('TwoFactorPending'), `${label}: TwoFactorPending`).to.equal(true);
+
+      const prefs = data.get('Preferences') as Map<string, unknown>;
+      expect(prefs, `${label}: nested Map must survive as a Map`).to.be.instanceOf(Map);
+      expect(prefs.get('lang')).to.equal('pl');
+      expect(prefs.get('perPage')).to.equal(25);
+
+      const roles = data.get('Roles') as Set<string>;
+      expect(roles, `${label}: nested Set must survive as a Set`).to.be.instanceOf(Set);
+      expect([...roles].sort()).to.deep.equal(['admin', 'user']);
+
+      const issued = data.get('Issued') as DateTime;
+      expect(DateTime.isDateTime(issued), `${label}: nested DateTime must survive as a DateTime`).to.equal(true);
+      expect(issued.toMillis()).to.equal(CREATED.toMillis());
+    }
+
+    it('decodes an already-parsed object and the equivalent string to the identical session', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+
+      const encoded = encodeSessionData(payload());
+
+      // exactly what mysql2 does to a json column before the ORM ever sees it
+      const asObject = JSON.parse(encoded) as unknown;
+      expect(typeof asObject, 'the json-column representation must be an object, not a string').to.equal('object');
+
+      const fromJsonColumn = (store as any).toSession(row(asObject));
+      const fromTextColumn = (store as any).toSession(row(encoded));
+
+      assertPayload(fromJsonColumn.Data, 'json column (object)');
+      assertPayload(fromTextColumn.Data, 'text column (string)');
+
+      // identical, entry for entry, not merely both non-empty
+      expect([...fromJsonColumn.Data.keys()]).to.deep.equal([...fromTextColumn.Data.keys()]);
+      expect(fromJsonColumn.SessionId).to.equal(fromTextColumn.SessionId);
+      expect(fromJsonColumn.UserId).to.equal(fromTextColumn.UserId);
+    });
+
+    it('rebuilds the tagged payload from an object without going through JSON text', () => {
+      // Handing the parsed object to the decoder untransformed used to yield
+      // `new Map()` - the tag is an ordinary object, so `parsed instanceof Map`
+      // was false and the empty-Map fallback swallowed the whole session.
+      const decoded = decodeSessionData(JSON.parse(encodeSessionData(payload())));
+
+      assertPayload(decoded, 'decodeSessionData(object)');
+    });
+
+    it('reads a Buffer-delivered payload (blob-ish column / binary driver mode)', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      const encoded = encodeSessionData(payload());
+
+      const session = (store as any).toSession(row(Buffer.from(encoded, 'utf8')));
+
+      // a Buffer walked as an object graph would decode to an empty session
+      assertPayload(session.Data, 'buffer column');
+    });
+
+    // The converging migration runs on EVERY startup of a database that has not
+    // recorded it - including this sqlite one, where the table was just created
+    // with the target types already. It must survive that: sqlite has no MODIFY
+    // at all, so its alter-column compiler emits nothing and the statement list
+    // is empty. Asserting it is recorded as applied proves it was discovered,
+    // executed and did not throw, rather than being quietly absent.
+    it('runs the converging migration on startup without failing on a driver that cannot MODIFY', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      const driver = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
+
+      const applied = (await driver.Connections.get('session-provider-connection').select().from('spinajs_migration')) as Array<{ Migration: string }>;
+      const names = applied.map((r) => r.Migration);
+
+      expect(names, 'create migration must be recorded').to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
+      expect(names, 'converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
+    });
+
+    it('round-trips a saved session back out of the store with its structural types intact', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(
+        new Session({
+          SessionId: 'round-trip',
+          UserId: 42,
+          Expiration: EXPIRES,
+          Data: payload(),
+        }),
+      );
+
+      const restored = await store.restore('round-trip');
+
+      expect(restored, 'session must come back').to.not.be.null;
+      assertPayload(restored!.Data, 'write -> read round trip');
     });
   });
 });

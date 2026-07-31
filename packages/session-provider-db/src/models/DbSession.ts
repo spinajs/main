@@ -15,10 +15,17 @@ export class DbSession extends ModelBase {
   /**
    * Serialized session payload - see `encodeSessionData` / `decodeSessionData`.
    *
-   * Declared as a string because that is what the write path stores and what a
-   * `text` column returns. On a database whose column is MySQL `json` (created
-   * by an in-between revision of the migration) mysql2 returns it already
-   * parsed, so the read path normalizes before decoding.
+   * Declared as a string because that is what the WRITE path assigns:
+   * `encodeSessionData` produces JSON text and a MySQL `json` column stores it
+   * verbatim. What comes BACK depends on the driver - mysql2 parses a json
+   * column into an object, sqlite returns the text - so the read path accepts
+   * both. The declared type is deliberately not widened to `string | object`:
+   * this model is exported, the object shape never escapes the provider, and
+   * widening would force every consumer to narrow for a case it cannot observe.
+   *
+   * No `@Json()` decorator on purpose: the ORM's JsonValueConverter would
+   * `JSON.stringify` the already-encoded string on write and double-encode
+   * every session.
    */
   public Data: string;
 

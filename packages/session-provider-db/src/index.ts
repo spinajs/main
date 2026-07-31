@@ -8,6 +8,7 @@ import { DateTime } from 'luxon';
 
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
+export * from './migrations/UserSessionDataJson_2026_07_31_00_00_00.js';
 
 /**
  * Relational-db backed session store. Conforms to the `@spinajs/rbac`
@@ -155,7 +156,7 @@ export class DbSessionStore extends SessionProvider {
       UserId: row.UserId,
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
-      Data: decodeSessionData(sessionDataAsJson(row.Data)),
+      Data: decodeSessionData(sessionDataFromColumn(row.Data)),
     });
   }
 
@@ -168,36 +169,33 @@ export class DbSessionStore extends SessionProvider {
 }
 
 /**
- * Normalizes whatever the driver hands back for `user_sessions.Data` into the
- * JSON string `decodeSessionData` expects.
+ * Presents whatever the driver hands back for `user_sessions.Data` in one of the
+ * two shapes {@link decodeSessionData} understands - a JSON string, or an
+ * already-parsed object graph.
  *
- * mysql2 hands JSON columns back as objects it has already parsed; deployed
- * installs have a text-typed column and keep the string path. A database whose
- * table was created by the `table.json('Data')` revision of the migration
- * therefore yields an object, and `JSON.parse` on it failed with
- * `"[object Object]" is not valid JSON` - every session read, i.e. every
- * request after login, 500'd.
+ * `Data` is a MySQL `json` column, so mysql2 parses it for us and this function
+ * passes the OBJECT straight through: no `JSON.stringify` / `JSON.parse`
+ * round-trip, the decoder walks the graph natively. Strings pass through just as
+ * untouched - sqlite has no json type and returns the stored text, and a
+ * connection configured otherwise (`typeCast`, an older column, a text-typed
+ * table that has not run the converging migration yet) may still yield one.
  *
- * The object is re-serialized rather than handed to the decoder as-is because
- * `decodeSessionData`'s reviver is what turns the payload back into a `Map`
- * (and its tagged `DateTime` / `Set` values back into instances). Passing the
- * raw object through would produce a silently EMPTY session instead of an
- * error - a worse failure than the one being fixed. The round-trip runs once
- * per session read and the payload is small.
+ * The only value actually converted is a `Buffer`: a blob-ish column or a driver
+ * in binary mode delivers one, and neither the object walk nor `JSON.parse` can
+ * read it. Note it is decoded to text rather than handed over as an object -
+ * treating a Buffer as an object graph would walk its byte indices and decode to
+ * an empty session.
  *
  * The write path is untouched: `encodeSessionData` still stores a string, which
- * both a `text` and a `json` column accept.
+ * a `json` column accepts verbatim (mysql2 does NOT auto-serialize objects into
+ * json columns, and `DbSession.Data` deliberately carries no `@Json()`
+ * decorator - the ORM's JsonValueConverter would `JSON.stringify` the already
+ * encoded string and double-encode every session).
  */
-function sessionDataAsJson(data: unknown): string {
-  if (typeof data === 'string') {
-    return data;
-  }
-
-  // a blob-ish column can arrive as a Buffer; stringifying one would yield
-  // `{"type":"Buffer",...}` and decode to an empty session
+function sessionDataFromColumn(data: unknown): string | unknown {
   if (Buffer.isBuffer(data)) {
     return data.toString('utf8');
   }
 
-  return JSON.stringify(data ?? null);
+  return data;
 }

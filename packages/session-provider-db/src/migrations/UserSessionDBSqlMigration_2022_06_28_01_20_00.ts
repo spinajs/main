@@ -35,14 +35,15 @@ export class UserSessionDBSqlMigration_2022_06_28_01_20_00 extends OrmMigration 
       table.string('SessionId', 36).primaryKey().notNull();
       table.dateTime('CreatedAt').notNull();
       table.dateTime('Expiration');
-      // TEXT, not JSON. This is what every deployed `user_sessions` actually has: the migration
-      // created `Data` as `table.text(...)` from its first version (2022-06-28) until commit
-      // b8bd2acb7 ("ver bump", 2024-06-18) flipped it to `table.json(...)` in passing. The guard
-      // above means that flip has never run against an existing database, so it only ever changed
-      // what FRESH installs get - and a fresh install then had a session it could not read back,
-      // because mysql2 returns a JSON column already parsed while the model and the codec both
-      // deal in strings. Fresh installs now match deployed reality again.
-      table.text('Data').notNull();
+      // JSON is the intended type, so a fresh install gets it straight away and never needs the
+      // converging migration (`UserSessionDataJson_2026_07_31_00_00_00`) to do any work. Deployed
+      // databases created before this migration existed carry a text-family column - the guard
+      // above means the type declared here has never run against them - and that migration is what
+      // brings them here.
+      //
+      // The read path consumes both shapes on purpose: mysql2 returns a json column as a parsed
+      // object, sqlite (which has no json type) returns the stored text. See `decodeSessionData`.
+      table.json('Data').notNull();
       table.int('UserId').notNull();
 
       table.foreignKey('UserId').references('users', 'Id').onDelete(ReferentialAction.Cascade);
