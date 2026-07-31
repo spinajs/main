@@ -9,6 +9,7 @@ import { DbSession } from '../src/models/DbSession.js';
 import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
+import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
 
@@ -304,13 +305,17 @@ describe('db session provider', function () {
       assertPayload(session.Data, 'buffer column');
     });
 
-    // The converging migration runs on EVERY startup of a database that has not
-    // recorded it - including this sqlite one, where the table was just created
-    // with the target types already. It must survive that: sqlite has no MODIFY
-    // at all, so its alter-column compiler emits nothing and the statement list
-    // is empty. Asserting it is recorded as applied proves it was discovered,
-    // executed and did not throw, rather than being quietly absent.
-    it('runs the converging migration on startup without failing on a driver that cannot MODIFY', async () => {
+    // Both converging migrations run on EVERY startup of a database that has not
+    // recorded them - including this sqlite one, where the table was just created
+    // with the target types already. Both must survive that WITHOUT touching
+    // anything: sqlite is not MySQL, has no `MODIFY` and no `JSON` type, and its
+    // `Data` column is already declared `JSON` by the create path, so each one
+    // has to return early on its own probe. Asserting they are recorded as
+    // applied proves they were discovered, executed and did not throw - the
+    // failure being guarded against is a throw here being recorded as a FAILED
+    // migration, which makes `assertNoFailed()` block every future migration on
+    // the connection.
+    it('runs both converging migrations on startup without failing on a driver that cannot MODIFY', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
       const driver = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
 
@@ -318,7 +323,32 @@ describe('db session provider', function () {
       const names = applied.map((r) => r.Migration);
 
       expect(names, 'create migration must be recorded').to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
-      expect(names, 'converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
+      expect(names, 'json converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
+      expect(names, 'timestamp converging migration must be recorded').to.include('UserSessionTimestamps_2026_07_31_00_00_01');
+    });
+
+    // The skip is the whole point of the probes, so it is asserted directly
+    // rather than inferred from "nothing blew up". Each migration's guard is
+    // evaluated against the live sqlite connection here, so a future edit that
+    // makes either one fire on a non-MySQL driver fails loudly and locally
+    // instead of at somebody's boot.
+    it('both migrations resolve to SKIP on this sqlite connection', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      const orm = (store as any).Container?.get?.(Orm) ?? (await DI.resolve(Orm));
+      const connection = orm.Connections.get('session-provider-connection');
+
+      // guard 3, and on its own enough to skip both: `MODIFY` / `JSON` are MySQL's
+      expect(isMySqlDialect(connection), 'sqlite must never be treated as MySQL').to.equal(false);
+
+      // guard 2 of the JSON migration. sqlite's column compiler has no `json`
+      // case at all, so `table.json('Data')` emits a column with NO type token
+      // and PRAGMA table_info reports an empty type - which the probe reports as
+      // "cannot establish the state", i.e. skip.
+      expect(await columnNativeType(connection, 'user_sessions', 'Data'), 'unreadable Data type must skip, not guess').to.equal(null);
+
+      // guard 2 of the timestamps migration: sqlite stores dateTime as TEXT,
+      // which is not `date`, so there is nothing to widen.
+      expect(await columnNativeType(connection, 'user_sessions', 'CreatedAt')).to.equal('text');
     });
 
     it('round-trips a saved session back out of the store with its structural types intact', async () => {

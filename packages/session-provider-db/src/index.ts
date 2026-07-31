@@ -9,6 +9,7 @@ import { DateTime } from 'luxon';
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
 export * from './migrations/UserSessionDataJson_2026_07_31_00_00_00.js';
+export * from './migrations/UserSessionTimestamps_2026_07_31_00_00_01.js';
 
 /**
  * Relational-db backed session store. Conforms to the `@spinajs/rbac`
