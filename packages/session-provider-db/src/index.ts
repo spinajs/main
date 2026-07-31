@@ -7,7 +7,7 @@ import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
 
 export * from './models/DbSession.js';
-export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_01_01.js';
+export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
 
 /**
  * Relational-db backed session store. Conforms to the `@spinajs/rbac`
