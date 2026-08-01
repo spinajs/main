@@ -14,6 +14,7 @@ import {
   _is_of_mimetype,
   _fs,
   _zip,
+  _unzip,
   _write,
   _read,
   _append,
@@ -90,6 +91,36 @@ describe('fs fp helpers', function () {
   it('_is_of_mimetype accepts a matching mime and rejects a mismatch', async () => {
     await _is_of_mimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/png')();
     await expect(_is_of_mimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/jpeg')()).to.be.rejectedWith(IOFail);
+  });
+
+  it('_is_of_type rejects with IOFail when file type cannot be determined', async () => {
+    // plain text has no magic bytes - fileTypeFromFile returns undefined
+    await expect(_is_of_type(dir('sample-files/test.txt'), 'txt')()).to.be.rejectedWith(IOFail);
+  });
+
+  it('_is_of_mimetype rejects with IOFail when file type cannot be determined', async () => {
+    await expect(_is_of_mimetype(dir('sample-files/test.txt'), 'text/plain')()).to.be.rejectedWith(IOFail);
+  });
+
+  it('_zip writes the archive into a different destination fs', async () => {
+    const tmp = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+    await tmp.write('fp-dst-src.txt', 'zip me elsewhere', 'utf-8');
+
+    const result = (await _zip(['fp-dst-src.txt'], 'fp-dst-out.zip', 'fs-temp', 'test')) as IZipResult;
+
+    expect(result.fs.Name).to.eq('test');
+    expect(await result.fs.exists(result.asFilePath())).to.be.true;
+  });
+
+  it('_unzip extracts an archive', async () => {
+    const tmp = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+    await tmp.write('fp-unzip-src.txt', 'unzip me', 'utf-8');
+
+    const zipped = (await _zip(['fp-unzip-src.txt'], 'fp-unzip.zip')) as IZipResult;
+    await _unzip(zipped.asFilePath(), 'fp-unzipped');
+
+    expect(await tmp.exists('fp-unzipped/fp-unzip-src.txt')).to.be.true;
+    expect((await tmp.read('fp-unzipped/fp-unzip-src.txt', 'utf-8')).toString()).to.eq('unzip me');
   });
 
   it('_zip falls back to the temp fs when no source fs is provided', async () => {

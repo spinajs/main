@@ -6,8 +6,7 @@ import { _ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, User, UserBase } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
-import { Constructor, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Constructor } from '@spinajs/di';
 import { UserEvent } from './events/UserEvent.js';
 import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
@@ -161,8 +160,11 @@ export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm
     subject: string;
   }
 
+  // NOTE: tap semantics - the user flows through, the email send result is
+  // deliberately discarded. Actions end with this step and must resolve with
+  // the User, not with an EmailSend job.
   return async (u: User) => {
-    return _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
+    await _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
       _check_arg(_non_nil(new ErrorCode(E_CODES.E_NO_EMAIL_TEMPLATE, `Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
@@ -179,6 +181,8 @@ export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm
         })
       );
     });
+
+    return u;
   };
 }
 
@@ -292,7 +296,7 @@ function _revoke_sessions() {
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
-export async function activate(identifier: number | string | User) {
+export async function activate(identifier: number | string | User): Promise<User> {
   return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
 }
 
@@ -302,7 +306,7 @@ export async function activate(identifier: number | string | User) {
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
-export async function deactivate(identifier: number | string | User): Promise<void> {
+export async function deactivate(identifier: number | string | User): Promise<User> {
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.
   return _chain(_user(identifier), _user_update({ IsActive: false }), _revoke_sessions(), _user_ev(UserDeactivated), _user_email('deactivated'));
@@ -315,16 +319,11 @@ export type CreateMiddleware = (u: User) => Promise<User> | User;
 
 /**
  * Reads a create-middleware list from configuration.
- *
- * NOTE: we deliberately do NOT use `_cfg(path, [])` here. `_cfg` wraps its
- * result in `_non_nil()`, which rejects empty arrays — so an unset or
- * empty `beforeCreate` / `afterCreate` (the default in the shipped config)
- * would throw and break user creation. Reading the value directly keeps an
- * empty list as a valid "no middleware" result.
+ * An unset or empty `beforeCreate` / `afterCreate` list is a valid
+ * "no middleware" result ( `_cfg` accepts empty arrays ).
  */
 function _create_middleware(path: string): CreateMiddleware[] {
-  const cfg = DI.get(Configuration);
-  const mw = cfg?.get<CreateMiddleware[]>(path, []);
+  const mw = _cfg<CreateMiddleware[]>(path, [])();
   return Array.isArray(mw) ? mw : [];
 }
 

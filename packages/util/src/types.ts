@@ -1,14 +1,31 @@
 /**
- * Type guard for promises and promise-like values (thenables).
+ * Type guard for native promises.
  *
- * Uses duck-typing so promises from other realms or promise libraries
- * are detected as well, not only native `Promise` instances.
+ * Deliberately strict - NOT duck-typed. Awaitable objects that expose `.then`
+ * without being promises ( eg. orm query builders ) must not be detected here:
+ * DI and other consumers use this guard to decide whether to await a resolved
+ * value, and `.then` on a query builder executes the query. Use `isThenable`
+ * when promise-like values from other realms / libraries should match too.
  *
  * @param value - value to test
- * @returns true if `value` is a `Promise` or a thenable
+ * @returns true if `value` is a native `Promise`
  */
 export function isPromise(value: any): value is Promise<any> {
-  return value instanceof Promise || (!!value && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function');
+  return value instanceof Promise;
+}
+
+/**
+ * Type guard for promise-like values (thenables) - native promises, promises
+ * from other realms or promise libraries, and any awaitable object.
+ *
+ * NOTE: matches awaitable query builders as well - calling `.then` on those
+ * executes them. Use `isPromise` when only native promises should match.
+ *
+ * @param value - value to test
+ * @returns true if `value` exposes a callable `then`
+ */
+export function isThenable(value: any): value is PromiseLike<any> {
+  return !!value && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
 }
 
 /**
