@@ -55,6 +55,16 @@ describe('fs temp tests', function () {
     expect(tmpPath.endsWith('packages\\fs\\test\\temp\\tmp.txt')).to.true;
   });
 
+  it('should keep the extension passed to tmppath', async () => {
+    const t = await tmp();
+
+    // fsS3.download() calls TempFs.tmppath(extname(path)) and hands the result to
+    // the template renderer, which picks an engine by extension. Dropping the
+    // extension here surfaces far away as "No renderer for file <uuid> with extension".
+    expect(t.tmppath('.mjml').endsWith('.mjml')).to.true;
+    expect(t.tmppath()).to.not.be.empty;
+  });
+
   it('should cleanup old temp file', async () => {
     await sleep(20 * 1000);
 
