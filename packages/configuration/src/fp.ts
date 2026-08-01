@@ -1,6 +1,6 @@
 import { Configuration } from '@spinajs/configuration-common';
 import { Class, Constructor, DI, ResolveException } from '@spinajs/di';
-import { _catch, _chain, _check_arg, _non_empty, _non_nil } from '@spinajs/util';
+import { _catch, _chain, _check_arg, _non_empty, _non_null, _non_undefined } from '@spinajs/util';
 
 /**
  *
@@ -17,8 +17,9 @@ export function _cfg<T>(path: string, defaultValue?: T) {
 
   _check_arg(_non_empty())(path, 'path');
 
-
-  return () => _check_arg(_non_nil())(cfg.get<T>(path, defaultValue), path);
+  // only null / undefined are invalid config values - empty arrays, empty objects
+  // and falsy primitives ( 0, '', false ) are legitimate configuration
+  return () => _check_arg(_non_null(), _non_undefined())(cfg.get<T>(path, defaultValue), path);
 }
 
 /**
@@ -36,12 +37,20 @@ export function _service<T>(path: string, type: Class<T>, options?: []): () => P
         ({ service }: { service: string }) =>
           _chain(
             () => DI.getRegisteredTypes(type),
-            (types: Constructor<unknown>[]) => types.find((t) => t.name === service),
+            (types: Constructor<unknown>[]) => {
+              const t = types.find((x) => x.name === service);
+
+              if (!t) {
+                throw new ResolveException(`Service ${service} is not registered for type ${type.name}`);
+              }
+
+              return t;
+            },
             (t: Constructor<unknown>) => DI.resolve(t, options),
           ),
         (err: Error) => {
           throw new ResolveException(
-            `Cannot resolve service from ${path}. Check your configuration file at this path.`,
+            `Cannot resolve service from ${path}: ${err.message}. Check your configuration file at this path.`,
             err,
           );
         },
