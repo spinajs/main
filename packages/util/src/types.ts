@@ -1,11 +1,14 @@
 /**
- * Type guard for native promises.
+ * Type guard for promises and promise-like values (thenables).
+ *
+ * Uses duck-typing so promises from other realms or promise libraries
+ * are detected as well, not only native `Promise` instances.
  *
  * @param value - value to test
- * @returns true if `value` is a `Promise`
+ * @returns true if `value` is a `Promise` or a thenable
  */
 export function isPromise(value: any): value is Promise<any> {
-  return value instanceof Promise;
+  return value instanceof Promise || (!!value && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function');
 }
 
 /**

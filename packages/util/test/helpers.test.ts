@@ -237,7 +237,10 @@ describe('helpers', () => {
     it('isPromise', () => {
       expect(isPromise(Promise.resolve())).to.be.true;
       expect(isPromise(42)).to.be.false;
-      expect(isPromise({ then: () => 0 })).to.be.false; // only native promises
+      expect(isPromise({ then: () => 0 })).to.be.true; // thenables detected too (foreign promise libs, cross-realm)
+      expect(isPromise({})).to.be.false;
+      expect(isPromise(null)).to.be.false;
+      expect(isPromise(undefined)).to.be.false;
     });
 
     it('isDefined narrows away nil', () => {
