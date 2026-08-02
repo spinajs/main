@@ -85,12 +85,36 @@ describe('Swagger @FromModel path parameters', function () {
 
   it('should keep an argument name that already is a placeholder, even when it is not the first one', () => {
     const p = params('/frommodel/threads/{thread}/tickets/{ticket}', 'get');
-    const names = p.map((x: any) => x.name);
+    const byName = (name: string) => p.find((x: any) => x.name === name);
 
     // `ticket` matches a placeholder by name, so it must not be reassigned to the
     // first free one — that would hand it `thread` and lose the real parameter.
-    expect(names).to.include('ticket');
-    expect(names, 'the @FromModel param grabbed a placeholder that is not its own').to.not.include('thread');
+    // `thread` is present, but it belongs to the underscore-prefixed @Param()
+    // ( see the underscore alias test below ), NOT to the @FromModel argument:
+    // the model key is a varchar, a plain @Param() number is not.
+    expect(p.map((x: any) => x.name).sort()).to.deep.equal(['thread', 'ticket']);
+    // FromModelTicket.Uuid is a varchar - if the @FromModel param had grabbed `thread`
+    // instead, the varchar key would be sitting on the wrong placeholder.
+    expect(byName('ticket').schema.type, 'the @FromModel param grabbed a placeholder that is not its own').to.equal('string');
+    // `thread` is a plain @Param() number, documented as the numeric-or-numeric-string
+    // union http emits for those - not a model object.
+    expect(byName('thread').schema.type).to.equal(undefined);
+    expect(byName('thread').schema.anyOf).to.not.be.undefined;
+  });
+
+  /**
+   * `@spinajs/http` names a route parameter after the TypeScript argument, and an
+   * argument is often prefixed with `_` purely to satisfy `noUnusedParameters` — the
+   * route needs `:thread` in the URL without reading it. FromParams.extract() already
+   * honours that at RUNTIME ( it falls back to the name without the leading `_` ), so
+   * emitting `_thread` documented a parameter the URL template never contains.
+   */
+  it('should emit the placeholder for an underscore-prefixed @Param() argument', () => {
+    const p = params('/frommodel/threads/{thread}/tickets/{ticket}', 'get');
+    const names = p.map((x: any) => x.name);
+
+    expect(names, 'the `_` prefix leaked into the documented parameter name').to.not.include('_thread');
+    expect(names).to.include('thread');
   });
 
   it('should honour paramField and read the key type from an introspected column when @Primary is absent', () => {

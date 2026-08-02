@@ -127,6 +127,32 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
  */
 type SchemaKind = 'request' | 'response';
 
+/**
+ * The placeholder an underscore-prefixed path argument really stands for.
+ *
+ * `@spinajs/http` names a route parameter after the TypeScript argument, and the argument
+ * is often prefixed with `_` only to satisfy `noUnusedParameters` — a route may need
+ * `:campaign` in the URL without reading it. FromParams.extract() (and FromQuery.extract())
+ * already honour that convention at RUNTIME: they read `req.params[Name]` and fall back to
+ * `req.params[Name without the leading _]`. The documentation did not, so
+ * `@Get(':campaign/comments/:comment') (@Param() _campaign)` emitted a path parameter
+ * `_campaign` that the URL template does not contain — the same class of defect as the
+ * @FromModel one, from a different direction.
+ *
+ * Deliberately narrow: fires only when the name itself is NOT a placeholder and the stripped
+ * name IS one. It therefore cannot rename a parameter that already matched, cannot invent a
+ * name for a placeholder that lives in @BasePath (invisible to route.Path), and cannot steal
+ * another parameter's slot — the stripped name belongs to this argument by construction.
+ */
+function underscorePlaceholderAlias(name: string | undefined, pathParamNames: string[]): string | undefined {
+  if (!name || !name.startsWith('_') || pathParamNames.includes(name)) {
+    return undefined;
+  }
+
+  const stripped = name.replace(/^_+/, '');
+  return stripped && pathParamNames.includes(stripped) ? stripped : undefined;
+}
+
 export class OpenApiBuilder {
   private config: ISwaggerConfig;
   private document: IOpenApiDocument;
@@ -460,7 +486,10 @@ export class OpenApiBuilder {
       }
 
       const isPathParam = location === 'path';
-      const resolvedName = fromDbModelPathNames.get(param.Index) ?? (param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined));
+      const resolvedName =
+        fromDbModelPathNames.get(param.Index) ??
+        (isPathParam ? underscorePlaceholderAlias(param.Name, pathParamNames) : undefined) ??
+        (param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined));
       if (isPathParam && resolvedName && !param.Name) {
         param.Name = resolvedName;
       }
