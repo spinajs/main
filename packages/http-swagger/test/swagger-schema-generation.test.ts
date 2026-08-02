@@ -47,9 +47,9 @@ class FakeSchemaProvider extends SchemaProvider {
   }
 }
 
-// Co ORM-owy ModelSchemaProvider zwraca dla ODPOWIEDZI: kolumny prosto z bazy -
-// nullable, bez maxLength z szerokosci kolumny i BEZ "required" (odpowiedz jest
-// czesciowa). Kontrakt zapisu (@Schema, SCHEMAS wyzej) zostaje przy getSchema.
+// What the ORM's ModelSchemaProvider returns for a RESPONSE: columns straight from the
+// database - nullable, no maxLength copied from the column width, and NO "required" (a
+// response is partial). The write contract (@Schema, SCHEMAS above) stays on getSchema.
 const RESPONSE_SCHEMAS: Record<string, any> = {
   TestUser: {
     type: 'object',
@@ -154,11 +154,11 @@ describe('Swagger schema generation', function () {
   });
 });
 
-// Model ORM ma DWA kontrakty: @Schema opisuje co wolno WYSLAC, a kolumny z bazy
-// opisuja co API ODDAJE. Do tej pory komponent budowal sie zawsze z @Schema, wiec
-// odpowiedzi dokumentowaly kontrakt zapisu - brak nullable, brak kolumn generowanych
-// przez baze, maxLength z szerokosci kolumny i wymagane pola, ktorych w odpowiedzi
-// nie ma. Sciezka odpowiedzi pyta wiec najpierw o getResponseSchema.
+// An ORM model carries TWO contracts: @Schema describes what may be SENT, while the
+// database columns describe what the API HANDS BACK. Until now the component was always
+// built from @Schema, so responses documented the write contract - no nullable, none of the
+// database-generated columns, maxLength copied from the column width, and required fields
+// that a response does not contain. So the response path asks for getResponseSchema first.
 describe('Swagger schema generation - response vs request flavour', function () {
   let builder: any;
 
@@ -176,9 +176,9 @@ describe('Swagger schema generation - response vs request flavour', function () 
 
     const user = schemas().TestUser;
     expect(user.properties.nick).to.deep.equal({ type: 'string', nullable: true });
-    // kolumny, ktorych kontrakt zapisu w ogole nie zna
+    // columns the write contract knows nothing about
     expect(user.properties).to.have.property('created_at');
-    // odpowiedz jest czesciowa - zaden komponent odpowiedzi nie ma "required"
+    // a response is partial - no response component carries "required"
     expect(user).to.not.have.property('required');
   });
 
@@ -189,7 +189,7 @@ describe('Swagger schema generation - response vs request flavour', function () 
     expect(post.properties.Author).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
     expect(post).to.not.have.property('required');
 
-    // cykl post → user → post konczy sie $ref-em, nie petla
+    // the post → user → post cycle ends in a $ref, not in a loop
     expect(schemas().TestUser.properties.Posts.items).to.deep.equal({ $ref: '#/components/schemas/TestPost' });
   });
 
@@ -256,7 +256,7 @@ describe('Swagger schema generation - response vs request flavour', function () 
   });
 
   it('buildResponses asks for the response flavour', () => {
-    const responses = builder.buildResponses({ returns: { type: 'TestUser', description: 'Uzytkownik' } });
+    const responses = builder.buildResponses({ returns: { type: 'TestUser', description: 'User' } });
 
     expect(responses['200'].content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
     expect(schemas().TestUser).to.not.have.property('required');

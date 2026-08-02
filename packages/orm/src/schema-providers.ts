@@ -24,26 +24,26 @@ export class ModelSchemaProvider extends SchemaProvider {
   }
 
   /**
-   * Ten sam zestaw kolumn co `getSchema`, ale BEZ `required`, bez kolumn z `_hidden` i z
-   * typami, ktore naprawde wracaja z tego sterownika (`descriptor.ResponseSchema`).
+   * The same set of columns as `getSchema`, but WITHOUT `required`, without the `_hidden`
+   * columns, and with the types this driver really returns (`descriptor.ResponseSchema`).
    *
-   * Odpowiedz jest z natury czesciowa: `dehydrateWithRelations({ skipUndefined: true })`
-   * wyrzuca pola, ktorych zapytanie nie zaciagnelo, a `include` decyduje ktore relacje w
-   * ogole sie pojawia. Lista wymaganych kolumn opisuje INSERT, nie to co leci do klienta -
-   * wystawiona w odpowiedzi wywala walidacje na pierwszym wierszu bez np. hasla czy relacji.
+   * A response is partial by nature: `dehydrateWithRelations({ skipUndefined: true })` drops
+   * fields the query did not load, and `include` decides which relations show up at all. The
+   * list of required columns describes an INSERT, not what goes out to the client - published
+   * on a response it breaks validation on the first row that has no password or no relation.
    *
-   * @param typeName - nazwa klasy modelu
+   * @param typeName - the model class name
    */
   public getResponseSchema(typeName: string): Record<string, unknown> | undefined {
     return this.buildSchema(typeName, false);
   }
 
   /**
-   * Kolumny modelu + relacje jako wlasciwosci. `includeRequired` rozroznia kontrakt
-   * zapisu (getSchema) od odczytu (getResponseSchema).
+   * The model's columns plus its relations as properties. `includeRequired` distinguishes
+   * the write contract (getSchema) from the read one (getResponseSchema).
    *
-   * @param typeName - nazwa klasy modelu
-   * @param includeRequired - czy dolaczyc liste kolumn wymaganych (kontrakt zapisu)
+   * @param typeName - the model class name
+   * @param includeRequired - whether to include the list of required columns (write contract)
    */
   protected buildSchema(typeName: string, includeRequired: boolean): Record<string, unknown> | undefined {
     const model = this.Models.get(typeName);
@@ -80,12 +80,13 @@ export class ModelSchemaProvider extends SchemaProvider {
   }
 
   /**
-   * Schemat odczytu z deskryptora. Buduje go `Orm.reloadTableInfo` razem z `Schema`; gdy go
-   * nie ma (model nigdy nie dostal polaczenia, albo deskryptor zlozony recznie w tescie),
-   * schodzimy na `Schema` i usuwamy z niego to, czego odpowiedz i tak nigdy nie niesie -
-   * kolumny z `_hidden`. Lepiej opisac odczyt kontraktem zapisu niz nie opisac go wcale.
+   * The read schema off the descriptor. `Orm.reloadTableInfo` builds it alongside `Schema`;
+   * when it is absent (the model never got a connection, or the descriptor was assembled by
+   * hand in a test) we fall back to `Schema` and strip from it what a response never carries
+   * anyway - the `_hidden` columns. Describing a read with the write contract beats not
+   * describing it at all.
    *
-   * @param descriptor - deskryptor modelu
+   * @param descriptor - the model descriptor
    */
   protected responseColumns(descriptor: IModelDescriptor | undefined): { properties?: Record<string, unknown>; required?: string[] } | undefined {
     const response = descriptor?.ResponseSchema;

@@ -87,10 +87,10 @@ describe('ModelSchemaProvider', function () {
     expect(provider.getSchema('NoSuchType')).to.equal(undefined);
   });
 
-  // getSchema opisuje ZAPIS (co wolno wyslac), getResponseSchema ODCZYT (co API zwraca).
-  // Odpowiedz jest z natury czesciowa: dehydrateWithRelations({ skipUndefined: true })
-  // pomija niezaladowane pola, a `include` decyduje ktore relacje w ogole sie pojawia -
-  // wiec zadna kolumna nie moze byc "required".
+  // getSchema describes the WRITE side (what may be sent), getResponseSchema the READ side
+  // (what the API returns). A response is partial by nature: dehydrateWithRelations({
+  // skipUndefined: true }) omits fields that were never loaded, and `include` decides which
+  // relations show up at all - so no column can be "required".
   describe('getResponseSchema', () => {
     it('drops "required" - a response never promises every column', () => {
       const user = provider.getResponseSchema('TestUser') as any;

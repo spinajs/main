@@ -44,15 +44,16 @@ export class MySqlOrmDriver extends SqlDriver {
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
   /**
-   * DECIMAL/NUMERIC wraca z mysql2 jako STRING, nie number: parsuje je przez
-   * readLengthCodedString dopoki `decimalNumbers` nie jest wlaczone (patrz connect() nizej -
-   * domyslnie nie jest i wlaczac nie warto, powyzej 2^53 tracimy dokladnosc, ktora DECIMAL
-   * ma wlasnie chronic). Zaden konwerter po drodze tego nie zmienia, wiec schemat ODPOWIEDZI
-   * musi mowic to samo co runtime, inaczej walidacja u klienta wywala sie na kazdym wierszu.
+   * DECIMAL/NUMERIC comes back from mysql2 as a STRING, not a number: it parses them with
+   * readLengthCodedString unless `decimalNumbers` is on ( see connect() below - it is off by
+   * default and turning it on is a bad idea, because above 2^53 we lose exactly the precision
+   * DECIMAL exists to protect ). No converter along the way changes that, so the RESPONSE
+   * schema has to say the same thing as the runtime, or client-side validation fails on every
+   * single row.
    *
-   * Deklarowane tutaj, a nie we wspolnej mapie @spinajs/orm, bo to fakt o TYM sterowniku:
-   * tedious i sqlite oddaja DECIMAL jako number. Dotyczy wylacznie odczytu - w zadaniu
-   * (`@Body()`) DECIMAL zostaje numerem, jak bylo.
+   * Declared here rather than in the shared @spinajs/orm map, because it is a fact about THIS
+   * driver: tedious and sqlite hand DECIMAL back as a number. It applies to reads only - on
+   * the request side ( `@Body()` ) DECIMAL stays a number, as it always was.
    */
   public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {
     decimal: { type: 'string' },
@@ -280,11 +281,11 @@ export class MySqlOrmDriver extends SqlDriver {
           maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
           idleTimeout: pool.IdleTimeout,
           queueLimit: 0,
-          // `decimalNumbers` zostaje WYLACZONE (domyslka mysql2): DECIMAL/NEWDECIMAL wraca
-          // jako string, bo powyzej 2^53 float gubi dokladnosc, ktorej DECIMAL wlasnie ma
-          // pilnowac. Kto to wlaczy, musi zmienic tez `ResponseSchemaTypes` na gorze tej
-          // klasy - inaczej OpenAPI zacznie klamac o typie i walidacja odpowiedzi u klienta
-          // poleci na kazdym wierszu.
+          // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
+          // a string, because above 2^53 a float loses exactly the precision DECIMAL is
+          // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
+          // top of this class - otherwise OpenAPI starts lying about the type and client-side
+          // response validation fails on every row.
         });
 
         // Test the pool connection
