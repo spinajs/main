@@ -13,10 +13,13 @@ declare module '@spinajs/orm' {
      *
      * Add filter to query
      *
+     * Passing no filters (undefined / null / empty array) is a no-op, so routes
+     * with an optional filter param can call this unconditionally.
+     *
      * @param filter
      * @param logicalOperator
      */
-    filter(filter: IFilter[], logicalOperator?: FilterableLogicalOperators, filters?: IColumnFilter<unknown>[]): this;
+    filter(filter?: IFilter[] | null, logicalOperator?: FilterableLogicalOperators, filters?: IColumnFilter<unknown>[]): this;
   }
 
   namespace ModelBase {
@@ -36,6 +39,6 @@ declare module '@spinajs/orm' {
      *
      * @param filterRequest
      */
-    export function filter<T extends ModelBase<unknown>>(filterRequest: IFilterRequest): Promise<Array<T>>;
+    export function filter<T extends ModelBase<unknown>>(filterRequest?: IFilterRequest): Promise<Array<T>>;
   }
 }
