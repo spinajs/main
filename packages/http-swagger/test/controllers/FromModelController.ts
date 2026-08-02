@@ -100,6 +100,18 @@ export class FromModelController extends BaseController {
   }
 
   /**
+   * Underscore-prefixed @Param() next to a @FromModel() whose argument name matches
+   * NO placeholder. The @Param() only claims `room` through the underscore alias, so
+   * a claim pass that compares argument names verbatim leaves `room` free, hands it to
+   * the @FromModel(), and then the alias renames `_room` to `room` as well - two path
+   * parameters called `room` and no `seat` at all.
+   */
+  @Get('rooms/:room/seats/:seat')
+  public async getRoomSeat(@Param() _room: number, @FromModel() item: FromModelTicket) {
+    return new Ok({ item });
+  }
+
+  /**
    * paramField names the placeholder the value is read from at runtime.
    */
   @Del('tickets/:ticket')

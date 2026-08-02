@@ -196,23 +196,56 @@ describe('Swagger schema generation - response vs request flavour', function () 
   it('request flavour is untouched - still the @Schema write contract', () => {
     builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
 
-    const user = schemas().TestUser;
+    // the two contracts differ, so the write half lives under TestUserRequest
+    const user = schemas().TestUserRequest;
     expect(user.required).to.include('email');
     expect(user.properties).to.not.have.property('created_at');
   });
 
   it('default flavour (no argument) stays "request"', () => {
     builder.expandNamedSchemas({ type: 'object', description: 'TestUser' });
-    expect(schemas().TestUser.required).to.include('email');
+    expect(schemas().TestUserRequest.required).to.include('email');
   });
 
   it('a type used both ways gets two components, never one overwriting the other', () => {
     builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
     const out = builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'response');
 
-    expect(out).to.deep.equal({ $ref: '#/components/schemas/TestUserResponse' });
-    expect(schemas().TestUser.required).to.include('email');
-    expect(schemas().TestUserResponse).to.not.have.property('required');
+    expect(out).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
+    expect(schemas().TestUserRequest.required).to.include('email');
+    expect(schemas().TestUser).to.not.have.property('required');
+  });
+
+  /**
+   * Which flavour keeps the plain `<Name>` must be a property of the FLAVOUR, not of who
+   * got there first: controllers are discovered in filesystem order, so a first-arrival rule
+   * let an unrelated new controller rename `TestUser` to `TestUserRequest` in every generated
+   * client, with nothing in the diff pointing at it.
+   */
+  it('names components by flavour, not by which one the traversal reached first', () => {
+    const requestFirst = new OpenApiBuilder({ title: 'Test', version: '1.0.0' } as any) as any;
+    requestFirst.SchemaProviders = [new FakeModelSchemaProvider()];
+    requestFirst.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
+    requestFirst.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'response');
+
+    const responseFirst = new OpenApiBuilder({ title: 'Test', version: '1.0.0' } as any) as any;
+    responseFirst.SchemaProviders = [new FakeModelSchemaProvider()];
+    responseFirst.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'response');
+    responseFirst.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
+
+    const names = (b: any) => Object.keys(b.document.components?.schemas ?? {}).sort();
+
+    expect(names(requestFirst), 'component names changed with traversal order').to.deep.equal(names(responseFirst));
+    // and the response is the half that keeps the plain name
+    expect(requestFirst.document.components.schemas.TestUser).to.not.have.property('required');
+    expect(requestFirst.document.components.schemas.TestUserRequest.required).to.include('email');
+  });
+
+  it('a type whose flavours agree stays one component under its plain name', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestPaginationDto' }, 'request');
+    builder.expandNamedSchemas({ type: 'object', description: 'TestPaginationDto' }, 'response');
+
+    expect(Object.keys(schemas())).to.deep.equal(['TestPaginationDto']);
   });
 
   it('DTO without a response flavour falls back to getSchema, exactly as before', () => {
@@ -234,7 +267,9 @@ describe('Swagger schema generation - response vs request flavour', function () 
     class TestUser {}
     const body = builder.buildRequestBody([{ param: { Name: 'model', Type: 'FromBody', Index: 0, RuntimeType: TestUser } }], {} as any);
 
-    expect(body.content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
-    expect(schemas().TestUser.required).to.include('email');
+    // TestUser reads and writes differently, so the write half is TestUserRequest - and it is
+    // that name whether or not any response has been built yet.
+    expect(body.content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUserRequest' });
+    expect(schemas().TestUserRequest.required).to.include('email');
   });
 });

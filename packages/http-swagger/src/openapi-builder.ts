@@ -159,8 +159,8 @@ export class OpenApiBuilder {
   private tags: Map<string, IOpenApiTag> = new Map();
   private registeredResponses: Set<string> = new Set();
   private registeredComponents: Set<string> = new Set();
-  /** Which flavour claimed each type name first, and the schema it claimed it with. */
-  private componentClaims: Map<string, { kind: SchemaKind; schema: string | undefined }> = new Map();
+  /** Per type name: whether its two flavours differ and therefore need two components. */
+  private componentClaims: Map<string, { split: boolean }> = new Map();
   private errorSchemaRegistered = false;
   private registeredPolicies: Set<string> = new Set();
   private policySectionEntries: string[] = [];
@@ -460,11 +460,24 @@ export class OpenApiBuilder {
 
     // Extract path param names from the Express route path as fallback when param.Name is not set
     const pathParamNames = (route.Path || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
-    let pathParamIndex = 0;
 
     // orm-http's @FromModel carries the TS argument name, not the URL placeholder —
     // resolved up front (see resolveFromDbModelPathNames), keyed by param index.
     const fromDbModelPathNames = this.resolveFromDbModelPathNames(route, pathParamNames);
+
+    // Placeholders that already belong to somebody: matched by name, matched through the
+    // underscore alias, or handed to an @FromModel above. Walking pathParamNames by a bare
+    // index instead started at 0 no matter what the passes above had taken, so a nameless
+    // path parameter could be handed a placeholder another argument was already emitting.
+    const takenPathNames = this.claimedPathPlaceholders(route, pathParamNames);
+    fromDbModelPathNames.forEach((name) => takenPathNames.add(name));
+    const nextFreePathName = () => {
+      const free = pathParamNames.find((n) => !takenPathNames.has(n));
+      if (free) {
+        takenPathNames.add(free);
+      }
+      return free;
+    };
 
     // Process route parameters
     for (const [, param] of route.Parameters) {
@@ -489,7 +502,7 @@ export class OpenApiBuilder {
       const resolvedName =
         fromDbModelPathNames.get(param.Index) ??
         (isPathParam ? underscorePlaceholderAlias(param.Name, pathParamNames) : undefined) ??
-        (param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined));
+        (param.Name || (isPathParam ? nextFreePathName() : undefined));
       if (isPathParam && resolvedName && !param.Name) {
         param.Name = resolvedName;
       }
@@ -721,11 +734,12 @@ export class OpenApiBuilder {
    *      and that binding must survive regardless of where in the path it sits,
    *   3. otherwise the first placeholder not already claimed, in argument order.
    *
-   * A placeholder is "claimed" by any parameter that already matched it by name
-   * (`@Param() id` → `:id`, and the two exact matches above), so no @FromModel steals
-   * someone else's slot. When nothing is left — e.g. the placeholder lives in @BasePath,
-   * which route.Path does not see — the parameter keeps its current name: leaving the
-   * doc as it was beats renaming it to another parameter's placeholder.
+   * A placeholder is "claimed" by any parameter that already matched it (`@Param() id` →
+   * `:id`, `@Param() _id` → `:id` through the underscore alias, and the two exact matches
+   * above), so no @FromModel steals someone else's slot. When nothing is left — e.g. the
+   * placeholder lives in @BasePath, which route.Path does not see — the parameter keeps its
+   * current name: leaving the doc as it was beats renaming it to another parameter's
+   * placeholder.
    */
   private resolveFromDbModelPathNames(route: IRoute, pathParamNames: string[]): Map<number, string> {
     const resolved = new Map<number, string>();
@@ -736,7 +750,7 @@ export class OpenApiBuilder {
     // Parameter decorators are evaluated right-to-left, so route.Parameters is not
     // necessarily in argument order — sort by Index before matching positionally.
     const params = [...route.Parameters.values()].sort((a, b) => a.Index - b.Index);
-    const claimed = new Set<string>();
+    const claimed = this.claimedPathPlaceholders(route, pathParamNames);
     const fromDbModels: IRouteParameter[] = [];
 
     for (const param of params) {
@@ -744,15 +758,13 @@ export class OpenApiBuilder {
         continue;
       }
 
-      if (param.Type === 'FromDbModel') {
-        if (this.fromDbModelLocation(param) === 'path') {
-          fromDbModels.push(param);
-        }
-        continue;
-      }
-
-      if (PARAM_LOCATION_MAP[param.Type as string] === 'path' && param.Name && pathParamNames.includes(param.Name)) {
-        claimed.add(param.Name);
+      // Only a @FromModel that really READS req.params competes for a placeholder.
+      // fromDbModelLocation() answers 'path' for paramType=FromBody as well ( a body value
+      // is not an OpenAPI parameter, so the doc puts it where it is at least visible ) —
+      // but that parameter never touches the URL and must not consume a placeholder some
+      // other argument needs.
+      if (param.Type === 'FromDbModel' && this.readsPathParam(param)) {
+        fromDbModels.push(param);
       }
     }
 
@@ -782,6 +794,51 @@ export class OpenApiBuilder {
     }
 
     return resolved;
+  }
+
+  /**
+   * Placeholders already spoken for by a plain path parameter, by the exact name the
+   * document will emit for it.
+   *
+   * The emitted name is `param.Name` when that IS a placeholder, and otherwise the
+   * underscore alias (`_thread` → `:thread`, see underscorePlaceholderAlias). Reserving only
+   * the verbatim name left the alias target free: `@Get('rooms/:room/seats/:seat')` with
+   * `(@Param() _room, @FromModel() item)` handed `room` to the @FromModel as "the first free
+   * placeholder", and the alias then renamed `_room` to `room` as well — two `in: path`
+   * parameters named `room`, `seat` never documented, and a document OpenAPI 3.0 calls
+   * invalid ( `name` + `in` is a parameter's identity ).
+   *
+   * Shared with the positional fallback in buildOperation so both passes reserve the same
+   * set; they cannot drift apart into handing the same placeholder to two parameters.
+   */
+  private claimedPathPlaceholders(route: IRoute, pathParamNames: string[]): Set<string> {
+    const claimed = new Set<string>();
+
+    for (const [, param] of route.Parameters) {
+      if (INTERNAL_PARAMS.has(param.Type as string) || PARAM_LOCATION_MAP[param.Type as string] !== 'path') {
+        continue;
+      }
+
+      const claim = param.Name && pathParamNames.includes(param.Name) ? param.Name : underscorePlaceholderAlias(param.Name, pathParamNames);
+
+      if (claim) {
+        claimed.add(claim);
+      }
+    }
+
+    return claimed;
+  }
+
+  /**
+   * Whether an @FromModel parameter reads its key from the URL path.
+   *
+   * Mirrors orm-http's FromDbModel._extractValue: only an absent `paramType` ( the default )
+   * or an explicit FromParams reaches `req.params`. Query / body / header keys live somewhere
+   * else entirely and have no business claiming a URL placeholder.
+   */
+  private readsPathParam(param: IRouteParameter): boolean {
+    const paramType = (param.Options as { paramType?: string } | undefined)?.paramType;
+    return paramType === undefined || paramType === null || paramType === ParameterType.FromParams || (paramType as string) === 'FromParams';
   }
 
   /**
@@ -1290,25 +1347,43 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Component name for `name` in the given flavour. The first flavour to claim the name
-   * keeps it; the other one only gets a `…Request`/`…Response` suffix when its schema
-   * actually differs, so a type with a single contract stays a single component and the
-   * request half of the document never silently inherits a response schema (or vice versa).
+   * Component name for `name` in the given flavour.
+   *
+   * A type whose two flavours agree is ONE component called `<Name>`. When they differ the
+   * response keeps `<Name>` and the request becomes `<Name>Request` — always, whichever
+   * flavour the traversal happens to reach first. Letting the first arrival keep the base
+   * name made the suffix a function of controller-discovery ( filesystem ) order: adding or
+   * renaming an unrelated controller could flip `User` to `UserRequest` in every generated
+   * client, with nothing in the diff to explain it.
+   *
+   * The response is the half that keeps the plain name because it is the half most of a
+   * client's surface is built from — a list screen references the row type far more often
+   * than the write form does.
+   *
+   * Both flavours are resolved here, at the first encounter, precisely so the answer does not
+   * depend on which one asked. Providers are pure lookups, so asking twice costs nothing.
+   *
+   * @param name - type name to place in components
+   * @param kind - flavour being registered right now
+   * @param resolved - the schema already resolved for `kind`, reused instead of re-asking
    */
+
   private componentNameFor(name: string, kind: SchemaKind, resolved: Record<string, unknown>): string {
-    const serialized = this.schemaKey(resolved);
-    const claim = this.componentClaims.get(name);
+    let claim = this.componentClaims.get(name);
 
     if (!claim) {
-      this.componentClaims.set(name, { kind, schema: serialized });
-      return name;
+      const request = kind === 'request' ? resolved : this.resolveNamedSchema(name, 'request');
+      const response = kind === 'response' ? resolved : this.resolveNamedSchema(name, 'response');
+      const requestKey = request && this.schemaKey(request);
+      const responseKey = response && this.schemaKey(response);
+
+      // An unserializable schema counts as "differs": that costs one extra component but
+      // never merges two contracts into one.
+      claim = { split: !requestKey || !responseKey || requestKey !== responseKey };
+      this.componentClaims.set(name, claim);
     }
 
-    if (claim.kind === kind || (serialized !== undefined && claim.schema === serialized)) {
-      return name;
-    }
-
-    return `${name}${kind === 'response' ? 'Response' : 'Request'}`;
+    return claim.split && kind === 'request' ? `${name}Request` : name;
   }
 
   /**

@@ -24,11 +24,13 @@ export class ModelSchemaProvider extends SchemaProvider {
   }
 
   /**
-   * Ten sam zestaw kolumn co `getSchema`, ale BEZ `required`. Odpowiedz jest z natury
-   * czesciowa: `dehydrateWithRelations({ skipUndefined: true })` wyrzuca pola, ktorych
-   * zapytanie nie zaciagnelo, a `include` decyduje ktore relacje w ogole sie pojawia.
-   * Lista wymaganych kolumn opisuje INSERT, nie to co leci do klienta - wystawiona w
-   * odpowiedzi wywala walidacje na pierwszym wierszu bez np. hasla czy relacji.
+   * Ten sam zestaw kolumn co `getSchema`, ale BEZ `required`, bez kolumn z `_hidden` i z
+   * typami, ktore naprawde wracaja z tego sterownika (`descriptor.ResponseSchema`).
+   *
+   * Odpowiedz jest z natury czesciowa: `dehydrateWithRelations({ skipUndefined: true })`
+   * wyrzuca pola, ktorych zapytanie nie zaciagnelo, a `include` decyduje ktore relacje w
+   * ogole sie pojawia. Lista wymaganych kolumn opisuje INSERT, nie to co leci do klienta -
+   * wystawiona w odpowiedzi wywala walidacje na pierwszym wierszu bez np. hasla czy relacji.
    *
    * @param typeName - nazwa klasy modelu
    */
@@ -54,7 +56,7 @@ export class ModelSchemaProvider extends SchemaProvider {
      * to get proper descriptor from prototype chain
      */
     const descriptor = (model as any).getModelDescriptor() as IModelDescriptor | undefined;
-    const columns = descriptor?.Schema;
+    const columns = includeRequired ? descriptor?.Schema : this.responseColumns(descriptor);
     if (!columns || !columns.properties) {
       return undefined;
     }
@@ -75,5 +77,33 @@ export class ModelSchemaProvider extends SchemaProvider {
       schema.required = columns.required;
     }
     return schema;
+  }
+
+  /**
+   * Schemat odczytu z deskryptora. Buduje go `Orm.reloadTableInfo` razem z `Schema`; gdy go
+   * nie ma (model nigdy nie dostal polaczenia, albo deskryptor zlozony recznie w tescie),
+   * schodzimy na `Schema` i usuwamy z niego to, czego odpowiedz i tak nigdy nie niesie -
+   * kolumny z `_hidden`. Lepiej opisac odczyt kontraktem zapisu niz nie opisac go wcale.
+   *
+   * @param descriptor - deskryptor modelu
+   */
+  protected responseColumns(descriptor: IModelDescriptor | undefined): { properties?: Record<string, unknown>; required?: string[] } | undefined {
+    const response = descriptor?.ResponseSchema;
+    if (response?.properties) {
+      return response;
+    }
+
+    const write = descriptor?.Schema;
+    if (!write?.properties) {
+      return undefined;
+    }
+
+    const hidden = new Set(descriptor?.Hidden ?? []);
+    if (hidden.size === 0) {
+      return write;
+    }
+
+    const properties = Object.fromEntries(Object.entries(write.properties as Record<string, unknown>).filter(([name]) => !hidden.has(name)));
+    return { properties };
   }
 }

@@ -580,6 +580,23 @@ export interface IModelDescriptor {
    * Json schema for validation
    */
   Schema: any;
+
+  /**
+   * Json schema of what a SELECT of this model hands back: hidden columns removed, no
+   * `required`, driver-specific types applied. Built next to `Schema` at model load.
+   *
+   * Optional so that a descriptor assembled by hand ( tests, tooling ) still type-checks;
+   * absent means "not built yet" and readers fall back to `Schema`.
+   */
+  ResponseSchema?: any;
+
+  /**
+   * Property names the model never dehydrates ( its `_hidden` ), captured once at model
+   * load. `_hidden` is a class-property initializer, so it exists only on instances -
+   * recording it here keeps every later reader ( response schema, documentation ) from
+   * constructing a throwaway model just to ask.
+   */
+  Hidden?: string[];
 }
 
 export interface IDiscriminationMap {

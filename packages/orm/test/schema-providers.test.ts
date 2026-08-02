@@ -7,6 +7,8 @@ import { ModelSchemaProvider } from '../src/schema-providers.js';
 class TestUser {}
 class TestTag {}
 class TestPost {}
+class TestSecret {}
+class TestLegacySecret {}
 
 // The provider reads each model's descriptor through the static `getModelDescriptor()`
 // that ORM attaches to every model, so the fakes expose one directly.
@@ -36,9 +38,26 @@ describe('ModelSchemaProvider', function () {
       ]),
     });
 
+    // Model loaded through a live connection: Orm builds BOTH schemas, and the response one
+    // already has the hidden columns and `required` stripped ( see buildModelJsonSchema ).
+    defineDescriptor(TestSecret, {
+      Schema: { type: 'object', properties: { Id: { type: 'integer' }, Login: { type: 'string' }, Password: { type: 'string' } }, required: ['Login', 'Password'] },
+      ResponseSchema: { type: 'object', properties: { Login: { type: 'string' } } },
+      Hidden: ['Password', 'Id'],
+    });
+
+    // Same model as seen before it ever got a connection: no ResponseSchema was built, so the
+    // provider has to fall back to the write schema - without leaking what `_hidden` removes.
+    defineDescriptor(TestLegacySecret, {
+      Schema: { type: 'object', properties: { Id: { type: 'integer' }, Login: { type: 'string' }, Password: { type: 'string' } }, required: ['Login', 'Password'] },
+      Hidden: ['Password', 'Id'],
+    });
+
     DI.register(TestUser).as('__models__');
     DI.register(TestTag).as('__models__');
     DI.register(TestPost).as('__models__');
+    DI.register(TestSecret).as('__models__');
+    DI.register(TestLegacySecret).as('__models__');
 
     // resolve() builds the name → model map from the registered models above
     provider = new ModelSchemaProvider();
@@ -98,6 +117,33 @@ describe('ModelSchemaProvider', function () {
 
     it('returns undefined for names that are not registered models', () => {
       expect(provider.getResponseSchema('NoSuchType')).to.equal(undefined);
+    });
+
+    /**
+     * `dehydrate()` / `dehydrateWithRelations()` omit `_hidden` unconditionally, so those
+     * columns CANNOT appear in a response - rbac's User hides `Password` and `Id`. The
+     * column-derived schema advertised them anyway, which both described fields that are
+     * never there and published a `Password` property on a public response schema.
+     */
+    it('never advertises a column the model hides from every dehydration', () => {
+      const secret = provider.getResponseSchema('TestSecret') as any;
+
+      expect(Object.keys(secret.properties), 'a _hidden column leaked into the response schema').to.deep.equal(['Login']);
+      expect(secret.properties, 'Password must never appear on a response schema').to.not.have.property('Password');
+    });
+
+    it('strips hidden columns even when the model never got a ResponseSchema built', () => {
+      const legacy = provider.getResponseSchema('TestLegacySecret') as any;
+
+      expect(Object.keys(legacy.properties)).to.deep.equal(['Login']);
+      expect(legacy).to.not.have.property('required');
+    });
+
+    it('leaves the write contract alone - a hidden column is still writable', () => {
+      const write = provider.getSchema('TestSecret') as any;
+
+      expect(Object.keys(write.properties)).to.have.members(['Id', 'Login', 'Password']);
+      expect(write.required).to.include('Password');
     });
   });
 });

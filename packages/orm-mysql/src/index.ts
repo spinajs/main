@@ -43,6 +43,23 @@ export class MySqlOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  /**
+   * DECIMAL/NUMERIC wraca z mysql2 jako STRING, nie number: parsuje je przez
+   * readLengthCodedString dopoki `decimalNumbers` nie jest wlaczone (patrz connect() nizej -
+   * domyslnie nie jest i wlaczac nie warto, powyzej 2^53 tracimy dokladnosc, ktora DECIMAL
+   * ma wlasnie chronic). Zaden konwerter po drodze tego nie zmienia, wiec schemat ODPOWIEDZI
+   * musi mowic to samo co runtime, inaczej walidacja u klienta wywala sie na kazdym wierszu.
+   *
+   * Deklarowane tutaj, a nie we wspolnej mapie @spinajs/orm, bo to fakt o TYM sterowniku:
+   * tedious i sqlite oddaja DECIMAL jako number. Dotyczy wylacznie odczytu - w zadaniu
+   * (`@Body()`) DECIMAL zostaje numerem, jak bylo.
+   */
+  public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {
+    decimal: { type: 'string' },
+    newdecimal: { type: 'string' },
+    numeric: { type: 'string' },
+  };
+
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
     // where the statement provably never reached the server.
@@ -265,9 +282,9 @@ export class MySqlOrmDriver extends SqlDriver {
           queueLimit: 0,
           // `decimalNumbers` zostaje WYLACZONE (domyslka mysql2): DECIMAL/NEWDECIMAL wraca
           // jako string, bo powyzej 2^53 float gubi dokladnosc, ktorej DECIMAL wlasnie ma
-          // pilnowac. Kto to wlaczy, musi zmienic tez mape typow w @spinajs/orm
-          // (packages/orm/src/schema.ts, ColumnType.DECIMAL) - inaczej OpenAPI zacznie
-          // klamac o typie i walidacja odpowiedzi u klienta poleci na kazdym wierszu.
+          // pilnowac. Kto to wlaczy, musi zmienic tez `ResponseSchemaTypes` na gorze tej
+          // klasy - inaczej OpenAPI zacznie klamac o typie i walidacja odpowiedzi u klienta
+          // poleci na kazdym wierszu.
         });
 
         // Test the pool connection
