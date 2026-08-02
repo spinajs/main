@@ -1262,11 +1262,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return relInstance!;
   }
 
+  // A nullish relation is a no-op, so routes with an optional `include` param
+  // can pass it straight through.
   public populate<R = this>(relation: Constructor<ModelBase>): this;
-  public populate<R = this>(relation: string[]): this;
-  public populate<R = this>(relation: string): this;
+  public populate<R = this>(relation?: string | string[] | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  public populate<R = this>(relation: string | string[] | Constructor<ModelBase>, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+  public populate<R = this>(relation?: string | string[] | Constructor<ModelBase> | {} | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
 
     if (!relation) {
       return this;
@@ -1311,7 +1312,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this;
     }
 
-    this._getRelationInstance(relation).execute(callback);
+    // Everything that is not a string was handled above (constructor / array /
+    // object), so the remaining value is a plain relation name.
+    this._getRelationInstance(relation as string).execute(callback);
 
     return this;
   }

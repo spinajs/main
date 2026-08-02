@@ -3,7 +3,9 @@ import { FilterableOperators, IColumnFilter } from './interfaces.js';
 import { Constructor, isConstructor } from '@spinajs/di';
 import { Parameter, Route } from '@spinajs/http';
 
-export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase>, queryFunc?: (operator: FilterableOperators, value: any) => WhereFunction<unknown>, isAggregate?: boolean) {
+// `queryFunc` accepts null so that a column can opt out of a custom query while still
+// setting the trailing `isAggregate` flag.
+export function Filterable(operatorsOrClass: FilterableOperators[] | Constructor<ModelBase>, queryFunc?: ((operator: FilterableOperators, value: any) => WhereFunction<unknown>) | null, isAggregate?: boolean) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
     if (model.FilterableColumns === undefined) {
       model.FilterableColumns = new Map<string, IColumnFilter<unknown>>();
