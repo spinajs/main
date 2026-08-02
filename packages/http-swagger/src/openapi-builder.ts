@@ -427,6 +427,10 @@ export class OpenApiBuilder {
     const pathParamNames = (route.Path || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
     let pathParamIndex = 0;
 
+    // orm-http's @FromModel carries the TS argument name, not the URL placeholder —
+    // resolved up front (see resolveFromDbModelPathNames), keyed by param index.
+    const fromDbModelPathNames = this.resolveFromDbModelPathNames(route, pathParamNames);
+
     // Process route parameters
     for (const [, param] of route.Parameters) {
       if (INTERNAL_PARAMS.has(param.Type as string)) {
@@ -447,12 +451,14 @@ export class OpenApiBuilder {
       }
 
       const isPathParam = location === 'path';
-      const resolvedName = param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined);
+      const resolvedName = fromDbModelPathNames.get(param.Index) ?? (param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined));
       if (isPathParam && resolvedName && !param.Name) {
         param.Name = resolvedName;
       }
 
-      const paramDoc = methodDoc?.params?.[resolvedName ?? param.Name];
+      // JSDoc is written against the argument name, so it stays keyed by param.Name
+      // even when the emitted name is a placeholder taken from the path.
+      const paramDoc = methodDoc?.params?.[param.Name] ?? methodDoc?.params?.[resolvedName ?? param.Name];
 
       if (BODY_PARAMS.has(param.Type as string)) {
         bodyParams.push({ param, doc: paramDoc });
@@ -660,6 +666,169 @@ export class OpenApiBuilder {
   }
 
   /**
+   * Pick the URL placeholder each path-bound @FromModel (Type='FromDbModel') parameter
+   * stands for. Returns a map keyed by parameter index; params not present keep the
+   * name they had.
+   *
+   * `param.Name` for @FromModel is the TypeScript ARGUMENT name (`slide`), never the
+   * placeholder from the path (`:id`) — @spinajs/http fills Name from the parsed method
+   * signature. Emitting it produces a path parameter that the URL template does not
+   * contain, and every OpenAPI client generator then builds code for a parameter that
+   * does not exist. For location='path' the placeholder therefore wins over Name:
+   *
+   *   1. `Options.paramField` when it names a real placeholder — that is the field
+   *      FromDbModel.extract() reads from req.params, so the doc matches the runtime,
+   *   2. `param.Name` when it names a real placeholder — the usual convention is to call
+   *      the argument after the placeholder (`@Put(':campaign') (@FromModel() campaign)`),
+   *      and that binding must survive regardless of where in the path it sits,
+   *   3. otherwise the first placeholder not already claimed, in argument order.
+   *
+   * A placeholder is "claimed" by any parameter that already matched it by name
+   * (`@Param() id` → `:id`, and the two exact matches above), so no @FromModel steals
+   * someone else's slot. When nothing is left — e.g. the placeholder lives in @BasePath,
+   * which route.Path does not see — the parameter keeps its current name: leaving the
+   * doc as it was beats renaming it to another parameter's placeholder.
+   */
+  private resolveFromDbModelPathNames(route: IRoute, pathParamNames: string[]): Map<number, string> {
+    const resolved = new Map<number, string>();
+    if (pathParamNames.length === 0) {
+      return resolved;
+    }
+
+    // Parameter decorators are evaluated right-to-left, so route.Parameters is not
+    // necessarily in argument order — sort by Index before matching positionally.
+    const params = [...route.Parameters.values()].sort((a, b) => a.Index - b.Index);
+    const claimed = new Set<string>();
+    const fromDbModels: IRouteParameter[] = [];
+
+    for (const param of params) {
+      if (INTERNAL_PARAMS.has(param.Type as string)) {
+        continue;
+      }
+
+      if (param.Type === 'FromDbModel') {
+        if (this.fromDbModelLocation(param) === 'path') {
+          fromDbModels.push(param);
+        }
+        continue;
+      }
+
+      if (PARAM_LOCATION_MAP[param.Type as string] === 'path' && param.Name && pathParamNames.includes(param.Name)) {
+        claimed.add(param.Name);
+      }
+    }
+
+    // Exact matches first — a positional pass must never consume a placeholder that
+    // another @FromModel names outright, whatever order the arguments are in.
+    const positional: IRouteParameter[] = [];
+    for (const param of fromDbModels) {
+      const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
+      const exact = [paramField, param.Name].find((n) => n && pathParamNames.includes(n) && !claimed.has(n));
+
+      if (exact) {
+        claimed.add(exact);
+        resolved.set(param.Index, exact);
+      } else {
+        positional.push(param);
+      }
+    }
+
+    for (const param of positional) {
+      const name = pathParamNames.find((n) => !claimed.has(n));
+      if (!name) {
+        continue;
+      }
+
+      claimed.add(name);
+      resolved.set(param.Index, name);
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Schema for the value an @FromModel parameter actually carries: the key the model
+   * is looked up by, never the model itself. The runtime picks that column the same
+   * way (FromDbModel.fromDbModelDefaultQueryFunction): `Options.queryField` if given,
+   * otherwise the model's primary key.
+   *
+   * The descriptor is read through the global `Symbol.for('MODEL_DESCRIPTOR')` so this
+   * package keeps no @spinajs/orm dependency (same trick as extractFilterableColumns).
+   * `PrimaryKey` is filled only by the @Primary decorator, so legacy models without it
+   * fall back to the column the driver introspected as primary.
+   */
+  private fromDbModelKeySchema(param: IRouteParameter): IOpenApiSchema {
+    const modelCtor = param.RuntimeType;
+    const descriptor =
+      typeof modelCtor === 'function'
+        ? (Reflect.getMetadata(Symbol.for('MODEL_DESCRIPTOR'), modelCtor) as
+            | { Name?: string; PrimaryKey?: string[] | string; Columns?: { Name: string; Type?: string; PrimaryKey?: boolean }[] }
+            | undefined)
+        : undefined;
+
+    const columns = Array.isArray(descriptor?.Columns) ? descriptor!.Columns! : [];
+    const primaryKey = descriptor?.PrimaryKey;
+    const declaredKey = Array.isArray(primaryKey) ? primaryKey[0] : primaryKey || undefined;
+    const keyName = (param.Options as { queryField?: string } | undefined)?.queryField ?? declaredKey ?? columns.find((c) => c.PrimaryKey)?.Name;
+
+    const modelName = descriptor?.Name || (typeof modelCtor === 'function' ? (modelCtor as { name?: string }).name : undefined);
+    const column = keyName ? columns.find((c) => c.Name === keyName) : undefined;
+
+    // No descriptor at all (model metadata not loaded) still beats `type: object` —
+    // whatever the key is, it travels as a single scalar in the URL or query string.
+    const schema = this.schemaFromDbColumnType(column?.Type);
+
+    return {
+      ...schema,
+      description: modelName && keyName ? `${modelName}.${keyName}` : modelName ? `${modelName} key` : undefined,
+    };
+  }
+
+  /**
+   * Map a database column type (driver's DATA_TYPE) to an OpenAPI primitive.
+   * Unknown types fall back to string — the value travels as a URL segment anyway.
+   */
+  private schemaFromDbColumnType(type: string | undefined): IOpenApiSchema {
+    const normalized = (type ?? '')
+      .toLowerCase()
+      .replace(/\(.*$/, '')
+      .replace(/\s+unsigned$/, '')
+      .trim();
+
+    switch (normalized) {
+      case 'tinyint':
+      case 'smallint':
+      case 'mediumint':
+      case 'int':
+      case 'integer':
+      case 'year':
+        return { type: 'integer' };
+      case 'bigint':
+        return { type: 'integer', format: 'int64' };
+      case 'float':
+      case 'double':
+      case 'real':
+        return { type: 'number' };
+      case 'bool':
+      case 'boolean':
+      case 'bit':
+        return { type: 'boolean' };
+      // DECIMAL/NUMERIC come back from the driver as strings (precision is not
+      // survivable as a JS number), so the doc must say string as well.
+      case 'decimal':
+      case 'numeric':
+        return { type: 'string' };
+      case 'date':
+        return { type: 'string', format: 'date' };
+      case 'datetime':
+      case 'timestamp':
+        return { type: 'string', format: 'date-time' };
+      default:
+        return { type: 'string' };
+    }
+  }
+
+  /**
    * Build an OpenAPI parameter from route parameter info.
    */
   private buildParameter(
@@ -702,6 +871,13 @@ export class OpenApiBuilder {
     // orm-http @Filter — describe the JSON filter envelope so API consumers know what to send.
     if (param.Type === 'FilterModelRouteArg') {
       return this.buildFilterSchema(param);
+    }
+
+    // orm-http @FromModel — the request carries the key the model is loaded by, not the
+    // model. The model's own schema describes a write body and would document this
+    // parameter as an object, which no URL segment can be.
+    if (param.Type === 'FromDbModel') {
+      return this.fromDbModelKeySchema(param);
     }
 
     if (param.Schema && typeof param.Schema === 'object') {
