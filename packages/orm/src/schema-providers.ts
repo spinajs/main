@@ -61,10 +61,18 @@ export class ModelSchemaProvider extends SchemaProvider {
       return undefined;
     }
 
+    // `@Hidden()` marks properties, not just columns - a hidden relation is dropped by
+    // `dehydrateWithRelations` exactly like a hidden column, so a read schema must not
+    // advertise it either. Columns are already filtered upstream (`buildModelJsonSchema`
+    // for `ResponseSchema`, `responseColumns` for the fallback); relations are added here,
+    // so they have to be filtered here. The write contract keeps them: a client may well
+    // send a relation the API never hands back.
+    const hiddenRelations = includeRequired ? new Set<string>() : new Set(descriptor?.Hidden ?? []);
+
     const properties: Record<string, unknown> = { ...columns.properties };
     descriptor?.Relations?.forEach((relation, relationName) => {
       const target = relation?.TargetModel?.name;
-      if (!target) {
+      if (!target || hiddenRelations.has(relationName)) {
         return;
       }
       const ref = { type: 'object', description: target };

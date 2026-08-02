@@ -43,7 +43,13 @@ describe('ModelSchemaProvider', function () {
     defineDescriptor(TestSecret, {
       Schema: { type: 'object', properties: { Id: { type: 'integer' }, Login: { type: 'string' }, Password: { type: 'string' } }, required: ['Login', 'Password'] },
       ResponseSchema: { type: 'object', properties: { Login: { type: 'string' } } },
-      Hidden: ['Password', 'Id'],
+      // `Owner` is a hidden RELATION, `Visible` an ordinary one - rbac's UserMetadata hides
+      // its `User` relation exactly like this.
+      Relations: new Map([
+        ['Owner', { Type: 0, TargetModel: { name: 'TestUser' } }],
+        ['Visible', { Type: 0, TargetModel: { name: 'TestTag' } }],
+      ]),
+      Hidden: ['Password', 'Id', 'Owner'],
     });
 
     // Same model as seen before it ever got a connection: no ResponseSchema was built, so the
@@ -128,8 +134,29 @@ describe('ModelSchemaProvider', function () {
     it('never advertises a column the model hides from every dehydration', () => {
       const secret = provider.getResponseSchema('TestSecret') as any;
 
-      expect(Object.keys(secret.properties), 'a hidden column leaked into the response schema').to.deep.equal(['Login']);
+      // `Visible` is the model's one non-hidden relation - the columns are exactly `Login`
+      expect(Object.keys(secret.properties), 'a hidden column leaked into the response schema').to.deep.equal(['Login', 'Visible']);
       expect(secret.properties, 'Password must never appear on a response schema').to.not.have.property('Password');
+      expect(secret.properties, 'the hidden primary key leaked into the response schema').to.not.have.property('Id');
+    });
+
+    /**
+     * `@Hidden()` marks a PROPERTY, and a relation is a property: `dehydrateWithRelations()`
+     * omits a hidden relation exactly like a hidden column. Columns are filtered while the
+     * column schema is built, but relations are appended afterwards by the provider - so
+     * without filtering them there too, a hidden relation stayed in the response schema.
+     */
+    it('never advertises a relation the model hides', () => {
+      const secret = provider.getResponseSchema('TestSecret') as any;
+
+      expect(secret.properties, 'a hidden relation leaked into the response schema').to.not.have.property('Owner');
+      // a relation nobody hid is still advertised, so the filter is targeted rather than total
+      expect(secret.properties, 'every relation was dropped, not just the hidden one').to.have.property('Visible');
+    });
+
+    it('keeps a hidden relation on the write contract', () => {
+      // hiding a relation from responses says nothing about whether a client may send it
+      expect((provider.getSchema('TestSecret') as any).properties).to.have.property('Owner');
     });
 
     it('strips hidden columns even when the model never got a ResponseSchema built', () => {
@@ -142,7 +169,8 @@ describe('ModelSchemaProvider', function () {
     it('leaves the write contract alone - a hidden column is still writable', () => {
       const write = provider.getSchema('TestSecret') as any;
 
-      expect(Object.keys(write.properties)).to.have.members(['Id', 'Login', 'Password']);
+      // relations are part of the write contract too, hidden or not - see the relation tests above
+      expect(Object.keys(write.properties)).to.have.members(['Id', 'Login', 'Password', 'Owner', 'Visible']);
       expect(write.required).to.include('Password');
     });
   });
