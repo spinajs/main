@@ -81,6 +81,25 @@ export class FromDbModel extends RouteArgs {
       case ParameterType.FromParams:
       default:
         pkValue = req.params[field];
+
+        /**
+         * A route argument does not have to be named after the URL placeholder.
+         * `@Get(':id') getSlide(@FromModel() slide: Slide)` leaves `param.Name`
+         * as the TypeScript argument ( `slide` ), while the key travels in
+         * `req.params.id` - so the lookup read undefined and the query ran with
+         * a null key. When the declared field is missing and the route carries
+         * exactly ONE placeholder, that placeholder is unambiguously the key.
+         *
+         * Deliberately narrow: with two or more placeholders there is nothing to
+         * disambiguate on, and guessing could silently load the WRONG row. Those
+         * routes must say which one they mean via `paramField`.
+         */
+        if (pkValue === undefined) {
+          const names = Object.keys(req.params ?? {});
+          if (names.length === 1) {
+            pkValue = req.params[names[0]];
+          }
+        }
         break;
     }
 

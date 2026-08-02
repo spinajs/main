@@ -23,4 +23,17 @@ export class Simple extends BaseController {
   public testWithParent(@FromModel() model: Test, @Param() _belongs: number) {
     return new Ok(model.dehydrateWithRelations());
   }
+
+  /**
+   * Placeholder ( :id ) that does NOT match the argument name ( model ).
+   *
+   * Every other route here happens to name the placeholder after the argument,
+   * which is why the lookup key never went missing in these tests - real apps
+   * write `@Get(':id') getSlide(@FromModel() slide)` and got `req.params['slide']`,
+   * i.e. undefined.
+   */
+  @Get('mismatch/:id')
+  public testNameMismatch(@FromModel() model: Test) {
+    return new Ok({ Text: model.Text });
+  }
 }

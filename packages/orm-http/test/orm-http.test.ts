@@ -127,7 +127,19 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].Text).to.equal('witaj');
     });
 
-    it('simple query with include', async () =>{ 
+    it('resolves the model when the placeholder does not match the argument name', async () => {
+      const spy = DI.get(Simple)!.testNameMismatch as sinon.SinonSpy;
+
+      await req().get('simple/mismatch/1').set('Accept', 'application/json');
+
+      // `@Get('mismatch/:id')` with `(@FromModel() model)` used to read
+      // req.params['model'] - undefined - and query the table with a null key.
+      expect(spy.args[0][0], 'no model was resolved for the :id placeholder').to.not.be.undefined;
+      expect(spy.args[0][0].constructor.name).to.eq('Test');
+      expect(spy.args[0][0].Text).to.equal('witaj');
+    });
+
+    it('simple query with include', async () =>{
 
       const spy = DI.get(Simple)!.testInclude as sinon.SinonSpy;
       
