@@ -90,7 +90,7 @@ describe('buildModelJsonSchema', () => {
   });
 
   /**
-   * `dehydrate()` / `dehydrateWithRelations()` unconditionally omit `_hidden`, so those
+   * `dehydrate()` / `dehydrateWithRelations()` unconditionally omit `@Hidden()` properties, so those
    * columns can never appear in a response - rbac's User hides `Password` and `Id`.
    * Advertising them made the spec describe fields the ORM guarantees are absent, and put
    * a `Password` property on a public response schema.

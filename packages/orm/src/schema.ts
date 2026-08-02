@@ -53,7 +53,7 @@ export type ModelSchemaKind = 'request' | 'response';
  * are omitted.
  *
  * The two flavours differ in three ways, all of them facts about what a response IS:
- *   - `descriptor.Hidden` ( a model's `_hidden` ) is dropped: `dehydrate()` and
+ *   - `descriptor.Hidden` ( the model's `@Hidden()` properties ) is dropped: `dehydrate()` and
  *     `dehydrateWithRelations()` omit those columns unconditionally, so no response can
  *     ever carry them - rbac's User hides `Password`,
  *   - the driver may override a type it returns differently from what it accepts,

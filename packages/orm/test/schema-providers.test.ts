@@ -47,7 +47,7 @@ describe('ModelSchemaProvider', function () {
     });
 
     // Same model as seen before it ever got a connection: no ResponseSchema was built, so the
-    // provider has to fall back to the write schema - without leaking what `_hidden` removes.
+    // provider has to fall back to the write schema - without leaking what `@Hidden()` removes.
     defineDescriptor(TestLegacySecret, {
       Schema: { type: 'object', properties: { Id: { type: 'integer' }, Login: { type: 'string' }, Password: { type: 'string' } }, required: ['Login', 'Password'] },
       Hidden: ['Password', 'Id'],
@@ -120,7 +120,7 @@ describe('ModelSchemaProvider', function () {
     });
 
     /**
-     * `dehydrate()` / `dehydrateWithRelations()` omit `_hidden` unconditionally, so those
+     * `dehydrate()` / `dehydrateWithRelations()` omit `@Hidden()` properties unconditionally, so those
      * columns CANNOT appear in a response - rbac's User hides `Password` and `Id`. The
      * column-derived schema advertised them anyway, which both described fields that are
      * never there and published a `Password` property on a public response schema.
@@ -128,7 +128,7 @@ describe('ModelSchemaProvider', function () {
     it('never advertises a column the model hides from every dehydration', () => {
       const secret = provider.getResponseSchema('TestSecret') as any;
 
-      expect(Object.keys(secret.properties), 'a _hidden column leaked into the response schema').to.deep.equal(['Login']);
+      expect(Object.keys(secret.properties), 'a hidden column leaked into the response schema').to.deep.equal(['Login']);
       expect(secret.properties, 'Password must never appear on a response schema').to.not.have.property('Password');
     });
 

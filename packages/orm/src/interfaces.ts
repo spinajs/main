@@ -591,12 +591,14 @@ export interface IModelDescriptor {
   ResponseSchema?: any;
 
   /**
-   * Property names the model never dehydrates ( its `_hidden` ), captured once at model
-   * load. `_hidden` is a class-property initializer, so it exists only on instances -
-   * recording it here keeps every later reader ( response schema, documentation ) from
-   * constructing a throwaway model just to ask.
+   * Property names the model never dehydrates, declared with `@Hidden()`. Written by the
+   * decorator at class-definition time, so it is readable before - and without - any database
+   * connection, which is what lets the response schema and the generated API documentation be
+   * built off a model class alone.
+   *
+   * Holds relation names as well as column names.
    */
-  Hidden?: string[];
+  Hidden: string[];
 }
 
 export interface IDiscriminationMap {

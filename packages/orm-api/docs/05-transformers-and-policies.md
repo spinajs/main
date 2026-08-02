@@ -48,7 +48,7 @@ export class PlainJsonCollectionTransformer extends CollectionApiTransformer {
 ```
 
 A collection becomes `{ Collection, Count }`; a single model becomes its `toJSON()` — the
-`dehydrate()` output, so `@Ignore()` columns and the model's `_hidden` list are already excluded.
+`dehydrate()` output, so `@Ignore()` and `@Hidden()` properties are already excluded.
 
 Two things to note. `options!.totalCount` is dereferenced without a guard, so calling it for a
 collection **without** options throws — always pass at least `{ model, totalCount }`. And
@@ -77,7 +77,7 @@ export class RelationAwareTransformer extends CollectionApiTransformer {
 
 Remember that `dehydrateWithRelations` does **not** propagate `omit` into nested relations — the
 recursive calls pass `omit: []`. Hidden fields on a related model must be declared on that
-model's own `_hidden` list or with `@Ignore()`.
+model with `@Hidden()` or `@Ignore()`.
 
 ### A JSON:API transformer
 

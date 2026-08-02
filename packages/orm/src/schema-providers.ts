@@ -24,7 +24,7 @@ export class ModelSchemaProvider extends SchemaProvider {
   }
 
   /**
-   * The same set of columns as `getSchema`, but WITHOUT `required`, without the `_hidden`
+   * The same set of columns as `getSchema`, but WITHOUT `required`, without the `@Hidden()`
    * columns, and with the types this driver really returns (`descriptor.ResponseSchema`).
    *
    * A response is partial by nature: `dehydrateWithRelations({ skipUndefined: true })` drops
@@ -83,7 +83,7 @@ export class ModelSchemaProvider extends SchemaProvider {
    * The read schema off the descriptor. `Orm.reloadTableInfo` builds it alongside `Schema`;
    * when it is absent (the model never got a connection, or the descriptor was assembled by
    * hand in a test) we fall back to `Schema` and strip from it what a response never carries
-   * anyway - the `_hidden` columns. Describing a read with the write contract beats not
+   * anyway - the `@Hidden()` columns. Describing a read with the write contract beats not
    * describing it at all.
    *
    * @param descriptor - the model descriptor

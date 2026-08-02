@@ -102,14 +102,6 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   private __snapshot__: IModelSnapshot | null = null;
 
-  /**
-   * List of hidden properties from JSON / dehydrations
-   * eg. password field of user
-   */
-  protected _hidden: string[] = [];
-
-
-
   public static readonly _queryScopes: QueryScope;
 
   /**
@@ -649,11 +641,13 @@ export class ModelBase<M = unknown> implements IModelBase {
 
   /**
    * Extracts all data from model. It takes only properties that exists in DB
+   *
+   * Properties declared with `@Hidden()` are always omitted - see `descriptor.Hidden`.
    */
   public dehydrate(options?: IDehydrateOptions): ModelData<this> {
     return this.Container.resolve(StandardModelDehydrator).dehydrate(this, {
       ...options,
-      omit: [...(options?.omit ?? []), ...(this._hidden ?? [])],
+      omit: [...(options?.omit ?? []), ...(this.ModelDescriptor?.Hidden ?? [])],
     }) as ModelData<this>;
   }
 
@@ -661,12 +655,14 @@ export class ModelBase<M = unknown> implements IModelBase {
    *
    * Extracts all data from model with relation data. Relation data are dehydrated recursively.
    *
+   * Properties declared with `@Hidden()` are always omitted, relations included.
+   *
    * @param omit - fields to omit
    */
   dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
     return this.Container.resolve(StandardModelWithRelationsDehydrator).dehydrate(this, {
       ...options,
-      omit: [...(options?.omit ?? []), ...(this._hidden ?? [])],
+      omit: [...(options?.omit ?? []), ...(this.ModelDescriptor?.Hidden ?? [])],
     }) as ModelDataWithRelationData<this>;
   }
 

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
@@ -203,13 +203,6 @@ export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_
 @Connection('default')
 @Model('users')
 export class UserBase extends ModelBase<UserBase> {
-  /**
-   * By default should not return password & id
-   * Id - to not expose internal id and predict users id / count
-   * Instead id should be replaced with uuid when exposing to end user / app
-   */
-  protected _hidden: string[] = ['Password', 'Id'];
-
   protected _ac: AccessControl;
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
@@ -223,7 +216,12 @@ export class UserBase extends ModelBase<UserBase> {
     this._ac = DI.get('AccessControl')!;
   }
 
+  /**
+   * Hidden so the internal row id never leaves the process: it would let a client predict user
+   * ids and count the users. `Uuid` is what identifies a user to the outside world.
+   */
   @Primary()
+  @Hidden()
   public Id!: number;
 
   public Uuid!: string;
@@ -231,8 +229,9 @@ export class UserBase extends ModelBase<UserBase> {
   public Email!: string;
 
   /**
-   * Hashed password for user
+   * Hashed password for user. Never dehydrated, and never advertised on a response schema.
    */
+  @Hidden()
   public Password!: string;
 
   /**

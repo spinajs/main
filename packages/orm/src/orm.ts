@@ -158,11 +158,6 @@ export class Orm extends AsyncService {
               }
             });
 
-            // Captured before the schemas below, which need it: `_hidden` is a class-property
-            // initializer and therefore exists only on an instance. Read once, here, so no
-            // later reader has to construct a throwaway model to find out.
-            d.Hidden = this.readHiddenProperties(m.type);
-
             // Build the model's JSON schemas from its columns. Two of them: what a client may
             // SEND (`Schema`) and what a SELECT hands BACK (`ResponseSchema`) are not the same
             // contract - see buildModelJsonSchema.
@@ -171,26 +166,6 @@ export class Orm extends AsyncService {
           });
         }
       }
-    }
-  }
-
-  /**
-   * The property names a model never dehydrates, ie. its `_hidden`.
-   *
-   * There is no way to read a class-property initializer without an instance, so one is
-   * constructed - exactly once per model, at load, rather than per schema request. Anything
-   * a model's constructor throws is swallowed: an empty list is precisely the behaviour this
-   * package had before, so a hostile constructor can cost accuracy but never a boot.
-   *
-   * @param model - model class to inspect
-   */
-  protected readHiddenProperties(model: Class<ModelBase>): string[] {
-    try {
-      const hidden = (new (model as new () => ModelBase)() as unknown as { _hidden?: string[] })._hidden;
-      return Array.isArray(hidden) ? [...hidden] : [];
-    } catch (err) {
-      this.Log.warn(`Cannot read hidden properties of model ${model.name}, response schema may advertise columns the model never returns (${(err as Error)?.message})`);
-      return [];
     }
   }
 
