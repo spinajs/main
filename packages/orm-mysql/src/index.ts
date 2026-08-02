@@ -263,6 +263,11 @@ export class MySqlOrmDriver extends SqlDriver {
           maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
           idleTimeout: pool.IdleTimeout,
           queueLimit: 0,
+          // `decimalNumbers` zostaje WYLACZONE (domyslka mysql2): DECIMAL/NEWDECIMAL wraca
+          // jako string, bo powyzej 2^53 float gubi dokladnosc, ktorej DECIMAL wlasnie ma
+          // pilnowac. Kto to wlaczy, musi zmienic tez mape typow w @spinajs/orm
+          // (packages/orm/src/schema.ts, ColumnType.DECIMAL) - inaczej OpenAPI zacznie
+          // klamac o typie i walidacja odpowiedzi u klienta poleci na kazdym wierszu.
         });
 
         // Test the pool connection

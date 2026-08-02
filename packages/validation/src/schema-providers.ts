@@ -13,6 +13,21 @@ export abstract class SchemaProvider extends SyncService {
    * @param typeName
    */
   public abstract getSchema(typeName: string): Record<string, unknown> | undefined;
+
+  /**
+   * Schema of what `typeName` looks like on the way OUT — the response contract, not the
+   * write contract `getSchema` returns. The two differ for anything whose stored shape is
+   * not the shape it is validated against on input: an ORM model is validated against the
+   * fields a client may send, but responded with whatever the database really holds.
+   *
+   * Providers that make no such distinction (a plain `@Schema` DTO is the same object both
+   * ways) leave this alone — the caller falls back to `getSchema`.
+   *
+   * @param _typeName - name of the type to describe
+   */
+  public getResponseSchema(_typeName: string): Record<string, unknown> | undefined {
+    return undefined;
+  }
 }
  
 

@@ -8,7 +8,11 @@ const SQL_TYPE_TO_SCHEMA: Record<string, any> = {
   [ColumnType.MEDIUM_INTEGER]: { type: 'integer' },
   [ColumnType.INTEGER]: { type: 'integer' },
   [ColumnType.BIG_INTEGER]: { type: 'integer' },
-  [ColumnType.DECIMAL]: { type: 'number' },
+  // DECIMAL/NUMERIC wraca ze sterownika jako STRING, nie number: mysql2 parsuje je przez
+  // readLengthCodedString dopoki `decimalNumbers` nie jest wlaczone (domyslnie nie jest, i
+  // wlaczac nie warto - powyzej 2^53 tracimy dokladnosc, ktora DECIMAL ma wlasnie chronic).
+  // Zaden konwerter po drodze tego nie zmienia, wiec schema musi mowic to samo co runtime.
+  [ColumnType.DECIMAL]: { type: 'string' },
   [ColumnType.FLOAT]: { type: 'number' },
   [ColumnType.DOUBLE]: { type: 'number' },
   [ColumnType.BIT]: { type: 'number' },

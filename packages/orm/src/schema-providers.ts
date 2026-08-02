@@ -20,6 +20,30 @@ export class ModelSchemaProvider extends SchemaProvider {
   }
 
   public getSchema(typeName: string): Record<string, unknown> | undefined {
+    return this.buildSchema(typeName, true);
+  }
+
+  /**
+   * Ten sam zestaw kolumn co `getSchema`, ale BEZ `required`. Odpowiedz jest z natury
+   * czesciowa: `dehydrateWithRelations({ skipUndefined: true })` wyrzuca pola, ktorych
+   * zapytanie nie zaciagnelo, a `include` decyduje ktore relacje w ogole sie pojawia.
+   * Lista wymaganych kolumn opisuje INSERT, nie to co leci do klienta - wystawiona w
+   * odpowiedzi wywala walidacje na pierwszym wierszu bez np. hasla czy relacji.
+   *
+   * @param typeName - nazwa klasy modelu
+   */
+  public getResponseSchema(typeName: string): Record<string, unknown> | undefined {
+    return this.buildSchema(typeName, false);
+  }
+
+  /**
+   * Kolumny modelu + relacje jako wlasciwosci. `includeRequired` rozroznia kontrakt
+   * zapisu (getSchema) od odczytu (getResponseSchema).
+   *
+   * @param typeName - nazwa klasy modelu
+   * @param includeRequired - czy dolaczyc liste kolumn wymaganych (kontrakt zapisu)
+   */
+  protected buildSchema(typeName: string, includeRequired: boolean): Record<string, unknown> | undefined {
     const model = this.Models.get(typeName);
     if (!model) {
       return undefined;
@@ -47,7 +71,7 @@ export class ModelSchemaProvider extends SchemaProvider {
     });
 
     const schema: Record<string, unknown> = { type: 'object', properties };
-    if (columns.required && columns.required.length > 0) {
+    if (includeRequired && columns.required && columns.required.length > 0) {
       schema.required = columns.required;
     }
     return schema;

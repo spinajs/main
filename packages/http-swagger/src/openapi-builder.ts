@@ -120,12 +120,21 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
   '500': 'Internal server error',
 };
 
+/**
+ * Which side of the wire a schema describes. A model's `@Schema` is the WRITE contract
+ * (what a client may send); its columns are the READ contract (what the API hands back).
+ * They are not the same object and must not be documented as one.
+ */
+type SchemaKind = 'request' | 'response';
+
 export class OpenApiBuilder {
   private config: ISwaggerConfig;
   private document: IOpenApiDocument;
   private tags: Map<string, IOpenApiTag> = new Map();
   private registeredResponses: Set<string> = new Set();
   private registeredComponents: Set<string> = new Set();
+  /** Which flavour claimed each type name first, and the schema it claimed it with. */
+  private componentClaims: Map<string, { kind: SchemaKind; schema: string | undefined }> = new Map();
   private errorSchemaRegistered = false;
   private registeredPolicies: Set<string> = new Set();
   private policySectionEntries: string[] = [];
@@ -1074,7 +1083,7 @@ export class OpenApiBuilder {
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: { 'application/json': { schema: this.expandNamedSchemas(schema) } },
+        content: { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
       };
     } else if (!hasExplicit2xx) {
       responses['200'] = { description: 'Successful response' };
@@ -1089,7 +1098,7 @@ export class OpenApiBuilder {
         if (resp.type) {
           responses[statusCode] = {
             description: resp.description,
-            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type)) } },
+            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
           };
           continue;
         }
@@ -1163,8 +1172,12 @@ export class OpenApiBuilder {
   /**
    * Swaps named-type nodes for a reusable component `$ref`, registering each component once.
    * Walks `items` and `properties` so nested types are expanded too.
+   *
+   * `kind` says which side of the wire this subtree describes and is carried down the whole
+   * walk — a relation nested in a response is still a response. It defaults to 'request'
+   * so every caller that never had an opinion keeps the schema it always got.
    */
-  private expandNamedSchemas(schema: IOpenApiSchema): IOpenApiSchema {
+  private expandNamedSchemas(schema: IOpenApiSchema, kind: SchemaKind = 'request'): IOpenApiSchema {
     // Case 1 — primitive / null: nothing to expand, return as-is.
     if (!schema || typeof schema !== 'object') {
       return schema;
@@ -1172,7 +1185,7 @@ export class OpenApiBuilder {
 
     // Case 2 — a named-model tag: replace the whole node with a $ref to its component.
     if (schema.description && !schema.$ref) {
-      const ref = this.registerNamedComponent(schema.description);
+      const ref = this.registerNamedComponent(schema.description, kind);
       if (ref) {
         return { $ref: ref };
       }
@@ -1180,11 +1193,11 @@ export class OpenApiBuilder {
 
     // Case 3 — a container: keep the node, expand the two places a model can hide.
     if (schema.items) {
-      schema.items = this.expandNamedSchemas(schema.items);
+      schema.items = this.expandNamedSchemas(schema.items, kind);
     }
     if (schema.properties) {
       for (const key of Object.keys(schema.properties)) {
-        schema.properties[key] = this.expandNamedSchemas(schema.properties[key]);
+        schema.properties[key] = this.expandNamedSchemas(schema.properties[key], kind);
       }
     }
 
@@ -1195,27 +1208,92 @@ export class OpenApiBuilder {
    * Registers `name` as a reusable component and returns its `$ref`.
    * Returns undefined when no provider recognises the name, so the caller leaves the node as-is.
    */
-  private registerNamedComponent(name: string): string | undefined {
-    const ref = `#/components/schemas/${name}`;
-    // Already registered (or in progress) — just reference it.
-    if (this.registeredComponents.has(name)) {
-      return ref;
-    }
-
-    const resolved = this.SchemaProviders.map((p) => p.getSchema(name)).find((r) => !!r);
+  private registerNamedComponent(name: string, kind: SchemaKind = 'request'): string | undefined {
+    const resolved = this.resolveNamedSchema(name, kind);
     if (!resolved) {
       return undefined;
     }
 
-    this.registeredComponents.add(name);
+    const componentName = this.componentNameFor(name, kind, resolved);
+    const ref = `#/components/schemas/${componentName}`;
+
+    // Already registered (or in progress) — just reference it. Registering BEFORE the
+    // expansion below is what stops a cyclic relation from recursing forever.
+    if (this.registeredComponents.has(componentName)) {
+      return ref;
+    }
+    this.registeredComponents.add(componentName);
 
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
 
     // Expand nested named tags into their own components.
-    schemas[name] = this.expandNamedSchemas(this.convertJsonSchema(resolved));
+    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved), kind);
 
     return ref;
+  }
+
+  /**
+   * Pick the schema a component should be built from.
+   *
+   * An ORM model carries two different contracts under one name: `@Schema` says what a
+   * client may SEND, the model's own columns say what the API RETURNS. Serving the write
+   * schema as the response contract is how a response ends up missing every column the
+   * database generates (`id`, `created_at`), missing `nullable` on columns that are null in
+   * practice, carrying `maxLength` copied from the column width, and demanding fields a
+   * response legitimately omits — enough for a generated client validator to reject
+   * ordinary rows.
+   *
+   * So a response asks the providers for their response flavour first. Providers that have
+   * none (a `@Schema` DTO is the same object both ways) return undefined and we fall back
+   * to `getSchema` — which is also the only thing a request ever consults.
+   */
+  private resolveNamedSchema(name: string, kind: SchemaKind): Record<string, unknown> | undefined {
+    if (kind === 'response') {
+      // optional call — a provider compiled against an older @spinajs/validation has no such method
+      const response = this.SchemaProviders.map((p) => p.getResponseSchema?.(name)).find((r) => !!r);
+      if (response) {
+        return response;
+      }
+    }
+
+    return this.SchemaProviders.map((p) => p.getSchema(name)).find((r) => !!r);
+  }
+
+  /**
+   * Component name for `name` in the given flavour. The first flavour to claim the name
+   * keeps it; the other one only gets a `…Request`/`…Response` suffix when its schema
+   * actually differs, so a type with a single contract stays a single component and the
+   * request half of the document never silently inherits a response schema (or vice versa).
+   */
+  private componentNameFor(name: string, kind: SchemaKind, resolved: Record<string, unknown>): string {
+    const serialized = this.schemaKey(resolved);
+    const claim = this.componentClaims.get(name);
+
+    if (!claim) {
+      this.componentClaims.set(name, { kind, schema: serialized });
+      return name;
+    }
+
+    if (claim.kind === kind || (serialized !== undefined && claim.schema === serialized)) {
+      return name;
+    }
+
+    return `${name}${kind === 'response' ? 'Response' : 'Request'}`;
+  }
+
+  /**
+   * Identity of a resolved schema, used only to tell "both flavours, same contract" from
+   * "both flavours, different contract". Undefined when the schema can't be serialized —
+   * then the two flavours are assumed to differ, which costs a component but never merges
+   * two contracts into one.
+   */
+  private schemaKey(schema: Record<string, unknown>): string | undefined {
+    try {
+      return JSON.stringify(schema);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

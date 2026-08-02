@@ -67,4 +67,37 @@ describe('ModelSchemaProvider', function () {
   it('returns undefined for names that are not registered models', () => {
     expect(provider.getSchema('NoSuchType')).to.equal(undefined);
   });
+
+  // getSchema opisuje ZAPIS (co wolno wyslac), getResponseSchema ODCZYT (co API zwraca).
+  // Odpowiedz jest z natury czesciowa: dehydrateWithRelations({ skipUndefined: true })
+  // pomija niezaladowane pola, a `include` decyduje ktore relacje w ogole sie pojawia -
+  // wiec zadna kolumna nie moze byc "required".
+  describe('getResponseSchema', () => {
+    it('drops "required" - a response never promises every column', () => {
+      const user = provider.getResponseSchema('TestUser') as any;
+
+      expect(user.type).to.equal('object');
+      expect(user.properties.id.type).to.equal('integer');
+      expect(user.properties.email.type).to.equal('string');
+      expect(user).to.not.have.property('required');
+    });
+
+    it('keeps relations, and they are optional too', () => {
+      const post = provider.getResponseSchema('TestPost') as any;
+
+      expect(post.properties.Author).to.deep.equal({ type: 'object', description: 'TestUser' });
+      expect(post.properties.Tags.type).to.equal('array');
+      expect(post.properties.Tags.items).to.deep.equal({ type: 'object', description: 'TestTag' });
+      expect(post).to.not.have.property('required');
+    });
+
+    it('leaves the write contract alone - getSchema still carries "required"', () => {
+      expect((provider.getSchema('TestPost') as any).required).to.include('title');
+      expect((provider.getSchema('TestUser') as any).required).to.include('email');
+    });
+
+    it('returns undefined for names that are not registered models', () => {
+      expect(provider.getResponseSchema('NoSuchType')).to.equal(undefined);
+    });
+  });
 });

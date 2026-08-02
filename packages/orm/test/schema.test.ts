@@ -41,10 +41,20 @@ describe('buildModelJsonSchema', () => {
     expect(schema.type).to.equal('object');
     expect(schema.properties.count.type).to.equal('integer');
     expect(schema.properties.title.type).to.equal('string');
-    expect(schema.properties.price.type).to.equal('number');
+    expect(schema.properties.price.type).to.equal('string');
     expect(schema.properties.active.type).to.equal('boolean');
     expect(schema.properties.createdAt).to.deep.equal({ type: 'string', format: 'date-time' });
     expect(schema.properties.meta.type).to.equal('object');
+  });
+
+  it('maps DECIMAL to string - that is what the driver really hands back', () => {
+    const schema = build([{ Name: 'price', Type: ColumnType.DECIMAL }]);
+
+    // mysql2 (decimalNumbers domyslnie false) parsuje DECIMAL/NEWDECIMAL przez
+    // readLengthCodedString - wartosc dociera jako string i zaden konwerter jej nie
+    // rusza. Gdy schema mowi "number", walidacja odpowiedzi po stronie klienta
+    // wywala CALA tablice na pierwszym takim wierszu.
+    expect(schema.properties.price).to.deep.equal({ type: 'string' });
   });
 
   it('falls back to string for unknown column types', () => {

@@ -47,6 +47,41 @@ class FakeSchemaProvider extends SchemaProvider {
   }
 }
 
+// Co ORM-owy ModelSchemaProvider zwraca dla ODPOWIEDZI: kolumny prosto z bazy -
+// nullable, bez maxLength z szerokosci kolumny i BEZ "required" (odpowiedz jest
+// czesciowa). Kontrakt zapisu (@Schema, SCHEMAS wyzej) zostaje przy getSchema.
+const RESPONSE_SCHEMAS: Record<string, any> = {
+  TestUser: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      email: { type: 'string' },
+      nick: { type: 'string', nullable: true },
+      created_at: { type: 'string' },
+      Posts: { type: 'array', items: { type: 'object', description: 'TestPost' } },
+    },
+  },
+  TestPost: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      title: { type: 'string' },
+      Author: { type: 'object', description: 'TestUser' },
+    },
+  },
+};
+
+// Stands in for @spinajs/orm's ModelSchemaProvider - knows both flavours.
+class FakeModelSchemaProvider extends SchemaProvider {
+  public getSchema(typeName: string): Record<string, unknown> | undefined {
+    return SCHEMAS[typeName];
+  }
+
+  public getResponseSchema(typeName: string): Record<string, unknown> | undefined {
+    return RESPONSE_SCHEMAS[typeName];
+  }
+}
+
 describe('Swagger schema generation', function () {
   let builder: any;
 
@@ -116,5 +151,90 @@ describe('Swagger schema generation', function () {
     expect(dto.properties.page.type).to.equal('integer');
     expect(dto.properties.size.type).to.equal('integer');
     expect(dto.required).to.include('page');
+  });
+});
+
+// Model ORM ma DWA kontrakty: @Schema opisuje co wolno WYSLAC, a kolumny z bazy
+// opisuja co API ODDAJE. Do tej pory komponent budowal sie zawsze z @Schema, wiec
+// odpowiedzi dokumentowaly kontrakt zapisu - brak nullable, brak kolumn generowanych
+// przez baze, maxLength z szerokosci kolumny i wymagane pola, ktorych w odpowiedzi
+// nie ma. Sciezka odpowiedzi pyta wiec najpierw o getResponseSchema.
+describe('Swagger schema generation - response vs request flavour', function () {
+  let builder: any;
+
+  beforeEach(() => {
+    builder = new OpenApiBuilder({ title: 'Test', version: '1.0.0' } as any);
+    builder.SchemaProviders = [new FakeModelSchemaProvider()];
+  });
+
+  const schemas = () => builder.document.components?.schemas ?? {};
+
+  it('response flavour → the model column schema, not the @Schema write contract', () => {
+    const out = builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'response');
+
+    expect(out).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
+
+    const user = schemas().TestUser;
+    expect(user.properties.nick).to.deep.equal({ type: 'string', nullable: true });
+    // kolumny, ktorych kontrakt zapisu w ogole nie zna
+    expect(user.properties).to.have.property('created_at');
+    // odpowiedz jest czesciowa - zaden komponent odpowiedzi nie ma "required"
+    expect(user).to.not.have.property('required');
+  });
+
+  it('relations survive into the response component as optional $refs', () => {
+    builder.expandNamedSchemas({ type: 'array', items: { type: 'object', description: 'TestPost' } }, 'response');
+
+    const post = schemas().TestPost;
+    expect(post.properties.Author).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
+    expect(post).to.not.have.property('required');
+
+    // cykl post → user → post konczy sie $ref-em, nie petla
+    expect(schemas().TestUser.properties.Posts.items).to.deep.equal({ $ref: '#/components/schemas/TestPost' });
+  });
+
+  it('request flavour is untouched - still the @Schema write contract', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
+
+    const user = schemas().TestUser;
+    expect(user.required).to.include('email');
+    expect(user.properties).to.not.have.property('created_at');
+  });
+
+  it('default flavour (no argument) stays "request"', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestUser' });
+    expect(schemas().TestUser.required).to.include('email');
+  });
+
+  it('a type used both ways gets two components, never one overwriting the other', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'request');
+    const out = builder.expandNamedSchemas({ type: 'object', description: 'TestUser' }, 'response');
+
+    expect(out).to.deep.equal({ $ref: '#/components/schemas/TestUserResponse' });
+    expect(schemas().TestUser.required).to.include('email');
+    expect(schemas().TestUserResponse).to.not.have.property('required');
+  });
+
+  it('DTO without a response flavour falls back to getSchema, exactly as before', () => {
+    const out = builder.expandNamedSchemas({ type: 'object', description: 'TestPaginationDto' }, 'response');
+
+    expect(out).to.deep.equal({ $ref: '#/components/schemas/TestPaginationDto' });
+    expect(schemas().TestPaginationDto.required).to.include('page');
+  });
+
+  it('buildResponses asks for the response flavour', () => {
+    const responses = builder.buildResponses({ returns: { type: 'TestUser', description: 'Uzytkownik' } });
+
+    expect(responses['200'].content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
+    expect(schemas().TestUser).to.not.have.property('required');
+    expect(schemas().TestUser.properties).to.have.property('created_at');
+  });
+
+  it('buildRequestBody asks for the write flavour', () => {
+    class TestUser {}
+    const body = builder.buildRequestBody([{ param: { Name: 'model', Type: 'FromBody', Index: 0, RuntimeType: TestUser } }], {} as any);
+
+    expect(body.content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
+    expect(schemas().TestUser.required).to.include('email');
   });
 });
