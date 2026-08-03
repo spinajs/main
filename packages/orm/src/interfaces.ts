@@ -580,6 +580,25 @@ export interface IModelDescriptor {
    * Json schema for validation
    */
   Schema: any;
+
+  /**
+   * Json schema of what a SELECT of this model hands back: hidden columns removed, no
+   * `required`, driver-specific types applied. Built next to `Schema` at model load.
+   *
+   * Optional so that a descriptor assembled by hand ( tests, tooling ) still type-checks;
+   * absent means "not built yet" and readers fall back to `Schema`.
+   */
+  ResponseSchema?: any;
+
+  /**
+   * Property names the model never dehydrates, declared with `@Hidden()`. Written by the
+   * decorator at class-definition time, so it is readable before - and without - any database
+   * connection, which is what lets the response schema and the generated API documentation be
+   * built off a model class alone.
+   *
+   * Holds relation names as well as column names.
+   */
+  Hidden: string[];
 }
 
 export interface IDiscriminationMap {

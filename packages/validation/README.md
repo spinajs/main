@@ -199,6 +199,33 @@ export class MySchemaProvider extends SchemaProvider {
 }
 ```
 
+`getSchema` is the **write** contract: what a client may SEND. A type whose stored shape differs from the
+shape it is validated against on input can describe the way OUT separately by overriding the optional
+`getResponseSchema`:
+
+```typescript
+@Injectable(SchemaProvider)
+export class MySchemaProvider extends SchemaProvider {
+  public getSchema(typeName: string): Record<string, unknown> | undefined {
+    // what a client may send — required fields, input-only constraints
+    return undefined;
+  }
+
+  public getResponseSchema(typeName: string): Record<string, unknown> | undefined {
+    // what the API hands back — generated columns, nullables, nothing `required`
+    return undefined;
+  }
+}
+```
+
+`getResponseSchema` is optional and returns `undefined` by default. A provider that makes no such
+distinction — a plain `@Schema` DTO is the same object both ways — simply does not override it, and callers
+fall back to `getSchema`. `@spinajs/orm`'s `ModelSchemaProvider` does override it: a model's `@Schema`
+describes what may be written, while its columns describe what a `SELECT` returns.
+
+Consumers must treat it as optional (`provider.getResponseSchema?.(name)`): a provider compiled against an
+older `@spinajs/validation` has no such method at all.
+
 ## `ValidationFailed` error details
 
 `validate` throws `ValidationFailed` on failure. Beyond the raw AJV `parameter` errors it exposes helpers for

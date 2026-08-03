@@ -1,6 +1,7 @@
 import { Orm, ModelBase, OrmException, extractModelDescriptor, SelectQueryBuilder, RelationType, OrmNotFoundException } from '@spinajs/orm';
 import { IRouteParameter, IRouteCall, Parameter, Route, ParameterType, ArgHydrator, Request as sRequest, RouteArgs, IRoute } from '@spinajs/http';
 import { IContainer, Injectable, Container, Autoinject, Bootstrapper, DI } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
 import { MODEL_STATIC_MIXINS } from './model.js';
 import { FromModelOptions } from './interfaces.js';
 import { BadRequest, InvalidArgument } from '@spinajs/exceptions';
@@ -18,7 +19,7 @@ import * as express from 'express';
 
 /**
  * Route arg to hydrate model from request body
- * 
+ *
  * For now its basically alias for FromBody, for convinience to separate model hydration from other body params
  */
 @Injectable()
@@ -47,24 +48,34 @@ export class FromDbModel extends RouteArgs {
   @Autoinject(Orm)
   protected Orm: Orm;
 
+  @Logger('orm-http')
+  protected Log: Log;
+
   async resolve(): Promise<void> { }
 
   public get SupportedType(): string {
     return 'FromDB';
   }
 
-  public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest) {
+  public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest, _res?: express.Response, route?: IRoute) {
     let result = null;
     if (param?.Options?.query) {
-      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req)).firstOrThrow(new OrmNotFoundException('Resource not found'));
+      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req, route)).firstOrThrow(new OrmNotFoundException('Resource not found'));
     } else {
-      result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req);
+      result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req, route);
     }
 
     return { CallData: callData, Args: result };
   }
 
-  protected _extractValue(param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest) {
+  /**
+   * @param param - the @FromModel route parameter the key is being resolved for
+   * @param req - incoming request
+   * @param route - the route this parameter belongs to. Optional so that callers written
+   *                against the two-argument signature keep working; without it the resolver
+   *                falls back to the single-placeholder heuristic below.
+   */
+  protected _extractValue(param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest, route?: IRoute) {
     let pkValue: any = null;
     const field = param?.Options?.paramField ?? param.Name;
 
@@ -80,6 +91,27 @@ export class FromDbModel extends RouteArgs {
         break;
       case ParameterType.FromParams:
       default:
+        /**
+         * The url parameter a @FromModel reads is stated, never guessed: `paramField`
+         * names it, or the argument is called after it. If neither is present in the
+         * request the route is wrong and it says so, rather than querying with an
+         * empty key and returning a 404 that looks like missing data.
+         *
+         * This is the same rule the OpenAPI document applies while it is built
+         * ( http-swagger, OpenApiBuilder ), so a route that serves traffic and a route
+         * that can be documented are the same set. The check is against `req.params`
+         * rather than the route template on purpose: a placeholder declared in
+         * @BasePath never appears in `route.Path`, but it does arrive here.
+         */
+        if (!Object.prototype.hasOwnProperty.call(req.params ?? {}, field)) {
+          const available = Object.keys(req.params ?? {});
+          throw new InvalidArgument(
+            `@FromModel argument '${param.Name}'${route?.Path ? ` on route '${route.Path}'` : ''} reads url parameter '${field}', which this request does not have. ` +
+              `Available url parameters: ${available.length > 0 ? available.join(', ') : '(none)'}. ` +
+              `Either name the argument after the placeholder, or state it explicitly with @FromModel({ paramField: '<placeholder>' }).`,
+          );
+        }
+
         pkValue = req.params[field];
         break;
     }
@@ -87,8 +119,10 @@ export class FromDbModel extends RouteArgs {
     return pkValue;
   }
 
-  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest) {
-    const pkValue = this._extractValue(param, req);
+
+
+  protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest, route?: IRoute) {
+    const pkValue = this._extractValue(param, req, route);
     const query = param.RuntimeType['query']() as SelectQueryBuilder;
     const descriptor = extractModelDescriptor(param.RuntimeType);
 

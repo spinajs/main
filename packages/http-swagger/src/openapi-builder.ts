@@ -1,6 +1,7 @@
 import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
 import {
   IOpenApiDocument,
@@ -120,12 +121,38 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
   '500': 'Internal server error',
 };
 
+/**
+ * Which side of the wire a schema describes. A model's `@Schema` is the WRITE contract
+ * (what a client may send); its columns are the READ contract (what the API hands back).
+ * They are not the same object and must not be documented as one.
+ */
+type SchemaKind = 'request' | 'response';
+
+/**
+ * Every `{placeholder}` an OpenAPI path template carries, in template order.
+ *
+ * The template is the single source of truth for path parameters. It is read from the
+ * FULL path the document emits (controller `@BasePath` + route path + configured
+ * `basePath` prefix), not from `route.Path` — a placeholder declared in `@BasePath` is
+ * invisible to `route.Path` and rejecting an argument that names it would be a false
+ * alarm.
+ *
+ * Deduplicated: `name` + `in` is a parameter's identity in OpenAPI, so a template that
+ * repeats a placeholder still yields one parameter.
+ */
+function pathTemplatePlaceholders(template: string): string[] {
+  const names = (template.match(/{([a-zA-Z_][a-zA-Z0-9_]*)}/g) ?? []).map((p) => p.slice(1, -1));
+  return [...new Set(names)];
+}
+
 export class OpenApiBuilder {
   private config: ISwaggerConfig;
   private document: IOpenApiDocument;
   private tags: Map<string, IOpenApiTag> = new Map();
   private registeredResponses: Set<string> = new Set();
   private registeredComponents: Set<string> = new Set();
+  /** Per type name: whether its two flavours differ and therefore need two components. */
+  private componentClaims: Map<string, { split: boolean }> = new Map();
   private errorSchemaRegistered = false;
   private registeredPolicies: Set<string> = new Set();
   private policySectionEntries: string[] = [];
@@ -206,6 +233,7 @@ export class OpenApiBuilder {
         route,
         methodDoc,
         tagName,
+        fullPath,
       );
 
       this.applyRbac(operation, rbac, methodNameStr);
@@ -401,6 +429,10 @@ export class OpenApiBuilder {
 
   /**
    * Build an OpenAPI operation from a route and its documentation.
+   *
+   * `fullPath` is the OpenAPI path template this operation is filed under. It — not the
+   * argument list — decides which path parameters the operation has; see
+   * resolvePathPlaceholder() for the contract a declared argument must satisfy.
    */
   private buildOperation(
     controllerName: string,
@@ -408,6 +440,7 @@ export class OpenApiBuilder {
     route: IRoute,
     methodDoc: IMethodDocumentation | undefined,
     tagName: string,
+    fullPath: string,
   ): IOpenApiOperation {
     const operation: IOpenApiOperation = {
       operationId: `${controllerName}_${methodName}`,
@@ -423,9 +456,15 @@ export class OpenApiBuilder {
 
     const bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[] = [];
 
-    // Extract path param names from the Express route path as fallback when param.Name is not set
-    const pathParamNames = (route.Path || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
-    let pathParamIndex = 0;
+    // The URL template owns the path parameters. Arguments only enrich them.
+    const placeholders = pathTemplatePlaceholders(fullPath);
+
+    // Placeholder -> the argument that declares it. At most one argument per placeholder;
+    // a second one is a defect in the controller, not something to reconcile here.
+    const declaredPlaceholders = new Map<string, { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }>();
+
+    // Parameters other than path ones, kept in argument order.
+    const otherParams: IOpenApiParameter[] = [];
 
     // Process route parameters
     for (const [, param] of route.Parameters) {
@@ -441,29 +480,64 @@ export class OpenApiBuilder {
       if (!location) {
         if (param.Type === 'FromDbModel') {
           location = this.fromDbModelLocation(param);
+
+          // fromDbModelLocation() answers 'path' for paramType=FromBody too, only so the
+          // value stays visible somewhere in the document. A body key has no URL
+          // placeholder to match and readsPathParam() is the authority on that, so it is
+          // not a path parameter and must not be pushed through the strict resolver.
+          // It carries no OpenAPI location at all — a body is described by requestBody.
+          if (location === 'path' && !this.readsPathParam(param)) {
+            location = undefined;
+          }
         } else if (param.Type === 'FilterModelRouteArg') {
           location = 'query';
         }
       }
 
-      const isPathParam = location === 'path';
-      const resolvedName = param.Name || (isPathParam ? pathParamNames[pathParamIndex++] : undefined);
-      if (isPathParam && resolvedName && !param.Name) {
-        param.Name = resolvedName;
-      }
-
-      const paramDoc = methodDoc?.params?.[resolvedName ?? param.Name];
+      // JSDoc is written against the argument name.
+      const paramDoc = methodDoc?.params?.[param.Name];
 
       if (BODY_PARAMS.has(param.Type as string)) {
         bodyParams.push({ param, doc: paramDoc });
         continue;
       }
 
+      if (location === 'path') {
+        const placeholder = this.resolvePathPlaceholder(controllerName, methodName, param, placeholders, fullPath);
+        const previous = declaredPlaceholders.get(placeholder);
+
+        if (previous) {
+          throw new InvalidArgument(
+            `${controllerName}.${methodName}: path placeholder \`${placeholder}\` is declared twice, ` +
+              `by \`${previous.param.Name}\` and by \`${param.Name}\`, in route \`${fullPath}\`. ` +
+              `Each placeholder must be declared by at most one argument — drop one of them, ` +
+              `or point its paramField at a different placeholder.`,
+          );
+        }
+
+        declaredPlaceholders.set(placeholder, { param, doc: paramDoc ?? methodDoc?.params?.[placeholder] });
+        continue;
+      }
+
       if (location) {
-        const apiParam = this.buildParameter(param, location, paramDoc, resolvedName);
-        operation.parameters!.push(apiParam);
+        otherParams.push(this.buildParameter(param, location, paramDoc, this.emittedParamName(param)));
       }
     }
+
+    // Emit one required parameter per placeholder, in template order. A placeholder nobody
+    // declares is still a parameter the caller has to fill in: the backend compiles with
+    // `noUnusedParameters`, so a handler that never reads `:campaign` CANNOT declare an
+    // argument for it, and the URL template is then the only place that knows about it.
+    for (const name of placeholders) {
+      const declared = declaredPlaceholders.get(name);
+      operation.parameters!.push(
+        declared
+          ? this.buildParameter(declared.param, 'path', declared.doc, name)
+          : { name, in: 'path', required: true, schema: { type: 'string' } },
+      );
+    }
+
+    operation.parameters!.push(...otherParams);
 
     // Build request body from body params
     if (bodyParams.length > 0) {
@@ -660,6 +734,179 @@ export class OpenApiBuilder {
   }
 
   /**
+   * The name a non-path parameter is emitted under.
+   *
+   * orm-http's FromDbModel._extractValue reads `req.query[paramField ?? Name]` (same for
+   * headers), so an explicit `paramField` IS the wire name and the TypeScript argument name
+   * is not what the runtime looks for. Path parameters do not go through here — their name
+   * is the placeholder, see resolvePathPlaceholder().
+   */
+  private emittedParamName(param: IRouteParameter): string | undefined {
+    const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
+    return paramField || param.Name || undefined;
+  }
+
+  /**
+   * The URL placeholder a path-bound argument declares — or a throw.
+   *
+   * Path parameters are emitted from the URL template (see buildOperation); a declared
+   * argument only enriches the one it names, with its schema and its JSDoc description.
+   * There are exactly two ways to name one:
+   *
+   *   1. `Options.paramField` — that IS the placeholder, and it must exist in the template.
+   *      It is also the field orm-http's FromDbModel.extract() reads from `req.params`, so
+   *      the document and the runtime agree by construction.
+   *   2. the argument's own name, when it equals a placeholder.
+   *
+   * Anything else throws. No positional assignment, no "first free placeholder", no
+   * underscore aliasing: a controller the documentation layer cannot read unambiguously is
+   * a controller to fix, not to guess at. An underscore-prefixed argument (`_campaign`,
+   * written only to satisfy `noUnusedParameters`) matches no placeholder and therefore
+   * throws — the fix is to DELETE the argument, because the placeholder is emitted from the
+   * template whether anything declares it or not.
+   *
+   * The message has to be enough to fix the route without opening this file: it names the
+   * controller, the method, the argument, the template, every placeholder that template
+   * carries and the two ways out.
+   */
+  private resolvePathPlaceholder(
+    controllerName: string,
+    methodName: string,
+    param: IRouteParameter,
+    placeholders: string[],
+    fullPath: string,
+  ): string {
+    const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
+    const argument = param.Name || `argument #${param.Index}`;
+
+    const available =
+      placeholders.length > 0
+        ? `Available placeholders: ${placeholders.join(', ')}.`
+        : 'The route declares no path placeholders at all.';
+    const suggestion = placeholders.length > 0 ? placeholders[0] : 'name';
+    const fix =
+      `Either rename the argument to a placeholder the route really has, or name one explicitly ` +
+      `with the decorator's paramField option, e.g. @FromModel({ paramField: '${suggestion}' }). ` +
+      `If the handler never reads the value, delete the argument instead: every placeholder is ` +
+      `documented from the URL template whether an argument declares it or not. Path parameters ` +
+      `are resolved strictly — the documentation layer does not guess.`;
+
+    if (paramField) {
+      if (placeholders.includes(paramField)) {
+        return paramField;
+      }
+
+      throw new InvalidArgument(
+        `${controllerName}.${methodName}: path argument \`${argument}\` declares paramField ` +
+          `\`${paramField}\`, which matches no placeholder in route \`${fullPath}\`. ${available} ${fix}`,
+      );
+    }
+
+    if (param.Name && placeholders.includes(param.Name)) {
+      return param.Name;
+    }
+
+    throw new InvalidArgument(
+      `${controllerName}.${methodName}: path argument \`${argument}\` matches no placeholder ` +
+        `in route \`${fullPath}\`. ${available} ${fix}`,
+    );
+  }
+
+  /**
+   * Whether an @FromModel parameter reads its key from the URL path.
+   *
+   * Mirrors orm-http's FromDbModel._extractValue: only an absent `paramType` ( the default )
+   * or an explicit FromParams reaches `req.params`. Query / body / header keys live somewhere
+   * else entirely and have no business claiming a URL placeholder.
+   */
+  private readsPathParam(param: IRouteParameter): boolean {
+    const paramType = (param.Options as { paramType?: string } | undefined)?.paramType;
+    return paramType === undefined || paramType === null || paramType === ParameterType.FromParams || (paramType as string) === 'FromParams';
+  }
+
+  /**
+   * Schema for the value an @FromModel parameter actually carries: the key the model
+   * is looked up by, never the model itself. The runtime picks that column the same
+   * way (FromDbModel.fromDbModelDefaultQueryFunction): `Options.queryField` if given,
+   * otherwise the model's primary key.
+   *
+   * The descriptor is read through the global `Symbol.for('MODEL_DESCRIPTOR')` so this
+   * package keeps no @spinajs/orm dependency (same trick as extractFilterableColumns).
+   * `PrimaryKey` is filled only by the @Primary decorator, so legacy models without it
+   * fall back to the column the driver introspected as primary.
+   */
+  private fromDbModelKeySchema(param: IRouteParameter): IOpenApiSchema {
+    const modelCtor = param.RuntimeType;
+    const descriptor =
+      typeof modelCtor === 'function'
+        ? (Reflect.getMetadata(Symbol.for('MODEL_DESCRIPTOR'), modelCtor) as
+            | { Name?: string; PrimaryKey?: string[] | string; Columns?: { Name: string; Type?: string; PrimaryKey?: boolean }[] }
+            | undefined)
+        : undefined;
+
+    const columns = Array.isArray(descriptor?.Columns) ? descriptor!.Columns! : [];
+    const primaryKey = descriptor?.PrimaryKey;
+    const declaredKey = Array.isArray(primaryKey) ? primaryKey[0] : primaryKey || undefined;
+    const keyName = (param.Options as { queryField?: string } | undefined)?.queryField ?? declaredKey ?? columns.find((c) => c.PrimaryKey)?.Name;
+
+    const modelName = descriptor?.Name || (typeof modelCtor === 'function' ? (modelCtor as { name?: string }).name : undefined);
+    const column = keyName ? columns.find((c) => c.Name === keyName) : undefined;
+
+    // No descriptor at all (model metadata not loaded) still beats `type: object` —
+    // whatever the key is, it travels as a single scalar in the URL or query string.
+    const schema = this.schemaFromDbColumnType(column?.Type);
+
+    return {
+      ...schema,
+      description: modelName && keyName ? `${modelName}.${keyName}` : modelName ? `${modelName} key` : undefined,
+    };
+  }
+
+  /**
+   * Map a database column type (driver's DATA_TYPE) to an OpenAPI primitive.
+   * Unknown types fall back to string — the value travels as a URL segment anyway.
+   */
+  private schemaFromDbColumnType(type: string | undefined): IOpenApiSchema {
+    const normalized = (type ?? '')
+      .toLowerCase()
+      .replace(/\(.*$/, '')
+      .replace(/\s+unsigned$/, '')
+      .trim();
+
+    switch (normalized) {
+      case 'tinyint':
+      case 'smallint':
+      case 'mediumint':
+      case 'int':
+      case 'integer':
+      case 'year':
+        return { type: 'integer' };
+      case 'bigint':
+        return { type: 'integer', format: 'int64' };
+      case 'float':
+      case 'double':
+      case 'real':
+        return { type: 'number' };
+      case 'bool':
+      case 'boolean':
+      case 'bit':
+        return { type: 'boolean' };
+      // DECIMAL/NUMERIC come back from the driver as strings (precision is not
+      // survivable as a JS number), so the doc must say string as well.
+      case 'decimal':
+      case 'numeric':
+        return { type: 'string' };
+      case 'date':
+        return { type: 'string', format: 'date' };
+      case 'datetime':
+      case 'timestamp':
+        return { type: 'string', format: 'date-time' };
+      default:
+        return { type: 'string' };
+    }
+  }
+
+  /**
    * Build an OpenAPI parameter from route parameter info.
    */
   private buildParameter(
@@ -702,6 +949,13 @@ export class OpenApiBuilder {
     // orm-http @Filter — describe the JSON filter envelope so API consumers know what to send.
     if (param.Type === 'FilterModelRouteArg') {
       return this.buildFilterSchema(param);
+    }
+
+    // orm-http @FromModel — the request carries the key the model is loaded by, not the
+    // model. The model's own schema describes a write body and would document this
+    // parameter as an object, which no URL segment can be.
+    if (param.Type === 'FromDbModel') {
+      return this.fromDbModelKeySchema(param);
     }
 
     if (param.Schema && typeof param.Schema === 'object') {
@@ -898,7 +1152,7 @@ export class OpenApiBuilder {
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: { 'application/json': { schema: this.expandNamedSchemas(schema) } },
+        content: { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
       };
     } else if (!hasExplicit2xx) {
       responses['200'] = { description: 'Successful response' };
@@ -913,7 +1167,7 @@ export class OpenApiBuilder {
         if (resp.type) {
           responses[statusCode] = {
             description: resp.description,
-            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type)) } },
+            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
           };
           continue;
         }
@@ -987,8 +1241,12 @@ export class OpenApiBuilder {
   /**
    * Swaps named-type nodes for a reusable component `$ref`, registering each component once.
    * Walks `items` and `properties` so nested types are expanded too.
+   *
+   * `kind` says which side of the wire this subtree describes and is carried down the whole
+   * walk — a relation nested in a response is still a response. It defaults to 'request'
+   * so every caller that never had an opinion keeps the schema it always got.
    */
-  private expandNamedSchemas(schema: IOpenApiSchema): IOpenApiSchema {
+  private expandNamedSchemas(schema: IOpenApiSchema, kind: SchemaKind = 'request'): IOpenApiSchema {
     // Case 1 — primitive / null: nothing to expand, return as-is.
     if (!schema || typeof schema !== 'object') {
       return schema;
@@ -996,7 +1254,7 @@ export class OpenApiBuilder {
 
     // Case 2 — a named-model tag: replace the whole node with a $ref to its component.
     if (schema.description && !schema.$ref) {
-      const ref = this.registerNamedComponent(schema.description);
+      const ref = this.registerNamedComponent(schema.description, kind);
       if (ref) {
         return { $ref: ref };
       }
@@ -1004,11 +1262,11 @@ export class OpenApiBuilder {
 
     // Case 3 — a container: keep the node, expand the two places a model can hide.
     if (schema.items) {
-      schema.items = this.expandNamedSchemas(schema.items);
+      schema.items = this.expandNamedSchemas(schema.items, kind);
     }
     if (schema.properties) {
       for (const key of Object.keys(schema.properties)) {
-        schema.properties[key] = this.expandNamedSchemas(schema.properties[key]);
+        schema.properties[key] = this.expandNamedSchemas(schema.properties[key], kind);
       }
     }
 
@@ -1019,27 +1277,110 @@ export class OpenApiBuilder {
    * Registers `name` as a reusable component and returns its `$ref`.
    * Returns undefined when no provider recognises the name, so the caller leaves the node as-is.
    */
-  private registerNamedComponent(name: string): string | undefined {
-    const ref = `#/components/schemas/${name}`;
-    // Already registered (or in progress) — just reference it.
-    if (this.registeredComponents.has(name)) {
-      return ref;
-    }
-
-    const resolved = this.SchemaProviders.map((p) => p.getSchema(name)).find((r) => !!r);
+  private registerNamedComponent(name: string, kind: SchemaKind = 'request'): string | undefined {
+    const resolved = this.resolveNamedSchema(name, kind);
     if (!resolved) {
       return undefined;
     }
 
-    this.registeredComponents.add(name);
+    const componentName = this.componentNameFor(name, kind, resolved);
+    const ref = `#/components/schemas/${componentName}`;
+
+    // Already registered (or in progress) — just reference it. Registering BEFORE the
+    // expansion below is what stops a cyclic relation from recursing forever.
+    if (this.registeredComponents.has(componentName)) {
+      return ref;
+    }
+    this.registeredComponents.add(componentName);
 
     const components = (this.document.components ??= {});
     const schemas = (components.schemas ??= {});
 
     // Expand nested named tags into their own components.
-    schemas[name] = this.expandNamedSchemas(this.convertJsonSchema(resolved));
+    schemas[componentName] = this.expandNamedSchemas(this.convertJsonSchema(resolved), kind);
 
     return ref;
+  }
+
+  /**
+   * Pick the schema a component should be built from.
+   *
+   * An ORM model carries two different contracts under one name: `@Schema` says what a
+   * client may SEND, the model's own columns say what the API RETURNS. Serving the write
+   * schema as the response contract is how a response ends up missing every column the
+   * database generates (`id`, `created_at`), missing `nullable` on columns that are null in
+   * practice, carrying `maxLength` copied from the column width, and demanding fields a
+   * response legitimately omits — enough for a generated client validator to reject
+   * ordinary rows.
+   *
+   * So a response asks the providers for their response flavour first. Providers that have
+   * none (a `@Schema` DTO is the same object both ways) return undefined and we fall back
+   * to `getSchema` — which is also the only thing a request ever consults.
+   */
+  private resolveNamedSchema(name: string, kind: SchemaKind): Record<string, unknown> | undefined {
+    if (kind === 'response') {
+      // optional call — a provider compiled against an older @spinajs/validation has no such method
+      const response = this.SchemaProviders.map((p) => p.getResponseSchema?.(name)).find((r) => !!r);
+      if (response) {
+        return response;
+      }
+    }
+
+    return this.SchemaProviders.map((p) => p.getSchema(name)).find((r) => !!r);
+  }
+
+  /**
+   * Component name for `name` in the given flavour.
+   *
+   * A type whose two flavours agree is ONE component called `<Name>`. When they differ the
+   * response keeps `<Name>` and the request becomes `<Name>Request` — always, whichever
+   * flavour the traversal happens to reach first. Letting the first arrival keep the base
+   * name made the suffix a function of controller-discovery ( filesystem ) order: adding or
+   * renaming an unrelated controller could flip `User` to `UserRequest` in every generated
+   * client, with nothing in the diff to explain it.
+   *
+   * The response is the half that keeps the plain name because it is the half most of a
+   * client's surface is built from — a list screen references the row type far more often
+   * than the write form does.
+   *
+   * Both flavours are resolved here, at the first encounter, precisely so the answer does not
+   * depend on which one asked. Providers are pure lookups, so asking twice costs nothing.
+   *
+   * @param name - type name to place in components
+   * @param kind - flavour being registered right now
+   * @param resolved - the schema already resolved for `kind`, reused instead of re-asking
+   */
+
+  private componentNameFor(name: string, kind: SchemaKind, resolved: Record<string, unknown>): string {
+    let claim = this.componentClaims.get(name);
+
+    if (!claim) {
+      const request = kind === 'request' ? resolved : this.resolveNamedSchema(name, 'request');
+      const response = kind === 'response' ? resolved : this.resolveNamedSchema(name, 'response');
+      const requestKey = request && this.schemaKey(request);
+      const responseKey = response && this.schemaKey(response);
+
+      // An unserializable schema counts as "differs": that costs one extra component but
+      // never merges two contracts into one.
+      claim = { split: !requestKey || !responseKey || requestKey !== responseKey };
+      this.componentClaims.set(name, claim);
+    }
+
+    return claim.split && kind === 'request' ? `${name}Request` : name;
+  }
+
+  /**
+   * Identity of a resolved schema, used only to tell "both flavours, same contract" from
+   * "both flavours, different contract". Undefined when the schema can't be serialized —
+   * then the two flavours are assumed to differ, which costs a component but never merges
+   * two contracts into one.
+   */
+  private schemaKey(schema: Record<string, unknown>): string | undefined {
+    try {
+      return JSON.stringify(schema);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

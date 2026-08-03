@@ -286,6 +286,35 @@ export function Primary(options?: IPrimaryKeyOptions) {
 }
 
 /**
+ * Marks a property as one the model NEVER hands out: `dehydrate()` and `dehydrateWithRelations()`
+ * omit it unconditionally, and it is dropped from the model's response JSON schema
+ * ( `descriptor.ResponseSchema` ), so generated API documentation never advertises a field the
+ * ORM guarantees is absent. rbac's `User` hides `Password` and `Id` this way.
+ *
+ * Applies to RELATION properties as well as columns - rbac's `UserMetadata` hides its `User`
+ * relation, which never appears in `Columns` at all.
+ *
+ * The write contract is deliberately untouched: `descriptor.Schema` still carries the property,
+ * because hiding a value on the way out says nothing about whether a client may send it in. Use
+ * `@Ignore()` instead for a property that is not part of the table.
+ *
+ * Additive down an inheritance chain, like @Primary(): a subclass starts from everything its
+ * ancestors hide and may add to it, without writing back into their descriptors. Declaring the
+ * same property again in a subclass is harmless - it is recorded once.
+ *
+ * Written at class-definition time, which is the point of the decorator: every reader
+ * ( response schema, `@spinajs/http-swagger` ) gets the list off the class itself, with no Orm
+ * resolved and no database reachable.
+ */
+export function Hidden() {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, _target: any, propertyKey: string) => {
+    if (!model.Hidden.includes(propertyKey)) {
+      model.Hidden.push(propertyKey);
+    }
+  });
+}
+
+/**
  * Marks columns as UUID. Column will be generated ad creation
  */
 export function Ignore() {
