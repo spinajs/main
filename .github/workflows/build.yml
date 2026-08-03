@@ -1,0 +1,38 @@
+name: build
+
+# Verifies that the monorepo actually installs from the committed lock file and
+# compiles end to end (esm + cjs) before anything is published. `npm ci` is the
+# step that catches package.json / package-lock.json drift - a dependency range
+# edited in a package without regenerating the lock fails here instead of at
+# publish time.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      # Fails if package.json and package-lock.json are out of sync.
+      - name: install
+        run: npm ci
+
+      # Root `build` = clean + tsc -b (esm) + tsc -b (cjs) + static asset copy +
+      # per-module package.json generation, across every workspace package.
+      - name: build monorepo (esm + cjs)
+        run: npm run build

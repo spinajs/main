@@ -54,7 +54,7 @@
     "@spinajs/log-common": "^2.0.492",
     "@spinajs/orm": "2.0.492",
     "@spinajs/threading": "^2.0.492",
-    "luxon": "3.5.0"
+    "luxon": "^3.6.1"
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
