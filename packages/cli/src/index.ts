@@ -4,7 +4,7 @@ import { AsyncService, Autoinject, ClassInfo, DI } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log-common';
 import { Configuration } from '@spinajs/configuration';
 import { Command, Option, Argument } from 'commander';
-import { ResolveFromFiles } from '@spinajs/reflection';
+import { ListFromFiles } from '@spinajs/reflection';
 import { createRequire } from 'module';
 
 export * from './interfaces.js';
@@ -33,7 +33,15 @@ export class Cli extends AsyncService {
   @Autoinject()
   protected Configuration!: Configuration;
 
-  @ResolveFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
+  /**
+   * Commands are only LISTED here, never instantiated up front. Instantiation
+   * is deferred until a command is actually invoked: constructing a command may
+   * have heavy side effects ( eg. `@Autoinject() Orm` opening a database
+   * connection ), and eager resolution would make every CLI run — including
+   * ones that don't need those services, like cache generation during a docker
+   * image build — fail when a dependency is unavailable.
+   */
+  @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.cli')
   public Commands!: Promise<Array<ClassInfo<CliCommand>>>;
 
   /**
@@ -46,7 +54,16 @@ export class Cli extends AsyncService {
       return text ?? '';
     }
     const g = globalThis as { __?: (t: string) => string };
-    return typeof g.__ === 'function' ? g.__(text) : text;
+    if (typeof g.__ !== 'function') {
+      return text;
+    }
+    // `@spinajs/intl` installs the global at module import, but it throws until
+    // the Intl service is actually resolved — treat that as "not configured".
+    try {
+      return g.__(text);
+    } catch {
+      return text;
+    }
   }
 
   public async resolve(): Promise<void> {
@@ -77,10 +94,14 @@ export class Cli extends AsyncService {
     // so the command tree can be assembled afterwards regardless of iteration order.
     const built: Array<{ name: string; command: Command; parent?: string }> = [];
 
+    // lazy, memoized command instances — resolved at most once, and only when
+    // the command ( or a parent on its dispatch path ) is actually invoked.
+    const lazyInstances = new Map<Command, () => Promise<CliCommand>>();
+
     for (const cmd of commands ?? []) {
 
-      if(!cmd.instance){
-        this.Log.warn(`Command ${cmd.name} is not resolved. Make sure it is decorated with @injectable and has a public constructor without required parameters`);
+      if (!cmd.type) {
+        this.Log.warn(`Command ${cmd.name} has no exported class. Make sure the file exports a CliCommand subclass`);
         continue;
       }
 
@@ -165,15 +186,28 @@ export class Cli extends AsyncService {
         c.addArgument(arg);
       });
 
-      cmd.instance!.onCreation(c);
+      let instance: Promise<CliCommand> | null = null;
+      const getInstance = () => {
+        if (!instance) {
+          instance = Promise.resolve(DI.resolve(cmd.type) as CliCommand | Promise<CliCommand>).catch((err: Error) => {
+            this.Log.error(`Cannot resolve command ${cmd.name} ( ${cmd.file} ): ${err.message}`);
+            throw err;
+          });
+        }
+        return instance;
+      };
+      lazyInstances.set(c, getInstance);
 
       // lifecycle hooks — always registered, default to no-op on the base class.
-      c.hook('preAction', (thisCommand, actionCommand) => cmd.instance!.onPreAction(thisCommand, actionCommand));
-      c.hook('postAction', (thisCommand, actionCommand) => cmd.instance!.onPostAction(thisCommand, actionCommand));
+      // the instance is resolved lazily; for the invoked command `onCreation`
+      // already resolved it in the parent's preSubcommand hook, so these await
+      // the memoized promise instead of resolving again.
+      c.hook('preAction', async (thisCommand, actionCommand) => (await getInstance()).onPreAction(thisCommand, actionCommand));
+      c.hook('postAction', async (thisCommand, actionCommand) => (await getInstance()).onPostAction(thisCommand, actionCommand));
 
       c.action(async (...args) => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-        await cmd.instance!.execute(...args);
+        await (await getInstance()).execute(...args);
       });
 
       built.push({ name: cMeta.nameAndArgs.split(' ')[0], command: c, parent: cMeta.parent });
@@ -193,6 +227,22 @@ export class Cli extends AsyncService {
       }
       program.addCommand(b.command);
     }
+
+    // `onCreation` may customize a command ( extra options, help text ) and so
+    // must run before that command parses its arguments. commander's
+    // preSubcommand hook fires after the subcommand is selected but before it
+    // parses — resolve the instance there, only for commands on the actual
+    // dispatch path. This is what keeps unrelated commands un-instantiated.
+    const lazyOnCreation = (parent: Command) => {
+      parent.hook('preSubcommand', async (_thisCommand, subcommand) => {
+        const get = lazyInstances.get(subcommand);
+        if (get) {
+          (await get()).onCreation(subcommand);
+        }
+      });
+    };
+    lazyOnCreation(program);
+    built.forEach((b) => lazyOnCreation(b.command));
 
     program.exitOverride();
     program.showHelpAfterError();

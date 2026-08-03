@@ -22,6 +22,7 @@ import { TestHookCommand } from './commands/TestHookCommand.js';
 import { TestCommandEnv } from './commands/TestCommandEnv.js';
 import { TestCommandConfigKey } from './commands/TestCommandConfigKey.js';
 import { TestCommandAdvOpts } from './commands/TestCommandAdvOpts.js';
+import { TestSideEffectCommand } from './commands/TestSideEffectCommand.js';
 
 
 //const expect = chai.expect;
@@ -288,6 +289,49 @@ describe('Commands', () => {
 
     expect(execute.calledOnce).to.be.true;
     expect(execute.args[0][0]).to.have.property('sauce', false);
+  });
+
+  it('Should not instantiate commands other than the invoked one', async () => {
+    const execute = spy(TestCommand.prototype, 'execute');
+    TestSideEffectCommand.instantiations = 0;
+
+    DI.register(() => ['node', 'script.js', 'test-command', 'userLogin', 'userPassword', '-t', '10000']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(TestSideEffectCommand.instantiations).to.eq(0);
+  });
+
+  it('Should instantiate the invoked command exactly once', async () => {
+    const execute = spy(TestSideEffectCommand.prototype, 'execute');
+    TestSideEffectCommand.instantiations = 0;
+
+    DI.register(() => ['node', 'script.js', 'side-effect-cmd']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+    expect(TestSideEffectCommand.instantiations).to.eq(1);
+  });
+
+  it('Should run a command even when an unrelated command fails to resolve', async () => {
+    // TestFailingResolveCommand throws on resolve — running any other
+    // command must still work ( eg. cache generation during a docker build
+    // while database-dependent commands cannot connect ).
+    const execute = spy(TestCommand.prototype, 'execute');
+
+    DI.register(() => ['node', 'script.js', 'test-command', 'userLogin', 'userPassword', '-t', '10000']).as('__cli_argv_provider__');
+
+    await c();
+
+    expect(execute.calledOnce).to.be.true;
+  });
+
+  it('Should reject when the invoked command itself fails to resolve', async () => {
+    DI.register(() => ['node', 'script.js', 'failing-resolve-cmd']).as('__cli_argv_provider__');
+
+    await expect(c()).to.be.rejected;
   });
 
   it('Should resolve cleanly for --version (exitCode 0 path)', async () => {
