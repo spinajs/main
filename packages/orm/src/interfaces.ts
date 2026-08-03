@@ -1340,7 +1340,7 @@ export interface IJoinBuilder {
   crossJoin<R = ModelBase>(relation: string, callback?: (this: IWhereBuilder<R>) => void, queryCallback?: (this: ISelectQueryBuilder<R>) => void): this;
   crossJoin<R = ModelBase>(model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
 
-  join<R = ModelBase>(method: JoinMethod, expression: RawQuery): this;
+  join<_R = ModelBase>(method: JoinMethod, expression: RawQuery): this;
   join<R = ModelBase>(method: JoinMethod, relation: string, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
   join<R = ModelBase>(method: JoinMethod, model: Constructor<ModelBase>, callback?: (this: IWhereBuilder<R>, queryCallback?: (this: ISelectQueryBuilder<R>) => void) => void): this;
   join<R = ModelBase>(method: JoinMethod, options: IJoinStatementOptions<R>): this;
@@ -1392,7 +1392,7 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
-  populate<R = this>(relation: Constructor<ModelBase>): this;
+  populate<_R = this>(relation: Constructor<ModelBase>): this;
   populate<R = this>(relation?: string | string[] | null, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   populate<R = this>(relation: {}, callback?: (this: ISelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   asRaw<T>(): Promise<T>;

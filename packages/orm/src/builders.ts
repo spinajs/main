@@ -1264,7 +1264,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   // A nullish relation is a no-op, so routes with an optional `include` param
   // can pass it straight through.
-  public populate<R = this>(relation: Constructor<ModelBase>): this;
+  public populate<_R = this>(relation: Constructor<ModelBase>): this;
   public populate<R = this>(relation?: string | string[] | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation?: string | string[] | Constructor<ModelBase> | {} | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {

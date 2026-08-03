@@ -4,7 +4,6 @@
     "rootDir": "./src",
     "outDir": "./lib/cjs",
     "module": "commonjs",
-    "moduleResolution": "node"
   },
   "include": ["src/**/*"],
   "references": [{ "path": "../di/tsconfig.cjs.json" }],

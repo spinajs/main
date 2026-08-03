@@ -12,6 +12,10 @@
     "browser": {
       "import": "./lib/mjs/index.browser.js",
       "require": "./lib/cjs/index.browser.js"
+    },
+    "default": {
+      "import": "./lib/mjs/index.node.js",
+      "require": "./lib/cjs/index.node.js"
     }
   },
   "type": "module",

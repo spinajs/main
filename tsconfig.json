@@ -18,6 +18,22 @@
     "declarationMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "typeRoots": ["node_modules/@types", "./typings", "./types"],
+
+    // TypeScript 7 does not auto-include @types the way 5.x did with the old
+    // `typeRoots` setting ( which also pointed at ./typings and ./types - dirs
+    // that do not exist ). Everything else reaches types through imports; only
+    // the node globals ( process, global, NodeJS, setImmediate ... ) need an
+    // explicit ambient include.
+    "types": ["node", "mocha"],
+
+    // TypeScript 7 flips these strict-family flags ON when unspecified. Pinned
+    // to the 5.x behaviour this codebase compiles under ( ~600 errors otherwise,
+    // mostly strictPropertyInitialization ). Lift them one by one when the code
+    // is ready - do not remove casually.
+    "strictPropertyInitialization": false,
+    "strictFunctionTypes": false,
+    "strictBindCallApply": false,
+    "useUnknownInCatchVariables": false,
+    "noImplicitThis": false
   }
 }
