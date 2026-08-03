@@ -30,7 +30,7 @@ export interface ITwoFactorStatus {
  * not be enough to attach an attacker-controlled authenticator or to strip the
  * second factor off the account.
  *
- * @tags Two-Factor Authentication
+ * @tags Two-Factor Settings
  */
 @BasePath('user')
 @Resource('user')

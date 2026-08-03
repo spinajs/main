@@ -33,7 +33,7 @@ export interface IUserSessionEntry {
  * sessions and terminate them remotely, which is how a person who suspects a
  * stolen cookie gets rid of it without an administrator.
  *
- * @tags User
+ * @tags Sessions
  */
 @BasePath('user')
 @Resource('user')
