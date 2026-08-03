@@ -1,5 +1,5 @@
 {
-  "version": "2.0.495",
+  "version": "2.0.496",
   "description": "OTLP/HTTP log export target for @spinajs/log ( OpenTelemetry Protocol )",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,11 +51,11 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "2.0.495",
-    "@spinajs/di": "2.0.495",
-    "@spinajs/log": "2.0.495",
-    "@spinajs/log-common": "2.0.495",
-    "@spinajs/util": "2.0.495",
+    "@spinajs/configuration-common": "2.0.496",
+    "@spinajs/di": "2.0.496",
+    "@spinajs/log": "2.0.496",
+    "@spinajs/log-common": "2.0.496",
+    "@spinajs/util": "2.0.496",
     "axios": "^1.2.3",
     "lodash": "^4.17.21"
   }
