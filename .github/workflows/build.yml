@@ -14,9 +14,13 @@ name: build
 # half-failed release finishes the remaining packages instead of bumping again
 # and orphaning the half-published version.
 #
-# Requires the NPM_TOKEN repository secret ( an npm automation / granular access
-# token with publish rights ). Without it the release job fails fast in
-# publish-all's authentication check.
+# Requires two repository secrets:
+#   NPM_TOKEN     - npm automation / granular access token with publish rights;
+#                   without it the release job fails fast in publish-all's
+#                   authentication check.
+#   RELEASE_TOKEN - fine-grained PAT ( contents: read/write ) of an account on
+#                   the master ruleset's bypass list; the default GITHUB_TOKEN
+#                   cannot push to master ( PR-only rule, GH013 ).
 
 on:
   push:
@@ -71,7 +75,15 @@ jobs:
       NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
+      # The master ruleset only allows changes through pull requests, and the
+      # default GITHUB_TOKEN has no bypass - its push is rejected with GH013.
+      # RELEASE_TOKEN is a fine-grained PAT ( contents: read/write on this repo )
+      # of an account on the ruleset bypass list; checkout persists it as the
+      # push credential. A PAT push also re-triggers workflows ( GITHUB_TOKEN
+      # pushes do not ), so the [skip ci] marker on the bump commit matters.
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
 
       # registry-url writes an .npmrc that reads NODE_AUTH_TOKEN, which is what
       # lets publish-all run unattended.
