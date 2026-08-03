@@ -11,7 +11,7 @@
     "watch:cjs": "tsc -b tsconfig.build.cjs.json --watch --preserveWatchOutput",
     "publish": "npm run build && node scripts/publish-all.mjs",
     "publish:dry-run": "node scripts/publish-all.mjs --dry-run",
-    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
+    "copy-static": "cpx \"packages/http/src/views/**/*\" packages/http/lib/views && cpx \"packages/http/src/static/**/*\" packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
     "prepare-module-support": "node scripts/generate-packages-for-modules.mjs",
     "docs:check": "node scripts/check-doc-samples.mjs"
   },
