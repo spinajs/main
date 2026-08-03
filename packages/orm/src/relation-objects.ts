@@ -1,7 +1,8 @@
 /* eslint-disable prettier/prettier */
 import { IRelationDescriptor, IModelDescriptor, InsertBehaviour, ForwardRefFunction, IRelation, ISelectQueryBuilder, QueryScope } from './interfaces.js';
-import { DI, Constructor, isConstructor, NewInstance } from '@spinajs/di';
-import { createQuery, SelectQueryBuilder } from './builders.js';
+import { DI, Constructor, NewInstance } from '@spinajs/di';
+import { DateTime } from 'luxon';
+import { createQuery, SelectQueryBuilder, UpdateQueryBuilder } from './builders.js';
 import type { ModelBase } from './model.js';
 import { Orm } from './orm.js';
 import _ from 'lodash';
@@ -11,59 +12,107 @@ import { isCompositePk, pkColumns, pkKeyStringFor, pkValueOf, whereNotAnyPk } fr
 import { OrmException } from './exceptions.js';
 
 /**
- * Builds a lodash iteratee for the given primary key columns. A single column stays a plain
- * property name ( lodash's fast path ); a composite key becomes a function that flattens the
- * tuple, because an array iteratee would be read as a property PATH — `_.differenceBy(a, b,
- * ['TenantId','Code'])` resolves `obj['TenantId']['Code']`, undefined for every row, so every
- * row would compare equal.
+ * Builds the equality used by every keyed set operation.
+ *
+ * Same reference is always equal. Two DIFFERENT rows are equal only when every key column is
+ * set on both and the flattened key strings match — a fresh, unsaved model ( undefined key )
+ * never equals another row, so two new models are two members, not one. The previous
+ * `differenceBy` iteratee stringified undefined keys and collapsed all unsaved rows into one.
  */
-function pkIteratee(pKey: string[]): string | ((x: any) => string) {
-  if (pKey.length === 1) {
-    return pKey[0];
-  }
+function pkComparator(pKey: string[]): (a: any, b: any) => boolean {
+  return (a: any, b: any) => {
+    if (a === b) {
+      return true;
+    }
 
-  return (x: any) => pkKeyStringFor(x, pKey);
+    if (pKey.length === 0) {
+      return false;
+    }
+
+    const isSet = (x: any) => pKey.every((k) => x?.[k] !== null && x?.[k] !== undefined);
+    if (!isSet(a) || !isSet(b)) {
+      return false;
+    }
+
+    return pkKeyStringFor(a, pKey) === pkKeyStringFor(b, pKey);
+  };
 }
 
+/**
+ * A set operation with no comparator falls back to primary key equality, which needs key
+ * columns to exist. Comparing keyless rows silently matches nothing ( or everything ), so
+ * fail loudly instead.
+ */
+function assertSetOpKeys(pKey: string[], callback?: (a: any, b: any) => boolean): void {
+  if (!callback && pKey.length === 0) {
+    throw new OrmException('set operation compares by primary key, but the model declares no primary key columns; pass an explicit comparator callback');
+  }
+}
+
+/**
+ * Pure, in-memory set algebra over model collections. Nothing here touches the database —
+ * apply a result with `relation.set(...)` and persist it with `sync()` / `update()` / `save()`.
+ */
 export class Dataset {
   /**
-   *
-   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   * Calculates the symmetric difference between the relation data and the provided dataset —
+   * members of either set that are not in the other. In-memory only; persist with `sync()`.
    *
    * @param dataset - data to compare
-   * @param callback - function to compare objects, if none provideded - primary key value is used
+   * @param callback - function to compare objects, if none provided - primary key value is used
    */
   public static diff<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
     return (datasetB: R[], pKey: string[]) => {
-      // TODO: maybe refactor for speedup, this is not optimal
-      // two calls to _.difference is not optimal, but it is easy to implement
-      const iteratee = pkIteratee(pKey);
+      assertSetOpKeys(pKey, callback);
+      const eq = callback ?? pkComparator(pKey);
 
-      // calculate difference between this data in relation and dataset ( objects from this relation)
-      const result = callback ? _.differenceWith(dataset, [...datasetB], callback) : _.differenceBy(dataset, [...datasetB], iteratee as any);
+      // members of dataset that are not in the relation data
+      const result = _.differenceWith(dataset, [...datasetB], eq);
 
-      // calculate difference between dataset and data in this relation ( objects from dataset )
-      const result2 = callback ? _.differenceWith([...datasetB], dataset, callback) : _.differenceBy([...datasetB], dataset, iteratee as any);
+      // members of the relation data that are not in dataset
+      const result2 = _.differenceWith([...datasetB], dataset, eq);
 
-      // combine difference from two sets
-      const finalDiff = [...result, ...result2];
-
-      return finalDiff;
+      return [...result, ...result2];
     };
   }
 
   /**
-   *
-   * Calculates intersection between data in this relation and provided dataset
-   * It saves result to db
+   * Calculates the intersection between the relation data and the provided dataset.
+   * In-memory only; persist with `sync()`.
    *
    * @param dataset - dataset to compare
    * @param callback - function to compare models, if not set it is compared by primary key value
    */
   public static intersection<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
     return (datasetB: R[], pKey: string[]) => {
-      const iteratee = pkIteratee(pKey);
-      return callback ? _.intersectionWith(dataset, [...datasetB], callback) : _.intersectionBy(dataset, [...datasetB], iteratee as any);
+      assertSetOpKeys(pKey, callback);
+      const eq = callback ?? pkComparator(pKey);
+      return _.intersectionWith(dataset, [...datasetB], eq);
+    };
+  }
+
+  /**
+   * Calculates the union of the relation data and the provided dataset. Members already
+   * present ( by primary key or comparator ) are kept once, the relation's own instance
+   * winning over the incoming duplicate. Unsaved models compare by reference, so they are
+   * always appended. In-memory only; persist with `sync()`.
+   *
+   * @param dataset - data to add
+   * @param callback - function to compare models, if not set it is compared by primary key value
+   */
+  public static union<R>(dataset: R[], callback?: (a: R, b: R) => boolean) {
+    return (datasetB: R[], pKey: string[]) => {
+      assertSetOpKeys(pKey, callback);
+      const eq = callback ?? pkComparator(pKey);
+
+      const result = [...datasetB];
+      for (const item of dataset) {
+        if (!result.some((existing) => eq(existing, item))) {
+          result.push(item);
+        }
+      }
+
+      return result;
     };
   }
 }
@@ -81,20 +130,17 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
 
   protected Driver: OrmDriver;
 
-  protected IsModelAForwardRef: boolean;
-
   protected Model: Constructor<R> | ForwardRefFunction;
 
   /**
-   * Array methods that derive a new collection ( `splice`, `filter`, `slice`, `concat`, … )
-   * construct `new this.constructor[Symbol.species](len)` by default. That would call this
-   * class's constructor with no relation descriptor, and the very next line dereferences
-   * `this.Relation.TargetModel` — so `order.Items.splice(0, 1)` threw
+   * Array methods that derive a new collection ( `splice`, `filter`, `slice`, `concat`,
+   * `map`, … ) construct `new this.constructor[Symbol.species](len)` by default. That would
+   * call this class's constructor with no relation descriptor, and the very next line
+   * dereferences `this.Relation.TargetModel` — so `order.Items.splice(0, 1)` threw
    * `Cannot read properties of undefined (reading 'TargetModel')`.
    *
    * Deriving plain arrays is also the right semantics: a slice of a relation is a list of
-   * models, not a relation with an owner. ( The hand-written `map()` below predates this and
-   * worked around the same thing for one method. )
+   * models, not a relation with an owner.
    */
   static get [Symbol.species]() {
     return Array;
@@ -113,8 +159,6 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
     if (this.TargetModelDescriptor) {
       this.Driver = DI.resolve<OrmDriver>('OrmConnection', [this.TargetModelDescriptor.Connection]);
     }
-
-    this.IsModelAForwardRef = !isConstructor(this.Model);
   }
 
   /**
@@ -133,36 +177,36 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
     return key ? (this.Owner as any)[key] : this.Owner.PrimaryKeyValue;
   }
 
-  public map<U>(callbackfn: (value: R, index: number, array: R[]) => U, thisArg?: any): U[] {
-    const result: U[] = [];
-    for (let index = 0; index < this.length; index++) {
-      const element = this[index];
-      result.push(callbackfn.call(thisArg, element, index, this));
+  /**
+   * Removes all members matching the predicate. In-memory only — the database changes on the
+   * next `sync()` ( orphan delete ) or `save()` ( orphan policy ).
+   *
+   * @param compare - predicate selecting members to remove
+   */
+  public remove(compare: (a: R) => boolean): R[];
+
+  /**
+   * Removes the given model or models, matched by primary key ( an unsaved model, having no
+   * key, is matched by reference ). In-memory only — persist with `sync()` / `save()`.
+   *
+   * @param obj - data to remove
+   */
+  public remove(obj: R | R[]): R[];
+  public remove(obj: R | R[] | ((a: R) => boolean)): R[] {
+    let toRemove: R[];
+
+    if (_.isFunction(obj)) {
+      toRemove = [...this].filter(obj);
+    } else {
+      const candidates = Array.isArray(obj) ? obj : [obj];
+      const eq = pkComparator(pkColumns(this.TargetModelDescriptor!));
+      toRemove = [...this].filter((member) => candidates.some((c) => eq(member, c)));
     }
 
-    return result;
+    this.set((data) => data.filter((d) => !toRemove.includes(d)));
+
+    return toRemove;
   }
-
-  /**
-   * Removes all objects from relation by comparison functions
-   *
-   * @param compare function to compare models
-   */
-  public abstract remove(compare: (a: R) => boolean): R[];
-
-  /**
-   * Removes all objects by primary key
-   *
-   * @param obj - data to remove
-   */
-  public abstract remove(obj: R | R[]): R[];
-
-  /**
-   * Removes from relation & deletes from db
-   *
-   * @param obj - data to remove
-   */
-  public abstract remove(obj: R | R[] | ((a: R, b: R) => boolean)): R[];
 
   /**
    * Delete all objects from relation ( alias for empty )
@@ -195,39 +239,53 @@ export abstract class Relation<R extends ModelBase<R>, O extends ModelBase<O>, Q
   public abstract update(): Promise<void>;
 
   /**
-   *
-   * Calculates intersection between data in this relation and provided dataset
-   * It saves result to db
+   * Calculates the intersection between this relation and the provided dataset. Pure
+   * computation — apply it with `set()` and persist with `sync()` / `save()`.
    *
    * @param dataset - dataset to compare
    * @param callback - function to compare models, if not set it is compared by primary key value
+   * @returns members present in both sets
    */
-  public abstract intersection(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
+  public intersection(dataset: R[], callback?: (a: R, b: R) => boolean): R[] {
+    return Dataset.intersection(dataset, callback)([...this], pkColumns(this.TargetModelDescriptor!));
+  }
 
   /**
-   * Adds all items to this relation & adds to database
+   * Adds the dataset's members to this relation, skipping members already present ( compared
+   * by primary key, or by the callback ). In-memory only — nothing is written until `sync()`,
+   * `update()` or `save()`.
    *
    * @param dataset - data to add
-   * @param mode - insert mode
+   * @param callback - function to compare models, if not set it is compared by primary key value
    */
-  public abstract union(dataset: R[], mode?: InsertBehaviour): void;
+  public union(dataset: R[], callback?: (a: R, b: R) => boolean): void {
+    this.set(Dataset.union(dataset, callback)([...this], pkColumns(this.TargetModelDescriptor!)));
+  }
 
   /**
-   *
-   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   * Calculates the symmetric difference between this relation and the dataset — members of
+   * this relation that are not in the dataset, plus members of the dataset that are not in
+   * this relation. Pure computation — apply it with `set()` and persist with `sync()`.
    *
    * @param dataset - data to compare
-   * @param callback - function to compare objects, if none provideded - primary key value is used
+   * @param callback - function to compare objects, if none provided - primary key value is used
    */
-  public abstract diff(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
+  public diff(dataset: R[], callback?: (a: R, b: R) => boolean): R[] {
+    return Dataset.diff(dataset, callback)([...this], pkColumns(this.TargetModelDescriptor!));
+  }
 
   /**
+   * Clears the relation and replaces its members with the new dataset ( or with the result of
+   * a `Dataset.diff` / `Dataset.intersection` / `Dataset.union` closure ). In-memory only —
+   * persist with `sync()` / `update()` / `save()`.
    *
-   * Clears data and replace it with new dataset.
-   *
-   * @param dataset - data for replace.
+   * @param obj - replacement data, or a closure receiving the current members and the primary key columns
    */
-  public abstract set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
+  public set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void {
+    const toPush = _.isFunction(obj) ? obj([...this], pkColumns(this.TargetModelDescriptor!)) : obj;
+    this.empty();
+    this.push(...toPush);
+  }
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)
@@ -340,34 +398,30 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
 export class ManyQueryRelationList<R extends ModelBase, O extends ModelBase> extends Relation<R, O, typeof ModelBase<R>> {
   public remove(_compare: (a: R) => boolean): R[];
-  /* eslint-disable prettier/prettier */
   public remove(_obj: R | R[]): R[];
-  /* eslint-disable prettier/prettier */
-  public remove(_obj: R | R[] | ((a: R, b: R) => boolean)): R[];
-  /* eslint-disable prettier/prettier */
   public remove(_obj: unknown): R[] {
-    throw new Error('Query relations cannot be removed. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be removed. This relation is used only for query purposes and it is always populated.');
   }
   public sync(): Promise<void> {
-    throw new Error('Query relations cannot be synced. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be synced. This relation is used only for query purposes and it is always populated.');
   }
   public update(): Promise<void> {
-    throw new Error('Query relations cannot be updated. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be updated. This relation is used only for query purposes and it is always populated.');
   }
   public intersection(_dataset: R[], _callback?: (a: R, b: R) => boolean): R[] {
-    throw new Error('Query relations cannot be intersected. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be intersected. This relation is used only for query purposes and it is always populated.');
   }
-  public union(_dataset: R[], _mode?: InsertBehaviour): void {
-    throw new Error('Query relations cannot be unioned. This relation is used only for query purposes and it is always populated.');
+  public union(_dataset: R[], _callback?: (a: R, b: R) => boolean): void {
+    throw new OrmException('Query relations cannot be unioned. This relation is used only for query purposes and it is always populated.');
   }
   public diff(_dataset: R[], _callback?: (a: R, b: R) => boolean): R[] {
-    throw new Error('Query relations cannot be diffed. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be diffed. This relation is used only for query purposes and it is always populated.');
   }
   public set(_obj: R[] | ((data: R[], pKey: string[]) => R[])): void {
-    throw new Error('Query relations cannot be set. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be set. This relation is used only for query purposes and it is always populated.');
   }
   public populate(_callback?: (this: ISelectQueryBuilder<R[]> & QueryScope) => void): Promise<void> {
-    throw new Error('Query relations cannot be populated. This relation is used only for query purposes and it is always populated.');
+    throw new OrmException('Query relations cannot be populated. This relation is used only for query purposes and it is always populated.');
   }
   constructor(owner: O, relation: IRelationDescriptor, objects?: R[]) {
     super(owner, relation, objects);
@@ -395,88 +449,6 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     }
   }
 
-  /**
-   * Calculates intersection between data in this relation and provided dataset
-   *
-   * `[...this]` rather than `this`: these delegate into lodash, and `Relation extends Array`
-   * with a three-argument constructor, so anything that derives a new collection has to work
-   * on a plain array. ( `OneToManyRelationList` sidesteps the same problem by overriding
-   * `filter`/`map`; this class has no such overrides. )
-   *
-   * @param obj - dataset to compare with
-   * @param callback - compare function, if not set the target model's primary key is used
-   * @returns members present in both sets
-   */
-  public intersection(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
-    return Dataset.intersection(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
-  }
-
-  /**
-   * Appends `obj` to this relation. Shorthand for push — nothing is removed and nothing is
-   * written to the database until `sync()`, `update()` or `save()` runs.
-   *
-   * @param obj - members to add
-   */
-  public union(obj: T[], _mode?: InsertBehaviour): void {
-    this.push(...obj);
-  }
-
-  /**
-   * Calculates the symmetric difference between this relation and `dataset` — members of this
-   * relation that are not in the dataset, plus members of the dataset that are not in this
-   * relation.
-   *
-   * @param obj - dataset to compare with
-   * @param callback - compare function, if not set the target model's primary key is used
-   */
-  public diff(obj: T[], callback?: (a: T, b: T) => boolean): T[] {
-    return Dataset.diff(obj, callback)([...this], this.TargetModelDescriptor!.PrimaryKey);
-  }
-
-  /**
- * Sets data in relation ( clear data and replace with new dataset )
- *
- * @param obj
- */
-  public set(obj: T[] | ((data: T[], pKeyName: string[]) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], pkColumns(this.TargetModelDescriptor!)) : obj;
-    this.empty();
-    this.push(...toPush);
-  }
-
-  /**
-   * Removes from relation & deletes from db
-   *
-   * @param obj - data to remove
-   */
-  public remove(func: (a: T) => boolean): T[];
-
-  /**
-   * Removes all objects that met condition
-   * @param obj - predicate
-   */
-  public remove(obj: (a: T) => boolean): T[];
-
-  /**
-   * Removes all objects by primary key
-   * @param obj data array to remove
-   */
-  public remove(obj: T[]): T[];
-
-  /**
-   * Removes object by primary key
-   * @param obj data to remove
-   * */
-  public remove(obj: T): T[];
-  public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
-    const toRemove = _.isFunction(obj) ? this.filter(obj) : Array.isArray(obj) ? obj : [obj];
-
-    this.set((data) => {
-      return data.filter((d) => !toRemove.includes(d));
-    });
-
-    return toRemove;
-  }
 
   /**
   * Deletes from db data that are not in relation
@@ -497,8 +469,10 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
       query.database(this.Driver.Options.Database);
     }
 
-    // if we have data in relation, we need to exclude them from delete query
-    const toDelete = [...data].filter((x) => x.PrimaryKeyValue).map((x) => x.PrimaryKeyValue);
+    // if we have data in relation, we need to exclude them from delete query.
+    // Explicit null/undefined checks — a primary key of 0 or '' is a real key, and dropping
+    // it from the keep-list would delete that member's junction row.
+    const toDelete = [...data].map((x) => x.PrimaryKeyValue).filter((v) => v !== null && v !== undefined);
     if (toDelete.length !== 0) {
       query.whereNotIn(this.Relation.JunctionModelTargetModelFKey_Name!, toDelete);
     }
@@ -511,8 +485,6 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     *  Deletes from db entries that are not in relation and adds entries that are not in db
     *  Sets foreign key to relational data
     *
-    *  Inserts or updates models that are dirty only.
-    *
     *  One transaction: the junction upserts and the orphan delete used to be independent
     *  statements. Nested inside a caller's transaction this takes a savepoint.
     */
@@ -524,9 +496,9 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
   }
 
   /**
-   * Updates or ads data to relation
-   * It will not delete data from db that are not in relation. It will only update or insert new data.
-   * Only dirty models are updated.
+   * Adds missing rows to the database without deleting anything: unsaved members are
+   * inserted, members without a junction row get one. Existing junction rows are left
+   * untouched.
    */
   public async update() {
     await this.Driver.transaction(async () => {
@@ -534,31 +506,63 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     });
   }
 
-  /** The write itself, without a transaction of its own, so `sync()` can share one. */
+  /**
+   * Finds the junction model's relation pointing at `model`, by constructor identity — the
+   * junction's PROPERTY name is the author's choice ( `Order`, `Tag`, … ) and has nothing to
+   * do with the target class name.
+   */
+  protected junctionRelationFor(model: Constructor<ModelBase> | ForwardRefFunction): IRelationDescriptor {
+    const relations = Array.from(this.junctionModelDescriptor?.Relations.values() ?? []);
+    const found = relations.find((r) => r.TargetModel === model);
+
+    if (!found) {
+      throw new OrmException(`junction model ${this.junctionModelDescriptor?.Name} of relation ${this.Relation.Name} declares no relation targeting ${(model as any)?.name}; add a @BelongsTo for it`);
+    }
+
+    return found;
+  }
+
+  /**
+   * The write itself, without a transaction of its own, so `sync()` can share one.
+   *
+   * Unsaved members are inserted first — a junction row written for a model with no primary
+   * key would carry a NULL foreign key. Members that already have a junction row are skipped:
+   * the junction's own primary key is auto-generated, so re-inserting the pair would DUPLICATE
+   * the link rather than upsert it ( which is exactly what repeated `sync()` calls used to do ).
+   */
   protected async _update() {
+    const sourceModelRelation = this.junctionRelationFor(this.Owner.constructor as Constructor<ModelBase>);
+
+    const existingQuery = this.Driver.select().from(this.junctionModelDescriptor!.TableName).where(this.Relation.JunctionModelSourceModelFKey_Name!, this.OwnerJoinValue);
+    if (this.Driver.Options.Database) {
+      existingQuery.database(this.Driver.Options.Database);
+    }
+    const existingRows = (await existingQuery.asRaw<any[]>()) ?? [];
+    const linked = new Set(existingRows.map((r) => r[this.Relation.JunctionModelTargetModelFKey_Name!]).filter((v) => v !== null && v !== undefined));
+
     for (const f of this) {
+      if (f.PrimaryKeyValue === null || f.PrimaryKeyValue === undefined) {
+        await f.insert(InsertBehaviour.InsertOrUpdate);
+      }
+
+      if (linked.has(f.PrimaryKeyValue)) {
+        continue;
+      }
+
+      const targetModelRelation = this.junctionRelationFor(f.constructor as Constructor<ModelBase>);
+
       const junctionEntry = new this.Relation.JunctionModel!();
-      const desc = junctionEntry.ModelDescriptor;
-      const relationsArray = Array.from(desc!.Relations.values());
-      const sourceModelRelation = relationsArray.find((r) => r.TargetModel === this.Owner.constructor);
-      const targetModelRelation = relationsArray.find((r) => r.TargetModel === f.constructor);
-
-      if (!sourceModelRelation) {
-        throw new Error(`Junction model relation for source model ${this.Owner.constructor.name} not found.`);
-      }
-
-      if (!targetModelRelation) {
-        throw new Error(`Junction model relation for target model ${f.constructor.name} not found.`);
-      }
-
       (junctionEntry as any)[sourceModelRelation.Name].Value = this.Owner;
       (junctionEntry as any)[targetModelRelation.Name].Value = f;
       await junctionEntry.insert(InsertBehaviour.InsertOrUpdate);
     }
   }
 
-
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void) {
+    // Resolved by constructor, not by `TargetModel.name` — the junction's property name is
+    // unrelated to the target class name, and class names do not survive minification.
+    const targetModelRelation = this.junctionRelationFor(this.Relation.TargetModel);
+
     const query = (this.Relation.JunctionModel as any).where((this as any).Relation.JunctionModelSourceModelFKey_Name, this.OwnerJoinValue).populate(
       this.Relation.TargetModel, callback
     )
@@ -568,31 +572,14 @@ export class ManyToManyRelationList<T extends ModelBase, O extends ModelBase> ex
     if (result) {
       this.length = 0;
 
-      this.push(...result.map((r: any) => {
-        return r[this.Relation.TargetModel.name].Value;
-      }));
+      // A junction row whose target row no longer exists resolves to a null Value — skip it
+      // rather than push null into the member list.
+      this.push(...result.map((r: any) => r[targetModelRelation.Name].Value).filter((v: any) => v !== null && v !== undefined));
     }
 
     this.Populated = true;
     this.Owner.snapshotRelation(this.Relation.Name);
   }
-
-  // public async add(obj: T | T[], mode?: InsertBehaviour): Promise<void> {
-  //   const data = Array.isArray(obj) ? obj : [obj];
-  //   const relEntities = data.map((d) => {
-  //     const relEntity = new this.Relation.JunctionModel();
-  //     (relEntity as any)[this.Relation.JunctionModelSourceModelFKey_Name] = this.owner.PrimaryKeyValue;
-  //     (relEntity as any)[this.Relation.JunctionModelTargetModelFKey_Name] = d.PrimaryKeyValue;
-
-  //     return relEntity;
-  //   });
-
-  //   for (const m of relEntities) {
-  //     await m.insert(mode);
-  //   }
-
-  //   this.push(...data);
-  // }
 }
 
 @NewInstance()
@@ -604,22 +591,41 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
    * @returns
    */
   protected async _dbDiff(data: T[]) {
+    // A composite key is a tuple and always truthy, so filter on the key COLUMNS being set
+    // rather than on the tuple itself.
+    const keys = pkColumns(this.TargetModelDescriptor!);
+    const toKeep = data
+      .map((x) => pkValueOf(x, this.TargetModelDescriptor!))
+      .filter((v) => (Array.isArray(v) ? v.every((p) => p !== null && p !== undefined) : v !== null && v !== undefined));
+
+    // A `@SoftDelete` target is never hard-deleted — the same degradation
+    // `SubjectExecutor.effectivePolicy` applies to orphans on the save() path. The stamp goes
+    // through a model-aware builder so the DateTime passes the column's converter.
+    const softDeleteColumn = this.TargetModelDescriptor!.SoftDelete?.DeletedAt;
+    if (softDeleteColumn) {
+      const { query } = createQuery(this.Relation.TargetModel, UpdateQueryBuilder);
+      const update = (query as UpdateQueryBuilder<unknown>).update({ [softDeleteColumn]: DateTime.now() });
+      update.where(this.Relation.ForeignKey, this.OwnerJoinValue);
+      // Rows stamped by an earlier sync keep their original deletion time.
+      update.whereNull(softDeleteColumn);
+
+      if (toKeep.length !== 0 && keys.length !== 0) {
+        whereNotAnyPk(update, this.TargetModelDescriptor!, toKeep);
+      }
+
+      await update;
+      return;
+    }
+
     const query = this.Driver.del().from(this.TargetModelDescriptor!.TableName).where(this.Relation.ForeignKey, this.OwnerJoinValue);
 
     if (this.Driver.Options.Database) {
       query.database(this.Driver.Options.Database);
     }
 
-    // if we have data in relation, we need to exclude them from delete query.
-    // A composite key is a tuple and always truthy, so filter on the key COLUMNS being set
-    // rather than on the tuple itself.
-    const keys = pkColumns(this.TargetModelDescriptor!);
-    const toDelete = data
-      .map((x) => pkValueOf(x, this.TargetModelDescriptor!))
-      .filter((v) => (Array.isArray(v) ? v.every((p) => p !== null && p !== undefined) : v !== null && v !== undefined));
-
-    if (toDelete.length !== 0 && keys.length !== 0) {
-      whereNotAnyPk(query, this.TargetModelDescriptor!, toDelete);
+    // if we have data in relation, we need to exclude them from the delete query
+    if (toKeep.length !== 0 && keys.length !== 0) {
+      whereNotAnyPk(query, this.TargetModelDescriptor!, toKeep);
     }
 
     await query;
@@ -627,6 +633,11 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
 
   /**
    * Populates this relation ( loads all data related to owner of this relation)
+   *
+   * Pushes the rows into THIS list rather than routing through `Owner.attach()`: attach flags
+   * the owner dirty ( a read must not create unsaved changes ), feeds every sibling relation
+   * with the same target model, and drops discriminated subclass rows because their
+   * constructor is not the declared target. Only attach's back-reference wiring is kept.
    */
   public async populate<Q extends typeof ModelBase>(callback?: (this: ISelectQueryBuilder<T[]> & Q['_queryScopes']) => void): Promise<void> {
     const query = (this.Relation.TargetModel as any).where(this.Relation.ForeignKey, this.OwnerJoinValue);
@@ -639,7 +650,13 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       this.length = 0;
 
       result.forEach((r: ModelBase) => {
-        this.Owner.attach(r);
+        // Set the child's back-reference to this owner, when the child declares one.
+        const backRef = [...(r.ModelDescriptor?.Relations.entries() ?? [])].find((e) => e[1].ForeignKey === this.Relation.ForeignKey);
+        if (backRef) {
+          ((r as any)[backRef[0]] as SingleRelation<ModelBase>).Value = this.Owner;
+        }
+
+        this.push(r as T);
       });
     }
 
@@ -696,99 +713,4 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     }
   }
 
-  /**
-   * Calculates difference between this relation and dataset ( items from this relation that are not in dataset and items from dataset that are not in this relation)
-   *
-   * @param dataset
-   * @param callback
-   * @returns Difference between this relation and dataset
-   */
-  public diff(dataset: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.diff(dataset, callback)([...this], pkColumns(this.TargetModelDescriptor!));
-  }
-
-  /**
-   * Sets data in relation ( clear data and replace with new dataset )
-   *
-   * @param obj
-   */
-  public set(obj: T[] | ((data: T[], pKeyName: string[]) => T[])) {
-    const toPush = _.isFunction(obj) ? obj([...this], pkColumns(this.TargetModelDescriptor!)) : obj;
-    this.empty();
-    this.push(...toPush);
-  }
-
-  /**
-   * Calculates intersection between data in this relation and provided dataset
-   *
-   * @param obj
-   * @param callback compare function, if not set - primary key value is used
-   * @returns Data that are in both sets
-   */
-  public intersection(obj: T[], callback?: (a: T, b: T) => boolean) {
-    return Dataset.intersection(obj, callback)([...this], pkColumns(this.TargetModelDescriptor!));
-  }
-
-  /**
-   * Combines data with this relation and saves to db
-   * Shorthand for push
-   * @param obj
-   */
-  public union(obj: T[]) {
-    this.push(...obj);
-  }
-
-  /**
-   * Returns the elements of an array that meet the condition specified in a callback function.
-   * @param predicate A function that accepts up to three arguments. The filter method calls the predicate function one time for each element in the array.
-   */
-  public filter(predicate: (value: T, index: number, array: T[]) => boolean): T[] {
-    return [...this].filter(predicate);
-  }
-
-  /**
-   * Removes from relation & deletes from db
-   *
-   * @param obj - data to remove
-   */
-  public remove(func: (a: T) => boolean): T[];
-
-  /**
-   * Removes all objects that met condition
-   * @param obj - predicate
-   */
-  public remove(obj: (a: T) => boolean): T[];
-
-  /**
-   * Removes all objects by primary key
-   * @param obj data array to remove
-   */
-  public remove(obj: T[]): T[];
-
-  /**
-   * Removes object by primary key
-   * @param obj data to remove
-   * */
-  public remove(obj: T): T[];
-  public remove(obj: T | T[] | ((a: T) => boolean)): T[] {
-    const toRemove = _.isFunction(obj) ? this.filter(obj) : Array.isArray(obj) ? obj : [obj];
-
-    this.set((data) => {
-      return data.filter((d) => !toRemove.includes(d));
-    });
-
-    return toRemove;
-  }
-
-  public flatMap<V>(callback: (val: T, index: number, array: T[]) => V) {
-    const r = this.map(callback);
-
-    return r.flatMap(x => x) as any;
-  }
-
-  public map<V>(callback: (val: T, index: number, array: T[]) => V) {
-    const r: V[] = [];
-    this.forEach((x, i, a) => r.push(callback(x, i, a)));
-    return r;
-  }
 }

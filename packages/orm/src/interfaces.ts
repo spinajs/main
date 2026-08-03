@@ -80,25 +80,20 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
   Populated: boolean;
 
   /**
-   * Removes all objects from relation by comparison functions
+   * Removes all members matching the predicate. In-memory only — the database changes on the
+   * next `sync()` ( orphan delete ) or `save()` ( orphan policy ).
    *
-   * @param compare function to compare models
+   * @param compare - predicate selecting members to remove
    */
   remove(compare: (a: R) => boolean): R[];
 
   /**
-   * Removes all objects by primary key
+   * Removes the given model or models, matched by primary key ( an unsaved model, having no
+   * key, is matched by reference ). In-memory only — persist with `sync()` / `save()`.
    *
    * @param obj - data to remove
    */
   remove(obj: R | R[]): R[];
-
-  /**
-   * Removes from relation & deletes from db
-   *
-   * @param obj - data to remove
-   */
-  remove(obj: R | R[] | ((a: R, b: R) => boolean)): R[];
 
   /**
    * Delete all objects from relation ( alias for empty )
@@ -120,9 +115,8 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
   sync(): Promise<void>;
 
   /**
-   *
-   * Calculates intersection between data in this relation and provided dataset
-   * It saves result to db
+   * Calculates the intersection between this relation and the provided dataset. Pure
+   * computation — apply it with `set()` and persist with `sync()` / `save()`.
    *
    * @param dataset - dataset to compare
    * @param callback - function to compare models, if not set it is compared by primary key value
@@ -130,27 +124,28 @@ export interface IRelation<R extends ModelBase<R>, O extends ModelBase<O>> exten
   intersection(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
 
   /**
-   * Adds all items to this relation & adds to database
+   * Adds the dataset's members to this relation, skipping members already present ( compared
+   * by primary key, or by the callback ). In-memory only — persist with `sync()` / `save()`.
    *
    * @param dataset - data to add
-   * @param mode - insert mode
+   * @param callback - function to compare models, if not set it is compared by primary key value
    */
-  union(dataset: R[], mode?: InsertBehaviour): void;
+  union(dataset: R[], callback?: (a: R, b: R) => boolean): void;
 
   /**
-   *
-   * Calculates difference between data in this relation and provides set. Result is saved to db.
+   * Calculates the symmetric difference between this relation and the dataset. Pure
+   * computation — apply it with `set()` and persist with `sync()` / `save()`.
    *
    * @param dataset - data to compare
-   * @param callback - function to compare objects, if none provideded - primary key value is used
+   * @param callback - function to compare objects, if none provided - primary key value is used
    */
   diff(dataset: R[], callback?: (a: R, b: R) => boolean): R[];
 
   /**
+   * Clears the relation and replaces its members with the new dataset. In-memory only —
+   * persist with `sync()` / `update()` / `save()`.
    *
-   * Clears data and replace it with new dataset.
-   *
-   * @param dataset - data for replace.
+   * @param obj - replacement data, or a closure receiving current members and primary key columns
    */
   set(obj: R[] | ((data: R[], pKey: string[]) => R[])): void;
 
