@@ -18,118 +18,6 @@ export * from './response-methods/OrmNotFound.js';
 import * as express from 'express';
 
 /**
- * Parameter types whose value @spinajs/http reads out of `req.params`. Kept in step with
- * http-swagger's PARAM_LOCATION_MAP ( the `path` entries ) - the two files decide which
- * placeholder a @FromModel stands for and MUST agree on who else is competing for one.
- */
-const PATH_PARAMETER_TYPES = new Set<string>([ParameterType.FromParams, 'FromParams', ParameterType.ParamField, 'ParamFieldRouteArgs']);
-
-/**
- * Situations already reported by FromDbModel._warnOnce. Route shapes do not change while the
- * process runs, so one line per route + argument says everything a per-request line would.
- */
-const WARNED_KEYS = new Set<string>();
-
-/**
- * Placeholder names in a route's own template, in url order. @BasePath is not part of
- * `route.Path`, so a placeholder declared there is invisible here - deliberately, this is
- * exactly what the OpenAPI builder sees.
- */
-function routePlaceholders(route?: IRoute): string[] {
-  return (route?.Path ?? '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
-}
-
-/**
- * The placeholder an underscore-prefixed argument stands for. An argument is often prefixed
- * with `_` only to satisfy `noUnusedParameters` - the route needs `:thread` in the url without
- * reading it - and FromParams.extract() honours that at runtime. Such a parameter therefore
- * OWNS its placeholder and no @FromModel may take it.
- */
-function underscoreAlias(name: string | undefined, placeholders: string[]): string | undefined {
-  if (!name || !name.startsWith('_') || placeholders.includes(name)) {
-    return undefined;
-  }
-
-  const stripped = name.replace(/^_+/, '');
-  return stripped && placeholders.includes(stripped) ? stripped : undefined;
-}
-
-/**
- * Which placeholder each @FromModel of a route stands for, evaluated for one parameter.
- *
- * Same three steps, same order, as http-swagger's OpenApiBuilder.resolveFromDbModelPathNames -
- * `paramField`, then the argument name, then the first placeholder nobody else names. Change
- * one side and the other has to follow, or the document starts promising a key this never reads.
- *
- * @param param - the @FromModel parameter being resolved
- * @param route - the route it belongs to
- * @param placeholders - placeholder names of `route.Path`, in url order
- */
-function resolveFromModelPlaceholder(param: IRouteParameter, route: IRoute, placeholders: string[]): string | undefined {
-  const claimed = new Set<string>();
-  const models: IRouteParameter[] = [];
-
-  for (const [, p] of route.Parameters) {
-    if (PATH_PARAMETER_TYPES.has(p.Type as string)) {
-      const claim = p.Name && placeholders.includes(p.Name) ? p.Name : underscoreAlias(p.Name, placeholders);
-      if (claim) {
-        claimed.add(claim);
-      }
-      continue;
-    }
-
-    // Only a @FromModel that really reads req.params competes; a query / body / header key
-    // lives somewhere else entirely.
-    if (p.Type === 'FromDbModel' && readsPathParam(p)) {
-      models.push(p);
-    }
-  }
-
-  // Parameter decorators are evaluated right-to-left, so route.Parameters is not necessarily
-  // in argument order - sort before matching positionally.
-  models.sort((a, b) => a.Index - b.Index);
-
-  const positional: IRouteParameter[] = [];
-  for (const model of models) {
-    const paramField = (model.Options as { paramField?: string } | undefined)?.paramField;
-    const exact = [paramField, model.Name].find((n) => n && placeholders.includes(n) && !claimed.has(n));
-
-    if (!exact) {
-      positional.push(model);
-      continue;
-    }
-
-    claimed.add(exact);
-    if (model.Index === param.Index) {
-      return exact;
-    }
-  }
-
-  for (const model of positional) {
-    const free = placeholders.find((n) => !claimed.has(n));
-    if (!free) {
-      continue;
-    }
-
-    claimed.add(free);
-    if (model.Index === param.Index) {
-      return free;
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Whether a @FromModel reads its key from the url path. Mirrors the paramType switch in
- * FromDbModel._extractValue: only an absent paramType ( the default ) or FromParams does.
- */
-function readsPathParam(param: IRouteParameter): boolean {
-  const paramType = (param.Options as { paramType?: string } | undefined)?.paramType;
-  return paramType === undefined || paramType === null || paramType === ParameterType.FromParams || (paramType as string) === 'FromParams';
-}
-
-/**
  * Route arg to hydrate model from request body
  *
  * For now its basically alias for FromBody, for convinience to separate model hydration from other body params
@@ -203,91 +91,35 @@ export class FromDbModel extends RouteArgs {
         break;
       case ParameterType.FromParams:
       default:
-        pkValue = req.params[field];
-
         /**
-         * A route argument does not have to be named after the URL placeholder.
-         * `@Get(':id') getSlide(@FromModel() slide: Slide)` leaves `param.Name`
-         * as the TypeScript argument ( `slide` ), while the key travels in
-         * `req.params.id` - so the lookup read undefined and the query ran with
-         * a null key.
+         * The url parameter a @FromModel reads is stated, never guessed: `paramField`
+         * names it, or the argument is called after it. If neither is present in the
+         * request the route is wrong and it says so, rather than querying with an
+         * empty key and returning a 404 that looks like missing data.
          *
-         * Which placeholder that is follows exactly the rule the OpenAPI document
-         * states ( http-swagger, OpenApiBuilder.resolveFromDbModelPathNames ):
-         * `paramField`, then the argument name, then the FIRST placeholder no other
-         * parameter of this route names. Both sides read the same `route.Path` and
-         * the same `route.Parameters`, so the spec cannot promise a key the runtime
-         * refuses to read - which is what happened for multi-placeholder routes:
-         * the document named `:id` while the query ran with null.
+         * This is the same rule the OpenAPI document applies while it is built
+         * ( http-swagger, OpenApiBuilder ), so a route that serves traffic and a route
+         * that can be documented are the same set. The check is against `req.params`
+         * rather than the route template on purpose: a placeholder declared in
+         * @BasePath never appears in `route.Path`, but it does arrive here.
          */
-        if (pkValue === undefined) {
-          pkValue = this._extractByPlaceholder(param, req, route);
+        if (!Object.prototype.hasOwnProperty.call(req.params ?? {}, field)) {
+          const available = Object.keys(req.params ?? {});
+          throw new InvalidArgument(
+            `@FromModel argument '${param.Name}'${route?.Path ? ` on route '${route.Path}'` : ''} reads url parameter '${field}', which this request does not have. ` +
+              `Available url parameters: ${available.length > 0 ? available.join(', ') : '(none)'}. ` +
+              `Either name the argument after the placeholder, or state it explicitly with @FromModel({ paramField: '<placeholder>' }).`,
+          );
         }
+
+        pkValue = req.params[field];
         break;
     }
 
     return pkValue;
   }
 
-  /**
-   * The value of the URL placeholder this @FromModel stands for, or undefined when the
-   * route offers none it may take.
-   *
-   * @param param - the @FromModel route parameter the key is being resolved for
-   * @param req - incoming request
-   * @param route - the route this parameter belongs to, when the caller knows it
-   */
-  protected _extractByPlaceholder(param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest, route?: IRoute) {
-    const placeholders = routePlaceholders(route);
 
-    /**
-     * No route, or a route whose template holds no placeholder of its own - the one the
-     * key travels in may live in @BasePath, which `route.Path` does not see. Nothing to
-     * apply the rule to, so the old heuristic stands: with exactly ONE parameter in the
-     * request there is nothing to confuse it with.
-     */
-    if (placeholders.length === 0) {
-      const names = Object.keys(req.params ?? {});
-      if (names.length !== 1) {
-        return undefined;
-      }
-
-      this._warnOnce(`none:${param.Name}:${names[0]}`, `@FromModel '${param.Name}' has no '${param.Options?.paramField ?? param.Name}' url parameter; falling back to the only one present (:${names[0]}). Name the placeholder with paramField to make this explicit.`);
-      return req.params[names[0]];
-    }
-
-    const placeholder = resolveFromModelPlaceholder(param, route!, placeholders);
-    if (!placeholder) {
-      this._warnOnce(`unresolved:${route!.Path}:${param.Name}`, `@FromModel '${param.Name}' on route '${route!.Path}' matches no free url placeholder (${placeholders.map((p) => `:${p}`).join(', ')}); the model will be looked up with an empty key. Name the placeholder with paramField.`);
-      return undefined;
-    }
-
-    this._warnOnce(`guessed:${route!.Path}:${param.Name}`, `@FromModel '${param.Name}' on route '${route!.Path}' has no url parameter of that name; using :${placeholder}. Name the placeholder with paramField to make this explicit.`);
-    return req.params[placeholder];
-  }
-
-  /**
-   * Reports a guessed model key once per route + argument rather than once per REQUEST -
-   * this sits on a hot path and the message describes a fact about the code, which does not
-   * change between requests. Logging never propagates: a route that worked must not start
-   * failing because a logger could not be resolved.
-   *
-   * @param key - identity of the situation being reported
-   * @param message - what to write
-   */
-  protected _warnOnce(key: string, message: string) {
-    if (WARNED_KEYS.has(key)) {
-      return;
-    }
-
-    WARNED_KEYS.add(key);
-
-    try {
-      this.Log?.warn(message);
-    } catch {
-      // a logger that cannot be resolved must not take the request down with it
-    }
-  }
 
   protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest, route?: IRoute) {
     const pkValue = this._extractValue(param, req, route);

@@ -25,15 +25,13 @@ export class Simple extends BaseController {
   }
 
   /**
-   * Placeholder ( :id ) that does NOT match the argument name ( model ).
-   *
-   * Every other route here happens to name the placeholder after the argument,
-   * which is why the lookup key never went missing in these tests - real apps
-   * write `@Get(':id') getSlide(@FromModel() slide)` and got `req.params['slide']`,
-   * i.e. undefined.
+   * Placeholder ( :id ) that does NOT match the argument name ( model ), stated with
+   * paramField. Every other route here happens to name the placeholder after the
+   * argument; real apps write `@Get(':id') getSlide(@FromModel() slide)`, where the two
+   * differ and the key has to be named explicitly.
    */
   @Get('mismatch/:id')
-  public testNameMismatch(@FromModel() model: Test) {
+  public testNameMismatch(@FromModel({ paramField: 'id' }) model: Test) {
     return new Ok({ Text: model.Text });
   }
 }
