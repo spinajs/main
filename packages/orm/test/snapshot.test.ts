@@ -61,6 +61,27 @@ describe('snapshot primitives', () => {
       const source = DateTime.fromISO('2020-01-01T00:00:00.000Z');
       expect(snapshotValue(source)).to.equal(source);
     });
+
+    it('does not clone an Array SUBCLASS, which lodash would rebuild with a zero-argument constructor', () => {
+      // The shape of `Relation`: an Array subclass whose constructor needs its arguments. lodash
+      // reconstructs an array subclass via `new value.constructor()` and passes none, so cloning
+      // one throws from inside lodash. `Array.isArray` is true here, which is what used to route
+      // it into `_.cloneDeep`.
+      class RelationLike extends Array {
+        public Model: unknown;
+
+        constructor(_owner: unknown, relation: { TargetModel: unknown }) {
+          super();
+          this.Model = relation.TargetModel;
+        }
+      }
+
+      const source = new RelationLike({}, { TargetModel: 'SomeModel' });
+
+      expect(Array.isArray(source)).to.equal(true);
+      expect(() => snapshotValue(source)).to.not.throw();
+      expect(snapshotValue(source)).to.equal(UNCOPYABLE);
+    });
   });
 
   describe('snapshotEquals', () => {

@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-aws-secretmanager-protocol",
-  "version": "2.0.493",
+  "version": "2.0.495",
   "description": "SpinaJS configuration protocols for AWS Secrets Manager and SSM Parameter Store",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -51,12 +51,12 @@
     "@types/luxon": "^3.2.0",
     "@types/sinon": "^17.0.3",
     "sinon": "^19.0.2",
-    "@spinajs/configuration": "2.0.493"
+    "@spinajs/configuration": "2.0.495"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "2.0.493",
-    "@spinajs/di": "2.0.493",
-    "@spinajs/internal-logger": "2.0.493",
+    "@spinajs/configuration-common": "2.0.495",
+    "@spinajs/di": "2.0.495",
+    "@spinajs/internal-logger": "2.0.495",
     "@aws-sdk/client-secrets-manager": "^3.840.0",
     "@aws-sdk/client-ssm": "^3.840.0"
   },

@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IColumnDescriptor, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -186,6 +186,27 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
+   * The columns the diff baseline covers: the real, persisted ones.
+   *
+   * `Virtual` columns are excluded, which is what every other value-handling path already does —
+   * `StandardModelToSqlConverter` ( converters.ts ) drops them from every INSERT/UPDATE payload,
+   * and the builders skip them when resolving a column statement. A virtual column has no database
+   * column behind it, so a baseline for one can never produce a write; snapshotting it is pure cost.
+   *
+   * It is also the difference between working and throwing. `@Filterable` ( orm-http ) mints a
+   * `{ Virtual: true }` column descriptor for ANY decorated property that has no column of its own,
+   * RELATION properties included — the documented way to declare `exists` / `n-exists` filters.
+   * Reading such a "column" off the model returns a `Relation`, not a column value, and a Many
+   * relation is an `Array` subclass, so `snapshotValue` used to hand it to `_.cloneDeep`, which
+   * rebuilds an array subclass with `new value.constructor()` and no arguments. The `Relation`
+   * constructor then dereferences an undefined descriptor and every SELECT that hydrates the model
+   * dies. A relation's baseline is `snapshotRelation()`'s job, and it stores primary keys.
+   */
+  private snapshotColumns(): IColumnDescriptor[] {
+    return (this.ModelDescriptor?.Columns ?? []).filter((c) => !c.Virtual);
+  }
+
+  /**
    * Captures the current value of every column as the diff baseline, discarding any
    * previous baseline and any relation keys recorded against it.
    *
@@ -195,7 +216,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   public takeSnapshot(): void {
     const snapshot = createSnapshot();
 
-    for (const c of this.ModelDescriptor?.Columns ?? []) {
+    for (const c of this.snapshotColumns()) {
       snapshot.Columns.set(c.Name, snapshotValue((this as any)[c.Name], c.Converter));
     }
 
@@ -250,9 +271,13 @@ export class ModelBase<M = unknown> implements IModelBase {
    * This is deliberately independent of `__dirty_props__`: the proxy records a property as
    * dirty on any write, including one that puts the original value back, so the snapshot
    * diff is the more precise answer and the one the UPDATE payload is built from.
+   *
+   * Reads the same column set `takeSnapshot()` wrote, and must keep doing so: comparing a column
+   * the baseline never covered means comparing its live value against `undefined`, which reports it
+   * changed on every single save.
    */
   public changedColumns(): string[] {
-    const columns = this.ModelDescriptor?.Columns ?? [];
+    const columns = this.snapshotColumns();
 
     if (!this.__snapshot__) {
       return columns.map((c) => c.Name);

@@ -1,5 +1,5 @@
 {
-  "version": "2.0.493",
+  "version": "2.0.495",
   "description": "Observability for SpinaJS: Prometheus metrics, an HTTP request-timing/metrics middleware, and Apdex + rolling request stats",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,18 +51,18 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
-    "@spinajs/fs": "2.0.493",
-    "@spinajs/http-swagger": "2.0.493"
+    "@spinajs/fs": "2.0.495",
+    "@spinajs/http-swagger": "2.0.495"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.493",
-    "@spinajs/configuration-common": "2.0.493",
-    "@spinajs/di": "2.0.493",
-    "@spinajs/exceptions": "2.0.493",
-    "@spinajs/http": "2.0.493",
-    "@spinajs/log": "2.0.493",
-    "@spinajs/telemetry-common": "2.0.493",
-    "@spinajs/validation": "2.0.493",
+    "@spinajs/configuration": "2.0.495",
+    "@spinajs/configuration-common": "2.0.495",
+    "@spinajs/di": "2.0.495",
+    "@spinajs/exceptions": "2.0.495",
+    "@spinajs/http": "2.0.495",
+    "@spinajs/log": "2.0.495",
+    "@spinajs/telemetry-common": "2.0.495",
+    "@spinajs/validation": "2.0.495",
     "lodash": "^4.17.21",
     "prom-client": "^14.2.0"
   }
