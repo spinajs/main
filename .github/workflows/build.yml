@@ -100,13 +100,25 @@ jobs:
       - name: build monorepo (esm + cjs)
         run: npm run build
 
+      # A re-run of a failed release checks out a master whose HEAD already is
+      # the release commit. Bumping again would move to the NEXT version and
+      # orphan the half-published one ( its exact internal pins would point at
+      # versions that never reached the registry ) - so on a re-run the bump and
+      # the commit are skipped and publish-all just finishes the current version.
       - name: bump all packages ( lockstep patch )
-        run: node scripts/bump-all.mjs
+        run: |
+          if git log -1 --format=%s | grep -qE '^release v[0-9]+\.[0-9]+\.[0-9]+ \[skip ci\]$'; then
+            echo "HEAD is already a release commit - finishing $(node -p "require('./packages/orm/package.json').version") without bumping"
+            echo "SKIP_BUMP=1" >> "$GITHUB_ENV"
+          else
+            node scripts/bump-all.mjs
+          fi
 
       # [skip ci] keeps this commit from triggering the workflow again. Pushing
       # HEAD:master fails on a non-fast-forward if something landed on master in
       # the meantime - re-run the job after the next build in that case.
       - name: commit version bump
+        if: env.SKIP_BUMP != '1'
         run: |
           VERSION=$(node -p "require('./packages/orm/package.json').version")
           git config user.name "github-actions[bot]"
