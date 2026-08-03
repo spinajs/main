@@ -33,8 +33,23 @@ export interface IUserData extends IUserProfile {
   Metadata?: IUserMetadataEntry[];
 }
 
-/** Flattened RBAC grants for a user: resource → action → permission descriptor */
-export type IGrantsMap = Record<string, Record<string, { attributes: string[] }>>;
+/**
+ * Flattened RBAC grants for a user: resource → `'action:possession'` → attributes.
+ *
+ * This is `accesscontrol`'s own grants format, which is what `_unwindGrants`
+ * produces and what a client feeds straight back into `new AccessControl(...)`.
+ * The attribute list is a bare `string[]` (`['*']`), NOT a `{ attributes }`
+ * wrapper — that wrapper is what this type used to claim, and it described no
+ * payload the API has ever sent.
+ *
+ * `$extend` rides at the same level as the resources when the role inherits from
+ * others; its value is the list of inherited role names, so a consumer that
+ * treats every key as a resource has to skip it.
+ */
+export type IGrantsMap = {
+  /** Roles this one inherits from — present only on a role that extends others. */
+  $extend?: string[];
+} & Record<string, Record<string, string[]> | string[] | undefined>;
 
 /** Successful authentication response — user profile merged with RBAC grants */
 export interface IUserWithGrants extends IUserProfile {
@@ -51,6 +66,27 @@ export interface IUserWithGrants extends IUserProfile {
 export interface IActiveRoleResponse {
   ActiveRole: string;
   Grants: IGrantsMap;
+}
+
+/**
+ * Response for GET /auth/whoami — the session's user plus what the session
+ * itself knows about it.
+ *
+ * Not `IUserWithGrants`: whoami resolves no grants, because grants belong to the
+ * active role and /auth/active-role is what answers with them.
+ */
+export interface IWhoamiResponse extends IUserData {
+  /** Role whose grants are in effect for this session. */
+  ActiveRole: string;
+
+  /**
+   * False while the session has passed the password step but still owes 2FA.
+   *
+   * Absent on sessions minted before this field existed; those predate 2FA
+   * gating and were by definition fully authorized, which is why the endpoint
+   * defaults it to true rather than false.
+   */
+  Authorized: boolean;
 }
 
 /** Response for /auth/impersonate when an impersonation has just been started or queried */

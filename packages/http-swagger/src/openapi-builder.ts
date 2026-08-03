@@ -1029,6 +1029,17 @@ export class OpenApiBuilder {
       }
     }
 
+    // A map keyed by data — RBAC grants are resource → action → descriptor, so
+    // the names cannot be enumerated and `properties` cannot describe them.
+    // Dropping this collapsed such a schema to a bare `object`. `false` is kept
+    // as-is: it says "no unknown keys", which is a real constraint, not a value
+    // schema.
+    if (typeof jsonSchema.additionalProperties === 'boolean') {
+      result.additionalProperties = jsonSchema.additionalProperties;
+    } else if (jsonSchema.additionalProperties) {
+      result.additionalProperties = this.convertJsonSchema(jsonSchema.additionalProperties);
+    }
+
     if (Array.isArray(jsonSchema.oneOf)) {
       result.oneOf = jsonSchema.oneOf.map((s: any) => this.convertJsonSchema(s));
     }
