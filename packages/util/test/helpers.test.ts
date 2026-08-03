@@ -33,6 +33,7 @@ import {
   memoize,
   // types
   isPromise,
+  isThenable,
   isDefined,
   isFunction,
 } from '../src/index.js';
@@ -235,9 +236,23 @@ describe('helpers', () => {
 
   describe('types', () => {
     it('isPromise', () => {
+      // NOTE: isPromise MUST stay native-only. Awaitable query builders ( orm ) are
+      // thenables - duck-typing them as promises makes DI execute them on resolve.
       expect(isPromise(Promise.resolve())).to.be.true;
       expect(isPromise(42)).to.be.false;
       expect(isPromise({ then: () => 0 })).to.be.false; // only native promises
+      expect(isPromise({})).to.be.false;
+      expect(isPromise(null)).to.be.false;
+      expect(isPromise(undefined)).to.be.false;
+    });
+
+    it('isThenable detects thenables and promises', () => {
+      expect(isThenable(Promise.resolve())).to.be.true;
+      expect(isThenable({ then: () => 0 })).to.be.true; // foreign promise libs, cross-realm, awaitable builders
+      expect(isThenable(42)).to.be.false;
+      expect(isThenable({})).to.be.false;
+      expect(isThenable(null)).to.be.false;
+      expect(isThenable(undefined)).to.be.false;
     });
 
     it('isDefined narrows away nil', () => {
