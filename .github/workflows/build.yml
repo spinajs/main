@@ -5,6 +5,18 @@ name: build
 # step that catches package.json / package-lock.json drift - a dependency range
 # edited in a package without regenerating the lock fails here instead of at
 # publish time.
+#
+# On a push to master a second job then releases the whole monorepo: it bumps
+# every workspace package one patch version in lockstep ( scripts/bump-all.mjs ),
+# commits the bump back to master with [skip ci], and publishes every package
+# with scripts/publish-all.mjs. The bump is committed BEFORE publishing on
+# purpose - publish-all skips versions already on the registry, so a re-run of a
+# half-failed release finishes the remaining packages instead of bumping again
+# and orphaning the half-published version.
+#
+# Requires the NPM_TOKEN repository secret ( an npm automation / granular access
+# token with publish rights ). Without it the release job fails fast in
+# publish-all's authentication check.
 
 on:
   push:
@@ -12,13 +24,17 @@ on:
   pull_request:
   workflow_dispatch:
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # A newer push supersedes a running build of the same ref.
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - uses: actions/checkout@v4
@@ -36,3 +52,56 @@ jobs:
       # per-module package.json generation, across every workspace package.
       - name: build monorepo (esm + cjs)
         run: npm run build
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    # Releases queue up and are never cancelled - killing a run halfway through
+    # publishing leaves the registry ahead of the repo.
+    concurrency:
+      group: release-master
+      cancel-in-progress: false
+
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # registry-url writes an .npmrc that reads NODE_AUTH_TOKEN, which is what
+      # lets publish-all run unattended.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: install
+        run: npm ci
+
+      # Build artifacts do not cross jobs, so the release compiles its own.
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: bump all packages ( lockstep patch )
+        run: node scripts/bump-all.mjs
+
+      # [skip ci] keeps this commit from triggering the workflow again. Pushing
+      # HEAD:master fails on a non-fast-forward if something landed on master in
+      # the meantime - re-run the job after the next build in that case.
+      - name: commit version bump
+        run: |
+          VERSION=$(node -p "require('./packages/orm/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release v${VERSION} [skip ci]"
+          git push origin HEAD:master
+
+      - name: publish to npm
+        run: node scripts/publish-all.mjs
