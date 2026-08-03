@@ -1,4 +1,5 @@
 import { AsyncService, Autoinject, DI, LazyInject, Singleton } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { Controllers } from '@spinajs/http';
 import { Logger, Log } from '@spinajs/log';
@@ -99,13 +100,29 @@ export class SwaggerService extends AsyncService {
     const builder = await DI.resolve(OpenApiBuilder, [config]);
     const controllers = await this.ControllersService.Controllers;
 
+    // Every controller is attempted before anything is thrown, so one run reports EVERY
+    // offender. Aborting on the first one hides the rest: the builder already stops at a
+    // controller's first bad method, and when these failures were only warned about, seven
+    // log lines stood for thirteen broken arguments - and the twenty-one operations of the
+    // controllers that failed silently vanished from a spec that still answered 200.
+    const failures: string[] = [];
+
     for (const controller of controllers) {
       try {
         const docCache = await this.DocCache.getCache(controller);
         builder.addController(controller, docCache);
       } catch (err) {
-        this.Log.warn(`Failed to process controller ${controller.name}: ${err}`);
+        failures.push(`  - ${controller.name}: ${(err as Error)?.message ?? err}`);
       }
+    }
+
+    if (failures.length > 0) {
+      // A controller that cannot be documented is a controller that is wrong - it is fixed,
+      // not worked around. Omitting it would publish a spec that looks complete and is not,
+      // which is precisely the failure this replaces.
+      const message = `Cannot build the OpenAPI spec: ${failures.length} controller(s) could not be documented.\n${failures.join('\n')}`;
+      this.Log.error(message);
+      throw new InvalidArgument(message);
     }
 
     this._spec = builder.build();
