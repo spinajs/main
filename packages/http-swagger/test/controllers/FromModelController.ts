@@ -16,6 +16,14 @@ import { BaseController, BasePath, Del, Get, Ok, Param, Parameter, ParameterType
  *  - orm-http's `@FromModel(opts)` is exactly
  *    `Route(Parameter('FromDbModel', null, opts))`, and `param.Name` ends up
  *    being the TypeScript ARGUMENT name, never the `:placeholder` from the URL
+ *
+ * Every route here is LEGAL under the strict path-parameter contract: a path
+ * argument either carries an explicit `paramField` naming a placeholder, or its
+ * own name is a placeholder. Illegal shapes must not live in this directory -
+ * `test/controllers` is loaded by every suite in the package, and an illegal
+ * route would make the builder throw while unrelated suites build their spec.
+ * They are exercised against a directly constructed builder instead, in
+ * `test/swagger-path-params-strict.test.ts`.
  */
 const MODEL_DESCRIPTOR_SYMBOL = Symbol.for('MODEL_DESCRIPTOR');
 
@@ -74,49 +82,43 @@ function FromModel(options?: unknown) {
 @BasePath('frommodel')
 export class FromModelController extends BaseController {
   /**
-   * Route whose path placeholder ( :id ) does NOT match the argument name ( slide ).
-   * @param slide The slide loaded from the database
+   * The argument name IS the placeholder - the only implicit binding the strict
+   * resolver accepts.
+   * @param id The slide loaded from the database
    */
   @Get(':id')
-  public async getSlide(@FromModel() slide: FromModelSlide) {
-    return new Ok({ slide });
+  public async getSlide(@FromModel() id: FromModelSlide) {
+    return new Ok({ id });
   }
 
   /**
-   * Two placeholders, one of them already spoken for by a plain @Param().
+   * Two placeholders, each declared by an argument of its own name.
+   * @param owner The account the slide belongs to
+   * @param id The slide loaded from the database
    */
   @Get('scoped/:owner/slides/:id')
-  public async getScopedSlide(@Param() owner: number, @FromModel() entry: FromModelSlide) {
-    return new Ok({ owner, entry });
+  public async getScopedSlide(@Param() owner: number, @FromModel() id: FromModelSlide) {
+    return new Ok({ owner, id });
   }
 
   /**
-   * The argument name already matches a placeholder - but not the FIRST one, and the
-   * other placeholder belongs to a @Param() whose argument is underscore-prefixed.
-   */
-  @Get('threads/:thread/tickets/:ticket')
-  public async getThreadTicket(@Param() _thread: number, @FromModel() ticket: FromModelTicket) {
-    return new Ok({ ticket });
-  }
-
-  /**
-   * Underscore-prefixed @Param() next to a @FromModel() whose argument name matches
-   * NO placeholder. The @Param() only claims `room` through the underscore alias, so
-   * a claim pass that compares argument names verbatim leaves `room` free, hands it to
-   * the @FromModel(), and then the alias renames `_room` to `room` as well - two path
-   * parameters called `room` and no `seat` at all.
-   */
-  @Get('rooms/:room/seats/:seat')
-  public async getRoomSeat(@Param() _room: number, @FromModel() item: FromModelTicket) {
-    return new Ok({ item });
-  }
-
-  /**
-   * paramField names the placeholder the value is read from at runtime.
+   * paramField names the placeholder the value is read from at runtime, so the
+   * argument name is free to differ from it.
    */
   @Del('tickets/:ticket')
   public async deleteTicket(@FromModel({ paramField: 'ticket' }) item: FromModelTicket) {
     return new Ok({ item });
+  }
+
+  /**
+   * A placeholder no argument declares. The backend compiles with
+   * `noUnusedParameters`, so a handler that never reads `:year` cannot declare an
+   * argument for it - the placeholder is carried by the URL template alone and the
+   * document must still describe it.
+   */
+  @Get('archive/:year/slides/:id')
+  public async getArchivedSlide(@FromModel({ paramField: 'id' }) slide: FromModelSlide) {
+    return new Ok({ slide });
   }
 
   /**

@@ -1,6 +1,7 @@
 import { Autoinject, ClassInfo, TypedArray } from '@spinajs/di';
 import { BaseController, IRoute, IRouteParameter, ParameterType, RouteType } from '@spinajs/http';
 import { SCHEMA_SYMBOL, SchemaProvider } from '@spinajs/validation';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { safeParse } from '@spinajs/util';
 import {
   IOpenApiDocument,
@@ -128,29 +129,20 @@ const STANDARD_RESPONSE_DESCRIPTIONS: Record<string, string> = {
 type SchemaKind = 'request' | 'response';
 
 /**
- * The placeholder an underscore-prefixed path argument really stands for.
+ * Every `{placeholder}` an OpenAPI path template carries, in template order.
  *
- * `@spinajs/http` names a route parameter after the TypeScript argument, and the argument
- * is often prefixed with `_` only to satisfy `noUnusedParameters` — a route may need
- * `:campaign` in the URL without reading it. FromParams.extract() (and FromQuery.extract())
- * already honour that convention at RUNTIME: they read `req.params[Name]` and fall back to
- * `req.params[Name without the leading _]`. The documentation did not, so
- * `@Get(':campaign/comments/:comment') (@Param() _campaign)` emitted a path parameter
- * `_campaign` that the URL template does not contain — the same class of defect as the
- * @FromModel one, from a different direction.
+ * The template is the single source of truth for path parameters. It is read from the
+ * FULL path the document emits (controller `@BasePath` + route path + configured
+ * `basePath` prefix), not from `route.Path` — a placeholder declared in `@BasePath` is
+ * invisible to `route.Path` and rejecting an argument that names it would be a false
+ * alarm.
  *
- * Deliberately narrow: fires only when the name itself is NOT a placeholder and the stripped
- * name IS one. It therefore cannot rename a parameter that already matched, cannot invent a
- * name for a placeholder that lives in @BasePath (invisible to route.Path), and cannot steal
- * another parameter's slot — the stripped name belongs to this argument by construction.
+ * Deduplicated: `name` + `in` is a parameter's identity in OpenAPI, so a template that
+ * repeats a placeholder still yields one parameter.
  */
-function underscorePlaceholderAlias(name: string | undefined, pathParamNames: string[]): string | undefined {
-  if (!name || !name.startsWith('_') || pathParamNames.includes(name)) {
-    return undefined;
-  }
-
-  const stripped = name.replace(/^_+/, '');
-  return stripped && pathParamNames.includes(stripped) ? stripped : undefined;
+function pathTemplatePlaceholders(template: string): string[] {
+  const names = (template.match(/{([a-zA-Z_][a-zA-Z0-9_]*)}/g) ?? []).map((p) => p.slice(1, -1));
+  return [...new Set(names)];
 }
 
 export class OpenApiBuilder {
@@ -241,6 +233,7 @@ export class OpenApiBuilder {
         route,
         methodDoc,
         tagName,
+        fullPath,
       );
 
       this.applyRbac(operation, rbac, methodNameStr);
@@ -436,6 +429,10 @@ export class OpenApiBuilder {
 
   /**
    * Build an OpenAPI operation from a route and its documentation.
+   *
+   * `fullPath` is the OpenAPI path template this operation is filed under. It — not the
+   * argument list — decides which path parameters the operation has; see
+   * resolvePathPlaceholder() for the contract a declared argument must satisfy.
    */
   private buildOperation(
     controllerName: string,
@@ -443,6 +440,7 @@ export class OpenApiBuilder {
     route: IRoute,
     methodDoc: IMethodDocumentation | undefined,
     tagName: string,
+    fullPath: string,
   ): IOpenApiOperation {
     const operation: IOpenApiOperation = {
       operationId: `${controllerName}_${methodName}`,
@@ -458,26 +456,15 @@ export class OpenApiBuilder {
 
     const bodyParams: { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }[] = [];
 
-    // Extract path param names from the Express route path as fallback when param.Name is not set
-    const pathParamNames = (route.Path || '').match(/:([a-zA-Z_][a-zA-Z0-9_]*)/g)?.map((p) => p.slice(1)) ?? [];
+    // The URL template owns the path parameters. Arguments only enrich them.
+    const placeholders = pathTemplatePlaceholders(fullPath);
 
-    // orm-http's @FromModel carries the TS argument name, not the URL placeholder —
-    // resolved up front (see resolveFromDbModelPathNames), keyed by param index.
-    const fromDbModelPathNames = this.resolveFromDbModelPathNames(route, pathParamNames);
+    // Placeholder -> the argument that declares it. At most one argument per placeholder;
+    // a second one is a defect in the controller, not something to reconcile here.
+    const declaredPlaceholders = new Map<string, { param: IRouteParameter; doc?: { name: string; description?: string; type?: string } }>();
 
-    // Placeholders that already belong to somebody: matched by name, matched through the
-    // underscore alias, or handed to an @FromModel above. Walking pathParamNames by a bare
-    // index instead started at 0 no matter what the passes above had taken, so a nameless
-    // path parameter could be handed a placeholder another argument was already emitting.
-    const takenPathNames = this.claimedPathPlaceholders(route, pathParamNames);
-    fromDbModelPathNames.forEach((name) => takenPathNames.add(name));
-    const nextFreePathName = () => {
-      const free = pathParamNames.find((n) => !takenPathNames.has(n));
-      if (free) {
-        takenPathNames.add(free);
-      }
-      return free;
-    };
+    // Parameters other than path ones, kept in argument order.
+    const otherParams: IOpenApiParameter[] = [];
 
     // Process route parameters
     for (const [, param] of route.Parameters) {
@@ -493,34 +480,64 @@ export class OpenApiBuilder {
       if (!location) {
         if (param.Type === 'FromDbModel') {
           location = this.fromDbModelLocation(param);
+
+          // fromDbModelLocation() answers 'path' for paramType=FromBody too, only so the
+          // value stays visible somewhere in the document. A body key has no URL
+          // placeholder to match and readsPathParam() is the authority on that, so it is
+          // not a path parameter and must not be pushed through the strict resolver.
+          // It carries no OpenAPI location at all — a body is described by requestBody.
+          if (location === 'path' && !this.readsPathParam(param)) {
+            location = undefined;
+          }
         } else if (param.Type === 'FilterModelRouteArg') {
           location = 'query';
         }
       }
 
-      const isPathParam = location === 'path';
-      const resolvedName =
-        fromDbModelPathNames.get(param.Index) ??
-        (isPathParam ? underscorePlaceholderAlias(param.Name, pathParamNames) : undefined) ??
-        (param.Name || (isPathParam ? nextFreePathName() : undefined));
-      if (isPathParam && resolvedName && !param.Name) {
-        param.Name = resolvedName;
-      }
-
-      // JSDoc is written against the argument name, so it stays keyed by param.Name
-      // even when the emitted name is a placeholder taken from the path.
-      const paramDoc = methodDoc?.params?.[param.Name] ?? methodDoc?.params?.[resolvedName ?? param.Name];
+      // JSDoc is written against the argument name.
+      const paramDoc = methodDoc?.params?.[param.Name];
 
       if (BODY_PARAMS.has(param.Type as string)) {
         bodyParams.push({ param, doc: paramDoc });
         continue;
       }
 
+      if (location === 'path') {
+        const placeholder = this.resolvePathPlaceholder(controllerName, methodName, param, placeholders, fullPath);
+        const previous = declaredPlaceholders.get(placeholder);
+
+        if (previous) {
+          throw new InvalidArgument(
+            `${controllerName}.${methodName}: path placeholder \`${placeholder}\` is declared twice, ` +
+              `by \`${previous.param.Name}\` and by \`${param.Name}\`, in route \`${fullPath}\`. ` +
+              `Each placeholder must be declared by at most one argument — drop one of them, ` +
+              `or point its paramField at a different placeholder.`,
+          );
+        }
+
+        declaredPlaceholders.set(placeholder, { param, doc: paramDoc ?? methodDoc?.params?.[placeholder] });
+        continue;
+      }
+
       if (location) {
-        const apiParam = this.buildParameter(param, location, paramDoc, resolvedName);
-        operation.parameters!.push(apiParam);
+        otherParams.push(this.buildParameter(param, location, paramDoc, this.emittedParamName(param)));
       }
     }
+
+    // Emit one required parameter per placeholder, in template order. A placeholder nobody
+    // declares is still a parameter the caller has to fill in: the backend compiles with
+    // `noUnusedParameters`, so a handler that never reads `:campaign` CANNOT declare an
+    // argument for it, and the URL template is then the only place that knows about it.
+    for (const name of placeholders) {
+      const declared = declaredPlaceholders.get(name);
+      operation.parameters!.push(
+        declared
+          ? this.buildParameter(declared.param, 'path', declared.doc, name)
+          : { name, in: 'path', required: true, schema: { type: 'string' } },
+      );
+    }
+
+    operation.parameters!.push(...otherParams);
 
     // Build request body from body params
     if (bodyParams.length > 0) {
@@ -717,116 +734,82 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Pick the URL placeholder each path-bound @FromModel (Type='FromDbModel') parameter
-   * stands for. Returns a map keyed by parameter index; params not present keep the
-   * name they had.
+   * The name a non-path parameter is emitted under.
    *
-   * `param.Name` for @FromModel is the TypeScript ARGUMENT name (`slide`), never the
-   * placeholder from the path (`:id`) — @spinajs/http fills Name from the parsed method
-   * signature. Emitting it produces a path parameter that the URL template does not
-   * contain, and every OpenAPI client generator then builds code for a parameter that
-   * does not exist. For location='path' the placeholder therefore wins over Name:
-   *
-   *   1. `Options.paramField` when it names a real placeholder — that is the field
-   *      FromDbModel.extract() reads from req.params, so the doc matches the runtime,
-   *   2. `param.Name` when it names a real placeholder — the usual convention is to call
-   *      the argument after the placeholder (`@Put(':campaign') (@FromModel() campaign)`),
-   *      and that binding must survive regardless of where in the path it sits,
-   *   3. otherwise the first placeholder not already claimed, in argument order.
-   *
-   * A placeholder is "claimed" by any parameter that already matched it (`@Param() id` →
-   * `:id`, `@Param() _id` → `:id` through the underscore alias, and the two exact matches
-   * above), so no @FromModel steals someone else's slot. When nothing is left — e.g. the
-   * placeholder lives in @BasePath, which route.Path does not see — the parameter keeps its
-   * current name: leaving the doc as it was beats renaming it to another parameter's
-   * placeholder.
+   * orm-http's FromDbModel._extractValue reads `req.query[paramField ?? Name]` (same for
+   * headers), so an explicit `paramField` IS the wire name and the TypeScript argument name
+   * is not what the runtime looks for. Path parameters do not go through here — their name
+   * is the placeholder, see resolvePathPlaceholder().
    */
-  private resolveFromDbModelPathNames(route: IRoute, pathParamNames: string[]): Map<number, string> {
-    const resolved = new Map<number, string>();
-    if (pathParamNames.length === 0) {
-      return resolved;
-    }
-
-    // Parameter decorators are evaluated right-to-left, so route.Parameters is not
-    // necessarily in argument order — sort by Index before matching positionally.
-    const params = [...route.Parameters.values()].sort((a, b) => a.Index - b.Index);
-    const claimed = this.claimedPathPlaceholders(route, pathParamNames);
-    const fromDbModels: IRouteParameter[] = [];
-
-    for (const param of params) {
-      if (INTERNAL_PARAMS.has(param.Type as string)) {
-        continue;
-      }
-
-      // Only a @FromModel that really READS req.params competes for a placeholder.
-      // fromDbModelLocation() answers 'path' for paramType=FromBody as well ( a body value
-      // is not an OpenAPI parameter, so the doc puts it where it is at least visible ) —
-      // but that parameter never touches the URL and must not consume a placeholder some
-      // other argument needs.
-      if (param.Type === 'FromDbModel' && this.readsPathParam(param)) {
-        fromDbModels.push(param);
-      }
-    }
-
-    // Exact matches first — a positional pass must never consume a placeholder that
-    // another @FromModel names outright, whatever order the arguments are in.
-    const positional: IRouteParameter[] = [];
-    for (const param of fromDbModels) {
-      const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
-      const exact = [paramField, param.Name].find((n) => n && pathParamNames.includes(n) && !claimed.has(n));
-
-      if (exact) {
-        claimed.add(exact);
-        resolved.set(param.Index, exact);
-      } else {
-        positional.push(param);
-      }
-    }
-
-    for (const param of positional) {
-      const name = pathParamNames.find((n) => !claimed.has(n));
-      if (!name) {
-        continue;
-      }
-
-      claimed.add(name);
-      resolved.set(param.Index, name);
-    }
-
-    return resolved;
+  private emittedParamName(param: IRouteParameter): string | undefined {
+    const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
+    return paramField || param.Name || undefined;
   }
 
   /**
-   * Placeholders already spoken for by a plain path parameter, by the exact name the
-   * document will emit for it.
+   * The URL placeholder a path-bound argument declares — or a throw.
    *
-   * The emitted name is `param.Name` when that IS a placeholder, and otherwise the
-   * underscore alias (`_thread` → `:thread`, see underscorePlaceholderAlias). Reserving only
-   * the verbatim name left the alias target free: `@Get('rooms/:room/seats/:seat')` with
-   * `(@Param() _room, @FromModel() item)` handed `room` to the @FromModel as "the first free
-   * placeholder", and the alias then renamed `_room` to `room` as well — two `in: path`
-   * parameters named `room`, `seat` never documented, and a document OpenAPI 3.0 calls
-   * invalid ( `name` + `in` is a parameter's identity ).
+   * Path parameters are emitted from the URL template (see buildOperation); a declared
+   * argument only enriches the one it names, with its schema and its JSDoc description.
+   * There are exactly two ways to name one:
    *
-   * Shared with the positional fallback in buildOperation so both passes reserve the same
-   * set; they cannot drift apart into handing the same placeholder to two parameters.
+   *   1. `Options.paramField` — that IS the placeholder, and it must exist in the template.
+   *      It is also the field orm-http's FromDbModel.extract() reads from `req.params`, so
+   *      the document and the runtime agree by construction.
+   *   2. the argument's own name, when it equals a placeholder.
+   *
+   * Anything else throws. No positional assignment, no "first free placeholder", no
+   * underscore aliasing: a controller the documentation layer cannot read unambiguously is
+   * a controller to fix, not to guess at. An underscore-prefixed argument (`_campaign`,
+   * written only to satisfy `noUnusedParameters`) matches no placeholder and therefore
+   * throws — the fix is to DELETE the argument, because the placeholder is emitted from the
+   * template whether anything declares it or not.
+   *
+   * The message has to be enough to fix the route without opening this file: it names the
+   * controller, the method, the argument, the template, every placeholder that template
+   * carries and the two ways out.
    */
-  private claimedPathPlaceholders(route: IRoute, pathParamNames: string[]): Set<string> {
-    const claimed = new Set<string>();
+  private resolvePathPlaceholder(
+    controllerName: string,
+    methodName: string,
+    param: IRouteParameter,
+    placeholders: string[],
+    fullPath: string,
+  ): string {
+    const paramField = (param.Options as { paramField?: string } | undefined)?.paramField;
+    const argument = param.Name || `argument #${param.Index}`;
 
-    for (const [, param] of route.Parameters) {
-      if (INTERNAL_PARAMS.has(param.Type as string) || PARAM_LOCATION_MAP[param.Type as string] !== 'path') {
-        continue;
+    const available =
+      placeholders.length > 0
+        ? `Available placeholders: ${placeholders.join(', ')}.`
+        : 'The route declares no path placeholders at all.';
+    const suggestion = placeholders.length > 0 ? placeholders[0] : 'name';
+    const fix =
+      `Either rename the argument to a placeholder the route really has, or name one explicitly ` +
+      `with the decorator's paramField option, e.g. @FromModel({ paramField: '${suggestion}' }). ` +
+      `If the handler never reads the value, delete the argument instead: every placeholder is ` +
+      `documented from the URL template whether an argument declares it or not. Path parameters ` +
+      `are resolved strictly — the documentation layer does not guess.`;
+
+    if (paramField) {
+      if (placeholders.includes(paramField)) {
+        return paramField;
       }
 
-      const claim = param.Name && pathParamNames.includes(param.Name) ? param.Name : underscorePlaceholderAlias(param.Name, pathParamNames);
-
-      if (claim) {
-        claimed.add(claim);
-      }
+      throw new InvalidArgument(
+        `${controllerName}.${methodName}: path argument \`${argument}\` declares paramField ` +
+          `\`${paramField}\`, which matches no placeholder in route \`${fullPath}\`. ${available} ${fix}`,
+      );
     }
 
-    return claimed;
+    if (param.Name && placeholders.includes(param.Name)) {
+      return param.Name;
+    }
+
+    throw new InvalidArgument(
+      `${controllerName}.${methodName}: path argument \`${argument}\` matches no placeholder ` +
+        `in route \`${fullPath}\`. ${available} ${fix}`,
+    );
   }
 
   /**
