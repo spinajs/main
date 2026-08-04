@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/tasks",
-  "version": "2.0.497",
+  "version": "2.0.498",
   "description": "SpinaJS tasks module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -43,11 +43,11 @@
   },
   "homepage": "https://github.com/spinajs/reflection#readme",
   "dependencies": {
-    "@spinajs/di": "2.0.497",
-    "@spinajs/log": "2.0.497",
-    "@spinajs/orm": "2.0.497",
-    "@spinajs/queue": "2.0.497",
-    "@spinajs/threading": "2.0.497"
+    "@spinajs/di": "2.0.498",
+    "@spinajs/log": "2.0.498",
+    "@spinajs/orm": "2.0.498",
+    "@spinajs/queue": "2.0.498",
+    "@spinajs/threading": "2.0.498"
   },
   "devDependencies": {
     "@types/node": "^18.11.18"
