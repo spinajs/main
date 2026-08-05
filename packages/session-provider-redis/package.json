@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-redis",
-  "version": "2.0.498",
+  "version": "2.0.499",
   "description": "Redis session store for SpinaJS RBAC",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,11 +58,11 @@
     "ioredis-mock": "^8.13.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.498",
-    "@spinajs/di": "2.0.498",
-    "@spinajs/exceptions": "2.0.498",
-    "@spinajs/log": "2.0.498",
-    "@spinajs/rbac": "2.0.498",
+    "@spinajs/configuration": "2.0.499",
+    "@spinajs/di": "2.0.499",
+    "@spinajs/exceptions": "2.0.499",
+    "@spinajs/log": "2.0.499",
+    "@spinajs/rbac": "2.0.499",
     "ioredis": "^5.11.1"
   },
   "gitHead": "027c4862bbc97c4dd4f8e468a712b804c80b07f9"
