@@ -1386,6 +1386,11 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   withDeleted(): this;
 
   /**
+   * Includes archived rows (@Archived models) that are excluded by default.
+   */
+  withArchived(): this;
+
+  /**
    * Returns true/false if query result exists in db
    */
   resultExists(): Promise<boolean>;
