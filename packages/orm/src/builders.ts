@@ -2786,7 +2786,11 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   const models = DI.getRegisteredTypes<ModelBase>('__models__');
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
-  if (qr instanceof SelectQueryBuilder) {
+  // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.
+  // `ModelBase.destroy()` and `ModelBase.update()` already DECLARE the scope intersection in
+  // their return types ( model.ts ), so a select-only binding made those types lie at runtime.
+  // InsertQueryBuilder is deliberately excluded: it has no WHERE clause to narrow.
+  if (qr instanceof SelectQueryBuilder || qr instanceof DeleteQueryBuilder || qr instanceof UpdateQueryBuilder) {
     const scope = (model as any)._queryScopes as QueryScope;
     if (scope) {
       Object.getOwnPropertyNames((scope as any).__proto__)

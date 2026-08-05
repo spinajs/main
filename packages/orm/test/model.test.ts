@@ -660,6 +660,50 @@ describe('General model tests', () => {
     expect(scope.calledOnce).to.be.true;
   });
 
+  it('model scope should be bound to delete query builder', async () => {
+    await db();
+
+    sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereBarEquals');
+
+    await ModelWithScope.destroy(1).whereBarEquals('hello');
+
+    expect(execute.calledOnce).to.be.true;
+    expect(scope.calledOnce).to.be.true;
+  });
+
+  it('model scope should be bound to update query builder', async () => {
+    await db();
+
+    sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereBarEquals');
+
+    await ModelWithScope.update({ Bar: 'world' }).whereBarEquals('hello');
+
+    expect(execute.calledOnce).to.be.true;
+    expect(scope.calledOnce).to.be.true;
+  });
+
   it('update mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
