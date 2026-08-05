@@ -1366,6 +1366,25 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this;
   }
 
+  /**
+   * Includes archived rows in the result set by removing the default `ArchivedAt IS NULL`
+   * filter added by createQuery for @Archived models. Mirror of {@link withDeleted}.
+   */
+  public withArchived(): this {
+    const descriptor = extractModelDescriptor(this._model);
+    const archivedAt = descriptor?.Archived?.ArchivedAt;
+
+    if (!archivedAt) {
+      return this;
+    }
+
+    this._statements = this._statements.filter((s) => {
+      return !(s instanceof WhereStatement && s.Column === archivedAt && s.Operator === SqlOperator.NULL);
+    });
+
+    return this;
+  }
+
   public min(column: string, as?: string): this {
     this._columns.push(this._container.resolve<ColumnMethodStatement>(ColumnMethodStatement, [column, ColumnMethods.MIN, as, this._tableAlias]));
     return this;
@@ -2786,7 +2805,11 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   const models = DI.getRegisteredTypes<ModelBase>('__models__');
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
-  if (qr instanceof SelectQueryBuilder) {
+  // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.
+  // `ModelBase.destroy()` and `ModelBase.update()` already DECLARE the scope intersection in
+  // their return types ( model.ts ), so a select-only binding made those types lie at runtime.
+  // InsertQueryBuilder is deliberately excluded: it has no WHERE clause to narrow.
+  if (qr instanceof SelectQueryBuilder || qr instanceof DeleteQueryBuilder || qr instanceof UpdateQueryBuilder) {
     const scope = (model as any)._queryScopes as QueryScope;
     if (scope) {
       Object.getOwnPropertyNames((scope as any).__proto__)
@@ -2811,6 +2834,13 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   // has not (yet) surfaced the column.
   if (qr instanceof SelectQueryBuilder && dsc.SoftDelete?.DeletedAt && dsc.Columns?.some((c) => c.Name === dsc.SoftDelete.DeletedAt)) {
     (qr as unknown as SelectQueryBuilder).whereNull(dsc.SoftDelete.DeletedAt);
+  }
+
+  // Archive read filtering, symmetric with the soft-delete block above: by default exclude rows
+  // that have been archived ( ArchivedAt IS NOT NULL ). SelectQueryBuilder.withArchived() removes
+  // this default statement. Same column-presence guard, for the same reason.
+  if (qr instanceof SelectQueryBuilder && dsc.Archived?.ArchivedAt && dsc.Columns?.some((c) => c.Name === dsc.Archived.ArchivedAt)) {
+    (qr as unknown as SelectQueryBuilder).whereNull(dsc.Archived.ArchivedAt);
   }
 
   if (driver.Options.Database) {
