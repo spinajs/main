@@ -5,6 +5,8 @@ import { IRenderProgress, RenderPhase, RenderProgressCallback } from '@spinajs/t
 const THROTTLE_MS = 150;
 /** Re-emit interval during long phases so the bar moves even when nothing changes (ms). */
 const HEARTBEAT_MS = 750;
+/** Cap on the request-approximation ratio before any task line arrives (see computePercent). */
+const PRE_TASK_APPROXIMATION_CAP = 0.5;
 
 /** Percent band [start, end] each phase occupies. */
 const PHASE_BANDS: Record<RenderPhase, [number, number]> = {
@@ -175,8 +177,13 @@ export class RenderProgressReporter {
     const [start, end] = PHASE_BANDS[this.phaseNow];
 
     if (this.phaseNow === RenderPhase.Loading) {
-      // page-reported task totals are exact; fall back to completed / seen-so-far
-      const ratio = this.taskRatio() ?? this.requestRatio();
+      // Page-reported task totals are exact. Until the first task line arrives,
+      // cap the request-count approximation at half the band: a transient
+      // loaded/seen spike (e.g. one early asset with nothing else pending)
+      // would otherwise pin the never-regressing percent at the band end,
+      // locking out the exact task-driven percent for the rest of the load.
+      const taskRatio = this.taskRatio();
+      const ratio = taskRatio ?? Math.min(this.requestRatio(), PRE_TASK_APPROXIMATION_CAP);
       return Math.max(this.lastPercent, Math.min(end, Math.round(start + (end - start) * ratio)));
     }
 

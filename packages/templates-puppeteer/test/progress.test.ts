@@ -216,6 +216,32 @@ describe('RenderProgressReporter', () => {
     expect(last.tasks).to.eq(undefined);
   });
 
+  it('caps the request approximation before tasks arrive so a spike cannot pin the percent', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+
+    // one request settles with nothing else pending: raw approximation ratio = 1.0
+    page.emit('request');
+    page.emit('requestfinished');
+    reporter.phase(RenderPhase.Loading);
+
+    // capped at half the band: 15 + 65 * 0.5 = 47.5 -> 48, NOT 80
+    expect(events[events.length - 1].percent).to.eq(48);
+
+    // task lines then take over and can exceed the cap
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":9,"total":10}'));
+    reporter.phase(RenderPhase.Loading);
+
+    // 15 + 65 * 0.9 = 73.5 -> 74
+    expect(events[events.length - 1].percent).to.eq(74);
+  });
+
   it('detaches the console listener on dispose', () => {
     const reporter = new RenderProgressReporter('out.pdf', () => undefined);
     const page = fakePage();
