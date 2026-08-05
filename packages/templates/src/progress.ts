@@ -39,6 +39,13 @@ export interface IRenderProgress {
   filePath: string;
   /** Short human-readable status line. */
   message?: string;
+  /**
+   * Optional page-reported task progress. Populated by network-backed engines
+   * when the rendered page emits the `__spinajs_progress__:` console protocol
+   * (e.g. `console.log('__spinajs_progress__:{"task":"images","done":2,"total":40}')`).
+   * Keys are task names; values are the last reported counts per task.
+   */
+  tasks?: Record<string, { done: number; total: number }>;
 }
 
 /**
