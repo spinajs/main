@@ -1422,10 +1422,22 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Infer schema from a JSDoc type string like {string}, {number}, {MyDto}
+   * Infer schema from a JSDoc type string like {string}, {number}, {MyDto}, {MyDto[]}
    */
   private inferSchemaFromString(typeStr: string): IOpenApiSchema {
     const cleaned = typeStr.replace(/[{}]/g, '').trim();
+
+    // `X[]` / `Array<X>` - a documented LIST. Without this branch the brackets stay part of
+    // the name, so the tag falls through to the default below and lands in `description` as
+    // `User[]`: a name no schema provider resolves, leaving the response described as a bare
+    // `{ type: 'object' }`. A generated client then validates an array against an object
+    // schema and rejects every successful response ( `@returns {IUserData[]}` on rbac's user
+    // list was the live case ). Recursive, so `X[][]` nests.
+    const element = cleaned.endsWith('[]') ? cleaned.slice(0, -2).trim() : /^Array<(.+)>$/.exec(cleaned)?.[1]?.trim();
+
+    if (element) {
+      return { type: 'array', items: this.inferSchemaFromString(element) };
+    }
 
     switch (cleaned.toLowerCase()) {
       case 'string':

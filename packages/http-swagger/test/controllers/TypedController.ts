@@ -17,6 +17,21 @@ class PaginationDto {
 }
 
 /**
+ * A named DTO used to document a list response through `@returns {TypedPetDto[]}`.
+ */
+@Schema({
+  type: 'object',
+  properties: {
+    id: { type: 'integer' },
+    name: { type: 'string' },
+  },
+})
+class TypedPetDto {
+  id?: number;
+  name?: string;
+}
+
+/**
  * Test controller for generic response type inference.
  * Exercises Ok<T>, Json<T>, Created<T>, and @Schema DTO parameter inference.
  * @tags TypedTests
@@ -81,6 +96,26 @@ export class TypedController extends BaseController {
   @Get('profile')
   public async profile(): Promise<Ok<{ userId: number; name: string }>> {
     return new Ok({ userId: 1, name: 'Alice' });
+  }
+
+  /**
+   * List pets documented as a named array
+   * The `[]` has to survive as an array schema whose items reference the DTO component;
+   * documenting the list as a bare object made a client reject every response.
+   * @returns {TypedPetDto[]} Every pet
+   */
+  @Get('returns-named-array')
+  public async returnsNamedArray(): Promise<Ok<TypedPetDto[]>> {
+    return new Ok([{ id: 1, name: 'Buddy' }]);
+  }
+
+  /**
+   * List pet names
+   * @returns {string[]} Pet names
+   */
+  @Get('returns-primitive-array')
+  public async returnsPrimitiveArray(): Promise<Ok<string[]>> {
+    return new Ok(['Buddy']);
   }
 
   /**
