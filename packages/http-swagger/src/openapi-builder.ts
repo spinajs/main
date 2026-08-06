@@ -72,6 +72,45 @@ const MULTIPART_BODY_PARAMS = new Set<string>([
 ]);
 
 /**
+ * Body params whose WIRE representation is an uploaded file, whatever the action ends up
+ * receiving. @CsvFile() and @JsonFile() belong here as much as @File() does: the argument is
+ * handed the PARSED content, but the request still carries one file, and the request body is
+ * what this document describes.
+ *
+ * @Form() and @FormField() are deliberately absent - those are ordinary form fields.
+ */
+const FILE_BODY_PARAMS = new Set<string>([
+  ParameterType.FromFile, 'FromFile',
+  ParameterType.FromCSV, 'FromCSV',
+  ParameterType.FromJSONFile, 'FromJSONFile',
+]);
+
+/**
+ * Of the file params, only @File() / @Files() can carry more than one file under one field.
+ * The CSV and JSON extractors take `files[0]` and reject an empty field ( see FromCSV /
+ * FromJSONFile in @spinajs/http's route-args/FromForm.ts ), so an array-typed argument there
+ * describes the PARSED rows, never the upload.
+ */
+const MULTI_FILE_PARAMS = new Set<string>([ParameterType.FromFile, 'FromFile']);
+
+/**
+ * Media type per framework response class that streams a file instead of serialising JSON.
+ * Keyed by class NAME because that is all the documentation layer ever sees - the return type
+ * arrives as a string, out of the JSDoc tag or the declaration file.
+ *
+ * `FileResponse` gets the generic binary type: its real one is a constructor option
+ * (`IFileResponseOptions.mimeType`) and is often left unset so `res.sendFile` can derive it
+ * from the file, so there is nothing to read here. `ZipResponse` pins application/zip the
+ * same way its constructor does, and `JsonFileResponse` always writes JSON - as an
+ * attachment, which is why it is still a binary body and not a JSON one.
+ */
+const FILE_RESPONSE_MEDIA_TYPES: Record<string, string> = {
+  FileResponse: 'application/octet-stream',
+  ZipResponse: 'application/zip',
+  JsonFileResponse: 'application/json',
+};
+
+/**
  * Mapping from ParameterType to OpenAPI 'in' location
  */
 const PARAM_LOCATION_MAP: Record<string, 'query' | 'path' | 'header' | 'cookie'> = {
@@ -942,6 +981,15 @@ export class OpenApiBuilder {
    * Priority: JSDoc type → decorator schema (param.Schema) → auto-detected primitive (param.RouteParamSchema) → @Schema metadata on DTO class → runtime type inference
    */
   private schemaFromParam(param: IRouteParameter, docType?: string): IOpenApiSchema {
+    // An upload, before anything else gets a say. A file's schema is a fact of the DECORATOR,
+    // not of the argument's TypeScript type ( `IUploadedFile` is an interface, so it erases to
+    // `Object` and lands as a bare `{ type: 'object' }` ) and not of a JSDoc tag either: on a
+    // @CsvFile() the author documents the parsed ROWS, which is exactly the case that produced
+    // a spec demanding a JSON object where the client has to send a File.
+    if (FILE_BODY_PARAMS.has(param.Type as string)) {
+      return this.fileSchema(param);
+    }
+
     if (docType) {
       return this.inferSchemaFromString(docType);
     }
@@ -986,6 +1034,65 @@ export class OpenApiBuilder {
     }
 
     return this.inferSchema(runtimeType, undefined);
+  }
+
+  /**
+   * The schema of an uploaded file: `type: string, format: binary`, which is how OAS 3.0
+   * spells a binary payload inside multipart/form-data. Generators read `format` and nothing
+   * else - it is what makes a client type the field `Blob` / `File` and Swagger UI render a
+   * file picker instead of a text box.
+   *
+   * Arity follows the RUNTIME's own rule, character for character ( `FromForm.extract`:
+   * `RuntimeType.name === 'Array' || Options.asArray === true` ) so the document and the
+   * extractor cannot disagree about whether a field takes one file or several. `@Files()` is
+   * `@File({ asArray: true })`, which is why the option has to be consulted and not just the
+   * declared type.
+   *
+   * A fresh object every call: `expandNamedSchemas` mutates the nodes it walks, so a shared
+   * constant would be rewritten under every route that used it.
+   *
+   * @param param - the route parameter to describe
+   */
+  private fileSchema(param: IRouteParameter): IOpenApiSchema {
+    const file: IOpenApiSchema = { type: 'string', format: 'binary' };
+
+    if (!MULTI_FILE_PARAMS.has(param.Type as string)) {
+      return file;
+    }
+
+    const asArray = (param.Options as { asArray?: boolean } | undefined)?.asArray === true;
+    const isArrayType = (param.RuntimeType as { name?: string } | undefined)?.name === 'Array';
+
+    return asArray || isArrayType ? { type: 'array', items: file } : file;
+  }
+
+  /**
+   * The response content for a route that streams a file, or undefined for anything else - in
+   * which case the caller documents a JSON body exactly as it always did.
+   *
+   * A framework file response is not describable as a schema: `FileResponse`, `ZipResponse`
+   * and `JsonFileResponse` all write bytes plus a `Content-Disposition: attachment` header,
+   * never a serialised instance of themselves. Documented as `{ type: 'object' }` under
+   * application/json - the fallback for any class name no schema provider recognises - a
+   * generated client parses the download as JSON and rejects every successful response.
+   *
+   * Both halves of `returns` have to be consulted. `@returns {FileResponse}` puts the name in
+   * `type`, but a route that merely DECLARES the return type ( the common case, and what the
+   * declaration file carries ) gets no `type` at all: @spinajs/http's parser resolves a named
+   * class to `{ type: 'object', description: name }` in `schema`, and the name lives in the
+   * description. Only a bare tag counts there - an object with a shape of its own describes
+   * itself, and its description is prose.
+   *
+   * @param returns - the documented return, from a JSDoc tag or the declaration file
+   */
+  private fileResponseContent(returns: { type?: string; schema?: IOpenApiSchema }): Record<string, { schema: IOpenApiSchema }> | undefined {
+    const schema = returns.schema;
+    const tagged = schema && schema.type === 'object' && !schema.properties && !schema.items ? schema.description : undefined;
+    const name = (returns.type ?? tagged)?.replace(/[{}]/g, '').trim();
+
+    const mediaType = name ? FILE_RESPONSE_MEDIA_TYPES[name] : undefined;
+
+    return mediaType ? { [mediaType]: { schema: { type: 'string', format: 'binary' } } } : undefined;
   }
 
   /**
@@ -1128,6 +1235,15 @@ export class OpenApiBuilder {
         : { ...expanded, description: bp.doc?.description };
     }
 
+    // `@File({ required: true })` is enforced by the uploader at runtime, so the document has
+    // to say so too - `requestBody.required` only states that a body is expected at all, and a
+    // multipart body missing its file field satisfies that while still being rejected with a
+    // 400. Only file params are consulted: the other body params have no comparable option and
+    // their `required` lists come from their own schemas.
+    const required = bodyParams
+      .filter((bp) => FILE_BODY_PARAMS.has(bp.param.Type as string) && (bp.param.Options as { required?: boolean } | undefined)?.required === true)
+      .map((bp) => bp.param.Name || `param_${bp.param.Index}`);
+
     return {
       required: true,
       content: {
@@ -1135,6 +1251,7 @@ export class OpenApiBuilder {
           schema: {
             type: 'object',
             properties,
+            ...(required.length > 0 ? { required } : {}),
           },
         },
       },
@@ -1156,6 +1273,8 @@ export class OpenApiBuilder {
     const returnsIsInferredOnly = !!methodDoc?.returns && !methodDoc.returns.type && !methodDoc.returns.description;
 
     if (methodDoc?.returns && !(hasExplicit2xx && returnsIsInferredOnly)) {
+      const download = this.fileResponseContent(methodDoc.returns);
+
       const schema =
         methodDoc.returns.type
           ? this.inferSchemaFromString(methodDoc.returns.type)
@@ -1163,7 +1282,7 @@ export class OpenApiBuilder {
 
       responses['200'] = {
         description: methodDoc.returns.description || 'Successful response',
-        content: { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
+        content: download ?? { 'application/json': { schema: this.expandNamedSchemas(schema, 'response') } },
       };
     } else if (!hasExplicit2xx) {
       responses['200'] = { description: 'Successful response' };
@@ -1176,9 +1295,11 @@ export class OpenApiBuilder {
         // Swagger UI shows a clickable link and the same error envelope schema
         // across the whole document.
         if (resp.type) {
+          const download = this.fileResponseContent({ type: resp.type });
+
           responses[statusCode] = {
             description: resp.description,
-            content: { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
+            content: download ?? { 'application/json': { schema: this.expandNamedSchemas(this.inferSchemaFromString(resp.type), 'response') } },
           };
           continue;
         }
@@ -1264,8 +1385,8 @@ export class OpenApiBuilder {
     }
 
     // Case 2 — a named-model tag: replace the whole node with a $ref to its component.
-    if (schema.description && !schema.$ref) {
-      const ref = this.registerNamedComponent(schema.description, kind);
+    if (this.isNamedTypeTag(schema)) {
+      const ref = this.registerNamedComponent(schema.description as string, kind);
       if (ref) {
         return { $ref: ref };
       }
@@ -1282,6 +1403,36 @@ export class OpenApiBuilder {
     }
 
     return schema;
+  }
+
+  /**
+   * Is this node a bare "here is a type NAME" placeholder, the shape `inferSchema`,
+   * `inferSchemaFromString` and the ORM's relation properties all produce -
+   * `{ type: 'object', description: 'TestUser' }` and nothing else?
+   *
+   * `description` alone is not enough to say so, because it is also where genuine prose ends
+   * up: a column's DB `Comment` ( @spinajs/orm's `columnToSchema` ), orm-http's relation note,
+   * a `@Schema()` author's own text. A comment that happens to read like a model name -
+   * "File", "User" - then replaced the whole property with a `$ref` to that model, turning a
+   * scalar into an object and DISCARDING everything the node said about itself. A
+   * `format: date-time` timestamp lost the one keyword every generated client needs to read it
+   * as a date, silently and only on the columns that carry a comment.
+   *
+   * So a node that describes itself is left alone. Only an untyped node, or one typed `object`
+   * with no shape of its own, can still be a type tag.
+   *
+   * @param schema - node under consideration
+   */
+  private isNamedTypeTag(schema: IOpenApiSchema): boolean {
+    if (!schema.description || schema.$ref) {
+      return false;
+    }
+
+    if (schema.type !== undefined && schema.type !== 'object') {
+      return false;
+    }
+
+    return !schema.format && !schema.properties && !schema.items && !schema.enum && !schema.oneOf && !schema.anyOf && !schema.allOf;
   }
 
   /**

@@ -39,6 +39,25 @@ const SCHEMAS: Record<string, any> = {
     properties: { page: { type: 'integer' }, size: { type: 'integer' } },
     required: ['page'],
   },
+  /**
+   * A model whose timestamps come from @CreatedAt() / @UpdatedAt() / @Archived(). @spinajs/orm's
+   * `columnToSchema` hands those over as `format: date-time` whatever the storage type is, and
+   * `description` here is the column's DB COMMENT - deliberately spelled like a model name,
+   * because that is the collision that used to swallow the property whole.
+   */
+  TestAudited: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time', description: 'TestUser' },
+      archived_at: { type: 'string', format: 'date-time', nullable: true },
+      birthday: { type: 'string', format: 'date' },
+      history: { type: 'array', items: { type: 'string', format: 'date-time' } },
+      Author: { type: 'object', description: 'TestUser' },
+    },
+    required: ['created_at'],
+  },
 };
 
 class FakeSchemaProvider extends SchemaProvider {
@@ -57,7 +76,7 @@ const RESPONSE_SCHEMAS: Record<string, any> = {
       id: { type: 'integer' },
       email: { type: 'string' },
       nick: { type: 'string', nullable: true },
-      created_at: { type: 'string' },
+      created_at: { type: 'string', format: 'date-time' },
       Posts: { type: 'array', items: { type: 'object', description: 'TestPost' } },
     },
   },
@@ -66,6 +85,19 @@ const RESPONSE_SCHEMAS: Record<string, any> = {
     properties: {
       id: { type: 'integer' },
       title: { type: 'string' },
+      Author: { type: 'object', description: 'TestUser' },
+    },
+  },
+  // Same columns as the write contract, minus `required` - a response is partial.
+  TestAudited: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      created_at: { type: 'string', format: 'date-time' },
+      updated_at: { type: 'string', format: 'date-time', description: 'TestUser' },
+      archived_at: { type: 'string', format: 'date-time', nullable: true },
+      birthday: { type: 'string', format: 'date' },
+      history: { type: 'array', items: { type: 'string', format: 'date-time' } },
       Author: { type: 'object', description: 'TestUser' },
     },
   },
@@ -261,6 +293,43 @@ describe('Swagger schema generation - response vs request flavour', function () 
     expect(responses['200'].content['application/json'].schema).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
     expect(schemas().TestUser).to.not.have.property('required');
     expect(schemas().TestUser.properties).to.have.property('created_at');
+  });
+
+  /**
+   * `format: date-time` is the whole contract for a timestamp. Everything downstream keys off
+   * it and nothing else: kubb's plugin-oas turns it into the `datetime` keyword, from which the
+   * hydrate plugin generates the Luxon `DateTime.fromISO` conversion, and plugin-zod the
+   * `z.iso.datetime()` validator. A property that reaches the document as a bare `string` is
+   * read as text by every generated client, with no error anywhere to say so.
+   */
+  it('carries format: date-time into the component, on both flavours', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestAudited' }, 'response');
+    builder.expandNamedSchemas({ type: 'object', description: 'TestAudited' }, 'request');
+
+    for (const name of ['TestAudited', 'TestAuditedRequest']) {
+      const audited = schemas()[name];
+      expect(audited, `${name} was never registered`).to.exist;
+      expect(audited.properties.created_at, name).to.deep.equal({ type: 'string', format: 'date-time' });
+      expect(audited.properties.archived_at, name).to.deep.equal({ type: 'string', format: 'date-time', nullable: true });
+      expect(audited.properties.birthday, name).to.deep.equal({ type: 'string', format: 'date' });
+      // an array of timestamps keeps the format on its ITEMS, which is where kubb reads it
+      expect(audited.properties.history.items, name).to.deep.equal({ type: 'string', format: 'date-time' });
+    }
+  });
+
+  /**
+   * A column's DB `Comment` travels as `description`, and `description` is also how a
+   * named-type placeholder is spelled. A comment reading "TestUser" used to replace the whole
+   * property with `$ref: TestUser` - the timestamp became an object and its `format` was
+   * dropped. A node that describes itself is not a type tag.
+   */
+  it('does not mistake a described scalar for a named-type tag', () => {
+    builder.expandNamedSchemas({ type: 'object', description: 'TestAudited' }, 'response');
+
+    const audited = schemas().TestAudited;
+    expect(audited.properties.updated_at).to.deep.equal({ type: 'string', format: 'date-time', description: 'TestUser' });
+    // ... while a genuine tag - object, no shape of its own - still becomes a $ref
+    expect(audited.properties.Author).to.deep.equal({ $ref: '#/components/schemas/TestUser' });
   });
 
   it('buildRequestBody asks for the write flavour', () => {
