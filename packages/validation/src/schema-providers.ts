@@ -1,4 +1,5 @@
 import { Autoinject, DI, Injectable, Singleton, SyncService } from '@spinajs/di';
+import { getRegisteredSchema } from './decorators.js';
 import { DataValidator } from './validator.js';
 
 /**
@@ -43,13 +44,15 @@ export class DtoSchemaProvider extends SchemaProvider {
 
   public getSchema(typeName: string): Record<string, unknown> | undefined {
 
-    const schemas = DI.get<Map<string, any>>('__schemas__');
-    if (!schemas) {
+    // The container copy first, so anything registered under `'__schemas__'` by hand still
+    // wins; `getRegisteredSchema` is the decorator's own map, which - unlike the container
+    // cache - survives a `DI.clearCache()`. See the comment on `SCHEMAS` in decorators.ts.
+    const schema = DI.get<Map<string, any>>('__schemas__')?.get(typeName) ?? getRegisteredSchema(typeName);
+    if (!schema) {
       return undefined;
     }
 
-    const schema = schemas.get(typeName);
-    if (schema && typeof schema === 'object' && '$ref' in schema) {
+    if (typeof schema === 'object' && '$ref' in schema) {
       // DataValidator.getSchema() already returns the unwrapped schema object
       return this.Validator.getSchema(schema.$ref as string);
     }
