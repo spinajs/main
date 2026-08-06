@@ -197,7 +197,7 @@ export class Users extends BaseController {
    * @param order.column Column to sort by (default: CreatedAt). One of Uuid, Login, Email, Role, IsActive, CreatedAt, LastLoginAt, DeletedAt
    * @param order.order Sort direction: ASC or DESC (default: DESC)
    * @param include Relations to include — currently supports: Metadata
-   * @returns {IUserData[]} Paginated list of user accounts, each with optional Metadata relation
+   * @returns {User[]} Paginated list of user accounts, each with optional Metadata relation
    * @response 400 Sort column is not sortable
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
@@ -286,7 +286,7 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param user User UUID path parameter
    * @param include Relations to include — currently supports: Metadata
-   * @returns {IUserData} User account with optional Metadata relation
+   * @returns {User} User account with optional Metadata relation
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
    * @response 404 User not found
@@ -315,7 +315,7 @@ export class Users extends BaseController {
    * @security cookieAuth
    * @param user User login name path parameter
    * @param include Relations to include — currently supports: Metadata
-   * @returns {IUserData} User account with optional Metadata relation
+   * @returns {User} User account with optional Metadata relation
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on users resource
    * @response 404 User not found
@@ -345,7 +345,7 @@ export class Users extends BaseController {
    * `POST /users/security/password-reset-request/:user` and activate the account once the
    * user has set their own password.
    * @security cookieAuth
-   * @returns {IUserData} Created user account
+   * @returns {User} Created user account
    * @response 400 Validation error — missing required fields, invalid format, unknown role or a protected metadata key
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — createAny permission required, or the requested role grants more than the caller holds

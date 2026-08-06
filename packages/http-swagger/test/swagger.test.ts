@@ -287,6 +287,28 @@ describe('Swagger API', function () {
       expect(schema.items.properties.name.type).to.equal('string');
     });
 
+    it('should document @returns {Dto[]} as an array carrying the DTO', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const schema = spec.paths['/typed/returns-named-array'].get.responses['200'].content['application/json'].schema;
+
+      expect(schema.type).to.equal('array');
+      // A resolvable name becomes a component `$ref`; one no provider knows stays a named
+      // node. Either way the name has to reach `items` — before the `[]` was part of the
+      // name, so nothing could ever resolve it and the whole response was `{object}`.
+      expect(schema.items.$ref ?? schema.items.description).to.contain('TypedPetDto');
+    });
+
+    it('should document @returns {string[]} as an array of strings', async () => {
+      const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
+      const spec = JSON.parse(result.text);
+
+      const schema = spec.paths['/typed/returns-primitive-array'].get.responses['200'].content['application/json'].schema;
+
+      expect(schema).to.deep.equal({ type: 'array', items: { type: 'string' } });
+    });
+
     it('should infer inline object schema from Json<T> return type', async () => {
       const result = await req().get('docs/swagger.json').set('Accept', 'application/json').send();
       const spec = JSON.parse(result.text);
