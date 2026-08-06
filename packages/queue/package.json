@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/queue",
-  "version": "2.0.499",
+  "version": "2.0.500",
   "description": "queue sending & pulling made easy",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,17 +51,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/orm-mysql": "2.0.499",
+    "@spinajs/orm-mysql": "2.0.500",
     "@types/luxon": "^3.6.1",
     "@types/node": "^18.11.18"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.499",
-    "@spinajs/di": "2.0.499",
-    "@spinajs/exceptions": "2.0.499",
-    "@spinajs/log": "2.0.499",
-    "@spinajs/orm": "2.0.499",
-    "@spinajs/util": "2.0.499",
+    "@spinajs/configuration": "2.0.500",
+    "@spinajs/di": "2.0.500",
+    "@spinajs/exceptions": "2.0.500",
+    "@spinajs/log": "2.0.500",
+    "@spinajs/orm": "2.0.500",
+    "@spinajs/util": "2.0.500",
     "luxon": "^3.6.1"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
