@@ -73,7 +73,7 @@ export function buildModelJsonSchema(descriptor: IModelDescriptor, kind: ModelSc
     if (!col || col.Ignore || !col.Name || hidden.has(col.Name)) {
       continue;
     }
-    properties[col.Name] = columnToSchema(col, overrides);
+    properties[col.Name] = columnToSchema(col, overrides, descriptor.Converters?.get(col.Name)?.Class);
     if (!col.Nullable && !col.AutoIncrement) {
       required.push(col.Name);
     }
@@ -100,23 +100,80 @@ function driverResponseTypes(descriptor: IModelDescriptor): Record<string, any> 
 }
 
 /**
+ * Is `ctor` the converter class called `name`, or a subclass of it?
+ *
+ * Matched by NAME along the prototype chain rather than with `instanceof`: this module sits on
+ * the descriptor-building path and importing the converter classes from `interfaces.js` as
+ * VALUES would drag the query-builder / driver / model graph in with them.
+ *
+ * The chain walk is what makes a driver's own converter count. orm-mssql registers
+ * `MsSqlDatetimeValueConverter` **as** `DatetimeValueConverter`, so what the container hands back
+ * for an `@CreatedAt()` column on that connection is a subclass - an exact name comparison sees
+ * `MsSqlDatetimeValueConverter` and misses it.
+ *
+ * @param ctor - converter class to test ( or the constructor of a converter instance )
+ * @param name - base converter class name to look for
+ */
+function isConverterNamed(ctor: unknown, name: string): boolean {
+  let current = ctor;
+
+  while (typeof current === 'function') {
+    if ((current as { name?: string }).name === name) {
+      return true;
+    }
+    current = Object.getPrototypeOf(current);
+  }
+
+  return false;
+}
+
+/**
  * Maps a column descriptor to a JSON-schema property based on its SQL type.
  * Adds `maxLength`, `description` and `nullable` when the column has them.
  *
  * @param col - column to describe
  * @param overrides - per-type shapes that win over the shared map ( response flavour only )
+ * @param declaredConverter - converter class the model's decorators asked for, from
+ *                            `descriptor.Converters` ( `@DateTime()`, `@CreatedAt()`, ... )
  */
-function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}): any {
-  const converter = (col.Converter as { constructor?: { name?: string } } | null | undefined)?.constructor?.name;
+function columnToSchema(col: IColumnDescriptor, overrides: Record<string, any> = {}, declaredConverter?: unknown): any {
+  // The declared class wins over the resolved instance: a decorator is an explicit statement
+  // about the property, while the instance is only there when the container had the converter
+  // registered on that connection.
+  const converter = declaredConverter ?? (col.Converter as { constructor?: unknown } | null | undefined)?.constructor;
 
   const schema: any = { ...(overrides[col.Type] ?? SQL_TYPE_TO_SCHEMA[col.Type] ?? { type: 'string' }) };
 
-  if (converter === 'BooleanValueConverter') {
+  if (isConverterNamed(converter, 'BooleanValueConverter')) {
     schema.type = 'boolean';
     delete schema.format;
   }
 
-  if (schema.type === 'string' && col.MaxLength > 0) {
+  /**
+   * A datetime converter is attached by @DateTime(), @CreatedAt(), @UpdatedAt(), @SoftDelete()
+   * and @Archived(), all of which reject any property that is not a Luxon `DateTime`. So the
+   * value travels as an ISO-8601 string whatever the STORAGE type is, and the SQL type alone
+   * does not say so:
+   *   - sqlite compiles `dateTime()` down to TEXT and `PRAGMA table_info` reports TEXT back,
+   *   - a legacy MySQL table may keep timestamps in a VARCHAR or an INT.
+   * Both fell through `SQL_TYPE_TO_SCHEMA` to a bare `{ type: 'string' }` ( or an integer ),
+   * and `format: date-time` is the ONLY signal downstream: a generated client reads such a
+   * property as plain text and skips the date conversion entirely.
+   *
+   * A `date` column keeps `format: date`. The decorator says how the value is CONVERTED, not
+   * that the database suddenly stores a time of day, and `date` is a date-time to every
+   * generator that cares.
+   */
+  const isDateTime = isConverterNamed(converter, 'DatetimeValueConverter');
+  if (isDateTime && schema.format !== 'date') {
+    schema.type = 'string';
+    schema.format = 'date-time';
+  }
+
+  // `maxLength` copied from a VARCHAR that happens to hold a timestamp describes the storage,
+  // not the contract - and published on a response it lets a generated validator reject a
+  // perfectly good ISO-8601 string that is a few characters longer than the column.
+  if (schema.type === 'string' && !isDateTime && col.MaxLength > 0) {
     schema.maxLength = col.MaxLength;
   }
 

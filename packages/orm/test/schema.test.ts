@@ -9,8 +9,14 @@ const expect = chai.expect;
 // A driver that hands DECIMAL back as a string, the way mysql2 does.
 const STRING_DECIMAL_DRIVER = { ResponseSchemaTypes: { [ColumnType.DECIMAL]: { type: 'string' } } };
 
-// columnToSchema detects booleans by the converter's class name.
+// columnToSchema detects converters by class name, so these stand in for the real ones
+// without dragging @spinajs/orm's interfaces module into the test.
 class BooleanValueConverter {}
+class DatetimeValueConverter {}
+
+// orm-mssql registers `MsSqlDatetimeValueConverter` AS `DatetimeValueConverter`, so the
+// instance a column really carries on that connection is a SUBCLASS.
+class MsSqlDatetimeValueConverter extends DatetimeValueConverter {}
 
 function column(overrides: Partial<IColumnDescriptor>): IColumnDescriptor {
   return {
@@ -32,6 +38,15 @@ function build(columns: Partial<IColumnDescriptor>[], descriptor: Partial<IModel
 
 function buildResponse(columns: Partial<IColumnDescriptor>[], descriptor: Partial<IModelDescriptor> = {}): any {
   return buildModelJsonSchema({ ...descriptor, Columns: columns.map(column) } as unknown as IModelDescriptor, 'response');
+}
+
+/**
+ * What `@DateTime()` / `@CreatedAt()` / `@UpdatedAt()` / `@SoftDelete()` / `@Archived()` leave on
+ * the descriptor: the converter CLASS, keyed by property name. The decorators put it there
+ * directly, with no container involved - see `packages/orm/src/decorators.ts`.
+ */
+function declaring(...properties: string[]): Partial<IModelDescriptor> {
+  return { Converters: new Map(properties.map((p) => [p, { Class: DatetimeValueConverter as any }])) } as unknown as Partial<IModelDescriptor>;
 }
 
 describe('buildModelJsonSchema', () => {
@@ -124,6 +139,81 @@ describe('buildModelJsonSchema', () => {
   it('treats a tinyint with a boolean converter as boolean', () => {
     const schema = build([{ Name: 'flag', Type: ColumnType.TINY_INTEGER, Converter: new BooleanValueConverter() as any }]);
     expect(schema.properties.flag.type).to.equal('boolean');
+  });
+
+  /**
+   * The SQL type alone does not say a column holds a timestamp. `@DateTime()` and friends reject
+   * any property that is not a Luxon `DateTime`, so the value travels as ISO-8601 whatever the
+   * storage is - and sqlite compiles `dateTime()` straight down to TEXT ( see
+   * orm-sqlite/src/compilers.ts ), which `PRAGMA table_info` reports back verbatim.
+   *
+   * Without the converter the column came out as a bare `{ type: 'string' }`: no `format`, which
+   * is the ONLY thing a generated client has to go on. It read `created_at` as plain text.
+   */
+  describe('datetime converter', () => {
+    it('gives a TEXT column carrying a datetime converter format: date-time', () => {
+      const schema = build([{ Name: 'created_at', Type: 'TEXT' }], declaring('created_at'));
+      expect(schema.properties.created_at).to.deep.equal({ type: 'string', format: 'date-time' });
+    });
+
+    it('overrides a storage type that is not a string at all', () => {
+      // A legacy table keeping a unix timestamp in an INT: the property is still a DateTime.
+      const schema = build([{ Name: 'created_at', Type: ColumnType.INTEGER }], declaring('created_at'));
+      expect(schema.properties.created_at).to.deep.equal({ type: 'string', format: 'date-time' });
+    });
+
+    it('applies to every timestamp decorator, on both flavours', () => {
+      const columns = [
+        { Name: 'created_at', Type: 'TEXT' },
+        { Name: 'updated_at', Type: 'TEXT' },
+        { Name: 'deleted_at', Type: 'TEXT', Nullable: true },
+        { Name: 'archived_at', Type: 'TEXT', Nullable: true },
+      ];
+      const declared = declaring('created_at', 'updated_at', 'deleted_at', 'archived_at');
+
+      for (const schema of [build(columns, declared), buildResponse(columns, declared)]) {
+        expect(schema.properties.created_at.format).to.equal('date-time');
+        expect(schema.properties.updated_at.format).to.equal('date-time');
+        expect(schema.properties.deleted_at).to.deep.equal({ type: 'string', format: 'date-time', nullable: true });
+        expect(schema.properties.archived_at).to.deep.equal({ type: 'string', format: 'date-time', nullable: true });
+      }
+    });
+
+    /**
+     * `maxLength` copied off a VARCHAR that happens to hold a timestamp describes the STORAGE,
+     * not the contract. Published on a response it lets a generated validator reject an ISO-8601
+     * string a few characters longer than the column - an offset instead of a `Z`, say.
+     */
+    it('drops the column width - it does not describe an ISO-8601 timestamp', () => {
+      const schema = build([{ Name: 'created_at', Type: ColumnType.STRING, MaxLength: 20 }], declaring('created_at'));
+      expect(schema.properties.created_at).to.deep.equal({ type: 'string', format: 'date-time' });
+    });
+
+    it('keeps a DATE column a date - the decorator says how the value converts, not what it stores', () => {
+      const schema = build([{ Name: 'birthday', Type: ColumnType.DATE }], declaring('birthday'));
+      expect(schema.properties.birthday).to.deep.equal({ type: 'string', format: 'date' });
+    });
+
+    it('keeps description and nullable alongside the forced format', () => {
+      const schema = build([{ Name: 'created_at', Type: 'TEXT', Comment: 'row creation time', Nullable: true }], declaring('created_at'));
+
+      expect(schema.properties.created_at).to.deep.equal({
+        type: 'string',
+        format: 'date-time',
+        description: 'row creation time',
+        nullable: true,
+      });
+    });
+
+    it('recognises a driver subclass of the converter, not just the base class', () => {
+      const schema = build([{ Name: 'created_at', Type: 'TEXT', Converter: new MsSqlDatetimeValueConverter() as any }]);
+      expect(schema.properties.created_at).to.deep.equal({ type: 'string', format: 'date-time' });
+    });
+
+    it('leaves a column with no datetime converter alone', () => {
+      const schema = build([{ Name: 'note', Type: 'TEXT', MaxLength: 20 }], declaring('created_at'));
+      expect(schema.properties.note).to.deep.equal({ type: 'string', maxLength: 20 });
+    });
   });
 
   it('excludes @Ignore columns (e.g. a hidden password)', () => {
