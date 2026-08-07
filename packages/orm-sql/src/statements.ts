@@ -33,6 +33,30 @@ function _carryQuoter<T extends { Quoter: IdentifierQuoter }>(clone: T, source: 
   return clone;
 }
 
+/**
+ * The `clone(parent?)` contract, and which statements below participate in it.
+ *
+ * A statement that holds a live reference to a BUILDER must rebind that reference to the
+ * builder it is handed. `SelectQueryBuilder.clone()` and `WhereBuilder.clone()` pass the new
+ * builder to every statement they copy, precisely so the copies stop pointing at the original.
+ * Anything that reads `builder.TableAlias` at BUILD time and kept the original produced SQL
+ * naming an alias the cloned query never declares.
+ *
+ * Rebinding statements: {@link SqlWhereStatement} (`_builder`), {@link SqlInStatement}
+ * (`_builder`), {@link SqlJoinStatement} (`_options.builder`), {@link SqlWhereQueryStatement}
+ * (nested where-builder), {@link SqlExistsQueryStatement} (sub-select correlation),
+ * {@link SqlLazyQueryStatement} (deferred evaluation context) and
+ * {@link SqlWithRecursiveStatement} (`_query`, the owning query).
+ *
+ * Statements that deliberately do NOT rebind — {@link SqlBetweenStatement},
+ * {@link SqlGroupByStatement}, {@link SqlColumnStatement}, {@link SqlColumnMethodStatement},
+ * {@link SqlInSetStatement} (and its per-driver subclasses), {@link SqlRawStatement},
+ * {@link SqlColumnRawStatement} — hold no builder at all. They carry the table alias as a
+ * VALUE, snapshotted when they were created; `SelectQueryBuilder.setAlias()` re-stamps that
+ * value on every statement of the builder that owns them, so a clone follows its own builder's
+ * alias without needing a reference to it.
+ */
+
 @NewInstance()
 export class SqlRawStatement extends RawQueryStatement {
   public clone(): SqlRawStatement {
@@ -50,14 +74,24 @@ export class SqlRawStatement extends RawQueryStatement {
 @NewInstance()
 export class SqlLazyQueryStatement extends LazyQueryStatement {
 
-  public clone(): SqlLazyQueryStatement {
-    return new SqlLazyQueryStatement(this.callback, this.context);
+  /**
+   * REBINDS to the builder it is handed — the deferred callback is evaluated against
+   * `this.context`, so a clone that kept the source builder would resolve its aliases (and,
+   * for a correlated EXISTS, its whole correlation) against the query it was cloned from.
+   */
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlLazyQueryStatement {
+    return new SqlLazyQueryStatement(this.callback, parent ?? this.context);
   }
 
   build(): IQueryStatementResult {
 
     const context = (this.context as SelectQueryBuilder).clone();
     context.setAlias((this.context as SelectQueryBuilder).TableAlias);
+
+    // The correlation link is what tells the callback which OUTER query to correlate against.
+    // `clone()` above already copies it, but `setAlias()` does not, and a context built from a
+    // builder that was never a sub-query has none — restate it so it can never be lost here.
+    context.correlateWith((this.context as SelectQueryBuilder).CorrelationSource);
 
     context.clearColumns().clearGroupBy().clearJoins().clearWhere();
 
@@ -74,8 +108,14 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
 
 @NewInstance()
 export class SqlWithRecursiveStatement extends WithRecursiveStatement {
-  public clone(): SqlWithRecursiveStatement {
-    return new SqlWithRecursiveStatement(this.container, this._name, this._query, this._rcKeyName, this._pkName);
+  /**
+   * REBINDS to the builder it is handed. `_query` is the OWNING query — `withRecursive()`
+   * passes `this` — and `build()` mutates it ( it pushes a join before compiling the recursive
+   * member ). A clone that kept the source query compiled the CTE of the query it was cloned
+   * from and pushed joins into it.
+   */
+  public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(parent?: T): SqlWithRecursiveStatement {
+    return new SqlWithRecursiveStatement(this.container, this._name, (parent as SelectQueryBuilder) ?? this._query, this._rcKeyName, this._pkName);
   }
 
   public build(): IQueryStatementResult {
@@ -177,9 +217,18 @@ export class SqlWhereStatement extends WhereStatement {
   public Quoter: IdentifierQuoter;
 
 
+  /**
+   * REBINDS to the builder it is handed.
+   *
+   * `build()` reads `this._builder.TableAlias`, and a query's alias is usually assigned AFTER
+   * the query was cloned ( `populate()` calls `setAlias()` ). Keeping the source builder here
+   * therefore made the clone emit the alias of the query it was cloned from — an alias the
+   * clone's own FROM never declares — and the database answered "Unknown column
+   * '$Model$.column' in 'where clause'".
+   */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_builder?: T): SqlWhereStatement {
     return _carryQuoter(
-      new SqlWhereStatement(this._column, this._operator, this._value, this._builder),
+      new SqlWhereStatement(this._column, this._operator, this._value, (_builder ?? this._builder) as WhereBuilder<unknown>),
       this,
     );
   }
@@ -533,10 +582,15 @@ export class SqlColumnRawStatement extends ColumnRawStatement {
 
 @NewInstance()
 export class SqlWhereQueryStatement extends WhereQueryStatement {
+  /**
+   * REBINDS the nested where-builder to the builder it is handed, falling back to the parent
+   * the nested builder already has so a clone taken without one stays attached to something
+   * ( `WhereBuilder`'s constructor dereferences its parent ).
+   */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
 
     // TODO: fix this any cast !
-    return new SqlWhereQueryStatement(this._builder.clone(_parent as any));
+    return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any));
   }
 
   public build() {
@@ -552,14 +606,26 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
 
 @NewInstance()
 export class SqlExistsQueryStatement extends ExistsQueryStatement {
+  /**
+   * The sub-select is cloned ( it is owned by this statement, not shared with the outer query )
+   * and then RE-CORRELATED to the builder this statement was handed.
+   *
+   * Re-correlating is the whole point: the sub-select's correlation predicate names the OUTER
+   * query's alias, and it is emitted lazily at compile time because that alias is usually
+   * assigned after the sub-query is built. Leaving the clone pointing at the source query meant
+   * a cloned query's EXISTS either referenced an alias the clone never declared or — because
+   * the lazy predicate was appended to the source's sub-builder rather than the clone's — was
+   * dropped altogether, leaving an UNCORRELATED `EXISTS (SELECT ...)` that is true for every
+   * row. That is how a cloned count query escaped an rbac `readOwn` constraint.
+   */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
+    const builder = this._builder.clone();
 
+    if (_parent) {
+      builder.correlateWith(_parent as unknown as WhereBuilder<any>);
+    }
 
-    // TODO: this look wrong to clone _builder, 
-    // it could be shared between statements
-    // and cloning it every time could lead to unexpected results
-    // eg. modifying cloned builder will not behave as expected
-    return new SqlExistsQueryStatement(this._builder.clone(), this._not);
+    return new SqlExistsQueryStatement(builder, this._not);
   }
 
   public build(): IQueryStatementResult {

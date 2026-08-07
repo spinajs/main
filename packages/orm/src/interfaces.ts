@@ -1381,6 +1381,18 @@ export interface ISelectQueryBuilder<T = unknown> extends IColumnsBuilder, IOrde
   clone(): this;
 
   /**
+   * The outer builder this query is correlated to when it is the sub-select of a correlated
+   * EXISTS, or `undefined` otherwise. Rebound by `clone()` so a cloned query correlates
+   * against itself rather than against the query it was cloned from.
+   */
+  get CorrelationSource(): IWhereBuilder<any> | undefined;
+
+  /**
+   * Marks this query as the correlated sub-select of `builder`.
+   */
+  correlateWith(builder: IWhereBuilder<any> | undefined): this;
+
+  /**
    * Includes soft-deleted rows (@SoftDelete models) that are excluded by default.
    */
   withDeleted(): this;
