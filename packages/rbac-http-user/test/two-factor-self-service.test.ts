@@ -263,11 +263,13 @@ describe('TwoFactorAuthUserController', function () {
       sinon.assert.notCalled(unenrolStub);
     });
 
-    it('refuses while 2fa is switched off system-wide', async () => {
-      Object.defineProperty(controller, 'TwoFactorConfig', { value: { enabled: false }, configurable: true, writable: true });
+    it('leaves the account without a device when enrol fails after the old one was removed', async () => {
+      enrolStub.rejects(new Error('enrol boom'));
 
-      await expect(controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
-      sinon.assert.notCalled(unenrolStub);
+      await expect(controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejected;
+
+      // documented outcome, not an accident: the old device really is gone
+      sinon.assert.calledOnce(unenrolStub);
     });
   });
 
@@ -309,6 +311,14 @@ describe('TwoFactorAuthUserController', function () {
 
       await expect(controller.confirm(user('pending'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(Forbidden);
       sinon.assert.notCalled(confirmStub);
+    });
+
+    it('reset refuses while the switch is off', async () => {
+      withSystem2Fa(false);
+
+      await expect(controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
+      sinon.assert.notCalled(unenrolStub);
+      sinon.assert.notCalled(enrolStub);
     });
   });
 });

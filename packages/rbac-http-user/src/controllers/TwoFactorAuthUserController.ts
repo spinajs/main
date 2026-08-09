@@ -202,9 +202,14 @@ export class TwoFactorAuthUserController extends BaseController {
    * returning the provisioning URI to scan. 2FA stays off until the new code is
    * confirmed with `POST /user/2fa/confirm`. Requires the account password.
    *
-   * A client doing this as disable-then-enable can lose the account's second
-   * factor when the second call fails; this route cannot end in that state
-   * halfway.
+   * Folding disable-then-enable into one request removes the client-side gap
+   * where abandoning the flow between the two calls could strand the account
+   * without a second factor. It does not remove the server-side one: if
+   * `enrol` fails after `unenrol` already removed the old device, the account
+   * is left with no device at all — there is nothing to roll back to, since
+   * the old secret is already gone. That state is recoverable, not corrupt:
+   * the account page reads the enrolment state fresh on every render, so it
+   * simply offers enrollment again instead of showing a dead end.
    * @security cookieAuth
    * @returns {IEnable2faResponse} OTP provisioning URI to scan with an authenticator app
    * @response 400 There is no two-factor device to reset
