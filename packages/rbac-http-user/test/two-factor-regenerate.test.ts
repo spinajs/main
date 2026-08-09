@@ -7,6 +7,7 @@ import sinon from 'sinon';
 
 import { ISession, UserSession } from '@spinajs/rbac';
 import { Ok } from '@spinajs/http';
+import { Forbidden } from '@spinajs/exceptions';
 import { TwoFactorAuthController } from '../src/controllers/TwoFactorAuthController.js';
 import { SessionCookieFactory } from '../src/services/SessionCookies.js';
 import { TokenDto } from '../src/dto/token-dto.js';
@@ -35,6 +36,7 @@ describe('TwoFactorAuthController.verifyToken — session regeneration on 2FA au
   const buildUser = () => ({
     Uuid: 'user-uuid',
     Role: [] as string[],
+    Metadata: {} as Record<string, unknown>,
     dehydrateWithRelations: () => ({ Uuid: 'user-uuid' }),
   });
 
@@ -64,6 +66,10 @@ describe('TwoFactorAuthController.verifyToken — session regeneration on 2FA au
   afterEach(() => sinon.restore());
 
   it('regenerates the session: new id issued, old id deleted, Authorized set, ssid cookie reset', async () => {
+    // Activation is exercised on its own below; stub it out here so this test
+    // stays focused on session regeneration.
+    sinon.stub(controller as any, 'activateEnrolment').resolves();
+
     const user = buildUser();
     const session = buildSession();
     const oldId = session.SessionId;
@@ -88,5 +94,46 @@ describe('TwoFactorAuthController.verifyToken — session regeneration on 2FA au
     expect(cookies).to.have.lengthOf(1);
     expect(cookies[0].Name).to.equal('ssid');
     expect(cookies[0].Value).to.equal(regenerated.SessionId);
+  });
+
+  it('activates a pending enrolment before authorizing the session', async () => {
+    const activateStub = sinon.stub(controller as any, 'activateEnrolment').resolves();
+    const user = { ...buildUser(), Metadata: { '2fa:token': 'STOREDSECRET' } };
+
+    await controller.verifyToken(user as any, new TokenDto({ Token: '123456' }), buildSession());
+
+    sinon.assert.calledOnce(activateStub);
+  });
+
+  it('does not re-activate an account that already has 2fa on', async () => {
+    const activateStub = sinon.stub(controller as any, 'activateEnrolment').resolves();
+    const user = { ...buildUser(), Metadata: { '2fa:token': 'STOREDSECRET', '2fa:enabled': true } };
+
+    await controller.verifyToken(user as any, new TokenDto({ Token: '123456' }), buildSession());
+
+    sinon.assert.notCalled(activateStub);
+  });
+});
+
+describe('TwoFactorAuthController.setup2fa — system-wide switch', function () {
+  this.timeout(15000);
+
+  it('refuses to start enrolment when 2fa is switched off system-wide', async () => {
+    const controller = new TwoFactorAuthController();
+    Object.defineProperty(controller, 'TwoFactorConfig', { value: { enabled: false }, configurable: true, writable: true });
+    const enrolStub = sinon.stub(controller as any, 'enrol').resolves('otpauth://totp/Spinajs:me?secret=ABC');
+
+    const user = { Uuid: 'user-uuid', Metadata: {} as Record<string, unknown> };
+
+    let thrown: any = null;
+    try {
+      await controller.setup2fa(user as any);
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown, 'must be a 403, not a 500').to.be.instanceOf(Forbidden);
+    expect(thrown.error?.code).to.equal('E_2FA_SYSTEM_DISABLED');
+    sinon.assert.notCalled(enrolStub);
   });
 });

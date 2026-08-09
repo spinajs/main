@@ -50,6 +50,24 @@ export async function beginUser2FaEnrolment(identifier: number | string | User) 
 }
 
 /**
+ * Switch 2fa on for an account whose code was already verified by the caller.
+ * The login-window flow needs this split: `auth2Fa` has already checked the
+ * code and emitted User2FaPassed by the time the session is authorized.
+ */
+export async function activateUser2Fa(identifier: number | string | User) {
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                async (twoFa: TwoFactorAuthProvider) => twoFa.activate(u),
+                () => _user_ev(User2FaEnabled)(u),
+            );
+        },
+    );
+}
+
+/**
  * Complete an enrolment started by `beginUser2FaEnrolment`: verify the code
  * against the stored secret, then switch 2fa on. Throws Unauthorized when the
  * code does not match, leaving the enrolment pending so the user can retry.
@@ -64,12 +82,10 @@ export async function confirmUser2Fa(identifier: number | string | User, token: 
                 _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
                 _either(
                     (twoFa: TwoFactorAuthProvider) => twoFa.verifyToken(token, u),
-                    // `_either` re-passes the resolved provider to onFulfilled, so
-                    // there is no need to resolve the service a second time here.
-                    (twoFa: TwoFactorAuthProvider) => _chain(
-                        async () => twoFa.activate(u),
-                        () => _user_ev(User2FaEnabled)(u),
-                    ),
+                    // Delegates to `activateUser2Fa`, which re-resolves the provider
+                    // itself. It is shared with the login-window flow, where the
+                    // code is already verified by the time activation is needed.
+                    () => activateUser2Fa(u),
                     () => {
                         throw new Unauthorized('2fa confirmation failed');
                     },
