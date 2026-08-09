@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/rbac-http",
-  "version": "2.0.502",
+  "version": "2.0.503",
   "description": "HTTP rbac helpers eg, session retrieval, decorators for controllers, args retrieval etc. Use it for modules where you only need user information from session",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
