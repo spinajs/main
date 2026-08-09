@@ -144,7 +144,11 @@ export class TwoFactorAuthUserController extends BaseController {
   public async confirm(@User() user: UserModel, @Body() token: TokenDto, @SessionRouteArg() session: ISession): Promise<Ok | ForbiddenResponse> {
     this.assertSystemEnabled();
 
-    if (!user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
+    // `activate()` never clears the stored token, so an already-enabled
+    // account still has one and would otherwise be able to call this route
+    // again with a currently-valid code. Only the pending state — a token
+    // without 2fa being enabled yet — is an enrolment left to confirm.
+    if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] || !user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
       throw new BadRequest(`User ${user.Uuid} has no pending 2fa enrolment`);
     }
 

@@ -186,6 +186,11 @@ describe('TwoFactorAuthUserController', function () {
       await expect(controller.confirm(user('none'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(BadRequest);
       sinon.assert.notCalled(confirmStub);
     });
+
+    it('rejects when the account is already enabled', async () => {
+      await expect(controller.confirm(user('enabled'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(BadRequest);
+      sinon.assert.notCalled(confirmStub);
+    });
   });
 
   describe('disable', () => {
@@ -255,6 +260,13 @@ describe('TwoFactorAuthUserController', function () {
 
       await expect(controller.disable(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
       sinon.assert.notCalled(unenrolStub);
+    });
+
+    it('confirm refuses while the switch is off', async () => {
+      withSystem2Fa(false);
+
+      await expect(controller.confirm(user('pending'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(Forbidden);
+      sinon.assert.notCalled(confirmStub);
     });
   });
 });
