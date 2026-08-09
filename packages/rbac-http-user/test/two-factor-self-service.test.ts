@@ -7,11 +7,14 @@ import sinon from 'sinon';
 
 import { DateTime } from 'luxon';
 
-import { Ok, Unauthorized } from '@spinajs/http';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok, Unauthorized } from '@spinajs/http';
+import type { IControllerDescriptor } from '@spinajs/http';
+import { RbacPolicy } from '@spinajs/rbac-http';
+import { BadRequest } from '@spinajs/exceptions';
 import type { ISession } from '@spinajs/rbac';
 
 import { TwoFactorAuthUserController } from '../src/controllers/TwoFactorAuthUserController.js';
+import { TwoFactorAuthEnabled } from '../src/policies/2FaPolicy.js';
 import { ConfirmPasswordDto } from '../src/dto/confirm-password-dto.js';
 import { TokenDto } from '../src/dto/token-dto.js';
 import { TWO_FA_METATADATA_KEYS } from '../src/2fa/Default2FaToken.js';
@@ -296,39 +299,44 @@ describe('TwoFactorAuthUserController', function () {
 
       const result = await body<any>(await controller.status(user('none')));
 
-      // The policy cannot block an authorized caller, so the frontend reads
-      // this flag rather than inferring a feature switch from an error.
+      // Reading the status is left ungated by the switch on purpose, so the
+      // frontend can read this flag instead of inferring the feature switch
+      // from an error.
       expect(result.SystemEnabled).to.equal(false);
       expect(result.Enabled).to.equal(false);
     });
 
-    it('enable refuses while the switch is off', async () => {
-      withSystem2Fa(false);
+    /**
+     * The mutating routes refuse at the policy gate, not in the handler, so
+     * these assert the declaration rather than calling the method: a direct
+     * call is exactly the path that skips the gate.
+     *
+     * `TwoFactorAuthEnabled` has to share a group with `RbacPolicy` — groups at
+     * one scope are combined with OR, so a group of its own would let
+     * `RbacPolicy` open the route on its own. `createPolicyGate`'s own tests in
+     * @spinajs/http cover the combination itself, and `two-factor-wire-format`
+     * covers the resulting 403 over a real request.
+     */
+    const groupsOf = (method: string) => {
+      const routes = (Reflect.getOwnMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, TwoFactorAuthUserController.prototype) as IControllerDescriptor).Routes;
+      return routes.get(method)!.Policies.map((group) => group.map((p) => p.Type));
+    };
 
-      await expect(controller.enable(user('none'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
-      sinon.assert.notCalled(enrolStub);
-    });
+    for (const method of ['enable', 'confirm', 'disable', 'reset']) {
+      it(`${method} requires the system switch alongside its permission check`, () => {
+        const guarded = groupsOf(method).find((group) => group.includes(TwoFactorAuthEnabled));
 
-    it('disable refuses while the switch is off', async () => {
-      withSystem2Fa(false);
+        expect(guarded, `${method} does not require TwoFactorAuthEnabled`).to.exist;
+        expect(guarded, `${method} lets RbacPolicy pass without the switch`).to.include(RbacPolicy);
+        expect(
+          groupsOf(method).filter((group) => !group.includes(TwoFactorAuthEnabled)),
+          `${method} has a group that bypasses the switch`,
+        ).to.deep.eq([]);
+      });
+    }
 
-      await expect(controller.disable(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
-      sinon.assert.notCalled(unenrolStub);
-    });
-
-    it('confirm refuses while the switch is off', async () => {
-      withSystem2Fa(false);
-
-      await expect(controller.confirm(user('pending'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(Forbidden);
-      sinon.assert.notCalled(confirmStub);
-    });
-
-    it('reset refuses while the switch is off', async () => {
-      withSystem2Fa(false);
-
-      await expect(controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
-      sinon.assert.notCalled(unenrolStub);
-      sinon.assert.notCalled(enrolStub);
+    it('status is not gated by the switch', () => {
+      expect(groupsOf('status').some((group) => group.includes(TwoFactorAuthEnabled))).to.eq(false);
     });
   });
 });

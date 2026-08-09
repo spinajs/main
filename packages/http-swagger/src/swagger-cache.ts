@@ -32,8 +32,11 @@ export class SwaggerDocCache extends AsyncService {
     const routePolicies: Record<string, string[]> = {};
     const allPolicyNames = new Set<string>();
 
+    // Policies arrive grouped, one group per @Policy() call (AND inside a
+    // group, OR between groups). The document lists which policies apply
+    // without claiming how they combine, so the groups are flattened here.
     if (descriptor) {
-      for (const p of descriptor.Policies ?? []) {
+      for (const p of (descriptor.Policies ?? []).flat()) {
         const name = this.policyName(p?.Type);
         if (name) {
           controllerPolicies.push(name);
@@ -42,7 +45,7 @@ export class SwaggerDocCache extends AsyncService {
       }
       for (const [methodName, route] of descriptor.Routes ?? []) {
         const names: string[] = [];
-        for (const p of route?.Policies ?? []) {
+        for (const p of (route?.Policies ?? []).flat()) {
           const n = this.policyName(p?.Type);
           if (n) {
             names.push(n);

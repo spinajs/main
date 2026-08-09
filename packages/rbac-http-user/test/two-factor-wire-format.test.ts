@@ -18,25 +18,21 @@ import { dir, req, TestConfiguration } from './common.js';
  * Wire-format proof for the system-wide 2FA switch, driven through a real
  * HTTP request rather than calling the controller directly.
  *
- * `@spinajs/http` merges every policy on a route into one gate that passes
- * when ANY policy resolves (`route-builder.ts`'s `createPolicyGate`), and
- * every `/user/2fa*` route also carries `AuthorizedPolicy` alongside the
- * route-level `RbacPolicy` attached by `@Permission`. This suite stubs
- * `RbacPolicy.execute` to resolve unconditionally, which alone is enough to
- * make the merged gate pass for every request — regardless of what
- * `AuthorizedPolicy` would decide for the same request. This suite therefore
- * does NOT prove that authorization discriminates between an authorized and
- * an unauthorized caller; it proves that once a request reaches the handler,
- * `TwoFactorAuthUserController.assertSystemEnabled()` refuses mutations with
- * 403 `E_2FA_SYSTEM_DISABLED`, and that `status` still answers 200 with
- * `SystemEnabled: false`.
+ * `RbacPolicy.execute` is stubbed to resolve unconditionally, so the permission
+ * check is out of the way and what remains on the mutating routes is
+ * `TwoFactorAuthEnabled`, which `@Permission` puts in the SAME policy group as
+ * `RbacPolicy` — the group only passes when both do. This suite therefore does
+ * NOT prove that authorization discriminates between an authorized and an
+ * unauthorized caller; it proves that the system-wide switch alone refuses
+ * mutations with 403 `E_2FA_SYSTEM_DISABLED`, and that `status`, which carries
+ * no such policy, still answers 200 with `SystemEnabled: false`.
  *
  * `RbacMiddleware.before` is also stubbed, to populate `req.storage.User`
  * and `req.storage.Session` (with `Authorized: true`) the way the real
- * middleware would after a real login. This exists so any code path inside
- * the handler that reads those fields sees a well-formed session — it is not
- * what gets the request past the policy gate; the `RbacPolicy` stub already
- * does that on its own.
+ * middleware would after a real login. The class-level `AuthorizedPolicy` is
+ * left unstubbed and really does run against that session — controller-scope
+ * and route-scope policies are combined with AND, so it has to pass for any of
+ * these requests to reach a handler at all.
  *
  * Boot pattern copied from `controller-override.test.ts`, the only sibling
  * suite that starts a real http server for this package: same fs providers,
@@ -78,15 +74,9 @@ describe('system 2FA disabled, authorized caller (wire format)', function () {
     // `RbacPolicy` (attached by `@Permission`) still needs a real
     // AccessControl grant lookup against a database this suite has none of —
     // stubbed for the same reason `controller-override.test.ts` stubs it.
-    // Because `@spinajs/http` merges route-level and class-level policies
-    // into one gate that passes when ANY policy resolves
-    // (`route-builder.ts`'s `createPolicyGate`), this stub resolving
-    // unconditionally is by itself enough to let every request through,
-    // regardless of what `AuthorizedPolicy` decides for the same request.
-    // `AuthorizedPolicy` is left unstubbed and does run, but this suite does
-    // not depend on — or prove anything about — its outcome; that would
-    // require a negative case where `RbacPolicy` is NOT stubbed to always
-    // pass.
+    // Stubbing it does NOT open the routes on its own: it shares a policy
+    // group with `TwoFactorAuthEnabled` on every mutating route, and a group
+    // passes only when all of its members do.
     sinon.stub(RbacPolicy.prototype, 'execute').resolves();
     sinon.stub(RbacMiddleware.prototype, 'before').returns((req: any, _res: any, next: any) => {
       const session = new UserSession();

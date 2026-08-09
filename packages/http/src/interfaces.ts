@@ -779,9 +779,10 @@ export interface IRoute {
   Middlewares: IMiddlewareDescriptor[];
 
   /**
-   * Assigned policies to route
+   * Assigned policies to route, one group per `@Policy()` call. AND inside a
+   * group, OR between groups.
    */
-  Policies: IPolicyDescriptor[];
+  Policies: IPolicyGroup[];
 
   /**
    * Additional route options eg. file size etc.
@@ -856,6 +857,13 @@ export interface IPolicyDescriptor {
   Options: any[];
 }
 
+/**
+ * Policies attached by ONE `@Policy()` call. Every member must resolve for the
+ * group to pass ( AND ), while separate groups are alternatives ( OR ) - see
+ * `createPolicyGate` in route-builder.ts.
+ */
+export type IPolicyGroup = IPolicyDescriptor[];
+
 export type ResponseFunction = (req: express.Request, res: express.Response) => void;
 
 export abstract class Response<T = any> {
@@ -922,9 +930,10 @@ export interface IControllerDescriptor {
   Middlewares: IMiddlewareDescriptor[];
 
   /**
-   * Controller - wise policies
+   * Controller - wise policies, one group per `@Policy()` call. AND inside a
+   * group, OR between groups.
    */
-  Policies: IPolicyDescriptor[];
+  Policies: IPolicyGroup[];
 
   /**
    * Base url path for controller ( added for all child url's)

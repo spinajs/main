@@ -56,6 +56,11 @@ function Controller(callback: (controller: IControllerDescriptor, target: any, p
  * cross-class corruption the own-descriptor change removes one level up, on the
  * most likely override shape of all ( eg. redeclare one route with a new path ).
  *
+ * `Policies` is copied one level deep: the outer array holds one group array
+ * per `@Policy()` call and `Policy()` pushes into the outer one, but a shared
+ * inner group would still be reachable - copy both so neither can be reached
+ * from the parent.
+ *
  * Only the members that are mutated in place need copying. `Parameters` values
  * are patched field by field ( eg. `p.Type = type` in `Parameter()`, and
  * `rParam.Name` filled from the parsed source when the controller is
@@ -67,7 +72,7 @@ function detachInheritedRoutes(descriptor: IControllerDescriptor) {
   for (const [member, route] of descriptor.Routes) {
     descriptor.Routes.set(member, {
       ...route,
-      Policies: [...route.Policies],
+      Policies: route.Policies.map((group) => [...group]),
       Middlewares: [...route.Middlewares],
       Parameters: new Map([...route.Parameters].map(([index, parameter]) => [index, { ...parameter }])),
     });
@@ -279,22 +284,42 @@ export function HandleException(exception: Constructor<Error> | Constructor<Erro
 }
 
 /**
+ * Attach a policy - or a set of policies that must ALL hold - to a controller
+ * or a single route.
  *
- * @param policy - policy to set. Could be type or path in configuration to with policy to inject ( eg. metrics.auth.policy )
- * @param options
- * @returns
+ * Every `@Policy()` call forms one group. Policies inside a group are combined
+ * with AND, groups with each other are combined with OR:
+ *
+ * ```ts
+ * \@Policy(A)
+ * \@Policy([B, C])   // pass = A OR ( B AND C )
+ * ```
+ *
+ * Pass an array whenever a route needs several conditions at once ( eg. an
+ * authorized session AND a feature switch ). Stacking separate `@Policy()`
+ * decorators keeps the older OR meaning, which is what lets one resource have
+ * several independent access paths ( eg. api token OR session ).
+ *
+ * @param policy - policy, or array of policies to combine with AND. Each entry is a type or a path in configuration to the policy to inject ( eg. metrics.auth.policy )
+ * @param options - options passed to every policy in this group when it is resolved
  */
-export function Policy(policy: Constructor<BasePolicy> | string, ...options: any[]) {
+export function Policy(policy: Constructor<BasePolicy> | string | (Constructor<BasePolicy> | string)[], ...options: any[]) {
   return Route((controller: IControllerDescriptor, route: IRoute, _: any, _1: string | symbol, _2: number | PropertyDescriptor) => {
-    const pDesc = {
+    // toArray() checks Array.isArray, so a configuration key stays one policy
+    // instead of being spread into its characters.
+    const group = toArray<Constructor<BasePolicy> | string>(policy).map((p) => ({
       Options: options,
-      Type: policy,
-    };
+      Type: p,
+    }));
+
+    if (group.length === 0) {
+      return;
+    }
 
     if (route) {
-      route.Policies.push(pDesc);
+      route.Policies.push(group);
     } else {
-      controller.Policies.push(pDesc);
+      controller.Policies.push(group);
     }
   });
 }
