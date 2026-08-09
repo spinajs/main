@@ -92,7 +92,16 @@ export class LoginController extends BaseController {
 
       const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
 
-      if (this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
+      // `forceUser` alone used to be enough to park the user in
+      // TwoFactorInitRequired. But every mutating `/user/2fa*` and
+      // `/auth/2fa/setup` handler now calls `assertSystemEnabled()` and throws
+      // 403 when `rbac.twoFactorAuth.enabled` is off — so a user forced into
+      // this branch while the system switch is off would have no route back
+      // out: setup2fa can no longer both enrol AND activate them. The
+      // system-wide switch has to gate this branch too, or every user without
+      // 2FA is locked out of the product the moment forceUser is on and the
+      // switch is off.
+      if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
         this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });

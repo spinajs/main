@@ -187,6 +187,16 @@ describe('TwoFactorAuthUserController', function () {
       sinon.assert.notCalled(confirmStub);
     });
 
+    it('lets a failure unrelated to a wrong code surface instead of reporting E_2FA_FAILED', async () => {
+      // A database outage during activation, for instance, must not be
+      // misreported to the user as a bad code — only the Unauthorized that
+      // confirmUser2Fa throws for a genuinely rejected code should map to 403.
+      confirmStub.rejects(new Error('db unavailable'));
+
+      await expect(controller.confirm(user('pending'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith('db unavailable');
+      sinon.assert.notCalled(deleteStub);
+    });
+
     it('rejects when the account is already enabled', async () => {
       await expect(controller.confirm(user('enabled'), new TokenDto({ Token: '123456' }), session)).to.be.rejectedWith(BadRequest);
       sinon.assert.notCalled(confirmStub);

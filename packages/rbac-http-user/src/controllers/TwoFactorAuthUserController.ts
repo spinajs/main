@@ -100,6 +100,8 @@ export class TwoFactorAuthUserController extends BaseController {
    * Enable own two-factor authentication
    * Generates a TOTP secret for the authenticated user and returns the OTP provisioning
    * URI to scan with an authenticator app. Requires the account password to be re-entered.
+   * 2FA stays off until the new code is confirmed with `POST /user/2fa/confirm` — a caller
+   * that stops after this call leaves the account unprotected, believing it is enrolled.
    * @security cookieAuth
    * @returns {IEnable2faResponse} OTP provisioning URI to scan with an authenticator app
    * @response 400 Two-factor authentication is already enabled for this user
@@ -155,6 +157,14 @@ export class TwoFactorAuthUserController extends BaseController {
     try {
       await this.confirmEnrolment(user, token.Token);
     } catch (err) {
+      // `confirmUser2Fa` throws `Unauthorized` for a rejected code — the only
+      // case this route should report as "wrong code". Anything else (a
+      // database outage during activation, for instance) must surface as a
+      // 500, not be misreported to the user as a bad code.
+      if (!(err instanceof Unauthorized)) {
+        throw err;
+      }
+
       this._log.warn(`2fa confirmation rejected for ${user.Uuid}`, { error: err });
 
       return new ForbiddenResponse({
@@ -210,6 +220,13 @@ export class TwoFactorAuthUserController extends BaseController {
    * the old secret is already gone. That leaves the account in the ordinary
    * `none` state, which every route here already handles: `GET /user/2fa`
    * reports it and `POST /user/2fa/enable` starts a fresh enrolment.
+   *
+   * A caller who abandons before confirming is left password-only — the same
+   * gap as `enable`. The only built-in recovery is `rbac.twoFactorAuth.forceUser`
+   * pushing the account back through enrolment at next login, and this package's
+   * own default for that flag is `false` (see `src/config/rbac-http.ts`), so a
+   * consumer that has not set it will see the downgrade become silent and
+   * permanent rather than recovered.
    * @security cookieAuth
    * @returns {IEnable2faResponse} OTP provisioning URI to scan with an authenticator app
    * @response 400 There is no two-factor device to reset

@@ -12,10 +12,11 @@ import { User2FaDisabled } from '../events/User2FaDisabled.js';
 
 
 /**
- * NOTE for all three actions below: the event must be emitted for the USER, not
- * for whatever the provider call returned ( `initialize()` returns the otpauth
+ * NOTE for enableUser2Fa: the event must be emitted for the USER, not for
+ * whatever the provider call returned ( `initialize()` returns the otpauth
  * url ). `_user_ev` reads `Uuid` off its argument, so it is bound to `u`
- * explicitly and the provider result is passed through untouched.
+ * explicitly via `_tap`, which fires the event as a side effect while passing
+ * the provider result through untouched as the chain's result.
  */
 
 export async function enableUser2Fa(identifier: number | string | User) {
