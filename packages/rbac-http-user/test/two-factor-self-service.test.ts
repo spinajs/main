@@ -229,6 +229,48 @@ describe('TwoFactorAuthUserController', function () {
     });
   });
 
+  describe('reset', () => {
+    it('unenrols and issues a fresh secret in one call', async () => {
+      const result = await controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session);
+
+      expect(result).to.be.instanceOf(Ok);
+      expect((await body<any>(result)).otp).to.match(/^otpauth:\/\//);
+
+      // order matters: the old device must be gone before a new secret is stored
+      sinon.assert.callOrder(unenrolStub, enrolStub);
+    });
+
+    it('refuses without a valid password and leaves the current device alone', async () => {
+      verifyStub.resolves(false);
+
+      const result = await controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'wrong' }), session);
+
+      expect(result).to.be.instanceOf(Unauthorized);
+      expect((await body<any>(result)).error.code).to.equal('E_PASSWORD_INVALID');
+      sinon.assert.notCalled(unenrolStub);
+      sinon.assert.notCalled(enrolStub);
+    });
+
+    it('resets a pending enrolment too', async () => {
+      const result = await controller.reset(user('pending'), new ConfirmPasswordDto({ Password: 'current123' }), session);
+
+      expect(result).to.be.instanceOf(Ok);
+      sinon.assert.calledOnce(enrolStub);
+    });
+
+    it('rejects when there is nothing to reset', async () => {
+      await expect(controller.reset(user('none'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(BadRequest);
+      sinon.assert.notCalled(unenrolStub);
+    });
+
+    it('refuses while 2fa is switched off system-wide', async () => {
+      Object.defineProperty(controller, 'TwoFactorConfig', { value: { enabled: false }, configurable: true, writable: true });
+
+      await expect(controller.reset(user('enabled'), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
+      sinon.assert.notCalled(unenrolStub);
+    });
+  });
+
   describe('system-wide switch', () => {
     const withSystem2Fa = (enabled: boolean) =>
       Object.defineProperty(controller, 'TwoFactorConfig', { value: { enabled }, configurable: true, writable: true });

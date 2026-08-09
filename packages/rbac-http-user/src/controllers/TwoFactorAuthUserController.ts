@@ -197,6 +197,41 @@ export class TwoFactorAuthUserController extends BaseController {
   }
 
   /**
+   * Reset own two-factor authentication
+   * Removes the current TOTP device and issues a new secret in a single request,
+   * returning the provisioning URI to scan. 2FA stays off until the new code is
+   * confirmed with `POST /user/2fa/confirm`. Requires the account password.
+   *
+   * A client doing this as disable-then-enable can lose the account's second
+   * factor when the second call fails; this route cannot end in that state
+   * halfway.
+   * @security cookieAuth
+   * @returns {IEnable2faResponse} OTP provisioning URI to scan with an authenticator app
+   * @response 400 There is no two-factor device to reset
+   * @response 401 Unauthorized — valid session required, or password invalid
+   * @response 403 Forbidden — insufficient permissions
+   */
+  @Post('2fa/reset')
+  @Permission(['updateOwn'])
+  public async reset(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
+    this.assertSystemEnabled();
+
+    if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] && !user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
+      throw new BadRequest(`User ${user.Uuid} has no 2fa to reset`);
+    }
+
+    const confirmed = await this.confirmPassword(user, confirmation.Password);
+    if (confirmed !== true) {
+      return confirmed;
+    }
+
+    await this.unenrol(user);
+    const result = await this.enrol(user);
+
+    return new Ok({ otp: result as string }, await this.rotate(session));
+  }
+
+  /**
    * Refuse a mutation while 2FA is switched off system-wide.
    *
    * The `TwoFactorAuthEnabled` policy cannot do this job: @spinajs/http merges
