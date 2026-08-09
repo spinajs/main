@@ -72,7 +72,7 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         });
     }
 
-    public async initialize(user: User): Promise<any> {
+    public async beginEnrolment(user: User): Promise<any> {
 
         if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
             throw new InvalidOperation(`user ${user.Uuid} alread have enabled 2f, disable it first.`);
@@ -82,12 +82,11 @@ export class Default2FaToken extends TwoFactorAuthProvider {
         const totp = this._getOTP(user, secret.base32);
 
         user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN] = secret.base32;
-        user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = true;
         user.Metadata[TWO_FA_METATADATA_KEYS.OTP] = totp.toString();
 
         await user.Metadata.update();
 
-        this.Log.trace(`2fa token initialized for user ${user.Uuid}`, {
+        this.Log.trace(`2fa enrolment started for user ${user.Uuid}`, {
             user: {
                 Uuid: user.Uuid
             },
@@ -97,6 +96,35 @@ export class Default2FaToken extends TwoFactorAuthProvider {
          * returns: `otpauth://totp/ACME:Alice?issuer=ACME&secret=US3WHSG7X5KAPV27VANWKQHF3SH3HULL&algorithm=SHA1&digits=6&period=30`
          */
         return totp.toString();
+    }
+
+    public async activate(user: User): Promise<void> {
+
+        if (!user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
+            throw new InvalidOperation(`user ${user.Uuid} has no 2fa secret to activate`);
+        }
+
+        user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] = true;
+        await user.Metadata.update();
+
+        this.Log.trace(`2fa activated for user ${user.Uuid}`, {
+            user: {
+                Uuid: user.Uuid
+            },
+        });
+    }
+
+    /**
+     * Enrol and switch on in one step. This is what the CLI command, the
+     * administrator reset and user seeding use — they hand the secret to an
+     * operator rather than to the account owner, so there is nobody to confirm
+     * possession with.
+     */
+    public async initialize(user: User): Promise<any> {
+        const otp = await this.beginEnrolment(user);
+        await this.activate(user);
+
+        return otp;
     }
 
     public async getOtpAuthUrl(user: User): Promise<string | null> {
