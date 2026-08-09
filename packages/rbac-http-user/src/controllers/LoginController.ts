@@ -94,8 +94,8 @@ export class LoginController extends BaseController {
 
       // `forceUser` alone used to be enough to park the user in
       // TwoFactorInitRequired. But every mutating `/user/2fa*` and
-      // `/auth/2fa/setup` handler now calls `assertSystemEnabled()` and throws
-      // 403 when `rbac.twoFactorAuth.enabled` is off — so a user forced into
+      // `/auth/2fa/setup` route is now gated by `TwoFactorAuthEnabled` and
+      // answers 403 when `rbac.twoFactorAuth.enabled` is off — so a user forced into
       // this branch while the system switch is off would have no route back
       // out: setup2fa can no longer both enrol AND activate them. The
       // system-wide switch has to gate this branch too, or every user without

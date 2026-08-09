@@ -9,7 +9,7 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants, TwoFactorAuthConfig } from '@spinajs/rbac-http';
 import { auth2Fa, activateUser2Fa, beginUser2FaEnrolment } from '../actions/2fa.js';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { BadRequest } from '@spinajs/exceptions';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
@@ -19,8 +19,10 @@ import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
  *
  * These routes serve the narrow window between a successful password check and
  * full authorization: the session is `Logged` but not `Authorized` and carries
- * the `TwoFactorAuth` marker. Both class policies must hold, so the window
- * closes the moment verification succeeds.
+ * the `TwoFactorAuth` marker. Both class policies are passed to one `@Policy`
+ * call, so they are combined with AND and the window closes the moment
+ * verification succeeds. `TwoFacRouteEnabled` also enforces the system-wide
+ * switch, by way of the `TwoFactorAuthEnabled` it extends.
  *
  * Managing a TOTP device outside that window — enrolling for the first time, or
  * turning 2FA off — lives on {@link TwoFactorAuthUserController} under
@@ -32,8 +34,7 @@ import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
  * @tags Two-Factor Authentication
  */
 @BasePath('auth')
-@Policy(TwoFacRouteEnabled)
-@Policy(NotAuthorizedPolicy)
+@Policy([TwoFacRouteEnabled, NotAuthorizedPolicy])
 export class TwoFactorAuthController extends BaseController {
   @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
@@ -61,8 +62,6 @@ export class TwoFactorAuthController extends BaseController {
    */
   @Post('2fa/setup')
   public async setup2fa(@User() user: UserModel): Promise<Ok<IEnable2faResponse>> {
-    this.assertSystemEnabled();
-
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
@@ -158,21 +157,4 @@ export class TwoFactorAuthController extends BaseController {
     return activateUser2Fa(user);
   }
 
-  /**
-   * Refuse to start enrolment while 2FA is switched off system-wide.
-   *
-   * `TwoFacRouteEnabled` cannot do this job here either: @spinajs/http merges
-   * a route's policies into one gate that passes when ANY of them resolves,
-   * and this controller also carries `NotAuthorizedPolicy`, which succeeds
-   * for exactly the callers these routes serve — so `TwoFacRouteEnabled`
-   * rejecting cannot stop them. The check has to live where it cannot be
-   * short-circuited.
-   */
-  protected assertSystemEnabled(): void {
-    if (this.TwoFactorConfig?.enabled === false) {
-      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
-        error: { code: 'E_2FA_SYSTEM_DISABLED', message: '2 factor auth is not enabled' },
-      });
-    }
-  }
 }

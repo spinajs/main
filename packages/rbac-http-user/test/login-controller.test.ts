@@ -17,8 +17,8 @@ import { DbTestConfiguration } from './db-common.js';
 /**
  * `rbac.twoFactorAuth.forceUser: true` with the system-wide switch
  * (`rbac.twoFactorAuth.enabled`) off. Regression test for a lockout: every
- * mutating `/user/2fa*` and `/auth/2fa/setup` handler now calls
- * `assertSystemEnabled()` and throws 403 while the switch is off, so a user
+ * mutating `/user/2fa*` and `/auth/2fa/setup` route is gated by
+ * `TwoFactorAuthEnabled` and answers 403 while the switch is off, so a user
  * parked in `TwoFactorInitRequired` by `forceUser` alone would have had no
  * route out of that state.
  */

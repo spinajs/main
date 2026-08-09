@@ -4,7 +4,7 @@ import type { ISession } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/rbac-http';
-import { BadRequest, Forbidden } from '@spinajs/exceptions';
+import { BadRequest } from '@spinajs/exceptions';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
 import { TokenDto } from '../dto/token-dto.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
@@ -25,9 +25,10 @@ export interface ITwoFactorStatus {
 
   /**
    * Whether 2FA is switched on system-wide (`rbac.twoFactorAuth.enabled`). The
-   * frontend hides its 2FA controls when this is false; it is reported here
-   * rather than signalled by an error because the guarding policy cannot
-   * reject an authorized caller.
+   * frontend hides its 2FA controls when this is false. Reading the status is
+   * deliberately left ungated by the switch so this can be reported at all —
+   * the mutating routes are the ones that refuse with 403
+   * `E_2FA_SYSTEM_DISABLED`.
    */
   SystemEnabled: boolean;
 }
@@ -46,23 +47,18 @@ export interface ITwoFactorStatus {
  * not be enough to attach an attacker-controlled authenticator or to strip the
  * second factor off the account.
  *
- * `TwoFactorAuthEnabled` stays on the class as the guard for callers it is
- * able to reject, but it cannot block an authorized caller here:
- * `@spinajs/http` merges every policy on a route into ONE gate that lets the
- * route run when ANY policy resolves, and `AuthorizedPolicy` below resolves
- * for any logged-in caller — so once a session is authorized, that policy
- * alone is enough to pass the gate regardless of what `TwoFactorAuthEnabled`
- * decides. That is why the system-wide switch (`rbac.twoFactorAuth.enabled`)
- * is *also* enforced directly in the mutating handlers, via
- * {@link assertSystemEnabled}, which is the check that actually matters for
- * an authorized caller.
+ * The system-wide switch (`rbac.twoFactorAuth.enabled`) is enforced by
+ * `TwoFactorAuthEnabled`, passed to `@Permission` on each mutating route so it
+ * shares a policy group with the permission check and is therefore required
+ * rather than merely offered as an alternative. It is deliberately NOT a class
+ * policy: `status` stays readable while the switch is off, which is how the
+ * frontend learns to hide its 2FA controls.
  *
  * @tags Two-Factor Settings
  */
 @BasePath('user')
 @Resource('user')
 @Policy(AuthorizedPolicy)
-@Policy(TwoFactorAuthEnabled)
 export class TwoFactorAuthUserController extends BaseController {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
@@ -109,10 +105,8 @@ export class TwoFactorAuthUserController extends BaseController {
    * @response 403 Forbidden — insufficient permissions
    */
   @Post('2fa/enable')
-  @Permission(['updateOwn'])
+  @Permission(['updateOwn'], TwoFactorAuthEnabled)
   public async enable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
-    this.assertSystemEnabled();
-
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
@@ -142,10 +136,8 @@ export class TwoFactorAuthUserController extends BaseController {
    * @response 403 Invalid or expired TOTP code
    */
   @Post('2fa/confirm')
-  @Permission(['updateOwn'])
+  @Permission(['updateOwn'], TwoFactorAuthEnabled)
   public async confirm(@User() user: UserModel, @Body() token: TokenDto, @SessionRouteArg() session: ISession): Promise<Ok | ForbiddenResponse> {
-    this.assertSystemEnabled();
-
     // `activate()` never clears the stored token, so an already-enabled
     // account still has one and would otherwise be able to call this route
     // again with a currently-valid code. Only the pending state — a token
@@ -189,10 +181,8 @@ export class TwoFactorAuthUserController extends BaseController {
    * @response 403 Forbidden — insufficient permissions
    */
   @Post('2fa/disable')
-  @Permission(['updateOwn'])
+  @Permission(['updateOwn'], TwoFactorAuthEnabled)
   public async disable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok | Unauthorized> {
-    this.assertSystemEnabled();
-
     if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new BadRequest(`User ${user.Uuid} already has 2fa disabled`);
     }
@@ -234,10 +224,8 @@ export class TwoFactorAuthUserController extends BaseController {
    * @response 403 Forbidden — insufficient permissions
    */
   @Post('2fa/reset')
-  @Permission(['updateOwn'])
+  @Permission(['updateOwn'], TwoFactorAuthEnabled)
   public async reset(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
-    this.assertSystemEnabled();
-
     if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED] && !user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
       throw new BadRequest(`User ${user.Uuid} has no 2fa to reset`);
     }
@@ -251,22 +239,6 @@ export class TwoFactorAuthUserController extends BaseController {
     const result = await this.enrol(user);
 
     return new Ok({ otp: result as string }, await this.rotate(session));
-  }
-
-  /**
-   * Refuse a mutation while 2FA is switched off system-wide.
-   *
-   * The `TwoFactorAuthEnabled` policy cannot do this job: @spinajs/http merges
-   * a route's policies into one gate that passes when ANY of them resolves, and
-   * these routes also carry AuthorizedPolicy, which succeeds for every
-   * logged-in caller. The check has to live where it cannot be short-circuited.
-   */
-  protected assertSystemEnabled(): void {
-    if (this.TwoFactorConfig?.enabled === false) {
-      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
-        error: { code: 'E_2FA_SYSTEM_DISABLED', message: '2 factor auth is not enabled' },
-      });
-    }
   }
 
   /**
