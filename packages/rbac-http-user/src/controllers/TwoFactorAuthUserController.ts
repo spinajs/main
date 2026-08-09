@@ -2,10 +2,9 @@ import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Unauthorized } f
 import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
-import { AutoinjectService } from '@spinajs/configuration';
-import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, User } from '@spinajs/rbac-http';
-import { BadRequest } from '@spinajs/exceptions';
-import { TwoFactorAuthEnabled } from '../policies/2FaPolicy.js';
+import { AutoinjectService, Config } from '@spinajs/configuration';
+import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/rbac-http';
+import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { disableUser2Fa, enableUser2Fa } from '../actions/2fa.js';
@@ -14,6 +13,14 @@ import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 /** Whether the authenticated user currently has a TOTP device enrolled. */
 export interface ITwoFactorStatus {
   Enabled: boolean;
+
+  /**
+   * Whether 2FA is switched on system-wide (`rbac.twoFactorAuth.enabled`). The
+   * frontend hides its 2FA controls when this is false; it is reported here
+   * rather than signalled by an error because the guarding policy cannot
+   * reject an authorized caller.
+   */
+  SystemEnabled: boolean;
 }
 
 /**
@@ -30,12 +37,19 @@ export interface ITwoFactorStatus {
  * not be enough to attach an attacker-controlled authenticator or to strip the
  * second factor off the account.
  *
+ * The system-wide switch (`rbac.twoFactorAuth.enabled`) is enforced here, in
+ * the handlers, rather than through a class-level policy: `@spinajs/http`
+ * merges every policy on a route into ONE gate that lets the route run when
+ * ANY policy resolves, and `AuthorizedPolicy` below resolves for any
+ * logged-in caller — so a policy that only checks the system-wide switch
+ * could never actually block an authorized request. See
+ * {@link assertSystemEnabled}.
+ *
  * @tags Two-Factor Settings
  */
 @BasePath('user')
 @Resource('user')
 @Policy(AuthorizedPolicy)
-@Policy(TwoFactorAuthEnabled)
 export class TwoFactorAuthUserController extends BaseController {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
@@ -45,6 +59,9 @@ export class TwoFactorAuthUserController extends BaseController {
 
   @Autoinject(SessionCookieFactory)
   protected SessionCookies: SessionCookieFactory;
+
+  @Config('rbac.twoFactorAuth')
+  protected TwoFactorConfig: TwoFactorAuthConfig;
 
   /**
    * Get own two-factor status
@@ -57,7 +74,10 @@ export class TwoFactorAuthUserController extends BaseController {
   @Get('2fa')
   @Permission(['readOwn'])
   public async status(@User() user: UserModel): Promise<Ok<ITwoFactorStatus>> {
-    return new Ok({ Enabled: Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) });
+    return new Ok({
+      Enabled: Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]),
+      SystemEnabled: this.TwoFactorConfig?.enabled !== false,
+    });
   }
 
   /**
@@ -73,6 +93,8 @@ export class TwoFactorAuthUserController extends BaseController {
   @Post('2fa/enable')
   @Permission(['updateOwn'])
   public async enable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
+    this.assertSystemEnabled();
+
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
@@ -105,6 +127,8 @@ export class TwoFactorAuthUserController extends BaseController {
   @Post('2fa/disable')
   @Permission(['updateOwn'])
   public async disable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok | Unauthorized> {
+    this.assertSystemEnabled();
+
     if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
       throw new BadRequest(`User ${user.Uuid} already has 2fa disabled`);
     }
@@ -116,6 +140,22 @@ export class TwoFactorAuthUserController extends BaseController {
 
     await this.unenrol(user);
     return new Ok(null, await this.rotate(session));
+  }
+
+  /**
+   * Refuse a mutation while 2FA is switched off system-wide.
+   *
+   * The `TwoFactorAuthEnabled` policy cannot do this job: @spinajs/http merges
+   * a route's policies into one gate that passes when ANY of them resolves, and
+   * these routes also carry AuthorizedPolicy, which succeeds for every
+   * logged-in caller. The check has to live where it cannot be short-circuited.
+   */
+  protected assertSystemEnabled(): void {
+    if (this.TwoFactorConfig?.enabled === false) {
+      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
+        error: { code: 'E_2FA_SYSTEM_DISABLED', message: '2 factor auth is not enabled' },
+      });
+    }
   }
 
   /**

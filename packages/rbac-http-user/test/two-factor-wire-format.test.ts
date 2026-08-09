@@ -8,27 +8,38 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
-import { Controllers, HttpServer } from '@spinajs/http';
-import { AuthorizedPolicy, RbacMiddleware, RbacPolicy } from '@spinajs/rbac-http';
+import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
+import { RbacMiddleware, RbacPolicy } from '@spinajs/rbac-http';
+import { UserSession } from '@spinajs/rbac';
 
 import { dir, req, TestConfiguration } from './common.js';
 
 /**
- * Wire-format proof for the "2FA disabled system-wide" guard.
+ * Wire-format proof for the system-wide 2FA switch, driven through a real
+ * HTTP request rather than calling the controller directly.
  *
- * `two-factor-policy.test.ts` proves that `TwoFactorAuthEnabled` throws an
- * exception carrying `error.code === 'E_2FA_SYSTEM_DISABLED'` in memory. That
- * value only reaches a real client through machinery the unit test never
- * exercises: @spinajs/http's error handler spreading the exception's own
- * properties, the `Forbidden` -> 403 status map, and the default error
- * `DataTransformer` that response serialization routes through. This suite
- * drives an actual HTTP request through that whole pipeline and asserts on the
- * response the way a caller (the frontend polling `GET /user/2fa`) would.
+ * `@spinajs/http` merges every policy on a route into one gate that passes
+ * when ANY policy resolves (`route-builder.ts`'s `createPolicyGate`), and
+ * every `/user/2fa*` route also carries `AuthorizedPolicy` — which succeeds
+ * for any logged-in caller. Enforcement therefore lives in the handler
+ * (`TwoFactorAuthUserController.assertSystemEnabled`), not in a policy. This
+ * suite proves that from the outside: an AUTHORIZED caller still gets a 200
+ * with `SystemEnabled: false` from `status`, and still gets refused by the
+ * mutating routes — the way a real frontend session would experience it.
+ *
+ * The caller is made authorized for real, not by stubbing
+ * `AuthorizedPolicy.execute` to always resolve: that stub would make the gate
+ * pass unconditionally and prove nothing about authorization specifically.
+ * Instead `RbacMiddleware.before` is replaced with a stub that populates
+ * `req.storage.User` and `req.storage.Session` (with `Authorized: true`) the
+ * way the real middleware would after a real login — exactly what
+ * `AuthorizedPolicy.execute` itself checks for. The unstubbed policy is left
+ * to run and genuinely resolve.
  *
  * Boot pattern copied from `controller-override.test.ts`, the only sibling
  * suite that starts a real http server for this package: same fs providers,
- * same cookie secret, same policy stubs for the authentication plumbing that
- * sits in front of every `user/*` route and is not what this suite is about.
+ * same cookie secret, same `RbacPolicy` stub (real per-permission grants are
+ * not what this suite is about — only the system-wide switch is).
  */
 class TwoFactorDisabledConfiguration extends TestConfiguration {
   public async resolve(): Promise<void> {
@@ -46,8 +57,9 @@ class TwoFactorDisabledConfiguration extends TestConfiguration {
     );
 
     // RbacMiddleware refuses to resolve without it ( eg. it signs the ssid
-    // cookie ). No request in this suite carries a session, so the value only
-    // has to exist.
+    // cookie ). Requests in this suite carry no real ssid cookie — `before`
+    // stubs `RbacMiddleware.before` to plant an authorized session directly —
+    // so the value only has to exist for the middleware to resolve.
     cfg.http.cookie = { secret: 'two-factor-wire-format-test-secret' };
 
     // The one value this suite is actually about: system-wide 2FA switched off.
@@ -55,23 +67,42 @@ class TwoFactorDisabledConfiguration extends TestConfiguration {
   }
 }
 
-describe('GET /user/2fa — system 2FA disabled (wire format)', function () {
+describe('system 2FA disabled, authorized caller (wire format)', function () {
   this.timeout(25000);
 
   before(async () => {
     DI.setESMModuleSupport();
 
-    // Same three stubs as `controller-override.test.ts`, standing in for the
-    // authentication plumbing in front of every `user/*` route. A real
-    // session, real permission grants and a real database are no part of what
-    // this suite is proving — it is about what `TwoFactorAuthEnabled` puts on
-    // the wire once it rejects, not about session or permission handling.
-    sinon.stub(AuthorizedPolicy.prototype, 'execute').resolves();
+    // `RbacPolicy` (attached by `@Permission`) still needs a real
+    // AccessControl grant lookup against a database this suite has none of —
+    // stubbed for the same reason `controller-override.test.ts` stubs it.
+    // `AuthorizedPolicy` is deliberately left UNSTUBBED: the middleware stub
+    // below feeds it exactly what it checks (`req.storage.User` and
+    // `req.storage.Session.Data.get('Authorized')`), so it runs its real
+    // `execute` and genuinely resolves. Stubbing it too would make the gate
+    // pass unconditionally and prove nothing about authorization.
     sinon.stub(RbacPolicy.prototype, 'execute').resolves();
     sinon.stub(RbacMiddleware.prototype, 'before').returns((req: any, _res: any, next: any) => {
-      req.storage.User = { Role: [] };
+      const session = new UserSession();
+      session.Data.set('Authorized', true);
+
+      req.storage.User = { Role: [], Metadata: {} };
+      req.storage.Session = session;
       next();
     });
+
+    // `@HandleException(Forbidden)` on `ForbiddenResponse` registers the
+    // Forbidden -> 403 mapping exactly once, as a side effect of that module
+    // loading (`DI.register(...).asMapValue('__http_error_map__', 'Forbidden')`,
+    // which stores the map in the container CACHE, not the registry). A sibling
+    // suite's `DI.clearCache()` — several call it in `after()`, same as this
+    // suite does below — wipes that cache, and nothing ever repopulates it: the
+    // decorator runs once per process, long before any suite executes.
+    // Depending on run order this suite's genuine `Forbidden` throw would
+    // resolve to a 500 instead of 403 even though the response body carries the
+    // right `error.code`. Re-registering it here makes the outcome independent
+    // of what ran before this suite.
+    DI.register(ForbiddenResponse).asMapValue('__http_error_map__', 'Forbidden');
 
     DI.register(TwoFactorDisabledConfiguration).as(Configuration);
 
@@ -105,8 +136,15 @@ describe('GET /user/2fa — system 2FA disabled (wire format)', function () {
     DI.clearCache();
   });
 
-  it('answers 403 with error.code E_2FA_SYSTEM_DISABLED', async () => {
+  it('reports the system switch as off instead of failing', async () => {
     const res = await req().get('user/2fa').set('Accept', 'application/json');
+
+    expect(res.status).to.eq(200);
+    expect(res.body?.SystemEnabled).to.eq(false);
+  });
+
+  it('refuses to enrol while the switch is off', async () => {
+    const res = await req().post('user/2fa/enable').send({ Password: 'current123' }).set('Accept', 'application/json');
 
     expect(res.status).to.eq(403);
     expect(res.body?.error?.code).to.eq('E_2FA_SYSTEM_DISABLED');

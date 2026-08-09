@@ -8,7 +8,7 @@ import sinon from 'sinon';
 import { DateTime } from 'luxon';
 
 import { Ok, Unauthorized } from '@spinajs/http';
-import { BadRequest } from '@spinajs/exceptions';
+import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import type { ISession } from '@spinajs/rbac';
 
 import { TwoFactorAuthUserController } from '../src/controllers/TwoFactorAuthUserController.js';
@@ -76,6 +76,12 @@ describe('TwoFactorAuthUserController', function () {
       writable: true,
     });
 
+    Object.defineProperty(controller, 'TwoFactorConfig', {
+      value: { enabled: true },
+      configurable: true,
+      writable: true,
+    });
+
     enrolStub = sinon.stub(controller as any, 'enrol').resolves('otpauth://totp/Spinajs:me?secret=ABC');
     unenrolStub = sinon.stub(controller as any, 'unenrol').resolves();
   });
@@ -84,11 +90,11 @@ describe('TwoFactorAuthUserController', function () {
 
   describe('status', () => {
     it('reports enrolled', async () => {
-      expect(await body(await controller.status(user(true)))).to.deep.equal({ Enabled: true });
+      expect(await body(await controller.status(user(true)))).to.deep.equal({ Enabled: true, SystemEnabled: true });
     });
 
     it('reports not enrolled', async () => {
-      expect(await body(await controller.status(user(false)))).to.deep.equal({ Enabled: false });
+      expect(await body(await controller.status(user(false)))).to.deep.equal({ Enabled: false, SystemEnabled: true });
     });
   });
 
@@ -171,6 +177,40 @@ describe('TwoFactorAuthUserController', function () {
 
     it('rejects when 2FA is not enabled', async () => {
       await expect(controller.disable(user(false), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(BadRequest);
+      sinon.assert.notCalled(unenrolStub);
+    });
+  });
+
+  describe('system-wide switch', () => {
+    const withSystem2Fa = (enabled: boolean) =>
+      Object.defineProperty(controller, 'TwoFactorConfig', { value: { enabled }, configurable: true, writable: true });
+
+    it('status reports the switch as on', async () => {
+      expect((await body<any>(await controller.status(user(false)))).SystemEnabled).to.equal(true);
+    });
+
+    it('status still answers when the switch is off, reporting it', async () => {
+      withSystem2Fa(false);
+
+      const result = await body<any>(await controller.status(user(false)));
+
+      // The policy cannot block an authorized caller, so the frontend reads
+      // this flag rather than inferring a feature switch from an error.
+      expect(result.SystemEnabled).to.equal(false);
+      expect(result.Enabled).to.equal(false);
+    });
+
+    it('enable refuses while the switch is off', async () => {
+      withSystem2Fa(false);
+
+      await expect(controller.enable(user(false), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
+      sinon.assert.notCalled(enrolStub);
+    });
+
+    it('disable refuses while the switch is off', async () => {
+      withSystem2Fa(false);
+
+      await expect(controller.disable(user(true), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(Forbidden);
       sinon.assert.notCalled(unenrolStub);
     });
   });
