@@ -207,9 +207,9 @@ export class TwoFactorAuthUserController extends BaseController {
    * without a second factor. It does not remove the server-side one: if
    * `enrol` fails after `unenrol` already removed the old device, the account
    * is left with no device at all — there is nothing to roll back to, since
-   * the old secret is already gone. That state is recoverable, not corrupt:
-   * the account page reads the enrolment state fresh on every render, so it
-   * simply offers enrollment again instead of showing a dead end.
+   * the old secret is already gone. That leaves the account in the ordinary
+   * `none` state, which every route here already handles: `GET /user/2fa`
+   * reports it and `POST /user/2fa/enable` starts a fresh enrolment.
    * @security cookieAuth
    * @returns {IEnable2faResponse} OTP provisioning URI to scan with an authenticator app
    * @response 400 There is no two-factor device to reset
