@@ -9,6 +9,7 @@ import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { disableUser2Fa, enableUser2Fa } from '../actions/2fa.js';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
+import { TwoFactorAuthEnabled } from '../policies/2FaPolicy.js';
 
 /** Whether the authenticated user currently has a TOTP device enrolled. */
 export interface ITwoFactorStatus {
@@ -37,19 +38,23 @@ export interface ITwoFactorStatus {
  * not be enough to attach an attacker-controlled authenticator or to strip the
  * second factor off the account.
  *
- * The system-wide switch (`rbac.twoFactorAuth.enabled`) is enforced here, in
- * the handlers, rather than through a class-level policy: `@spinajs/http`
- * merges every policy on a route into ONE gate that lets the route run when
- * ANY policy resolves, and `AuthorizedPolicy` below resolves for any
- * logged-in caller — so a policy that only checks the system-wide switch
- * could never actually block an authorized request. See
- * {@link assertSystemEnabled}.
+ * `TwoFactorAuthEnabled` stays on the class as the guard for callers it is
+ * able to reject, but it cannot block an authorized caller here:
+ * `@spinajs/http` merges every policy on a route into ONE gate that lets the
+ * route run when ANY policy resolves, and `AuthorizedPolicy` below resolves
+ * for any logged-in caller — so once a session is authorized, that policy
+ * alone is enough to pass the gate regardless of what `TwoFactorAuthEnabled`
+ * decides. That is why the system-wide switch (`rbac.twoFactorAuth.enabled`)
+ * is *also* enforced directly in the mutating handlers, via
+ * {@link assertSystemEnabled}, which is the check that actually matters for
+ * an authorized caller.
  *
  * @tags Two-Factor Settings
  */
 @BasePath('user')
 @Resource('user')
 @Policy(AuthorizedPolicy)
+@Policy(TwoFactorAuthEnabled)
 export class TwoFactorAuthUserController extends BaseController {
   @AutoinjectService('rbac.password')
   protected PasswordProvider: PasswordProvider;
