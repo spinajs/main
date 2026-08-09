@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates",
-  "version": "2.0.504",
+  "version": "2.0.505",
   "description": "Core template rendering service and renderer registry for @spinajs.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -58,13 +58,13 @@
     "rimraf": "^4.1.2"
   },
   "dependencies": {
-    "@spinajs/cli": "2.0.504",
-    "@spinajs/configuration": "2.0.504",
-    "@spinajs/di": "2.0.504",
-    "@spinajs/exceptions": "2.0.504",
-    "@spinajs/fs": "2.0.504",
-    "@spinajs/intl": "2.0.504",
-    "@spinajs/log": "2.0.504",
+    "@spinajs/cli": "2.0.505",
+    "@spinajs/configuration": "2.0.505",
+    "@spinajs/di": "2.0.505",
+    "@spinajs/exceptions": "2.0.505",
+    "@spinajs/fs": "2.0.505",
+    "@spinajs/intl": "2.0.505",
+    "@spinajs/log": "2.0.505",
     "tempfile": "4.0.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

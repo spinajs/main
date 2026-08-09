@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-pdf",
-  "version": "2.0.504",
+  "version": "2.0.505",
   "description": "PDF template renderer for @spinajs/templates - renders pug templates to PDF via Puppeteer.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -64,10 +64,10 @@
     "pngjs": "^7.0.0"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.504",
-    "@spinajs/di": "2.0.504",
-    "@spinajs/templates": "2.0.504",
-    "@spinajs/templates-puppeteer": "2.0.504",
+    "@spinajs/configuration": "2.0.505",
+    "@spinajs/di": "2.0.505",
+    "@spinajs/templates": "2.0.505",
+    "@spinajs/templates-puppeteer": "2.0.505",
     "puppeteer": "^24.33.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
