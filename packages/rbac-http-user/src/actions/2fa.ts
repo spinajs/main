@@ -32,6 +32,53 @@ export async function enableUser2Fa(identifier: number | string | User) {
     );
 }
 
+/**
+ * Hand the user a secret without switching 2fa on. No event is emitted: an
+ * enrolment nobody confirmed is not a fact about the account, and consumers
+ * listening for User2FaEnabled would otherwise fire on an abandoned attempt.
+ */
+export async function beginUser2FaEnrolment(identifier: number | string | User) {
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                async (twoFa: TwoFactorAuthProvider) => twoFa.beginEnrolment(u),
+            );
+        },
+    );
+}
+
+/**
+ * Complete an enrolment started by `beginUser2FaEnrolment`: verify the code
+ * against the stored secret, then switch 2fa on. Throws Unauthorized when the
+ * code does not match, leaving the enrolment pending so the user can retry.
+ */
+export async function confirmUser2Fa(identifier: number | string | User, token: string) {
+    token = _check_arg(_trim(), _non_empty())(token, 'token');
+
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                _either(
+                    (twoFa: TwoFactorAuthProvider) => twoFa.verifyToken(token, u),
+                    // `_either` re-passes the resolved provider to onFulfilled, so
+                    // there is no need to resolve the service a second time here.
+                    (twoFa: TwoFactorAuthProvider) => _chain(
+                        async () => twoFa.activate(u),
+                        () => _user_ev(User2FaEnabled)(u),
+                    ),
+                    () => {
+                        throw new Unauthorized('2fa confirmation failed');
+                    },
+                ),
+            );
+        },
+    );
+}
+
 export async function disableUser2Fa(identifier: number | string | User) {
     return _chain(
         _user_unsafe(identifier),

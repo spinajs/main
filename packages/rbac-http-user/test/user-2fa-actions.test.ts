@@ -10,7 +10,8 @@ import { DefaultQueueService } from '@spinajs/queue';
 
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata } from '@spinajs/rbac';
 
-import { disableUser2Fa, enableUser2Fa, resetUser2Fa } from '../src/actions/2fa.js';
+import * as OTPAuth from 'otpauth';
+import { beginUser2FaEnrolment, confirmUser2Fa, disableUser2Fa, enableUser2Fa, resetUser2Fa } from '../src/actions/2fa.js';
 import { TWO_FA_METATADATA_KEYS } from '../src/2fa/Default2FaToken.js';
 import { User2FaEnabled } from '../src/events/User2FaEnabled.js';
 import { User2FaDisabled } from '../src/events/User2FaDisabled.js';
@@ -118,5 +119,49 @@ describe('2FA actions', function () {
     await resetUser2Fa(USER_UUID);
 
     expect(await secretCount()).to.eq(0);
+  });
+
+  it('beginUser2FaEnrolment stores a secret but emits no enabled event', async () => {
+    const url = await beginUser2FaEnrolment(USER_UUID);
+
+    expect(String(url)).to.match(/^otpauth:\/\//);
+    expect(await secretCount(), 'the secret and the otpauth url are stored').to.be.greaterThan(0);
+
+    const ev = events().find((e) => e instanceof User2FaEnabled);
+    expect(ev, 'enrolment is not a fact until the user confirms it').to.be.undefined;
+  });
+
+  it('confirmUser2Fa activates and emits User2FaEnabled on a valid code', async () => {
+    await beginUser2FaEnrolment(USER_UUID);
+    emitStub.resetHistory();
+
+    const stored = await User.where({ Uuid: USER_UUID }).populate('Metadata').firstOrFail();
+    const secret = String(stored.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]);
+    const code = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) }).generate();
+
+    await confirmUser2Fa(USER_UUID, code);
+
+    const after = await User.where({ Uuid: USER_UUID }).populate('Metadata').firstOrFail();
+    expect(after.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]).to.equal(true);
+
+    const ev = events().find((e) => e instanceof User2FaEnabled);
+    expect(ev, 'User2FaEnabled belongs on the confirmation, not on the secret handout').to.be.not.undefined;
+    expect((ev as User2FaEnabled).UserUUID).to.eq(USER_UUID);
+  });
+
+  it('confirmUser2Fa rejects a wrong code and leaves the enrolment pending', async () => {
+    await beginUser2FaEnrolment(USER_UUID);
+
+    let thrown: unknown = null;
+    try {
+      await confirmUser2Fa(USER_UUID, '000000');
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown, 'a wrong code must not activate anything').to.be.not.null;
+
+    const after = await User.where({ Uuid: USER_UUID }).populate('Metadata').firstOrFail();
+    expect(after.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]).to.not.equal(true);
   });
 });
