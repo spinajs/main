@@ -1,8 +1,7 @@
-import { InvalidOperation } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { BasePolicy, Request as sRequest } from '@spinajs/http';
 import { TwoFactorAuthConfig } from '@spinajs/rbac-http';
-import { Forbidden } from '@spinajs/exceptions';
+import { Forbidden, InvalidOperation } from '@spinajs/exceptions';
 
 /**
  * Guards routes that only make sense when 2FA is switched on system-wide.
@@ -21,7 +20,20 @@ export class TwoFactorAuthEnabled extends BasePolicy {
 
   public execute(_req: sRequest): Promise<void> {
     if (this.TwoFactorConfig.enabled === false) {
-      throw new InvalidOperation('2 factor auth is not enabled');
+      // Deliberately Forbidden and not InvalidOperation: the latter has no
+      // @HandleException mapping in @spinajs/http and reaches the client as a
+      // 500, which a caller cannot distinguish from a fault.
+      //
+      // `Forbidden`'s constructor only accepts a message string (see
+      // `Exception` in @spinajs/exceptions), so the structured payload that
+      // the HTTP error handler serializes into the response body is attached
+      // as an extra `error` property after construction.
+      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
+        error: {
+          code: 'E_2FA_SYSTEM_DISABLED',
+          message: '2 factor auth is not enabled',
+        },
+      });
     }
 
     return Promise.resolve();

@@ -8,7 +8,7 @@ import sinon from 'sinon';
 import { DateTime } from 'luxon';
 
 import { Ok, Unauthorized } from '@spinajs/http';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { BadRequest } from '@spinajs/exceptions';
 import type { ISession } from '@spinajs/rbac';
 
 import { TwoFactorAuthUserController } from '../src/controllers/TwoFactorAuthUserController.js';
@@ -134,7 +134,7 @@ describe('TwoFactorAuthUserController', function () {
     });
 
     it('rejects when 2FA is already enabled', async () => {
-      await expect(controller.enable(user(true), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(InvalidOperation);
+      await expect(controller.enable(user(true), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(BadRequest);
       sinon.assert.notCalled(enrolStub);
     });
   });
@@ -170,7 +170,7 @@ describe('TwoFactorAuthUserController', function () {
     });
 
     it('rejects when 2FA is not enabled', async () => {
-      await expect(controller.disable(user(false), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(InvalidOperation);
+      await expect(controller.disable(user(false), new ConfirmPasswordDto({ Password: 'current123' }), session)).to.be.rejectedWith(BadRequest);
       sinon.assert.notCalled(unenrolStub);
     });
   });

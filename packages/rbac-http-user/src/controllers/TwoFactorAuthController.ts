@@ -9,7 +9,7 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
 import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants } from '@spinajs/rbac-http';
 import { auth2Fa, enableUser2Fa } from '../actions/2fa.js';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { BadRequest } from '@spinajs/exceptions';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
@@ -59,7 +59,7 @@ export class TwoFactorAuthController extends BaseController {
   @Post('2fa/setup')
   public async setup2fa(@User() user: UserModel): Promise<Ok<IEnable2faResponse>> {
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
-      throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
+      throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
 
     const result = await enableUser2Fa(user);

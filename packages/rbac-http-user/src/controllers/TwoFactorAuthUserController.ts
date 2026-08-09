@@ -4,7 +4,7 @@ import type { ISession } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, User } from '@spinajs/rbac-http';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { BadRequest } from '@spinajs/exceptions';
 import { TwoFactorAuthEnabled } from '../policies/2FaPolicy.js';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
@@ -74,7 +74,7 @@ export class TwoFactorAuthUserController extends BaseController {
   @Permission(['updateOwn'])
   public async enable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok<IEnable2faResponse> | Unauthorized> {
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
-      throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
+      throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
 
     const confirmed = await this.confirmPassword(user, confirmation.Password);
@@ -106,7 +106,7 @@ export class TwoFactorAuthUserController extends BaseController {
   @Permission(['updateOwn'])
   public async disable(@User() user: UserModel, @Body() confirmation: ConfirmPasswordDto, @SessionRouteArg() session: ISession): Promise<Ok | Unauthorized> {
     if (!user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
-      throw new InvalidOperation(`User ${user.Uuid} already has 2fa disabled`);
+      throw new BadRequest(`User ${user.Uuid} already has 2fa disabled`);
     }
 
     const confirmed = await this.confirmPassword(user, confirmation.Password);
