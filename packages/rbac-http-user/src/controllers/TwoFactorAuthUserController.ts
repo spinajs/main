@@ -1,4 +1,4 @@
-import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Unauthorized } from '@spinajs/http';
+import { BaseController, BasePath, Body, ForbiddenResponse, Get, Ok, Policy, Post, Unauthorized } from '@spinajs/http';
 import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
@@ -6,14 +6,22 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/rbac-http';
 import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
+import { TokenDto } from '../dto/token-dto.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
-import { disableUser2Fa, enableUser2Fa } from '../actions/2fa.js';
+import { beginUser2FaEnrolment, confirmUser2Fa, disableUser2Fa } from '../actions/2fa.js';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 import { TwoFactorAuthEnabled } from '../policies/2FaPolicy.js';
 
 /** Whether the authenticated user currently has a TOTP device enrolled. */
 export interface ITwoFactorStatus {
   Enabled: boolean;
+
+  /**
+   * A secret was issued but never confirmed. The account is not protected — the
+   * distinction exists so the UI can say "you started this" rather than
+   * "you have no 2fa".
+   */
+  Pending: boolean;
 
   /**
    * Whether 2FA is switched on system-wide (`rbac.twoFactorAuth.enabled`). The
@@ -79,8 +87,11 @@ export class TwoFactorAuthUserController extends BaseController {
   @Get('2fa')
   @Permission(['readOwn'])
   public async status(@User() user: UserModel): Promise<Ok<ITwoFactorStatus>> {
+    const enabled = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
+
     return new Ok({
-      Enabled: Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]),
+      Enabled: enabled,
+      Pending: !enabled && Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]),
       SystemEnabled: this.TwoFactorConfig?.enabled !== false,
     });
   }
@@ -109,14 +120,48 @@ export class TwoFactorAuthUserController extends BaseController {
       return confirmed;
     }
 
-    // NOTE: enrolment takes effect immediately — the secret is stored and
-    // `2fa:enabled` is set before the user has proven they scanned it. That is
-    // the same contract the login-time setup route follows, and it is what the
-    // login check reads. A user who never scans the returned URI locks
-    // themselves out and needs an administrator 2FA reset to recover.
+    // The secret is stored but 2fa stays OFF until `POST /user/2fa/confirm`
+    // accepts a code generated from it. A user who never scans is left pending,
+    // which the login check treats exactly like having no device — no lockout,
+    // and the next attempt simply issues a new secret.
     const result = await this.enrol(user);
 
     return new Ok({ otp: result as string }, await this.rotate(session));
+  }
+
+  /**
+   * Confirm own two-factor enrolment
+   * Verifies a code generated from the secret handed out by `POST /user/2fa/enable`
+   * or `POST /user/2fa/reset`, and only then switches 2FA on.
+   * @security cookieAuth
+   * @response 200 Two-factor authentication is now active
+   * @response 400 There is no pending enrolment to confirm
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Invalid or expired TOTP code
+   */
+  @Post('2fa/confirm')
+  @Permission(['updateOwn'])
+  public async confirm(@User() user: UserModel, @Body() token: TokenDto, @SessionRouteArg() session: ISession): Promise<Ok | ForbiddenResponse> {
+    this.assertSystemEnabled();
+
+    if (!user.Metadata[TWO_FA_METATADATA_KEYS.TOKEN]) {
+      throw new BadRequest(`User ${user.Uuid} has no pending 2fa enrolment`);
+    }
+
+    try {
+      await this.confirmEnrolment(user, token.Token);
+    } catch (err) {
+      this._log.warn(`2fa confirmation rejected for ${user.Uuid}`, { error: err });
+
+      return new ForbiddenResponse({
+        error: { code: 'E_2FA_FAILED', message: '2fa check failed' },
+      });
+    }
+
+    // No password here on purpose: the password was confirmed by the enable or
+    // reset call that issued this secret, and the code is itself the proof this
+    // route exists to demand.
+    return new Ok(null, await this.rotate(session));
   }
 
   /**
@@ -187,11 +232,17 @@ export class TwoFactorAuthUserController extends BaseController {
   }
 
   /**
-   * Generate and store the TOTP secret, returning the provisioning URI. Wraps
-   * the module-level action so tests can stub it without a TOTP/DB setup.
+   * Store the TOTP secret and return the provisioning URI, leaving 2fa off until
+   * confirmed. Wraps the module-level action so tests can stub it without a
+   * TOTP/DB setup.
    */
   protected enrol(user: UserModel): Promise<unknown> {
-    return enableUser2Fa(user);
+    return beginUser2FaEnrolment(user);
+  }
+
+  /** Verify a code against the pending secret and switch 2fa on. */
+  protected confirmEnrolment(user: UserModel, token: string): Promise<unknown> {
+    return confirmUser2Fa(user, token);
   }
 
   /** Clear the TOTP secret. Wrapped for the same reason as {@link enrol}. */
