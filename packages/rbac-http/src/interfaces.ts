@@ -1,4 +1,5 @@
 import { User, ISession, PermissionType } from '@spinajs/rbac';
+import { MethodNotImplemented } from '@spinajs/exceptions';
 
 // ---------------------------------------------------------------------------
 // HTTP response shape interfaces
@@ -198,6 +199,26 @@ export abstract class TwoFactorAuthProvider {
    * generate secret key if this provider use is needs it or null
    */
   public abstract initialize(user: User): Promise<any | null>;
+
+  /**
+   * Generate and store the secret WITHOUT switching 2fa on. The account is left
+   * pending: it has a device to verify against, but the login check does not
+   * demand a code yet.
+   *
+   * Providers that cannot express a pending state may leave this unimplemented;
+   * only the routes that confirm enrolment call it.
+   */
+  public beginEnrolment(_user: User): Promise<any | null> {
+    throw new MethodNotImplemented('this 2fa provider does not support pending enrolment');
+  }
+
+  /**
+   * Switch 2fa on for an account whose secret was already stored by
+   * {@link beginEnrolment}.
+   */
+  public activate(_user: User): Promise<void> {
+    throw new MethodNotImplemented('this 2fa provider does not support pending enrolment');
+  }
 
   /**
    * Disable for user 2fa

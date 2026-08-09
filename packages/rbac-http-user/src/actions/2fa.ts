@@ -12,10 +12,11 @@ import { User2FaDisabled } from '../events/User2FaDisabled.js';
 
 
 /**
- * NOTE for all three actions below: the event must be emitted for the USER, not
- * for whatever the provider call returned ( `initialize()` returns the otpauth
+ * NOTE for enableUser2Fa: the event must be emitted for the USER, not for
+ * whatever the provider call returned ( `initialize()` returns the otpauth
  * url ). `_user_ev` reads `Uuid` off its argument, so it is bound to `u`
- * explicitly and the provider result is passed through untouched.
+ * explicitly via `_tap`, which fires the event as a side effect while passing
+ * the provider result through untouched as the chain's result.
  */
 
 export async function enableUser2Fa(identifier: number | string | User) {
@@ -27,6 +28,69 @@ export async function enableUser2Fa(identifier: number | string | User) {
                 async (twoFa: TwoFactorAuthProvider) => twoFa.initialize(u),
                 // keeps the otpauth url as the result of the action
                 _tap(async () => _user_ev(User2FaEnabled)(u)),
+            );
+        },
+    );
+}
+
+/**
+ * Hand the user a secret without switching 2fa on. No event is emitted: an
+ * enrolment nobody confirmed is not a fact about the account, and consumers
+ * listening for User2FaEnabled would otherwise fire on an abandoned attempt.
+ */
+export async function beginUser2FaEnrolment(identifier: number | string | User) {
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                async (twoFa: TwoFactorAuthProvider) => twoFa.beginEnrolment(u),
+            );
+        },
+    );
+}
+
+/**
+ * Switch 2fa on for an account whose code was already verified by the caller.
+ * The login-window flow needs this split: `auth2Fa` has already checked the
+ * code and emitted User2FaPassed by the time the session is authorized.
+ */
+export async function activateUser2Fa(identifier: number | string | User) {
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                async (twoFa: TwoFactorAuthProvider) => twoFa.activate(u),
+                () => _user_ev(User2FaEnabled)(u),
+            );
+        },
+    );
+}
+
+/**
+ * Complete an enrolment started by `beginUser2FaEnrolment`: verify the code
+ * against the stored secret, then switch 2fa on. Throws Unauthorized when the
+ * code does not match, leaving the enrolment pending so the user can retry.
+ */
+export async function confirmUser2Fa(identifier: number | string | User, token: string) {
+    token = _check_arg(_trim(), _non_empty())(token, 'token');
+
+    return _chain(
+        _user_unsafe(identifier),
+        (u: User) => {
+            return _chain(
+                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
+                _either(
+                    (twoFa: TwoFactorAuthProvider) => twoFa.verifyToken(token, u),
+                    // Delegates to `activateUser2Fa`, which re-resolves the provider
+                    // itself. It is shared with the login-window flow, where the
+                    // code is already verified by the time activation is needed.
+                    () => activateUser2Fa(u),
+                    () => {
+                        throw new Unauthorized('2fa confirmation failed');
+                    },
+                ),
             );
         },
     );

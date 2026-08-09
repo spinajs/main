@@ -5,11 +5,11 @@ import { Session } from '@spinajs/rbac-http';
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy.js';
-import { AutoinjectService } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
-import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants } from '@spinajs/rbac-http';
-import { auth2Fa, enableUser2Fa } from '../actions/2fa.js';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants, TwoFactorAuthConfig } from '@spinajs/rbac-http';
+import { auth2Fa, activateUser2Fa, beginUser2FaEnrolment } from '../actions/2fa.js';
+import { BadRequest, Forbidden } from '@spinajs/exceptions';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
@@ -44,6 +44,9 @@ export class TwoFactorAuthController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
+  @Config('rbac.twoFactorAuth')
+  protected TwoFactorConfig: TwoFactorAuthConfig;
+
   /**
    * Set up two-factor authentication during login
    * Generates a TOTP secret for a user who must enrol before continuing — the state
@@ -58,11 +61,18 @@ export class TwoFactorAuthController extends BaseController {
    */
   @Post('2fa/setup')
   public async setup2fa(@User() user: UserModel): Promise<Ok<IEnable2faResponse>> {
+    this.assertSystemEnabled();
+
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
-      throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
+      throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
 
-    const result = await enableUser2Fa(user);
+    // Re-running setup on an account that already started enrolling is allowed:
+    // it replaces an unconfirmed secret, which is exactly how a user who lost
+    // the QR gets a new one. There is nothing to steal — the caller could reach
+    // the same state from scratch.
+    const result = await this.enrol(user);
+
     return new Ok({
       otp: result as string,
     });
@@ -81,6 +91,13 @@ export class TwoFactorAuthController extends BaseController {
   public async verifyToken(@User() logged: UserModel, @Body() token: TokenDto, @Session() session: ISession): Promise<Ok<IUserWithGrants> | ForbiddenResponse> {
     try {
       await this.verifyTwoFactorToken(logged, token.Token);
+
+      // A pending enrolment (secret stored, `2fa:enabled` unset) becomes real
+      // here and nowhere else — this is the first moment the user has proven
+      // possession of the device.
+      if (!logged.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
+        await this.activateEnrolment(logged);
+      }
 
       // 2fa complete, mark as authorized
       // fron now on user is considered authorized
@@ -126,5 +143,36 @@ export class TwoFactorAuthController extends BaseController {
    */
   protected verifyTwoFactorToken(user: UserModel, token: string): Promise<void> {
     return auth2Fa(user, token) as Promise<void>;
+  }
+
+  /**
+   * Store the TOTP secret without switching 2fa on. Wrapped in a protected
+   * method for the same reason as {@link verifyTwoFactorToken}.
+   */
+  protected enrol(user: UserModel): Promise<unknown> {
+    return beginUser2FaEnrolment(user);
+  }
+
+  /** Switch 2fa on for an account whose secret was just verified. */
+  protected activateEnrolment(user: UserModel): Promise<unknown> {
+    return activateUser2Fa(user);
+  }
+
+  /**
+   * Refuse to start enrolment while 2FA is switched off system-wide.
+   *
+   * `TwoFacRouteEnabled` cannot do this job here either: @spinajs/http merges
+   * a route's policies into one gate that passes when ANY of them resolves,
+   * and this controller also carries `NotAuthorizedPolicy`, which succeeds
+   * for exactly the callers these routes serve — so `TwoFacRouteEnabled`
+   * rejecting cannot stop them. The check has to live where it cannot be
+   * short-circuited.
+   */
+  protected assertSystemEnabled(): void {
+    if (this.TwoFactorConfig?.enabled === false) {
+      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
+        error: { code: 'E_2FA_SYSTEM_DISABLED', message: '2 factor auth is not enabled' },
+      });
+    }
   }
 }
