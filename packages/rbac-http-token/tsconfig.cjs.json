@@ -6,5 +6,5 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../orm-http/tsconfig.cjs.json" }, { "path": "../rbac/tsconfig.cjs.json" }, { "path": "../rbac-http/tsconfig.cjs.json" }, { "path": "../cli/tsconfig.cjs.json" }, { "path": "../queue/tsconfig.cjs.json" }, { "path": "../util/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }]
+  "references": [{ "path": "../cli/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../queue/tsconfig.cjs.json" }, { "path": "../rbac/tsconfig.cjs.json" }, { "path": "../rbac-http/tsconfig.cjs.json" }, { "path": "../util/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }]
 }

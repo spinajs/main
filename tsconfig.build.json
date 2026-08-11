@@ -38,6 +38,7 @@
     { "path": "packages/rbac/tsconfig.mjs.json" },
     { "path": "packages/rbac-http/tsconfig.mjs.json" },
     { "path": "packages/rbac-http-user/tsconfig.mjs.json" },
+    { "path": "packages/rbac-http-token/tsconfig.mjs.json" },
     { "path": "packages/rbac-http-admin/tsconfig.mjs.json" },
     { "path": "packages/reflection/tsconfig.mjs.json" },
     { "path": "packages/session-provider-db/tsconfig.mjs.json" },
