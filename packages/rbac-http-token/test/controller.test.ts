@@ -9,7 +9,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/rbac';
 import { RbacPolicy } from '@spinajs/rbac-http';
 
-import { TestConfiguration, sessionCookieFor, req, restoreHttpErrorMap } from './common.js';
+import { sessionCookieFor, req, restoreHttpErrorMap, useTestConfiguration } from './common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenController } from '../src/controllers/AccessTokenController.js';
 import { NoTokenAuthPolicy } from '../src/policies/NoTokenAuthPolicy.js';
@@ -38,7 +38,9 @@ describe('AccessTokenController', function () {
     // below would arrive as a 500. See `restoreHttpErrorMap` in `common.ts`.
     restoreHttpErrorMap();
 
-    DI.register(TestConfiguration).as(Configuration);
+    // Not a plain `DI.register(...).as(Configuration)` - see the helper for why
+    // that silently loses to a db-only suite's configuration.
+    useTestConfiguration();
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
@@ -58,11 +60,18 @@ describe('AccessTokenController', function () {
     await DI.resolve(Controllers);
 
     server = await DI.resolve(HttpServer);
-    server.start();
+
+    // AWAITED, both here and in after(). `start()` binds the port inside a
+    // promise that REJECTS on EADDRINUSE ( `http/src/server.ts:253-271` ) and
+    // `stop()` is a promise too. Left un-awaited, a sibling suite that has not
+    // finished releasing 8889 makes this one bind nothing at all and every
+    // request fails with a bare connection error instead of a readable message -
+    // and the outcome flips with mocha's file order.
+    await server.start();
   });
 
   after(async () => {
-    server.stop();
+    await server.stop();
     DI.clearCache();
   });
 

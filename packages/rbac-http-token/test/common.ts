@@ -1,6 +1,6 @@
 import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
-import { FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
 import { SessionProvider, UserSession, User } from '@spinajs/rbac';
 import * as cs from 'cookie-signature';
@@ -192,4 +192,24 @@ export async function sessionCookieFor(user: User, impersonator?: User): Promise
 
 export function ctr() {
   return DI.get(Controllers);
+}
+
+/**
+ * Registers `TestConfiguration` as THE configuration, whatever ran before.
+ *
+ * `ContainerRegistry.register` de-duplicates by type name
+ * ( `di/src/registry.ts:39` ), so a plain
+ * `DI.register(TestConfiguration).as(Configuration)` is a NO-OP once this class
+ * is already in the list - and `resolve` takes the LAST entry. A db-only suite
+ * registering `DbTestConfiguration` after an http suite therefore stays the
+ * winner: the http suite then boots with no `http.port` at all and binds the
+ * framework default 1337 while every request in it goes to 8889.
+ *
+ * That failure mode is invisible in the default file order and appears the
+ * moment mocha is given a file to run first, so the unregister is not
+ * defensive - it is what makes these suites order independent.
+ */
+export function useTestConfiguration() {
+  DI.unregister(TestConfiguration);
+  DI.register(TestConfiguration).as(Configuration);
 }
