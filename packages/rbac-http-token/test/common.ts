@@ -11,6 +11,8 @@ import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
+import { dropOwnCompiledDirs } from './db-common.js';
+
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 
@@ -59,6 +61,14 @@ export function restoreHttpErrorMap() {
  * controllers. Mirrors `db-common.ts` and adds the http/server wiring.
  */
 export class TestConfiguration extends FrameworkConfiguration {
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    // see `dropOwnCompiledDirs` - without it this package's shipped config adds
+    // its `lib/...` controllers and models next to the `src/...` ones below.
+    dropOwnCompiledDirs(this);
+  }
+
   protected onLoad(): unknown {
     return {
       logger: {
