@@ -13,14 +13,29 @@ function dir(path: string) {
 const rbacHttpToken = {
   system: {
     dirs: {
-      // CLI commands, controllers and migrations are found by a filesystem scan
-      // ( `@ListFromFiles` ), so without these entries the shipped commands,
-      // the AccessToken controller and the initial migration are unreachable in
-      // a consuming app.
+      // CLI commands and controllers are found by a filesystem scan
+      // ( `@ListFromFiles` ), so without these entries the shipped commands and
+      // the AccessToken controller are unreachable in a consuming app.
       cli: [...dir('cli')],
       controllers: [...dir('controllers')],
-      migrations: [...dir('migrations')],
-      models: [...dir('models')],
+
+      // `migrations` is DELIBERATELY not shipped here, and neither is `models`.
+      //
+      // Package configs merge into an app's config by ARRAY CONCAT, and
+      // `FilesystemMigrationSource` treats a non-empty `system.dirs.migrations`
+      // as "the operator configured the scan set": it then REPLACES the build
+      // layout defaults instead of adding to them, and turns a failed `.js`
+      // import from a warning into a throw ( `orm/src/migration-sources.ts`,
+      // and the docblock on `orm/src/config/orm.ts` which ships the key empty
+      // for exactly this reason ). A single line here would therefore silently
+      // switch off migration discovery in every application that installs this
+      // package. `RbacHttpTokenInitial_...` needs no scan anyway - it carries
+      // `@Migration`, is exported from the package index, and is picked up from
+      // the DI registry by `DiRegistryMigrationSource`. `@spinajs/rbac` ships
+      // `cli` only for the same reason.
+      //
+      // Nothing in the framework reads `system.dirs.models` - models register
+      // themselves through the `@Model` decorator when their file is imported.
     },
   },
   queue: {

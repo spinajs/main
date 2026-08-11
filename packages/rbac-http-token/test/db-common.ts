@@ -41,6 +41,15 @@ const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'rbac-http-token', 'lib'))
 export function dropOwnCompiledDirs(cfg: Configuration): void {
   for (const kind of ['cli', 'controllers', 'migrations', 'models']) {
     const dirs = cfg.get<string[]>(['system', 'dirs', kind], []);
+
+    // An ABSENT key must stay absent - writing `[]` back would be a different
+    // thing than not configuring it at all, e.g. `FilesystemMigrationSource`
+    // reads `system.dirs.migrations` as "configured" by its length and would
+    // start distinguishing a key this helper materialized from one nobody set.
+    if (!dirs.length) {
+      continue;
+    }
+
     cfg.set(
       ['system', 'dirs', kind],
       dirs.filter((d) => !OWN_COMPILED_DIRS.some((fragment) => normalize(d).includes(fragment))),
