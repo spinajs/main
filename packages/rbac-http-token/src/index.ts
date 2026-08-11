@@ -7,3 +7,5 @@ export * from './events/index.js';
 export * from './migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
 export * from './policies/TokenPolicy.js';
 export * from './policies/NoTokenAuthPolicy.js';
+export * from './controllers/AccessTokenController.js';
+export * from './dto/create-token-dto.js';

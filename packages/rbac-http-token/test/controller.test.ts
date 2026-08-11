@@ -1,0 +1,209 @@
+import 'mocha';
+import { expect } from 'chai';
+import { Bootstrapper, DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { Orm } from '@spinajs/orm';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, HttpServer, IControllerDescriptor } from '@spinajs/http';
+import { fsService } from '@spinajs/fs';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/rbac';
+import { RbacPolicy } from '@spinajs/rbac-http';
+
+import { TestConfiguration, sessionCookieFor, req } from './common.js';
+import { AccessToken } from '../src/models/AccessToken.js';
+import { AccessTokenController } from '../src/controllers/AccessTokenController.js';
+import { NoTokenAuthPolicy } from '../src/policies/NoTokenAuthPolicy.js';
+import { createToken } from '../src/actions.js';
+import '../src/generator.js';
+import '../src/middlewares.js';
+
+/**
+ * End to end coverage of the self-service token API over a real http server.
+ *
+ * Two invariants carry this suite: the plaintext leaves the process exactly
+ * once, and an access token can never manage tokens - not on the create route,
+ * not on any other one.
+ */
+describe('AccessTokenController', function () {
+  this.timeout(25000);
+
+  let server: HttpServer;
+
+  before(async () => {
+    DI.setESMModuleSupport();
+
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    DI.register(BasicPasswordProvider).as(PasswordProvider);
+    DI.register(SimpleDbAuthProvider).as(AuthProvider);
+
+    // rbac wires its AccessControl instance and user factories from a
+    // bootstrapper; nothing runs bootstrappers for us outside a real app.
+    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
+    for (const b of bootstrappers) {
+      await b.bootstrap();
+    }
+
+    // order matters - @Config getters fire during fs / controller resolution,
+    // and the controller cache reads its own `__fs_controller_cache__` provider
+    await DI.resolve(Configuration);
+    await DI.resolve(fsService);
+    await DI.resolve(Orm);
+    await DI.resolve(Controllers);
+
+    server = await DI.resolve(HttpServer);
+    server.start();
+  });
+
+  after(async () => {
+    server.stop();
+    DI.clearCache();
+  });
+
+  async function makeUser(mail: string, login: string, roles: string[] = ['user']) {
+    const { User: u } = await create(mail, login, 'password123', roles);
+    await activate(u.Id);
+    return User.where('Id', u.Id).populate('Metadata').firstOrFail();
+  }
+
+  it('rejects anonymous access', async () => {
+    const res = await req().get('user/tokens');
+    expect(res.status).to.be.oneOf([401, 403]);
+  });
+
+  it('creates a token and returns plaintext exactly once', async () => {
+    const user = await makeUser('h1@spinajs.com', 'h1');
+    const cookie = await sessionCookieFor(user);
+
+    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'my token', Roles: ['user'] });
+    expect(res.status).to.equal(200);
+    expect(res.body.Plaintext).to.match(/^spt_/);
+    expect(res.body.Token.Uuid).to.be.a('string');
+    expect(res.body.Token).to.not.have.property('Token');
+
+    const list = await req().get('user/tokens').set('Cookie', cookie);
+    expect(list.status).to.equal(200);
+    expect(list.body).to.have.length(1);
+    expect(JSON.stringify(list.body), 'the plaintext must never be readable again').to.not.contain(res.body.Plaintext);
+
+    // wire shape: no hash / internal ids, and Roles is a real array rather than
+    // the storage encoding `@Set()`'s converter produces
+    const [entry] = list.body;
+    expect(entry).to.not.have.property('Token');
+    expect(entry).to.not.have.property('Id');
+    expect(entry).to.not.have.property('user_id');
+    expect(entry.Uuid).to.be.a('string');
+    expect(entry.Name).to.equal('my token');
+    expect(entry.Roles).to.deep.equal(['user']);
+  });
+
+  it('rejects creating token with role caller does not hold', async () => {
+    const user = await makeUser('h2@spinajs.com', 'h2');
+    const cookie = await sessionCookieFor(user);
+
+    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'bad', Roles: ['admin'] });
+    expect(res.status).to.equal(400);
+  });
+
+  it('deletes own token, foreign uuid not found', async () => {
+    const alice = await makeUser('h3@spinajs.com', 'h3');
+    const bob = await makeUser('h4@spinajs.com', 'h4');
+    const { Token: bobsToken } = await createToken(bob, 'bobs', ['user'], null);
+
+    const aliceCookie = await sessionCookieFor(alice);
+
+    const foreign = await req().delete(`user/tokens/${bobsToken.Uuid}`).set('Cookie', aliceCookie);
+    expect(foreign.status).to.equal(404);
+
+    const { Token: own } = await createToken(alice, 'own', ['user'], null);
+    const deleted = await req().delete(`user/tokens/${own.Uuid}`).set('Cookie', aliceCookie);
+    expect(deleted.status).to.equal(200);
+    expect(await AccessToken.where('Uuid', own.Uuid).first()).to.be.undefined;
+  });
+
+  it('grants and revokes role on own token', async () => {
+    const user = await makeUser('h5@spinajs.com', 'h5', ['user', 'admin']);
+    const cookie = await sessionCookieFor(user);
+    const { Token } = await createToken(user, 'roles', ['user'], null);
+
+    const granted = await req().put(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie);
+    expect(granted.status).to.equal(200);
+    expect(granted.body.Roles).to.have.members(['user', 'admin']);
+
+    const revoked = await req().delete(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie);
+    expect(revoked.status).to.equal(200);
+    expect(revoked.body.Roles).to.deep.equal(['user']);
+  });
+
+  it('refuses to revoke the last role with 400, not 500', async () => {
+    const user = await makeUser('h7@spinajs.com', 'h7');
+    const cookie = await sessionCookieFor(user);
+    const { Token } = await createToken(user, 'last role', ['user'], null);
+
+    const res = await req().delete(`user/tokens/${Token.Uuid}/roles/user`).set('Cookie', cookie);
+    expect(res.status).to.equal(400);
+
+    // refused BEFORE any write - the row still carries its role
+    expect((await AccessToken.where('Uuid', Token.Uuid).firstOrFail()).Roles).to.deep.equal(['user']);
+  });
+
+  it('a valid access token cannot manage tokens', async () => {
+    const user = await makeUser('h6@spinajs.com', 'h6');
+    const { Plaintext } = await createToken(user, 'self-replication attempt', ['user'], null);
+
+    const res = await req().post('user/tokens').set('Authorization', `Bearer ${Plaintext}`).send({ Name: 'clone', Roles: ['user'] });
+    expect(res.status).to.be.oneOf([401, 403]);
+  });
+
+  /**
+   * Structural guard on the decorator layout.
+   *
+   * The behavioural test above would still pass without `NoTokenAuthPolicy`,
+   * because `RbacPolicy` happens to demand a session too - so it cannot tell a
+   * deliberate guard from a lucky one. This asserts the layout itself: ONE
+   * controller-scope group ( `createPolicyGate` ANDs the controller scope with
+   * the route scope, and a lone group cannot be ORed away ), plus RbacPolicy on
+   * every route from `@Permission`.
+   */
+  it('guards every route with NoTokenAuthPolicy as a mandatory controller-scope group', () => {
+    // stored on the PROTOTYPE - `Controller()` writes to `target.prototype`
+    const descriptor: IControllerDescriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AccessTokenController.prototype);
+
+    expect(descriptor.Policies, 'a second controller-scope group would be ORed with this one, making it optional').to.have.length(1);
+    expect(descriptor.Policies[0].map((p) => p.Type)).to.deep.equal([NoTokenAuthPolicy]);
+
+    expect([...descriptor.Routes.keys()]).to.have.members(['list', 'create', 'delete', 'grantRole', 'revokeRole']);
+    for (const [name, route] of descriptor.Routes) {
+      const types = route.Policies.flat().map((p) => p.Type);
+      expect(types, `route ${String(name)} must carry the rbac permission check`).to.include(RbacPolicy);
+    }
+  });
+
+  it('a valid access token cannot reach ANY route of this controller', async () => {
+    // The class level `@Policy(NoTokenAuthPolicy)` is a single controller-scope
+    // group, so it is ANDed with every route's own policies - no route can opt
+    // out of it, and none may be reachable by token.
+    const user = await makeUser('h8@spinajs.com', 'h8', ['user', 'admin']);
+    const { Plaintext } = await createToken(user, 'probe', ['user', 'admin'], null);
+    const { Token: target } = await createToken(user, 'target', ['user', 'admin'], null);
+
+    const auth = `Bearer ${Plaintext}`;
+
+    const routes: [string, () => Promise<any>][] = [
+      ['GET tokens', () => req().get('user/tokens').set('Authorization', auth)],
+      ['POST tokens', () => req().post('user/tokens').set('Authorization', auth).send({ Name: 'clone', Roles: ['user'] })],
+      ['DELETE tokens/:uuid', () => req().delete(`user/tokens/${target.Uuid}`).set('Authorization', auth)],
+      ['PUT tokens/:uuid/roles/:role', () => req().put(`user/tokens/${target.Uuid}/roles/admin`).set('Authorization', auth)],
+      ['DELETE tokens/:uuid/roles/:role', () => req().delete(`user/tokens/${target.Uuid}/roles/admin`).set('Authorization', auth)],
+    ];
+
+    for (const [name, call] of routes) {
+      const res = await call();
+      expect(res.status, `token authenticated request reached ${name}`).to.be.oneOf([401, 403]);
+    }
+
+    // and nothing was actually done
+    expect((await AccessToken.where('Uuid', target.Uuid).firstOrFail()).Roles).to.have.members(['user', 'admin']);
+    expect(await AccessToken.where('user_id', user.Id)).to.have.length(2);
+  });
+});
