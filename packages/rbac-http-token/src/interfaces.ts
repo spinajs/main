@@ -2,6 +2,11 @@
 // augmentation at the bottom of this file has a module to attach to.
 // Erased at runtime, so this stays a types-only file.
 import type {} from '@spinajs/rbac';
+import type {} from '@spinajs/http';
+// `@spinajs/rbac-http` is what puts User / Session / ActiveRole on the http
+// request storage. Pulled in type-only so `req.storage.User` type-checks in a
+// declaration build too, where nothing else drags that augmentation in.
+import type {} from '@spinajs/rbac-http';
 
 export interface IGeneratedToken {
   /**
@@ -44,6 +49,21 @@ export interface ITokenAuthInfo {
 
 declare module '@spinajs/rbac' {
   interface IRbacAsyncStorage {
+    /**
+     * Set by TokenAuthMiddleware when the request carries a valid access token.
+     */
+    TokenAuth?: ITokenAuthInfo;
+  }
+}
+
+/**
+ * The http request-local storage is a SEPARATE interface from rbac's
+ * `IRbacAsyncStorage` ( `@spinajs/rbac-http` augments it the same way with
+ * User / Session / ActiveRole ), so the marker has to be declared on both -
+ * the one above for rbac's execution context, this one for `req.storage`.
+ */
+declare module '@spinajs/http' {
+  interface IActionLocalStoregeContext {
     /**
      * Set by TokenAuthMiddleware when the request carries a valid access token.
      */
