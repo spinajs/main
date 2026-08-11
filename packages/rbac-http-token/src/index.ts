@@ -10,3 +10,8 @@ export * from './policies/NoTokenAuthPolicy.js';
 export * from './policies/NoImpersonationPolicy.js';
 export * from './controllers/AccessTokenController.js';
 export * from './dto/create-token-dto.js';
+export * from './cli/CreateToken.js';
+export * from './cli/DeleteToken.js';
+export * from './cli/GrantTokenRole.js';
+export * from './cli/RevokeTokenRole.js';
+export * from './cli/DeleteExpiredTokens.js';
