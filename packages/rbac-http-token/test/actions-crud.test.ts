@@ -10,7 +10,7 @@ import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
-import { E_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
+import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
 import '../src/generator.js';
 
 describe('access token actions - crud', function () {
@@ -71,7 +71,7 @@ describe('access token actions - crud', function () {
     // failure - "rejected somehow" would also pass on an unrelated crash
     const err = await createToken(owner, 'bad', ['admin'], null).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
 
     // nothing may be persisted by a refused create
     const rows = await AccessToken.where('Name', 'bad').all();
@@ -111,7 +111,7 @@ describe('access token actions - crud', function () {
 
     const err = await grantTokenRole(Token.Uuid, 'system').catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
   });
 
   it('refuses to revoke the last role, leaving the row untouched', async () => {
@@ -120,7 +120,7 @@ describe('access token actions - crud', function () {
 
     const err = await revokeTokenRole(Token.Uuid, 'user').catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
 
     // an empty @Set() column stores as '' and reads back as [''] - a phantom
     // role that survives every later grant, so the refusal must be total

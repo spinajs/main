@@ -37,6 +37,12 @@ The placement is load bearing (see the docblock on `src/policies/TokenPolicy.ts`
   so when no group holds, the reported rejection is this policy's 403
   ("token role(s) ... do not have permission ...") instead of `RbacPolicy`'s
   misleading "user not logged" 401.
+- Because the two route-scope groups are **ORed**, adding `@Policy(TokenPolicy)`
+  *widens* the route: it becomes reachable by a token holder whose effective
+  roles carry the grant **and** by a session holder whose active role carries
+  it, exactly as before. It is not a "tokens only" switch. Use
+  `NoTokenAuthPolicy` (below) for the opposite - a route sessions may use and
+  tokens may not.
 - The `@Permission` line stays required - `TokenPolicy` reads the same route
   permission metadata, and a route without it silently inherits the
   controller-level default `['readOwn']`.
@@ -114,6 +120,14 @@ rbac:token-delete-expired   # run cyclically from a worker
   refused at authentication time.
 
 ## Configuration
+
+**A consuming app MUST import the package in its bootstrap** -
+`import '@spinajs/rbac-http-token';` - even when it uses nothing from it
+directly. The model, the migration and the auth middleware register themselves
+through decorators when their module is loaded, and the migration in particular
+is *not* found by filesystem scan (see the comment on `system.dirs` in
+`src/config/rbac-http-token.ts` and the note at the bottom of this file). Without
+that import the `rbac_access_tokens` table is never created.
 
 See `src/config/rbac-http-token.ts` - `rbac.token.*`:
 

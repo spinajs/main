@@ -84,6 +84,17 @@ const rbacHttpToken = {
       user: {
         'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
       },
+
+      // RESERVED - nothing shipped in this package enforces or consumes these.
+      //
+      // `AccessTokenController` is self-service by construction: every one of
+      // its routes declares an `*Own` permission and additionally constrains
+      // its query by the caller's id ( `own()` ), so an `*:any` grant changes
+      // nothing about what that controller lets through. The entry is here so
+      // the role's grant map is complete ahead of an admin-scope controller -
+      // "list / revoke the tokens of any user" is the obvious next addition -
+      // and so an application that writes such a controller itself finds the
+      // grants already declared under the resource name it must use.
       'admin.users': {
         'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
       },

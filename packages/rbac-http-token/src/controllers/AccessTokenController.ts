@@ -5,7 +5,7 @@ import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { AccessToken } from '../models/AccessToken.js';
-import { E_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
+import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
 import { CreateTokenDto } from '../dto/create-token-dto.js';
 import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
@@ -177,19 +177,29 @@ export class AccessTokenController extends BaseController {
   }
 
   /**
-   * Wire shape of one token: the dehydrated row, with `Roles` put back as a
-   * real array.
+   * Wire shape of one token: the dehydrated row, with timestamps as ISO
+   * instants and `Roles` put back as a real array.
    *
-   * `dehydrate()` runs every column through its converter's `toDB` direction,
-   * and `@Set()`'s converter joins the list into `"user,admin"` - the storage
-   * encoding, not the API contract. Left alone, `Roles` reaches clients as a
-   * string that only looks like a list, which no generated client parses back.
-   * `@spinajs/rbac-http-user`'s whoami restores `Role` the same way for the same
-   * reason. `@Hidden()` columns ( `Token`, `Id`, `user_id` ) are dropped by
-   * `dehydrate` itself, so the hash still never leaves here.
+   * `dehydrate()` runs every column through its converter's `toDB` direction -
+   * the STORAGE encoding, which is not the API contract in two places:
+   *
+   *   - `dateTimeFormat: 'iso'` is what turns `CreatedAt` / `ExpiresAt` /
+   *     `LastUsedAt` into offset-carrying ISO strings. Without it the sql
+   *     converter emits its driver format ( `"2026-08-11 10:00:00"` ), which
+   *     names no offset at all, so a client has to guess the zone. Every other
+   *     user-bearing response in the repo dehydrates with this option - see
+   *     `rbac-http-user/src/controllers/UserController.ts` - and a plain
+   *     `toJSON()` is exactly `dehydrate()` with the option missing.
+   *   - `@Set()`'s converter joins the role list into `"user,admin"`. Left
+   *     alone, `Roles` reaches clients as a string that only looks like a list,
+   *     which no generated client parses back.
+   *
+   * `@Hidden()` columns ( `Token`, `Id` ) are dropped by `dehydrate` itself and
+   * `user_id` is skipped as the `User` relation's foreign key, so the hash still
+   * never leaves here.
    */
   protected toWire(token: AccessToken): Record<string, unknown> {
-    return { ...token.toJSON(), Roles: [...token.Roles] };
+    return { ...token.dehydrate({ dateTimeFormat: 'iso' }), Roles: [...token.Roles] };
   }
 
   /**
@@ -201,7 +211,7 @@ export class AccessTokenController extends BaseController {
    * untouched so a genuine failure still reaches the error handler.
    */
   protected roleError(err: unknown): BadRequestResponse {
-    if (err instanceof ErrorCode && err.code === E_CODES.E_TOKEN_ROLE_NOT_ALLOWED) {
+    if (err instanceof ErrorCode && err.code === E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED) {
       return new BadRequestResponse({ error: { code: 'E_TOKEN_ROLE_NOT_ALLOWED', message: err.message } });
     }
 

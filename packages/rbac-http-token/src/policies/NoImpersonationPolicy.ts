@@ -1,5 +1,12 @@
 import { BasePolicy, IController, IRoute, Request as sRequest } from '@spinajs/http';
 import { Forbidden } from '@spinajs/exceptions';
+// Same side-effect import both siblings carry. `req.storage.Impersonator` comes
+// from `@spinajs/rbac-http`'s augmentation of `IActionLocalStoregeContext`,
+// which this package's `interfaces.ts` pulls into the program ( type-only ).
+// Without it the field only type-checks when something ELSE in the compilation
+// happened to drag that augmentation in - fine today, silently broken the day
+// this file is compiled on its own.
+import '../interfaces.js';
 
 /**
  * Rejects requests made from an impersonated session.

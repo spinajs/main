@@ -70,7 +70,9 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@spinajs/fs": "2.0.505",
     "@spinajs/orm-sqlite": "2.0.505",
+    "accesscontrol": "^2.2.1",
     "cookie-signature": "^1.2.2"
   }
 }
