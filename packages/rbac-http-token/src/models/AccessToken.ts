@@ -48,26 +48,26 @@ export class AccessToken extends ModelBase<AccessToken> {
   public Roles!: string[];
 
   /**
-   * Absolute expiration. Null = never expires.
+   * Absolute expiration. Null/absent = never expires.
    *
-   * NOTE: declared as plain `DateTime` even though the column is nullable - the
-   * `@DateTime()` decorator reads `design:type`, and a `DateTime | null` union
-   * is emitted as `Object`, which it rejects at decoration time. Same convention
-   * as `User.LastLoginAt` / `User.DeletedAt` in `@spinajs/rbac`.
+   * NOTE: declared optional rather than as a `DateTime | null` union - the
+   * `@DateTime()` decorator reads `design:type`, and a union is emitted as
+   * `Object`, which it rejects at decoration time. An optional property still
+   * emits `design:type = DateTime` while keeping the absence in the type.
    */
   @DT()
-  public ExpiresAt!: DateTime;
+  public ExpiresAt?: DateTime;
 
   @CreatedAt()
   public CreatedAt!: DateTime;
 
   /**
    * Last successful authentication with this token. Updated throttled.
-   * Null until the token is used for the first time - see the note on `ExpiresAt`
-   * for why the null is not part of the declared type.
+   * Null/absent until the token is used for the first time - see the note on
+   * `ExpiresAt` for why this is optional rather than a nullable union.
    */
   @DT()
-  public LastUsedAt!: DateTime;
+  public LastUsedAt?: DateTime;
 
   @Hidden()
   @BelongsTo('User')

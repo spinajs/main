@@ -43,7 +43,7 @@ describe('AccessToken model', function () {
       Name: 'test token',
       Token: 'a'.repeat(64),
       Roles: ['user'],
-      // omitted: the column is nullable and the model type is non-null, see AccessToken.ExpiresAt
+      // omitted: the column is nullable and the property is optional, see AccessToken.ExpiresAt
       user_id: owner.Id,
     });
     await token.insert();
@@ -77,7 +77,7 @@ describe('AccessToken model', function () {
       Name: 'hidden fields',
       Token: 'c'.repeat(64),
       Roles: ['user'],
-      // omitted: the column is nullable and the model type is non-null, see AccessToken.ExpiresAt
+      // omitted: the column is nullable and the property is optional, see AccessToken.ExpiresAt
       user_id: owner.Id,
     });
     await token.insert();
