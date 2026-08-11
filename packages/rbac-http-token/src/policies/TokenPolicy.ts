@@ -12,6 +12,28 @@ import '../interfaces.js';
  *
  * Mirrors RbacPolicy's grant enforcement, but for token-authenticated
  * requests ( which carry no session ).
+ *
+ * WIRING - do NOT pass this policy to @Permission's `also` parameter:
+ *
+ *   @Permission(['readOwn'], TokenPolicy)   // BROKEN - always 401
+ *
+ * `@Permission` unconditionally bundles RbacPolicy together with every `also`
+ * policy into the SAME policy group ( rbac-http/src/decorators.ts ), and
+ * policies inside one group are combined with AND. RbacPolicy demands an
+ * authorized session, which a token-authenticated request never has, so the
+ * pair can never both pass and the route is permanently unreachable by token.
+ *
+ * Declare it as its OWN group instead - groups at the same scope are ORed, so
+ * a token request satisfies the TokenPolicy group while a session request
+ * satisfies the RbacPolicy group:
+ *
+ *   @Policy(TokenPolicy)          // class or method level - separate group
+ *   @Permission(['readOwn'])      // method level - the permission metadata
+ *
+ * The `@Permission` line is still required even with `@Policy(TokenPolicy)`:
+ * this policy reads the same route permission metadata, and a route without it
+ * silently inherits the controller-level default `['readOwn']` rather than
+ * failing loudly.
  */
 export class TokenPolicy extends BasePolicy {
   public isEnabled(_action: IRoute, _instance: IController): boolean {
