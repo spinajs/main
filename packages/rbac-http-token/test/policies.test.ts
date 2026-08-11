@@ -11,6 +11,7 @@ import { ServerError } from '@spinajs/http';
 
 import { TokenPolicy } from '../src/policies/TokenPolicy.js';
 import { NoTokenAuthPolicy } from '../src/policies/NoTokenAuthPolicy.js';
+import { NoImpersonationPolicy } from '../src/policies/NoImpersonationPolicy.js';
 
 chai.use(chaiAsPromised);
 
@@ -98,6 +99,31 @@ describe('token policies', function () {
    */
   it('NoTokenAuthPolicy passes guest request', async () => {
     const policy = new NoTokenAuthPolicy();
+    const req: any = { storage: {} };
+    await expect(policy.execute(req, action, {} as any)).to.be.fulfilled;
+  });
+
+  it('NoImpersonationPolicy rejects an impersonated session', async () => {
+    const policy = new NoImpersonationPolicy();
+    // what RbacMiddleware builds from the `Impersonator` session key: User is
+    // the TARGET, Impersonator is whoever started it
+    const req: any = { storage: { User: { Uuid: 'victim' }, Session: {}, Impersonator: { Uuid: 'admin' } } };
+    await expect(policy.execute(req, action, {} as any)).to.be.rejectedWith(Forbidden);
+  });
+
+  it('NoImpersonationPolicy passes an ordinary session', async () => {
+    const policy = new NoImpersonationPolicy();
+    const req: any = { storage: { User: { Uuid: 'someone' }, Session: {} } };
+    await expect(policy.execute(req, action, {} as any)).to.be.fulfilled;
+  });
+
+  /**
+   * Like its sibling, this policy answers ONE question - "is somebody acting as
+   * somebody else?". No impersonation means pass, whoever the caller is;
+   * authentication is RbacPolicy's job.
+   */
+  it('NoImpersonationPolicy passes guest request', async () => {
+    const policy = new NoImpersonationPolicy();
     const req: any = { storage: {} };
     await expect(policy.execute(req, action, {} as any)).to.be.fulfilled;
   });

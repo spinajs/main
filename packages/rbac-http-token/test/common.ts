@@ -125,14 +125,28 @@ export class TestConfiguration extends FrameworkConfiguration {
  * `MemorySessionStore` is registered with `@Injectable(SessionProvider)`
  * ( `rbac/src/session.ts` ), and `RbacMiddleware` injects the same abstract
  * base, so both sides land on one instance.
+ *
+ * @param user - the user the session acts AS ( the impersonation target, when
+ *               `impersonator` is given )
+ * @param impersonator - administrator who started an impersonation of `user`.
+ *                       Stored under the `Impersonator` session key, which is
+ *                       what `RbacMiddleware` reads to populate
+ *                       `req.storage.Impersonator`. Must be an existing active
+ *                       user - the middleware resolves it through
+ *                       `RbacUserFactory`, which loads the row by uuid.
  */
-export async function sessionCookieFor(user: User): Promise<string> {
+export async function sessionCookieFor(user: User, impersonator?: User): Promise<string> {
   const provider = await DI.resolve(SessionProvider);
   const session = new UserSession();
   session.UserId = user.Id;
   session.Data.set('User', user.Uuid);
   session.Data.set('Authorized', true);
   session.Data.set('ActiveRole', user.Role[0]);
+
+  if (impersonator) {
+    session.Data.set('Impersonator', impersonator.Uuid);
+  }
+
   await provider.save(session);
 
   return `ssid=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;

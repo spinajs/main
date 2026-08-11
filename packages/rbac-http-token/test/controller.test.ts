@@ -13,6 +13,7 @@ import { TestConfiguration, sessionCookieFor, req } from './common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenController } from '../src/controllers/AccessTokenController.js';
 import { NoTokenAuthPolicy } from '../src/policies/NoTokenAuthPolicy.js';
+import { NoImpersonationPolicy } from '../src/policies/NoImpersonationPolicy.js';
 import { createToken } from '../src/actions.js';
 import '../src/generator.js';
 import '../src/middlewares.js';
@@ -81,9 +82,16 @@ describe('AccessTokenController', function () {
     expect(res.body.Token.Uuid).to.be.a('string');
     expect(res.body.Token).to.not.have.property('Token');
 
+    // a stranger's token must not appear in the listing - proves the
+    // `.where('user_id', ...)` in list() is load bearing rather than incidental
+    const stranger = await makeUser('h1b@spinajs.com', 'h1b');
+    const { Token: strangersToken } = await createToken(stranger, 'not yours', ['user'], null);
+
     const list = await req().get('user/tokens').set('Cookie', cookie);
     expect(list.status).to.equal(200);
     expect(list.body).to.have.length(1);
+    expect(list.body.map((t: any) => t.Uuid), "another user's token leaked into the listing").to.not.include(strangersToken.Uuid);
+    expect(JSON.stringify(list.body)).to.not.contain(strangersToken.Uuid);
     expect(JSON.stringify(list.body), 'the plaintext must never be readable again').to.not.contain(res.body.Plaintext);
 
     // wire shape: no hash / internal ids, and Roles is a real array rather than
@@ -156,21 +164,65 @@ describe('AccessTokenController', function () {
   });
 
   /**
+   * An impersonated session must not be able to mint a token.
+   *
+   * `RbacMiddleware` puts the impersonation TARGET in `req.storage.User`, so the
+   * grants, the ownership filter and `RbacPolicy` all read as the victim - the
+   * request is indistinguishable from a genuine one everywhere except
+   * `req.storage.Impersonator`. A token minted here would be a bearer credential
+   * carrying the victim's roles that outlives the impersonation entirely.
+   */
+  it('an impersonated session cannot mint or manage tokens', async () => {
+    const victim = await makeUser('h9@spinajs.com', 'h9');
+    const admin = await makeUser('h10@spinajs.com', 'h10', ['admin']);
+
+    // exactly what an active impersonation looks like on the wire: the victim's
+    // session, carrying the administrator's uuid under the `Impersonator` key
+    const cookie = await sessionCookieFor(victim, admin);
+    const { Token: victimsToken } = await createToken(victim, 'pre-existing', ['user'], null);
+
+    const created = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'stolen', Roles: ['user'] });
+    expect(created.status, 'impersonation must not be able to mint a lasting credential').to.equal(403);
+
+    // and no route of the controller is reachable either - the guard sits at the
+    // controller scope, not on the create route alone
+    const listed = await req().get('user/tokens').set('Cookie', cookie);
+    expect(listed.status).to.equal(403);
+
+    const deleted = await req().delete(`user/tokens/${victimsToken.Uuid}`).set('Cookie', cookie);
+    expect(deleted.status).to.equal(403);
+
+    // nothing was minted and nothing was destroyed
+    const tokens = await AccessToken.where('user_id', victim.Id);
+    expect(tokens).to.have.length(1);
+    expect(tokens[0].Uuid).to.equal(victimsToken.Uuid);
+
+    // control: the very same request WITHOUT the impersonation succeeds, so the
+    // 403s above are the impersonation guard and not a broken fixture
+    const ownCookie = await sessionCookieFor(victim);
+    const own = await req().post('user/tokens').set('Cookie', ownCookie).send({ Name: 'mine', Roles: ['user'] });
+    expect(own.status).to.equal(200);
+  });
+
+  /**
    * Structural guard on the decorator layout.
    *
    * The behavioural test above would still pass without `NoTokenAuthPolicy`,
    * because `RbacPolicy` happens to demand a session too - so it cannot tell a
    * deliberate guard from a lucky one. This asserts the layout itself: ONE
-   * controller-scope group ( `createPolicyGate` ANDs the controller scope with
-   * the route scope, and a lone group cannot be ORed away ), plus RbacPolicy on
-   * every route from `@Permission`.
+   * controller-scope group holding BOTH guards ( `createPolicyGate` ANDs the
+   * controller scope with the route scope, ANDs the members of a group, and a
+   * lone group cannot be ORed away ), plus RbacPolicy on every route from
+   * `@Permission`.
    */
-  it('guards every route with NoTokenAuthPolicy as a mandatory controller-scope group', () => {
+  it('guards every route with both controller-scope policies in ONE mandatory group', () => {
     // stored on the PROTOTYPE - `Controller()` writes to `target.prototype`
     const descriptor: IControllerDescriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AccessTokenController.prototype);
 
-    expect(descriptor.Policies, 'a second controller-scope group would be ORed with this one, making it optional').to.have.length(1);
-    expect(descriptor.Policies[0].map((p) => p.Type)).to.deep.equal([NoTokenAuthPolicy]);
+    expect(descriptor.Policies, 'a second controller-scope group would be ORed with this one, making both optional').to.have.length(1);
+    // ONE group, BOTH members - split across two @Policy() calls they would be
+    // ORed and neither would remain a requirement
+    expect(descriptor.Policies[0].map((p) => p.Type)).to.have.members([NoTokenAuthPolicy, NoImpersonationPolicy]);
 
     expect([...descriptor.Routes.keys()]).to.have.members(['list', 'create', 'delete', 'grantRole', 'revokeRole']);
     for (const [name, route] of descriptor.Routes) {
@@ -180,9 +232,9 @@ describe('AccessTokenController', function () {
   });
 
   it('a valid access token cannot reach ANY route of this controller', async () => {
-    // The class level `@Policy(NoTokenAuthPolicy)` is a single controller-scope
-    // group, so it is ANDed with every route's own policies - no route can opt
-    // out of it, and none may be reachable by token.
+    // The class level `@Policy([NoTokenAuthPolicy, NoImpersonationPolicy])` is a
+    // single controller-scope group, so it is ANDed with every route's own
+    // policies - no route can opt out of it, and none may be reachable by token.
     const user = await makeUser('h8@spinajs.com', 'h8', ['user', 'admin']);
     const { Plaintext } = await createToken(user, 'probe', ['user', 'admin'], null);
     const { Token: target } = await createToken(user, 'target', ['user', 'admin'], null);
@@ -200,6 +252,15 @@ describe('AccessTokenController', function () {
     for (const [name, call] of routes) {
       const res = await call();
       expect(res.status, `token authenticated request reached ${name}`).to.be.oneOf([401, 403]);
+
+      // Positive control. Without it this test would also pass against a token
+      // that never authenticated at all ( a typo'd header, a rejected token ),
+      // which proves nothing about the policy. `TokenAuthMiddleware` sets
+      // `Cache-Control: no-store` ONLY after a token validates
+      // ( rbac-http-token/src/middlewares.ts ), and no session is involved here,
+      // so the header's presence pins that the credential really was accepted
+      // and it was the POLICY that turned it away.
+      expect(res.headers['cache-control'], `${name} rejected a token that never authenticated`).to.equal('no-store');
     }
 
     // and nothing was actually done

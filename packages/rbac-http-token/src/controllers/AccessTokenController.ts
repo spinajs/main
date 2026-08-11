@@ -8,17 +8,22 @@ import { AccessToken } from '../models/AccessToken.js';
 import { E_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
 import { CreateTokenDto } from '../dto/create-token-dto.js';
 import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
+import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
 
 /**
  * Self-service management of own access tokens.
  *
- * Session authentication is required and token authentication is explicitly
- * rejected: an access token must never be able to mint another token.
- * Every query is constrained by the calling user's id - a foreign uuid is
+ * SELF-service in the strict sense: the caller must be the account owner,
+ * present in person. Two ways of acting *as* somebody are refused outright -
+ * an access token ( which must never mint another token ) and an impersonated
+ * session ( which must never mint a credential that outlives it ). Every query
+ * is additionally constrained by the calling user's id, so a foreign uuid is
  * simply not found.
  *
- * WIRING - the decorator layout below is load bearing, do NOT add a class level
- * `@Policy(RbacPolicy)` next to `@Policy(NoTokenAuthPolicy)`:
+ * WIRING - the decorator layout below is load bearing. The two guards share ONE
+ * `@Policy([...])` group so they are ANDed; splitting them into two `@Policy()`
+ * calls would OR them and each would become optional. And do NOT add a class
+ * level `@Policy(RbacPolicy)` alongside:
  *
  * `@spinajs/http` combines policies at three levels ( see `createPolicyGate` in
  * `http/src/route-builder.ts` ): AND inside one `@Policy()` group, OR between
@@ -26,22 +31,24 @@ import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
  * route scope. `@Permission()` already pushes `RbacPolicy` as a group on the
  * ROUTE ( `rbac-http/src/decorators.ts` ), so:
  *
- *   - controller scope holds exactly ONE group, `[NoTokenAuthPolicy]`. A lone
- *     group cannot be ORed away, so it is a hard requirement of EVERY route on
- *     this controller, including any route added later.
+ *   - controller scope holds exactly ONE group,
+ *     `[NoTokenAuthPolicy, NoImpersonationPolicy]`. A lone group cannot be ORed
+ *     away, so both are a hard requirement of EVERY route on this controller,
+ *     including any route added later.
  *   - route scope holds `[RbacPolicy]` from `@Permission`, which demands an
  *     authorized session AND the declared grant.
  *
  * Adding `@Policy(RbacPolicy)` at class level would make the controller scope
- * `[NoTokenAuthPolicy] OR [RbacPolicy]`, and satisfying `RbacPolicy` alone would
- * then discharge the whole scope - the no-token-management invariant would rest
- * on nothing but RbacPolicy's own session check.
+ * `[NoTokenAuthPolicy, NoImpersonationPolicy] OR [RbacPolicy]`, and satisfying
+ * `RbacPolicy` alone would then discharge the whole scope - both invariants
+ * would rest on nothing but RbacPolicy's own session check, which does not look
+ * at impersonation at all.
  *
  * @tags AccessTokens
  */
 @BasePath('user')
 @Resource('user.tokens')
-@Policy(NoTokenAuthPolicy)
+@Policy([NoTokenAuthPolicy, NoImpersonationPolicy])
 export class AccessTokenController extends BaseController {
   /**
    * List own access tokens
