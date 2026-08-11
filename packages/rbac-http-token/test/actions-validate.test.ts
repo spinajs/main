@@ -4,7 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, ban, create, deactivate, revoke } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/rbac';
 import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
@@ -67,6 +67,17 @@ describe('access token actions - validate & cleanup', function () {
     expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_NOT_FOUND);
   });
 
+  it('rejects degenerate input as an unknown token', async () => {
+    // empty / whitespace / nil must not escape as InvalidArgument or TypeError -
+    // callers catch ErrorCode and would let a raw throw become a 500 instead of
+    // a 401. The code is deliberately the same as for a wrong token.
+    for (const bad of ['', '   ', undefined, null]) {
+      const err = await validateToken(bad as unknown as string).catch((e: unknown) => e);
+      expect(err, `input: ${JSON.stringify(bad)}`).to.be.instanceOf(ErrorCode);
+      expect((err as ErrorCode).code, `input: ${JSON.stringify(bad)}`).to.equal(E_CODES.E_TOKEN_NOT_FOUND);
+    }
+  });
+
   it('rejects expired token', async () => {
     const owner = await activeUser('v2@spinajs.com', 'v2', ['user']);
     const { Token, Plaintext } = await createToken(owner, 'expired', ['user'], DateTime.now().plus({ minutes: 5 }));
@@ -91,6 +102,19 @@ describe('access token actions - validate & cleanup', function () {
     const owner = await activeUser('v4@spinajs.com', 'v4', ['user']);
     const { Plaintext } = await createToken(owner, 'inactive owner', ['user'], null);
     await deactivate(owner.Id);
+
+    const err = await validateToken(Plaintext).catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(ErrorCode);
+    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_OWNER_INVALID);
+  });
+
+  it('rejects token of soft-deleted owner', async () => {
+    const owner = await activeUser('v10@spinajs.com', 'v10', ['user']);
+    const { Plaintext } = await createToken(owner, 'deleted owner', ['user'], null);
+
+    // `deleteUser` soft-deletes, so the token row outlives its owner - the owner
+    // lookup has to refuse it rather than hand back a tombstoned account
+    await deleteUser(owner.Id);
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);

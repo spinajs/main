@@ -208,7 +208,17 @@ export interface ITokenValidationResult {
  * @param plaintext - token exactly as presented by the client
  */
 export async function validateToken(plaintext: string): Promise<ITokenValidationResult> {
-  plaintext = _check_arg(_trim(), _non_empty())(plaintext, 'plaintext');
+  // Degenerate input is a failed authentication like any other, so it has to
+  // leave through the same door. `_check_arg(_trim(), _non_empty())` would
+  // throw a raw InvalidArgument here - and a bare TypeError for nil, since
+  // `_non_empty` dereferences `.length` - breaking the "always an ErrorCode"
+  // contract this function is called under. Reported as E_TOKEN_NOT_FOUND with
+  // the unknown-token message on purpose: a caller must not learn WHY.
+  if (!_.isString(plaintext) || plaintext.trim().length === 0) {
+    throw new ErrorCode(E_CODES.E_TOKEN_NOT_FOUND, 'Access token not found');
+  }
+
+  plaintext = plaintext.trim();
 
   const generator = await _service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider)();
   const hash = generator.hash(plaintext);
@@ -225,6 +235,9 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   // Metadata carries the ban flag, so it must be populated - without it
   // `IsBanned` silently answers false and every banned owner authenticates.
   const owner = await User.where('Id', token.user_id).populate('Metadata').first();
+
+  // `DeletedAt` is defence in depth: the orm's soft-delete scope already appends
+  // `DeletedAt IS NULL` to User selects, so a deleted owner arrives as undefined.
   if (!owner || !owner.IsActive || owner.DeletedAt || owner.IsBanned) {
     throw new ErrorCode(E_CODES.E_TOKEN_OWNER_INVALID, 'Access token owner is not allowed to authenticate', { token: token.Uuid });
   }
