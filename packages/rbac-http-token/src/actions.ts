@@ -152,8 +152,16 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
  * Not symmetric with {@link grantTokenRole}: revoking only ever narrows what a
  * token may do, so it needs no owner check.
  *
+ * A token must always keep at least one role - revoking the last one is
+ * refused, and full revocation means deleting the token. Beyond being
+ * meaningless ( a role-less token authorises nothing ), an empty list is
+ * actively corrupting: `@Set()` columns round-trip through `SqlSetConverter`,
+ * which stores `[]` as `''` and reads `''` back as `['']`. That phantom empty
+ * role then survives every later grant, permanently.
+ *
  * @param token - {@link AccessToken} instance or its uuid
  * @param role - role name to revoke
+ * @throws ErrorCode E_TOKEN_ROLE_NOT_ALLOWED when `role` is the token's last role
  */
 export async function revokeTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
@@ -161,7 +169,15 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
   return _chain(
     _token(token),
     _tap(async (t: AccessToken) => {
-      t.Roles = t.Roles.filter((r) => r !== role);
+      const remaining = t.Roles.filter((r) => r !== role);
+
+      // checked BEFORE mutating, so a refused revoke leaves the instance and
+      // the row exactly as they were
+      if (remaining.length === 0) {
+        throw new ErrorCode(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Cannot revoke the last role from a token - delete the token instead', { token: t.Uuid });
+      }
+
+      t.Roles = remaining;
       await t.update();
     }),
     _token_ev(AccessTokenRoleRevoked, role),

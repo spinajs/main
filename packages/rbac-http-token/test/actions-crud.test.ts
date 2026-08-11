@@ -5,11 +5,12 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create } from '@spinajs/rbac';
+import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
-import { createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
+import { E_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
 import '../src/generator.js';
 
 describe('access token actions - crud', function () {
@@ -65,7 +66,16 @@ describe('access token actions - crud', function () {
 
   it('rejects roles the owner does not hold', async () => {
     const { User: owner } = await create('c3@spinajs.com', 'c3', 'password123', ['user']);
-    await expect(createToken(owner, 'bad', ['admin'], null)).to.be.rejected;
+
+    // the role-subset rule is a security invariant, so assert the exact
+    // failure - "rejected somehow" would also pass on an unrelated crash
+    const err = await createToken(owner, 'bad', ['admin'], null).catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(ErrorCode);
+    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+
+    // nothing may be persisted by a refused create
+    const rows = await AccessToken.where('Name', 'bad').all();
+    expect(rows).to.have.length(0);
   });
 
   it('resolves owner by uuid string', async () => {
@@ -94,6 +104,27 @@ describe('access token actions - crud', function () {
     const revoked = await revokeTokenRole(Token.Uuid, 'user');
     expect(revoked.Roles).to.deep.equal(['admin']);
 
-    await expect(grantTokenRole(Token.Uuid, 'system')).to.be.rejected;
+    // the returned instance proves the in-memory mutation, not the write -
+    // reload to prove the revoke actually reached the row
+    const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    expect(reloaded.Roles).to.deep.equal(['admin']);
+
+    const err = await grantTokenRole(Token.Uuid, 'system').catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(ErrorCode);
+    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+  });
+
+  it('refuses to revoke the last role, leaving the row untouched', async () => {
+    const { User: owner } = await create('c7@spinajs.com', 'c7', 'password123', ['user']);
+    const { Token } = await createToken(owner, 'single role', ['user'], null);
+
+    const err = await revokeTokenRole(Token.Uuid, 'user').catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(ErrorCode);
+    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+
+    // an empty @Set() column stores as '' and reads back as [''] - a phantom
+    // role that survives every later grant, so the refusal must be total
+    const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    expect(reloaded.Roles).to.deep.equal(['user']);
   });
 });
