@@ -10,7 +10,7 @@ import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
-import { E_CODES, createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/actions.js';
+import { E_TOKEN_CODES, createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/actions.js';
 import '../src/generator.js';
 
 describe('access token actions - validate & cleanup', function () {
@@ -64,7 +64,7 @@ describe('access token actions - validate & cleanup', function () {
   it('rejects unknown token', async () => {
     const err = await validateToken('spt_does-not-exist').catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_NOT_FOUND);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_NOT_FOUND);
   });
 
   it('rejects degenerate input as an unknown token', async () => {
@@ -74,7 +74,7 @@ describe('access token actions - validate & cleanup', function () {
     for (const bad of ['', '   ', undefined, null]) {
       const err = await validateToken(bad as unknown as string).catch((e: unknown) => e);
       expect(err, `input: ${JSON.stringify(bad)}`).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code, `input: ${JSON.stringify(bad)}`).to.equal(E_CODES.E_TOKEN_NOT_FOUND);
+      expect((err as ErrorCode).code, `input: ${JSON.stringify(bad)}`).to.equal(E_TOKEN_CODES.E_TOKEN_NOT_FOUND);
     }
   });
 
@@ -89,7 +89,7 @@ describe('access token actions - validate & cleanup', function () {
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_EXPIRED);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_EXPIRED);
   });
 
   it('infinite token (null expiry) validates', async () => {
@@ -105,7 +105,7 @@ describe('access token actions - validate & cleanup', function () {
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_OWNER_INVALID);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
   });
 
   it('rejects token of soft-deleted owner', async () => {
@@ -118,7 +118,7 @@ describe('access token actions - validate & cleanup', function () {
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_OWNER_INVALID);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
   });
 
   it('rejects token of banned owner', async () => {
@@ -130,7 +130,7 @@ describe('access token actions - validate & cleanup', function () {
     // owner with Metadata populated - without it IsBanned is always false
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_OWNER_INVALID);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
   });
 
   it('effective roles shrink when user loses a role', async () => {
@@ -154,12 +154,23 @@ describe('access token actions - validate & cleanup', function () {
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
   });
 
+  /**
+   * The sweep is a bulk DELETE driven by two predicates that are easy to get
+   * wrong in opposite directions: dropping `whereNotNull` would take every
+   * never-expiring token with it, and comparing the wrong way round would take
+   * every token that is still valid. Both survivors are therefore asserted
+   * explicitly - a null expiry AND a future one.
+   *
+   * The db is shared with the rest of this file, so the deleted COUNT cannot be
+   * pinned exactly; the three rows this test owns can be, and are.
+   */
   it('deleteExpiredTokens removes only expired rows', async () => {
     const owner = await activeUser('v8@spinajs.com', 'v8', ['user']);
     const { Token: live } = await createToken(owner, 'live', ['user'], null);
+    const { Token: future } = await createToken(owner, 'future', ['user'], DateTime.now().plus({ days: 30 }));
     const { Token: dead } = await createToken(owner, 'dead', ['user'], DateTime.now().plus({ minutes: 5 }));
 
     const row = await AccessToken.where('Uuid', dead.Uuid).firstOrFail();
@@ -168,8 +179,14 @@ describe('access token actions - validate & cleanup', function () {
 
     const count = await deleteExpiredTokens();
     expect(count).to.be.gte(1);
-    expect(await AccessToken.where('Uuid', live.Uuid).first()).to.not.be.undefined;
+    expect(await AccessToken.where('Uuid', live.Uuid).first(), 'a never-expiring token was swept away').to.not.be.undefined;
+    expect(await AccessToken.where('Uuid', future.Uuid).first(), 'a token expiring in the future was swept away').to.not.be.undefined;
     expect(await AccessToken.where('Uuid', dead.Uuid).first()).to.be.undefined;
+
+    // and this owner is left with exactly the two survivors - nothing of theirs
+    // was taken beyond the one expired row
+    const remaining = await AccessToken.where('user_id', owner.Id);
+    expect(remaining.map((t) => t.Name)).to.have.members(['live', 'future']);
   });
 
   it('touchToken stamps first use and then throttles writes', async () => {

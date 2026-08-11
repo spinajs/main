@@ -140,9 +140,19 @@ describe('access token cli commands', function () {
     expect(row.Roles).to.deep.equal(['user']);
   });
 
+  /**
+   * Boundary of the bulk delete, pinned from both sides: a null expiry ( never
+   * expires ) and a future one must both survive, and the row that is actually
+   * past its expiry must not. Dropping `whereNotNull` from the query takes the
+   * first away; reversing the comparison takes the second.
+   *
+   * This user owns exactly three tokens, so the survivor COUNT is asserted
+   * exactly rather than "at least".
+   */
   it('rbac:token-delete-expired removes only expired tokens', async () => {
     const user = await makeUser('cli5@spinajs.com', 'cli5');
     const { Token: live } = await createToken(user, 'live', ['user'], null);
+    const { Token: future } = await createToken(user, 'future', ['user'], DateTime.now().plus({ days: 30 }));
     const { Token: dead } = await createToken(user, 'dead', ['user'], DateTime.now().plus({ minutes: 1 }));
 
     const row = await AccessToken.where('Uuid', dead.Uuid).firstOrFail();
@@ -151,7 +161,12 @@ describe('access token cli commands', function () {
 
     await (await DI.resolve(DeleteExpiredTokens)).execute();
 
-    expect(await AccessToken.where('Uuid', live.Uuid).first()).to.not.be.undefined;
+    expect(await AccessToken.where('Uuid', live.Uuid).first(), 'a never-expiring token was swept away').to.not.be.undefined;
+    expect(await AccessToken.where('Uuid', future.Uuid).first(), 'a token expiring in the future was swept away').to.not.be.undefined;
     expect(await AccessToken.where('Uuid', dead.Uuid).first()).to.be.undefined;
+
+    const remaining = await AccessToken.where('user_id', user.Id);
+    expect(remaining).to.have.length(2);
+    expect(remaining.map((t) => t.Name)).to.have.members(['live', 'future']);
   });
 });

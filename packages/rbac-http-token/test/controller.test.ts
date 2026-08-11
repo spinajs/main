@@ -7,7 +7,8 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, HttpServer, IControllerDescr
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/rbac';
-import { RbacPolicy } from '@spinajs/rbac-http';
+import { ACL_CONTROLLER_DESCRIPTOR, IRbacDescriptor, RbacPolicy } from '@spinajs/rbac-http';
+import { DateTime } from 'luxon';
 
 import { sessionCookieFor, req, restoreHttpErrorMap, useTestConfiguration } from './common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
@@ -61,12 +62,17 @@ describe('AccessTokenController', function () {
 
     server = await DI.resolve(HttpServer);
 
-    // AWAITED, both here and in after(). `start()` binds the port inside a
-    // promise that REJECTS on EADDRINUSE ( `http/src/server.ts:253-271` ) and
-    // `stop()` is a promise too. Left un-awaited, a sibling suite that has not
-    // finished releasing 8889 makes this one bind nothing at all and every
-    // request fails with a bare connection error instead of a readable message -
-    // and the outcome flips with mocha's file order.
+    // AWAITED, both here and in after(): `start()` binds the port inside a
+    // promise ( `http/src/server.ts` ) and `stop()` is a promise too, so an
+    // un-awaited pair lets a request go out before the listener exists and lets
+    // the next suite start while this one still holds 8889.
+    //
+    // The port this actually binds comes from the configuration registered in
+    // `useTestConfiguration()` above - NOT from a plain `DI.register(...)`. See
+    // that helper's docblock: registration de-duplicates by type name, so a
+    // db-only suite's configuration stays the winner and this server would
+    // silently bind the framework default 1337 while every request here goes to
+    // 8889.
     await server.start();
   });
 
@@ -117,6 +123,30 @@ describe('AccessTokenController', function () {
     expect(entry.Uuid).to.be.a('string');
     expect(entry.Name).to.equal('my token');
     expect(entry.Roles).to.deep.equal(['user']);
+
+    // timestamps are the API contract's ISO instants, not the driver's storage
+    // format - `"2026-08-11 10:00:00"` names no offset, so a client has to guess
+    // the zone. Asserted on the `T` and on luxon actually parsing it back.
+    expect(entry.CreatedAt, 'CreatedAt is not an ISO instant').to.be.a('string').and.to.contain('T');
+    expect(DateTime.fromISO(entry.CreatedAt).isValid, `CreatedAt is not parseable ISO: ${entry.CreatedAt}`).to.be.true;
+  });
+
+  it('returns ExpiresAt as an ISO instant too', async () => {
+    const user = await makeUser('h11@spinajs.com', 'h11');
+    const cookie = await sessionCookieFor(user);
+    const expires = DateTime.now().plus({ days: 7 });
+
+    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'expiring', Roles: ['user'], ExpiresAt: expires.toISO() });
+    expect(res.status).to.equal(200);
+
+    const wire = res.body.Token.ExpiresAt;
+    expect(wire, 'ExpiresAt is not an ISO instant').to.be.a('string').and.to.contain('T');
+
+    // and it is the instant that was asked for, not merely some parseable date.
+    // Second resolution: the column carries no sub-second precision.
+    const parsed = DateTime.fromISO(wire);
+    expect(parsed.isValid, `ExpiresAt is not parseable ISO: ${wire}`).to.be.true;
+    expect(Math.floor(parsed.toMillis() / 1000)).to.equal(Math.floor(expires.toMillis() / 1000));
   });
 
   it('rejects creating token with role caller does not hold', async () => {
@@ -242,6 +272,33 @@ describe('AccessTokenController', function () {
     for (const [name, route] of descriptor.Routes) {
       const types = route.Policies.flat().map((p) => p.Type);
       expect(types, `route ${String(name)} must carry the rbac permission check`).to.include(RbacPolicy);
+    }
+
+    // The permission each route DEMANDS, not merely that it demands one.
+    // `RbacPolicy` falls back to the controller-level permission for any route
+    // it finds no entry for, and the controller default is `readOwn` - so a
+    // route that lost its `@Permission` line would quietly downgrade a write to
+    // a read check while still passing every assertion above.
+    const acl: IRbacDescriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, AccessTokenController.prototype);
+    expect(acl.Resource).to.equal('user.tokens');
+
+    const expected: Record<string, string[]> = {
+      list: ['readOwn'],
+      create: ['createOwn'],
+      delete: ['deleteOwn'],
+      grantRole: ['updateOwn'],
+      revokeRole: ['updateOwn'],
+    };
+
+    for (const [name, permission] of Object.entries(expected)) {
+      expect(acl.Routes.get(name)?.Permission, `route ${name} declares the wrong permission`).to.deep.equal(permission);
+    }
+
+    // every OWN scope, nothing broader: this controller is self-service only
+    for (const [name, route] of acl.Routes) {
+      for (const p of route.Permission ?? []) {
+        expect(p, `route ${String(name)} declares a non-own permission`).to.match(/Own$/);
+      }
     }
   });
 
