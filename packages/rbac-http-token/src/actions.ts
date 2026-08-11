@@ -183,3 +183,100 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
     _token_ev(AccessTokenRoleRevoked, role),
   );
 }
+
+export interface ITokenValidationResult {
+  User: User;
+  Token: AccessToken;
+
+  /**
+   * Token roles that the owner still holds. Permission checks run with these.
+   */
+  EffectiveRoles: string[];
+}
+
+/**
+ * Validates a presented plaintext token.
+ *
+ * Checks, in order: token exists ( by hash ), token not expired, owner active /
+ * not soft-deleted / not banned, effective role intersection non-empty.
+ * Throws ErrorCode with {@link E_CODES} on every failure path.
+ *
+ * The owner checks are spelled out instead of reusing the `isActiveUser` query
+ * scope on purpose - a single "no such active user" result cannot say WHY, and
+ * callers need to tell an expired token from a banned account.
+ *
+ * @param plaintext - token exactly as presented by the client
+ */
+export async function validateToken(plaintext: string): Promise<ITokenValidationResult> {
+  plaintext = _check_arg(_trim(), _non_empty())(plaintext, 'plaintext');
+
+  const generator = await _service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider)();
+  const hash = generator.hash(plaintext);
+
+  const token = await AccessToken.where('Token', hash).first();
+  if (!token) {
+    throw new ErrorCode(E_CODES.E_TOKEN_NOT_FOUND, 'Access token not found');
+  }
+
+  if (token.IsExpired) {
+    throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, 'Access token expired', { token: token.Uuid });
+  }
+
+  // Metadata carries the ban flag, so it must be populated - without it
+  // `IsBanned` silently answers false and every banned owner authenticates.
+  const owner = await User.where('Id', token.user_id).populate('Metadata').first();
+  if (!owner || !owner.IsActive || owner.DeletedAt || owner.IsBanned) {
+    throw new ErrorCode(E_CODES.E_TOKEN_OWNER_INVALID, 'Access token owner is not allowed to authenticate', { token: token.Uuid });
+  }
+
+  // roles are re-intersected on every request rather than trusted from the row:
+  // a role revoked on the user must take effect immediately, without having to
+  // hunt down every token that still carries it
+  const effective = token.Roles.filter((r) => owner.Role.includes(r));
+  if (effective.length === 0) {
+    throw new ErrorCode(E_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token has no effective roles', { token: token.Uuid });
+  }
+
+  return { User: owner, Token: token, EffectiveRoles: effective };
+}
+
+/**
+ * Deletes every token whose expiration has passed. Returns the deleted count.
+ *
+ * Intended for cyclic execution from a worker ( see `rbac:token-delete-expired` ).
+ * Expired tokens are already refused by {@link validateToken}, so this is
+ * housekeeping, not enforcement.
+ */
+export async function deleteExpiredTokens(): Promise<number> {
+  // `whereNotNull` is not redundant next to `<=`: a null expiry means "never
+  // expires", and null comparisons must not sweep those rows away.
+  const expired = await AccessToken.where('ExpiresAt', '<=', DateTime.now()).whereNotNull('ExpiresAt');
+
+  for (const t of expired) {
+    await t.destroy();
+  }
+
+  return expired.length;
+}
+
+/**
+ * Updates `LastUsedAt`, throttled: writes only when the stamp is absent or
+ * older than `intervalSeconds`.
+ *
+ * Every authenticated request would otherwise write to the token row; the stamp
+ * only needs to be accurate enough to spot unused tokens. Callers may
+ * fire-and-forget.
+ *
+ * @param token - token to stamp
+ * @param intervalSeconds - minimum time between two writes
+ */
+export async function touchToken(token: AccessToken, intervalSeconds: number): Promise<void> {
+  const now = DateTime.now();
+
+  if (token.LastUsedAt && token.LastUsedAt > now.minus({ seconds: intervalSeconds })) {
+    return;
+  }
+
+  token.LastUsedAt = now;
+  await token.update();
+}
