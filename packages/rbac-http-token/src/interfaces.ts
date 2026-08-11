@@ -1,3 +1,8 @@
+// Type-only import brings `@spinajs/rbac` into the program so the module
+// augmentation at the bottom of this file has a module to attach to.
+// Erased at runtime, so this stays a types-only file.
+import type {} from '@spinajs/rbac';
+
 export interface IGeneratedToken {
   /**
    * Full token as handed to the user, e.g. `spt_<base64url>`. Shown exactly once.
