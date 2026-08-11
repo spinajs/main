@@ -70,6 +70,31 @@ describe('access token cli commands', function () {
 
     const tokens = await AccessToken.where('user_id', user.Id);
     expect(tokens[0].ExpiresAt).to.not.be.null;
+    // the stored instant must be the one that was asked for, not merely "some
+    // date" - compared at second resolution because the column does not carry
+    // sub-second precision
+    expect(Math.floor(tokens[0].ExpiresAt!.toMillis() / 1000)).to.equal(Math.floor(DateTime.fromISO(iso).toMillis() / 1000));
+  });
+
+  it('rbac:token-create refuses an unparseable --expires without creating anything', async () => {
+    const user = await makeUser('cli7@spinajs.com', 'cli7');
+    const cmd = await DI.resolve(CreateToken);
+
+    // must be reported, not thrown - a cli command reports through its log
+    await cmd.execute(user.Uuid, { name: 'bad date', roles: 'user', expires: 'not-a-date' });
+
+    expect(await AccessToken.where('user_id', user.Id)).to.have.length(0);
+  });
+
+  it('rbac:token-create refuses an empty --expires instead of creating an infinite token', async () => {
+    const user = await makeUser('cli8@spinajs.com', 'cli8');
+    const cmd = await DI.resolve(CreateToken);
+
+    // `--expires ""` is a value the user meant to be a date; a truthiness check
+    // would silently turn it into a token that never expires
+    await cmd.execute(user.Uuid, { name: 'empty date', roles: 'user', expires: '' });
+
+    expect(await AccessToken.where('user_id', user.Id)).to.have.length(0);
   });
 
   it('rbac:token-delete removes token', async () => {
@@ -80,6 +105,14 @@ describe('access token cli commands', function () {
     await cmd.execute(Token.Uuid);
 
     expect(await AccessToken.where('Uuid', Token.Uuid).first()).to.be.undefined;
+  });
+
+  it('rbac:token-delete reports an unknown token instead of rejecting', async () => {
+    const cmd = await DI.resolve(DeleteToken);
+
+    // every command wraps its action in a catch that logs; a command that
+    // rejected would crash the cli process instead of printing a diagnostic
+    await cmd.execute('not-a-uuid');
   });
 
   it('rbac:token-grant / rbac:token-revoke mutate roles', async () => {

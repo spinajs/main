@@ -21,7 +21,11 @@ export class CreateToken extends CliCommand {
 
   public async execute(userIdOrUuid: string, options: ICreateTokenOptions): Promise<void> {
     try {
-      const expiresAt = options.expires ? DateTime.fromISO(options.expires) : null;
+      // Nil means the flag was not given at all - a token that never expires.
+      // Anything else, empty string included, is a value the user meant to be a
+      // date and must be validated: a truthiness check here would quietly turn
+      // `--expires ""` into an infinite token.
+      const expiresAt = options.expires === undefined || options.expires === null ? null : DateTime.fromISO(options.expires);
       if (expiresAt && !expiresAt.isValid) {
         this.Log.error(`Invalid --expires value: ${options.expires}`);
         return;
