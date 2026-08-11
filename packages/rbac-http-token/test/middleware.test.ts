@@ -99,10 +99,44 @@ describe('TokenAuthMiddleware', function () {
     expect(req.storage.User).to.not.be.undefined;
     expect(req.storage.User.Id).to.equal(owner.Id);
     expect(req.storage.User.Role).to.deep.equal(['user']);
-    expect(req.storage.ActiveRole).to.equal('user');
+    expect(req.storage.ActiveRole, 'a token must not pin an active role - see the class docblock').to.be.undefined;
     expect(req.storage.TokenAuth).to.deep.equal({ Uuid: Token.Uuid });
     sinon.assert.calledWith(res.setHeader, 'Cache-Control', 'no-store');
     sinon.assert.calledOnce(next);
+  });
+
+  /**
+   * Both `checkRoutePermission` ( rbac-http ) and the orm rbac query middleware
+   * read `ActiveRole ? [ActiveRole] : User.Role`. Pinning one role here would
+   * therefore authorize a multi-role token with a strict SUBSET of what it was
+   * issued for, permanently - a token has no way to switch its active role the
+   * way a session does.
+   */
+  it('keeps the whole effective role set authorizable, without pinning an active role', async () => {
+    const { Plaintext } = await tokenFor('m10@spinajs.com', 'm10', ['user', 'admin'], ['user', 'admin']);
+    const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` });
+
+    await middleware.before()(req, res, next);
+
+    expect(req.storage.User.Role, 'the effective set must reach the permission checks whole').to.deep.equal(['user', 'admin']);
+    expect(req.storage.ActiveRole, 'a pinned active role collapses the token to that one role').to.be.undefined;
+    sinon.assert.calledOnce(next);
+  });
+
+  /**
+   * Clearing `ActiveRole` cannot be done by simply not writing it: `RbacMiddleware`
+   * runs FIRST and, finding no session, stamps the guest account's first role
+   * there ( `rbac-http/src/middlewares.ts`, the `else` branch ). Left in place it
+   * would authorize the whole token request as `guest`.
+   */
+  it('clears the guest active role RbacMiddleware left behind', async () => {
+    const { Plaintext } = await tokenFor('m11@spinajs.com', 'm11', ['user', 'admin'], ['user', 'admin']);
+    const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` }, { ActiveRole: 'guest', User: { Role: ['guest'] } });
+
+    await middleware.before()(req, res, next);
+
+    expect(req.storage.ActiveRole, "the guest's active role survived into a token request").to.be.undefined;
+    expect(req.storage.User.Role).to.deep.equal(['user', 'admin']);
   });
 
   it('authenticates via fallback header', async () => {

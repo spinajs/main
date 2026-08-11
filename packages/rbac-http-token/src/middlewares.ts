@@ -24,6 +24,29 @@ const BEARER_SCHEME = /^bearer\s+/i;
  * token's effective roles, so every downstream permission check ( RbacPolicy
  * helpers, orm rbac query middleware, ownership ) works unchanged.
  *
+ * `req.storage.ActiveRole` is deliberately CLEARED, and that is load bearing.
+ * Both consumers of the field resolve the roles to authorize with as
+ * `ActiveRole ? [ActiveRole] : User.Role` ( `checkRoutePermission` in
+ * `rbac-http/src/policies/RbacPolicy.ts`, and the orm rbac query middleware in
+ * `rbac/src/middleware.ts` ), so whatever single role sits there collapses the
+ * request down to that one role.
+ *
+ * A session can afford that collapse because it can switch its active role at
+ * runtime ( `POST /auth/active-role` ), so the narrowing is both deliberate and
+ * reversible. A token carries no session and has no way to switch, so picking
+ * one of its roles - the first, arbitrarily - would permanently authorize the
+ * token with a strict subset of what it was issued for: a token holding
+ * `[ 'user', 'admin' ]` would never satisfy an admin-only grant.
+ *
+ * Leaving it undefined makes both consumers fall back to `User.Role`, which the
+ * narrowing above has ALREADY reduced to exactly the effective role set - the
+ * intersection of what the token carries and its owner still holds. That is the
+ * correct authorization scope for a token, and nothing wider.
+ *
+ * The field has to be assigned `undefined` rather than skipped: `RbacMiddleware`
+ * runs first and, on a session-less request, stamps the GUEST account's first
+ * role into it, which would otherwise survive into the token's own request.
+ *
  * Never throws: an invalid token leaves the request as guest and lets the
  * route's policy produce the rejection.
  */
@@ -72,8 +95,14 @@ export class TokenAuthMiddleware extends ServerMiddleware {
         }
 
         req.storage.User = this.narrowRoles(result.User, result.EffectiveRoles);
-        req.storage.ActiveRole = result.EffectiveRoles[0];
         req.storage.TokenAuth = { Uuid: result.Token.Uuid };
+
+        // CLEARED, not merely left alone - see the class docblock for why a
+        // token must carry no active role at all. `RbacMiddleware` has already
+        // run by now and, finding no session, wrote the GUEST user's first role
+        // here ( `rbac-http/src/middlewares.ts`, the `else` branch ). Leaving
+        // that in place would authorize every token request as `guest`.
+        req.storage.ActiveRole = undefined;
 
         // Token-authenticated responses must never land in a shared cache.
         res.setHeader('Cache-Control', 'no-store');

@@ -41,4 +41,22 @@ export class TestTokenController extends BaseController {
   public async data(): Promise<Ok<{ ok: boolean }>> {
     return new Ok({ ok: true });
   }
+
+  /**
+   * Second route, wired identically, but demanding a grant that ONLY `admin`
+   * holds on `test.resource` ( see `common.ts`: `user` gets `read:own`, `admin`
+   * gets `read:any` ).
+   *
+   * It exists to pin the multi-role behaviour of `TokenAuthMiddleware`. A token
+   * carrying `[ 'user', 'admin' ]` in that order can only reach this route when
+   * the WHOLE effective set is authorized - pinning `req.storage.ActiveRole` to
+   * the first effective role would leave the request authorized as `user` alone
+   * and answer 403.
+   */
+  @Get('any-data')
+  @Permission(['readAny'])
+  @Policy(TokenPolicy)
+  public async anyData(): Promise<Ok<{ ok: boolean }>> {
+    return new Ok({ ok: true });
+  }
 }

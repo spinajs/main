@@ -50,6 +50,13 @@ case-insensitive) or the configured fallback header (`x-api-key` by default).
   are re-intersected on every request, so a role revoked on the user takes
   effect immediately for all of their tokens.
 - A token whose effective role set becomes empty stops authenticating.
+- Permission checks run against the **whole** effective role set. A session has
+  an *active role* it can switch at runtime (`POST /auth/active-role`) and is
+  authorized by that one role; a token has no session and no way to switch, so
+  it would be stuck with whichever role happened to be first. Instead
+  `TokenAuthMiddleware` clears `req.storage.ActiveRole`, and every consumer
+  (`checkRoutePermission`, the orm rbac query middleware) falls back to
+  `User.Role` - already narrowed to the effective set.
 - Owner deactivated / banned / soft-deleted => all their tokens stop working.
 - `ExpiresAt` null/absent => token never expires.
 - Plaintext shown exactly once at creation; only its SHA-256 hash is stored, and
