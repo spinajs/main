@@ -23,12 +23,25 @@ import '../interfaces.js';
  * authorized session, which a token-authenticated request never has, so the
  * pair can never both pass and the route is permanently unreachable by token.
  *
- * Declare it as its OWN group instead - groups at the same scope are ORed, so
- * a token request satisfies the TokenPolicy group while a session request
- * satisfies the RbacPolicy group:
+ * Declare it as its OWN group at the ROUTE scope instead - groups of ONE scope
+ * are ORed, so a token request satisfies the TokenPolicy group while a session
+ * request satisfies the RbacPolicy group:
  *
- *   @Policy(TokenPolicy)          // class or method level - separate group
- *   @Permission(['readOwn'])      // method level - the permission metadata
+ *   @Get('data')
+ *   @Permission(['readOwn'])      // the permission metadata + RbacPolicy group
+ *   @Policy(TokenPolicy)          // METHOD level - a second route scope group
+ *
+ * The placement is not free-standing: a CLASS level `@Policy(TokenPolicy)` goes
+ * to the CONTROLLER scope, and the two scopes are ANDed - it would then have to
+ * hold TOGETHER with the route's RbacPolicy group, which is exactly the broken
+ * combination above. Only a method level declaration lands in the same scope as
+ * `@Permission` and gets ORed with it.
+ *
+ * Writing `@Policy(TokenPolicy)` BELOW `@Permission` is deliberate too.
+ * Decorators apply bottom up, so this one is pushed first, and when no group
+ * holds `createPolicyGate` reports the first rejection in declaration order: a
+ * token that authenticated but lacks the grant then gets this policy's 403
+ * instead of RbacPolicy's misleading "user not logged" 401.
  *
  * The `@Permission` line is still required even with `@Policy(TokenPolicy)`:
  * this policy reads the same route permission metadata, and a route without it

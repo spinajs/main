@@ -25,6 +25,36 @@ export function dir(path: string) {
 }
 
 /**
+ * The exception -> http response map, captured before any suite can wipe it.
+ *
+ * `@HandleException` builds it ONCE, while `@spinajs/http` is being imported,
+ * and stores it straight in the container CACHE with no registry entry to
+ * rebuild it from ( `DI.register(target).asMapValue('__http_error_map__', ...)`,
+ * `http/src/decorators.ts:281` ). Every suite in this package ends with
+ * `DI.clearCache()`, which throws the map away - and `__handle_error__`
+ * ( `http/src/error.ts:51` ) then finds no mapping for `AuthenticationFailed` or
+ * `Forbidden` and answers 500 where the policy asked for 401 / 403.
+ *
+ * Reading it here is safe because mocha loads every spec file - and with them
+ * this module, which imports `@spinajs/http` above - before it runs the first
+ * hook of the first suite.
+ */
+const HTTP_ERROR_MAP = DI.get('__http_error_map__');
+
+/**
+ * Puts the captured error map back, so a suite's status assertions do not
+ * depend on which suite ran ( and cleared the cache ) before it. Call from
+ * `before()` of every suite that drives a real http server.
+ */
+export function restoreHttpErrorMap() {
+  if (HTTP_ERROR_MAP) {
+    // `ContainerCache.add` is keyed and de-duplicates by identity, so putting
+    // the very same map back twice is a no-op.
+    DI.RootContainer.Cache.add('__http_error_map__', HTTP_ERROR_MAP);
+  }
+}
+
+/**
  * Boots in-memory sqlite plus a real http server on 8889 with this package's
  * controllers. Mirrors `db-common.ts` and adds the http/server wiring.
  */
@@ -37,7 +67,10 @@ export class TestConfiguration extends FrameworkConfiguration {
       },
       system: {
         dirs: {
-          controllers: [dir('./../src/controllers')],
+          // `./support` holds test only controllers ( see
+          // `support/TestTokenController.ts` ) used by the end to end policy
+          // suite; they are loaded exactly like the package's own ones.
+          controllers: [dir('./../src/controllers'), dir('./support')],
           migrations: [dir('./../src/migrations')],
           models: [dir('./../src/models')],
         },
@@ -69,11 +102,16 @@ export class TestConfiguration extends FrameworkConfiguration {
           admin: {
             users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
             'user.tokens': { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
+            'test.resource': { 'read:any': ['*'] },
           },
           user: {
             user: { 'read:own': ['*'], 'update:own': ['*'] },
             'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
+            'test.resource': { 'read:own': ['*'] },
           },
+          // `guest` is deliberately left WITHOUT any grant on `test.resource` -
+          // the end to end suite uses a guest scoped token to prove that a valid
+          // token still gets a 403 when its roles do not carry the grant.
         },
         session: {
           service: 'MemorySessionStore',

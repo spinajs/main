@@ -9,7 +9,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/rbac';
 import { RbacPolicy } from '@spinajs/rbac-http';
 
-import { TestConfiguration, sessionCookieFor, req } from './common.js';
+import { TestConfiguration, sessionCookieFor, req, restoreHttpErrorMap } from './common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenController } from '../src/controllers/AccessTokenController.js';
 import { NoTokenAuthPolicy } from '../src/policies/NoTokenAuthPolicy.js';
@@ -32,6 +32,11 @@ describe('AccessTokenController', function () {
 
   before(async () => {
     DI.setESMModuleSupport();
+
+    // Sibling suites clear the container cache in their `after()`, taking the
+    // exception -> response map with it; without this every rejection asserted
+    // below would arrive as a 500. See `restoreHttpErrorMap` in `common.ts`.
+    restoreHttpErrorMap();
 
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
