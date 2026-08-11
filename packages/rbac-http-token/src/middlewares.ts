@@ -3,9 +3,17 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
+import { ErrorCode } from '@spinajs/exceptions';
+import { User } from '@spinajs/rbac';
 
 import { validateToken, touchToken } from './actions.js';
 import './interfaces.js';
+
+/**
+ * `Authorization: Bearer <token>`. RFC 7235 makes the scheme name
+ * case-insensitive, and clients do send `bearer`.
+ */
+const BEARER_SCHEME = /^bearer\s+/i;
 
 /**
  * Authenticates requests carrying an access token in `Authorization: Bearer`
@@ -53,23 +61,27 @@ export class TokenAuthMiddleware extends ServerMiddleware {
         try {
           result = await validateToken(plaintext);
         } catch (err) {
-          // Deliberately vague towards the client; specific in the log.
-          this.Log.warn(`Access token rejected: ${(err as Error).message}`, { Ip: (req as any).ip });
+          // Deliberately vague towards the client; specific in the log. The uuid
+          // is what makes a rejection actionable ( "which key broke" ) and is
+          // safe to write down - `validateToken` attaches it as `data.token` on
+          // every failure past the lookup. The presented plaintext is NEVER
+          // logged, here or anywhere else.
+          const data = err instanceof ErrorCode ? (err.data as { token?: string } | undefined) : undefined;
+          this.Log.warn(`Access token rejected: ${(err as Error).message}`, { Ip: req.ip, Token: data?.token });
           return next();
         }
 
-        // Narrowed role list is what makes the whole rbac stack token-aware.
-        result.User.Role = result.EffectiveRoles;
-
-        req.storage.User = result.User;
+        req.storage.User = this.narrowRoles(result.User, result.EffectiveRoles);
         req.storage.ActiveRole = result.EffectiveRoles[0];
         req.storage.TokenAuth = { Uuid: result.Token.Uuid };
 
         // Token-authenticated responses must never land in a shared cache.
         res.setHeader('Cache-Control', 'no-store');
 
-        // Fire-and-forget throttled usage stamp.
-        void touchToken(result.Token, this.LastUsedUpdateInterval).catch((err) => this.Log.warn(`Failed to update token LastUsedAt: ${err.message}`, { Token: result.Token.Uuid }));
+        // Fire-and-forget throttled usage stamp. A non-Error rejection has no
+        // `.message`; reading one off it would throw inside the handler and
+        // surface as an unhandled rejection.
+        void touchToken(result.Token, this.LastUsedUpdateInterval).catch((err: unknown) => this.Log.warn(`Failed to update token LastUsedAt: ${err instanceof Error ? err.message : String(err)}`, { Token: result.Token.Uuid }));
 
         next();
       } catch (err) {
@@ -80,6 +92,39 @@ export class TokenAuthMiddleware extends ServerMiddleware {
 
   public after(): null {
     return null;
+  }
+
+  /**
+   * Narrows the loaded owner to the token's effective roles WITHOUT letting the
+   * narrowing reach the database.
+   *
+   * `Role` is a real `@Set()` column, and this very instance is what controllers
+   * receive through the `@User()` route argument. `update()` writes whatever
+   * differs from the model's snapshot, so a controller doing an unrelated edit
+   * ( "change my login" ) and calling `.update()` would silently persist the
+   * narrowed list - permanently stripping every role the token did not carry.
+   *
+   * Re-taking the snapshot right after the narrowing makes it invisible to that
+   * diff: the instance then behaves exactly like a freshly loaded row whose roles
+   * happen to be the effective ones, and a later `.update()` writes only what the
+   * controller itself changed. The full instance is kept rather than copied so
+   * that `Id`, `Password`, the `Metadata` relation and the prototype accessors
+   * ( `IsBanned`, `can()` ) all survive - `dehydrate()` drops the `@Hidden()`
+   * columns, so a dehydrate/rehydrate copy would arrive without `Id`.
+   *
+   * `takeSnapshot()` also discards the relation baselines, which the orm's
+   * subject builder needs to tell an already-persisted related row from a new
+   * one, so they are recorded again immediately.
+   */
+  protected narrowRoles(user: User, roles: string[]): User {
+    user.Role = roles;
+    user.takeSnapshot();
+
+    for (const [name] of user.ModelDescriptor?.Relations ?? []) {
+      user.snapshotRelation(name);
+    }
+
+    return user;
   }
 
   /**
@@ -96,8 +141,8 @@ export class TokenAuthMiddleware extends ServerMiddleware {
     };
 
     const auth = header('authorization');
-    if (auth?.startsWith('Bearer ')) {
-      return auth.substring('Bearer '.length).trim() || null;
+    if (auth && BEARER_SCHEME.test(auth)) {
+      return auth.replace(BEARER_SCHEME, '').trim() || null;
     }
 
     return header(this.HeaderName.toLowerCase())?.trim() || null;

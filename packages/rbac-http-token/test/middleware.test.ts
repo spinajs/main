@@ -5,13 +5,37 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, create } from '@spinajs/rbac';
+import { DateTime } from 'luxon';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/rbac';
 import { RbacMiddleware } from '@spinajs/rbac-http';
 
 import { DbTestConfiguration } from './db-common.js';
+import { AccessToken } from '../src/models/AccessToken.js';
 import { createToken } from '../src/actions.js';
 import { TokenAuthMiddleware } from '../src/middlewares.js';
 import '../src/generator.js';
+
+/**
+ * Stand-in for the injected `Log`. Every level funnels into one ordered list so a
+ * test can assert over *everything* the middleware wrote, not just `warn`.
+ */
+const makeLogSpy = () => {
+  const Calls: unknown[][] = [];
+  const record = (...args: unknown[]) => {
+    Calls.push(args);
+  };
+
+  return {
+    Calls,
+    trace: sinon.spy(record),
+    debug: sinon.spy(record),
+    info: sinon.spy(record),
+    warn: sinon.spy(record),
+    error: sinon.spy(record),
+    fatal: sinon.spy(record),
+    security: sinon.spy(record),
+  };
+};
 
 const makeReqRes = (headers: Record<string, string | string[]>, storage: any = {}) => {
   const req: any = {
@@ -60,10 +84,10 @@ describe('TokenAuthMiddleware', function () {
     DI.clearCache();
   });
 
-  async function tokenFor(mail: string, login: string) {
-    const { User: owner } = await create(mail, login, 'password123', ['user']);
+  async function tokenFor(mail: string, login: string, ownerRoles: string[] = ['user'], tokenRoles: string[] = ['user']) {
+    const { User: owner } = await create(mail, login, 'password123', ownerRoles);
     await activate(owner.Id);
-    return { owner, ...(await createToken(owner, 'mw token', ['user'], null)) };
+    return { owner, ...(await createToken(owner, 'mw token', tokenRoles, null)) };
   }
 
   it('authenticates a valid Bearer token', async () => {
@@ -149,10 +173,84 @@ describe('TokenAuthMiddleware', function () {
     // touch is fire-and-forget - give it a tick
     await new Promise((r) => setTimeout(r, 50));
 
-    const { AccessToken } = await import('../src/models/AccessToken.js');
     const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
     expect(row.LastUsedAt).to.not.be.null;
     expect(row.LastUsedAt).to.not.be.undefined;
+  });
+
+  it('accepts a lowercase bearer scheme', async () => {
+    const { Plaintext } = await tokenFor('m6@spinajs.com', 'm6');
+    const { req, res, next } = makeReqRes({ authorization: `bearer ${Plaintext}` });
+
+    await middleware.before()(req, res, next);
+
+    // RFC 7235 makes the scheme name case-insensitive and real clients send it
+    // lowercase; rejecting those looks like an invalid key to the caller
+    expect(req.storage.TokenAuth).to.not.be.undefined;
+    sinon.assert.calledOnce(next);
+  });
+
+  /**
+   * `Role` is a persisted `@Set()` column and this very instance is what a
+   * controller gets from `@User()`. Narrowing it for the request must not survive
+   * an unrelated `.update()` - that would permanently strip every role the token
+   * did not carry from the account.
+   */
+  it('narrowing Role does not persist when the controller later updates the user', async () => {
+    const { owner, Plaintext } = await tokenFor('m7@spinajs.com', 'm7', ['user', 'admin'], ['user']);
+    const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` });
+
+    await middleware.before()(req, res, next);
+
+    const narrowed = req.storage.User as User;
+    expect(narrowed.Role, 'request-scoped narrowing did not happen').to.deep.equal(['user']);
+
+    // what a controller does on a completely unrelated edit
+    narrowed.Login = 'm7-renamed';
+    await narrowed.update();
+
+    const fresh = await User.where('Id', owner.Id).firstOrFail();
+    expect(fresh.Login, 'the controller edit must still be written').to.equal('m7-renamed');
+    expect(fresh.Role, 'the account lost roles the token did not carry').to.deep.equal(['user', 'admin']);
+  });
+
+  /**
+   * The presented secret must never reach a log sink, on ANY path. A rejection is
+   * identified by the token row's uuid instead, which is safe to write down.
+   */
+  it('never logs the presented plaintext, and names the token by uuid when known', async () => {
+    const logSpy = makeLogSpy();
+
+    // --- failing path: an expired token, so validateToken attaches the uuid
+    const { Plaintext, Token } = await tokenFor('m8@spinajs.com', 'm8');
+    const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    row.ExpiresAt = DateTime.now().minus({ minutes: 5 });
+    await row.update();
+
+    Object.defineProperty(middleware, 'Log', { value: logSpy, configurable: true, writable: true });
+
+    const bad = makeReqRes({ authorization: `Bearer ${Plaintext}` });
+    await middleware.before()(bad.req, bad.res, bad.next);
+
+    sinon.assert.calledOnce(logSpy.warn);
+    const [, meta] = logSpy.warn.firstCall.args as [string, Record<string, unknown>];
+    expect(meta.Token, 'rejection log must name the token by uuid').to.equal(Token.Uuid);
+
+    // --- success path: nothing about the secret may be written either
+    const { Plaintext: goodPlaintext } = await tokenFor('m9@spinajs.com', 'm9');
+    const good = makeReqRes({ authorization: `Bearer ${goodPlaintext}` });
+    await middleware.before()(good.req, good.res, good.next);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(logSpy.Calls.length, 'expected at least the rejection to be logged').to.be.greaterThan(0);
+
+    for (const args of logSpy.Calls) {
+      const dump = JSON.stringify(args);
+      expect(dump, 'presented plaintext leaked into a log call').to.not.contain(Plaintext);
+      expect(dump, 'presented plaintext leaked into a log call').to.not.contain(goodPlaintext);
+      // the stored hash is internal too - it must not travel either
+      expect(dump).to.not.contain(row.Token);
+    }
   });
 
   /**
