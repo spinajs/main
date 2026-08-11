@@ -51,6 +51,7 @@
     { "path": "./packages/templates-image/tsconfig.cjs.json" },
     { "path": "./packages/validation/tsconfig.cjs.json" },
     { "path": "./packages/telemetry/tsconfig.cjs.json" },
+    { "path": "./packages/telemetry-otel/tsconfig.cjs.json" },
     { "path": "./packages/templates-pdf/tsconfig.cjs.json" },
     { "path": "./packages/templates-csv/tsconfig.cjs.json" },
     { "path": "./packages/template-mjml/tsconfig.cjs.json" },
