@@ -5,11 +5,11 @@ import { Session } from '@spinajs/rbac-http';
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy.js';
-import { AutoinjectService } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
-import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants } from '@spinajs/rbac-http';
-import { auth2Fa, enableUser2Fa } from '../actions/2fa.js';
-import { InvalidOperation } from '@spinajs/exceptions';
+import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants, TwoFactorAuthConfig } from '@spinajs/rbac-http';
+import { auth2Fa, activateUser2Fa, beginUser2FaEnrolment } from '../actions/2fa.js';
+import { BadRequest } from '@spinajs/exceptions';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
@@ -19,8 +19,10 @@ import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
  *
  * These routes serve the narrow window between a successful password check and
  * full authorization: the session is `Logged` but not `Authorized` and carries
- * the `TwoFactorAuth` marker. Both class policies must hold, so the window
- * closes the moment verification succeeds.
+ * the `TwoFactorAuth` marker. Both class policies are passed to one `@Policy`
+ * call, so they are combined with AND and the window closes the moment
+ * verification succeeds. `TwoFacRouteEnabled` also enforces the system-wide
+ * switch, by way of the `TwoFactorAuthEnabled` it extends.
  *
  * Managing a TOTP device outside that window — enrolling for the first time, or
  * turning 2FA off — lives on {@link TwoFactorAuthUserController} under
@@ -32,8 +34,7 @@ import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
  * @tags Two-Factor Authentication
  */
 @BasePath('auth')
-@Policy(TwoFacRouteEnabled)
-@Policy(NotAuthorizedPolicy)
+@Policy([TwoFacRouteEnabled, NotAuthorizedPolicy])
 export class TwoFactorAuthController extends BaseController {
   @AutoinjectService('rbac.session')
   protected SessionProvider: SessionProvider;
@@ -43,6 +44,9 @@ export class TwoFactorAuthController extends BaseController {
 
   @Autoinject(AccessControl)
   protected AC: AccessControl;
+
+  @Config('rbac.twoFactorAuth')
+  protected TwoFactorConfig: TwoFactorAuthConfig;
 
   /**
    * Set up two-factor authentication during login
@@ -59,10 +63,15 @@ export class TwoFactorAuthController extends BaseController {
   @Post('2fa/setup')
   public async setup2fa(@User() user: UserModel): Promise<Ok<IEnable2faResponse>> {
     if (user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
-      throw new InvalidOperation(`User ${user.Uuid} already has 2fa enabled`);
+      throw new BadRequest(`User ${user.Uuid} already has 2fa enabled`);
     }
 
-    const result = await enableUser2Fa(user);
+    // Re-running setup on an account that already started enrolling is allowed:
+    // it replaces an unconfirmed secret, which is exactly how a user who lost
+    // the QR gets a new one. There is nothing to steal — the caller could reach
+    // the same state from scratch.
+    const result = await this.enrol(user);
+
     return new Ok({
       otp: result as string,
     });
@@ -81,6 +90,13 @@ export class TwoFactorAuthController extends BaseController {
   public async verifyToken(@User() logged: UserModel, @Body() token: TokenDto, @Session() session: ISession): Promise<Ok<IUserWithGrants> | ForbiddenResponse> {
     try {
       await this.verifyTwoFactorToken(logged, token.Token);
+
+      // A pending enrolment (secret stored, `2fa:enabled` unset) becomes real
+      // here and nowhere else — this is the first moment the user has proven
+      // possession of the device.
+      if (!logged.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]) {
+        await this.activateEnrolment(logged);
+      }
 
       // 2fa complete, mark as authorized
       // fron now on user is considered authorized
@@ -127,4 +143,18 @@ export class TwoFactorAuthController extends BaseController {
   protected verifyTwoFactorToken(user: UserModel, token: string): Promise<void> {
     return auth2Fa(user, token) as Promise<void>;
   }
+
+  /**
+   * Store the TOTP secret without switching 2fa on. Wrapped in a protected
+   * method for the same reason as {@link verifyTwoFactorToken}.
+   */
+  protected enrol(user: UserModel): Promise<unknown> {
+    return beginUser2FaEnrolment(user);
+  }
+
+  /** Switch 2fa on for an account whose secret was just verified. */
+  protected activateEnrolment(user: UserModel): Promise<unknown> {
+    return activateUser2Fa(user);
+  }
+
 }

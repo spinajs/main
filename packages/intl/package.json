@@ -1,23 +1,28 @@
 {
   "name": "@spinajs/intl",
-  "version": "2.0.491",
+  "version": "2.0.506",
   "description": "internationalization for spinajs framework",
-  
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
-      "node": {
-          "import": "./lib/mjs/index.node.js",
-          "require": "./lib/cjs/index.node.js"
-      },
-      "browser": {
-        "import": "./lib/mjs/index.browser.js",
-        "require": "./lib/cjs/index.browser.js"
+    "node": {
+      "import": "./lib/mjs/index.node.js",
+      "require": "./lib/cjs/index.node.js"
+    },
+    "browser": {
+      "import": "./lib/mjs/index.browser.js",
+      "require": "./lib/cjs/index.browser.js"
+    },
+    "default": {
+      "import": "./lib/mjs/index.node.js",
+      "require": "./lib/cjs/index.node.js"
     }
   },
   "type": "module",
   "private": false,
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=16.11"
   },
@@ -34,12 +39,10 @@
     "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
     "preversion": "npm run lint",
     "version": "npm run format && git add -A src"
-    
   },
   "files": [
     "lib/**/*"
   ],
-  
   "repository": {
     "type": "git",
     "url": "git+https://github.com/spinajs/main.git"
@@ -55,10 +58,10 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "^2.0.491",
-    "@spinajs/di": "^2.0.491",
-    "@spinajs/exceptions": "^2.0.491",
-    "@spinajs/log": "^2.0.491",
+    "@spinajs/configuration": "2.0.506",
+    "@spinajs/di": "2.0.506",
+    "@spinajs/exceptions": "2.0.506",
+    "@spinajs/log": "2.0.506",
     "glob": "^8.1.0",
     "lodash": "^4.17.21",
     "make-plural": "^7.2.0",

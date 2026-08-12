@@ -187,11 +187,11 @@ describe('controller descriptor inheritance', () => {
     expect(pkgRefresh).to.not.equal(appRefresh);
 
     expect(pkgRefresh.Path, 'parent path rewritten by the subclass').to.be.undefined;
-    expect(pkgRefresh.Policies.map((p) => p.Type), 'subclass policy leaked to the parent').to.not.include(ExtraPolicy);
+    expect(pkgRefresh.Policies.flat().map((p) => p.Type), 'subclass policy leaked to the parent').to.not.include(ExtraPolicy);
     expect(pkgRefresh.Parameters.size, 'subclass argument leaked to the parent').to.eq(0);
 
     expect(appRefresh.Path).to.eq('v2');
-    expect(appRefresh.Policies.map((p) => p.Type)).to.include(ExtraPolicy);
+    expect(appRefresh.Policies.flat().map((p) => p.Type)).to.include(ExtraPolicy);
     expect(appRefresh.Parameters.size).to.eq(1);
   });
 
@@ -213,7 +213,7 @@ describe('controller descriptor inheritance', () => {
   it('inherits BasePath, Policies and Middlewares without redeclaring them', () => {
     const app = descriptorOf(AppUserController.prototype);
     expect(app.BasePath).to.eq('user');
-    expect(app.Policies.map((p) => p.Type)).to.include(SamplePolicy);
+    expect(app.Policies.flat().map((p) => p.Type)).to.include(SamplePolicy);
     expect(app.Middlewares.map((m) => m.Type)).to.include(SampleMiddleware);
   });
 

@@ -769,6 +769,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   public clone<P extends IWhereBuilder<any>>(_parent: P): WhereBuilder<T> {
     // TODO: fix this cast
     const builder = new WhereBuilder<T>(_parent as any);
+
+    // Model and alias are restored BEFORE the statements are cloned, not after: a cloned
+    // statement rebinds to `builder` and re-validates its column against `builder.Model`
+    // ( see WhereStatement's constructor ). A nested where-builder may carry a different
+    // model than the parent it is being re-attached to, and cloning it while `builder`
+    // still held the parent's model made the clone throw "column X not exists in model Y".
+    builder._boolean = this._boolean;
+    builder._model = this._model;
+    builder._tableAlias = this.TableAlias;
+
     builder._statements = this._statements.map((s) => {
       const cloned = s.clone(builder);
       // preserve the per-statement boolean connector (clone() rebuilds the
@@ -776,11 +786,18 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
       cloned.Boolean = s.Boolean;
       return cloned;
     });
-    builder._boolean = this._boolean;
-    builder._model = this._model;
-    builder._tableAlias = this.TableAlias;
 
     return builder;
+  }
+
+  /**
+   * The builder this one is nested in, or `undefined` for a top level builder.
+   *
+   * Exposed so a statement that owns a nested where-builder can re-attach a clone of it to
+   * the same parent when it is cloned without being handed one.
+   */
+  public get Parent(): IWhereBuilder<T> | undefined {
+    return this._parent;
   }
 
 
@@ -1105,8 +1122,44 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
   protected _owner: IOrmRelation | undefined;
 
+  /**
+   * The outer builder this query is correlated to, set when this query is the sub-select of a
+   * correlated EXISTS ( see {@link ExistsRelationHandler} ).
+   *
+   * The correlation predicate — `<outer alias or table>.<key> = <this query>.<key>` — cannot be
+   * frozen into a string when the sub-query is built, because the outer alias is often assigned
+   * afterwards ( `populate()` calls `setAlias()` ). It is therefore emitted from a lazy
+   * statement that reads the outer alias at COMPILE time, and this field is the link it reads
+   * it through.
+   *
+   * It is a field rather than a closure variable precisely so that `clone()` can REBIND it: a
+   * cloned query must correlate against ITSELF, not against the query it was cloned from. A
+   * closure could not be rebound, and the clone silently kept pointing at the original — see
+   * `ExistsQueryStatement.clone()`.
+   */
+  protected _correlationSource: IWhereBuilder<any> | undefined;
+
   public get Statements() {
     return this._statements;
+  }
+
+  /**
+   * The outer builder this query is correlated to, or `undefined` when it is not a correlated
+   * sub-query.
+   */
+  public get CorrelationSource(): IWhereBuilder<any> | undefined {
+    return this._correlationSource;
+  }
+
+  /**
+   * Marks this query as the correlated sub-select of `builder`.
+   *
+   * Called both when the sub-query is first built and every time the OWNING query is cloned,
+   * so the clone's sub-query correlates to the clone.
+   */
+  public correlateWith(builder: IWhereBuilder<any> | undefined): this {
+    this._correlationSource = builder;
+    return this;
   }
 
   public get Owner(): IOrmRelation | undefined {
@@ -1169,7 +1222,11 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   public clone(): this {
     const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
 
-
+    // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
+    // rebind to `builder` and several of them read these during their own clone.
+    builder._table = this._table;
+    builder._tableAlias = this._tableAlias;
+    builder._correlationSource = this._correlationSource;
 
     // Clone columns
     builder._columns = this._columns.map(c => c.clone(builder));
@@ -1197,8 +1254,6 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._sorts = this._sorts.map((s) => ({ ...s }));
     builder._boolean = this._boolean;
     builder._distinct = this._distinct;
-    builder._table = this._table;
-    builder._tableAlias = this._tableAlias;
     builder._cteStatement = this._cteStatement ? this._cteStatement.clone(builder) : undefined;
     builder._first = this._first;
     builder._nonSelect = this._nonSelect;
@@ -1262,11 +1317,12 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return relInstance!;
   }
 
-  public populate<R = this>(relation: Constructor<ModelBase>): this;
-  public populate<R = this>(relation: string[]): this;
-  public populate<R = this>(relation: string): this;
+  // A nullish relation is a no-op, so routes with an optional `include` param
+  // can pass it straight through.
+  public populate<_R = this>(relation: Constructor<ModelBase>): this;
+  public populate<R = this>(relation?: string | string[] | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
   public populate<R = this>(relation: {}, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this;
-  public populate<R = this>(relation: string | string[] | Constructor<ModelBase>, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
+  public populate<R = this>(relation?: string | string[] | Constructor<ModelBase> | {} | null, callback?: (this: SelectQueryBuilder<R>, relation: IOrmRelation) => void): this {
 
     if (!relation) {
       return this;
@@ -1311,7 +1367,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
       return this;
     }
 
-    this._getRelationInstance(relation).execute(callback);
+    // Everything that is not a string was handled above (constructor / array /
+    // object), so the remaining value is a plain relation name.
+    this._getRelationInstance(relation as string).execute(callback);
 
     return this;
   }
@@ -1358,6 +1416,25 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
 
     this._statements = this._statements.filter((s) => {
       return !(s instanceof WhereStatement && s.Column === deletedAt && s.Operator === SqlOperator.NULL);
+    });
+
+    return this;
+  }
+
+  /**
+   * Includes archived rows in the result set by removing the default `ArchivedAt IS NULL`
+   * filter added by createQuery for @Archived models. Mirror of {@link withDeleted}.
+   */
+  public withArchived(): this {
+    const descriptor = extractModelDescriptor(this._model);
+    const archivedAt = descriptor?.Archived?.ArchivedAt;
+
+    if (!archivedAt) {
+      return this;
+    }
+
+    this._statements = this._statements.filter((s) => {
+      return !(s instanceof WhereStatement && s.Column === archivedAt && s.Operator === SqlOperator.NULL);
     });
 
     return this;
@@ -2783,7 +2860,11 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   const models = DI.getRegisteredTypes<ModelBase>('__models__');
   const qr = cnt.resolve<T>(query, [driver, injectModel ? models.find((x) => x.name === model.name) : undefined]);
 
-  if (qr instanceof SelectQueryBuilder) {
+  // Query scopes bind to every statement type that can carry a WHERE clause, not just selects.
+  // `ModelBase.destroy()` and `ModelBase.update()` already DECLARE the scope intersection in
+  // their return types ( model.ts ), so a select-only binding made those types lie at runtime.
+  // InsertQueryBuilder is deliberately excluded: it has no WHERE clause to narrow.
+  if (qr instanceof SelectQueryBuilder || qr instanceof DeleteQueryBuilder || qr instanceof UpdateQueryBuilder) {
     const scope = (model as any)._queryScopes as QueryScope;
     if (scope) {
       Object.getOwnPropertyNames((scope as any).__proto__)
@@ -2808,6 +2889,13 @@ export function createQuery<T extends QueryBuilder>(model: Class<any>, query: Cl
   // has not (yet) surfaced the column.
   if (qr instanceof SelectQueryBuilder && dsc.SoftDelete?.DeletedAt && dsc.Columns?.some((c) => c.Name === dsc.SoftDelete.DeletedAt)) {
     (qr as unknown as SelectQueryBuilder).whereNull(dsc.SoftDelete.DeletedAt);
+  }
+
+  // Archive read filtering, symmetric with the soft-delete block above: by default exclude rows
+  // that have been archived ( ArchivedAt IS NOT NULL ). SelectQueryBuilder.withArchived() removes
+  // this default statement. Same column-presence guard, for the same reason.
+  if (qr instanceof SelectQueryBuilder && dsc.Archived?.ArchivedAt && dsc.Columns?.some((c) => c.Name === dsc.Archived.ArchivedAt)) {
+    (qr as unknown as SelectQueryBuilder).whereNull(dsc.Archived.ArchivedAt);
   }
 
   if (driver.Options.Database) {

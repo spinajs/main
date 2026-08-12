@@ -1,0 +1,131 @@
+name: build
+
+# Verifies that the monorepo actually installs from the committed lock file and
+# compiles end to end (esm + cjs) before anything is published. `npm ci` is the
+# step that catches package.json / package-lock.json drift - a dependency range
+# edited in a package without regenerating the lock fails here instead of at
+# publish time.
+#
+# On a push to master a second job then releases the whole monorepo: it bumps
+# every workspace package one patch version in lockstep ( scripts/bump-all.mjs ),
+# commits the bump back to master with [skip ci], and publishes every package
+# with scripts/publish-all.mjs. The bump is committed BEFORE publishing on
+# purpose - publish-all skips versions already on the registry, so a re-run of a
+# half-failed release finishes the remaining packages instead of bumping again
+# and orphaning the half-published version.
+#
+# Requires two repository secrets:
+#   NPM_TOKEN     - npm automation / granular access token with publish rights;
+#                   without it the release job fails fast in publish-all's
+#                   authentication check.
+#   RELEASE_TOKEN - fine-grained PAT ( contents: read/write ) of an account on
+#                   the master ruleset's bypass list; the default GITHUB_TOKEN
+#                   cannot push to master ( PR-only rule, GH013 ).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # A newer push supersedes a running build of the same ref.
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      # Fails if package.json and package-lock.json are out of sync.
+      - name: install
+        run: npm ci
+
+      # Root `build` = clean + tsc -b (esm) + tsc -b (cjs) + static asset copy +
+      # per-module package.json generation, across every workspace package.
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    # Releases queue up and are never cancelled - killing a run halfway through
+    # publishing leaves the registry ahead of the repo.
+    concurrency:
+      group: release-master
+      cancel-in-progress: false
+
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      # The master ruleset only allows changes through pull requests, and the
+      # default GITHUB_TOKEN has no bypass - its push is rejected with GH013.
+      # RELEASE_TOKEN is a fine-grained PAT ( contents: read/write on this repo )
+      # of an account on the ruleset bypass list; checkout persists it as the
+      # push credential. A PAT push also re-triggers workflows ( GITHUB_TOKEN
+      # pushes do not ), so the [skip ci] marker on the bump commit matters.
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      # registry-url writes an .npmrc that reads NODE_AUTH_TOKEN, which is what
+      # lets publish-all run unattended.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: install
+        run: npm ci
+
+      # Build artifacts do not cross jobs, so the release compiles its own.
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      # A re-run of a failed release checks out a master whose HEAD already is
+      # the release commit. Bumping again would move to the NEXT version and
+      # orphan the half-published one ( its exact internal pins would point at
+      # versions that never reached the registry ) - so on a re-run the bump and
+      # the commit are skipped and publish-all just finishes the current version.
+      - name: bump all packages ( lockstep patch )
+        run: |
+          if git log -1 --format=%s | grep -qE '^release v[0-9]+\.[0-9]+\.[0-9]+ \[skip ci\]$'; then
+            echo "HEAD is already a release commit - finishing $(node -p "require('./packages/orm/package.json').version") without bumping"
+            echo "SKIP_BUMP=1" >> "$GITHUB_ENV"
+          else
+            node scripts/bump-all.mjs
+          fi
+
+      # [skip ci] keeps this commit from triggering the workflow again. Pushing
+      # HEAD:master fails on a non-fast-forward if something landed on master in
+      # the meantime - re-run the job after the next build in that case.
+      - name: commit version bump
+        if: env.SKIP_BUMP != '1'
+        run: |
+          VERSION=$(node -p "require('./packages/orm/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release v${VERSION} [skip ci]"
+          git push origin HEAD:master
+
+      - name: publish to npm
+        run: node scripts/publish-all.mjs

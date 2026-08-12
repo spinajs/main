@@ -158,8 +158,11 @@ export class Orm extends AsyncService {
               }
             });
 
-            // Build the model's JSON schema from its columns.
+            // Build the model's JSON schemas from its columns. Two of them: what a client may
+            // SEND (`Schema`) and what a SELECT hands BACK (`ResponseSchema`) are not the same
+            // contract - see buildModelJsonSchema.
             d.Schema = buildModelJsonSchema(d);
+            d.ResponseSchema = buildModelJsonSchema(d, 'response');
           });
         }
       }

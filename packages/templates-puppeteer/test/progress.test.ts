@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as chai from 'chai';
 import { IRenderProgress, RenderPhase } from '@spinajs/templates';
-import { RenderProgressReporter } from '../src/progress.js';
+import { RenderProgressReporter, parseProgressLine } from '../src/progress.js';
 
 const expect = chai.expect;
 
@@ -10,6 +10,11 @@ const expect = chai.expect;
 // the resource lifecycle deterministically without launching a browser.
 function fakePage(): EventEmitter {
   return new EventEmitter();
+}
+
+// Minimal stand-in for a puppeteer ConsoleMessage: the reporter only calls text().
+function consoleMsg(text: string): { text: () => string } {
+  return { text: () => text };
 }
 
 describe('RenderProgressReporter', () => {
@@ -123,5 +128,142 @@ describe('RenderProgressReporter', () => {
     // must not throw
     expect(() => reporter.phase(RenderPhase.Starting)).to.not.throw();
     reporter.dispose();
+  });
+
+  it('parses the page progress protocol and drives percent from task totals', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":0,"total":4}'));
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":2,"total":4}'));
+
+    // phase() re-emit bypasses the 150ms throttle so the assertion is deterministic
+    reporter.phase(RenderPhase.Loading);
+    reporter.dispose();
+
+    const last = events[events.length - 1];
+    expect(last.tasks).to.deep.eq({ images: { done: 2, total: 4 } });
+    // Loading band is [15, 80]: 15 + 65 * (2/4) = 47.5 -> 48
+    expect(last.percent).to.eq(48);
+    expect(last.message).to.eq('images 2/4');
+  });
+
+  it('aggregates multiple tasks into one ratio', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":4,"total":4}'));
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"fonts","done":0,"total":4}'));
+    reporter.phase(RenderPhase.Loading);
+    reporter.dispose();
+
+    const last = events[events.length - 1];
+    // 15 + 65 * (4/8) = 47.5 -> 48
+    expect(last.percent).to.eq(48);
+    expect(last.tasks).to.deep.eq({ images: { done: 4, total: 4 }, fonts: { done: 0, total: 4 } });
+  });
+
+  it('ignores malformed and non-protocol console lines', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+    page.emit('console', consoleMsg('hello world'));
+    page.emit('console', consoleMsg('__spinajs_progress__:not-json'));
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"","done":1,"total":2}'));
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":"x","total":2}'));
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":-1,"total":2}'));
+    reporter.phase(RenderPhase.Loading);
+    reporter.dispose();
+
+    const last = events[events.length - 1];
+    expect(last.tasks).to.eq(undefined);
+  });
+
+  it('falls back to the request approximation when no tasks are reported', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+    page.emit('request');
+    page.emit('request');
+    page.emit('requestfinished');
+    reporter.phase(RenderPhase.Loading);
+    reporter.dispose();
+
+    const last = events[events.length - 1];
+    // request approximation: 1 of 2 seen -> 15 + 65 * 0.5 = 47.5 -> 48
+    expect(last.percent).to.eq(48);
+    expect(last.tasks).to.eq(undefined);
+  });
+
+  it('caps the request approximation before tasks arrive so a spike cannot pin the percent', () => {
+    const events: IRenderProgress[] = [];
+    const reporter = new RenderProgressReporter('out.pdf', (p) => {
+      events.push({ ...p });
+    });
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    reporter.phase(RenderPhase.Loading);
+
+    // one request settles with nothing else pending: raw approximation ratio = 1.0
+    page.emit('request');
+    page.emit('requestfinished');
+    reporter.phase(RenderPhase.Loading);
+
+    // capped at half the band: 15 + 65 * 0.5 = 47.5 -> 48, NOT 80
+    expect(events[events.length - 1].percent).to.eq(48);
+
+    // task lines then take over and can exceed the cap
+    page.emit('console', consoleMsg('__spinajs_progress__:{"task":"images","done":9,"total":10}'));
+    reporter.phase(RenderPhase.Loading);
+
+    // 15 + 65 * 0.9 = 73.5 -> 74
+    expect(events[events.length - 1].percent).to.eq(74);
+  });
+
+  it('detaches the console listener on dispose', () => {
+    const reporter = new RenderProgressReporter('out.pdf', () => undefined);
+    const page = fakePage();
+
+    reporter.attach(page as any);
+    expect(page.listenerCount('console')).to.eq(1);
+    reporter.dispose();
+    expect(page.listenerCount('console')).to.eq(0);
+  });
+
+  describe('parseProgressLine', () => {
+    it('parses a valid protocol line', () => {
+      expect(parseProgressLine('__spinajs_progress__:{"task":"images","done":3,"total":9}')).to.deep.eq({ task: 'images', done: 3, total: 9 });
+    });
+
+    it('returns null for non-protocol, malformed and invalid payloads', () => {
+      expect(parseProgressLine('')).to.eq(null);
+      expect(parseProgressLine('random line')).to.eq(null);
+      expect(parseProgressLine('__spinajs_progress__:')).to.eq(null);
+      expect(parseProgressLine('__spinajs_progress__:{"task":"x"}')).to.eq(null);
+      expect(parseProgressLine('__spinajs_progress__:{"task":"x","done":1,"total":"y"}')).to.eq(null);
+      expect(parseProgressLine('__spinajs_progress__:{"task":"x","done":1,"total":-2}')).to.eq(null);
+    });
   });
 });

@@ -10,6 +10,8 @@ import { Orm } from '../src/orm.js';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler } from '../src/interfaces.js';
 import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator } from '../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
+import { extractModelDescriptor } from '../src/descriptor.js';
+import { _prepareColumnDesc } from '../src/decorators.js';
 import './../src/bootstrap.js';
 import '@spinajs/log';
 
@@ -57,6 +59,34 @@ describe('ModelBase snapshot', () => {
     expect(m.Snapshot).to.not.equal(null);
     expect(m.Snapshot!.Columns.get('Id')).to.equal(1);
     expect(m.Snapshot!.Columns.get('Bar')).to.equal('hello');
+  });
+
+  it('takeSnapshot skips Virtual columns, including one @Filterable minted over a relation', () => {
+    // `@Filterable` ( orm-http ) pushes a `{ Virtual: true }` column descriptor for any decorated
+    // property that has no column of its own - relation properties included, which is how
+    // `exists` / `n-exists` filters are declared. That makes the descriptor carry a "column" whose
+    // value on the model is a Relation, not a column value. Reproduced here without depending on
+    // orm-http.
+    const descriptor = extractModelDescriptor(Model1)!;
+    descriptor.Columns.push(_prepareColumnDesc({ Name: 'Owner', Virtual: true }));
+
+    try {
+      const m = new Model1();
+      m.Id = 1;
+
+      expect(() => m.takeSnapshot()).to.not.throw();
+
+      // A virtual column has no database column behind it, so it has no place in a diff baseline
+      // that exists only to build an UPDATE payload.
+      expect(m.Snapshot!.Columns.has('Owner')).to.equal(false);
+      expect(m.Snapshot!.Columns.has('Id')).to.equal(true);
+
+      // and changedColumns has to read the same set back, or the column it never snapshotted is
+      // compared against undefined and reported changed on every save
+      expect(m.changedColumns()).to.not.include('Owner');
+    } finally {
+      descriptor.Columns = descriptor.Columns.filter((c) => c.Name !== 'Owner');
+    }
   });
 
   it('the snapshot is a value copy - mutating the model does not change it', () => {

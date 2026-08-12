@@ -35,7 +35,7 @@ describe('route-builder', () => {
 
   describe('resolveRoutePolicies', () => {
     it('throws RouteRegistrationException when string policy is not resolvable from config', async () => {
-      const descriptor = { Policies: [{ Type: 'http.some.policy.key', Options: [] }], Middlewares: [] } as unknown as IControllerDescriptor;
+      const descriptor = { Policies: [[{ Type: 'http.some.policy.key', Options: [] }]], Middlewares: [] } as unknown as IControllerDescriptor;
       const r = route({ Method: 'refresh', Path: 'refresh', Policies: [] });
 
       const fakeCfg = { get: () => undefined } as any;

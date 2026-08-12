@@ -19,6 +19,8 @@ import { EmailSend } from '@spinajs/email';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { DateTime } from 'luxon';
 import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
+import { expirePassword } from '../src/actions.js';
+import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 
 chai.use(chaiAsPromised);
 
@@ -71,6 +73,37 @@ describe('User model tests', function () {
 
   it('Should not send event when user is already activated', async () => {
     expect(activate('test@spinajs.pl')).to.be.rejected;
+  });
+
+  it('activate resolves with the user, not the notification email result', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const u = await activate('test-notactive@spinajs.pl');
+    expect(u).to.be.instanceOf(User);
+  });
+
+  it('deactivate resolves with the user, not the notification email result', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const u = await deactivate('test@spinajs.pl');
+    expect(u).to.be.instanceOf(User);
+  });
+
+  it('ban resolves with the user, not the notification email result', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const u = await ban('test@spinajs.pl', 'reason', 100);
+    expect(u).to.be.instanceOf(User);
+  });
+
+  it('expirePassword emits UserPasswordExpired carrying the user uuid', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expirePassword('test@spinajs.pl');
+
+    const ev = eStub.args.map((a) => a[0] as any).find((e) => e instanceof UserPasswordExpired);
+    expect(ev).to.not.be.undefined;
+    expect(ev!.UserUUID).to.be.a('string').that.is.not.empty;
   });
 
   it('Should deactivate user', async () => {

@@ -216,6 +216,15 @@ export interface IOpenApiSchema {
   format?: string;
   items?: IOpenApiSchema;
   properties?: Record<string, IOpenApiSchema>;
+  /**
+   * Value schema for an open-ended map, or `false` to forbid unknown keys.
+   *
+   * The only way to describe an object keyed by data rather than by a fixed set
+   * of names — RBAC grants (resource → action → descriptor) being the case in
+   * this codebase. Without it such a schema degrades to a bare `object` and a
+   * generated client learns nothing about the values.
+   */
+  additionalProperties?: IOpenApiSchema | boolean;
   required?: string[];
   $ref?: string;
   description?: string;

@@ -156,6 +156,64 @@ Pair it with `table.uuid('Col')` in the migration, which is an alias for `binary
 
 Excludes the column from JSON serialization / dehydration. It is still read and written.
 
+### `@Hidden()`
+
+Marks a property the model never hands out. `dehydrate()` and `dehydrateWithRelations()` omit it
+unconditionally, and it is stripped from the model's **response** schema
+(`descriptor.ResponseSchema`), so generated API documentation never advertises a field the ORM
+guarantees is absent.
+
+The **write** contract keeps it: `descriptor.Schema` still lists the property, because hiding a
+value on the way out says nothing about whether a client may send it in. Use `@Ignore()` for a
+property that is not part of the table at all.
+
+Works on **relation** properties as well as columns.
+
+The list lands on `descriptor.Hidden` at class-definition time, so it is readable without an
+`Orm` and without a database — that is how the OpenAPI response schemas are built.
+
+Like `@Primary()` it is **additive across inheritance**: a subclass starts from everything its
+ancestors hide and may add to it, without writing back into their descriptors. Re-declaring a
+property the parent already hides is harmless — it is recorded once.
+
+```ts sample
+import { Connection, Model, ModelBase, Primary, Hidden, BelongsTo, SingleRelation } from '@spinajs/orm';
+
+@Connection('default')
+@Model('accounts')
+export class Account extends ModelBase<Account> {
+  @Primary()
+  public Id: number;
+
+  public Name: string;
+}
+
+@Connection('default')
+@Model('members')
+export class Member extends ModelBase<Member> {
+  @Primary()
+  @Hidden()
+  public Id: number;
+
+  public Uuid: string;
+
+  /** Never leaves the process. */
+  @Hidden()
+  public Password: string;
+
+  @Hidden()
+  @BelongsTo(Account, 'account_id')
+  public Account: SingleRelation<Account>;
+}
+
+export async function hiding() {
+  const member = await Member.getOrFail(1);
+
+  // { Uuid: '...' } — no Id, no Password, no Account
+  return member.dehydrateWithRelations();
+}
+```
+
 ### `@JunctionTable()`
 
 Names a property that carries the junction row of a many-to-many relation, so the extra columns

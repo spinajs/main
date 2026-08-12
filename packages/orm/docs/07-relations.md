@@ -227,8 +227,8 @@ export class OfferLocation extends ModelBase<OfferLocation> {
 
   public Localisation: number;
 
-  // The lazy populate path reads results back as `row[TargetModel.name].Value`, so the
-  // property MUST be named after the target model.
+  // Found by target-model constructor, so the property name is free — `Location`, `Place`,
+  // anything.
   @BelongsTo(Location, 'Localisation')
   public Location: SingleRelation<Location>;
 }
@@ -253,9 +253,12 @@ export class Offer extends ModelBase<Offer> {
 
 Two constraints worth knowing before you design the junction:
 
-- The junction model must declare a `@BelongsTo` to the target, **named after the target class**.
-  The lazy `populate()` path calls `.populate(TargetModel)` on the junction and reads results
-  back as `row[TargetModel.name].Value`.
+- The junction model must declare a `@BelongsTo` to **each** side — one pointing at the source
+  model, one at the target. Their property names are yours to choose: both the lazy `populate()`
+  path and the junction writer locate them by comparing each junction relation's `TargetModel`
+  **constructor** with the model being looked for, never by class name (which would not survive
+  minification anyway). A junction missing one of them throws `junction model J of relation R
+  declares no relation targeting T; add a @BelongsTo for it`.
 - A junction table carries one foreign key column per side, so it cannot address a **composite**
   target key. `_dbDiff` throws rather than delete the wrong rows.
 
@@ -413,20 +416,17 @@ without an owner. A slice of a relation is a list of models, not a relation.
 | `TargetModelDescriptor` | Descriptor of the related model. |
 | `populate(callback?)` | Load members. |
 | `set(models \| fn)` | Replace the contents. |
-| `union(models)` | Append. Shorthand for `push`. |
-| `remove(model \| models \| predicate)` | Remove from the in-memory list, returning what was removed. |
+| `union(dataset, cmp?)` | Add the dataset's members, skipping the ones already present. |
+| `remove(model \| models \| predicate)` | Remove matching members, returning the ones actually removed. |
 | `empty()` / `clear()` | Drop every member. |
 | `diff(dataset, cmp?)` | Symmetric difference against a dataset. |
 | `intersection(dataset, cmp?)` | Members present in both. |
 | `update()` | Insert-or-update every dirty member, in one transaction. |
-| `sync()` | `update()`, then **delete from the database anything not in the list**. |
+| `sync()` | `update()`, then **remove from the database anything not in the list**. |
 
-`remove`, `set`, `union`, `empty` and `clear` are **in-memory only**. Nothing reaches the
-database until `sync()`, `update()` or `save()` runs.
-
-`diff` and `intersection` compare by primary key by default. For a composite key the comparison
-flattens the tuple into a string — passing the key array to lodash directly would be read as a
-property *path* (`obj['TenantId']['Code']`), making every row compare equal.
+Every one of those except `update()` and `sync()` is **in-memory only** — `set`, `union`, `diff`,
+`intersection`, `remove`, `empty` and `clear` alike. Nothing reaches the database until `sync()`,
+`update()` or `save()` runs. See [Set operations](#set-operations) below.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary, HasMany, Relation } from '@spinajs/orm';
@@ -472,8 +472,115 @@ dirty set. A child re-parented onto this owner needs its key rewritten and persi
 the dirty set first would leave a previously-clean child holding its old foreign key, and a
 following `sync()` would then delete it as "not belonging" here.
 
-`ManyToManyRelationList._update()` builds a junction row per member, wires both sides through the
-junction's own relations, and inserts with `InsertOrUpdate`.
+`OneToManyRelationList.sync()` then disposes of the orphans — the rows still pointing at this
+owner that are no longer in the list. When the target model declares `@SoftDelete` they are
+**stamped** (`DeletedAt = now`) rather than deleted, and only rows not already stamped are
+touched, so a second `sync()` leaves the original deletion time alone. This is the same
+degradation `SubjectExecutor.effectivePolicy` applies on the `save()` path — see
+[08](08-unit-of-work.md). A target without `@SoftDelete` is hard-deleted, as before.
+
+`ManyToManyRelationList._update()` is idempotent. It first reads the junction rows that already
+exist for this owner, then per member: inserts the member when it has no primary key — a junction
+row written for a keyless model would carry a NULL foreign key — and skips writing the junction
+row entirely when the pair is already linked. The junction's own primary key is auto-generated,
+so re-inserting a linked pair would *duplicate* the link rather than upsert it, which is what
+repeated `sync()` calls used to do. A primary key of `0` is a real key here, not "unsaved".
+
+`ManyToManyRelationList.populate()` resolves the junction property holding the target the same way
+`_update()` does, by constructor identity, and skips junction rows whose target row no longer
+exists rather than pushing `null` into the member list.
+
+`OneToManyRelationList.populate()` pushes the loaded rows into the list itself rather than routing
+them through `Owner.attach()`. Attaching would mark the owner dirty — a read must not create
+unsaved changes — feed every sibling relation declared against the same target model, and drop
+`@DiscriminationMap` subclass rows whose constructor is not the declared target. The one thing
+attach does that is worth keeping is kept: each loaded child gets its back-reference to the owner
+set, when it declares one.
+
+### Set operations
+
+`set`, `union`, `diff`, `intersection` and `remove` are pure **in-memory** operations on the
+member list. None of them issues a statement; the database changes when `sync()`, `update()` or
+`save()` runs.
+
+`diff` and `intersection` return a new array and leave the relation untouched — apply the result
+with `set()`. `union` and `remove` write straight back into the relation. `remove` returns only
+the members it actually removed, and matches a model (or an array of models) **by primary key**,
+not by object identity; the predicate form is unaffected.
+
+```ts
+// Matched by primary key — `existing` need not be the very instance in the list.
+const removed = order.Items.remove(existing);
+
+// Adds only what is not already there.
+order.Items.union([extraItem]);
+
+// Compute, then apply.
+order.Items.set(order.Items.diff(incoming));
+
+// Only now does anything reach the database.
+await order.Items.sync();
+```
+
+#### How members are compared
+
+Without a comparator every operation compares by **primary key**, with two rules:
+
+- A composite key is flattened into a single string before comparison. Passing the key array to
+  lodash directly would be read as a property *path* (`obj['TenantId']['Code']`), making every
+  row compare equal.
+- A model whose key is not set — a freshly constructed, never-inserted one — is compared **by
+  reference**. Two fresh models are always two members, never collapsed into one, and a fresh
+  model never equals a persisted row.
+
+Each operation takes an optional comparator instead:
+
+```ts
+order.Items.union(incoming, (a, b) => a.Sku === b.Sku);
+const common = order.Items.intersection(incoming, (a, b) => a.Sku === b.Sku);
+```
+
+A model that declares **no primary key columns at all** has nothing to compare by, so a
+comparator is mandatory for `diff`, `intersection` and `union` (and their `Dataset` equivalents).
+Without one they throw `OrmException` rather than silently match nothing — or everything:
+
+```
+set operation compares by primary key, but the model declares no primary key columns; pass an
+explicit comparator callback
+```
+
+`remove` takes no comparator and does not throw here; against a keyless model it degrades to
+reference matching.
+
+#### `union` de-duplicates
+
+`union` skips members already present, comparing by primary key or by the comparator. The
+**instance already in the relation wins** over the incoming duplicate, so pending edits on it are
+not discarded, and duplicates *within* the incoming dataset collapse too. Unsaved models compare
+by reference and are therefore always appended.
+
+```ts
+const kept = order.Items[1];                    // Id 2
+order.Items.union([new OrderItem({ Id: 2 }), new OrderItem({ Id: 3 })]);
+// -> Ids [1, 2, 3]; order.Items[1] is still `kept`
+```
+
+#### `Dataset` — the same algebra, standalone
+
+`Dataset.diff`, `Dataset.intersection` and `Dataset.union` each return a closure of exactly the
+shape `set()` accepts, `(members, primaryKeyColumns) => members`. They are what the relation
+methods call, exported so a result can be computed and applied in one step:
+
+```ts
+import { Dataset } from '@spinajs/orm';
+
+order.Items.set(Dataset.union(incoming));
+order.Items.set(Dataset.diff(incoming));
+order.Items.set(Dataset.intersection(incoming, (a, b) => a.Sku === b.Sku));
+```
+
+`rel.union(dataset, cmp?)` is exactly `rel.set(Dataset.union(dataset, cmp?))`. All three are
+in-memory, and all three obey the comparison rules above.
 
 ## Eager loading with `populate()`
 

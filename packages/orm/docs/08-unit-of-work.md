@@ -169,6 +169,11 @@ export async function intentionalRemoval() {
 }
 ```
 
+`remove` — like `set`, `union`, `diff` and `intersection` — only edits the in-memory list; the
+`save()` above is what applies the removal, under the orphan policy below. Passing a model rather
+than a predicate matches by primary key. See
+[07](07-relations.md#set-operations).
+
 ## Identity map
 
 Before anything else, every model reached is canonicalized: a row reached by two relation paths
@@ -286,6 +291,10 @@ and only a set-wide view can tell the two apart.
 An orphan policy of `delete` on a model that declares `@SoftDelete` is applied as `soft-delete`.
 `ModelBase.destroy()` has always stamped rather than deleted for such a model; letting an orphan
 take the other branch would make "delete this row" depend on which code path reached it.
+
+`OneToManyRelationList.sync()` degrades the same way for the same reason: the rows it drops from
+a relation targeting a `@SoftDelete` model are stamped, not deleted. See
+[07](07-relations.md#relation-objects-at-runtime).
 
 ## Ordering
 

@@ -51,6 +51,19 @@ export abstract class OrmDriver<T extends IDriverOptions = IDriverOptions> exten
   public readonly SupportedIsolationLevels: IsolationLevel[] = [];
 
   /**
+   * JSON-schema shapes for SQL types this driver hands back as something other than what
+   * @spinajs/orm's shared map assumes, keyed by the same `IColumnDescriptor.Type` string.
+   * Applied only to the RESPONSE schema - what a client may send is unaffected.
+   *
+   * Empty by default, because "how does this type arrive in JS" is a driver fact and only
+   * the driver knows it: mysql2 returns DECIMAL as a string ( decimalNumbers off, so values
+   * above 2^53 keep the precision DECIMAL exists for ), while tedious and sqlite return
+   * numbers. Encoding any one of those answers in the shared map makes the generated
+   * documentation lie for every other driver.
+   */
+  public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {};
+
+  /**
    * The transaction currently in scope on this async execution path, or `undefined` outside
    * a transaction.
    */

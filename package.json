@@ -3,15 +3,15 @@
   "private": true,
   "scripts": {
     "clean": "npm run clean --workspace=packages",
-    "pretest": "tsc -b tsconfig.build.json",
+    "pretest": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json",
     "test": "npm run test --workspace=packages",
-    "build": "npm run clean && tsc -b tsconfig.build.json &&  tsc -b tsconfig.build.cjs.json && npm run copy-static && npm run prepare-module-support",
-    "watch": "tsc -b tsconfig.build.json tsconfig.build.cjs.json --watch --preserveWatchOutput",
-    "watch:esm": "tsc -b tsconfig.build.json --watch --preserveWatchOutput",
-    "watch:cjs": "tsc -b tsconfig.build.cjs.json --watch --preserveWatchOutput",
+    "build": "npm run clean && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.cjs.json && npm run copy-static && npm run prepare-module-support",
+    "watch": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json tsconfig.build.cjs.json --watch --preserveWatchOutput",
+    "watch:esm": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json --watch --preserveWatchOutput",
+    "watch:cjs": "node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.cjs.json --watch --preserveWatchOutput",
     "publish": "npm run build && node scripts/publish-all.mjs",
     "publish:dry-run": "node scripts/publish-all.mjs --dry-run",
-    "copy-static": "cpx packages/http/src/views/**/* packages/http/lib/views &&  cpx packages/http/src/static/**/* packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
+    "copy-static": "cpx \"packages/http/src/views/**/*\" packages/http/lib/views && cpx \"packages/http/src/static/**/*\" packages/http/lib/static && cpx \"packages/http-swagger/src/views/**/*.{pug,js}\" packages/http-swagger/lib/views",
     "prepare-module-support": "node scripts/generate-packages-for-modules.mjs",
     "docs:check": "node scripts/check-doc-samples.mjs"
   },
@@ -21,7 +21,7 @@
   "overrides": {
     "luxon": "^3.6.1"
   },
-"devDependencies": {
+  "devDependencies": {
     "@types/bunyan": "^1.8.8",
     "@types/chai": "^4.3.4",
     "@types/chai-as-promised": "^7.1.5",
@@ -76,7 +76,8 @@
     "ts-node": "^10.9.1",
     "tsx": "^4.19.2",
     "typedoc": "^0.28.13",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-7": "npm:typescript@^7.0.2"
   },
   "dependencies": {
     "@spinajs/cli": "file:packages\\cli",
@@ -116,6 +117,7 @@
     "@spinajs/rbac": "file:packages\\rbac",
     "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/rbac-http-admin": "file:packages\\rbac-http-admin",
+    "@spinajs/rbac-http-token": "file:packages\\rbac-http-token",
     "@spinajs/rbac-http-user": "file:packages\\rbac-http-user",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",

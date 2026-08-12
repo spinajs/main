@@ -36,7 +36,7 @@ const IMPERSONATE_RESOURCE = 'user:impersonate';
  * original. Permission checks therefore "see" the target by default; the
  * original is preserved only for audit and for ending the impersonation.
  *
- * @tags Authentication
+ * @tags Impersonation
  */
 @BasePath('auth')
 export class ImpersonationController extends BaseController {

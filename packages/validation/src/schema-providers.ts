@@ -1,4 +1,5 @@
 import { Autoinject, DI, Injectable, Singleton, SyncService } from '@spinajs/di';
+import { getRegisteredSchema } from './decorators.js';
 import { DataValidator } from './validator.js';
 
 /**
@@ -13,6 +14,21 @@ export abstract class SchemaProvider extends SyncService {
    * @param typeName
    */
   public abstract getSchema(typeName: string): Record<string, unknown> | undefined;
+
+  /**
+   * Schema of what `typeName` looks like on the way OUT — the response contract, not the
+   * write contract `getSchema` returns. The two differ for anything whose stored shape is
+   * not the shape it is validated against on input: an ORM model is validated against the
+   * fields a client may send, but responded with whatever the database really holds.
+   *
+   * Providers that make no such distinction (a plain `@Schema` DTO is the same object both
+   * ways) leave this alone — the caller falls back to `getSchema`.
+   *
+   * @param _typeName - name of the type to describe
+   */
+  public getResponseSchema(_typeName: string): Record<string, unknown> | undefined {
+    return undefined;
+  }
 }
  
 
@@ -28,13 +44,15 @@ export class DtoSchemaProvider extends SchemaProvider {
 
   public getSchema(typeName: string): Record<string, unknown> | undefined {
 
-    const schemas = DI.get<Map<string, any>>('__schemas__');
-    if (!schemas) {
+    // The container copy first, so anything registered under `'__schemas__'` by hand still
+    // wins; `getRegisteredSchema` is the decorator's own map, which - unlike the container
+    // cache - survives a `DI.clearCache()`. See the comment on `SCHEMAS` in decorators.ts.
+    const schema = DI.get<Map<string, any>>('__schemas__')?.get(typeName) ?? getRegisteredSchema(typeName);
+    if (!schema) {
       return undefined;
     }
 
-    const schema = schemas.get(typeName);
-    if (schema && typeof schema === 'object' && '$ref' in schema) {
+    if (typeof schema === 'object' && '$ref' in schema) {
       // DataValidator.getSchema() already returns the unwrapped schema object
       return this.Validator.getSchema(schema.$ref as string);
     }

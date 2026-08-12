@@ -1,8 +1,7 @@
-import { InvalidOperation } from '@spinajs/exceptions';
 import { Config } from '@spinajs/configuration';
 import { BasePolicy, Request as sRequest } from '@spinajs/http';
 import { TwoFactorAuthConfig } from '@spinajs/rbac-http';
-import { Forbidden } from '@spinajs/exceptions';
+import { Forbidden, InvalidOperation } from '@spinajs/exceptions';
 
 /**
  * Guards routes that only make sense when 2FA is switched on system-wide.
@@ -19,12 +18,33 @@ export class TwoFactorAuthEnabled extends BasePolicy {
     return true;
   }
 
-  public execute(_req: sRequest): Promise<void> {
+  public async execute(_req: sRequest): Promise<void> {
     if (this.TwoFactorConfig.enabled === false) {
-      throw new InvalidOperation('2 factor auth is not enabled');
+      // Deliberately Forbidden and not InvalidOperation: the latter has no
+      // @HandleException mapping in @spinajs/http and reaches the client as a
+      // 500, which a caller cannot distinguish from a fault.
+      //
+      // `Forbidden`'s constructor only accepts a message string (see
+      // `Exception` in @spinajs/exceptions), so the structured payload that
+      // the HTTP error handler serializes into the response body is attached
+      // as an extra `error` property after construction.
+      //
+      // This method must stay `async`: `createPolicyGate` (see
+      // packages/http/src/route-builder.ts) builds its wait list with
+      // `enabledPolicies.map(p => p.execute(...).then(...))`. A synchronous
+      // `throw` here would escape that `.map()` call entirely instead of
+      // becoming a rejected promise in the array, so `Promise.allSettled`
+      // would never even run — the whole policy gate blows up for every
+      // caller, authorized or not, instead of just this policy losing the
+      // race. Marking the method `async` turns the throw into a promise
+      // rejection, which is what the gate is built to handle.
+      throw Object.assign(new Forbidden('2 factor auth is not enabled'), {
+        error: {
+          code: 'E_2FA_SYSTEM_DISABLED',
+          message: '2 factor auth is not enabled',
+        },
+      });
     }
-
-    return Promise.resolve();
   }
 }
 

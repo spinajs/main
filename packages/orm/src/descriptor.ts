@@ -29,6 +29,8 @@ export function createDefaultModelDescriptor(): IModelDescriptor {
       Models: null,
     },
     Schema: {},
+    ResponseSchema: {},
+    Hidden: [],
   };
 }
 

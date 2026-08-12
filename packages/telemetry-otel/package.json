@@ -1,0 +1,65 @@
+{
+  "version": "2.0.505",
+  "description": "OpenTelemetry tracing for SpinaJS: OTLP/HTTP trace export (highlight.io compatible) and a registry for long-lived keyed spans",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
+  "type": "module",
+  "private": false,
+  "engines": {
+    "node": ">=16.11"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha --exit -p tsconfig.json test/**/*.test.ts",
+    "coverage": "nyc npm run test",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
+  },
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/log)",
+  "license": "MIT",
+  "name": "@spinajs/telemetry-otel",
+  "homepage": "https://github.com/spinajs/main#readme",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "dependencies": {
+    "@spinajs/configuration": "2.0.505",
+    "@spinajs/configuration-common": "2.0.505",
+    "@spinajs/di": "2.0.505",
+    "@spinajs/exceptions": "2.0.505",
+    "@spinajs/log": "2.0.505",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.0.0",
+    "@opentelemetry/sdk-trace-node": "^2.0.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
+    "@opentelemetry/resources": "^2.0.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0"
+  }
+}

@@ -8,6 +8,16 @@ export class ModelWithScopeQueryScope implements QueryScope {
     this.where('Id', '>=', val);
     return this;
   }
+
+  /**
+   * Builder-agnostic scope: `this` is typed structurally, so the same method binds to select,
+   * update and delete builders alike. Scopes meant to be reusable across statement types must
+   * be written this way.
+   */
+  whereBarEquals<This extends ModelWithScopeQueryScope>(this: This, val: string): This {
+    (this as any).where('Bar', val);
+    return this;
+  }
 }
 
 @Connection('sqlite')
@@ -17,4 +27,6 @@ export class ModelWithScope extends ModelBase {
 
   @Primary()
   public Id: number;
+
+  public Bar: string;
 }

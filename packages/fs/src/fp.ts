@@ -54,11 +54,13 @@ export function _fs(fileSystem: string | fs): () => fs | undefined {
  *
  * @param srcPath files or dirs to zip ( absolute path, or relative to src fs ). if no provided, temp fs is used
  * @param dstName - relative to dst fs
+ * @param srcFs - source provider name / instance ( temp fs when omitted )
+ * @param dstFs - optional destination provider - archive lands in srcFs when omitted
  * @returns absolute path to zipped file
  */
-export function _zip(srcPath: string[], dstName: string, srcFs?: string | fs) {
+export function _zip(srcPath: string[], dstName: string, srcFs?: string | fs, dstFs?: string | fs) {
   return _chain(_use(_fs(srcFs ?? 'fs-temp'), 'zipFS'), ({ zipFS }: { zipFS: fs }) => {
-    return zipFS.zip(srcPath, zipFS, dstName);
+    return zipFS.zip(srcPath, dstFs ? _provider(dstFs)() : zipFS, dstName);
   });
 }
 
@@ -233,8 +235,13 @@ export function _is_of_type(path: string, extension: string) {
   return async () => {
     const { fileTypeFromFile } = await import('file-type');
     const type = await fileTypeFromFile(path);
-    if (type!.ext !== extension) {
-      throw new IOFail(`File ${path} is invalid. Requested extension is ${extension}, file mime type is ${type!.ext}`);
+
+    if (!type) {
+      throw new IOFail(`File ${path} is invalid. Cannot determine file type, requested extension is ${extension}`);
+    }
+
+    if (type.ext !== extension) {
+      throw new IOFail(`File ${path} is invalid. Requested extension is ${extension}, file mime type is ${type.ext}`);
     }
   }
 }
@@ -243,8 +250,13 @@ export function _is_of_mimetype(path: string, mimetype: string) {
   return async () => {
     const { fileTypeFromFile } = await import('file-type');
     const type = await fileTypeFromFile(path);
-    if (type!.mime !== mimetype) {
-      throw new IOFail(`File ${path} is invalid. Requested mime type is ${mimetype}, file mime type is ${type!.mime}`);
+
+    if (!type) {
+      throw new IOFail(`File ${path} is invalid. Cannot determine file type, requested mime type is ${mimetype}`);
+    }
+
+    if (type.mime !== mimetype) {
+      throw new IOFail(`File ${path} is invalid. Requested mime type is ${mimetype}, file mime type is ${type.mime}`);
     }
   }
 }

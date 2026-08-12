@@ -1,8 +1,8 @@
 import { IRbacDescriptor, IRbacRoutePermissionDescriptor } from './interfaces.js';
-import { IController, IRoute, Middleware, Parameter, Policy, Route, RouteMiddleware, Request as sRequest, Response } from '@spinajs/http';
+import { BasePolicy, IController, IRoute, Middleware, Parameter, Policy, Route, RouteMiddleware, Request as sRequest, Response } from '@spinajs/http';
 import { RbacPolicy } from './policies/RbacPolicy.js';
 import { PermissionType } from '@spinajs/rbac';
-import { getInheritedDescriptor } from '@spinajs/di';
+import { Constructor, getInheritedDescriptor } from '@spinajs/di';
 import * as express from 'express';
 
 /**
@@ -144,9 +144,16 @@ export function Resource(resource: string, permission?: PermissionType[]) {
  *
  * Assigns permission for controller route
  *
+ * `also` policies join `RbacPolicy` in the SAME policy group, so they are
+ * combined with AND: the caller must pass the permission check and every extra
+ * policy. Declaring them with a separate `@Policy()` would put them in their
+ * own group, which `@spinajs/http` combines with OR at the same scope - and
+ * `RbacPolicy` passing on its own would then be enough to open the route.
+ *
  * @param permission - permission to set
+ * @param also - additional policies this route requires alongside the permission check
  */
-export function Permission(permission: PermissionType[] = ['readOwn']) {
+export function Permission(permission: PermissionType[] = ['readOwn'], ...also: Constructor<BasePolicy>[]) {
   return descriptor((metadata: IRbacDescriptor, target: any, propertyKey: string) => {
     if (propertyKey) {
       // Always set, never guarded by `has()`: routes are inherited per member
@@ -160,7 +167,7 @@ export function Permission(permission: PermissionType[] = ['readOwn']) {
       });
     }
 
-    Policy(RbacPolicy)(target, propertyKey, undefined);
+    Policy([RbacPolicy, ...also])(target, propertyKey, undefined);
   });
 }
 

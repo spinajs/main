@@ -41,7 +41,7 @@ export const UNCOPYABLE = Symbol('spinajs.orm.snapshot.uncopyable');
  *
  * Immutable values (primitives, luxon `DateTime`) are returned as-is. Everything the ORM can
  * put in a column and that can be mutated in place — `Buffer` (binary/UUID columns), `Date`,
- * arrays and plain objects (JSON columns) — is copied.
+ * plain arrays and plain objects (JSON columns) — is copied.
  *
  * A mutable instance of a class the ORM does not own cannot be copied safely: cloning it
  * could break its invariants. Such a value is replaced by {@link UNCOPYABLE} unless its
@@ -76,7 +76,14 @@ export function snapshotValue(value: unknown, converter?: IValueConverter | null
     return new Date(value.getTime());
   }
 
-  if (Array.isArray(value) || _.isPlainObject(value)) {
+  // `Array.isArray` is true for SUBCLASSES of Array too, and `_.cloneDeep` reconstructs those with
+  // `new value.constructor()` — no arguments. A subclass whose constructor requires them throws
+  // from inside lodash, out of a stack that names neither the model nor the column. The ORM's own
+  // `Relation` is exactly such a subclass ( it reads `TargetModel` off its second parameter ), and
+  // `@Filterable` on a relation property is enough to route one through here — see
+  // `ModelBase.snapshotColumns()`. Only a genuine plain array is safe to clone; anything else is an
+  // instance of a class the ORM does not own, which is what UNCOPYABLE is for.
+  if ((Array.isArray(value) && Object.getPrototypeOf(value) === Array.prototype) || _.isPlainObject(value)) {
     return _.cloneDeep(value);
   }
 

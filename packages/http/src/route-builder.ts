@@ -10,7 +10,7 @@ import { UnexpectedServerError } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
 import { RouteArgs } from './route-args/index.js';
-import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces.js';
+import { Request as sRequest, Response, IController, IControllerDescriptor, IPolicyDescriptor, IPolicyGroup, RouteMiddleware, IRoute, IMiddlewareDescriptor, BasePolicy, ParameterType, IActionLocalStoregeContext } from './interfaces.js';
 import { RouteRegistrationException } from './exceptions.js';
 
 /**
@@ -58,14 +58,30 @@ export function resolveRouteMiddlewares(descriptor: IControllerDescriptor, route
 }
 
 /**
- * Resolves controller-wise + route-wise policy descriptors into instances.
+ * Policy instances for one route, kept split by the scope they were declared
+ * at. The two scopes are combined with AND by {@link createPolicyGate}, so a
+ * controller-wide policy cannot be satisfied *instead of* a route's own.
+ */
+export interface IResolvedRoutePolicies {
+  /** Groups declared on the controller class. */
+  Controller: BasePolicy[][];
+
+  /** Groups declared on the route method. */
+  Route: BasePolicy[][];
+}
+
+/**
+ * Resolves controller-wise + route-wise policy descriptors into instances,
+ * keeping both the grouping produced by `@Policy()` ( one inner array per
+ * decorator call, combined with AND ) and the scope each group was declared
+ * at ( the two scopes are combined with AND ).
  *
  * String policy descriptors are configuration keys pointing at a policy type
  * name. A key that does not resolve to a registered BasePolicy type throws
  * {@link RouteRegistrationException} — a silently dropped policy would leave
  * the route unprotected.
  */
-export function resolveRoutePolicies(
+export async function resolveRoutePolicies(
   descriptor: IControllerDescriptor,
   route: IRoute,
   container: IContainer,
@@ -73,76 +89,114 @@ export function resolveRoutePolicies(
   log: Log,
   controllerName: string,
   path: string,
-): Promise<BasePolicy[]> {
-  return Promise.all<BasePolicy>(
-    descriptor.Policies.concat(route.Policies || []).map((m: IPolicyDescriptor) => {
-      if (_.isString(m.Type)) {
-        const policyType = cfg.get<string>(m.Type);
-        if (!policyType || !DI.checkType(BasePolicy, policyType)) {
-          throw new RouteRegistrationException(
-            `No policy named ${policyType ?? '<undefined>'} is registered for route ${controllerName}::${String(route.Method)} at path ${path} ( check your configuration at ${m.Type} )`,
-          );
-        }
-        log.trace(`Policy ${policyType} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
-        return container.resolve<BasePolicy>(policyType, m.Options);
-      }
+): Promise<IResolvedRoutePolicies> {
+  const resolveGroups = (groups: IPolicyGroup[]) =>
+    Promise.all<BasePolicy[]>(
+      groups.map((group: IPolicyGroup) =>
+        Promise.all<BasePolicy>(
+          group.map((m: IPolicyDescriptor) => {
+            if (_.isString(m.Type)) {
+              const policyType = cfg.get<string>(m.Type);
+              if (!policyType || !DI.checkType(BasePolicy, policyType)) {
+                throw new RouteRegistrationException(
+                  `No policy named ${policyType ?? '<undefined>'} is registered for route ${controllerName}::${String(route.Method)} at path ${path} ( check your configuration at ${m.Type} )`,
+                );
+              }
+              log.trace(`Policy ${policyType} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
+              return container.resolve<BasePolicy>(policyType, m.Options);
+            }
 
-      log.trace(`Policy ${m.Type.name} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
-      return container.resolve<BasePolicy>(m.Type, m.Options);
-    }),
-  );
+            log.trace(`Policy ${m.Type.name} is used in controller ${controllerName}::${String(route.Method)} at path ${path}`);
+            return container.resolve<BasePolicy>(m.Type, m.Options);
+          }),
+        ),
+      ),
+    );
+
+  const [controllerPolicies, routePolicies] = await Promise.all([resolveGroups(descriptor.Policies), resolveGroups(route.Policies || [])]);
+
+  return { Controller: controllerPolicies, Route: routePolicies };
 }
 
 /**
  * Express handler gating a route behind its policies.
  *
- * Executes all policies enabled for the route; if at least ONE policy resolves
- * without error the route is allowed to execute. This allows multiple access
- * paths to a resource, e.g. token access & session.
+ * Three levels combine, from the inside out:
+ *
+ *  - a GROUP is one `@Policy()` call. All of its members must resolve ( AND ),
+ *    which is how one access path demands several conditions at once, e.g. an
+ *    authorized session AND a feature switch.
+ *  - a SCOPE is all the groups declared at one place, on the controller class
+ *    or on the route method. Any one of its groups passing is enough ( OR ),
+ *    which is how a resource offers several independent access paths, e.g.
+ *    api token OR session.
+ *  - the two scopes are combined with AND. A controller-wide policy states
+ *    what every route needs, so it can only ever NARROW a route - it must not
+ *    be satisfiable *instead of* the route's own policies.
+ *
+ * A scope with no enabled group states no requirement and passes, so a route
+ * that nothing guards still runs.
  */
-export function createPolicyGate(policies: BasePolicy[], route: IRoute, controller: IController, log: Log): Express.RequestHandler {
+export function createPolicyGate(policies: IResolvedRoutePolicies, route: IRoute, controller: IController, log: Log): Express.RequestHandler {
   const routeName = `${controller.constructor.name}:${String(route.Method)} ${controller.BasePath}/${String(route.Path || route.Method)}`;
 
   return (req: Express.Request, _res: Express.Response, next: Express.NextFunction) => {
     // Only policies enabled for this concrete route participate in the gate.
-    // A route whose policies are ALL disabled has no active authorization
-    // check, so it is allowed through — same semantics as having no policies
-    // at all. Computing this up front is what prevents the request from
-    // hanging: `Promise.allSettled([])` resolves to `[]`, which matches
-    // neither the fulfilled nor the rejected branch below, so `next` would
-    // never be called.
-    const enabledPolicies = policies.filter((p) => p.isEnabled(route, controller));
-    if (enabledPolicies.length === 0) {
+    //
+    // A group left with no enabled member is DROPPED, not treated as passing:
+    // an empty AND is vacuously true, and one vacuously true group would open
+    // its whole scope for every caller, including when a sibling group in that
+    // scope is a live authorization check.
+    const enable = (groups: BasePolicy[][]) => groups.map((group) => group.filter((p) => p.isEnabled(route, controller))).filter((group) => group.length > 0);
+
+    const scopes = [enable(policies.Controller), enable(policies.Route)].filter((scope) => scope.length > 0);
+
+    if (scopes.length === 0) {
       next();
       return;
     }
 
-    Promise.allSettled(
-      enabledPolicies.map((p) => {
-        return p
-          .execute(req, route, controller)
-          .then(() => {
-            log.trace(`Policy succeded for route ${routeName}, policy: ${p.constructor.name}`);
-          })
-          .catch((err) => {
-            log.trace(`Policy failed for route ${routeName} error ${err}, policy: ${p.constructor.name}`);
-            throw err;
-          });
-      }),
+    Promise.all(
+      // allSettled per group: a rejecting member must not escape as an
+      // unhandled rejection while a sibling group is still deciding, and the
+      // outer Promise.all must never reject on its own.
+      scopes.map((scope) =>
+        Promise.all(
+          scope.map((group) =>
+            Promise.allSettled(
+              group.map((p) => {
+                return p
+                  .execute(req, route, controller)
+                  .then(() => {
+                    log.trace(`Policy succeded for route ${routeName}, policy: ${p.constructor.name}`);
+                  })
+                  .catch((err) => {
+                    log.trace(`Policy failed for route ${routeName} error ${err}, policy: ${p.constructor.name}`);
+                    throw err;
+                  });
+              }),
+            ),
+          ),
+        ),
+      ),
     )
-      .then((results) => {
-        const fullfilled = results.find((r) => r.status === 'fulfilled');
-        if (fullfilled) {
+      .then((scopeResults) => {
+        // AND across scopes, OR across the groups of one scope, AND inside a
+        // group.
+        if (scopeResults.every((groups) => groups.some((results) => results.every((r) => r.status === 'fulfilled')))) {
           log.trace(`Policy for route ${routeName} succeded, continue execution`);
           next();
           return;
         }
 
-        // Every policy rejected — forward the first failure to the express
-        // error handler. Use next(err) directly (not `throw next(...)`,
-        // which would reject this .then() with `undefined` as an unhandled
-        // rejection while the error was already forwarded).
-        const failed = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        // Report the first failure of the first scope that did not hold, in
+        // declaration order — reporting a later scope's error would name a
+        // requirement the caller never got as far as. Use next(err) directly
+        // (not `throw next(...)`, which would reject this .then() with
+        // `undefined` as an unhandled rejection while the error was already
+        // forwarded).
+        const blocking = scopeResults.find((groups) => !groups.some((results) => results.every((r) => r.status === 'fulfilled')));
+        const failed = (blocking ?? []).flat().find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
         next(failed ? failed.reason : new UnexpectedServerError('Policy evaluation produced no result'));
       })
       // Guard against unexpected throws in the settle/handler chain so the

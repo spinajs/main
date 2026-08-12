@@ -23,6 +23,9 @@ import { Model4, Model6, ModelDisc1, ModelDisc2, ModelDiscBase } from './mocks/m
 import { ModelWithScopeQueryScope } from './mocks/models/ModelWithScope.js';
 import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from './../src/dehydrators.js';
 import { ModelWithScope } from './mocks/models/ModelWithScope.js';
+import { ModelArchived } from './mocks/models/ModelArchived.js';
+import { WhereStatement } from '../src/statements.js';
+import { SqlOperator } from '../src/enums.js';
 import { DateTime } from 'luxon';
 import { UuidConverter } from '../src/converters.js';
 import { _update } from '../src/fp.js';
@@ -68,7 +71,9 @@ describe('General model tests', () => {
     const orm = await db();
     const models = await orm.Models;
 
-    expect(models.length).to.eq(24);
+    // Cardinality of the '__models__' DI bag: every @Model in test/mocks/models counts, so this
+    // number moves whenever a mock model is added or removed.
+    expect(models.length).to.eq(26);
   });
 
   it('Should set different connections to model', async () => {
@@ -660,6 +665,50 @@ describe('General model tests', () => {
     expect(scope.calledOnce).to.be.true;
   });
 
+  it('model scope should be bound to delete query builder', async () => {
+    await db();
+
+    sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereBarEquals');
+
+    await ModelWithScope.destroy(1).whereBarEquals('hello');
+
+    expect(execute.calledOnce).to.be.true;
+    expect(scope.calledOnce).to.be.true;
+  });
+
+  it('model scope should be bound to update query builder', async () => {
+    await db();
+
+    sinon.stub(FakeUpdateQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const execute = sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
+      new Promise((res) => {
+        res([]);
+      }),
+    );
+
+    const scope = sinon.spy(ModelWithScopeQueryScope.prototype, 'whereBarEquals');
+
+    await ModelWithScope.update({ Bar: 'world' }).whereBarEquals('hello');
+
+    expect(execute.calledOnce).to.be.true;
+    expect(scope.calledOnce).to.be.true;
+  });
+
   it('update mixin should work', async () => {
     // @ts-ignore
     const orm = await db();
@@ -1187,6 +1236,48 @@ describe('General model tests', () => {
 
     const result = await _update()(model as any);
     expect(result).to.eq(model);
+  });
+
+  /** True when the builder carries the default `ArchivedAt IS NULL` statement. */
+  function hasArchivedNullStatement(query: any): boolean {
+    return (query._statements as any[]).some((s) => s instanceof WhereStatement && s.Column === 'ArchivedAt' && s.Operator === SqlOperator.NULL);
+  }
+
+  it('select on an @Archived model filters archived rows out by default', async () => {
+    await db();
+
+    const query = ModelArchived.select();
+
+    expect(hasArchivedNullStatement(query)).to.be.true;
+  });
+
+  it('withArchived removes the default archived filter', async () => {
+    await db();
+
+    const query = ModelArchived.select().withArchived();
+
+    expect(hasArchivedNullStatement(query)).to.be.false;
+  });
+
+  it('withArchived is a no-op on a model without @Archived', async () => {
+    await db();
+
+    const query = ModelWithScope.select().withArchived();
+
+    expect(hasArchivedNullStatement(query)).to.be.false;
+  });
+
+  it('delete on an @Archived model is NOT archive-filtered', async () => {
+    await db();
+
+    sinon.stub(FakeDeleteQueryCompiler.prototype, 'compile').returns({
+      expression: '',
+      bindings: [],
+    });
+
+    const query = ModelArchived.destroy(1);
+
+    expect(hasArchivedNullStatement(query)).to.be.false;
   });
 });
 

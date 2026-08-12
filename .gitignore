@@ -79,6 +79,9 @@ npm-debug.log
 /packages/fs-s3/test/temp
 packages/orm-http/test/cache/
 
+# http controller cache written by the http server at test time
+packages/*/__cache__/
+
 # superpowers SDD scratch (local only)
 .superpowers/
 

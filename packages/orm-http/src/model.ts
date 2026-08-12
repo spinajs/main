@@ -3,9 +3,9 @@ import './builders.js';
 import { IColumnFilter, IFilterRequest, FilterableLogicalOperators } from './interfaces.js';
 
 export const MODEL_STATIC_MIXINS = {
-  async filter(filterRequest: IFilterRequest) {
+  async filter(filterRequest?: IFilterRequest) {
     const { query } = createQuery(this, SelectQueryBuilder);
-    return (query as any).filter(filterRequest.filters, filterRequest.op);
+    return (query as any).filter(filterRequest?.filters, filterRequest?.op);
   },
 
   filterColumns() {

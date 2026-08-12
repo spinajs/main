@@ -12,8 +12,10 @@ import { Schema } from '@spinajs/validation';
   },
 })
 export class PaginationDTO {
-  public limit: number;
-  public page: number;
+  // Optional: neither field is `required` in the schema above, so a client may
+  // send `{ page: 2 }` (or nothing at all) and the field stays undefined.
+  public limit?: number;
+  public page?: number;
 
   constructor(data: Partial<PaginationDTO>) {
     Object.assign(this, data);
@@ -29,8 +31,9 @@ export class PaginationDTO {
   },
 })
 export class OrderDTO {
-  public order: SortOrder;
-  public column: string;
+  // Optional for the same reason as PaginationDTO — the schema requires neither.
+  public order?: SortOrder;
+  public column?: string;
 
   constructor(data: Partial<OrderDTO>) {
     Object.assign(this, data);

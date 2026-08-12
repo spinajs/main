@@ -127,7 +127,20 @@ describe('Http orm tests', function () {
       expect(spy.args[0][0].Text).to.equal('witaj');
     });
 
-    it('simple query with include', async () =>{ 
+    it('resolves the model through an explicit paramField', async () => {
+      const spy = DI.get(Simple)!.testNameMismatch as sinon.SinonSpy;
+
+      await req().get('simple/mismatch/1').set('Accept', 'application/json');
+
+      // `@Get('mismatch/:id')` with `(@FromModel() model)` read req.params['model'] -
+      // undefined - and queried with a null key. The key is named explicitly now;
+      // without paramField this route throws rather than guessing :id.
+      expect(spy.args[0][0], 'no model was resolved for the :id placeholder').to.not.be.undefined;
+      expect(spy.args[0][0].constructor.name).to.eq('Test');
+      expect(spy.args[0][0].Text).to.equal('witaj');
+    });
+
+    it('simple query with include', async () =>{
 
       const spy = DI.get(Simple)!.testInclude as sinon.SinonSpy;
       

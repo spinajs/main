@@ -43,6 +43,24 @@ export class MySqlOrmDriver extends SqlDriver {
    */
   public readonly SupportedIsolationLevels: IsolationLevel[] = ['READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'];
 
+  /**
+   * DECIMAL/NUMERIC comes back from mysql2 as a STRING, not a number: it parses them with
+   * readLengthCodedString unless `decimalNumbers` is on ( see connect() below - it is off by
+   * default and turning it on is a bad idea, because above 2^53 we lose exactly the precision
+   * DECIMAL exists to protect ). No converter along the way changes that, so the RESPONSE
+   * schema has to say the same thing as the runtime, or client-side validation fails on every
+   * single row.
+   *
+   * Declared here rather than in the shared @spinajs/orm map, because it is a fact about THIS
+   * driver: tedious and sqlite hand DECIMAL back as a number. It applies to reads only - on
+   * the request side ( `@Body()` ) DECIMAL stays a number, as it always was.
+   */
+  public readonly ResponseSchemaTypes: Readonly<Record<string, unknown>> = {
+    decimal: { type: 'string' },
+    newdecimal: { type: 'string' },
+    numeric: { type: 'string' },
+  };
+
   public executeOnDb(stmt: string, params: any[], context: QueryContext): Promise<any> {
     // Reads and writes are both retried: `withReconnect` only re-runs on transport failures,
     // where the statement provably never reached the server.
@@ -263,6 +281,11 @@ export class MySqlOrmDriver extends SqlDriver {
           maxIdle: pool.Min > 0 ? pool.Min : pool.Max,
           idleTimeout: pool.IdleTimeout,
           queueLimit: 0,
+          // `decimalNumbers` stays OFF (mysql2's default): DECIMAL/NEWDECIMAL comes back as
+          // a string, because above 2^53 a float loses exactly the precision DECIMAL is
+          // there to keep. Whoever turns it on must also change `ResponseSchemaTypes` at the
+          // top of this class - otherwise OpenAPI starts lying about the type and client-side
+          // response validation fails on every row.
         });
 
         // Test the pool connection

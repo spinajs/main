@@ -5,7 +5,7 @@ import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, SkipModelPermission } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
@@ -92,7 +92,16 @@ export class LoginController extends BaseController {
 
       const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
 
-      if (this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
+      // `forceUser` alone used to be enough to park the user in
+      // TwoFactorInitRequired. But every mutating `/user/2fa*` and
+      // `/auth/2fa/setup` route is now gated by `TwoFactorAuthEnabled` and
+      // answers 403 when `rbac.twoFactorAuth.enabled` is off — so a user forced into
+      // this branch while the system switch is off would have no route back
+      // out: setup2fa can no longer both enrol AND activate them. The
+      // system-wide switch has to gate this branch too, or every user without
+      // 2FA is locked out of the product the moment forceUser is on and the
+      // switch is off.
+      if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
         this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });
@@ -224,18 +233,30 @@ export class LoginController extends BaseController {
    * required). Roles the user may switch to are listed in Role.
    * Requires the user to be logged in (session exists), but full authorization (2FA) is not required.
    * @security cookieAuth
-   * @returns {User} User data from the current session
+   * @returns {IWhoamiResponse} User data from the current session
    * @response 401 No active session
    */
   @Get()
   @Policy(LoggedPolicy)
-  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string, @SessionRouteArg() session: ISession) {
+  public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string, @SessionRouteArg() session: ISession): Promise<Ok<IWhoamiResponse>> {
 
     return new Ok({
       ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
+
+      // `dehydrateWithRelations` flattens the relation to a single string, and
+      // this endpoint is the one clients restore a session from — so without
+      // this the role picker sees one role after a refresh and the full list
+      // only after a fresh login, even though the doc above promises the list.
+      // `buildUserWithGrants` restores it for the same reason.
+      Role: User.Role,
       ActiveRole: ActiveRole ?? User.Role?.[0],
-      Authorized: session.Data.get('Authorized') ?? true,
-    });
+      Authorized: (session.Data.get('Authorized') as boolean | undefined) ?? true,
+
+      // Same cast, and for the same reason, as `buildUserWithGrants`:
+      // `dehydrateWithRelations` is typed as returning the model's own property
+      // types, while `dateTimeFormat: 'iso'` actually turns every `DateTime`
+      // into a string — so the declared and real shapes cannot overlap.
+    } as unknown as IWhoamiResponse);
   }
 }
 

@@ -120,10 +120,13 @@ describe('LoginController.whoami', function () {
   });
 
   const data = (r: any) => (r as any).responseData;
+
+  // `dehydrateWithRelations` flattens the Role relation to a single string —
+  // that is what the real model does, and it is what whoami has to undo.
   const buildUser = () =>
     ({
-      Role: ['admin'],
-      dehydrateWithRelations: () => ({ Email: 'a@b.c' }),
+      Role: ['admin', 'salesman'],
+      dehydrateWithRelations: () => ({ Email: 'a@b.c', Role: 'admin' }),
     }) as any;
 
   it('reports Authorized: true for a fully authorized session', async () => {
@@ -138,6 +141,21 @@ describe('LoginController.whoami', function () {
 
     expect(result).to.be.instanceOf(Ok);
     expect(data(result).Authorized).to.equal(true);
+  });
+
+  /**
+   * The endpoint a client restores a session from, so the role list it sends is
+   * the one the role picker renders. Left flattened, a multi-role user who
+   * refreshes the page keeps only the role they were acting as and cannot
+   * switch back until they log in again.
+   */
+  it('sends every assigned role, not the flattened relation', async () => {
+    const session = new UserSession();
+    session.Data.set('Authorized', true);
+
+    const result = await controller.whoami(buildUser(), 'admin', session as any);
+
+    expect(data(result).Role).to.deep.equal(['admin', 'salesman']);
   });
 
   it('reports Authorized: false for a session mid-2FA', async () => {

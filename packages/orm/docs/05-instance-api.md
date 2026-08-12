@@ -316,9 +316,9 @@ export async function refreshing() {
 
 ### `dehydrate(options?)`
 
-Plain object of the model's **columns only**. Skips columns in `options.omit`, skips the
-instance's `_hidden` list, and skips foreign keys managed by a relation unless they are also
-primary keys. Runs each column's converter `toDB`.
+Plain object of the model's **columns only**. Skips columns in `options.omit`, skips everything
+the model declares with `@Hidden()`, and skips foreign keys managed by a relation unless they are
+also primary keys. Runs each column's converter `toDB`.
 
 It **throws** `Field X cannot be null` for a non-nullable, non-primary-key column holding
 `null`, `undefined` or `''` — pass `ignoreNullable: true` to allow it.
@@ -326,7 +326,8 @@ It **throws** `Field X cannot be null` for a non-nullable, non-primary-key colum
 ### `dehydrateWithRelations(options?)`
 
 Same, plus relations recursed. A `One` relation with no loaded value falls back to emitting the
-raw foreign key. A `Many` relation with no members emits `[]`.
+raw foreign key. A `Many` relation with no members emits `[]`. A relation marked `@Hidden()` is
+dropped like any other hidden property.
 
 Note that `omit` is **not** propagated into nested relations — the recursive calls pass
 `omit: []` deliberately, so an omission applies to the top level only.
@@ -352,7 +353,7 @@ The database-shaped payload, via `ModelToSqlConverter`. With `onlyDirty` it is n
 | `dateTimeFormat` | `'iso' \| 'sql' \| 'unix'` — passed through to the datetime converter. |
 
 ```ts sample
-import { Connection, Model, ModelBase, Primary, Ignore } from '@spinajs/orm';
+import { Connection, Model, ModelBase, Primary, Hidden } from '@spinajs/orm';
 
 @Connection('default')
 @Model('users')
@@ -362,11 +363,9 @@ export class User extends ModelBase<User> {
 
   public Email: string;
 
-  @Ignore()
-  public Password: string;
-
   /** Never leaves the process. */
-  protected _hidden: string[] = ['Password'];
+  @Hidden()
+  public Password: string;
 }
 
 export async function serializing() {

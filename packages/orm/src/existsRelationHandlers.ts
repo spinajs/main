@@ -42,6 +42,21 @@ function sourceColumnRef(builder: WhereBuilder<any>, tDesc: { TableName: string 
   return `\`${sourceAlias}\`.\`${column}\``;
 }
 
+/**
+ * The outer builder a correlated sub-query must point at when its predicate is compiled.
+ *
+ * `context` is the builder the lazy predicate is being evaluated against; its
+ * `CorrelationSource` is rebound every time the OWNING query is cloned, so it names the right
+ * outer query on a clone. `fallback` is the builder captured when the sub-query was first
+ * built, kept for sub-queries that were assembled without going through the link.
+ *
+ * Reading the captured `fallback` FIRST was Defect B: a cloned count query correlated against
+ * the query it was cloned from, whose alias had since been changed by `populate()`.
+ */
+function correlationSource(context: unknown, fallback: WhereBuilder<any>): WhereBuilder<any> {
+  return ((context as ISelectQueryBuilder)?.CorrelationSource as WhereBuilder<any>) ?? fallback;
+}
+
 @Injectable(ExistsRelationHandler)
 export class OneExistsRelationHandler extends ExistsRelationHandler {
   public get Type(): RelationType {
@@ -74,14 +89,20 @@ export class OneExistsRelationHandler extends ExistsRelationHandler {
     const tDesc = (builder.Model as unknown as IModelStatic).getModelDescriptor();
     const alias = `${rel.TargetModel.getModelDescriptor().TableName}_exists`;
 
-    const relQuery = rel.TargetModel.query().setAlias(alias);
+    const relQuery = rel.TargetModel.query().setAlias(alias).correlateWith(builder);
 
     // lazy, so the outer alias is resolved at compile time - it may be assigned after this
     // handler runs. Both sides stay alias-qualified so a callback that joins further tables
     // cannot make the correlation column ambiguous.
+    //
+    // The predicate is pushed onto `this` - the builder the lazy statement is being compiled
+    // for - and NOT onto the captured `relQuery`. Writing to the captured builder made the
+    // predicate disappear entirely from any CLONE of this query ( the clone compiled its own
+    // sub-builder while the closure kept appending to the original's ), turning the EXISTS
+    // into an uncorrelated one that is true for every outer row.
     relQuery.where(
-      Lazy.oF(function () {
-        relQuery.where(new RawQuery(`\`${alias}\`.\`${rel.PrimaryKey}\` = ${sourceColumnRef(builder, tDesc, rel.ForeignKey)}`));
+      Lazy.oF(function (this: ISelectQueryBuilder) {
+        this.where(new RawQuery(`\`${alias}\`.\`${rel.PrimaryKey}\` = ${sourceColumnRef(correlationSource(this, builder), tDesc, rel.ForeignKey)}`));
       }),
     );
 
@@ -103,10 +124,10 @@ export class ManyExistsRelationHandler extends ExistsRelationHandler {
 
     // set alias to avoid conflicts in case of multiple relations to same model and to make
     // sure that relation query is correct even if source query has alias
-    const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`);
+    const relQuery = rel.TargetModel.query().setAlias(`${tableName}_exists`).correlateWith(builder);
     relQuery.where(
-      Lazy.oF(function () {
-        relQuery.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKeyRef(builder, tDesc)}`));
+      Lazy.oF(function (this: ISelectQueryBuilder) {
+        this.where(new RawQuery(`${rel.ForeignKey} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
       }),
     );
 
@@ -129,10 +150,10 @@ export class ManyToManyExistsRelationHandler extends ExistsRelationHandler {
     const junctionModel = rel.JunctionModel as unknown as IModelStatic;
     const junctionTableName = junctionModel.getModelDescriptor().TableName;
 
-    const relQuery = junctionModel.query().setAlias(`${junctionTableName}_exists`);
+    const relQuery = junctionModel.query().setAlias(`${junctionTableName}_exists`).correlateWith(builder);
     relQuery.where(
-      Lazy.oF(function () {
-        relQuery.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(builder, tDesc)}`));
+      Lazy.oF(function (this: ISelectQueryBuilder) {
+        this.where(new RawQuery(`${rel.JunctionModelSourceModelFKey_Name} = ${sourcePKeyRef(correlationSource(this, builder), tDesc)}`));
       }),
     );
 

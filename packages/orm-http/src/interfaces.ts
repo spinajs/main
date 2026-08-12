@@ -28,7 +28,7 @@ export interface ITransformOptions {
 export interface IColumnFilter<T> {
   column?: string;
   operators: FilterableOperators[];
-  query?: (operator: FilterableOperators, value: any) => WhereFunction<T>;
+  query?: ((operator: FilterableOperators, value: any) => WhereFunction<T>) | null;
 }
 
 export interface IFilter {
@@ -39,8 +39,13 @@ export interface IFilter {
 
 
 export interface IFilterRequest {
-  op: FilterableLogicalOperators;
-  filters: IFilter[];
+  /**
+   * Both fields are optional: the filter param itself is optional in a route
+   * (FilterModelRouteArg reads it from query/body and yields undefined when absent)
+   * and the generated JSON schema marks neither `op` nor `filters` as required.
+   */
+  op?: FilterableLogicalOperators;
+  filters?: IFilter[];
 }
 
 export enum FilterableLogicalOperators {

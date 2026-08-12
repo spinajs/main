@@ -203,7 +203,7 @@ again for the page returns the memoized first result. `count()` also clears the 
 Clone first.
 
 **Mass assignment.** `entity.hydrate(body)` writes every matching column, including ones the
-caller should not control. Filter the body, or use `@Ignore()` and the model's `_hidden` list.
+caller should not control. Filter the body, or use `@Ignore()` and `@Hidden()` on the model.
 
 **Composite keys.** Route them through `_assertSingleColumnKey` so they fail with a `400` rather
 than a wrong query.

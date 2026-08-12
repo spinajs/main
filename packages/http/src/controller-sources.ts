@@ -28,7 +28,41 @@ export class FilesystemControllerSource extends ControllerSource {
   public Controllers!: Promise<Array<ClassInfo<BaseController>>>;
 
   public async getControllers(): Promise<Array<ClassInfo<BaseController>>> {
-    return (await this.Controllers) ?? [];
+    const scanned = (await this.Controllers) ?? [];
+    const result: Array<ClassInfo<BaseController>> = [];
+
+    // ListFromFiles yields exactly one ClassInfo per file — whichever export
+    // happens to come first. A controller file may put its DTO classes above
+    // the controller (and may export more than one controller), so the first
+    // export is not necessarily the controller: re-read each module and keep
+    // every export that actually is one — it extends BaseController or
+    // carries the route descriptor.
+    for (const ci of scanned) {
+      const loaded = await DI.__spinajs_require__(ci.file);
+
+      // __spinajs_require__ unwraps a default export to the value itself;
+      // treat a default-exported class as a single-entry export map.
+      const exports = (typeof loaded === 'function' ? { [(loaded as Class<unknown>).name || ci.name]: loaded } : loaded) as Record<string, unknown>;
+
+      for (const [name, value] of Object.entries(exports)) {
+        if (typeof value !== 'function' || !value.prototype) {
+          continue;
+        }
+
+        const isController = value.prototype instanceof BaseController || Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, value.prototype) !== undefined;
+        if (!isController) {
+          continue;
+        }
+
+        const info = new ClassInfo<BaseController>();
+        info.file = ci.file;
+        info.name = name;
+        info.type = value as Class<BaseController>;
+        result.push(info);
+      }
+    }
+
+    return result;
   }
 }
 
