@@ -1,5 +1,5 @@
 {
-  "version": "2.0.505",
+  "version": "2.0.506",
   "description": "OpenTelemetry tracing for SpinaJS: OTLP/HTTP trace export (highlight.io compatible) and a registry for long-lived keyed spans",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -50,11 +50,11 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.505",
-    "@spinajs/configuration-common": "2.0.505",
-    "@spinajs/di": "2.0.505",
-    "@spinajs/exceptions": "2.0.505",
-    "@spinajs/log": "2.0.505",
+    "@spinajs/configuration": "2.0.506",
+    "@spinajs/configuration-common": "2.0.506",
+    "@spinajs/di": "2.0.506",
+    "@spinajs/exceptions": "2.0.506",
+    "@spinajs/log": "2.0.506",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/sdk-trace-base": "^2.0.0",
     "@opentelemetry/sdk-trace-node": "^2.0.0",
