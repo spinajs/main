@@ -28,6 +28,15 @@ export class RbacMiddleware extends ServerMiddleware {
   @Autoinject()
   protected SessionProvider: SessionProvider;
 
+  public constructor() {
+    super();
+    // Session restore must run before any middleware that depends on
+    // req.storage.User ( e.g. rbac-http-token's TokenAuthMiddleware, Order 1 ).
+    // Sorting is `a.Order - b.Order`; an unset Order is undefined and makes the
+    // comparator return NaN, leaving relative order unspecified.
+    this.Order = 0;
+  }
+
   public async resolve() {
     if (!this.CoockieSecret) {
       throw new Error('http.cookie.secrets is not set, cannot start UserFromSessionMiddleware. Set this value in configuration file !');

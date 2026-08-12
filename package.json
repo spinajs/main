@@ -117,6 +117,7 @@
     "@spinajs/rbac": "file:packages\\rbac",
     "@spinajs/rbac-http": "file:packages\\rbac-http",
     "@spinajs/rbac-http-admin": "file:packages\\rbac-http-admin",
+    "@spinajs/rbac-http-token": "file:packages\\rbac-http-token",
     "@spinajs/rbac-http-user": "file:packages\\rbac-http-user",
     "@spinajs/reflection": "file:packages\\reflection",
     "@spinajs/session-provider-db": "file:packages\\session-provider-db",
