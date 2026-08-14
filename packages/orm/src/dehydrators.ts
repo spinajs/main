@@ -10,11 +10,19 @@ export abstract class ModelDehydrator {
 export class StandardModelDehydrator extends ModelDehydrator {
   public dehydrate(model: ModelBase, options?: IDehydrateOptions) {
     const obj = {};
-    const relArr = [...model.ModelDescriptor!.Relations.values()];
 
     model.ModelDescriptor!.Columns?.forEach((c) => {
-      // if in omit list OR it is foreign key for relation - skip
-      if ((options?.omit && options?.omit.indexOf(c.Name) !== -1) || (relArr.find((r) => r.ForeignKey === c.Name) && !c.PrimaryKey)) {
+      // Only the omit list decides, and `@Hidden()` rides in on it ( model.ts appends
+      // `descriptor.Hidden` to `omit` for both dehydrate entry points ), so a foreign key a model
+      // does not want to hand out is hidden the same way any other column is.
+      //
+      // A relation's foreign key USED to be skipped here, on the assumption that the relation
+      // itself carries the link. It does not always: `dehydrate()` emits no relations at all, and
+      // `dehydrateWithRelations()` emits one only when it is populated - so an unpopulated
+      // relation dropped the association from the payload entirely. The column is a real,
+      // documented column ( the schema generator publishes it, since it is in `Columns` ), and a
+      // consumer needs it to write the row back.
+      if (options?.omit && options?.omit.indexOf(c.Name) !== -1) {
         return;
       }
 
@@ -59,10 +67,17 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
             ...options,
             omit: []
           });
-        } else {
-          // if relation is not ( eg. not populated full relation data ) return at least foreign keys
-          (obj as any)[val.Name] = (model as any)[val.ForeignKey];
         }
+
+        // An unpopulated relation writes NOTHING. It used to fall back to the raw foreign key
+        // under the RELATION's name, which gave one key two types - the related model when
+        // `populate()` had run, a bare number when it had not - decided per query by `include`.
+        // No JSON schema can describe that, and the generator does not try: it publishes the
+        // relation as its target model, so the fallback made a documented object arrive as an
+        // integer and any client validating the response rejected it.
+        //
+        // The link is not lost. The foreign key column is dehydrated like any other column above,
+        // which is the honest place for it: one name, one type, always present.
       } else {
         if ((model as any)[val.Name]) {
           const v = [...((model as any)[val.Name] as Relation<ModelBase, any, typeof ModelBase>)];
