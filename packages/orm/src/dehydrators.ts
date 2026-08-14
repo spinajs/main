@@ -10,6 +10,7 @@ export abstract class ModelDehydrator {
 export class StandardModelDehydrator extends ModelDehydrator {
   public dehydrate(model: ModelBase, options?: IDehydrateOptions) {
     const obj = {};
+    const relByForeignKey = new Map([...model.ModelDescriptor!.Relations.values()].filter((r) => r.Type === RelationType.One).map((r) => [r.ForeignKey, r]));
 
     model.ModelDescriptor!.Columns?.forEach((c) => {
       // Only the omit list decides, and `@Hidden()` rides in on it ( model.ts appends
@@ -26,7 +27,16 @@ export class StandardModelDehydrator extends ModelDehydrator {
         return;
       }
 
-      const val = (model as any)[c.Name];
+      // A foreign key can live in the RELATION rather than in its own column: `SingleRelation.attach()`
+      // points the relation at the related model and marks the key dirty, but never copies the value
+      // across - the INSERT resolves it at write time, which is what `ModelToSqlConverter` does with
+      // `obj[val.ForeignKey] = model[val.Name].Value.PrimaryKeyValue`. A model that was attached and
+      // then answered straight back ( the POST response ) therefore still has an empty column and the
+      // whole link in the relation, so read the same fallback here. Both are the same fact.
+      const relation = relByForeignKey.get(c.Name);
+      const own = (model as any)[c.Name];
+      const val = (own === null || own === undefined) && relation ? ((model as any)[relation.Name]?.Value?.PrimaryKeyValue ?? own) : own;
+
       if (!c.PrimaryKey && !c.Nullable && !options?.ignoreNullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }

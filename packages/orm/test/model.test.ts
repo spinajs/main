@@ -447,6 +447,72 @@ describe('General model tests', () => {
     expect(data.OwnerId, 'the link belongs on the foreign key column').to.eq(42);
   });
 
+  /**
+   * `attach()` puts the link in the RELATION and leaves the foreign key column empty - the INSERT
+   * resolves it at write time. A model attached and then answered straight back ( the POST
+   * response ) therefore has nothing in the column, and a NOT NULL foreign key used to make the
+   * dehydrator throw `Field OwnerId cannot be null` once the column stopped being skipped.
+   */
+  it('resolves a foreign key from the attached relation when the column itself is empty', async () => {
+    sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
+      new Promise((res) => {
+        res([
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: true,
+            AutoIncrement: true,
+            Name: 'Id',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+            IsForeignKey: false,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+          {
+            Type: 'INT',
+            MaxLength: 0,
+            Comment: '',
+            DefaultValue: null,
+            NativeType: 'INT(10)',
+            Unsigned: false,
+            Nullable: true,
+            PrimaryKey: false,
+            AutoIncrement: false,
+            Name: 'OwnerId',
+            Converter: null,
+            Schema: 'sqlite',
+            Unique: false,
+            Uuid: false,
+            Ignore: false,
+            IsForeignKey: true,
+            ForeignKeyDescription: null,
+            Aggregate: false,
+            Virtual: false,
+          },
+        ]);
+      }),
+    );
+
+    await db();
+
+    const model = new Model1({ Id: 1 });
+    model.Owner.attach(new Model4({ Id: 10 }));
+
+    const data = model.dehydrate() as Record<string, unknown>;
+
+    expect(data.OwnerId, 'the link lives in the relation and has to be read from it').to.eq(10);
+  });
+
   it('Converter should be executed when dehydrated', async () => {
     sinon.stub(FakeSqliteDriver.prototype, 'tableInfo').returns(
       new Promise((res) => {
