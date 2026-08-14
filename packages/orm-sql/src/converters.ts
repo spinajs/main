@@ -21,8 +21,33 @@ export class SqlSetConverter implements IValueConverter {
 }
 
 export class SqlBooleanValueConverter implements BooleanValueConverter {
-  toDB(value: any) {
-    return value ? 1 : 0;
+  /**
+   * SQL wants 0/1, a dehydrated payload wants the boolean the property declares.
+   *
+   * Both are `toDB`, and the caller is what tells them apart: an INSERT/UPDATE payload
+   * (`ModelToSqlConverter`, `StandardObjectToSqlConverter`) and a WHERE binding (`compilers.ts`,
+   * `statements.ts`) all call with FOUR arguments, while `dehydrators.ts` - the path behind
+   * `dehydrate()` and so behind `toJSON()` and every serialized response - is the only caller
+   * that passes a FIFTH, the dehydrate options. That fifth parameter is the same seam
+   * {@link SqlDatetimeValueConverter} reads for `dateTimeFormat`.
+   *
+   * Answering 0/1 to everyone breaks the contract the schema publishes: `columnToSchema`
+   * documents a column carrying `BooleanValueConverter` as `{ type: 'boolean' }`, so a response
+   * rendering `0` contradicts the model's own OpenAPI, and a generated client that validates its
+   * responses rejects the payload outright.
+   *
+   * Discriminated on the ARITY, not on the value: `dehydrate()` may be called with no options at
+   * all - `ModelBase.toJSON()` does exactly that - and `undefined` options still mean
+   * "serializing", not "writing a row".
+   *
+   * @param value - property value to write to the database, or to dehydrate
+   * @param _model - owning model, unused
+   * @param _column - column descriptor, unused
+   * @param _options - per-column converter options, unused
+   * @param dehydrating - present only when the caller is `dehydrate()`
+   */
+  toDB(value: any, _model?: ModelBase<unknown>, _column?: IColumnDescriptor, _options?: any, ...dehydrating: [IDehydrateOptions?]) {
+    return dehydrating.length > 0 ? !!value : value ? 1 : 0;
   }
   fromDB(value: any) {
     return value === 1 || value === true || value === '1';

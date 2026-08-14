@@ -237,6 +237,13 @@ describe('Model hidden columns', function () {
     const model = new DehydrateHiddenRelationModel();
     model.Bar = 'secret';
 
+    // BOTH relations are populated, deliberately. An unpopulated relation is absent from the
+    // payload whether or not anyone hid it ( the foreign key column carries the link instead ),
+    // so leaving them empty would let this pass for the wrong reason - `Owner` missing because
+    // nothing populated it, rather than because `@Hidden()` dropped it.
+    model.Owner.attach(new Model4({ Id: 10 }));
+    model.Visible.attach(new Model4({ Id: 11 }));
+
     const data = model.dehydrateWithRelations() as Record<string, unknown>;
 
     expect(data, 'a hidden column was dehydrated').to.not.have.property('Bar');

@@ -1,7 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { JsonValueConverter, UniversalValueConverter, UuidConverter } from './converters.js';
 import { Constructor, DI, IContainer, getInheritedDescriptor } from '@spinajs/di';
-import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
+import { IModelDescriptor, IMigrationDescriptor, IMigrationOptions, RelationType, IRelationDescriptor, IDiscriminationEntry, BooleanValueConverter, DatetimeValueConverter, SetValueConverter, ISelectQueryBuilder, IColumnDescriptor, IPrimaryKeyOptions, OrphanPolicy } from './interfaces.js';
 import 'reflect-metadata';
 import { ModelBase } from './model.js';
 import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
@@ -690,6 +690,44 @@ export function DateTime() {
 
     model.Converters.set(propertyKey, {
       Class: DatetimeValueConverter,
+    });
+  });
+}
+
+/**
+ * Mark field as boolean type.
+ *
+ * The ORM attaches a boolean converter on its own only when the driver NAMES the column's native
+ * type after a boolean: `Orm.reloadTableInfo` looks `DATA_TYPE` up in `__orm_db_value_converters__`,
+ * which is keyed by `Boolean` / `bool`. MySQL reports `tinyint(1)` - its own spelling of BOOLEAN -
+ * as `tinyint`, so the lookup misses and the column ends up with NO converter at all. Nothing then
+ * translates it in either direction, and the two directions disagree: a SELECT leaves the driver's
+ * `1` in a property declared `boolean`, while a create/update leaves the caller's `true` there, so
+ * an endpoint answering with the model it just wrote returns a different JSON type than the one
+ * answering a read.
+ *
+ * This decorator states the column's type explicitly instead. `BooleanValueConverter` is a lookup
+ * key rather than an implementation - each driver binds its own (orm-sql:
+ * `register(SqlBooleanValueConverter).as(BooleanValueConverter)`) - so the value is rendered the way
+ * that database wants it while the property stays a real boolean.
+ *
+ * It also fixes the PUBLISHED type: `columnToSchema` maps `tinyint` to `{ type: 'integer' }` on the
+ * SQL type alone, and overrides that to `{ type: 'boolean' }` when the column's declared converter
+ * is a `BooleanValueConverter`.
+ */
+export function Bool() {
+  return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
+    const type = Reflect.getMetadata('design:type', target.prototype, propertyKey);
+    if (type?.name !== 'Boolean') {
+      throw new InvalidArgument(`property ${propertyKey} must be boolean type, but is ${type?.name}`);
+    }
+
+    if (model.Converters.has(propertyKey)) {
+      throw new InvalidArgument(`property ${propertyKey} already have data converter attached`);
+    }
+
+    model.Converters.set(propertyKey, {
+      Class: BooleanValueConverter,
     });
   });
 }
