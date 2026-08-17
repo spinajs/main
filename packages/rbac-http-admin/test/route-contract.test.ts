@@ -89,7 +89,16 @@ describe('Admin route contract', function () {
       }
     });
 
-    it('write routes require an :any permission', () => {
+    /**
+     * Every write route now also accepts its `:own` twin — that is the point of
+     * this package's `RbacUserModel` token work: `:own` is safe on a write route
+     * BECAUSE every row-returning query is built from `userModel()`, so the rbac
+     * query middleware row-scopes it exactly like a read. What must never
+     * regress is the `:any` half — a route that lost it would only be reachable
+     * by a caller acting on their own row, which is a silent capability
+     * downgrade, not a widening.
+     */
+    it('write routes keep their :any permission alongside :own', () => {
       const wrong: string[] = [];
 
       for (const { name, instance } of controllers) {
@@ -102,13 +111,13 @@ describe('Admin route contract', function () {
 
           const permissions = acl.Routes.get(String(route.Method))?.Permission ?? [];
 
-          if (!permissions.every((p) => p.endsWith('Any'))) {
+          if (!permissions.some((p) => p.endsWith('Any'))) {
             wrong.push(`${name}.${String(route.Method)} -> ${permissions.join(',')}`);
           }
         }
       }
 
-      expect(wrong, 'an :own permission on an admin write route would let a user edit themselves through the admin API').to.deep.eq([]);
+      expect(wrong, 'an admin write route must keep its :any permission — :own is additive here, not a replacement').to.deep.eq([]);
     });
   });
 

@@ -1,6 +1,6 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
-import { activate, ban, changePassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA } from '@spinajs/rbac';
+import { activate, ban, changePassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { FromModel } from '@spinajs/orm-http';
@@ -116,8 +116,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Patch('changePassword/:user')
-  @Permission(['updateAny'])
-  public async changeUserPassword(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User, @Body() dto: ChangePasswordDto) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async changeUserPassword(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: ChangePasswordDto) {
     await changePassword(dto.password)(user);
     return new Ok();
   }
@@ -136,8 +136,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('password-reset-request/:user')
-  @Permission(['updateAny'])
-  public async requestPasswordReset(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async requestPasswordReset(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await passwordChangeRequest(user);
     return new Ok();
   }
@@ -153,8 +153,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('expire-password/:user')
-  @Permission(['deleteAny'])
-  public async expireUserPassword(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['deleteAny', 'deleteOwn'])
+  public async expireUserPassword(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     // Expiry deactivates the account, so it is guarded like every other way
     // of taking an account out of service.
     await this.RoleGuard.assertCanDisableAccount(actor, user, 'deactivate');
@@ -175,8 +175,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Patch('reset2fa/:user')
-  @Permission(['updateAny'])
-  public async reset2faToken(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async reset2faToken(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await resetUser2Fa(user);
     return new Ok();
   }
@@ -194,8 +194,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('2fa/enable/:user')
-  @Permission(['updateAny'])
-  public async enable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async enable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     return new Ok(await enableUser2Fa(user));
   }
 
@@ -210,8 +210,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('2fa/disable/:user')
-  @Permission(['updateAny'])
-  public async disable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async disable2Fa(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await disableUser2Fa(user);
     return new Ok();
   }
@@ -228,8 +228,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('deactivate/:user')
-  @Permission(['deleteAny'])
-  public async deactivateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['deleteAny', 'deleteOwn'])
+  public async deactivateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await this.RoleGuard.assertCanDisableAccount(actor, user, 'deactivate');
     await deactivate(user);
 
@@ -247,8 +247,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('activate/:user')
-  @Permission(['updateAny'])
-  public async activateUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async activateUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await activate(user);
     return new Ok();
   }
@@ -266,8 +266,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('ban/:user')
-  @Permission(['deleteAny'])
-  public async banUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User, @Body() dto: BanUserDto) {
+  @Permission(['deleteAny', 'deleteOwn'])
+  public async banUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: BanUserDto) {
     await this.RoleGuard.assertCanDisableAccount(actor, user, 'ban');
     await ban(user, dto?.reason, dto?.duration);
 
@@ -286,8 +286,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('unban/:user')
-  @Permission(['updateAny'])
-  public async unbanUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async unbanUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await unban(user);
     return new Ok();
   }
@@ -305,8 +305,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Post('unlock/:user')
-  @Permission(['updateAny'])
-  public async unlockUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async unlockUser(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await user.Metadata.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
     await user.Metadata.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
 
@@ -326,8 +326,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Get('sessions/:user')
-  @Permission(['readAny'])
-  public async listSessions(@FromModel({ queryField: 'Uuid' }) user: User): Promise<Ok<IAdminSessionEntry[]>> {
+  @Permission(['readAny', 'readOwn'])
+  public async listSessions(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User): Promise<Ok<IAdminSessionEntry[]>> {
     const sessions = await this.SessionProvider.listByUser(user.Id);
 
     const entries = sessions.map((s) => this.toEntry(s)).sort((a, b) => (a.Created < b.Created ? 1 : -1));
@@ -347,8 +347,8 @@ export class Security extends BaseController {
    * @response 404 No such session for this user
    */
   @Del('sessions/:user/:handle')
-  @Permission(['updateAny'])
-  public async revokeSession(@FromModel({ queryField: 'Uuid' }) user: User, @Param() handle: string): Promise<Ok | NotFound> {
+  @Permission(['updateAny', 'updateOwn'])
+  public async revokeSession(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User, @Param() handle: string): Promise<Ok | NotFound> {
     // Resolved through THIS user's session list, so a handle belonging to
     // somebody else cannot be revoked through their uuid.
     const sessions = await this.SessionProvider.listByUser(user.Id);
@@ -376,8 +376,8 @@ export class Security extends BaseController {
    * @response 404 User not found
    */
   @Del('sessions/:user')
-  @Permission(['updateAny'])
-  public async logoutUser(@FromModel({ queryField: 'Uuid' }) user: User) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async logoutUser(@FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User) {
     await this.SessionProvider.deleteByUser(user.Id);
 
     this.Log.info(`All sessions revoked by administrator`, { User: user.Uuid });

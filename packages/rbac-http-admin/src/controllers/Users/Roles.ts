@@ -1,7 +1,7 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Ok, Patch, Policy } from '@spinajs/http';
 import { FromModel } from '@spinajs/orm-http';
-import { grant, revoke, User } from '@spinajs/rbac';
+import { grant, revoke, User, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 
@@ -54,8 +54,8 @@ export class Roles extends BaseController {
    * @response 404 User not found
    */
   @Patch('add/:login')
-  @Permission(['updateAny'])
-  public async addRole(@CurrentUser() actor: User, @FromModel({ queryField: 'Login', paramField: 'login', include: ['Metadata'] }) user: User, @Body() roleDto: RoleDto) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async addRole(@CurrentUser() actor: User, @FromModel({ queryField: 'Login', paramField: 'login', include: ['Metadata'], model: () => userModel() }) user: User, @Body() roleDto: RoleDto) {
     await this.RoleGuard.assertCanAssignRoles(actor, user, [roleDto.role]);
     await grant(user, roleDto.role);
 
@@ -74,8 +74,8 @@ export class Roles extends BaseController {
    * @response 404 User not found
    */
   @Patch('revoke/:login')
-  @Permission(['updateAny'])
-  public async revokeRole(@CurrentUser() actor: User, @FromModel({ queryField: 'Login', paramField: 'login', include: ['Metadata'] }) user: User, @Body() roleDto: RoleDto) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async revokeRole(@CurrentUser() actor: User, @FromModel({ queryField: 'Login', paramField: 'login', include: ['Metadata'], model: () => userModel() }) user: User, @Body() roleDto: RoleDto) {
     await this.RoleGuard.assertCanRevokeRole(actor, user, roleDto.role);
     await revoke(user, roleDto.role);
 

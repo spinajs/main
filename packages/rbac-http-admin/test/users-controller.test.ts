@@ -1,16 +1,32 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
+import { AsyncLocalStorage } from 'async_hooks';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Orm, SortOrder } from '@spinajs/orm';
+import { MODEL_STATIC_MIXINS, Orm, SortOrder } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
-import { NotFound, Ok } from '@spinajs/http';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, NotFound, Ok } from '@spinajs/http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
+import { RbacPolicy } from '@spinajs/rbac-http';
 
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User, UserCreated, UserMetadata, UserSession, USER_COMMON_METADATA } from '@spinajs/rbac';
+import {
+  AuthProvider,
+  BasicPasswordProvider,
+  OrmResource,
+  PasswordProvider,
+  RBAC_USER_MODEL,
+  RbacBootstrapper,
+  SessionProvider,
+  SimpleDbAuthProvider,
+  User,
+  UserCreated,
+  UserMetadata,
+  UserSession,
+  USER_COMMON_METADATA,
+} from '@spinajs/rbac';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/rbac-http-user';
 
 import { Users } from '../src/controllers/Users/Users.js';
@@ -896,6 +912,97 @@ describe('Admin user controllers', function () {
       // Regression: the handler used to hand the pending promise to Ok, which
       // serialized as {} for every client.
       expect(data, 'the profile must be resolved, not a promise').to.not.be.an.instanceOf(Promise);
+    });
+  });
+
+  describe('own-permission route gate + model token', () => {
+    /**
+     * This suite calls handlers directly everywhere else (see the file-level
+     * note), which is exactly what a route-gate test cannot do — the gate lives
+     * in `RbacPolicy`, a level above the handler. Rather than stand up a real
+     * HTTP server, the descriptor `RbacPolicy.execute` reads is fetched the same
+     * way `route-contract.test.ts` does, and `execute` is invoked directly
+     * against a minimal request stand-in (only `storage.User` / `storage.Session`
+     * are ever read).
+     */
+    const controllerDescriptor = (instance: object): IControllerDescriptor => Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, instance) as IControllerDescriptor;
+
+    const routeOf = (instance: object, method: string): IRoute => {
+      const route = [...controllerDescriptor(instance).Routes.values()].find((r) => String(r.Method) === method);
+      if (!route) {
+        throw new Error(`no route for method ${method}`);
+      }
+      return route;
+    };
+
+    const fakeRequest = (user: User) =>
+      ({
+        storage: {
+          User: user,
+          Session: { Data: new Map([['Authorized', true]]) },
+        },
+      }) as any;
+
+    const scopedAdmin = () => new User({ Login: 'scoped', Email: 'scoped-admin@spinajs.pl', Role: ['scoped-admin'], IsActive: true });
+
+    it('readOwn holder passes the route gate on GET /users', async () => {
+      // default User model carries no @OrmResource, so with the stock model the
+      // list arrives UNSCOPED — this asserts the gate only
+      const policy = new RbacPolicy();
+      const route = routeOf(usersController, 'list');
+
+      await expect(policy.execute(fakeRequest(scopedAdmin()), route, usersController as any)).to.not.be.rejected;
+    });
+
+    it('list is row-scoped once an @OrmResource-carrying subclass is registered', async () => {
+      class ScopedUser extends User {
+        public static rbacRead(this: any, _user: User) {
+          this.where('Login', 'visible-user'); // deterministic marker predicate
+        }
+      }
+      OrmResource('users')(ScopedUser);
+
+      /**
+       * A real application's `RbacUserModel` subclass lives in its own file and
+       * carries `@Connection`/`@Model`, so the Orm's model scan discovers it and
+       * `applyModelMixins()` binds `query`/`select`/etc. to IT rather than to the
+       * base `User` it copies through the prototype chain. `ScopedUser` is
+       * declared here, after the `Orm` in this test has already booted and
+       * scanned, so that discovery step never runs for it — without these two
+       * lines every static query call on it silently falls back to `User`
+       * (`.query` is bound with `.bind(User)`, and `createQuery` resolves the
+       * builder's `.Model` by NAME from the `__models__` DI registry), and the
+       * assertion below would fail with an unscoped list, not the row-scoped one
+       * this test exists to prove.
+       */
+      for (const mixin in MODEL_STATIC_MIXINS) {
+        (ScopedUser as any)[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(ScopedUser);
+      }
+      DI.register(ScopedUser).as('__models__');
+
+      DI.register(ScopedUser).asValue(RBAC_USER_MODEL, true);
+
+      try {
+        const pwd = DI.resolve(PasswordProvider);
+        await new User({
+          Login: 'visible-user',
+          Email: 'visible-user@spinajs.pl',
+          Password: await pwd.hash('visible1234'),
+          Role: ['user'],
+          IsActive: true,
+        }).insert();
+
+        const store = DI.resolve(AsyncLocalStorage);
+        const data = await store.run({ User: scopedAdmin() } as any, async () => {
+          const result = await usersController.list();
+          return body<any[]>(result);
+        });
+
+        expect(data.map((u: any) => u.Login)).to.deep.equal(['visible-user']);
+      } finally {
+        DI.RootContainer.Cache.remove(RBAC_USER_MODEL);
+        new RbacBootstrapper().bootstrap();
+      }
     });
   });
 });

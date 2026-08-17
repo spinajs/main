@@ -75,6 +75,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           { Name: 'superadmin', Description: 'Administrator that can also read secrets' },
           { Name: 'user', Description: 'Simple account' },
           { Name: 'guest', Description: 'Guest account' },
+          { Name: 'scoped-admin', Description: 'Admin restricted to their own visible scope (test fixture)' },
         ],
         grants: {
           system: {
@@ -88,6 +89,12 @@ export class TestConfiguration extends FrameworkConfiguration {
             users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
           },
           user: {
+            users: { 'read:own': ['*'], 'update:own': ['*'] },
+          },
+          // Fixture role for the own-permission route-gate tests: read:own/update:own
+          // only, so it can prove the Own twin opens the route without also holding
+          // the Any grant that would make the assertion trivially true.
+          'scoped-admin': {
             users: { 'read:own': ['*'], 'update:own': ['*'] },
           },
         },

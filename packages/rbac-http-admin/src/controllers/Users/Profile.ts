@@ -32,7 +32,7 @@ export class Profile extends BaseController {
    * @response 404 User not found
    */
   @Get(':login')
-  @Permission(['readAny'])
+  @Permission(['readAny', 'readOwn'])
   public async getUserProfile(@Param() login: string) {
     // NOTE: awaited. Handing the pending promise to `Ok` serialized as an
     // empty object for every client that got JSON back.
