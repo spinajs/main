@@ -13,6 +13,7 @@ import './session-codec.js';
 import './ownership.js';
 import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
+import { RBAC_USER_MODEL, userModel } from './model-token.js';
 
 export * from './interfaces.js';
 export * from './auth.js';
@@ -32,6 +33,7 @@ export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
 export * from './ownership.js';
+export * from './model-token.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;
@@ -48,6 +50,12 @@ export class RbacBootstrapper extends Bootstrapper {
      * run bootstrappers repeatedly against a live static.
      */
     UserMetadataBase._hiddenKeys = [...new Set([...UserMetadataBase._hiddenKeys, ...USER_SECURITY_METADATA_KEYS])];
+
+    // Default user model class. Guarded so an application's override survives any
+    // registration order — the app always uses asValue(RBAC_USER_MODEL, true).
+    if (!DI.RootContainer.Cache.has(RBAC_USER_MODEL)) {
+      DI.register(User).asValue(RBAC_USER_MODEL);
+    }
 
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
@@ -67,9 +75,10 @@ export class RbacBootstrapper extends Bootstrapper {
      * Register factory function for creating user from session data
      */
     DI.register((_: IContainer, userUUID: string) => {
-      return User.where({
-        Uuid: userUUID,
-      })
+      return userModel()
+        .where({
+          Uuid: userUUID,
+        })
         .populate('Metadata')
         .isActiveUser()
         .firstOrFail();
@@ -79,7 +88,7 @@ export class RbacBootstrapper extends Bootstrapper {
       const conf = DI.get(Configuration);
       const guestEnabled = conf!.get('rbac.enableGuestAccount', false);
 
-      return new User({
+      return new (userModel())({
         Login: 'guest',
         Email: 'guest@spinajs.com',
         Role: ['guest'],
@@ -88,12 +97,15 @@ export class RbacBootstrapper extends Bootstrapper {
     }).as('RbacGuestUserFactory');
 
     DI.register(async (_) => {
+      // Deliberately the base User class: the system account must resolve on EVERY
+      // code path (_user_or_system runs inside scoped request contexts), so this
+      // lookup must never be row-scoped by an application's model override.
       const system = await User.select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
       return system;
     }).as('RbacSystemUserFactory');
 
     DI.register(async (_, role: string) => {
-      return new User({
+      return new (userModel())({
         Login: `__user_from_role_${role}__`,
         Email: `__user_from_role_${role}__@system`,
         Role: [role],

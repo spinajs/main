@@ -85,6 +85,14 @@ export interface FromModelOptions<T extends typeof ModelBase> {
   include? : string[];
 
   /**
+   * Resolve the query through this model class instead of the parameter's
+   * reflected type. A forward-ref factory, evaluated per request, so a class
+   * registered in DI after decoration time (eg. rbac's RbacUserModel token) is
+   * honoured. The route handler still types the parameter as the base class.
+   */
+  model?: () => T;
+
+  /**
    *
    * Callback on query builder before model is fetched from DB
    *

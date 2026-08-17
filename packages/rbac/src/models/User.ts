@@ -403,22 +403,23 @@ export class UserBase extends ModelBase<UserBase> {
     return this.can(resource, 'createOwn');
   }
 
+  // this.query(), not UserBase.query(): the receiver class must build the query so subclasses registered as RbacUserModel are honoured
   public static getByLogin(login: string) {
     login = _check_arg(_trim(), _non_empty())(login, 'login');
 
-    return UserBase.query().whereLogin(login).first();
+    return this.query().whereLogin(login).first();
   }
 
   public static getByEmail(email: string) {
     email = _check_arg(_trim(), _non_empty(), _is_email())(email, 'email');
 
-    return UserBase.query().whereEmail(email).first();
+    return this.query().whereEmail(email).first();
   }
 
   public static getByUuid(uuid: string) {
     uuid = _check_arg(_trim(), _is_uuid())(uuid, 'uuid');
 
-    return UserBase.query().whereUuid(uuid).first();
+    return this.query().whereUuid(uuid).first();
   }
 
   /**
@@ -428,7 +429,7 @@ export class UserBase extends ModelBase<UserBase> {
    * @returns
    */
   public static getByAnything(identifier: string | number) {
-    return UserBase.query().whereAnything(identifier).first();
+    return this.query().whereAnything(identifier).first();
   }
 }
 

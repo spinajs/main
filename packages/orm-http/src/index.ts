@@ -60,7 +60,8 @@ export class FromDbModel extends RouteArgs {
   public async extract(callData: IRouteCall, args: unknown[], param: IRouteParameter, req: sRequest, _res?: express.Response, route?: IRoute) {
     let result = null;
     if (param?.Options?.query) {
-      result = await param.Options.query.call(param.RuntimeType.query(), args, this._extractValue(param, req, route)).firstOrThrow(new OrmNotFoundException('Resource not found'));
+      const runtimeType = param.Options?.model ? param.Options.model() : param.RuntimeType;
+      result = await param.Options.query.call(runtimeType.query(), args, this._extractValue(param, req, route)).firstOrThrow(new OrmNotFoundException('Resource not found'));
     } else {
       result = await this.fromDbModelDefaultQueryFunction(callData, args, param, req, route);
     }
@@ -123,8 +124,9 @@ export class FromDbModel extends RouteArgs {
 
   protected fromDbModelDefaultQueryFunction(callData: IRouteCall, _args: unknown[], param: IRouteParameter<FromModelOptions<typeof ModelBase>>, req: sRequest, route?: IRoute) {
     const pkValue = this._extractValue(param, req, route);
-    const query = param.RuntimeType['query']() as SelectQueryBuilder;
-    const descriptor = extractModelDescriptor(param.RuntimeType);
+    const runtimeType = param.Options?.model ? param.Options.model() : param.RuntimeType;
+    const query = runtimeType['query']() as SelectQueryBuilder;
+    const descriptor = extractModelDescriptor(runtimeType);
 
     // A route parameter carries ONE value, so it cannot address a composite key. Fail with a
     // 400 rather than silently filtering on the first key column and returning the wrong row.
