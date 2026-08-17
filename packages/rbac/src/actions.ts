@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
+import { userModel } from './model-token.js';
 
 export enum E_CODES {
   E_TOKEN_EXPIRED,
@@ -64,7 +65,7 @@ export function _get_system_user() {
 
       return [s, c];
     },
-    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(),
+    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(), // base User on purpose: system account must resolve inside scoped request contexts
   );
 }
 
@@ -76,7 +77,7 @@ export function _get_system_user() {
  * @returns
  */
 export function _get_users_by_role(role: string[]) {
-  return () => User.select().withRole(role);
+  return () => userModel().select().withRole(role);
 }
 
 /**
@@ -88,11 +89,11 @@ export function _get_users_by_role(role: string[]) {
  */
 export function _get_user(user: User | number | string) {
   if (_.isString(user)) {
-    return async () => User.where('Uuid', user).firstOrFail();
+    return async () => userModel().where('Uuid', user).firstOrFail();
   }
 
   if (_.isNumber(user)) {
-    return async () => User.getOrFail(user);
+    return async () => userModel().getOrFail(user);
   }
 
   return () => Promise.resolve(user);
@@ -228,7 +229,7 @@ export function _user(identifier: number | string | User): () => Promise<User> {
     return () => Promise.resolve(id);
   }
 
-  return () => User.query().whereAnything(id).populate('Metadata').firstOrFail();
+  return () => userModel().query().whereAnything(id).populate('Metadata').firstOrFail();
 }
 
 /**
