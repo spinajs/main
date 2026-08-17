@@ -46,10 +46,12 @@ export function _token(token: AccessToken | string): () => Promise<AccessToken> 
  */
 export function _owner(user: User | number | string): () => Promise<User> {
   if (_.isString(user)) {
+    // base User on purpose: token-auth infrastructure resolves the token OWNER before any request scope exists; must not be row-scoped by an application model override.
     return () => User.where('Uuid', user).populate('Metadata').firstOrFail();
   }
 
   if (_.isNumber(user)) {
+    // base User on purpose: token-auth infrastructure resolves the token OWNER before any request scope exists; must not be row-scoped by an application model override.
     return () => User.where('Id', user).populate('Metadata').firstOrFail();
   }
 
@@ -245,6 +247,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
 
   // Metadata carries the ban flag, so it must be populated - without it
   // `IsBanned` silently answers false and every banned owner authenticates.
+  // base User on purpose: token-auth infrastructure resolves the token OWNER before any request scope exists; must not be row-scoped by an application model override.
   const owner = await User.where('Id', token.user_id).populate('Metadata').first();
 
   // `DeletedAt` is defence in depth: the orm's soft-delete scope already appends
