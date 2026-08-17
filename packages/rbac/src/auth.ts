@@ -24,15 +24,15 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
   }
 
   public async getByLogin(login: string): Promise<User> {
-    return await User.getByLogin(login);
+    return await userModel().getByLogin(login);
   }
 
   public async getByEmail(email: string): Promise<User> {
-    return User.getByEmail(email);
+    return userModel().getByEmail(email);
   }
 
   public async getByUUID(uuid: string): Promise<User> {
-    return User.getByUuid(uuid);
+    return userModel().getByUuid(uuid);
   }
 
   public async authenticate(email: string, password: string): Promise<User> {
