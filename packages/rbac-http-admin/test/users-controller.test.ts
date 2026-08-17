@@ -1002,6 +1002,15 @@ describe('Admin user controllers', function () {
       } finally {
         DI.RootContainer.Cache.remove(RBAC_USER_MODEL);
         new RbacBootstrapper().bootstrap();
+
+        // Undo the `.as('__models__')` registration above (line ~981) — otherwise
+        // this test-local ScopedUser stays in the shared `__models__` DI registry
+        // for the rest of the process and every later `createQuery()` name-lookup
+        // has to search past it forever. `DI.unregister` strips a type from every
+        // registry bucket that holds it by matching type name, which is the same
+        // idiom the rest of the repo uses to clean up test-registered DI types.
+        DI.unregister(ScopedUser);
+        expect(DI.getRegisteredTypes('__models__') ?? []).to.not.include(ScopedUser);
       }
     });
   });

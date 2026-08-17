@@ -197,7 +197,7 @@ export class DefaultRoleGuard extends RoleGuard {
    */
   protected async countActiveHolders(role: string): Promise<number> {
     // base User on purpose: the last-holder check counts ALL holders, not the
-    // callers's visible subset
+    // caller's visible subset
     return User.query().isActiveUser().withRole([role]).selectCount();
   }
 
