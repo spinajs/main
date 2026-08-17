@@ -76,7 +76,7 @@ class FromModelOverrideTestConfiguration extends FrameworkConfiguration {
   }
 }
 
-describe('FromDbModel model override (@FromModel({ model }))', function () {
+describe('from-model-override: FromDbModel model override (@FromModel({ model }))', function () {
   this.timeout(15000);
 
   before(async () => {
@@ -110,5 +110,38 @@ describe('FromDbModel model override (@FromModel({ model }))', function () {
     const result = await fromDbModel.extract({ Payload: {} } as any, [], param, req({ id: '1' }));
 
     expect((result.Args as any).constructor.name).to.equal('Test5');
+  });
+
+  /**
+   * `extract()` has two branches (packages/orm-http/src/index.ts:60-70): when
+   * `param.Options.query` is set, it takes the CUSTOM-query path
+   * (`param.Options.query.call(runtimeType.query(), ...)`) instead of
+   * `fromDbModelDefaultQueryFunction()`. The two cases above only exercise the default-query
+   * branch (`model` is read there too, but that's touch points 2+3, not touch point 1).
+   * `queryFn` below mirrors the documented callback shape in `FromModelOptions.query`
+   * ( `this` bound to the query builder, called with `(routeParams, value)` ) and is deliberately
+   * as close to a no-op as the callback can be: it just applies the primary key filter itself,
+   * the same filter `fromDbModelDefaultQueryFunction` would have applied.
+   */
+  const queryFn = function (this: any, _routeParams: unknown, value: unknown) {
+    return this.where('Id', value);
+  };
+
+  it('resolves through the model override on the custom-query path (param.Options.query set)', async () => {
+    const fromDbModel = await DI.resolve(FromDbModel);
+    const param = { Index: 0, Name: 'id', Options: { query: queryFn, model: () => Test5 }, RuntimeType: Test } as any;
+
+    const result = await fromDbModel.extract({ Payload: {} } as any, [], param, req({ id: '1' }));
+
+    expect((result.Args as any).constructor.name).to.equal('Test5');
+  });
+
+  it('resolves through the reflected parameter type on the custom-query path when no override is set', async () => {
+    const fromDbModel = await DI.resolve(FromDbModel);
+    const param = { Index: 0, Name: 'id', Options: { query: queryFn }, RuntimeType: Test } as any;
+
+    const result = await fromDbModel.extract({ Payload: {} } as any, [], param, req({ id: '1' }));
+
+    expect((result.Args as any).constructor.name).to.equal('Test');
   });
 });
