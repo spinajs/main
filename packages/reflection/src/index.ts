@@ -8,6 +8,7 @@ import { AsyncService, Class, ClassInfo, DI } from '@spinajs/di';
 import { Exception } from '@spinajs/exceptions';
 import { _check_arg, _is_string, _non_empty } from '@spinajs/util';
 import { Log } from '@spinajs/log-common';
+import { InternalLoggerProxy } from '@spinajs/internal-logger';
 
 export * from 'typescript-mix';
 
@@ -128,7 +129,11 @@ function _listOrResolveFromFiles(
 
     async function _loadInstances(): Promise<Array<ClassInfo<any>>> {
       const config = DI.get(Configuration)!;
-      const logger = DI.resolve(Log, ['reflection']);
+      // resolving the abstract Log from log-common only works when some loaded
+      // module has registered an implementation ( importing @spinajs/log does
+      // that as a side effect ) — this package cannot import it itself due to a
+      // tsconfig reference cycle, so fall back to the pre-logger proxy
+      const logger = DI.check(Log) ? DI.resolve(Log, ['reflection']) : DI.resolve(InternalLoggerProxy, ['reflection']);
       let directories = config.get<string[]>(configPath);
 
       if (!directories || directories.length === 0) {

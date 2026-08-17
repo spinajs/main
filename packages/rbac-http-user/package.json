@@ -68,10 +68,12 @@
     "lodash": "^4.17.21",
     "otpauth": "9.4.0",
     "luxon": "^3.6.1",
+    "qrcode": "^1.5.4",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "2.0.508"
+    "@spinajs/orm-sqlite": "2.0.508",
+    "@types/qrcode": "^1.5.5"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

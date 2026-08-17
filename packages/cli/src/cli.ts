@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { Bootstrapper, DI } from '@spinajs/di';
-import { Log } from '@spinajs/log-common';
 import { Cli, CommanderError } from './index.js';
 import { Configuration } from '@spinajs/configuration-common';
+import { resolveCliLog } from './cliLog.js';
 import './args.js';
 
 async function cli() {
@@ -13,8 +13,8 @@ async function cli() {
   for (const b of bootstrappers) {
     await b.bootstrap();
   }
-  
-  const log = DI.resolve(Log, ['CLI']);
+
+  const log = resolveCliLog();
 
   log.success('Welcome to spinajs cli...');
 

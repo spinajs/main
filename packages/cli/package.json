@@ -51,6 +51,7 @@
     "@spinajs/configuration-common": "2.0.508",
     "@spinajs/di": "2.0.508",
     "@spinajs/exceptions": "2.0.508",
+    "@spinajs/internal-logger": "2.0.508",
     "@spinajs/log": "2.0.508",
     "@spinajs/log-common": "2.0.508",
     "@spinajs/reflection": "2.0.508",

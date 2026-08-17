@@ -17,7 +17,9 @@ export * from "./controllers/PasswordResetController.js";
 export * from "./controllers/SessionsController.js";
 
 export * from "./cli/EnableUser2Fa.js";
+export * from "./cli/Generate2FaQrCode.js";
 export * from "./2fa/Default2FaToken.js";
+export * from "./2fa/otpUrl.js";
 
 export * from './actions/2fa.js';
 
