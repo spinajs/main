@@ -1,5 +1,5 @@
 {
-  "version": "2.0.509",
+  "version": "2.0.510",
   "description": "Metric abstraction shared by @spinajs/telemetry and any package that must publish metrics without depending on the HTTP stack",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,7 +51,7 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "dependencies": {
-    "@spinajs/di": "2.0.509",
+    "@spinajs/di": "2.0.510",
     "prom-client": "^14.2.0"
   }
 }
