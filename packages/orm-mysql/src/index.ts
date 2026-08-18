@@ -19,6 +19,47 @@ export interface IMySqlTransactionContext extends ITransactionContext {
   connection: PoolConnection;
 }
 
+/**
+ * Numeric column types whose DEFAULT is a plain literal, so it can be read back as a number.
+ *
+ * DECIMAL and NUMERIC are deliberately absent: mysql2 hands their VALUES back as strings
+ * ( `decimalNumbers` off - above 2^53 a float loses exactly the precision DECIMAL exists to keep ),
+ * so parsing only their DEFAULT would make an unset column a number while every column read from a
+ * row stays text - a rarer and worse inconsistency than the one this fixes.
+ */
+const MYSQL_NUMERIC_DEFAULT_TYPES = new Set(['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint', 'float', 'double']);
+
+/**
+ * A column's DEFAULT, as the type of the column it belongs to.
+ *
+ * `INFORMATION_SCHEMA.COLUMNS.COLUMN_DEFAULT` is itself a TEXT column, so MySQL reports the default
+ * of `kickback FLOAT NOT NULL DEFAULT 0` as the string `'0'`, exactly like it reports the default of
+ * a VARCHAR. `ModelBase.setDefaults()` copies that value straight onto a new model, and nothing
+ * downstream re-types it: a column with a value converter is rescued on the way out ( `@Bool()` ),
+ * one without is not. A freshly constructed model therefore answered `kickback: "0"` where its own
+ * published schema - built from the column TYPE, which is right - says `number`, and a generated
+ * client rejected the 201 whose row had been written perfectly well.
+ *
+ * Only literal defaults are converted. MySQL also reports EXPRESSIONS here ( `CURRENT_TIMESTAMP`,
+ * `uuid()`, and in 8.0 any parenthesised expression ), which are not values in any type and are
+ * passed through untouched, as before.
+ */
+export function parseColumnDefault(raw: string | null | undefined, dataType: string): any {
+  if (raw === null || raw === undefined) {
+    return raw;
+  }
+
+  if (!MYSQL_NUMERIC_DEFAULT_TYPES.has(dataType?.toLowerCase())) {
+    return raw;
+  }
+
+  // `Number('')` is 0 and `Number('CURRENT_TIMESTAMP')` is NaN - neither is a default anyone wrote,
+  // so both keep the raw text rather than inventing a number for it
+  const parsed = Number(raw);
+
+  return raw.trim() !== '' && Number.isFinite(parsed) ? parsed : raw;
+}
+
 export class MysqlServerResponseMapper extends ServerResponseMapper {
   public read(data: any) {
     // MySQL has no RETURNING; the identity value is all it reports.
@@ -377,7 +418,7 @@ export class MySqlOrmDriver extends SqlDriver {
         Type: r.DATA_TYPE,
         MaxLength: -1,
         Comment: '',
-        DefaultValue: r.COLUMN_DEFAULT,
+        DefaultValue: parseColumnDefault(r.COLUMN_DEFAULT, r.DATA_TYPE),
         NativeType: r.DATA_TYPE,
         Unsigned: false,
         Nullable: r.IS_NULLABLE === 'YES',
