@@ -79,9 +79,51 @@ case-insensitive) or the configured fallback header (`x-api-key` by default).
   outlive it, carry the victim's roles, and be invisible to them.
 - A token always keeps at least one role - revoking the last one is refused
   (400 / `E_TOKEN_ROLE_NOT_ALLOWED`). Delete the token to revoke it entirely.
-- A token can never carry a role its owner does not hold, at creation or grant.
+- A token can never carry a role the configured policy disallows for its
+  owner, at creation or grant. The shipped default limits that to the owner's
+  own roles - see [Token role policy](#token-role-policy).
 - `LastUsedAt` is stamped on use, throttled to one write per
   `rbac.token.lastUsedUpdateInterval` seconds.
+
+## Token role policy
+
+`AccessTokenRolePolicy.allowedRoles(owner)` decides which roles an owner may
+put on a token. There is exactly one method, but three call sites -
+`createToken`, `grantTokenRole` and `validateToken` (all through the shared
+`_allowed_roles` helper in `src/actions.ts`) - share it deliberately: creation
+time and request time have to agree on the same answer, or a role a user was
+allowed to pick could be one their token silently loses (or gains) on the very
+next request.
+
+The shipped default, `OwnRolesTokenRolePolicy`, answers with the owner's own
+`Role` array. That is the behaviour this package had before the seam existed,
+so an application that configures nothing sees no change.
+
+To scope tokens more narrowly than "everything the owner can do" - or to allow
+a token to carry a role that is not on the owner's `Role` list at all -
+implement `AccessTokenRolePolicy`, decorate the class with
+`@Injectable(AccessTokenRolePolicy)`, and name it in
+`rbac.token.rolePolicy.service`, the same pattern
+`rbac.token.generation.service` uses for the token generator.
+
+Because `validateToken` re-asks the policy on every authenticated request
+instead of trusting the roles stored on the token row, swapping in - or
+tightening - a policy takes effect immediately on every existing token: there
+is nothing to migrate or re-issue. `GET user/tokens/roles` exposes the same
+answer to a caller before they create a token, from the same policy
+`POST user/tokens` validates against, so a client is never offered a role that
+creation would then refuse.
+
+`rbac.token.excludedRoles` is a list of role-name patterns for a custom policy
+to consult - it is not read by anything shipped in this package, including the
+default policy. `_role_excluded(role, patterns)`, exported from
+`src/role-policy.ts`, implements the matching: a pattern is either an exact
+role name, or a name ending in `.*`, which matches that prefix and everything
+beneath it - `route.*` matches `route.home` and `route.admin.users`, but not
+`routes.read` (the dot is part of the boundary, so a pattern can never swallow
+an unrelated role that merely starts with the same letters). No other
+wildcard syntax is supported, on purpose - a full glob in a security list
+invites patterns nobody can reason about.
 
 ## HTTP API (session auth required)
 
@@ -90,6 +132,7 @@ tokens only - a foreign uuid simply reads as 404.
 
 | Route | Description |
 |---|---|
+| `GET user/tokens/roles` | roles the caller may put on a token |
 | `GET user/tokens` | list own tokens |
 | `POST user/tokens` | create (`{ Name, Roles, ExpiresAt? }`), returns plaintext once |
 | `DELETE user/tokens/:uuid` | revoke (delete) a token |
@@ -134,6 +177,8 @@ See `src/config/rbac-http-token.ts` - `rbac.token.*`:
 | Key | Default | Meaning |
 |---|---|---|
 | `rbac.token.generation.service` | `SecureRandomTokenProvider` | `AccessTokenGenerationProvider` implementation used to generate/hash tokens |
+| `rbac.token.rolePolicy.service` | `OwnRolesTokenRolePolicy` | `AccessTokenRolePolicy` implementation that decides which roles an owner may put on a token (see [Token role policy](#token-role-policy)) |
+| `rbac.token.excludedRoles` | `[]` | role-name patterns (exact, or `prefix.*`) for a custom policy to consult - not read by the shipped default |
 | `rbac.token.prefix` | `spt_` | stable plaintext prefix, lets secret scanners recognise leaked tokens |
 | `rbac.token.length` | `32` | random bytes per token (32 = 256 bit entropy) |
 | `rbac.token.headerName` | `x-api-key` | fallback header checked when no `Authorization: Bearer` is present |

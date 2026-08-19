@@ -83,8 +83,10 @@ export async function _allowed_roles(owner: User): Promise<string[]> {
 }
 
 /**
- * Ensures every role in `roles` is one the policy allows for `owner`.
- * A token must never carry a permission its owner does not have.
+ * Ensures every role in `roles` is one the configured policy allows for
+ * `owner`. Deliberately not "one the owner literally holds" - a policy may
+ * permit roles beyond the owner's own `Role` list, or withhold ones on it;
+ * that flexibility is the entire point of the policy seam.
  */
 async function _assert_roles_subset(owner: User, roles: string[]) {
   const allowed = await _allowed_roles(owner);
