@@ -183,6 +183,32 @@ describe('UserMetadataController', function () {
       expect((await metaOf(owner, 'user:phone'))!.Value).to.eq('999');
     });
 
+    /**
+     * The Id/Key lookup addresses ONE column, chosen by the identifier's shape.
+     *
+     * The decoy is the point: an entry whose KEY is the digits of another entry's ID. The previous
+     * `Key = ? OR Id = ?` matched both rows at once wherever the database coerces a number against
+     * a varchar (and on MySQL refused the UPDATE outright with `ER_TRUNCATED_WRONG_VALUE`, which is
+     * how the defect surfaced — every id-addressed update answered a 500).
+     */
+    it('updates by id without touching an entry whose key is that number', async () => {
+      const phone = await metaOf(owner, 'user:phone');
+
+      // Inserted directly rather than through the relation proxy: the decoy's key is a number, and
+      // the proxy indexes entries by key, so a numeric one collides with its own array handling.
+      const decoy = new UserMetadata();
+      decoy.Key = String(phone!.Id);
+      decoy.Value = 'decoy';
+      decoy.Type = 'string';
+      decoy.user_id = owner.Id;
+      await decoy.insert();
+
+      await controller.updateMetadata(owner, String(phone!.Id), { Key: 'user:phone', Value: '999', Type: 'string' } as any);
+
+      expect((await metaOf(owner, 'user:phone'))!.Value, 'the addressed entry').to.eq('999');
+      expect((await metaOf(owner, String(phone!.Id)))!.Value, 'an entry whose key merely looks like that id must be left alone').to.eq('decoy');
+    });
+
     it('cannot update an entry of another user by key', async () => {
       await controller.updateMetadata(owner, 'secret', { Key: 'secret', Value: 'hacked', Type: 'string' } as any);
 
