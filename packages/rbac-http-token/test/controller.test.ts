@@ -314,6 +314,7 @@ describe('AccessTokenController', function () {
     const auth = `Bearer ${Plaintext}`;
 
     const routes: [string, () => Promise<any>][] = [
+      ['GET tokens/roles', () => req().get('user/tokens/roles').set('Authorization', auth)],
       ['GET tokens', () => req().get('user/tokens').set('Authorization', auth)],
       ['POST tokens', () => req().post('user/tokens').set('Authorization', auth).send({ Name: 'clone', Roles: ['user'] })],
       ['DELETE tokens/:uuid', () => req().delete(`user/tokens/${target.Uuid}`).set('Authorization', auth)],
