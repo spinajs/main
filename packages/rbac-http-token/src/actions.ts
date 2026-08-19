@@ -8,7 +8,7 @@ import { ErrorCode } from '@spinajs/exceptions';
 import { Constructor } from '@spinajs/di';
 
 import { AccessToken } from './models/AccessToken.js';
-import { AccessTokenGenerationProvider } from './interfaces.js';
+import { AccessTokenGenerationProvider, AccessTokenRolePolicy } from './interfaces.js';
 import { AccessTokenCreated, AccessTokenDeleted, AccessTokenEvent, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
 
 /**
@@ -72,14 +72,26 @@ function _token_ev(event: Constructor<AccessTokenEvent>, ...args: any[]) {
 }
 
 /**
- * Ensures every role in `roles` is currently held by `owner`.
- * A token must never carry a role its owner does not have.
+ * Roles the configured {@link AccessTokenRolePolicy} lets `owner` put on a
+ * token. Resolved per call rather than cached, so a policy that answers from
+ * live state ( the owner's current roles, the application's grants ) is not
+ * frozen at boot.
  */
-function _assert_roles_subset(owner: User, roles: string[]) {
-  const missing = roles.filter((r) => !owner.Role.includes(r));
+export async function _allowed_roles(owner: User): Promise<string[]> {
+  const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
+  return policy.allowedRoles(owner);
+}
+
+/**
+ * Ensures every role in `roles` is one the policy allows for `owner`.
+ * A token must never carry a permission its owner does not have.
+ */
+async function _assert_roles_subset(owner: User, roles: string[]) {
+  const allowed = await _allowed_roles(owner);
+  const missing = roles.filter((r) => !allowed.includes(r));
 
   if (missing.length !== 0) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner does not hold role(s): ${missing.join(', ')}`, { roles: missing });
+    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner may not put role(s) on a token: ${missing.join(', ')}`, { roles: missing });
   }
 }
 
@@ -150,7 +162,7 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
     _token(token),
     _tap(async (t: AccessToken) => {
       const owner = await _owner(t.user_id)();
-      _assert_roles_subset(owner, [role]);
+      await _assert_roles_subset(owner, [role]);
 
       t.Roles = _.uniq([...t.Roles, role]);
       await t.update();
@@ -256,10 +268,12 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
     throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID, 'Access token owner is not allowed to authenticate', { token: token.Uuid });
   }
 
-  // roles are re-intersected on every request rather than trusted from the row:
-  // a role revoked on the user must take effect immediately, without having to
+  // roles are re-checked against the policy on every request rather than
+  // trusted from the row: a role the owner loses - or one an application's
+  // policy stops allowing - must take effect immediately, without having to
   // hunt down every token that still carries it
-  const effective = token.Roles.filter((r) => owner.Role.includes(r));
+  const allowed = await _allowed_roles(owner);
+  const effective = token.Roles.filter((r) => allowed.includes(r));
   if (effective.length === 0) {
     throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token has no effective roles', { token: token.Uuid });
   }
