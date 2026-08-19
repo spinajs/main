@@ -5,7 +5,7 @@ import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { AccessToken } from '../models/AccessToken.js';
-import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
+import { E_TOKEN_CODES, _allowed_roles, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
 import { CreateTokenDto } from '../dto/create-token-dto.js';
 import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
@@ -50,6 +50,22 @@ import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
 @Resource('user.tokens')
 @Policy([NoTokenAuthPolicy, NoImpersonationPolicy])
 export class AccessTokenController extends BaseController {
+  /**
+   * Roles that may be put on a new token
+   * Answers from the configured AccessTokenRolePolicy - the same source
+   * `POST user/tokens` validates against, so a client can never be offered a
+   * role the create call would then refuse.
+   * @security cookieAuth
+   * @response 200 Roles the caller may put on a token
+   * @response 401 Unauthorized - valid session required
+   * @response 403 Forbidden - access tokens cannot be used on this route
+   */
+  @Get('tokens/roles')
+  @Permission(['readOwn'])
+  public async roles(@User() user: UserModel): Promise<Ok<unknown>> {
+    return new Ok({ Roles: await _allowed_roles(user) });
+  }
+
   /**
    * List own access tokens
    * Hashes are never returned - `Token` is `@Hidden()` on the model, so the

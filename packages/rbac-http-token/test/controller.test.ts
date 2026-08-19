@@ -268,7 +268,7 @@ describe('AccessTokenController', function () {
     // ORed and neither would remain a requirement
     expect(descriptor.Policies[0].map((p) => p.Type)).to.have.members([NoTokenAuthPolicy, NoImpersonationPolicy]);
 
-    expect([...descriptor.Routes.keys()]).to.have.members(['list', 'create', 'delete', 'grantRole', 'revokeRole']);
+    expect([...descriptor.Routes.keys()]).to.have.members(['roles', 'list', 'create', 'delete', 'grantRole', 'revokeRole']);
     for (const [name, route] of descriptor.Routes) {
       const types = route.Policies.flat().map((p) => p.Type);
       expect(types, `route ${String(name)} must carry the rbac permission check`).to.include(RbacPolicy);
@@ -283,6 +283,7 @@ describe('AccessTokenController', function () {
     expect(acl.Resource).to.equal('user.tokens');
 
     const expected: Record<string, string[]> = {
+      roles: ['readOwn'],
       list: ['readOwn'],
       create: ['createOwn'],
       delete: ['deleteOwn'],
