@@ -69,10 +69,13 @@ const rbacHttpToken = {
       },
 
       /**
-       * Role name patterns never offered on a token, however permissive the
-       * policy is. An exact name, or a name ending in `.*` matching that prefix
-       * and everything under it. Empty by default: this package has no opinion
-       * about which of an application's roles are meaningful to an API caller.
+       * Role name patterns for a custom AccessTokenRolePolicy to consult - not
+       * read by anything shipped in this package, including the default
+       * `OwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
+       * matching that prefix and everything under it; matching is implemented
+       * by `_role_excluded(role, patterns)` in `src/role-policy.ts`. Empty by
+       * default: this package has no opinion about which of an application's
+       * roles are meaningful to an API caller.
        */
       excludedRoles: [] as string[],
 
