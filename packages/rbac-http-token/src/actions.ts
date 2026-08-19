@@ -95,7 +95,7 @@ function _assert_roles_subset(owner: User, roles: string[]) {
  * @param roles - roles carried by the token, subset of the owner's roles
  * @param expiresAt - absolute expiration, or null for a token that never expires
  */
-export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime | null): Promise<{ Token: AccessToken; Plaintext: string }> {
+export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime<true> | null): Promise<{ Token: AccessToken; Plaintext: string }> {
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
   roles = _check_arg(_non_nil(), _non_empty())(roles, 'roles');
 

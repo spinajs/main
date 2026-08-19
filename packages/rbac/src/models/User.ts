@@ -249,13 +249,13 @@ export class UserBase extends ModelBase<UserBase> {
    * User creation date
    */
   @CreatedAt()
-  public CreatedAt!: DateTime;
+  public CreatedAt!: DateTime<true>;
 
   /**
    * Registration date. User is registered when clicked confirmation link sended to provided email.
    */
   @DT()
-  public RegisteredAt!: DateTime;
+  public RegisteredAt!: DateTime<true>;
 
   /**
    * User deletion date
