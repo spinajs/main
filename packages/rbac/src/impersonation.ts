@@ -1,5 +1,7 @@
 import { AccessControl } from 'accesscontrol';
 
+import { _collectPermissions } from './util.js';
+
 export type ImpersonationDenialReason = 'PROTECTED_ROLE' | 'PRIVILEGE_ESCALATION' | 'SELF_TARGET';
 
 export interface IImpersonationCheckOptions {
@@ -47,7 +49,7 @@ export function canImpersonate(opts: IImpersonationCheckOptions): IImpersonation
   // (e.g. orphaned data) don't crash the check — treat them as 'no grants'.
   const safePermissions = (roles: string[]) => {
     try {
-      return collectPermissions(ac, roles);
+      return _collectPermissions(ac, roles);
     } catch {
       return new Set<string>();
     }
@@ -71,55 +73,4 @@ export function canImpersonate(opts: IImpersonationCheckOptions): IImpersonation
   }
 
   return { allowed: true };
-}
-
-/**
- * Build a flat set of "resource::action" strings representing every permission
- * granted to the union of `roles`. Used so we can compare two role sets by
- * simple set inclusion.
- */
-function collectPermissions(ac: AccessControl, roles: string[]): Set<string> {
-  const out = new Set<string>();
-  if (roles.length === 0) return out;
-
-  const grants = ac.getGrants();
-  const actions: Array<'createAny' | 'createOwn' | 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn'> = [
-    'createAny', 'createOwn', 'readAny', 'readOwn', 'updateAny', 'updateOwn', 'deleteAny', 'deleteOwn',
-  ];
-
-  // Resources are not enumerable directly via the can() API — read them from
-  // the raw grants map and walk every $extend chain reachable from `roles`.
-  const visited = new Set<string>();
-  const stack = [...roles];
-  const resources = new Set<string>();
-
-  while (stack.length) {
-    const role = stack.pop()!;
-    if (visited.has(role)) continue;
-    visited.add(role);
-
-    const roleGrants = grants[role];
-    if (!roleGrants) continue;
-
-    for (const key of Object.keys(roleGrants)) {
-      if (key === '$extend') {
-        for (const inherited of roleGrants[key] as string[]) stack.push(inherited);
-      } else {
-        resources.add(key);
-      }
-    }
-  }
-
-  for (const resource of resources) {
-    for (const action of actions) {
-      // ac.can(roles)[action](resource).granted is true if ANY of the roles
-      // (or their $extend chain) grants the action — exactly the "union of
-      // effective permissions" we want.
-      if ((ac.can(roles) as any)[action](resource).granted) {
-        out.add(`${resource}::${action}`);
-      }
-    }
-  }
-
-  return out;
 }
