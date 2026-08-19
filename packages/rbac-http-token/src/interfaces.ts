@@ -1,7 +1,7 @@
 // Type-only import brings `@spinajs/rbac` into the program so the module
-// augmentation at the bottom of this file has a module to attach to.
-// Erased at runtime, so this stays a types-only file.
-import type {} from '@spinajs/rbac';
+// augmentation at the bottom of this file has a module to attach to, and
+// brings in `User` for `AccessTokenRolePolicy` below.
+import type { User } from '@spinajs/rbac';
 import type {} from '@spinajs/http';
 // `@spinajs/rbac-http` is what puts User / Session / ActiveRole on the http
 // request storage. Pulled in type-only so `req.storage.User` type-checks in a
@@ -45,6 +45,28 @@ export interface ITokenAuthInfo {
    * Uuid of the AccessToken row - safe to log; never the token itself.
    */
   Uuid: string;
+}
+
+/**
+ * Decides which roles a given owner may put on an access token.
+ *
+ * ONE method, three call sites - `createToken`, `grantTokenRole` and
+ * `validateToken`. That is deliberate: creation time and request time have to
+ * answer the same question, otherwise a role a user was allowed to pick could
+ * be one their token silently loses on the next request.
+ *
+ * Replaceable via config `rbac.token.rolePolicy.service`, the same pattern
+ * `rbac.token.generation.service` uses for the token generator. The shipped
+ * default ( `OwnRolesTokenRolePolicy` ) answers with the owner's own roles,
+ * which is the behaviour this package had before the seam existed.
+ */
+export abstract class AccessTokenRolePolicy {
+  /**
+   * Roles `owner` may carry on a token. Also the set every one of their
+   * existing tokens is re-intersected with on each authenticated request, so a
+   * role dropped from this answer stops authorising immediately.
+   */
+  public abstract allowedRoles(owner: User): Promise<string[]>;
 }
 
 declare module '@spinajs/rbac' {

@@ -61,6 +61,22 @@ const rbacHttpToken = {
       },
 
       /**
+       * Decides which roles an owner may put on a token. Swap for your own
+       * implementation of AccessTokenRolePolicy registered under this name.
+       */
+      rolePolicy: {
+        service: 'OwnRolesTokenRolePolicy',
+      },
+
+      /**
+       * Role name patterns never offered on a token, however permissive the
+       * policy is. An exact name, or a name ending in `.*` matching that prefix
+       * and everything under it. Empty by default: this package has no opinion
+       * about which of an application's roles are meaningful to an API caller.
+       */
+      excludedRoles: [] as string[],
+
+      /**
        * Stable plaintext prefix - lets secret scanners recognise leaked tokens.
        */
       prefix: 'spt_',
