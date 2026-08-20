@@ -85,10 +85,11 @@ export class AccessTokenController extends BaseController {
   /**
    * Create an access token
    * The plaintext appears in this response only and cannot be retrieved again.
-   * Roles must be a subset of the caller's own roles.
+   * Roles must be a subset of what the configured AccessTokenRolePolicy allows
+   * the caller - the same set `GET user/tokens/roles` reports.
    * @security cookieAuth
    * @response 200 Token created, `Plaintext` returned once
-   * @response 400 Requested roles are not held by the caller
+   * @response 400 Requested roles are not allowed for the caller by the configured role policy
    * @response 401 Unauthorized - valid session required
    * @response 403 Forbidden - access tokens cannot be used on this route
    */
@@ -128,13 +129,14 @@ export class AccessTokenController extends BaseController {
 
   /**
    * Grant a role to an own token
-   * The role must be held by the caller - a token can never carry more than its
-   * owner does.
+   * The role must be allowed for the caller by the configured
+   * AccessTokenRolePolicy - a token can never carry more than the policy
+   * permits its owner.
    * @security cookieAuth
    * @param uuid Public identifier of the token
    * @param role Role name to grant
    * @response 200 Updated token
-   * @response 400 Role is not held by the caller
+   * @response 400 Role is not allowed for the caller by the configured role policy
    * @response 401 Unauthorized - valid session required
    * @response 403 Forbidden - access tokens cannot be used on this route
    * @response 404 No such token for this user

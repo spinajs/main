@@ -77,11 +77,13 @@ export const _combineGrants = (...grants: { [key: string]: any }[]) => {
  * Flat set of `"resource::action"` strings covering everything the union of
  * `roles` is permitted to do, `$extend` chains included.
  *
- * Two callers compare role sets by plain set inclusion on this: the
- * impersonation check ( an impersonator must be strictly more privileged than
- * their target ) and the access-token role policies ( a token may only carry a
- * role whose permissions its owner already has ). Keeping one implementation
- * means those two answers cannot drift apart.
+ * Used by the impersonation check ( an impersonator must be strictly more
+ * privileged than their target ) to compare role sets by plain set inclusion.
+ * Also available to an `AccessTokenRolePolicy` implementation ( see
+ * `@spinajs/rbac-http-token` ) that wants to permit a token role by comparing
+ * permission sets rather than role names - the shipped default policy does
+ * not do this, it compares `owner.Role` directly and never touches
+ * `AccessControl`, but an application's own policy is free to.
  *
  * Resources are not enumerable through the `can()` API, so they are read from
  * the raw grants map by walking every `$extend` edge reachable from `roles`.

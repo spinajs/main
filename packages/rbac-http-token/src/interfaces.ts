@@ -50,10 +50,26 @@ export interface ITokenAuthInfo {
 /**
  * Decides which roles a given owner may put on an access token.
  *
- * ONE method, three call sites - `createToken`, `grantTokenRole` and
- * `validateToken`. That is deliberate: creation time and request time have to
- * answer the same question, otherwise a role a user was allowed to pick could
- * be one their token silently loses on the next request.
+ * ONE method, FOUR call sites - `createToken`, `grantTokenRole`,
+ * `validateToken`, and the `GET user/tokens/roles` controller route (all
+ * through the shared `_allowed_roles` helper in `src/actions.ts`). That is
+ * deliberate: creation time and request time have to answer the same
+ * question, otherwise a role a user was allowed to pick could be one their
+ * token silently loses on the next request.
+ *
+ * `owner` is NOT hydrated the same way by every call site: `GET
+ * user/tokens/roles` and `createToken` (from `POST user/tokens`) are handed
+ * `req.storage.User` - the application's `User` subclass, with whatever
+ * request-pipeline hydration already ran - while `grantTokenRole` and
+ * `validateToken` are handed a base `User` with only `Metadata` populated
+ * ( `_owner()` / a direct `User.where(...)` lookup, deliberately unscoped by
+ * any application model override - see `_owner()`'s comments in
+ * `src/actions.ts` ). A correct implementation MUST NOT rely on anything
+ * beyond the base `User` model plus `Metadata` being present on `owner` -
+ * that is the only shape all four call sites agree on. Any
+ * application-specific field a policy reads may be populated on a
+ * session-authenticated call and absent on a token-authenticated one,
+ * answering the identical question two different ways.
  *
  * Replaceable via config `rbac.token.rolePolicy.service`, the same pattern
  * `rbac.token.generation.service` uses for the token generator. The shipped
@@ -65,6 +81,9 @@ export abstract class AccessTokenRolePolicy {
    * Roles `owner` may carry on a token. Also the set every one of their
    * existing tokens is re-intersected with on each authenticated request, so a
    * role dropped from this answer stops authorising immediately.
+   *
+   * @param owner - at minimum a base `User` with `Metadata` populated; see the
+   *                class docblock above for why nothing more may be assumed.
    */
   public abstract allowedRoles(owner: User): Promise<string[]>;
 }

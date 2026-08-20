@@ -88,12 +88,22 @@ case-insensitive) or the configured fallback header (`x-api-key` by default).
 ## Token role policy
 
 `AccessTokenRolePolicy.allowedRoles(owner)` decides which roles an owner may
-put on a token. There is exactly one method, but three call sites -
-`createToken`, `grantTokenRole` and `validateToken` (all through the shared
-`_allowed_roles` helper in `src/actions.ts`) - share it deliberately: creation
-time and request time have to agree on the same answer, or a role a user was
-allowed to pick could be one their token silently loses (or gains) on the very
-next request.
+put on a token. There is exactly one method, but FOUR call sites -
+`createToken`, `grantTokenRole`, `validateToken` and the `GET
+user/tokens/roles` controller route (all through the shared `_allowed_roles`
+helper in `src/actions.ts`) - share it deliberately: creation time and request
+time have to agree on the same answer, or a role a user was allowed to pick
+could be one their token silently loses (or gains) on the very next request.
+
+**`owner` is only guaranteed to be a base `User` with `Metadata` populated -
+nothing more.** `GET user/tokens/roles` and `createToken` (from `POST
+user/tokens`) are handed `req.storage.User`, the application's `User`
+subclass with whatever the request pipeline already hydrated onto it, while
+`grantTokenRole` and `validateToken` are handed a base `User` loaded
+independently of any application model override. A policy that reads a field
+an application added to its own `User` subclass will see it on a
+session-authenticated call and not on a token-authenticated one - implement
+against base `User` + `Metadata` only.
 
 The shipped default, `OwnRolesTokenRolePolicy`, answers with the owner's own
 `Role` array. That is the behaviour this package had before the seam existed,
@@ -139,9 +149,10 @@ tokens only - a foreign uuid simply reads as 404.
 | `PUT user/tokens/:uuid/roles/:role` | grant role |
 | `DELETE user/tokens/:uuid/roles/:role` | revoke role |
 
-Responses: `400` for role refusals (role not held by the caller, last role
-revoke), `401` without a valid session, `403` when the request is
-token-authenticated or impersonated, `404` for a token the caller does not own.
+Responses: `400` for role refusals (role not allowed for the caller by the
+configured role policy, last role revoke), `401` without a valid session,
+`403` when the request is token-authenticated or impersonated, `404` for a
+token the caller does not own.
 
 ## CLI
 
@@ -153,8 +164,8 @@ rbac:token-revoke <uuid> <role>
 rbac:token-delete-expired   # run cyclically from a worker
 ```
 
-- `-r, --roles` is a comma separated list, and must be a subset of the owner's
-  roles.
+- `-r, --roles` is a comma separated list, and must be allowed for the owner
+  by the configured role policy (see [Token role policy](#token-role-policy)).
 - `-e, --expires` takes an ISO instant. Omitting the flag entirely means the
   token never expires; an empty or unparsable value is refused rather than
   silently treated as "no expiration".

@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AccessControl } from 'accesscontrol';
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
@@ -49,6 +50,16 @@ describe('access token actions - role policy', function () {
     // Point the configured policy at the stub for this suite.
     const cfg = await DI.resolve(Configuration);
     cfg.set('rbac.token.rolePolicy.service', 'StubTokenRolePolicy');
+
+    // `reports.read` / `reports.write` below stand in for roles a policy may
+    // grant beyond what the owner literally holds - they must still be roles
+    // AccessControl actually knows about ( `_allowed_roles` filters out
+    // anything absent from `ac.getGrants()`, see actions.ts ), otherwise every
+    // request a token carrying them later authenticates would 500. What they
+    // grant is irrelevant to this suite; only their presence in the map is.
+    const ac = DI.get<AccessControl>('AccessControl')!;
+    ac.grant('reports.read').readOwn('reports');
+    ac.grant('reports.write').updateOwn('reports');
   });
 
   after(async () => {
@@ -131,5 +142,43 @@ describe('access token actions - role policy', function () {
         expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
       },
     );
+  });
+
+  /**
+   * `_allowed_roles` (actions.ts) filters a policy's answer down to roles
+   * `accesscontrol` actually knows about. A policy is arbitrary application
+   * code and a typo'd or stale role name must not reach `createToken` /
+   * `validateToken` unfiltered - `checkRoutePermission` (rbac-http) calls
+   * `ac.can(roles)[permission](resource)`, and `accesscontrol` throws for any
+   * role absent from its grants map, which would 500 every request the token
+   * later authenticates.
+   */
+  it('never puts a role the policy returns but AccessControl does not know onto a token', async () => {
+    const user = await owner('policy.unknown-create');
+    StubTokenRolePolicy.Allowed = ['reports.read', 'ghost-role'];
+
+    await createToken(user, 'partially unknown', ['reports.read', 'ghost-role'], null).then(
+      () => expect.fail('createToken should have refused the unknown role'),
+      (err: unknown) => {
+        expect(err).to.be.instanceOf(ErrorCode);
+        expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+        expect((err as ErrorCode).data).to.deep.equal({ roles: ['ghost-role'] });
+      },
+    );
+  });
+
+  it('never puts a policy-returned unknown role into EffectiveRoles', async () => {
+    const user = await owner('policy.unknown-validate');
+    StubTokenRolePolicy.Allowed = ['reports.read'];
+
+    const { Plaintext } = await createToken(user, 'later unknown', ['reports.read'], null);
+
+    // The policy now offers a role AccessControl has never heard of, alongside
+    // one it still legitimately allows.
+    StubTokenRolePolicy.Allowed = ['reports.read', 'ghost-role'];
+
+    const result = await validateToken(Plaintext);
+    expect(result.EffectiveRoles).to.deep.equal(['reports.read']);
+    expect(result.EffectiveRoles).to.not.include('ghost-role');
   });
 });
