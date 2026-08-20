@@ -69,19 +69,59 @@ export class RbacPolicy extends BasePolicy {
   }
 }
 
-export function checkRbacPermission(role: string | string[], resource: string, permission: string): Permission {
+/**
+ * Runs `ac.can(roles)[permission](resource)`, treating an unknown role as "not
+ * granted" instead of letting `accesscontrol` throw.
+ *
+ * `accesscontrol` throws `AccessControlError` ("Role not found") for any role
+ * name absent from the grants map, and rejects the WHOLE role array on a
+ * single unknown member - so `['user', 'reports.read']` throws even for a
+ * route that `user` alone fully grants. Uncaught, that surfaced as a 500 with
+ * a library stack trace on every request carrying such a role, instead of the
+ * policy's own Forbidden. Mirrors the same guard in
+ * `packages/rbac/src/middleware.ts` (`RbacModelPermissionMiddleware.context`,
+ * around the `ac.can(roles)` calls), which treats the identical throw as "no
+ * permission" for the ORM query-builder checks.
+ *
+ * The catch is narrowed to `AccessControlError` via `AccessControl.isAccessControlError`
+ * rather than a bare `catch`, so a genuine programming error - e.g. a decorator typo like
+ * `@Permission(['readOwm'])`, which throws `TypeError: ac.can(...).readOwm is not a
+ * function` - still propagates as a loud 500 naming the bad method instead of being
+ * swallowed into a plausible-looking 403.
+ *
+ * `AccessControl.isAccessControlError` is used instead of `instanceof AccessControlError`
+ * on purpose: `accesscontrol`'s package root (`main` in package.json) only re-exports the
+ * `AccessControl` class, not `AccessControlError` - despite the package's own `.d.ts`
+ * (`types` in package.json, resolved from a different file than `main`) declaring it as a
+ * named export. `import { AccessControlError } from 'accesscontrol'` type-checks but is
+ * `undefined` at runtime, which would make `instanceof AccessControlError` throw. The
+ * `AccessControl` class itself does not have this split - it is exported correctly at
+ * runtime - so its static helper is the reliable way to recognise the error.
+ */
+function _can(ac: AccessControl, roles: string | string[], permission: string, resource: string): Permission | null {
+  try {
+    return (ac.can(roles) as any)[permission](resource);
+  } catch (err) {
+    if (AccessControl.isAccessControlError(err)) {
+      return null;
+    }
+
+    throw err;
+  }
+}
+
+export function checkRbacPermission(role: string | string[], resource: string, permission: string): Permission | null {
   const ac = DI.get<AccessControl>('AccessControl')!;
-  return (ac.can(role) as any)[permission](resource);
+  return _can(ac, role, permission, resource);
 }
 
 export function checkUserPermission(user: User, resource: string, permission: string): Permission | null {
-  const ac = DI.get<AccessControl>('AccessControl')!;
-
   if (!user) {
     return null;
   }
 
-  return (ac.can(user.Role) as any)[permission](resource);
+  const ac = DI.get<AccessControl>('AccessControl')!;
+  return _can(ac, user.Role, permission, resource);
 }
 
 export function checkRoutePermission(req: sRequest, resource: string, permission: string): Permission | null {
@@ -91,5 +131,5 @@ export function checkRoutePermission(req: sRequest, resource: string, permission
 
   const ac = DI.get<AccessControl>('AccessControl')!;
   const roles = req.storage.ActiveRole ? [req.storage.ActiveRole] : req.storage.User.Role;
-  return (ac.can(roles) as any)[permission](resource);
+  return _can(ac, roles, permission, resource);
 }

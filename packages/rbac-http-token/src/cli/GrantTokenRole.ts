@@ -5,7 +5,7 @@ import { grantTokenRole } from '../actions.js';
 
 @Command('rbac:token-grant', 'Grants a role to an access token')
 @Argument('uuid', true, 'token uuid')
-@Argument('role', true, 'role to grant, must be held by token owner')
+@Argument('role', true, 'role to grant, must be allowed for the token owner by the configured role policy')
 export class GrantTokenRole extends CliCommand {
   @Logger('rbac-http-token')
   protected Log: Log;
