@@ -87,6 +87,12 @@ function _token_ev(event: Constructor<AccessTokenEvent>, ...args: any[]) {
  * `ac.can(roles)[permission](resource)`, and `accesscontrol` throws
  * `AccessControlError` for a role absent from its grants map. A role that
  * grants nothing must never be offered or authorised in the first place.
+ *
+ * Filters with `Object.hasOwn`, not `Boolean(grants[r])`: `getGrants()` returns a plain
+ * object, so `grants['constructor']`, `['toString']`, `['valueOf']`, `['hasOwnProperty']`
+ * and `['__proto__']` all resolve truthy through the prototype chain even though no role by
+ * that name was ever registered. A policy returning `'constructor'` would otherwise survive
+ * this filter, get offered by `GET user/tokens/roles`, and be mintable onto a token.
  */
 export async function _allowed_roles(owner: User): Promise<string[]> {
   const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
@@ -94,7 +100,7 @@ export async function _allowed_roles(owner: User): Promise<string[]> {
 
   const ac = DI.get<AccessControl>('AccessControl')!;
   const grants = ac.getGrants();
-  return allowed.filter((r) => Boolean(grants[r]));
+  return allowed.filter((r) => Object.hasOwn(grants, r));
 }
 
 /**

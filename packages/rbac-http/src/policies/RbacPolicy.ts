@@ -82,12 +82,31 @@ export class RbacPolicy extends BasePolicy {
  * `packages/rbac/src/middleware.ts` (`RbacModelPermissionMiddleware.context`,
  * around the `ac.can(roles)` calls), which treats the identical throw as "no
  * permission" for the ORM query-builder checks.
+ *
+ * The catch is narrowed to `AccessControlError` via `AccessControl.isAccessControlError`
+ * rather than a bare `catch`, so a genuine programming error - e.g. a decorator typo like
+ * `@Permission(['readOwm'])`, which throws `TypeError: ac.can(...).readOwm is not a
+ * function` - still propagates as a loud 500 naming the bad method instead of being
+ * swallowed into a plausible-looking 403.
+ *
+ * `AccessControl.isAccessControlError` is used instead of `instanceof AccessControlError`
+ * on purpose: `accesscontrol`'s package root (`main` in package.json) only re-exports the
+ * `AccessControl` class, not `AccessControlError` - despite the package's own `.d.ts`
+ * (`types` in package.json, resolved from a different file than `main`) declaring it as a
+ * named export. `import { AccessControlError } from 'accesscontrol'` type-checks but is
+ * `undefined` at runtime, which would make `instanceof AccessControlError` throw. The
+ * `AccessControl` class itself does not have this split - it is exported correctly at
+ * runtime - so its static helper is the reliable way to recognise the error.
  */
 function _can(ac: AccessControl, roles: string | string[], permission: string, resource: string): Permission | null {
   try {
     return (ac.can(roles) as any)[permission](resource);
-  } catch {
-    return null;
+  } catch (err) {
+    if (AccessControl.isAccessControlError(err)) {
+      return null;
+    }
+
+    throw err;
   }
 }
 

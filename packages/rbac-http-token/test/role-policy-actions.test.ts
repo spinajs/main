@@ -10,7 +10,7 @@ import { ErrorCode } from '@spinajs/exceptions';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessTokenRolePolicy } from '../src/interfaces.js';
-import { E_TOKEN_CODES, createToken, grantTokenRole, validateToken } from '../src/actions.js';
+import { E_TOKEN_CODES, _allowed_roles, createToken, grantTokenRole, validateToken } from '../src/actions.js';
 import '../src/generator.js';
 import '../src/role-policy.js';
 
@@ -165,6 +165,24 @@ describe('access token actions - role policy', function () {
         expect((err as ErrorCode).data).to.deep.equal({ roles: ['ghost-role'] });
       },
     );
+  });
+
+  /**
+   * `_allowed_roles` used to filter with `Boolean(grants[r])`. `getGrants()` returns a
+   * plain object, so `grants['constructor']` (and `toString`/`valueOf`/`hasOwnProperty`/
+   * `__proto__`) resolves truthy through the prototype chain even though no such role was
+   * ever registered with `AccessControl` - a policy returning `'constructor'` would survive
+   * the old filter, be offered by `GET user/tokens/roles`, and be mintable onto a token.
+   * The filter now uses `Object.hasOwn`, which only recognises the grants map's own keys.
+   */
+  it('never lets a prototype-chain property name through as an allowed role', async () => {
+    const user = await owner('policy.prototype-property');
+    StubTokenRolePolicy.Allowed = ['reports.read', 'constructor'];
+
+    const allowed = await _allowed_roles(user);
+
+    expect(allowed).to.deep.equal(['reports.read']);
+    expect(allowed).to.not.include('constructor');
   });
 
   it('never puts a policy-returned unknown role into EffectiveRoles', async () => {
