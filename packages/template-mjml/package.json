@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/templates-mjml",
-  "version": "2.0.513",
+  "version": "2.0.514",
   "description": "MJML template renderer for @spinajs/templates - generates responsive emails.",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,7 +51,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
-    "@spinajs/fs": "2.0.513",
+    "@spinajs/fs": "2.0.514",
     "@types/luxon": "^3.6.1",
     "@types/mocha": "10.0.1",
     "@types/node": "^22.14.1",
@@ -59,12 +59,12 @@
     "@types/mjml": "^4.7.4"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.513",
-    "@spinajs/di": "2.0.513",
-    "@spinajs/intl": "2.0.513",
-    "@spinajs/log": "2.0.513",
-    "@spinajs/templates": "2.0.513",
-    "@spinajs/templates-handlebars": "2.0.513",
+    "@spinajs/configuration": "2.0.514",
+    "@spinajs/di": "2.0.514",
+    "@spinajs/intl": "2.0.514",
+    "@spinajs/log": "2.0.514",
+    "@spinajs/templates": "2.0.514",
+    "@spinajs/templates-handlebars": "2.0.514",
     "mjml": "^4.15.3"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
