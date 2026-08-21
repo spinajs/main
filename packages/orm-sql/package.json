@@ -57,6 +57,7 @@
     "@spinajs/log-common": "2.0.514",
     "@spinajs/orm": "2.0.514",
     "@spinajs/exceptions": "2.0.514",
+    "@spinajs/util": "2.0.514",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"
   },
