@@ -1,17 +1,44 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { AccessControl } from 'accesscontrol';
+import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, create } from '@spinajs/rbac';
 import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
+import { AccessTokenRolePolicy } from '../src/interfaces.js';
 import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
 import '../src/generator.js';
+import '../src/role-policy.js';
+
+/**
+ * Answers whatever a test told it to, per profile. The `''` key holds the
+ * profile-less answer, so a test can make the owner-wide union and the
+ * profile-relative set differ - the only way to prove the actions validate
+ * against the PROFILE rather than against everything the owner may ever carry.
+ *
+ * Selected by name through `rbac.token.rolePolicy.service`, so only the nested
+ * `profiles` block below runs against it; the rest of this suite keeps the
+ * shipped `OwnRolesTokenRolePolicy`.
+ */
+@Injectable(AccessTokenRolePolicy)
+class CrudProfileStubPolicy extends AccessTokenRolePolicy {
+  public static Profiles: string[] = [];
+  public static RolesPerProfile: Record<string, string[]> = {};
+
+  public async allowedRoles(_owner: User, profile?: string): Promise<string[]> {
+    return [...(CrudProfileStubPolicy.RolesPerProfile[profile ?? ''] ?? [])];
+  }
+
+  public async allowedProfiles(_owner: User): Promise<string[]> {
+    return [...CrudProfileStubPolicy.Profiles];
+  }
+}
 
 describe('access token actions - crud', function () {
   this.timeout(15000);
@@ -126,5 +153,81 @@ describe('access token actions - crud', function () {
     // role that survives every later grant, so the refusal must be total
     const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
     expect(reloaded.Roles).to.deep.equal(['user']);
+  });
+
+  describe('profiles', () => {
+    before(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', 'CrudProfileStubPolicy');
+
+      // `_allowed_roles` drops every role AccessControl does not know about, so
+      // the role used to prove profile narrowing has to be in the grants map -
+      // otherwise the refusals below would pass for the wrong reason. What it
+      // grants is irrelevant here; only its presence in the map is.
+      const ac = DI.get<AccessControl>('AccessControl')!;
+      ac.grant('extra').readOwn('extra');
+    });
+
+    after(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+    });
+
+    beforeEach(() => {
+      CrudProfileStubPolicy.Profiles = ['admin'];
+      CrudProfileStubPolicy.RolesPerProfile = { '': ['user', 'extra'], admin: ['user'] };
+    });
+
+    it('createToken stores the profile when the policy allows it', async () => {
+      const { User: owner } = await create('c8@spinajs.com', 'c8', 'password123', ['user']);
+
+      const { Token } = await createToken(owner, 'profiled', ['user'], null, 'admin');
+
+      expect(Token.Profile).to.equal('admin');
+
+      // the pin is what later requests are scoped by, so it has to reach the row
+      const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+      expect(row.Profile).to.equal('admin');
+    });
+
+    it('createToken refuses a profile the policy does not allow', async () => {
+      const { User: owner } = await create('c9@spinajs.com', 'c9', 'password123', ['user']);
+
+      const err = await createToken(owner, 'bad-profile', ['user'], null, 'not-a-profile').catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(ErrorCode);
+      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+
+      // nothing may be persisted by a refused create
+      const rows = await AccessToken.where('Name', 'bad-profile').all();
+      expect(rows).to.have.length(0);
+    });
+
+    it('createToken validates roles against the profile, not the owner union', async () => {
+      const { User: owner } = await create('c10@spinajs.com', 'c10', 'password123', ['user']);
+
+      // control: with no profile 'extra' is allowed, so the refusal below can
+      // only come from the profile-relative answer
+      const { Token } = await createToken(owner, 'wide', ['extra'], null);
+      expect(Token.Roles).to.deep.equal(['extra']);
+
+      const err = await createToken(owner, 'narrowed', ['extra'], null, 'admin').catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(ErrorCode);
+      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+      expect((err as ErrorCode).data).to.deep.equal({ roles: ['extra'] });
+    });
+
+    it('grantTokenRole validates against the profile the token is pinned to', async () => {
+      const { User: owner } = await create('c11@spinajs.com', 'c11', 'password123', ['user']);
+      const { Token } = await createToken(owner, 'pinned', ['user'], null, 'admin');
+
+      // granting reloads the token by uuid, so this also proves the pin
+      // round-trips through the row rather than living on the instance only
+      const err = await grantTokenRole(Token.Uuid, 'extra').catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(ErrorCode);
+      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+
+      const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+      expect(reloaded.Roles).to.deep.equal(['user']);
+    });
   });
 });
