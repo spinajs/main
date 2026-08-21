@@ -1,4 +1,24 @@
 import { BaseController, BasePath, CsvFile, File, Files, FileResponse, Form, FormField, Get, IUploadedFile, JsonFile, JsonFileResponse, Ok, Post, ZipResponse } from '@spinajs/http';
+import { Schema } from '@spinajs/validation';
+
+/**
+ * The DTO half of a form+file route. `required` matters to the test: once the form schema is
+ * lifted onto the body, its required fields have to travel with it.
+ */
+@Schema({
+  type: 'object',
+  $id: 'test.FormPayloadDto',
+  required: ['state'],
+  properties: {
+    comment: { type: 'string', maxLength: 128 },
+    state: { type: 'string', enum: ['open', 'closed'] },
+  },
+})
+export class FormPayloadDto {
+  public comment?: string;
+
+  public state: 'open' | 'closed';
+}
 
 /**
  * Uploads and downloads, the two halves of the API surface that does not travel as JSON.
@@ -67,6 +87,16 @@ export class FileController extends BaseController {
   @Post('form-only')
   public async formOnly(@Form() form: unknown) {
     return new Ok(form);
+  }
+
+  /**
+   * A `@Form()` DTO next to a file. `FromForm` hydrates the DTO from the form's ROOT fields, so
+   * `comment` / `state` travel as top-level parts and the parameter's name never appears on the
+   * wire - the document has to say the same.
+   */
+  @Post('form-with-file')
+  public async formWithFile(@Form() body: FormPayloadDto, @File() attachment: IUploadedFile) {
+    return new Ok({ body, name: attachment?.Name });
   }
 
   /**

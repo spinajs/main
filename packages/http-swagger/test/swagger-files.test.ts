@@ -122,6 +122,31 @@ describe('Swagger file uploads and downloads', function () {
       expect(uploadBody('form-only').properties.form).to.not.have.property('format');
     });
 
+    /**
+     * `FromForm.extract` builds a querystring out of every field in `FormData.Fields` and hydrates
+     * the DTO from `qs.parse` of that - it never looks at the parameter's name. So a `@Form()` param
+     * is not a field of the body, it IS the body, and its fields travel at the root.
+     *
+     * Keying it by the parameter name instead documented a part the route does not accept. The live
+     * case was `POST /campaigns/:campaign/comments` (`@Form() body: CommentDTO` beside
+     * `@File() images`): the document promised `{ images, body: {...} }`, a generated client sent one
+     * JSON part named `body`, and the server answered 400 `missingProperty: "type"` - while the same
+     * request with `content` / `type` / `state` at the root succeeded.
+     */
+    it('lifts a @Form() DTO onto the body instead of nesting it under the parameter name', () => {
+      const schema = uploadBody('form-with-file');
+
+      expect(schema.properties, 'the parameter name must not become a field').to.not.have.property('body');
+      expect(schema.properties.comment.type).to.equal('string');
+      expect(schema.properties.state.enum).to.deep.equal(['open', 'closed']);
+      // the file keeps its own field name - only the form is lifted
+      expect(schema.properties.attachment).to.deep.equal({ type: 'string', format: 'binary' });
+    });
+
+    it("carries the lifted @Form() DTO's required fields onto the body", () => {
+      expect(uploadBody('form-with-file').required).to.include('state');
+    });
+
     it('still sends every file route as multipart/form-data', () => {
       for (const path of ['single', 'many', 'csv', 'json-upload', 'with-fields']) {
         const content = spec.paths[`/files/${path}`].post.requestBody.content;
