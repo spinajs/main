@@ -59,6 +59,20 @@ describe('access token role policy - defaults', () => {
 
       expect(await policy.allowedRoles(owner)).to.deep.equal([]);
     });
+
+    it('ignores the profile argument - answer stays the owner roles', async () => {
+      const policy = new OwnRolesTokenRolePolicy();
+      const owner = new User({ Role: ['user', 'admin'] });
+
+      expect(await policy.allowedRoles(owner, 'admin')).to.deep.equal(['user', 'admin']);
+    });
+
+    it('offers no profiles by default - the feature is opt-in per application', async () => {
+      const policy = new OwnRolesTokenRolePolicy();
+      const owner = new User({ Role: ['user', 'admin'] });
+
+      expect(await policy.allowedProfiles(owner)).to.deep.equal([]);
+    });
   });
 
   describe('_role_excluded', () => {

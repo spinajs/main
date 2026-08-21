@@ -45,6 +45,13 @@ export interface ITokenAuthInfo {
    * Uuid of the AccessToken row - safe to log; never the token itself.
    */
   Uuid: string;
+
+  /**
+   * The profile (a role name) this token is pinned to, when it carries one.
+   * Consumed by application row-scoping the way a session's ActiveRole is;
+   * permission checks do NOT read it - they stay on the narrowed User.Role.
+   */
+  Profile?: string;
 }
 
 /**
@@ -82,10 +89,24 @@ export abstract class AccessTokenRolePolicy {
    * existing tokens is re-intersected with on each authenticated request, so a
    * role dropped from this answer stops authorising immediately.
    *
+   * With `profile` set the answer is relative to that profile - an application
+   * policy may (and should) narrow it to roles the profile's own grants cover.
+   * The shipped default ignores the argument.
+   *
    * @param owner - at minimum a base `User` with `Metadata` populated; see the
    *                class docblock above for why nothing more may be assumed.
+   * @param profile - the profile the token is (or will be) pinned to
    */
-  public abstract allowedRoles(owner: User): Promise<string[]>;
+  public abstract allowedRoles(owner: User, profile?: string): Promise<string[]>;
+
+  /**
+   * Profiles `owner` may pin a token to. A profile plays the row-scoping part
+   * a session's ActiveRole plays - see `ITokenAuthInfo.Profile`. Default: none;
+   * an application that wants profile tokens overrides this in its policy.
+   */
+  public async allowedProfiles(_owner: User): Promise<string[]> {
+    return [];
+  }
 }
 
 declare module '@spinajs/rbac' {
