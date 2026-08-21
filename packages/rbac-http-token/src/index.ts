@@ -8,6 +8,7 @@ import './middlewares.js';
 export * from './interfaces.js';
 export * from './models/AccessToken.js';
 export * from './migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
+export * from './migrations/RbacHttpTokenProfile_2026_08_21_00_00_00.js';
 export * from './generator.js';
 export * from './role-policy.js';
 export * from './events/index.js';
