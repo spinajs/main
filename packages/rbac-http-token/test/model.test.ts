@@ -30,6 +30,12 @@ describe('AccessToken model', function () {
 
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
+
+    // `rbac_access_tokens.user_id` references `users`, and the Profile tests
+    // below address their owner by a literal id rather than creating one, so
+    // seed a user here - that keeps them passing when mocha is given a filter
+    // that skips the tests which create their own owners.
+    await create('model@spinajs.com', 'model', 'password123', ['user']);
   });
 
   after(async () => {
@@ -88,5 +94,27 @@ describe('AccessToken model', function () {
     expect(json).to.not.have.property('user_id');
     expect(json).to.have.property('Uuid');
     expect(json).to.have.property('Name');
+  });
+
+  it('persists and loads the Profile column', async () => {
+    const token = new AccessToken({
+      Name: 'profiled',
+      Token: 'hash-profile-test',
+      Roles: ['user'],
+      Profile: 'admin.primespot',
+      user_id: 1,
+    });
+    await token.insert();
+
+    const loaded = await AccessToken.where('Uuid', token.Uuid).firstOrFail();
+    expect(loaded.Profile).to.equal('admin.primespot');
+  });
+
+  it('leaves Profile undefined for legacy rows', async () => {
+    const token = new AccessToken({ Name: 'legacy', Token: 'hash-legacy-test', Roles: ['user'], user_id: 1 });
+    await token.insert();
+
+    const loaded = await AccessToken.where('Uuid', token.Uuid).firstOrFail();
+    expect(loaded.Profile ?? null).to.equal(null);
   });
 });

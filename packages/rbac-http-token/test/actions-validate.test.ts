@@ -1,17 +1,40 @@
 import 'mocha';
 import { expect } from 'chai';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { AccessControl } from 'accesscontrol';
+import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/rbac';
 import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
+import { AccessTokenRolePolicy } from '../src/interfaces.js';
 import { E_TOKEN_CODES, createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/actions.js';
 import '../src/generator.js';
+import '../src/role-policy.js';
+
+/**
+ * Same shape as the stub in `actions-crud.test.ts` ( different class name -
+ * the DI registry de-duplicates by type name ): answers per profile, with the
+ * `''` key holding the profile-less answer, so a test can narrow what a profile
+ * covers after a token was already minted under it.
+ */
+@Injectable(AccessTokenRolePolicy)
+class ValidateProfileStubPolicy extends AccessTokenRolePolicy {
+  public static Profiles: string[] = [];
+  public static RolesPerProfile: Record<string, string[]> = {};
+
+  public async allowedRoles(_owner: User, profile?: string): Promise<string[]> {
+    return [...(ValidateProfileStubPolicy.RolesPerProfile[profile ?? ''] ?? [])];
+  }
+
+  public async allowedProfiles(_owner: User): Promise<string[]> {
+    return [...ValidateProfileStubPolicy.Profiles];
+  }
+}
 
 describe('access token actions - validate & cleanup', function () {
   this.timeout(15000);
@@ -208,5 +231,69 @@ describe('access token actions - validate & cleanup', function () {
     Token.LastUsedAt = DateTime.now().minus({ seconds: 120 });
     await touchToken(Token, 60);
     expect(Token.LastUsedAt.toMillis()).to.be.gt(recent.toMillis());
+  });
+
+  describe('profiles', () => {
+    before(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', 'ValidateProfileStubPolicy');
+
+      // `_allowed_roles` drops every role AccessControl does not know about, so
+      // 'extra' has to be in the grants map for the narrowing below to mean
+      // anything. What it grants is irrelevant here; only its presence is.
+      const ac = DI.get<AccessControl>('AccessControl')!;
+      ac.grant('extra').readOwn('extra');
+    });
+
+    after(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+    });
+
+    beforeEach(() => {
+      ValidateProfileStubPolicy.Profiles = ['admin'];
+      ValidateProfileStubPolicy.RolesPerProfile = { '': ['user', 'extra'], admin: ['user', 'extra'] };
+    });
+
+    it('rejects a token whose profile the owner no longer passes', async () => {
+      const owner = await activeUser('v11@spinajs.com', 'v11', ['user']);
+      const { Plaintext } = await createToken(owner, 'profiled', ['user'], null, 'admin');
+
+      // the policy stops offering the profile - a role revoked, a policy
+      // tightened - and the pinned token has to stop authorising at once,
+      // exactly as a revoked role does
+      ValidateProfileStubPolicy.Profiles = [];
+
+      const err = await validateToken(Plaintext).catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(ErrorCode);
+      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    });
+
+    it('intersects effective roles against the profile-relative allowed set', async () => {
+      const owner = await activeUser('v12@spinajs.com', 'v12', ['user']);
+      const { Plaintext } = await createToken(owner, 'profiled roles', ['user', 'extra'], null, 'admin');
+
+      // the profile now covers fewer roles than the token carries, while the
+      // owner-wide union still covers both - proving the intersection is taken
+      // against the PROFILE answer
+      ValidateProfileStubPolicy.RolesPerProfile = { '': ['user', 'extra'], admin: ['user'] };
+
+      const result = await validateToken(Plaintext);
+      expect(result.EffectiveRoles).to.deep.equal(['user']);
+      expect(result.Token.Profile).to.equal('admin');
+    });
+
+    it('leaves a legacy token without a profile untouched by the profile gate', async () => {
+      const owner = await activeUser('v13@spinajs.com', 'v13', ['user']);
+      const { Plaintext } = await createToken(owner, 'legacy', ['extra'], null);
+
+      // no profile is offered at all, which must not affect a token that never
+      // carried one
+      ValidateProfileStubPolicy.Profiles = [];
+
+      const result = await validateToken(Plaintext);
+      expect(result.EffectiveRoles).to.deep.equal(['extra']);
+      expect(result.Token.Profile).to.not.be.ok;
+    });
   });
 });
