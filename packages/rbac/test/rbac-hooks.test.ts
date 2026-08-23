@@ -13,7 +13,7 @@ import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
-import { AllHooksModel, AsyncCreateHookModel, GenericHookModel, HOOK_CALLS, InheritedHookModel, PartialHookModel, resetHookCalls } from './models/HookModels.js';
+import { AllHooksModel, AsyncCreateHookModel, GenericHookModel, HOOK_CALLS, InheritedHookModel, LazyHookModel, PartialHookModel, resetHookCalls } from './models/HookModels.js';
 import { ResourceModel } from './models/ResourceModel.js';
 
 chai.use(chaiAsPromised);
@@ -259,6 +259,54 @@ describe('Per-operation rbac hooks', function () {
       expect(rows.map((x) => x.UserId).sort()).to.eql([owner.Id, owner.Id + 1]);
     });
 
+  });
+
+  /**
+   * A hook must run EXACTLY once per query it constrains.
+   *
+   * `SelectQueryBuilder.clone()` used to re-enter the middleware from the clone's constructor
+   * and then overwrite every statement the second pass produced with a copy of the source's —
+   * so the hook fired twice and the extra run was silently discarded. Harmless for a hook that
+   * only adds a where clause, not harmless for one that does a lookup, counts, or registers a
+   * relation.
+   *
+   * The compile-time path matters more than the explicit `clone()`: a `Lazy` where-statement is
+   * evaluated by `SqlLazyQueryStatement.build()`, which clones the builder — so a Lazy-based
+   * hook doubled on EVERY compile, without anybody calling `clone()`.
+   */
+  describe('a hook runs exactly once per query', () => {
+    it('clone() does not re-run the hook', async () => {
+      grant({ r: { HookAll: { 'read:own': ['*'] } } });
+      const { owner } = await seed();
+
+      resetHookCalls();
+
+      await as(owner, 'r', async () => {
+        const query = AllHooksModel.select();
+        const countQuery = query.clone();
+
+        await query;
+        await countQuery.selectCount();
+      });
+
+      expect(HOOK_CALLS).to.eql(['rbacRead']);
+    });
+
+    it('a Lazy hook is not re-run when the deferred statement compiles', async () => {
+      grant({ r: { HookLazy: { 'read:own': ['*'] } } });
+      const owner = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+      await new LazyHookModel({ UserId: owner.Id, Value: 'readable' } as any).insert();
+      await new LazyHookModel({ UserId: owner.Id, Value: 'other' } as any).insert();
+
+      resetHookCalls();
+
+      const rows = (await as(owner, 'r', () => LazyHookModel.select())) as LazyHookModel[];
+
+      expect(HOOK_CALLS).to.eql(['rbacRead']);
+      expect(rows).to.be.an('array').with.length(1);
+      expect(rows[0].Value).to.eq('readable');
+    });
   });
 
   describe('unchanged behaviour', () => {

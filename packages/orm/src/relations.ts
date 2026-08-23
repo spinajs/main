@@ -315,7 +315,27 @@ export class ManyToManyRelation extends NativeOrmRelation {
     const driver = orm.Connections.get(this._joinModelDescriptor.Connection!)!;
 
     const cnt = driver.Container;
-    this._joinQuery = cnt.resolve<ISelectQueryBuilder>('SelectQueryBuilder', [driver, this._targetModel, this]);
+
+    /**
+     * Carries the TARGET model — the rows it returns are target rows, and `Builder._run()`
+     * hydrates them through `this._model` — but selects FROM the JUNCTION table ( `from()`
+     * below ). That combination is why the query middlewares must NOT see it.
+     *
+     * A middleware is handed the builder at construction, before `from()` has run, and keys
+     * its work off `builder.Model`. So a rule declared for the target model produced a
+     * statement here that `setAlias()` then stamped with the junction table's alias — a
+     * constraint on `$junction$.<target column>`, which the driver rejects as an unknown
+     * column. rbac's `:own` hooks are exactly this shape, and models in the wild worked
+     * around it by deferring the constraint with `Lazy` and bailing out on a table-name
+     * check.
+     *
+     * Nothing is lost by skipping them: `_relationQuery` below is built from the same target
+     * model, selects FROM the target table under this relation's alias, IS shown to the
+     * middlewares, and `compile()` folds its statements into this query with
+     * `mergeBuilder()`. The constraint therefore still reaches the executed join query — once,
+     * and qualified against the table that actually has the column.
+     */
+    this._joinQuery = cnt.resolve<ISelectQueryBuilder>('SelectQueryBuilder', [driver, this._targetModel, this, false]);
 
     if (driver.Options.Database) {
       this._joinQuery.database(driver.Options.Database);
