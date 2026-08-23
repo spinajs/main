@@ -1177,7 +1177,20 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     return this._relations;
   }
 
-  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation) {
+  /**
+   * `applyMiddlewares` is false ONLY for {@link clone}. A clone is not a new query: every
+   * statement, column, join and relation it ends up with is copied from the source builder,
+   * which already went through `afterQueryCreation`. Running the middlewares again here
+   * produced their constraints twice — once on the clone (immediately overwritten by the
+   * copy below) and once carried over from the source — so a custom rbac hook fired twice per
+   * clone, and any side effect it has ( a lookup, a counter, a registered relation ) happened
+   * twice while its query effect was silently discarded.
+   *
+   * This is not a rare path: `SqlLazyQueryStatement.build()` clones the builder at COMPILE
+   * time to evaluate a deferred `Lazy` callback in isolation, so every query carrying a
+   * `Lazy` where-statement hit it on every compile.
+   */
+  constructor(container: IContainer, driver: OrmDriver, model?: Constructor<any>, owner?: IOrmRelation, applyMiddlewares = true) {
     super(container, driver, model);
 
     this._owner = owner;
@@ -1197,7 +1210,9 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._nonSelect = false;
     this.QueryContext = QueryContext.Select;
 
-    this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
+    if (applyMiddlewares) {
+      this._queryMiddlewares.forEach((x) => x.afterQueryCreation(this));
+    }
   }
 
   public async asRaw<T>(): Promise<T> {
@@ -1220,7 +1235,8 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public clone(): this {
-    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner);
+    // Middlewares are deliberately NOT run for the clone — see the constructor's note.
+    const builder = new SelectQueryBuilder<T>(this._container, this._driver, this._model, this._owner, false);
 
     // Table, alias and correlation are restored BEFORE the statements are cloned. Statements
     // rebind to `builder` and several of them read these during their own clone.
