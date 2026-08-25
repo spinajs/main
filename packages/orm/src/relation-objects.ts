@@ -704,9 +704,9 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
       (d as any)[this.Relation.ForeignKey] = this.OwnerJoinValue;
     });
 
-    // Fresh models have an undefined PK ( setDefaults uses the column default ),
-    // so treat undefined as "needs insert" alongside null and the dirty flag.
-    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null || x.PrimaryKeyValue === undefined);
+    // A fresh model ( never in the database ) is inserted; a loaded one is written when the key
+    // assignment above - or any other write - moved it away from its snapshot.
+    const dirty = this.filter((x) => x.IsNew || x.IsDirty);
 
     for (const f of dirty) {
       await f.insert(InsertBehaviour.InsertOrUpdate);

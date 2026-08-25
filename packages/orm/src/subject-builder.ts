@@ -125,7 +125,7 @@ export class SubjectBuilder {
       // Only an UPDATE needs a column list: an INSERT writes every column, and a no-op
       // writes none. Reading the diff again here is cheap and keeps `classify` pure.
       if (subject.Operation === SubjectOperation.Update) {
-        subject.ChangedColumns = model.changedColumns();
+        subject.ChangedColumns = model.changes().map((c) => c.Column);
       }
 
       set.add(subject);
@@ -329,16 +329,16 @@ export class SubjectBuilder {
 }
 
 /**
- * `Insert` when the model has never been hydrated from the database, `Update` when its
- * snapshot diff is non-empty, `None` otherwise.
+ * `Insert` when the model has never been in the database, `Update` when its snapshot diff is
+ * non-empty, `None` otherwise.
  *
  * Deliberately not keyed on the primary key: `setDefaults()` pre-fills @Uuid keys on
  * construction, so a brand-new UUID-keyed model already has one.
  */
 function classify(model: ModelBase): SubjectOperation {
-  if (model.Snapshot === null) {
+  if (model.IsNew) {
     return SubjectOperation.Insert;
   }
 
-  return model.changedColumns().length > 0 ? SubjectOperation.Update : SubjectOperation.None;
+  return model.changes().length > 0 ? SubjectOperation.Update : SubjectOperation.None;
 }

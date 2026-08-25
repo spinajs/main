@@ -653,7 +653,7 @@ describe('General model tests', () => {
     expect((model as any).__dirty_props__.length).to.eq(1);
   });
 
-  it('refresh clears dirty state', async () => {
+  it('refresh re-baselines the snapshot to the fresh values', async () => {
     await db();
 
     const model = new Model1({ Id: 1 });
@@ -663,7 +663,9 @@ describe('General model tests', () => {
     await model.refresh();
 
     expect(model.IsDirty).to.be.false;
-    expect((model as any).__dirty_props__.length).to.eq(0);
+    expect(model.Snapshot).to.not.equal(null);
+    expect(model.Snapshot!.Columns.get('Bar')).to.eq('refreshed');
+    expect(model.changes()).to.deep.equal([]);
   });
 
   it('Find mixin should work', async () => {

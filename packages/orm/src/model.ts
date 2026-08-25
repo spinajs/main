@@ -765,7 +765,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
 
     if (onlyDirty) {
-      return _.pick(vals, this.__dirty_props__);
+      return _.pick(vals, this.changes().map((c) => c.Column));
     }
 
     return vals;
@@ -803,17 +803,21 @@ export class ModelBase<M = unknown> implements IModelBase {
     const { query } = this.createUpdateQuery();
     query.update(this.toSql());
     wherePk(query, this.ModelDescriptor!, this.PrimaryKeyValue);
-    return await query;
+
+    const result = await query;
+
+    // The whole model is in the database now - that is the baseline for the next update().
+    this.takeSnapshot();
+
+    return result;
   }
 
   /**
    * Writes the columns that differ from the snapshot.
    *
-   * The change set comes from `changedColumns()` — the snapshot diff — and not from the
-   * proxy's `__dirty_props__`, which records a property as dirty on ANY write including one
-   * that puts the original value straight back. `save()` has always used the diff, and
-   * `changedColumns()` documents it as the more precise answer; this path used the imprecise
-   * one, so the same edit produced a different UPDATE depending on which method you called.
+   * The change set is `changes()` - the snapshot diff, which also covers a foreign key that was
+   * re-pointed through its relation - so re-assigning a column its current value produces no
+   * UPDATE, and a column written A -> B -> A is not written back.
    *
    * A model with no snapshot ( never hydrated ) reports every column as changed, which is the
    * right answer: there is no baseline to be more precise than.
@@ -831,7 +835,9 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
-    const changed = _.union(this.changedColumns(), this.relationDirtyColumns()).filter((c) => !keyColumns.includes(c));
+    const changed = this.changes()
+      .map((c) => c.Column)
+      .filter((c) => !keyColumns.includes(c));
 
     // Nothing to write. Checked against the diff, so re-assigning a column its current value
     // no longer produces an UPDATE that sets it to what it already was.
@@ -915,9 +921,13 @@ export class ModelBase<M = unknown> implements IModelBase {
       afterHydration: (): any => null,
     });
 
-    const result = query.values(this.toSql());
+    // Awaited here, not by the caller: the afterQuery middleware above backfills a generated key
+    // during execution, and the snapshot must include it. Taken only after the await - a throw
+    // leaves the model exactly as dirty as it was.
+    const result = await query.values(this.toSql());
 
     this.IsDirty = false;
+    this.takeSnapshot();
 
     return result;
   }
@@ -989,7 +999,10 @@ export class ModelBase<M = unknown> implements IModelBase {
       (this as any)[c.Name] = (model as any)[c.Name];
     }
 
+    // Every column now holds what the database holds - that is the new baseline, not the one
+    // captured before the refresh.
     this.IsDirty = false;
+    this.takeSnapshot();
   }
 
   public toJSON() {
