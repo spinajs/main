@@ -59,29 +59,32 @@ describe('MetadataRelation lowercase columns', () => {
     DI.clearCache();
   });
 
-  it('Should mark item dirty when value changes via proxy', async () => {
+  it('Should report the value as changed when it is set through the metadata proxy', async () => {
     await db();
 
     const owner = new LowercaseMetaOwner();
     const existing = new LowercaseMeta({ key: 'foo', value: 'old', owner_id: 13276 } as any);
+    existing.takeSnapshot();
     (owner.Metadata as any).push(existing);
 
     owner.Metadata['foo'] = 'new';
 
     expect(existing.value).to.eq('new');
-    expect((existing as any).IsDirty).to.be.true;
+    expect(existing.IsDirty).to.be.true;
+    expect(existing.changes()).to.deep.equal([{ Column: 'value', OldValue: 'old', NewValue: 'new' }]);
   });
 
-  it('Should NOT mark item dirty when value is unchanged', async () => {
+  it('Should NOT report a change when the value is unchanged', async () => {
     await db();
 
     const owner = new LowercaseMetaOwner();
     const existing = new LowercaseMeta({ key: 'foo', value: 'same', owner_id: 13276 } as any);
+    existing.takeSnapshot();
     (owner.Metadata as any).push(existing);
 
     owner.Metadata['foo'] = 'same';
 
-    expect((existing as any).IsDirty).to.be.false;
+    expect(existing.IsDirty).to.be.false;
   });
 
   it('Should emit FK in toSql when BelongsTo.Value is null', async () => {

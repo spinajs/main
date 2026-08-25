@@ -124,7 +124,6 @@ export class MetadataRelation<R extends MetadataModel<R>, O extends ModelBase<O>
             found.forEach((x) => {
               if (x.Value === value) return;
               x.Value = value;
-              x.IsDirty = true;
             });
           }
         }

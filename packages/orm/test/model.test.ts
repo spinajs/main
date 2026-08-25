@@ -631,7 +631,7 @@ describe('General model tests', () => {
     expect(result).instanceof(Model1);
   });
 
-  it('a query-produced model records a dirty prop exactly once', async () => {
+  it('a query-produced model is clean and reports a single write as its only change', async () => {
     await db();
 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
@@ -645,12 +645,11 @@ describe('General model tests', () => {
     );
 
     const model = await Model1.get(1);
+    expect(model.IsDirty).to.be.false;
 
-    // start from a clean dirty state, then mutate a single column
-    model.IsDirty = false;
     model.Bar = 'changed';
 
-    expect((model as any).__dirty_props__.length).to.eq(1);
+    expect(model.changes().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 
   it('refresh re-baselines the snapshot to the fresh values', async () => {
@@ -1436,7 +1435,7 @@ describe('General model tests', () => {
 
     const model = new RawModel();
     model.PrimaryKeyValue = 1;
-    model.IsDirty = false;
+    model.takeSnapshot();
 
     const result = await _update()(model as any);
     expect(result).to.eq(model);

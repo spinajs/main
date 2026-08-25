@@ -147,13 +147,18 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
 
     for (const val of relArr) {
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name]?.Value) {
-          (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        const relation = (model as any)[val.Name];
+        if (relation?.Value) {
+          (obj as any)[val.ForeignKey] = relation.Value.PrimaryKeyValue;
         } else if ((model as any)[val.ForeignKey] != null) {
-          // Fallback: when the BelongsTo SingleRelation has no Value (e.g. relation wasn't
-          // attached after populate), fall back to the raw FK column hydrated from the row.
-          // Without this, InsertOrUpdate emits the FK as an empty binding and orphans the row.
+          // Never attached, or populate() found no row for the key the row carries: the raw
+          // column is the value. Without this, InsertOrUpdate emits the FK as an empty binding
+          // and orphans the row.
           (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
+        } else if (relation && relation.Value === null) {
+          // Detached: attach(null) cleared the relation AND the column, and that is what a
+          // detach means for the row - the key is written as NULL.
+          (obj as any)[val.ForeignKey] = null;
         }
       }
 

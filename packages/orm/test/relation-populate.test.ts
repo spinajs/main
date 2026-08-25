@@ -84,7 +84,7 @@ describe('OneToMany populate', () => {
     );
 
     const owner = new Model4({ Id: 1 });
-    owner.IsDirty = false;
+    owner.takeSnapshot();
 
     const list = listFor<Model1, Model4>(owner, Model1, 'OwnerId');
     await list.populate();

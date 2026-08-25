@@ -1298,7 +1298,7 @@ describe('Orm relations tests', () => {
     // a child previously belonging to another owner ( OwnerId=99 ), loaded clean from db
     const child = new Model1({ Id: 5 });
     (child as any).OwnerId = 99;
-    child.IsDirty = false;
+    child.takeSnapshot();
 
     const list = new OneToManyRelationList(
       owner,

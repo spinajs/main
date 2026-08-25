@@ -23,23 +23,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { extractModelDescriptor, createDefaultModelDescriptor } from './descriptor.js';
 import { assertAssignedKeys, generateClientSideKeys, hasPk, isCompositePk, orderByPk, pkColumns, pkGeneration, pkValueOf, setPkValue, whereAnyPk, wherePk } from './primary-keys.js';
 
-const MODEL_PROXY_HANDLER = {
-  set: (target: ModelBase<unknown>, p: string | number | symbol, value: any) => {
-    if ((target as any)[p] !== value) {
-      (target as any)[p] = value;
-
-      if (p !== 'IsDirty' && target.ModelDescriptor?.Columns.find((x) => x.Name === p)) {
-        target.IsDirty = true;
-
-        // HACK to access private prop ( internal use )
-        (target as any).__dirty_props__.push(p);
-      }
-    }
-
-    return true;
-  },
-};
-
 /**
  *
  * Updates model descriptor
@@ -70,35 +53,14 @@ export function updateModelDescriptor(targetOrForward: any, callback: (descripto
 }
 
 export class ModelBase<M = unknown> implements IModelBase {
-  private __is_dirty__ = false;
-  /**
-   * Marks model as dirty. It means that model have unsaved changes
-   */
-
-  public get IsDirty() {
-    return this.__is_dirty__;
-  }
-
-  public set IsDirty(val: boolean) {
-    this.__is_dirty__ = val;
-    if (!val) {
-      this.__dirty_props__ = [];
-    }
-  }
-
   private _container: IContainer;
 
   /**
-   * prop to track model props that changeded since last update
-   */
-
-  private __dirty_props__: string[] = [];
-
-  /**
-   * Diff baseline, captured when this instance was hydrated from a database row.
-   * `null` means "this model has never been in the database", which is what `save()`
-   * uses to classify it as an INSERT — not the presence of a primary key, because
-   * `setDefaults()` pre-fills @Uuid keys on construction.
+   * Diff baseline: a value copy of every persisted column, taken when the row was last read
+   * from or written to the database. `null` means the row has never been in the database, which
+   * is what classifies it as an INSERT - not the presence of a primary key, because
+   * `setDefaults()` pre-fills @Uuid keys on construction. Written only by `takeSnapshot()` and
+   * `clearSnapshot()`.
    */
   private __snapshot__: IModelSnapshot | null = null;
 
@@ -272,6 +234,18 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
+   * Whether `save()` would write anything: a model that has never been in the database, or one
+   * with at least one column ( or re-pointed foreign key ) differing from its baseline.
+   *
+   * Derived from the snapshot on every read - there is no write observer - so it costs one
+   * comparison per column until the first difference. There is deliberately no setter: the only
+   * way to make a model clean is to persist it or to re-baseline it with `takeSnapshot()`.
+   */
+  public get IsDirty(): boolean {
+    return this.IsNew || this.diff(true).length > 0;
+  }
+
+  /**
    * Every persisted column whose current value differs from the baseline, in descriptor column
    * order, followed by any @BelongsTo foreign key whose relation was re-pointed without a column
    * write. On a model with no baseline every column is reported with `OldValue: undefined`.
@@ -302,110 +276,45 @@ export class ModelBase<M = unknown> implements IModelBase {
       }
     }
 
-    // A @BelongsTo re-pointed via SingleRelation.attach() writes no column: toSql() materialises
-    // the foreign key from Value.PrimaryKeyValue at write time, so it is derived the same way
-    // here. `Value === undefined` means never attached and never populated - nothing to report.
+    // A @BelongsTo whose relation holds a target is written from that target - toSql() reads
+    // Value.PrimaryKeyValue at write time - so the target's key is the value the diff compares,
+    // not the column. That covers a re-point through attach() ( which also writes the column,
+    // possibly an empty key for an unsaved target ) and the back-references the relation
+    // machinery assigns to `Value` directly. A relation holding null or undefined decides
+    // nothing: the column - NULL after a detach, untouched after a populate() that found no
+    // row - is what toSql() writes, and the column loop above already compared it.
     for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
       if (r.Type !== RelationType.One || !r.ForeignKey) {
         continue;
       }
-      if (out.some((x) => x.Column === r.ForeignKey)) {
-        continue;
-      }
 
       const rel = (this as any)[r.Name];
-      if (!rel || rel.Value === undefined) {
+      if (!rel || !rel.Value) {
         continue;
       }
 
-      const target = rel.Value === null ? null : rel.Value.PrimaryKeyValue;
+      const target = rel.Value.PrimaryKeyValue;
       const converter = columns.find((c) => c.Name === r.ForeignKey)?.Converter;
+      const existing = out.findIndex((x) => x.Column === r.ForeignKey);
 
       if (!snap || !snapshotEquals(snap.get(r.ForeignKey), target, converter)) {
-        out.push({ Column: r.ForeignKey, OldValue: baselineValue(snap?.get(r.ForeignKey)), NewValue: target });
-        if (stopAtFirst) {
-          return out;
+        const change = { Column: r.ForeignKey, OldValue: baselineValue(snap?.get(r.ForeignKey)), NewValue: target };
+        if (existing >= 0) {
+          out[existing] = change;
+        } else {
+          out.push(change);
+          if (stopAtFirst) {
+            return out;
+          }
         }
+      } else if (existing >= 0) {
+        // The column was written to something else, but the relation wins at write time and
+        // its target equals the baseline: no change reaches the database.
+        out.splice(existing, 1);
       }
     }
 
     return out;
-  }
-
-  /**
-   * Names of the columns whose current value differs from the snapshot.
-   *
-   * With no snapshot every column is reported as changed, which is the right answer for a
-   * model that is about to be inserted.
-   *
-   * This is deliberately independent of `__dirty_props__`: the proxy records a property as
-   * dirty on any write, including one that puts the original value back, so the snapshot
-   * diff is the more precise answer and the one the UPDATE payload is built from.
-   *
-   * Reads the same column set `takeSnapshot()` wrote, and must keep doing so: comparing a column
-   * the baseline never covered means comparing its live value against `undefined`, which reports it
-   * changed on every single save.
-   */
-  public changedColumns(): string[] {
-    const columns = this.snapshotColumns();
-
-    if (!this.__snapshot__) {
-      return columns.map((c) => c.Name);
-    }
-
-    const snapshot = this.__snapshot__;
-    return columns.filter((c) => !snapshotEquals(snapshot.Columns.get(c.Name), (this as any)[c.Name], c.Converter)).map((c) => c.Name);
-  }
-
-  /**
-   * Foreign-key columns a relation object reported as rewritten, via {@link markDirty}.
-   *
-   * These are the only columns the snapshot diff cannot see. `SingleRelation.attach()` stores
-   * the new target on the relation wrapper and marks the foreign key dirty, but never writes
-   * the column on the model — the value is materialised from the relation later, by
-   * `StandardModelToSqlConverter`. So `changedColumns()` compares the column against its
-   * snapshot, finds it untouched, and reports no change even though the relation was
-   * re-pointed. Detaching a relation and calling `update()` would then emit nothing at all.
-   *
-   * Restricted to declared relation foreign keys on purpose. `__dirty_props__` also collects
-   * ordinary property writes, and folding those in wholesale would undo the precision the
-   * diff exists for: a column written A -> B -> A is in `__dirty_props__` but has no net
-   * change, and must not be written back.
-   */
-  protected relationDirtyColumns(): string[] {
-    const descriptor = this.ModelDescriptor;
-    if (!descriptor) {
-      return [];
-    }
-
-    const relationKeys = new Set<string>();
-    for (const [, relation] of descriptor.Relations) {
-      if (relation.ForeignKey) {
-        relationKeys.add(relation.ForeignKey);
-      }
-    }
-
-    return this.__dirty_props__.filter((p) => relationKeys.has(p));
-  }
-
-  /**
-   * Records `prop` as changed and marks the model dirty.
-   *
-   * This is the supported way for relation objects to report that they rewrote one of the
-   * owner's foreign keys. It replaces the `(owner as any).__dirty_props__.push(...)` casts
-   * that reached into a private field from outside the class ( A6 ).
-   *
-   * The push comes before `IsDirty = true` so the method stays correct even if the
-   * `IsDirty` setter ever starts clearing `__dirty_props__` on a truthy assignment too.
-   *
-   * @param prop - column name
-   */
-  public markDirty(prop: string): void {
-    if (!this.__dirty_props__.includes(prop)) {
-      this.__dirty_props__.push(prop);
-    }
-
-    this.IsDirty = true;
   }
 
   public valueOf() {
@@ -671,8 +580,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     if (data) {
       this.hydrate(data as any);
     }
-
-    return new Proxy(this, MODEL_PROXY_HANDLER);
   }
 
   /**
@@ -704,7 +611,6 @@ export class ModelBase<M = unknown> implements IModelBase {
       switch (v.Type) {
         case RelationType.One:
           ((this as any)[v.Name] as SingleRelation<ModelBase>).attach(data);
-          this.markDirty(v.ForeignKey);
           break;
 
         case RelationType.Many: {
@@ -730,8 +636,6 @@ export class ModelBase<M = unknown> implements IModelBase {
           break;
       }
     }
-
-    this.IsDirty = true;
   }
 
   /**
@@ -784,8 +688,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const result = await (this.constructor as any).destroy(pk);
-
-    this.IsDirty = false;
 
     return result;
   }
@@ -842,7 +744,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     // Nothing to write. Checked against the diff, so re-assigning a column its current value
     // no longer produces an UPDATE that sets it to what it already was.
     if (changed.length === 0) {
-      this.IsDirty = false;
       return result;
     }
 
@@ -860,7 +761,6 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     const updateResult = await query;
 
-    this.IsDirty = false;
     this.takeSnapshot();
 
     return updateResult;
@@ -926,7 +826,6 @@ export class ModelBase<M = unknown> implements IModelBase {
     // leaves the model exactly as dirty as it was.
     const result = await query.values(this.toSql());
 
-    this.IsDirty = false;
     this.takeSnapshot();
 
     return result;
@@ -1001,7 +900,6 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     // Every column now holds what the database holds - that is the new baseline, not the one
     // captured before the refresh.
-    this.IsDirty = false;
     this.takeSnapshot();
   }
 

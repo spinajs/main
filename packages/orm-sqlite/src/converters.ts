@@ -34,8 +34,9 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
 
     for (const val of relArr) {
       if (val.Type === RelationType.One) {
-        if ((model as any)[val.Name]?.Value) {
-          (obj as any)[val.ForeignKey] = (model as any)[val.Name].Value.PrimaryKeyValue;
+        const relation = (model as any)[val.Name];
+        if (relation?.Value) {
+          (obj as any)[val.ForeignKey] = relation.Value.PrimaryKeyValue;
         } else if ((model as any)[val.ForeignKey] != null) {
           // Fallback: when the BelongsTo SingleRelation has no Value (e.g. the relation was
           // never populated, or the foreign key was written directly), fall back to the raw
@@ -46,6 +47,12 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
           // Mirrors StandardModelToSqlConverter in @spinajs/orm, which grew this branch
           // while this override did not.
           (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
+        } else if (relation && relation.Value === null) {
+          // Detached: attach(null) cleared the relation AND the column, and that is what a
+          // detach means for the row - the key is written as NULL. Mirrors
+          // StandardModelToSqlConverter; without it the UPDATE payload comes out empty and
+          // the foreign key can never be cleared.
+          (obj as any)[val.ForeignKey] = null;
         }
       }
 

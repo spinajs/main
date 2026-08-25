@@ -340,5 +340,5 @@ function classify(model: ModelBase): SubjectOperation {
     return SubjectOperation.Insert;
   }
 
-  return model.changes().length > 0 ? SubjectOperation.Update : SubjectOperation.None;
+  return model.IsDirty ? SubjectOperation.Update : SubjectOperation.None;
 }

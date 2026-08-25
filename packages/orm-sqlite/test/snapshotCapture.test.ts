@@ -40,7 +40,7 @@ describe('snapshot capture', function () {
 
     expect(item.Snapshot).to.not.equal(null);
     expect(item.IsDirty).to.equal(false);
-    expect(item.changedColumns()).to.deep.equal([]);
+    expect(item.changes()).to.deep.equal([]);
   });
 
   it('the snapshot survives a mutation of the model', async () => {
@@ -50,7 +50,7 @@ describe('snapshot capture', function () {
     item.Val = before + 100;
 
     expect(item.Snapshot!.Columns.get('Val')).to.equal(before);
-    expect(item.changedColumns()).to.deep.equal(['Val']);
+    expect(item.changes().map((c) => c.Column)).to.deep.equal(['Val']);
   });
 
   it('children of a populated hasMany each have their own snapshot', async () => {
@@ -59,7 +59,7 @@ describe('snapshot capture', function () {
     expect(set.Dataset.length).to.equal(3);
     set.Dataset.forEach((c: any) => {
       expect(c.Snapshot, `child ${c.Id} has no snapshot`).to.not.equal(null);
-      expect(c.changedColumns()).to.deep.equal([]);
+      expect(c.changes()).to.deep.equal([]);
     });
   });
 

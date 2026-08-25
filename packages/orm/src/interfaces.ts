@@ -818,10 +818,8 @@ export interface IModelBase {
   PrimaryKeyName: string[];
   PrimaryKeyValue: any;
 
-  /**
-   * Marks model as dirty. It means that model have unsaved changes
-   */
-  IsDirty: boolean;
+  /** Whether save() would write anything. Derived from the snapshot; no setter. */
+  readonly IsDirty: boolean;
 
   /**
    * Diff baseline captured at hydration, or null for a model that has never been in the database.
@@ -840,14 +838,8 @@ export interface IModelBase {
   /** Discards the diff baseline. */
   clearSnapshot(): void;
 
-  /** Column names whose current value differs from the baseline. */
-  changedColumns(): string[];
-
   /** Column-level differences between the baseline and the current values, old and new. */
   changes(): IModelChange[];
-
-  /** Records `prop` as changed and marks the model dirty. */
-  markDirty(prop: string): void;
 
   /**
    * Persists this model and everything reachable from it in one transaction.
