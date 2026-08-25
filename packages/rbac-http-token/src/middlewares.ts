@@ -47,6 +47,11 @@ const BEARER_SCHEME = /^bearer\s+/i;
  * runs first and, on a session-less request, stamps the GUEST account's first
  * role into it, which would otherwise survive into the token's own request.
  *
+ * A token's profile is therefore published on `req.storage.TokenAuth.Profile`
+ * instead, for the application's row-scoping layer to read; it is deliberately
+ * NOT written to `ActiveRole`, so it scopes rows without narrowing what the
+ * token is authorized for.
+ *
  * Never throws: an invalid token leaves the request as guest and lets the
  * route's policy produce the rejection.
  */
@@ -95,7 +100,12 @@ export class TokenAuthMiddleware extends ServerMiddleware {
         }
 
         req.storage.User = this.narrowRoles(result.User, result.EffectiveRoles);
-        req.storage.TokenAuth = { Uuid: result.Token.Uuid };
+        // `?? undefined` is not cosmetic: an unpinned token stores NULL and the
+        // orm reads it back as `null`, while `ITokenAuthInfo.Profile` is
+        // `string | undefined`. Passing the `null` through would make every
+        // `Profile === undefined` check downstream answer false on exactly the
+        // legacy tokens it is meant to recognise.
+        req.storage.TokenAuth = { Uuid: result.Token.Uuid, Profile: result.Token.Profile ?? undefined };
 
         // CLEARED, not merely left alone - see the class docblock for why a
         // token must carry no active role at all. `RbacMiddleware` has already

@@ -13,7 +13,7 @@ import { AccessTokenRolePolicy } from './interfaces.js';
  */
 @Injectable(AccessTokenRolePolicy)
 export class OwnRolesTokenRolePolicy extends AccessTokenRolePolicy {
-  public async allowedRoles(owner: User): Promise<string[]> {
+  public async allowedRoles(owner: User, _profile?: string): Promise<string[]> {
     return [...owner.Role];
   }
 }

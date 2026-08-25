@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/intl-orm",
-  "version": "2.0.513",
+  "version": "2.0.517",
   "description": "Internationalization support for ORM module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,18 +51,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.513",
-    "@spinajs/di": "2.0.513",
-    "@spinajs/exceptions": "2.0.513",
-    "@spinajs/intl": "2.0.513",
-    "@spinajs/log-common": "2.0.513",
-    "@spinajs/orm": "2.0.513",
-    "@spinajs/reflection": "2.0.513",
+    "@spinajs/configuration": "2.0.517",
+    "@spinajs/di": "2.0.517",
+    "@spinajs/exceptions": "2.0.517",
+    "@spinajs/intl": "2.0.517",
+    "@spinajs/log-common": "2.0.517",
+    "@spinajs/orm": "2.0.517",
+    "@spinajs/reflection": "2.0.517",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "2.0.513"
+    "@spinajs/orm-sqlite": "2.0.517"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
