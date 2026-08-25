@@ -1225,12 +1225,16 @@ public for the rare case where a caller must re-baseline by hand (narrowing a lo
 before handing it to a controller, say); calling it on a model that was never inserted makes
 `save()` emit an UPDATE for a row that does not exist.
 
-A `@BelongsTo` re-pointed with `SingleRelation.attach()` writes the owner's foreign-key column
-(the target's key, or `NULL` on `detach()`), and `toSql()` writes the key off the relation's
-`Value` when it holds a target — so a target that is not saved yet, whose key only exists after
-`save()` inserts it, is still reported as a change and written correctly. A detached relation is
-written as `NULL`. A relation that was never attached, or whose `populate()` found no row for the
-key the row carries, leaves the column as it is: reading is never a change.
+A `@BelongsTo` whose relation holds a target has its foreign key decided by that target: the
+value is read off the relation's **join column** (`Relation.PrimaryKey` — the target's primary
+key unless `@BelongsTo` names another column), it overrides a direct write of the raw column, and
+it is what `toSql()`, the diff and the unit of work's pending keys all use.
+`SingleRelation.attach()` also writes the owner's column to match (the join value, or `NULL` on
+`detach()`), and after every successful write the ORM reconciles the foreign-key columns with
+their relations before taking the fresh snapshot — so a model is clean after `insert()`,
+`update()`, `archive()` and `save()`, even when the target's key only came into existence during
+the write. A relation that was never attached, or whose `populate()` found no row for the key the
+row carries, decides nothing: the column stands, and reading is never a change.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -1301,7 +1305,7 @@ In `### \`toSql(onlyDirty?)\`` replace "With `onlyDirty` it is narrowed to `__di
 - [ ] **Step 2: `07-relations.md`, `08-unit-of-work.md`, `12-architecture.md`**
 
 `07-relations.md`:
-- line 352 → `| \`attach(obj \| null)\` | Point at a model and write the owner's foreign key to match (the target's key, or NULL). No database access; the owner's \`changes()\` then reports the key. |`
+- line 352 → `| \`attach(obj \| null)\` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL). No database access; the owner's \`changes()\` then reports the key. |`
 - line 424 → `| \`update()\` | Insert-or-update every member that is \`IsDirty\` (new, or changed since it was loaded), in one transaction. |`
 - lines 470-473 → 
 
@@ -1358,10 +1362,18 @@ Behaviour changes:
   there is no column such a flag could write.
 - `Relation.update()` persists every member that is `IsDirty` (new, or changed since loaded).
 - `SingleRelation.attach(obj)` / `detach()` now also write the owner's foreign-key column (the
-  target's key, or `null`), and `toSql()` writes `NULL` for a detached relation. Before,
-  `detach()` + `update()` — and therefore `SingleRelation.remove()` — wrote the old key back and
-  never cleared the reference. A relation whose `populate()` found no row still keeps the row's
-  key, as before.
+  target's join-column value, or `null`), and `toSql()` writes `NULL` for a detached relation.
+  Before, `detach()` + `update()` — and therefore `SingleRelation.remove()` — wrote the old key
+  back and never cleared the reference. A relation whose `populate()` found no row still keeps
+  the row's key, as before.
+- Foreign keys are resolved from the relation's **join column** (`Relation.PrimaryKey`)
+  everywhere — `toSql()` in both converters, the diff, `attach()`, and the unit of work's
+  pending keys (`IPendingForeignKey` gained `JoinColumn`). Previously the target's primary key
+  was used even when `@BelongsTo` declared another column. A relation holding a target overrides
+  a direct write of the raw foreign-key column.
+- After every successful write the foreign-key columns are reconciled with their relations
+  before the fresh snapshot is taken, so a model converges to clean. Static bulk
+  `Model.insert()` now re-baselines (and reconciles) model instances too.
 
 ---
 
