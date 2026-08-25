@@ -1377,6 +1377,17 @@ export const MODEL_STATIC_MIXINS = {
         // row for — cannot be mapped positionally, so nothing is assigned. Callers needing the
         // keys there must re-select or insert the models one at a time.
 
+        // Every persist path re-baselines after its statement. Taken after the backfill above so
+        // the baseline carries the generated key, which is what makes the model read as no longer
+        // new and no longer dirty. A plain-object payload is not a model and has nothing to
+        // snapshot; a model whose key could not be mapped positionally is still in the database,
+        // so it is re-baselined too - it just carries no key.
+        rows.forEach((v) => {
+          if (v instanceof ModelBase) {
+            v.takeSnapshot();
+          }
+        });
+
         return result;
       },
       modelCreation: (): any => null,

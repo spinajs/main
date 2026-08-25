@@ -497,16 +497,33 @@ export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>
  */
 export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: forwardRef.forwardRef,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
+      // default PK must come from the TARGET model, not the source ( fixed below )
       PrimaryKey: primaryKey ?? _relationDefaultKey(model, propertyKey, 'primaryKey'),
       Recursive: false,
-    });
+    };
+
+    if (!primaryKey) {
+      // The target class does not exist yet - that is the whole reason a forward ref is used -
+      // so its descriptor cannot be read here. Read it on first access instead, the same lazy
+      // pattern `@BelongsTo` uses for a target named by string. The join column has to be the
+      // target's, because that is the column `toSql()`, `diff()` and the unit of work all read
+      // off the target model.
+      Object.defineProperty(descriptor, 'PrimaryKey', {
+        get: function () {
+          const targetModelDesc = extractModelDescriptor(forwardRef.forwardRef);
+          return targetModelDesc ? _relationDefaultKey(targetModelDesc, propertyKey, 'primaryKey') : _relationDefaultKey(model, propertyKey, 'primaryKey');
+        },
+      });
+    }
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 

@@ -128,9 +128,12 @@ export class SubjectExecutor {
    * @param subject - an update subject, or an insert subject with deferred foreign keys
    */
   protected updatePayload(subject: Subject): Record<string, unknown> | null {
-    // Resolve every foreign key onto the model first, so the diff below sees them.
+    // Resolve every foreign key onto the model first, so the diff below sees them. The join
+    // column is read, not `PrimaryKeyValue` — a relation decides its foreign key from
+    // `Relation.PrimaryKey`, and writing the numeric key here would baseline a value the
+    // statement never wrote and leave the model dirty after a successful save.
     for (const fk of subject.PendingForeignKeys.concat(subject.DeferredForeignKeys)) {
-      (subject.Model as any)[fk.Column] = fk.Target.PrimaryKeyValue;
+      (subject.Model as any)[fk.Column] = (fk.Target as any)[fk.JoinColumn];
     }
 
     const keyColumns = pkColumns(subject.Descriptor);
@@ -159,7 +162,7 @@ export class SubjectExecutor {
    *
    * Starts from the model's own serialization, drops every column whose foreign key is
    * deferred to a follow-up UPDATE, then writes every pending foreign key from its target's
-   * now-known primary key. The overwrite matters: `StandardModelToSqlConverter` already wrote
+   * now-known join column. The overwrite matters: `StandardModelToSqlConverter` already wrote
    * that column from the relation object, and for a target inserted moments ago that value was
    * `undefined` when the model was serialized.
    */
@@ -172,7 +175,7 @@ export class SubjectExecutor {
     }
 
     for (const fk of subject.PendingForeignKeys) {
-      const value = fk.Target.PrimaryKeyValue;
+      const value = (fk.Target as any)[fk.JoinColumn];
       // eslint-disable-next-line security/detect-object-injection
       payload[fk.Column] = value;
       (subject.Model as any)[fk.Column] = value;

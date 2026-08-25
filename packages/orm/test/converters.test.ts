@@ -96,8 +96,10 @@ describe('Orm converters', () => {
         {
           Id: 1,
           relation_id: 999, // raw column value, should be ignored in favor of the relation value
-          // The relation joins on Relation.PrimaryKey - the column the converter reads off the target.
-          Relation: { Value: { Id: 7, PrimaryKeyValue: 7 } },
+          // The relation joins on Relation.PrimaryKey ( 'Id' ) - the column the converter reads
+          // off the target. `PrimaryKeyValue` deliberately differs, so reading it instead of the
+          // join column fails this test rather than passing by coincidence.
+          Relation: { Value: { Id: 7, PrimaryKeyValue: 99 } },
         },
       );
 
@@ -119,7 +121,7 @@ describe('Orm converters', () => {
           Id: 1,
           relation_id: 5,
           UserId: 42,
-          Relation: { Value: { Id: 5, PrimaryKeyValue: 5 } },
+          Relation: { Value: { Id: 5, PrimaryKeyValue: 99 } },
         },
       );
 

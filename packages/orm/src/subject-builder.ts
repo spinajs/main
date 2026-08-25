@@ -144,8 +144,9 @@ export class SubjectBuilder {
 
   /**
    * Records, for every `belongsTo` with a `Value`, that this subject's foreign-key column
-   * takes the target's primary key. The value is *not* read here — the target may not have
-   * been inserted yet; the executor resolves it immediately before the statement.
+   * takes the target's join-column value — `Relation.PrimaryKey`, the target's own primary key
+   * unless `@BelongsTo` names another column. The value is *not* read here — the target may not
+   * have been inserted yet; the executor resolves it immediately before the statement.
    */
   protected buildBelongsTo(subject: Subject): void {
     for (const [name, relation] of subject.Descriptor.Relations) {
@@ -159,7 +160,7 @@ export class SubjectBuilder {
         continue;
       }
 
-      subject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: rel.Value as ModelBase });
+      subject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: rel.Value as ModelBase, JoinColumn: relation.PrimaryKey });
     }
   }
 
@@ -203,7 +204,7 @@ export class SubjectBuilder {
       for (const member of members) {
         const memberSubject = set.find(member);
         if (memberSubject) {
-          memberSubject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: subject.Model });
+          memberSubject.PendingForeignKeys.push({ Column: relation.ForeignKey, Target: subject.Model, JoinColumn: relation.PrimaryKey });
         }
       }
     }

@@ -56,4 +56,17 @@ describe('re-baseline after insert / refresh', function () {
     expect(order.Snapshot!.Columns.get('Total')).to.equal(55);
     expect(order.changes()).to.deep.equal([]);
   });
+
+  it('static bulk insert leaves the inserted models clean and snapshotted', async () => {
+    const a = new UowOrder({ Total: 1 });
+    const b = new UowOrder({ Total: 2 });
+
+    await UowOrder.insert([a, b]);
+
+    expect(a.IsNew).to.equal(false);
+    expect(b.IsNew).to.equal(false);
+    expect(a.Snapshot!.Columns.get('Id')).to.equal(a.Id);
+    expect(a.IsDirty).to.equal(false);
+    expect(b.IsDirty).to.equal(false);
+  });
 });

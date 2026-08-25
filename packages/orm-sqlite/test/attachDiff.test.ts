@@ -180,4 +180,20 @@ describe('SingleRelation.attach change tracking', function () {
     expect((await rows('uow_alt_owner'))[0].target_code).to.equal('ALPHA');
     expect(owner.IsDirty).to.equal(false);
   });
+
+  it('save() writes the join column of an explicitly keyed belongsTo and converges', async () => {
+    await UowAltTarget.insert({ Code: 'ALPHA', Label: 'first' });
+    await UowAltTarget.insert({ Code: 'BETA', Label: 'second' });
+    await UowAltOwner.insert({ target_code: 'BETA' });
+
+    const owner = await UowAltOwner.where({ Id: 1 }).first();
+    const alpha = await UowAltTarget.where({ Code: 'ALPHA' }).first();
+
+    owner.Target.attach(alpha);
+    await owner.save();
+
+    expect((await rows('uow_alt_owner'))[0].target_code).to.equal('ALPHA');
+    expect(owner.target_code).to.equal('ALPHA');
+    expect(owner.IsDirty).to.equal(false);
+  });
 });

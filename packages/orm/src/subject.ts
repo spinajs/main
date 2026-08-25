@@ -23,8 +23,15 @@ export enum SubjectOperation {
 export interface IPendingForeignKey {
   /** Column on this subject's own row that receives the key. */
   Column: string;
-  /** Model whose primary key is the value. */
+  /** Model the value is read from. */
   Target: ModelBase;
+  /**
+   * Column on `Target` that holds the value — the relation's join column, `Relation.PrimaryKey`.
+   * That is the target's own primary key unless the relation names another one, so this is read
+   * instead of `Target.PrimaryKeyValue`: the two differ for `@BelongsTo(T, 'fk', 'Code')`, and
+   * the join column is what every other persist path writes.
+   */
+  JoinColumn: string;
 }
 
 /**

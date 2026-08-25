@@ -24,7 +24,7 @@ function update(set: SubjectSet, name: string, pk: any): Subject {
 
 /** `child` needs `parent`'s key in column `column`. */
 function needs(child: Subject, column: string, parent: Subject): void {
-  child.PendingForeignKeys.push({ Column: column, Target: parent.Model });
+  child.PendingForeignKeys.push({ Column: column, Target: parent.Model, JoinColumn: 'Id' });
 }
 
 describe('SubjectSorter', () => {
