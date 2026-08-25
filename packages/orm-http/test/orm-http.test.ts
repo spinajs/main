@@ -19,12 +19,41 @@ import './migrations/DtoRelation_2026_07_23_00_00_00.js';
 import { Campaign } from './models/Campaign.js';
 
 
+/**
+ * `@HandleException` fills `__http_error_map__` via `asMapValue`, which writes the map straight
+ * into the container CACHE at import time - it never touches the registry. Any `DI.clearCache()`
+ * (filters.test.ts's after(), the one in this suite's before-all) therefore destroys it
+ * irrecoverably: imports do not run twice, and without the map the error middleware answers 500
+ * for every exception (`expected 400/404, got 500`). Snapshot it at module load - mocha imports
+ * every test file before any suite runs, so the map is still alive here - and re-seed it through
+ * the public registration API after the cache is cleared.
+ */
+const errorMapSnapshot = new Map(DI.get<Map<string, any>>('__http_error_map__') ?? []);
+
 describe('Http orm tests', function () {
   this.timeout(15000);
 
   const sb = sinon.createSandbox();
 
   before(async () => {
+    // Mocha loads every test file into one process, and `Registry.register` de-duplicates by
+    // class name KEEPING THE ORIGINAL POSITION while `resolve` picks the LAST entry. The dto
+    // suites register this same `TestConfiguration` early, so by the time this before-all runs
+    // the registry reads [..., TestConfiguration, FilterTestConfiguration,
+    // FromModelOverrideTestConfiguration] and re-registering here is a no-op:
+    // `resolve(Configuration)` answers from-model-override's config, which has no `fs`
+    // section, and fsService dies with "Cannot read properties of undefined (reading
+    // 'defaultProvider')" - the failure filters.test.ts and from-model-override.test.ts
+    // document. Unregister first so the re-register below re-appends this suite's
+    // configuration at the winning position, and clear the cache so the foreign instance
+    // resolved by the earlier suites is not handed back.
+    DI.unregister(TestConfiguration);
+    DI.clearCache();
+
+    errorMapSnapshot.forEach((impl, name) => {
+      DI.register(impl).asMapValue('__http_error_map__', name);
+    });
+
     DI.setESMModuleSupport();
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');

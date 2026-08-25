@@ -25,6 +25,10 @@ export interface IQueryStatement {
    */
   Boolean: WhereBoolean;
 
+  // set by whereOnJoin() - statement is emitted in the relation JOIN ON clause
+  // instead of parent query WHERE ( does not survive clone() )
+  OnJoin?: boolean;
+
   build(): IQueryStatementResult;
 
   clone(parent?: QueryBuilder | SelectQueryBuilder | WhereBuilder<any>): IQueryStatement;
@@ -34,6 +38,8 @@ export abstract class QueryStatement implements IQueryStatement {
   protected _tableAlias: string | undefined;
 
   protected _boolean: WhereBoolean = WhereBoolean.AND;
+
+  protected _onJoin: boolean = false;
 
   public get TableAlias(): string {
     return this._tableAlias ?? '';
@@ -49,6 +55,14 @@ export abstract class QueryStatement implements IQueryStatement {
 
   public set Boolean(op: WhereBoolean) {
     this._boolean = op;
+  }
+
+  public get OnJoin(): boolean {
+    return this._onJoin;
+  }
+
+  public set OnJoin(onJoin: boolean) {
+    this._onJoin = onJoin;
   }
 
   constructor(tableAlias?: string | null) {
@@ -248,6 +262,26 @@ export abstract class JoinStatement extends QueryStatement {
   }
 
   public abstract build(): IQueryStatementResult;
+
+  /**
+   * Namespaces this join under a populated relation's alias, and only when the alias was not
+   * given explicitly: a `populate('Client', cb)` and `populate('Agency', cb)` that each join
+   * the same model would otherwise both synthesise `$Model$` and collide in the parent query
+   * ( "Not unique table/alias" ). `$Client$` + `TestScope` becomes `$Client.TestScope$`.
+   */
+  public nestUnder(ownerAlias: string, separator: string): void {
+    if (this._options.joinTableAlias || !this._options.joinModel) {
+      return;
+    }
+
+    const descriptor = extractModelDescriptor(this._options.joinModel);
+    if (!descriptor) {
+      return;
+    }
+
+    const owner = separator ? ownerAlias.split(separator).join('') : ownerAlias;
+    this._options.joinTableAlias = `${separator}${owner}.${descriptor.Name}${separator}`;
+  }
 }
 
 @NewInstance()

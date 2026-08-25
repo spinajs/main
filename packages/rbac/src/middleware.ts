@@ -183,9 +183,26 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
      */
     const rbacFunc = rbacHook(builder.Model, context.hook, true);
 
+    /**
+     * `relationScope: 'join'` ( @OrmResource options ): when this model is populated as a
+     * BelongsTo relation, its :own constraint folded into the parent WHERE would silently
+     * narrow the LEFT JOIN into an inner one and drop parent rows. `whereOnJoin` tags the
+     * statements so relation compilation routes them into the JOIN ON clause instead; on a
+     * root query the tag is ignored and they emit as a plain WHERE. Reads only — an UPDATE
+     * or DELETE has no populate JOIN, and its builder does not narrow through one.
+     */
+    const joinScoped = descriptor.RbacRelationScope === 'join' && builder instanceof SelectQueryBuilder;
+    const user = context.user;
+
     if (rbacFunc) {
       this.Log.trace(`Applying custom ${context.hook} func for ${resource}`);
-      rbacFunc.call(builder, context.user);
+      if (joinScoped) {
+        (builder as SelectQueryBuilder).whereOnJoin(function (this: unknown) {
+          rbacFunc.call(builder, user);
+        });
+      } else {
+        rbacFunc.call(builder, user);
+      }
       return;
     }
 
@@ -195,7 +212,13 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     }
 
     this.Log.trace(`Applying owner field restriction for ${resource}`);
-    builder.andWhere(descriptor.OwnerField, context.user.PrimaryKeyValue);
+    if (joinScoped) {
+      (builder as SelectQueryBuilder).whereOnJoin(function (this: unknown) {
+        builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+      });
+    } else {
+      builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+    }
   }
 
   /**

@@ -1270,6 +1270,10 @@ export interface IWhereBuilder<T> {
   whereNotBetween(column: string, val: unknown[]): this;
   whereInSet(column: string, val: unknown[]): this;
   whereNotInSet(column: string, val: unknown[]): this;
+
+  // join-scoped conditions - land in relation JOIN ON clause instead of parent WHERE
+  whereOnJoin(callback: WhereFunction<T>): this;
+
   clearWhere(): this;
 }
 
@@ -1851,13 +1855,23 @@ export interface IJoinStatementOptions<R = ModelBase> {
   callback?: ((this: IWhereBuilder<R>) => void) | Lazy<(this: ISelectQueryBuilder<R>) => void>;
 
   /**
-   * 
+   *
    * Optional callback to modify whole join query builder
-   * 
+   *
    * @param this callback context is select query builder for this join
-   * @returns 
+   * @returns
    */
   queryCallback?: (this: ISelectQueryBuilder<R>) => void;
+
+  // prebuilt statements appended to the JOIN ON clause ( AND-joined ) - used by relations
+  // to keep whereOnJoin() conditions out of the parent query WHERE
+  onStatements?: IQueryStatement[];
+
+  // joins added inside a populate callback, emitted NESTED inside this join's parens:
+  // `LEFT JOIN ( relation_table AS alias INNER JOIN other ON ... ) ON ...`. Flattened into
+  // the parent FROM they would filter parent rows - an INNER JOIN there drops every parent
+  // whose relation misses, exactly what a relation constraint must never do.
+  nestedJoins?: IQueryStatement[];
 }
 
 export interface ITransaction {
