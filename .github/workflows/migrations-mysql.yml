@@ -43,8 +43,13 @@ jobs:
       # it plus its whole project-reference graph ( util, configuration, di, exceptions, log, orm ).
       # The ESM test loader ( ts-node/esm ) resolves each @spinajs/* import to its lib/mjs, so only
       # the mjs outputs are needed - no cjs build required.
+      #
+      # orm-sqlite is passed explicitly: the suites import it as a TEST dependency, so it sits
+      # outside queue's project-reference graph and `tsc -b` on queue alone never builds it -
+      # which failed every run of this job with "Cannot find module .../orm-sqlite/lib/mjs/index.js".
+      # Same pattern the mysql job below already uses for orm-mysql.
       - name: build queue + deps (mjs)
-        run: npx tsc -b packages/queue/tsconfig.mjs.json
+        run: npx tsc -b packages/queue/tsconfig.mjs.json packages/orm-sqlite/tsconfig.mjs.json
 
       - name: run broker-free queue suites (sqlite)
         working-directory: packages/queue

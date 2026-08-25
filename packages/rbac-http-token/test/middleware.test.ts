@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
-import { Bootstrapper, DI } from '@spinajs/di';
+import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
@@ -11,9 +11,31 @@ import { RbacMiddleware } from '@spinajs/rbac-http';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
+import { AccessTokenRolePolicy } from '../src/interfaces.js';
 import { createToken } from '../src/actions.js';
 import { TokenAuthMiddleware } from '../src/middlewares.js';
 import '../src/generator.js';
+import '../src/role-policy.js';
+
+/**
+ * Lets the nested `profiles` block mint a profiled token: the shipped
+ * `OwnRolesTokenRolePolicy` offers no profiles at all, so `createToken` would
+ * refuse the pin and `validateToken` would then reject the token on every
+ * request.
+ *
+ * Selected by name through `rbac.token.rolePolicy.service`, so only that block
+ * runs against it; the rest of this suite keeps the shipped default.
+ */
+@Injectable(AccessTokenRolePolicy)
+class MiddlewareProfileStubPolicy extends AccessTokenRolePolicy {
+  public async allowedRoles(owner: User): Promise<string[]> {
+    return [...owner.Role];
+  }
+
+  public async allowedProfiles(): Promise<string[]> {
+    return ['admin'];
+  }
+}
 
 /**
  * Stand-in for the injected `Log`. Every level funnels into one ordered list so a
@@ -100,7 +122,7 @@ describe('TokenAuthMiddleware', function () {
     expect(req.storage.User.Id).to.equal(owner.Id);
     expect(req.storage.User.Role).to.deep.equal(['user']);
     expect(req.storage.ActiveRole, 'a token must not pin an active role - see the class docblock').to.be.undefined;
-    expect(req.storage.TokenAuth).to.deep.equal({ Uuid: Token.Uuid });
+    expect(req.storage.TokenAuth).to.deep.equal({ Uuid: Token.Uuid, Profile: undefined });
     sinon.assert.calledWith(res.setHeader, 'Cache-Control', 'no-store');
     sinon.assert.calledOnce(next);
   });
@@ -296,5 +318,53 @@ describe('TokenAuthMiddleware', function () {
    */
   it('runs after RbacMiddleware', () => {
     expect(new TokenAuthMiddleware().Order).to.be.greaterThan(new RbacMiddleware().Order);
+  });
+
+  /**
+   * A token minted before profiles existed carries no pin, and the field has to
+   * read as "unpinned" rather than as some default - the application's
+   * row-scoping layer distinguishes the two.
+   */
+  it('leaves Profile undefined on TokenAuth for a legacy token', async () => {
+    const { Plaintext } = await tokenFor('m12@spinajs.com', 'm12');
+    const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` });
+
+    await middleware.before()(req, res, next);
+
+    expect(req.storage.TokenAuth).to.not.be.undefined;
+    expect(req.storage.TokenAuth?.Profile).to.equal(undefined);
+    sinon.assert.calledOnce(next);
+  });
+
+  describe('profiles', () => {
+    before(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', MiddlewareProfileStubPolicy.name);
+    });
+
+    after(async () => {
+      const cfg = await DI.resolve(Configuration);
+      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+    });
+
+    /**
+     * The profile is what the application's row-scoping layer reads, and it can
+     * only read it off `TokenAuth` - `ActiveRole` deliberately stays cleared
+     * ( see the middleware's class docblock ), so the two must be asserted
+     * together: stamping the profile must not have reintroduced the collapse
+     * that clearing `ActiveRole` exists to prevent.
+     */
+    it('stamps the token profile on TokenAuth', async () => {
+      const { User: owner } = await create('m13@spinajs.com', 'm13', 'password123', ['user', 'admin']);
+      await activate(owner.Id);
+      const { Plaintext } = await createToken(owner, 'profiled mw token', ['user'], null, 'admin');
+      const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` });
+
+      await middleware.before()(req, res, next);
+
+      expect(req.storage.TokenAuth).to.include({ Profile: 'admin' });
+      expect(req.storage.ActiveRole, 'a profiled token must still not pin an active role').to.equal(undefined);
+      sinon.assert.calledOnce(next);
+    });
   });
 });

@@ -48,6 +48,13 @@ export class AccessToken extends ModelBase<AccessToken> {
   public Roles!: string[];
 
   /**
+   * The profile (a role name) this token is pinned to; null/undefined = legacy
+   * token, scoped by the union of its roles. Validated against
+   * `AccessTokenRolePolicy.allowedProfiles` at creation and on every request.
+   */
+  public Profile?: string;
+
+  /**
    * Absolute expiration. Null/absent = never expires.
    *
    * NOTE: declared optional rather than as a `DateTime | null` union - the

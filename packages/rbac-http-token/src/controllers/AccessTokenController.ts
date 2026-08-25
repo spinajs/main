@@ -1,11 +1,11 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Policy, Post, Put } from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Policy, Post, Put, Query } from '@spinajs/http';
 import { User as UserModel } from '@spinajs/rbac';
 import { Permission, Resource, User } from '@spinajs/rbac-http';
 import { ErrorCode } from '@spinajs/exceptions';
 import { DateTime } from 'luxon';
 
 import { AccessToken } from '../models/AccessToken.js';
-import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
+import { E_TOKEN_CODES, _allowed_profiles, _allowed_roles, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
 import { CreateTokenDto } from '../dto/create-token-dto.js';
 import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
@@ -51,6 +51,44 @@ import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
 @Policy([NoTokenAuthPolicy, NoImpersonationPolicy])
 export class AccessTokenController extends BaseController {
   /**
+   * Roles that may be put on a new token
+   * Answers from the configured AccessTokenRolePolicy - the same source
+   * `POST user/tokens` validates against, so a client can never be offered a
+   * role the create call would then refuse.
+   *
+   * With `profile` given the answer is relative to that profile, which a policy
+   * may narrow below the owner-wide union - the picker must ask with the profile
+   * the user has selected, or it will keep offering roles the pinned create call
+   * then refuses. Without the param the answer is what this route always gave.
+   * @security cookieAuth
+   * @param profile Optional profile ( root role ) the roles are asked for
+   * @response 200 Roles the caller may put on a token
+   * @response 401 Unauthorized - valid session required
+   * @response 403 Forbidden - access tokens cannot be used on this route
+   */
+  @Get('tokens/roles')
+  @Permission(['readOwn'])
+  public async roles(@User() user: UserModel, @Query() profile?: string): Promise<Ok<unknown>> {
+    return new Ok({ Roles: await _allowed_roles(user, profile) });
+  }
+
+  /**
+   * Profiles the caller may pin a new token to
+   * Answers from the configured AccessTokenRolePolicy - the same source
+   * `POST user/tokens` validates `Profile` against. Empty for applications that
+   * did not opt into profile tokens: the shipped default policy offers none.
+   * @security cookieAuth
+   * @response 200 Profiles the caller may pin a token to
+   * @response 401 Unauthorized - valid session required
+   * @response 403 Forbidden - access tokens cannot be used on this route
+   */
+  @Get('tokens/profiles')
+  @Permission(['readOwn'])
+  public async profiles(@User() user: UserModel): Promise<Ok<unknown>> {
+    return new Ok({ Profiles: await _allowed_profiles(user) });
+  }
+
+  /**
    * List own access tokens
    * Hashes are never returned - `Token` is `@Hidden()` on the model, so the
    * dehydrated rows carry the uuid, label, roles and timestamps only.
@@ -69,10 +107,14 @@ export class AccessTokenController extends BaseController {
   /**
    * Create an access token
    * The plaintext appears in this response only and cannot be retrieved again.
-   * Roles must be a subset of the caller's own roles.
+   * Roles must be a subset of what the configured AccessTokenRolePolicy allows
+   * the caller - the same set `GET user/tokens/roles` reports. An optional
+   * `Profile` pins the token to one of the profiles `GET user/tokens/profiles`
+   * reports, and narrows the role check to that profile; omitted, the token is
+   * scoped by the union of its roles as before.
    * @security cookieAuth
    * @response 200 Token created, `Plaintext` returned once
-   * @response 400 Requested roles are not held by the caller
+   * @response 400 Requested roles or profile are not allowed for the caller by the configured role policy
    * @response 401 Unauthorized - valid session required
    * @response 403 Forbidden - access tokens cannot be used on this route
    */
@@ -82,7 +124,7 @@ export class AccessTokenController extends BaseController {
     const expiresAt = dto.ExpiresAt ? DateTime.fromISO(dto.ExpiresAt) as DateTime<true> : null;
 
     try {
-      const { Token, Plaintext } = await createToken(user, dto.Name, dto.Roles, expiresAt);
+      const { Token, Plaintext } = await createToken(user, dto.Name, dto.Roles, expiresAt, dto.Profile);
       return new Ok({ Token: this.toWire(Token), Plaintext }, { Headers: [{ Name: 'Cache-Control', Value: 'no-store' }] });
     } catch (err) {
       return this.roleError(err);
@@ -112,13 +154,14 @@ export class AccessTokenController extends BaseController {
 
   /**
    * Grant a role to an own token
-   * The role must be held by the caller - a token can never carry more than its
-   * owner does.
+   * The role must be allowed for the caller by the configured
+   * AccessTokenRolePolicy - a token can never carry more than the policy
+   * permits its owner.
    * @security cookieAuth
    * @param uuid Public identifier of the token
    * @param role Role name to grant
    * @response 200 Updated token
-   * @response 400 Role is not held by the caller
+   * @response 400 Role is not allowed for the caller by the configured role policy
    * @response 401 Unauthorized - valid session required
    * @response 403 Forbidden - access tokens cannot be used on this route
    * @response 404 No such token for this user

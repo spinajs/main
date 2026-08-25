@@ -1,14 +1,15 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
+import { AccessControl } from 'accesscontrol';
 import { User } from '@spinajs/rbac';
 import { _chain, _check_arg, _tap, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
 import { _service } from '@spinajs/configuration';
 import { _ev } from '@spinajs/queue';
 import { ErrorCode } from '@spinajs/exceptions';
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
 
 import { AccessToken } from './models/AccessToken.js';
-import { AccessTokenGenerationProvider } from './interfaces.js';
+import { AccessTokenGenerationProvider, AccessTokenRolePolicy } from './interfaces.js';
 import { AccessTokenCreated, AccessTokenDeleted, AccessTokenEvent, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
 
 /**
@@ -72,30 +73,92 @@ function _token_ev(event: Constructor<AccessTokenEvent>, ...args: any[]) {
 }
 
 /**
- * Ensures every role in `roles` is currently held by `owner`.
- * A token must never carry a role its owner does not have.
+ * Roles the configured {@link AccessTokenRolePolicy} lets `owner` put on a
+ * token. Resolved per call rather than cached, so a policy that answers from
+ * live state ( the owner's current roles, the application's grants ) is not
+ * frozen at boot.
+ *
+ * Filters the policy's answer down to role names `accesscontrol` actually
+ * knows about ( i.e. present in `ac.getGrants()` ). A policy is arbitrary
+ * application code and may return a typo'd or stale role name; without this
+ * filter such a name would be offered by `GET user/tokens/roles`, accepted by
+ * `createToken`/`grantTokenRole` onto a token, and then make every request
+ * that token authenticates 500 - `checkRoutePermission` calls
+ * `ac.can(roles)[permission](resource)`, and `accesscontrol` throws
+ * `AccessControlError` for a role absent from its grants map. A role that
+ * grants nothing must never be offered or authorised in the first place.
+ *
+ * Filters with `Object.hasOwn`, not `Boolean(grants[r])`: `getGrants()` returns a plain
+ * object, so `grants['constructor']`, `['toString']`, `['valueOf']`, `['hasOwnProperty']`
+ * and `['__proto__']` all resolve truthy through the prototype chain even though no role by
+ * that name was ever registered. A policy returning `'constructor'` would otherwise survive
+ * this filter, get offered by `GET user/tokens/roles`, and be mintable onto a token.
  */
-function _assert_roles_subset(owner: User, roles: string[]) {
-  const missing = roles.filter((r) => !owner.Role.includes(r));
+export async function _allowed_roles(owner: User, profile?: string): Promise<string[]> {
+  const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
+  const allowed = await policy.allowedRoles(owner, profile);
+
+  const ac = DI.get<AccessControl>('AccessControl')!;
+  const grants = ac.getGrants();
+  return allowed.filter((r) => Object.hasOwn(grants, r));
+}
+
+/**
+ * Profiles the configured {@link AccessTokenRolePolicy} lets `owner` pin a
+ * token to. Same live-resolution rationale as `_allowed_roles`.
+ */
+export async function _allowed_profiles(owner: User): Promise<string[]> {
+  const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
+  return policy.allowedProfiles(owner);
+}
+
+/**
+ * Ensures `profile` is one the configured policy lets `owner` pin a token to.
+ */
+async function _assert_profile(owner: User, profile: string) {
+  const allowed = await _allowed_profiles(owner);
+  if (!allowed.includes(profile)) {
+    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner may not pin a token to profile: ${profile}`, { roles: [profile] });
+  }
+}
+
+/**
+ * Ensures every role in `roles` is one the configured policy allows for
+ * `owner`. Deliberately not "one the owner literally holds" - a policy may
+ * permit roles beyond the owner's own `Role` list, or withhold ones on it;
+ * that flexibility is the entire point of the policy seam.
+ *
+ * With `profile` given the question is asked relative to that profile, which a
+ * policy may answer more narrowly than the owner-wide union.
+ */
+async function _assert_roles_subset(owner: User, roles: string[], profile?: string) {
+  const allowed = await _allowed_roles(owner, profile);
+  const missing = roles.filter((r) => !allowed.includes(r));
 
   if (missing.length !== 0) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner does not hold role(s): ${missing.join(', ')}`, { roles: missing });
+    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner may not put role(s) on a token: ${missing.join(', ')}`, { roles: missing });
   }
 }
 
 /**
  * Creates a new access token for a user.
  *
- * Roles must be a non-empty subset of the owner's current roles. `expiresAt`
- * null means the token never expires. The plaintext is returned once and
- * never persisted - only its hash is stored.
+ * Roles must be a non-empty subset of the roles the configured
+ * {@link AccessTokenRolePolicy} allows the owner to carry ( see
+ * `_allowed_roles` above - not necessarily the owner's literal `Role` list ).
+ * `expiresAt` null means the token never expires. The plaintext is returned
+ * once and never persisted - only its hash is stored.
  *
  * @param user - owner: {@link User} instance, numeric id or uuid
  * @param name - human readable label
- * @param roles - roles carried by the token, subset of the owner's roles
+ * @param roles - roles carried by the token, subset of what the configured
+ *                {@link AccessTokenRolePolicy} allows the owner
  * @param expiresAt - absolute expiration, or null for a token that never expires
+ * @param profile - role the token is pinned to, from what the configured
+ *                  {@link AccessTokenRolePolicy} offers the owner; omitted
+ *                  leaves the token unpinned ( legacy behaviour )
  */
-export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime<true> | null): Promise<{ Token: AccessToken; Plaintext: string }> {
+export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime<true> | null, profile?: string): Promise<{ Token: AccessToken; Plaintext: string }> {
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
   roles = _check_arg(_non_nil(), _non_empty())(roles, 'roles');
 
@@ -104,12 +167,18 @@ export async function createToken(user: User | number | string, name: string, ro
 
   return _chain(
     _owner(user),
-    _tap(async (u: User) => _assert_roles_subset(u, roles)),
+    _tap(async (u: User) => {
+      if (profile) {
+        await _assert_profile(u, profile);
+      }
+      await _assert_roles_subset(u, roles, profile);
+    }),
     async (u: User) => {
       const token = new AccessToken({
         Name: name,
         Token: generated.Hash,
         Roles: _.uniq(roles),
+        Profile: profile ?? undefined,
         // `ExpiresAt` is optional rather than nullable ( see the model ), so a
         // "never expires" token leaves the property unset instead of holding null.
         ExpiresAt: expiresAt ?? undefined,
@@ -138,7 +207,8 @@ export async function deleteToken(token: AccessToken | string): Promise<void> {
 }
 
 /**
- * Adds a role to a token. The role must be held by the token owner.
+ * Adds a role to a token. The role must be allowed for the token owner by the
+ * configured {@link AccessTokenRolePolicy}.
  *
  * @param token - {@link AccessToken} instance or its uuid
  * @param role - role name to grant
@@ -150,7 +220,7 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
     _token(token),
     _tap(async (t: AccessToken) => {
       const owner = await _owner(t.user_id)();
-      _assert_roles_subset(owner, [role]);
+      await _assert_roles_subset(owner, [role], t.Profile);
 
       t.Roles = _.uniq([...t.Roles, role]);
       await t.update();
@@ -202,7 +272,8 @@ export interface ITokenValidationResult {
   Token: AccessToken;
 
   /**
-   * Token roles that the owner still holds. Permission checks run with these.
+   * Token roles the configured {@link AccessTokenRolePolicy} still allows for
+   * the owner. Permission checks run with these.
    */
   EffectiveRoles: string[];
 }
@@ -256,10 +327,22 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
     throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID, 'Access token owner is not allowed to authenticate', { token: token.Uuid });
   }
 
-  // roles are re-intersected on every request rather than trusted from the row:
-  // a role revoked on the user must take effect immediately, without having to
+  // a profile token whose owner no longer passes the profile policy (role
+  // revoked, policy tightened) authorises nothing - same immediacy rule as
+  // the role re-intersection below
+  if (token.Profile) {
+    const profiles = await _allowed_profiles(owner);
+    if (!profiles.includes(token.Profile)) {
+      throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token profile is no longer allowed for its owner', { token: token.Uuid });
+    }
+  }
+
+  // roles are re-checked against the policy on every request rather than
+  // trusted from the row: a role the owner loses - or one an application's
+  // policy stops allowing - must take effect immediately, without having to
   // hunt down every token that still carries it
-  const effective = token.Roles.filter((r) => owner.Role.includes(r));
+  const allowed = await _allowed_roles(owner, token.Profile);
+  const effective = token.Roles.filter((r) => allowed.includes(r));
   if (effective.length === 0) {
     throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token has no effective roles', { token: token.Uuid });
   }
