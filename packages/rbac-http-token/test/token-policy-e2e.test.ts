@@ -81,7 +81,7 @@ describe('TokenPolicy e2e', function () {
     DI.clearCache();
   });
 
-  async function makeUserToken(mail: string, login: string, roles: string[], tokenRoles: string[], expires: DateTime | null = null) {
+  async function makeUserToken(mail: string, login: string, roles: string[], tokenRoles: string[], expires: DateTime<true> | null = null) {
     const { User: u } = await create(mail, login, 'password123', roles);
     await activate(u.Id);
     const owner = await User.where('Id', u.Id).populate('Metadata').firstOrFail();
