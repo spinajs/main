@@ -1227,9 +1227,38 @@ export class OpenApiBuilder {
 
     // Multiple body params → build an object schema
     const properties: Record<string, IOpenApiSchema> = {};
+
+    // A `@Form()` param is not a field of the body, it IS the body. `FromForm.extract` reads every
+    // form field from the request's root - it builds a querystring out of `FormData.Fields` and
+    // hydrates the DTO from `qs.parse` of that - so the parameter's TypeScript name never appears
+    // on the wire. Keying its schema by that name documents a nested object the runtime never
+    // reads: for `addComment(@Form() body: CommentDTO, @File() images)` the document promised
+    // `{ images, body: { content, type, state, inner } }` while the route only ever accepts
+    // `content` / `type` / `state` / `inner` at the root, so a generated client that believes the
+    // document sends one part named `body` and gets a 400 with `missingProperty: "type"`.
+    //
+    // Only `FromForm` is lifted. `@FormField()` is keyed correctly already - one field, one name,
+    // and `FromFormField.extract` looks that very name up in `FormData.Fields` - and file params
+    // carry their own field name too. A single body param never reaches this branch.
+    const formRequired: string[] = [];
+
     for (const bp of bodyParams) {
       const name = bp.param.Name || `param_${bp.param.Index}`;
       const expanded = this.expandNamedSchemas(this.schemaFromParam(bp.param, bp.doc?.type));
+      const isForm = bp.param.Type === ParameterType.FromForm || (bp.param.Type as string) === 'FromForm';
+
+      // A `$ref` carries a pointer rather than properties, so there is nothing to lift; such a
+      // param keeps the old shape instead of silently documenting an empty body.
+      if (isForm && !expanded.$ref && expanded.properties) {
+        Object.assign(properties, expanded.properties);
+
+        if (Array.isArray(expanded.required)) {
+          formRequired.push(...expanded.required);
+        }
+
+        continue;
+      }
+
       properties[name] = expanded.$ref
         ? expanded
         : { ...expanded, description: bp.doc?.description };
@@ -1240,9 +1269,15 @@ export class OpenApiBuilder {
     // multipart body missing its file field satisfies that while still being rejected with a
     // 400. Only file params are consulted: the other body params have no comparable option and
     // their `required` lists come from their own schemas.
-    const required = bodyParams
-      .filter((bp) => FILE_BODY_PARAMS.has(bp.param.Type as string) && (bp.param.Options as { required?: boolean } | undefined)?.required === true)
-      .map((bp) => bp.param.Name || `param_${bp.param.Index}`);
+    //
+    // A lifted `@Form()` schema brings its own `required` along: those names now sit at the root,
+    // so the constraint has to move with them or the document would drop it.
+    const required = [
+      ...formRequired,
+      ...bodyParams
+        .filter((bp) => FILE_BODY_PARAMS.has(bp.param.Type as string) && (bp.param.Options as { required?: boolean } | undefined)?.required === true)
+        .map((bp) => bp.param.Name || `param_${bp.param.Index}`),
+    ];
 
     return {
       required: true,
