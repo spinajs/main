@@ -147,9 +147,9 @@ public changes(): IModelChange[] { return this.diff(false); }
 
 Decisions baked in:
 
-- Foreign-key value is `Value.PrimaryKeyValue`, matching `StandardModelToSqlConverter` (`converters.ts:151`). The diff must agree with the write path.
+- Foreign-key value is `Value.PrimaryKeyValue` whenever the relation holds a target, matching `StandardModelToSqlConverter` (`converters.ts:151`), and it overrides a direct column write — the diff must agree with the write path, and the write path lets the relation win. A relation holding `null` or `undefined` decides nothing; the column is authoritative.
 - Cascade insert still works: an attached but unsaved target has `PrimaryKeyValue === undefined`, unequal to any baseline, so the foreign key is reported changed — which is what `runUpdates` in `subject-executor.ts` relies on.
-- `Value === null` (detached) is a real value: reported as `old → null`, written as NULL. `Value === undefined` is skipped, so a model whose relation was never loaded never reports that key.
+- Amended during execution (Task 3 review): `SingleRelation.attach(obj)` also writes the owner's foreign-key column — the target's key, or `null` on detach — and `toSql()` writes `NULL` for a detached relation (`Value === null`) instead of falling back to the raw column. Without this a detach was never persisted and, with the diff driving `update()`, the relation (`null`) and the column/snapshot (old id) disagreed forever. A `populate()` that finds no row leaves the column untouched, so a read never becomes a change.
 - Primary-key columns are included in `changes()`. `update()` filters them from the SET list as today.
 - Cost: `IsDirty` on a clean hydrated model is one `snapshotEquals` per column (`===` for scalars, `_.isEqual` for JSON). Same work `classify()` already does per model on every `save()`.
 
@@ -173,7 +173,8 @@ Rule: a persist path re-baselines after the statement ran; a read path re-baseli
 | `subject-executor.ts:92`, `:117` | `IsDirty = false` before `takeSnapshot()` | lines deleted |
 | `subject-builder.ts:128` | `model.changedColumns()` | `model.changes().map((c) => c.Column)` |
 | `subject-builder.ts:339-343` `classify()` | `Snapshot === null` / `changedColumns().length` | `IsNew` / `IsDirty` |
-| `relation-objects.ts:339-343` `SingleRelation.attach()` | `markDirty(fk)` / `IsDirty = true` | body is `this.Value = obj` only |
+| `relation-objects.ts:339-343` `SingleRelation.attach()` | `markDirty(fk)` / `IsDirty = true` | `this.Value = obj` and the owner's foreign-key column set to the target's key or `null` |
+| `converters.ts:149-157` `toSql()` One branch | null `Value` falls back to the raw column | `Value` target → its key; raw column when non-null; `NULL` when the relation is detached |
 | `relation-objects.ts:709` `Relation._update()` gate | `IsDirty \|\| PK null \|\| PK undefined` | `IsDirty` |
 | `metadata.ts:127` | `x.Value = value; x.IsDirty = true` | second line deleted |
 | `interfaces.ts:822-844` `IModelBase` | `IsDirty` writable, `changedColumns()`, `markDirty()` | `readonly IsDirty`, `readonly IsNew`, `changes()` |

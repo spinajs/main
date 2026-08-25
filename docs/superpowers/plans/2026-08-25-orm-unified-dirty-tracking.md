@@ -638,10 +638,11 @@ git commit -m "fix(orm): write paths read changes() and re-baseline after insert
 ## Task 4: Delete the Proxy and the dirty list; `IsDirty` becomes derived
 
 **Files:**
-- Modify: `packages/orm/src/model.ts` — `MODEL_PROXY_HANDLER` (26-38), class fields (73-95), `changedColumns()` / `relationDirtyColumns()` / `markDirty()` (264-339), constructor (598-606), `attach()` (637, 664), `destroy()` (718), `update()` (769, 787), `insert()`, `refresh()`
+- Modify: `packages/orm/src/model.ts` — `MODEL_PROXY_HANDLER` (26-38), class fields (73-95), `changedColumns()` / `relationDirtyColumns()` / `markDirty()` (264-339), `diff()` second loop, constructor (598-606), `attach()` (637, 664), `destroy()` (718), `update()` (769, 787), `insert()`, `refresh()`
+- Modify: `packages/orm/src/converters.ts` `StandardModelToSqlConverter.toSql()` (~149-157)
 - Modify: `packages/orm/src/interfaces.ts:822-844`
 - Modify: `packages/orm/src/builders.ts:143`
-- Modify: `packages/orm/src/subject-executor.ts:92`, `:117`
+- Modify: `packages/orm/src/subject-executor.ts:92`, `:102`, `:117`, `:139`
 - Modify: `packages/orm/src/subject-builder.ts` `classify()`
 - Modify: `packages/orm/src/relation-objects.ts:323-345`, `_update()` filter
 - Modify: `packages/orm/src/metadata.ts:125-128`
@@ -650,7 +651,9 @@ git commit -m "fix(orm): write paths read changes() and re-baseline after insert
 
 **Interfaces:**
 - Consumes: `IsNew`, `changes()`, `diff()` (Task 2).
-- Produces: `readonly IsDirty: boolean` (getter only); `markDirty`, `relationDirtyColumns`, `changedColumns`, the `IsDirty` setter and the constructor Proxy no longer exist.
+- Produces: `readonly IsDirty: boolean` (getter only); `markDirty`, `relationDirtyColumns`, `changedColumns`, the `IsDirty` setter and the constructor Proxy no longer exist. `SingleRelation.attach(obj)` now also writes the owner's foreign-key column (target key, or `null`); `toSql()` writes `NULL` for a detached relation and keeps the raw column for a relation that was never attached or whose `populate()` found no row.
+
+Why the write-path fix lives here (decided during execution, after the Task 3 review): `toSql()` treated a detached relation (`Value === null`) like an untouched one and wrote the old key back, so `detach()` + `update()` and `SingleRelation.remove()` never cleared the foreign key — and once `changes()` drives `update()`, the relation (`null`) and the column/snapshot (old id) disagree forever and the model never converges. The column must follow the relation and the write path must honour a detach.
 
 - [ ] **Step 1: Write the failing tests (unit)**
 
@@ -982,14 +985,24 @@ Constructor — delete the line `return new Proxy(this, MODEL_PROXY_HANDLER);` s
 
 ```ts
   /**
-   * Points this relation at `obj`. No database access, and nothing is written on the owner: the
-   * owner's `changes()` derives the foreign key from `Value` the same way `toSql()` materialises
-   * it, so the re-point is visible to `update()` and `save()` without a dirty list.
+   * Points this relation at `obj` and writes the owner's foreign-key column to match: the
+   * target's key, or NULL when detaching. No database access.
+   *
+   * The column is what the snapshot records and what the diff compares, so it has to follow
+   * the relation - otherwise a detach would leave column and relation disagreeing and the model
+   * dirty forever. An unsaved target has no key yet, so the column holds `undefined` until the
+   * unit of work inserts the parent and backfills it; `toSql()` reads the key off `Value` at
+   * write time either way.
    *
    * @param obj - the related model, or null to clear the relation
    */
   public attach(obj: R | null) {
     this.Value = obj;
+
+    const foreignKey = this.Relation?.ForeignKey;
+    if (foreignKey) {
+      (this._owner as any)[foreignKey] = obj === null ? null : obj.PrimaryKeyValue;
+    }
   }
 ```
 
@@ -1008,6 +1021,131 @@ and in `_update()` the filter becomes `const dirty = this.filter((x) => x.IsDirt
               x.Value = value;
             });
 ```
+
+`packages/orm/src/subject-executor.ts` `updatePayload()` (~line 139): `const changed = subject.Model.changedColumns().filter((c) => !keyColumns.includes(c));` → `const changed = subject.Model.changes().map((c) => c.Column).filter((c) => !keyColumns.includes(c));`; in the `runUpdates()` doc comment (~line 102) replace `` `changedColumns()` `` with `` `changes()` ``.
+
+- [ ] **Step 5b: Write the failing tests — detach must persist and converge**
+
+Append to `packages/orm-sqlite/test/attachDiff.test.ts` (inside the describe; add `UowClient` and `rows` to the `./uowFixture.js` import):
+
+```ts
+  async function orderWithClient(): Promise<UowOrder> {
+    await UowClient.insert({ Name: 'acme' });
+    await UowOrder.insert({ Total: 1, client_id: 1 });
+
+    return UowOrder.where({ Id: 1 }).first();
+  }
+
+  it('detach() then update() writes NULL and leaves the model clean', async () => {
+    const order = await orderWithClient();
+
+    order.Client.detach();
+    await order.update();
+
+    expect((await rows('uow_order'))[0].client_id).to.equal(null);
+    expect(order.IsDirty).to.equal(false);
+    expect(order.changes()).to.deep.equal([]);
+  });
+
+  it('remove() deletes the target and clears the foreign key', async () => {
+    const order = await orderWithClient();
+    await order.Client.populate();
+
+    await order.Client.remove();
+
+    expect(await rows('uow_client')).to.have.length(0);
+    expect((await rows('uow_order'))[0].client_id).to.equal(null);
+    expect(order.IsDirty).to.equal(false);
+  });
+
+  it('populate() that finds no row is a read, not a detach', async () => {
+    await UowOrder.insert({ Total: 1, client_id: 42 });
+    const order = await UowOrder.where({ Id: 1 }).first();
+
+    await order.Client.populate();
+
+    expect(order.Client.Value).to.equal(null);
+    expect(order.IsDirty).to.equal(false);
+    expect(order.toSql().client_id).to.equal(42);
+  });
+```
+
+Run: `cd packages/orm && npm run compile && cd ../orm-sqlite && npx ts-mocha -p tsconfig.json test/attachDiff.test.ts`
+Expected: `detach() then update() writes NULL` fails (`expected 1 to equal null` — `toSql()` fell back to the raw column) and `remove() ... clears the foreign key` fails the same way.
+
+- [ ] **Step 5c: Implement — the write path honours a detached relation, the diff mirrors it**
+
+`packages/orm/src/converters.ts`, `StandardModelToSqlConverter.toSql()`, the `RelationType.One` branch (lines ~149-157) becomes:
+
+```ts
+      if (val.Type === RelationType.One) {
+        const relation = (model as any)[val.Name];
+        if (relation?.Value) {
+          (obj as any)[val.ForeignKey] = relation.Value.PrimaryKeyValue;
+        } else if ((model as any)[val.ForeignKey] != null) {
+          // Never attached, or populate() found no row for the key the row carries: the raw
+          // column is the value. Without this, InsertOrUpdate emits the FK as an empty binding
+          // and orphans the row.
+          (obj as any)[val.ForeignKey] = (model as any)[val.ForeignKey];
+        } else if (relation && relation.Value === null) {
+          // Detached: attach(null) cleared the relation AND the column, and that is what a
+          // detach means for the row - the key is written as NULL.
+          (obj as any)[val.ForeignKey] = null;
+        }
+      }
+```
+
+`packages/orm/src/model.ts` `diff()` — the second loop. Replace the comment above it and its body so that a relation holding a target overrides the column-loop entry instead of being skipped, while a null/undefined `Value` leaves the column loop authoritative:
+
+```ts
+    // A @BelongsTo whose relation holds a target is written from that target - toSql() reads
+    // Value.PrimaryKeyValue at write time - so the target's key is the value the diff compares,
+    // not the column. That covers a re-point through attach() ( which also writes the column,
+    // possibly `undefined` for an unsaved target ) and the back-references the relation
+    // machinery assigns to `Value` directly. A relation holding null or undefined decides
+    // nothing: the column - NULL after a detach, untouched after a populate() that found no
+    // row - is what toSql() writes, and the column loop above already compared it.
+    for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
+      if (r.Type !== RelationType.One || !r.ForeignKey) {
+        continue;
+      }
+
+      const rel = (this as any)[r.Name];
+      if (!rel || !rel.Value) {
+        continue;
+      }
+
+      const target = rel.Value.PrimaryKeyValue;
+      const converter = columns.find((c) => c.Name === r.ForeignKey)?.Converter;
+      const existing = out.findIndex((x) => x.Column === r.ForeignKey);
+
+      if (!snap || !snapshotEquals(snap.get(r.ForeignKey), target, converter)) {
+        const change = { Column: r.ForeignKey, OldValue: baselineValue(snap?.get(r.ForeignKey)), NewValue: target };
+        if (existing >= 0) {
+          out[existing] = change;
+        } else {
+          out.push(change);
+          if (stopAtFirst) {
+            return out;
+          }
+        }
+      } else if (existing >= 0) {
+        // The column was written to something else, but the relation wins at write time and
+        // its target equals the baseline: no change reaches the database.
+        out.splice(existing, 1);
+      }
+    }
+
+    return out;
+```
+
+Then re-run the Task 2 unit cases and the new sqlite cases:
+
+Run: `cd packages/orm && npx ts-mocha -p tsconfig.json test/modelSnapshot.test.ts`
+Expected: all passing (the belongsTo cases still hold: attach now writes the column, and the relation override yields the same single entry).
+
+Run: `cd packages/orm && npm run compile && cd ../orm-sqlite && npx ts-mocha -p tsconfig.json test/attachDiff.test.ts`
+Expected: all passing, including the three Step 5b cases.
 
 - [ ] **Step 6: Verify nothing references the deleted members**
 
@@ -1087,11 +1225,12 @@ public for the rare case where a caller must re-baseline by hand (narrowing a lo
 before handing it to a controller, say); calling it on a model that was never inserted makes
 `save()` emit an UPDATE for a row that does not exist.
 
-A `@BelongsTo` re-pointed with `SingleRelation.attach()` writes no column: `toSql()` materialises
-the foreign key from `Value.PrimaryKeyValue` at write time, and `changes()` derives it the same
-way. An attached target that is not saved yet has no key, so the foreign key is reported changed,
-which is what lets `save()` insert the parent first. A relation that was never attached or
-populated (`Value === undefined`) is not reported.
+A `@BelongsTo` re-pointed with `SingleRelation.attach()` writes the owner's foreign-key column
+(the target's key, or `NULL` on `detach()`), and `toSql()` writes the key off the relation's
+`Value` when it holds a target — so a target that is not saved yet, whose key only exists after
+`save()` inserts it, is still reported as a change and written correctly. A detached relation is
+written as `NULL`. A relation that was never attached, or whose `populate()` found no row for the
+key the row carries, leaves the column as it is: reading is never a change.
 
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
@@ -1162,7 +1301,7 @@ In `### \`toSql(onlyDirty?)\`` replace "With `onlyDirty` it is narrowed to `__di
 - [ ] **Step 2: `07-relations.md`, `08-unit-of-work.md`, `12-architecture.md`**
 
 `07-relations.md`:
-- line 352 → `| \`attach(obj \| null)\` | Point at a model. No database access; the owner's \`changes()\` then reports the foreign key. |`
+- line 352 → `| \`attach(obj \| null)\` | Point at a model and write the owner's foreign key to match (the target's key, or NULL). No database access; the owner's \`changes()\` then reports the key. |`
 - line 424 → `| \`update()\` | Insert-or-update every member that is \`IsDirty\` (new, or changed since it was loaded), in one transaction. |`
 - lines 470-473 → 
 
@@ -1218,6 +1357,11 @@ Behaviour changes:
 - `SingleRelation.attach()` on a `RelationType.Query` relation no longer flags the owner dirty;
   there is no column such a flag could write.
 - `Relation.update()` persists every member that is `IsDirty` (new, or changed since loaded).
+- `SingleRelation.attach(obj)` / `detach()` now also write the owner's foreign-key column (the
+  target's key, or `null`), and `toSql()` writes `NULL` for a detached relation. Before,
+  `detach()` + `update()` — and therefore `SingleRelation.remove()` — wrote the old key back and
+  never cleared the reference. A relation whose `populate()` found no row still keeps the row's
+  key, as before.
 
 ---
 
