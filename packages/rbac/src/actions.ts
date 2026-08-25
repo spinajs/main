@@ -732,7 +732,7 @@ export async function login(identifier: number | string | User, password: string
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return await _chain(
-    _user_unsafe(identifier),
+    _login_lookup(identifier),
     _catch(
       (u: User) => {
         return _chain(
@@ -767,6 +767,31 @@ export async function login(identifier: number | string | User, password: string
       },
     ),
   );
+}
+
+/**
+ * Resolves the user a login attempt names, answering an authentication failure
+ * rather than an orm one when no such account exists.
+ *
+ * {@link _user_unsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
+ * neither `ErrorCode` nor `InvalidArgument`: the login controller cannot read it
+ * as an authentication failure, so it rethrows and `@spinajs/orm-http` maps it to
+ * a 404 while a wrong password answers 401. That difference is an
+ * account-enumeration oracle — the status code alone tells a caller whether an
+ * address is registered. Both cases carry `E_INVALID_CREDENTIALS`, exactly as
+ * {@link SimpleDbAuthProvider.authenticate} already does for the password it
+ * cannot verify.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
+ */
+function _login_lookup(identifier: number | string | User): () => Promise<User> {
+  const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
+
+  if (id instanceof UserBase) {
+    return () => Promise.resolve(id as User);
+  }
+
+  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
 }
 
 /**
