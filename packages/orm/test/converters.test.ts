@@ -92,11 +92,12 @@ describe('Orm converters', () => {
           column('Id', { PrimaryKey: true, Nullable: false }),
           column('relation_id', { IsForeignKey: true, Nullable: true }),
         ],
-        [{ Name: 'Relation', ForeignKey: 'relation_id', Type: RelationType.One, Recursive: false }],
+        [{ Name: 'Relation', ForeignKey: 'relation_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }],
         {
           Id: 1,
           relation_id: 999, // raw column value, should be ignored in favor of the relation value
-          Relation: { Value: { PrimaryKeyValue: 7 } },
+          // The relation joins on Relation.PrimaryKey - the column the converter reads off the target.
+          Relation: { Value: { Id: 7, PrimaryKeyValue: 7 } },
         },
       );
 
@@ -113,12 +114,12 @@ describe('Orm converters', () => {
           column('relation_id', { IsForeignKey: true, Nullable: true }),
           column('UserId', { IsForeignKey: true, Nullable: false }),
         ],
-        [{ Name: 'Relation', ForeignKey: 'relation_id', Type: RelationType.One, Recursive: false }],
+        [{ Name: 'Relation', ForeignKey: 'relation_id', Type: RelationType.One, PrimaryKey: 'Id', Recursive: false }],
         {
           Id: 1,
           relation_id: 5,
           UserId: 42,
-          Relation: { Value: { PrimaryKeyValue: 5 } },
+          Relation: { Value: { Id: 5, PrimaryKeyValue: 5 } },
         },
       );
 

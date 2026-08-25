@@ -169,8 +169,45 @@ export class ModelBase<M = unknown> implements IModelBase {
   }
 
   /**
+   * The value this model writes for every foreign key a @BelongsTo currently manages, keyed by
+   * column name. A relation holding a target owns its foreign key: `toSql()` writes the target's
+   * join-column value ( `Relation.PrimaryKey` — the target's primary key unless `@BelongsTo`
+   * names another column ), so a direct write to the column never reaches the database. A
+   * relation holding null or undefined owns nothing and is absent here, leaving the column to
+   * speak for itself: NULL after a `detach()`, untouched after a `populate()` that found no row.
+   *
+   * A @Recursive relation is excluded whatever it holds: `toSql()` writes its foreign key from
+   * the raw column, overriding the relation, so the column is what reaches the database.
+   *
+   * The single place that answers "what does this model persist for this column", so the
+   * snapshot baseline and the diff can never read the question differently.
+   */
+  private effectiveForeignKeys(): Map<string, unknown> {
+    const effective = new Map<string, unknown>();
+
+    for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
+      if (r.Type !== RelationType.One || !r.ForeignKey || r.Recursive) {
+        continue;
+      }
+
+      const rel = (this as any)[r.Name];
+      if (rel?.Value) {
+        effective.set(r.ForeignKey, rel.Value[r.PrimaryKey]);
+      }
+    }
+
+    return effective;
+  }
+
+  /**
    * Captures the current value of every column as the diff baseline, discarding any
    * previous baseline and any relation keys recorded against it.
+   *
+   * Reads the raw columns, deliberately: a snapshot is taken after an INSERT too, and an INSERT
+   * may omit a foreign key on purpose ( a deferred self-reference, whose target had no key yet ).
+   * Recording what the relation now holds would claim that key had been written and suppress the
+   * follow-up UPDATE that actually writes it. `writeBackRelationKeys()` is what brings a column
+   * in line with its relation, and it runs only where the key really was written.
    *
    * Values are copied, never aliased — see `snapshotValue`. An aliased snapshot makes
    * every diff empty and `save()` a silent no-op.
@@ -183,6 +220,21 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     this.__snapshot__ = snapshot;
+  }
+
+  /**
+   * Copies the value each @BelongsTo relation just wrote back onto its foreign-key column, so
+   * the model agrees with the row. Call it after a statement that wrote those keys, before
+   * `takeSnapshot()`.
+   *
+   * Without it a foreign key written directly and then overridden by its relation keeps the
+   * overridden value in the column, the snapshot records that value as the baseline, and the
+   * model reads dirty forever - every `save()` minting an UPDATE that changes nothing.
+   */
+  private writeBackRelationKeys(): void {
+    for (const [name, value] of this.effectiveForeignKeys()) {
+      (this as any)[name] = value;
+    }
   }
 
   /**
@@ -247,8 +299,8 @@ export class ModelBase<M = unknown> implements IModelBase {
 
   /**
    * Every persisted column whose current value differs from the baseline, in descriptor column
-   * order, followed by any @BelongsTo foreign key whose relation was re-pointed without a column
-   * write. On a model with no baseline every column is reported with `OldValue: undefined`.
+   * order, followed by any @BelongsTo foreign key the descriptor declares no column for. On a
+   * model with no baseline every column is reported with `OldValue: undefined`.
    *
    * Computed on demand - nothing observes writes - so an in-place mutation of a JSON column is
    * seen exactly like an assignment. Call it once and reuse the result rather than polling it
@@ -260,14 +312,27 @@ export class ModelBase<M = unknown> implements IModelBase {
 
   /**
    * The single diff. `stopAtFirst` lets a boolean question return as soon as one change is found.
+   *
+   * Every foreign key is resolved to ONE effective value before anything is compared, so
+   * `IsDirty` and `changes()` can never disagree and the short-circuit can never skip a
+   * decision the full diff would have made.
+   *
+   * The rule: a @BelongsTo holding a target decides its foreign key, because that is what
+   * `toSql()` writes - the target's join-column value, `Relation.PrimaryKey`, which is the
+   * target's own primary key unless `@BelongsTo` names another column. A direct write to the
+   * column is therefore overridden and never reaches the database, and the diff has to say so.
+   * A relation holding null or undefined decides nothing and the column stands: NULL after a
+   * `detach()`, untouched after a `populate()` that found no row.
    */
   private diff(stopAtFirst: boolean): IModelChange[] {
     const columns = this.snapshotColumns();
     const snap = this.__snapshot__?.Columns;
     const out: IModelChange[] = [];
 
+    const effective = this.effectiveForeignKeys();
+
     for (const c of columns) {
-      const current = (this as any)[c.Name];
+      const current = effective.has(c.Name) ? effective.get(c.Name) : (this as any)[c.Name];
       if (!snap || !snapshotEquals(snap.get(c.Name), current, c.Converter)) {
         out.push({ Column: c.Name, OldValue: baselineValue(snap?.get(c.Name)), NewValue: current });
         if (stopAtFirst) {
@@ -276,41 +341,19 @@ export class ModelBase<M = unknown> implements IModelBase {
       }
     }
 
-    // A @BelongsTo whose relation holds a target is written from that target - toSql() reads
-    // Value.PrimaryKeyValue at write time - so the target's key is the value the diff compares,
-    // not the column. That covers a re-point through attach() ( which also writes the column,
-    // possibly an empty key for an unsaved target ) and the back-references the relation
-    // machinery assigns to `Value` directly. A relation holding null or undefined decides
-    // nothing: the column - NULL after a detach, untouched after a populate() that found no
-    // row - is what toSql() writes, and the column loop above already compared it.
-    for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
-      if (r.Type !== RelationType.One || !r.ForeignKey) {
+    // A relation-managed foreign key the descriptor has no column for - the loop above never
+    // saw it, and there is no converter to compare it through.
+    const declared = new Set(columns.map((c) => c.Name));
+    for (const [name, current] of effective) {
+      if (declared.has(name)) {
         continue;
       }
 
-      const rel = (this as any)[r.Name];
-      if (!rel || !rel.Value) {
-        continue;
-      }
-
-      const target = rel.Value.PrimaryKeyValue;
-      const converter = columns.find((c) => c.Name === r.ForeignKey)?.Converter;
-      const existing = out.findIndex((x) => x.Column === r.ForeignKey);
-
-      if (!snap || !snapshotEquals(snap.get(r.ForeignKey), target, converter)) {
-        const change = { Column: r.ForeignKey, OldValue: baselineValue(snap?.get(r.ForeignKey)), NewValue: target };
-        if (existing >= 0) {
-          out[existing] = change;
-        } else {
-          out.push(change);
-          if (stopAtFirst) {
-            return out;
-          }
+      if (!snap || !snapshotEquals(snap.get(name), current)) {
+        out.push({ Column: name, OldValue: baselineValue(snap?.get(name)), NewValue: current });
+        if (stopAtFirst) {
+          return out;
         }
-      } else if (existing >= 0) {
-        // The column was written to something else, but the relation wins at write time and
-        // its target equals the baseline: no change reaches the database.
-        out.splice(existing, 1);
       }
     }
 
@@ -709,6 +752,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     const result = await query;
 
     // The whole model is in the database now - that is the baseline for the next update().
+    this.writeBackRelationKeys();
     this.takeSnapshot();
 
     return result;
@@ -761,6 +805,7 @@ export class ModelBase<M = unknown> implements IModelBase {
 
     const updateResult = await query;
 
+    this.writeBackRelationKeys();
     this.takeSnapshot();
 
     return updateResult;
@@ -826,6 +871,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     // leaves the model exactly as dirty as it was.
     const result = await query.values(this.toSql());
 
+    this.writeBackRelationKeys();
     this.takeSnapshot();
 
     return result;

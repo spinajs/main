@@ -323,14 +323,15 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
   /**
    * Points this relation at `obj` and writes the owner's foreign-key column to match: the
-   * target's key, or NULL when detaching. No database access.
+   * target's join-column value — its primary key unless `@BelongsTo` names another column
+   * ( `Relation.PrimaryKey` ) — or NULL when detaching. No database access.
    *
    * The column is what the snapshot records and what the diff compares, so it has to follow
    * the relation - otherwise a detach would leave column and relation disagreeing and the model
    * dirty forever. An unsaved target has no key yet, so the column holds whatever that empty key
    * reads as ( `undefined`, or `null` once `setDefaults()` has filled it from the column default )
-   * until the unit of work inserts the parent and backfills it; `toSql()` reads the key off
-   * `Value` at write time either way.
+   * until the unit of work inserts the parent and backfills it; `toSql()` reads the same join
+   * column off `Value` at write time either way.
    *
    * @param obj - the related model, or null to clear the relation
    */
@@ -339,7 +340,7 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
 
     const foreignKey = this.Relation?.ForeignKey;
     if (foreignKey) {
-      (this._owner as any)[foreignKey] = obj === null ? null : obj.PrimaryKeyValue;
+      (this._owner as any)[foreignKey] = obj === null ? null : (obj as any)[this.Relation!.PrimaryKey];
     }
   }
 

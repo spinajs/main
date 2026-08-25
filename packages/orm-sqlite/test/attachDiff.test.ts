@@ -3,7 +3,7 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
-import { bootUow, registerUowConnection, rows, UowClient, UowOrder, UowOrderItem } from './uowFixture.js';
+import { bootUow, registerUowConnection, rows, UowAltOwner, UowAltTarget, UowClient, UowOrder, UowOrderItem } from './uowFixture.js';
 
 describe('SingleRelation.attach change tracking', function () {
   this.timeout(10000);
@@ -125,5 +125,59 @@ describe('SingleRelation.attach change tracking', function () {
     expect(order.Client.Value).to.equal(undefined);
     expect(order.IsDirty).to.equal(false);
     expect(order.toSql().client_id).to.equal(42);
+  });
+
+  it('a direct foreign-key write is overridden by a relation that holds the baseline target', async () => {
+    const item = await loadedItem();
+    await item.Order.populate();
+
+    (item as any).order_id = 5;
+
+    expect(item.changes()).to.deep.equal([]);
+    expect(item.IsDirty).to.equal(false);
+  });
+
+  it('a relation re-pointed by assigning Value directly reports the target key, not the column', async () => {
+    const item = await loadedItem();
+    const target = await UowOrder.where({ Id: 2 }).first();
+
+    // The relation machinery sets back-references this way, without touching the column.
+    item.Order.Value = target;
+
+    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+    expect(item.IsDirty).to.equal(true);
+  });
+
+  it('a held target wins over a direct foreign-key write, in the diff and in the row', async () => {
+    const item = await loadedItem();
+    const target = await UowOrder.where({ Id: 2 }).first();
+
+    (item as any).order_id = 5;
+    item.Order.Value = target;
+    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+
+    await item.update();
+
+    expect((await rows('uow_order_item'))[0].order_id).to.equal(2);
+    expect(item.IsDirty).to.equal(false);
+  });
+
+  it('attach() writes the join column of an explicitly keyed belongsTo, not the target primary key', async () => {
+    await UowAltTarget.insert({ Code: 'ALPHA', Label: 'first' });
+    await UowAltTarget.insert({ Code: 'BETA', Label: 'second' });
+    await UowAltOwner.insert({ target_code: 'BETA' });
+
+    const owner = await UowAltOwner.where({ Id: 1 }).first();
+    const alpha = await UowAltTarget.where({ Code: 'ALPHA' }).first();
+
+    owner.Target.attach(alpha);
+
+    expect(owner.target_code).to.equal('ALPHA');
+    expect(owner.changes()).to.deep.equal([{ Column: 'target_code', OldValue: 'BETA', NewValue: 'ALPHA' }]);
+
+    await owner.update();
+
+    expect((await rows('uow_alt_owner'))[0].target_code).to.equal('ALPHA');
+    expect(owner.IsDirty).to.equal(false);
   });
 });

@@ -149,7 +149,8 @@ export class StandardModelToSqlConverter extends ModelToSqlConverter {
       if (val.Type === RelationType.One) {
         const relation = (model as any)[val.Name];
         if (relation?.Value) {
-          (obj as any)[val.ForeignKey] = relation.Value.PrimaryKeyValue;
+          // The join column, not the target's own primary key: @BelongsTo may name another one.
+          (obj as any)[val.ForeignKey] = relation.Value[val.PrimaryKey];
         } else if ((model as any)[val.ForeignKey] != null) {
           // Never attached, or populate() found no row for the key the row carries: the raw
           // column is the value. Without this, InsertOrUpdate emits the FK as an empty binding

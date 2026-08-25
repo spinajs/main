@@ -36,7 +36,8 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
       if (val.Type === RelationType.One) {
         const relation = (model as any)[val.Name];
         if (relation?.Value) {
-          (obj as any)[val.ForeignKey] = relation.Value.PrimaryKeyValue;
+          // The join column, not the target's own primary key: @BelongsTo may name another one.
+          (obj as any)[val.ForeignKey] = relation.Value[val.PrimaryKey];
         } else if ((model as any)[val.ForeignKey] != null) {
           // Fallback: when the BelongsTo SingleRelation has no Value (e.g. the relation was
           // never populated, or the foreign key was written directly), fall back to the raw
