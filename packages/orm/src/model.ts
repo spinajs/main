@@ -1377,13 +1377,21 @@ export const MODEL_STATIC_MIXINS = {
         // row for — cannot be mapped positionally, so nothing is assigned. Callers needing the
         // keys there must re-select or insert the models one at a time.
 
-        // Every persist path re-baselines after its statement. Taken after the backfill above so
-        // the baseline carries the generated key, which is what makes the model read as no longer
-        // new and no longer dirty. A plain-object payload is not a model and has nothing to
-        // snapshot; a model whose key could not be mapped positionally is still in the database,
-        // so it is re-baselined too - it just carries no key.
+        // Every persist path re-baselines after its statement, and the baseline is taken after
+        // the backfill above so it carries whatever key the statement produced: the model is
+        // re-baselined to exactly what the statement wrote, no more. The relation keys are
+        // written back first because the payload took them from the relation ( `toSql()` reads
+        // the target's join column ) and not from the model's own foreign-key column - without
+        // the write-back the baseline would record a column value the row does not hold, and the
+        // model would read dirty right after a successful insert.
+        //
+        // A plain-object payload is not a model and has nothing to snapshot; a model whose key
+        // could not be mapped positionally is still in the database, so it is re-baselined too -
+        // it just carries no key, and cannot be updated through this instance until one is set.
         rows.forEach((v) => {
           if (v instanceof ModelBase) {
+            // Private instance member - the static side of the class cannot see it.
+            (v as any).writeBackRelationKeys();
             v.takeSnapshot();
           }
         });

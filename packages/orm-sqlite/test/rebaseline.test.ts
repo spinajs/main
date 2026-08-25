@@ -3,7 +3,7 @@
 import { DI } from '@spinajs/di';
 import { expect } from 'chai';
 import 'mocha';
-import { bootUow, captureStatements, registerUowConnection, rows, UowOrder } from './uowFixture.js';
+import { bootUow, captureStatements, registerUowConnection, rows, UowClient, UowOrder } from './uowFixture.js';
 
 describe('re-baseline after insert / refresh', function () {
   this.timeout(10000);
@@ -65,8 +65,26 @@ describe('re-baseline after insert / refresh', function () {
 
     expect(a.IsNew).to.equal(false);
     expect(b.IsNew).to.equal(false);
+    expect(a.Id).to.be.a('number');
     expect(a.Snapshot!.Columns.get('Id')).to.equal(a.Id);
     expect(a.IsDirty).to.equal(false);
     expect(b.IsDirty).to.equal(false);
+  });
+
+  it('static bulk insert converges a model holding an attached relation', async () => {
+    await UowClient.insert({ Name: 'acme' });
+    const client = await UowClient.where({ Id: 1 }).first();
+
+    const order = new UowOrder({ Total: 5 });
+    // Assigned, not attach()ed: `attach()` writes the foreign-key column itself, so it would
+    // hide the gap. A directly assigned relation leaves the column untouched and the payload
+    // `toSql()` builds is the only thing that carries the key.
+    order.Client.Value = client;
+
+    await UowOrder.insert([order]);
+
+    expect((await rows('uow_order'))[0].client_id).to.equal(1);
+    expect(order.client_id).to.equal(1);
+    expect(order.IsDirty).to.equal(false);
   });
 });
