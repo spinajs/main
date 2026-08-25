@@ -349,7 +349,7 @@ the `HistoricalModel` interface (`__action__`, `__revision__`, `__start__`, `__e
 | --- | --- |
 | `Value` | The related model, `null`, or `undefined` when not loaded. |
 | `Populated` | Whether it has been loaded. |
-| `attach(obj \| null)` | Point at a model and mark the owner's foreign key dirty. No database access. |
+| `attach(obj \| null)` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL). No database access; the owner's `changes()` then reports the key. |
 | `detach()` | `attach(null)`. |
 | `set(obj)` | `attach` + `owner.update()`, in one transaction. |
 | `remove()` | Delete the related row and clear the foreign key, in one transaction. |
@@ -421,7 +421,7 @@ without an owner. A slice of a relation is a list of models, not a relation.
 | `empty()` / `clear()` | Drop every member. |
 | `diff(dataset, cmp?)` | Symmetric difference against a dataset. |
 | `intersection(dataset, cmp?)` | Members present in both. |
-| `update()` | Insert-or-update every dirty member, in one transaction. |
+| `update()` | Insert-or-update every member that is `IsDirty` (new, or changed since it was loaded), in one transaction. |
 | `sync()` | `update()`, then **remove from the database anything not in the list**. |
 
 Every one of those except `update()` and `sync()` is **in-memory only** — `set`, `union`, `diff`,
@@ -467,10 +467,10 @@ export async function lists() {
 }
 ```
 
-`OneToManyRelationList._update()` assigns each member's foreign key **before** computing the
-dirty set. A child re-parented onto this owner needs its key rewritten and persisted; snapshotting
-the dirty set first would leave a previously-clean child holding its old foreign key, and a
-following `sync()` would then delete it as "not belonging" here.
+`OneToManyRelationList._update()` assigns each member's foreign key **before** filtering on
+`IsDirty`. A child re-parented onto this owner needs its key rewritten and persisted; filtering
+first would leave a previously-clean child holding its old foreign key, and a following `sync()`
+would then delete it as "not belonging" here.
 
 `OneToManyRelationList.sync()` then disposes of the orphans — the rows still pointing at this
 owner that are no longer in the list. When the target model declares `@SoftDelete` they are
@@ -491,11 +491,10 @@ repeated `sync()` calls used to do. A primary key of `0` is a real key here, not
 exists rather than pushing `null` into the member list.
 
 `OneToManyRelationList.populate()` pushes the loaded rows into the list itself rather than routing
-them through `Owner.attach()`. Attaching would mark the owner dirty — a read must not create
-unsaved changes — feed every sibling relation declared against the same target model, and drop
-`@DiscriminationMap` subclass rows whose constructor is not the declared target. The one thing
-attach does that is worth keeping is kept: each loaded child gets its back-reference to the owner
-set, when it declares one.
+them through `Owner.attach()`. Attaching would feed every sibling relation declared against the
+same target model, and drop `@DiscriminationMap` subclass rows whose constructor is not the
+declared target. The one thing attach does that is worth keeping is kept: each loaded child gets
+its back-reference to the owner set, when it declares one.
 
 ### Set operations
 

@@ -1,3 +1,49 @@
+# Release notes — ORM unified dirty tracking
+
+> Branch `feat/orm-unified-dirty-tracking`. Design:
+> `docs/superpowers/specs/2026-08-25-orm-unified-dirty-tracking-design.md`.
+
+## BREAKING CHANGES
+
+### `@spinajs/orm` — one change-tracking mechanism
+
+`ModelBase` no longer keeps a write-time dirty list. The snapshot taken at hydration and after
+every write is the only state; everything is derived from it.
+
+| Removed | Use instead |
+|---|---|
+| `IsDirty` setter (`model.IsDirty = false`) | Persist the model, or `takeSnapshot()` to re-baseline by hand. |
+| `markDirty(prop)` | Nothing — `attach()` / `detach()` are visible to `changes()` directly. |
+| `changedColumns()` | `changes().map((c) => c.Column)` |
+| The constructor's `Proxy` | Nothing — `new Model()` returns the plain instance. |
+
+Behaviour changes:
+
+- `IsDirty` is `true` for a model that has never been in the database (`IsNew`), and `false`
+  again when a write restores the original value. It is computed on every read.
+- `IsNew` and `changes(): IModelChange[]` (`{ Column, OldValue, NewValue }`) are new.
+- `insert()`, `refresh()` and `archive()` take a fresh snapshot after their statement, so a
+  following `update()` on the same instance writes only what changed since. `insert()` now awaits
+  its statement internally.
+- `SingleRelation.attach()` on a `RelationType.Query` relation no longer flags the owner dirty;
+  there is no column such a flag could write.
+- `Relation.update()` persists every member that is `IsDirty` (new, or changed since loaded).
+- `SingleRelation.attach(obj)` / `detach()` now also write the owner's foreign-key column (the
+  target's join-column value, or `null`), and `toSql()` writes `NULL` for a detached relation.
+  Before, `detach()` + `update()` — and therefore `SingleRelation.remove()` — wrote the old key
+  back and never cleared the reference. A relation whose `populate()` found no row still keeps
+  the row's key, as before.
+- Foreign keys are resolved from the relation's **join column** (`Relation.PrimaryKey`)
+  everywhere — `toSql()` in both converters, the diff, `attach()`, and the unit of work's
+  pending keys (`IPendingForeignKey` gained `JoinColumn`). Previously the target's primary key
+  was used even when `@BelongsTo` declared another column. A relation holding a target overrides
+  a direct write of the raw foreign-key column.
+- After every successful write the foreign-key columns are reconciled with their relations
+  before the fresh snapshot is taken, so a model converges to clean. Static bulk
+  `Model.insert()` now re-baselines (and reconciles) model instances too.
+
+---
+
 # Release notes — email / queue / templates reliability overhaul
 
 > Branch `feat/email-queue-templates-reliability`. These notes cover breaking changes and
