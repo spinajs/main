@@ -85,7 +85,6 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
   }
 
   build(): IQueryStatementResult {
-
     const context = (this.context as SelectQueryBuilder).clone();
 
     // Propagate the alias ONLY when there is one. `SelectQueryBuilder.setAlias()` cannot express
@@ -116,9 +115,8 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
     return {
       Bindings: result.flatMap((x) => x.Bindings),
       Statements: result.flatMap((x) => x.Statements),
-    }
+    };
   }
-
 }
 
 @NewInstance()
@@ -287,14 +285,7 @@ export class SqlWhereStatement extends WhereStatement {
           }
         }
 
-        val = converter
-          ? converter.toDB(
-            this._value,
-            null as any,
-            (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any,
-            null,
-          )
-          : this._value;
+        val = converter ? converter.toDB(this._value, null as any, (dsc ? dsc.Columns.find((x) => x.Name === this._column) : null) as any, null) : this._value;
       }
     }
 
@@ -361,7 +352,6 @@ export class SqlJoinStatement extends JoinStatement {
     let sourceTable = sourceModel ? sourceModel.TableName : this._options.builder ? this._options.builder.Table : null;
     let joinTable = joinModel ? joinModel.TableName : this._options.joinTable;
 
-
     if (this._whereBuilder) {
       this._whereBuilder.setAlias(joinTableAlias);
     }
@@ -410,6 +400,25 @@ export class SqlJoinStatement extends JoinStatement {
     let onExpression = `${primaryKey} = ${foreignKey}`;
     const onBindings: unknown[] = [];
 
+    // Joins from a populate callback ride INSIDE this join's parens:
+    // `LEFT JOIN ( client AS $Client$ INNER JOIN scope AS $Client.TestScope$ ON ... ) ON ...`.
+    // Nested text precedes the outer ON, so its bindings go first.
+    const nestedBindings: unknown[] = [];
+    let nestedSql = '';
+    if (this._options.nestedJoins) {
+      const parts: string[] = [];
+      this._options.nestedJoins.forEach((j) => {
+        const r = j.build();
+        parts.push(...r.Statements);
+        if (Array.isArray(r.Bindings)) {
+          nestedBindings.push(...r.Bindings);
+        }
+      });
+      if (parts.length > 0) {
+        nestedSql = ` ${parts.join(' ')}`;
+      }
+    }
+
     if (this._whereBuilder) {
       // Compile join-callback conditions through the shared where-compiler so
       // per-statement AND/OR connectors are honoured here too.
@@ -422,9 +431,29 @@ export class SqlJoinStatement extends JoinStatement {
       }
     }
 
+    // whereOnJoin() conditions from a populated relation - appended to ON
+    // so the outer join semantics are preserved
+    if (this._options.onStatements) {
+      const parts: string[] = [];
+      this._options.onStatements
+        .filter((x: WhereStatement) => !x.IsAggregate)
+        .forEach((x: WhereStatement) => {
+          const r = x.build();
+          parts.push(...r.Statements);
+          if (Array.isArray(r.Bindings)) {
+            onBindings.push(...r.Bindings);
+          }
+        });
+
+      if (parts.length > 0) {
+        // Top-level statements are ALWAYS joined with AND
+        onExpression += ` AND ${parts.join(' AND ')}`;
+      }
+    }
+
     return {
-      Bindings: onBindings,
-      Statements: [`${method} ${joinTable} ON ${onExpression}`],
+      Bindings: [...nestedBindings, ...onBindings],
+      Statements: [nestedSql ? `${method} (${joinTable}${nestedSql}) ON ${onExpression}` : `${method} ${joinTable} ON ${onExpression}`],
     };
   }
 }
@@ -441,6 +470,15 @@ export class SqlInStatement extends InStatement {
   public build(): IQueryStatementResult {
     const exprr = this._not ? 'NOT IN' : 'IN';
     const column = _columnWrap(this.Quoter, this._column, this._builder.TableAlias);
+
+    // `IN ()` is a syntax error, so degenerate to a constant predicate with the same meaning:
+    // nothing can be in an empty set, and everything is outside of it.
+    if (this._val.length === 0) {
+      return {
+        Bindings: [],
+        Statements: [this._not ? '1 = 1' : '1 = 0'],
+      };
+    }
 
     return {
       Bindings: this._val,
@@ -603,7 +641,6 @@ export class SqlWhereQueryStatement extends WhereQueryStatement {
    * ( `WhereBuilder`'s constructor dereferences its parent ).
    */
   public clone<T extends QueryBuilder | SelectQueryBuilder | WhereBuilder<any>>(_parent?: T): IQueryStatement {
-
     // TODO: fix this any cast !
     return new SqlWhereQueryStatement(this._builder.clone((_parent ?? this._builder.Parent ?? this._builder) as any));
   }
