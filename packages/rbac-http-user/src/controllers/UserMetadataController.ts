@@ -2,10 +2,10 @@ import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseControlle
 import { User as UserModel, UserMetadata } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
-import { AsModel, PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
+import { PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
-import { UserMetadataService } from '../services/UserMetadataService.js';
+import { addressedColumn, UserMetadataService } from '../services/UserMetadataService.js';
 
 /**
  * User metadata management.
@@ -86,9 +86,9 @@ export class UserMetadataController extends BaseController {
     @Permission(['updateAny'])
     public async addUserMetadata(
         @FromModel({ queryField: "Uuid" }) user: UserModel,
-        @AsModel() metadata: UserMetadata) {
+        @Body() data: UserMetadataDto) {
 
-        await this.Metadata.upsert(user.Id, metadata);
+        await this.Metadata.upsert(user.Id, data);
         return new Ok();
     }
 
@@ -108,10 +108,12 @@ export class UserMetadataController extends BaseController {
     @Permission(['updateAny'])
     public async updateUserMetadata(
         @FromModel({
+            // ONE column, picked by the identifier's shape — see `addressedColumn`. Comparing both
+            // in an `OR` put a numeric id against the `Key` varchar, which MySQL then refused in
+            // the UPDATE this lookup feeds (`ER_TRUNCATED_WRONG_VALUE`), turning every
+            // id-addressed edit into a 500.
             query: (function ([_, user], meta) {
-                return this.where(function () {
-                    this.where("Key", meta).orWhere("Id", meta)
-                }).andWhere("user_id", user.Id)
+                return this.where(addressedColumn(meta), meta).andWhere("user_id", user.Id)
             })
         }) meta: UserMetadata,
         @FromModel({ queryField: "Uuid" }) _user: UserModel,
@@ -196,8 +198,8 @@ export class UserMetadataController extends BaseController {
      */
     @Post("metadata")
     @Permission(['updateOwn'])
-    public async addMetadata(@User() user: UserModel, @AsModel() metadata: UserMetadata) {
-        await this.Metadata.upsert(user.Id, metadata);
+    public async addMetadata(@User() user: UserModel, @Body() data: UserMetadataDto) {
+        await this.Metadata.upsert(user.Id, data);
         return new Ok();
     }
 

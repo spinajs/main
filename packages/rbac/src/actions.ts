@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
+import { userModel } from './model-token.js';
 
 export enum E_CODES {
   E_TOKEN_EXPIRED,
@@ -64,7 +65,7 @@ export function _get_system_user() {
 
       return [s, c];
     },
-    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(),
+    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(), // base User on purpose: system account must resolve inside scoped request contexts
   );
 }
 
@@ -76,7 +77,7 @@ export function _get_system_user() {
  * @returns
  */
 export function _get_users_by_role(role: string[]) {
-  return () => User.select().withRole(role);
+  return () => userModel().select().withRole(role);
 }
 
 /**
@@ -88,11 +89,11 @@ export function _get_users_by_role(role: string[]) {
  */
 export function _get_user(user: User | number | string) {
   if (_.isString(user)) {
-    return async () => User.where('Uuid', user).firstOrFail();
+    return async () => userModel().where('Uuid', user).firstOrFail();
   }
 
   if (_.isNumber(user)) {
-    return async () => User.getOrFail(user);
+    return async () => userModel().getOrFail(user);
   }
 
   return () => Promise.resolve(user);
@@ -228,7 +229,7 @@ export function _user(identifier: number | string | User): () => Promise<User> {
     return () => Promise.resolve(id);
   }
 
-  return () => User.query().whereAnything(id).populate('Metadata').firstOrFail();
+  return () => userModel().query().whereAnything(id).populate('Metadata').firstOrFail();
 }
 
 /**
@@ -731,7 +732,7 @@ export async function login(identifier: number | string | User, password: string
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
   return await _chain(
-    _user_unsafe(identifier),
+    _login_lookup(identifier),
     _catch(
       (u: User) => {
         return _chain(
@@ -766,6 +767,31 @@ export async function login(identifier: number | string | User, password: string
       },
     ),
   );
+}
+
+/**
+ * Resolves the user a login attempt names, answering an authentication failure
+ * rather than an orm one when no such account exists.
+ *
+ * {@link _user_unsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
+ * neither `ErrorCode` nor `InvalidArgument`: the login controller cannot read it
+ * as an authentication failure, so it rethrows and `@spinajs/orm-http` maps it to
+ * a 404 while a wrong password answers 401. That difference is an
+ * account-enumeration oracle — the status code alone tells a caller whether an
+ * address is registered. Both cases carry `E_INVALID_CREDENTIALS`, exactly as
+ * {@link SimpleDbAuthProvider.authenticate} already does for the password it
+ * cannot verify.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
+ */
+function _login_lookup(identifier: number | string | User): () => Promise<User> {
+  const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
+
+  if (id instanceof UserBase) {
+    return () => Promise.resolve(id as User);
+  }
+
+  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
 }
 
 /**

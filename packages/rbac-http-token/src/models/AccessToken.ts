@@ -48,6 +48,13 @@ export class AccessToken extends ModelBase<AccessToken> {
   public Roles!: string[];
 
   /**
+   * The profile (a role name) this token is pinned to; null/undefined = legacy
+   * token, scoped by the union of its roles. Validated against
+   * `AccessTokenRolePolicy.allowedProfiles` at creation and on every request.
+   */
+  public Profile?: string;
+
+  /**
    * Absolute expiration. Null/absent = never expires.
    *
    * NOTE: declared optional rather than as a `DateTime | null` union - the
@@ -56,10 +63,10 @@ export class AccessToken extends ModelBase<AccessToken> {
    * emits `design:type = DateTime` while keeping the absence in the type.
    */
   @DT()
-  public ExpiresAt?: DateTime;
+  public ExpiresAt?: DateTime<true>;
 
   @CreatedAt()
-  public CreatedAt!: DateTime;
+  public CreatedAt!: DateTime<true>;
 
   /**
    * Last successful authentication with this token. Updated throttled.
@@ -67,7 +74,7 @@ export class AccessToken extends ModelBase<AccessToken> {
    * `ExpiresAt` for why this is optional rather than a nullable union.
    */
   @DT()
-  public LastUsedAt?: DateTime;
+  public LastUsedAt?: DateTime<true>;
 
   @Hidden()
   @BelongsTo('User')

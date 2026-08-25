@@ -6,6 +6,7 @@ import {
   User,
   UserImpersonationStarted,
   canImpersonate,
+  userModel,
 } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
@@ -234,7 +235,7 @@ export class ImpersonationController extends BaseController {
    * as a protected method so tests can stub it without setting up a database.
    */
   protected loadTarget(uuid: string): Promise<User | undefined> {
-    return User.query().whereUuid(uuid).populate('Metadata').notDeleted().first() as Promise<User | undefined>;
+    return userModel().query().whereUuid(uuid).populate('Metadata').notDeleted().first() as Promise<User | undefined>;
   }
 
   protected buildResponse(

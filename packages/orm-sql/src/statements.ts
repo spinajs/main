@@ -2,6 +2,7 @@ import { IQueryStatement, JoinMethod, LazyQueryStatement, QueryBuilder, SelectQu
 /* eslint-disable prettier/prettier */
 import { SqlWhereCompiler } from './compilers.js';
 import { Autoinject, NewInstance } from '@spinajs/di';
+import { isNullOrWhitespace } from '@spinajs/util';
 
 import { InvalidArgument } from '@spinajs/exceptions';
 
@@ -86,7 +87,21 @@ export class SqlLazyQueryStatement extends LazyQueryStatement {
   build(): IQueryStatementResult {
 
     const context = (this.context as SelectQueryBuilder).clone();
-    context.setAlias((this.context as SelectQueryBuilder).TableAlias);
+
+    // Propagate the alias ONLY when there is one. `SelectQueryBuilder.setAlias()` cannot express
+    // "no alias": a blank argument means "generate one", and it SYNTHESISES
+    // `<sep><table><sep>`. Calling it unconditionally therefore invented an alias for every
+    // deferred statement on a query that never declared one (`SELECT * FROM t`), and the callback
+    // below then qualified its columns against a name the FROM clause does not introduce -
+    // `Unknown column '$t$.col' in 'where clause'`.
+    //
+    // Skipping the call loses nothing: `clone()` above already copies `_tableAlias`, and the only
+    // other thing `setAlias` does is re-stamp the alias onto existing statements - which are all
+    // cleared one line below, before the callback adds any.
+    const alias = (this.context as SelectQueryBuilder).TableAlias;
+    if (!isNullOrWhitespace(alias)) {
+      context.setAlias(alias);
+    }
 
     // The correlation link is what tells the callback which OUTER query to correlate against.
     // `clone()` above already copies it, but `setAlias()` does not, and a context built from a

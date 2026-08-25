@@ -21,6 +21,7 @@ import { QueryRelationModel } from './Models/QueryRelationModel.js';
 import { SqlSelectQueryCompiler } from '../src/compilers.js';
 import { SqlDatetimeValueConverter } from '../src/converters.js';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { Lazy } from '@spinajs/util';
 
 function sqb() {
   const connection = db()!.Connections.get('sqlite')!;
@@ -190,6 +191,51 @@ describe('Where query builder', () => {
   it('where rlike', () => {
     const result = sqb().select('*').from('users').where('Name', 'rlike', '.*').toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` WHERE `Name` RLIKE ?');
+  });
+
+  /**
+   * A deferred (`Lazy`) where must not invent a table alias.
+   *
+   * `SqlLazyQueryStatement.build()` evaluates the callback against a CLONE of the owning builder.
+   * It used to hand the owner's alias to `setAlias()` unconditionally, and `setAlias` treats a
+   * blank argument as "generate one" - so a query that never declared an alias got a synthetic
+   * `<sep><table><sep>` stamped on the clone, and every column the callback added came out
+   * qualified against a name the FROM clause does not introduce (`Unknown column '$users$.id'`).
+   */
+  it('lazy where on an unaliased query must not synthesise an alias', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .andWhere(
+        new Lazy(function (this: IWhereBuilder<unknown>) {
+          this.whereIn('id', [1, 2]);
+        }),
+      )
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `id` IN (?,?)');
+    expect(result.bindings).to.be.an('array').to.include.members([1, 2]);
+  });
+
+  /**
+   * The other half of the same contract: a REAL alias still has to reach the deferred callback,
+   * or a deferred filter on a joined/aliased query would compile unqualified and collide with a
+   * same-named column on another table in the query.
+   */
+  it('lazy where on an aliased query keeps qualifying against that alias', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .setAlias('u')
+      .andWhere(
+        new Lazy(function (this: IWhereBuilder<unknown>) {
+          this.whereIn('id', [1, 2]);
+        }),
+      )
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT `u`.* FROM `users` as `u` WHERE `u`.`id` IN (?,?)');
+    expect(result.bindings).to.be.an('array').to.include.members([1, 2]);
   });
 
   it('where exists', () => {

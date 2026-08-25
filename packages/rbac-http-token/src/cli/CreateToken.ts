@@ -13,7 +13,7 @@ interface ICreateTokenOptions {
 @Command('rbac:token-create', 'Creates an access token for a user')
 @Argument('userIdOrUuid', true, 'numeric id or uuid of the owner')
 @Option('-n, --name <name>', true, 'token label')
-@Option('-r, --roles <roles>', true, 'token roles, comma separated, must be subset of owner roles')
+@Option('-r, --roles <roles>', true, 'token roles, comma separated, must be allowed for the owner by the configured role policy')
 @Option('-e, --expires <expires>', false, 'ISO expiration instant; omit for a token that never expires')
 export class CreateToken extends CliCommand {
   @Logger('rbac-http-token')

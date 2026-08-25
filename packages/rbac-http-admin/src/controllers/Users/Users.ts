@@ -4,7 +4,7 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Pos
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { create, deleteUser, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update } from '@spinajs/rbac';
+import { create, deleteUser, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 
@@ -203,7 +203,7 @@ export class Users extends BaseController {
    * @response 403 Forbidden — readAny permission required on users resource
    */
   @Get('/')
-  @Permission(['readAny'])
+  @Permission(['readAny', 'readOwn'])
   public async list(
     @Query() pagination?: PaginationDTO,
     @Query() order?: OrderDTO,
@@ -224,7 +224,8 @@ export class Users extends BaseController {
     const limit = Math.min(pagination?.limit || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const column = this.sortColumn(order);
 
-    const result = await User.select()
+    const result = await userModel()
+      .select()
       .leftJoin(
         'Metadata',
         function () {
@@ -243,7 +244,8 @@ export class Users extends BaseController {
       .order(column, order?.order ?? SortOrder.DESC)
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
-    const count = await User.query()
+    const count = await userModel()
+      .query()
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER)
       .selectCount();
 
@@ -275,7 +277,7 @@ export class Users extends BaseController {
    * @response 403 Forbidden — readAny permission required on users resource
    */
   @Get('roles')
-  @Permission(['readAny'])
+  @Permission(['readAny', 'readOwn'])
   public async assignableRoles(@CurrentUser() actor: User) {
     return new Ok(this.RoleGuard.assignableRoles(actor));
   }
@@ -292,9 +294,9 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Get(':user')
-  @Permission(['readAny'])
+  @Permission(['readAny', 'readOwn'])
   public async getSingleUser(
-    @FromModel({ queryField: 'Uuid' }) user: User,
+    @FromModel({ queryField: 'Uuid', model: () => userModel() }) user: User,
     @Query({
       type: 'array',
       items: {
@@ -321,9 +323,9 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Get('byLogin/:user')
-  @Permission(['readAny'])
+  @Permission(['readAny', 'readOwn'])
   public async getByLogin(
-    @FromModel({ queryField: 'Login' }) user: User,
+    @FromModel({ queryField: 'Login', model: () => userModel() }) user: User,
     @Query({
       type: 'array',
       items: {
@@ -352,7 +354,7 @@ export class Users extends BaseController {
    * @response 409 Login or email already in use
    */
   @Post('/')
-  @Permission(['createAny'])
+  @Permission(['createAny', 'createOwn'])
   public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
     await this.RoleGuard.assertCanAssignRoles(actor, null, [data.Role]);
     this.assertNoProtectedMetadata(data.Metadata);
@@ -381,8 +383,8 @@ export class Users extends BaseController {
    * @response 409 Login or email already in use by another account
    */
   @Patch(':user')
-  @Permission(['updateAny'])
-  public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User, @Body() data: UpdateUserDto) {
+  @Permission(['updateAny', 'updateOwn'])
+  public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
     if (data.Role) {
       const next = [data.Role];
       const added = next.filter((r) => !user.Role.includes(r));
@@ -424,8 +426,8 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Del(':user')
-  @Permission(['deleteAny'])
-  public async removeUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'] }) user: User) {
+  @Permission(['deleteAny', 'deleteOwn'])
+  public async removeUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
     await this.RoleGuard.assertCanDisableAccount(actor, user, 'delete');
     await deleteUser(user);
 
@@ -445,12 +447,12 @@ export class Users extends BaseController {
    * @response 404 User not found
    */
   @Patch(':uuid/restore')
-  @Permission(['deleteAny'])
+  @Permission(['deleteAny', 'deleteOwn'])
   public async restoreUser(@Param() uuid: string) {
     // Loaded by hand rather than through @FromModel: every model query filters
     // soft-deleted rows out by default, so the one row this route exists for is
     // exactly the row @FromModel can never find.
-    const user = await User.query().withDeleted().where('Uuid', uuid).first();
+    const user = await userModel().query().withDeleted().where('Uuid', uuid).first();
 
     if (!user) {
       throw new ResourceNotFound(`User ${uuid} not found`);
@@ -520,6 +522,8 @@ export class Users extends BaseController {
    * Soft-deleted rows are included on purpose: they still occupy the unique
    * indexes, so ignoring them would trade this 409 for a driver error and a 500.
    */
+  // base User on purpose: uniqueness is global — a scoped model would hide the
+  // clashing row and turn this 409 into a driver 500
   protected async assertUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
     const clashes: string[] = [];
 

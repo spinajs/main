@@ -1,9 +1,13 @@
 import ac from 'accesscontrol';
 import { AccessControl } from 'accesscontrol';
 
+import { AsyncLocalStorage } from 'async_hooks';
+
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log } from '@spinajs/log';
+
+import type { IRbacAsyncStorage } from './interfaces.js';
 
 import './auth.js';
 import './password.js';
@@ -13,6 +17,7 @@ import './session-codec.js';
 import './ownership.js';
 import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
+import { RBAC_USER_MODEL, userModel } from './model-token.js';
 
 export * from './interfaces.js';
 export * from './auth.js';
@@ -32,6 +37,7 @@ export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
 export * from './ownership.js';
+export * from './model-token.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;
@@ -48,6 +54,12 @@ export class RbacBootstrapper extends Bootstrapper {
      * run bootstrappers repeatedly against a live static.
      */
     UserMetadataBase._hiddenKeys = [...new Set([...UserMetadataBase._hiddenKeys, ...USER_SECURITY_METADATA_KEYS])];
+
+    // Default user model class. Guarded so an application's override survives any
+    // registration order — the app always uses asValue(RBAC_USER_MODEL, true).
+    if (!DI.RootContainer.Cache.has(RBAC_USER_MODEL)) {
+      DI.register(User).asValue(RBAC_USER_MODEL);
+    }
 
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
@@ -67,9 +79,10 @@ export class RbacBootstrapper extends Bootstrapper {
      * Register factory function for creating user from session data
      */
     DI.register((_: IContainer, userUUID: string) => {
-      return User.where({
-        Uuid: userUUID,
-      })
+      return userModel()
+        .where({
+          Uuid: userUUID,
+        })
         .populate('Metadata')
         .isActiveUser()
         .firstOrFail();
@@ -79,7 +92,7 @@ export class RbacBootstrapper extends Bootstrapper {
       const conf = DI.get(Configuration);
       const guestEnabled = conf!.get('rbac.enableGuestAccount', false);
 
-      return new User({
+      return new (userModel())({
         Login: 'guest',
         Email: 'guest@spinajs.com',
         Role: ['guest'],
@@ -88,12 +101,33 @@ export class RbacBootstrapper extends Bootstrapper {
     }).as('RbacGuestUserFactory');
 
     DI.register(async (_) => {
-      const system = await User.select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
-      return system;
+      /**
+       * The system account must resolve on EVERY code path — `_user_or_system` runs inside
+       * scoped request contexts — so the lookup must never be row-scoped by an application's
+       * `RbacUserModel` override. It used to buy that by querying the BASE `User` class, at
+       * the cost of returning an instance of a class the application does not use: this
+       * factory's result is written straight into `storage.User` by machine-token policies,
+       * so an application model's own members ( a pool/segment accessor, say ) were missing
+       * on exactly those requests, while present on every other one.
+       *
+       * `SkipModelPermissionCheck` states the intent directly instead — the rbac query
+       * middleware reads it and applies no hook — so the query stays unscoped AND the
+       * caller gets the model the rest of the system hands it. The rest of the store is
+       * preserved: this runs inside a live request context and must not drop its user,
+       * active role or token info.
+       */
+      const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
+      const lookup = () => userModel().select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
+
+      if (!store) {
+        return await lookup();
+      }
+
+      return await store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup);
     }).as('RbacSystemUserFactory');
 
     DI.register(async (_, role: string) => {
-      return new User({
+      return new (userModel())({
         Login: `__user_from_role_${role}__`,
         Email: `__user_from_role_${role}__@system`,
         Role: [role],

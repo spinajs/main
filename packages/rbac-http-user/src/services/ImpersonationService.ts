@@ -153,6 +153,7 @@ export class ImpersonationService {
    * gone. Extracted so tests can stub it without a database.
    */
   protected async loadOriginal(uuid: string): Promise<User | undefined> {
+    // base User on purpose: revert runs under the impersonated user's scope, which must never hide the original administrator's row
     return (await User.getByUuid(uuid)) as User | undefined;
   }
 
