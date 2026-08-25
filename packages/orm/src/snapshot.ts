@@ -36,6 +36,22 @@ export function createSnapshot(): IModelSnapshot {
  */
 export const UNCOPYABLE = Symbol('spinajs.orm.snapshot.uncopyable');
 
+/** One column-level difference between a model's baseline and its current values. */
+export interface IModelChange {
+  Column: string;
+  OldValue: unknown;
+  NewValue: unknown;
+}
+
+/**
+ * The baseline value as a change record may carry it. `UNCOPYABLE` is an internal marker for a
+ * value the snapshot could not copy; it must never leak out of the ORM, so it is reported as
+ * `undefined` ( "no usable old value" ) while the column itself is still reported as changed.
+ */
+export function baselineValue(value: unknown): unknown {
+  return value === UNCOPYABLE ? undefined : value;
+}
+
 /**
  * Takes a value copy suitable for a diff baseline.
  *
