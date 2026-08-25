@@ -121,7 +121,7 @@ export class AccessTokenController extends BaseController {
   @Post('tokens')
   @Permission(['createOwn'])
   public async create(@User() user: UserModel, @Body() dto: CreateTokenDto): Promise<Ok<unknown> | BadRequestResponse> {
-    const expiresAt = dto.ExpiresAt ? DateTime.fromISO(dto.ExpiresAt) : null;
+    const expiresAt = dto.ExpiresAt ? DateTime.fromISO(dto.ExpiresAt) as DateTime<true> : null;
 
     try {
       const { Token, Plaintext } = await createToken(user, dto.Name, dto.Roles, expiresAt, dto.Profile);

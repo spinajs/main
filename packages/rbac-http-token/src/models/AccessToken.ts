@@ -63,10 +63,10 @@ export class AccessToken extends ModelBase<AccessToken> {
    * emits `design:type = DateTime` while keeping the absence in the type.
    */
   @DT()
-  public ExpiresAt?: DateTime;
+  public ExpiresAt?: DateTime<true>;
 
   @CreatedAt()
-  public CreatedAt!: DateTime;
+  public CreatedAt!: DateTime<true>;
 
   /**
    * Last successful authentication with this token. Updated throttled.
@@ -74,7 +74,7 @@ export class AccessToken extends ModelBase<AccessToken> {
    * `ExpiresAt` for why this is optional rather than a nullable union.
    */
   @DT()
-  public LastUsedAt?: DateTime;
+  public LastUsedAt?: DateTime<true>;
 
   @Hidden()
   @BelongsTo('User')

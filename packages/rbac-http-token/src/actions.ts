@@ -158,7 +158,7 @@ async function _assert_roles_subset(owner: User, roles: string[], profile?: stri
  *                  {@link AccessTokenRolePolicy} offers the owner; omitted
  *                  leaves the token unpinned ( legacy behaviour )
  */
-export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime | null, profile?: string): Promise<{ Token: AccessToken; Plaintext: string }> {
+export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime<true> | null, profile?: string): Promise<{ Token: AccessToken; Plaintext: string }> {
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
   roles = _check_arg(_non_nil(), _non_empty())(roles, 'roles');
 

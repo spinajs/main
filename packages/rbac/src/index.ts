@@ -1,9 +1,13 @@
 import ac from 'accesscontrol';
 import { AccessControl } from 'accesscontrol';
 
+import { AsyncLocalStorage } from 'async_hooks';
+
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log } from '@spinajs/log';
+
+import type { IRbacAsyncStorage } from './interfaces.js';
 
 import './auth.js';
 import './password.js';
@@ -97,11 +101,29 @@ export class RbacBootstrapper extends Bootstrapper {
     }).as('RbacGuestUserFactory');
 
     DI.register(async (_) => {
-      // Deliberately the base User class: the system account must resolve on EVERY
-      // code path (_user_or_system runs inside scoped request contexts), so this
-      // lookup must never be row-scoped by an application's model override.
-      const system = await User.select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
-      return system;
+      /**
+       * The system account must resolve on EVERY code path — `_user_or_system` runs inside
+       * scoped request contexts — so the lookup must never be row-scoped by an application's
+       * `RbacUserModel` override. It used to buy that by querying the BASE `User` class, at
+       * the cost of returning an instance of a class the application does not use: this
+       * factory's result is written straight into `storage.User` by machine-token policies,
+       * so an application model's own members ( a pool/segment accessor, say ) were missing
+       * on exactly those requests, while present on every other one.
+       *
+       * `SkipModelPermissionCheck` states the intent directly instead — the rbac query
+       * middleware reads it and applies no hook — so the query stays unscoped AND the
+       * caller gets the model the rest of the system hands it. The rest of the store is
+       * preserved: this runs inside a live request context and must not drop its user,
+       * active role or token info.
+       */
+      const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
+      const lookup = () => userModel().select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
+
+      if (!store) {
+        return await lookup();
+      }
+
+      return await store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup);
     }).as('RbacSystemUserFactory');
 
     DI.register(async (_, role: string) => {

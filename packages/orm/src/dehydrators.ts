@@ -1,7 +1,7 @@
 import { OrmException } from './exceptions.js';
 import { IDehydrateOptions, RelationType } from './interfaces.js';
 import { ModelBase } from './model.js';
-import { Relation } from './relation-objects.js';
+import { Relation, SingleRelation } from './relation-objects.js';
 
 export abstract class ModelDehydrator {
   public abstract dehydrate(model: ModelBase, options?: IDehydrateOptions): any;
@@ -77,6 +77,13 @@ export class StandardModelWithRelationsDehydrator extends StandardModelDehydrato
             ...options,
             omit: []
           });
+        } else if ((obj as any)[val.Name] instanceof SingleRelation) {
+          // `@Filterable` on a `@BelongsTo` property creates a Virtual column whose value
+          // is the raw SingleRelation wrapper. When the relation is not populated that
+          // wrapper ends up in the output and causes a circular-reference JSON error
+          // (_owner → model → relation → _owner). Remove it unconditionally — the FK
+          // column is already present under its own name.
+          delete (obj as any)[val.Name];
         }
 
         // An unpopulated relation writes NOTHING. It used to fall back to the raw foreign key

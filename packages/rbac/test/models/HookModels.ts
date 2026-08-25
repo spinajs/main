@@ -1,5 +1,6 @@
 import { Connection, InsertQueryBuilder, IWhereBuilder, Model, ModelBase, Primary } from '@spinajs/orm';
 import { Forbidden } from '@spinajs/exceptions';
+import { Lazy } from '@spinajs/util';
 import { OrmResource, ResourceOwner } from '../../src/decorators.js';
 import type { User } from '../../src/models/User.js';
 
@@ -157,5 +158,38 @@ export class AsyncCreateHookModel extends ModelBase {
 
     HOOK_CALLS.push('rbacCreate:allow');
     this.forceColumn('Value', `checked-for-${user.Id}`);
+  }
+}
+
+/**
+ * `rbacRead` expressed as a deferred `Lazy` — the shape a hook must take when its column
+ * only makes sense against the FROM table the query ends up compiling to (a hasManyToMany
+ * join query carries the target model but selects from the junction table, so an undeferred
+ * `where` would qualify the column against a table that does not have it).
+ *
+ * A deferred statement is evaluated by `SqlLazyQueryStatement.build()`, which CLONES the
+ * builder to run the callback in isolation. That clone must not re-enter the middleware, or
+ * the hook fires a second time on every compile of every query that uses one.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('HookLazy')
+export class LazyHookModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+
+  public static rbacRead(this: IWhereBuilder<LazyHookModel>, _user: User) {
+    HOOK_CALLS.push('rbacRead');
+
+    this.andWhere(
+      new Lazy(function (this: IWhereBuilder<LazyHookModel>) {
+        this.where('Value', 'readable');
+      }),
+    );
   }
 }
