@@ -34,10 +34,11 @@ Behaviour changes:
   back and never cleared the reference. A relation whose `populate()` found no row still keeps
   the row's key, as before.
 - Foreign keys are resolved from the relation's **join column** (`Relation.PrimaryKey`)
-  everywhere — `toSql()` in both converters, the diff, `attach()`, and the unit of work's
-  pending keys (`IPendingForeignKey` gained `JoinColumn`). Previously the target's primary key
-  was used even when `@BelongsTo` declared another column. A relation holding a target overrides
-  a direct write of the raw foreign-key column.
+  everywhere a model is serialized — `toSql()` in both `ModelToSqlConverter`s, the diff,
+  `attach()`, and the unit of work's pending keys (`IPendingForeignKey` gained `JoinColumn`);
+  the plain-object payload path (`StandardObjectToSqlConverter`) still uses the target's primary
+  key. Previously the target's primary key was used even when `@BelongsTo` declared another
+  column. A relation holding a target overrides a direct write of the raw foreign-key column.
 - After every successful write the foreign-key columns are reconciled with their relations
   before the fresh snapshot is taken, so a model converges to clean. Static bulk
   `Model.insert()` now re-baselines (and reconciles) model instances too.

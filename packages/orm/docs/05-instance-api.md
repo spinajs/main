@@ -97,7 +97,7 @@ last read from or written to the database. Everything else is derived from it on
 | `Snapshot` | The baseline, or `null` for a model that has never been in the database. Read-only. |
 | `IsNew` | `Snapshot === null`. This — not the absence of a primary key — is what classifies a model as an INSERT, because `setDefaults()` pre-fills `@Uuid` keys at construction. |
 | `IsDirty` | `IsNew`, or at least one column differs from the baseline. Derived on every read; no setter. |
-| `changes()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order, followed by any `@BelongsTo` foreign key re-pointed through its relation. On an `IsNew` model: every column, `OldValue: undefined`. |
+| `changes()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order — a foreign key whose relation holds a target takes the relation's join value — followed by any `@BelongsTo` foreign key the descriptor declares no column for. On an `IsNew` model: every column, `OldValue: undefined`. |
 | `takeSnapshot()` | Capture current column values as the baseline. Values are **copied**, never aliased. |
 | `snapshotRelation(name)` | Record the current member primary keys of one relation. No-op without a snapshot. |
 | `clearSnapshot()` | Discard the baseline. The model is then `IsNew` again — an INSERT. |

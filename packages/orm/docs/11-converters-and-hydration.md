@@ -215,8 +215,9 @@ The rules:
 5. For a `Recursive` relation, copy the foreign key straight through.
 
 `ObjectToSqlConverter` does the same for a plain object plus a descriptor — it is what
-`Model.insert({...})` uses. It skips `undefined` values entirely and handles `One` relations only
-when the property holds a `ModelBase`.
+`Model.insert({...})` uses — except that it still writes the target's **primary key**, not the
+join column. It skips `undefined` values entirely and handles `One` relations only when the
+property holds a `ModelBase`.
 
 ### Replacing them
 
