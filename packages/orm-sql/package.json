@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-sql",
-  "version": "2.0.518",
+  "version": "2.0.519",
   "description": "framework orm sql language module",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,11 +53,11 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/di": "2.0.518",
-    "@spinajs/log-common": "2.0.518",
-    "@spinajs/orm": "2.0.518",
-    "@spinajs/exceptions": "2.0.518",
-    "@spinajs/util": "2.0.518",
+    "@spinajs/di": "2.0.519",
+    "@spinajs/log-common": "2.0.519",
+    "@spinajs/orm": "2.0.519",
+    "@spinajs/exceptions": "2.0.519",
+    "@spinajs/util": "2.0.519",
     "luxon": "^3.6.1",
     "typescript-mix": "^3.1.3"
   },
