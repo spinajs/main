@@ -12,7 +12,7 @@ import { StandardModelDehydrator, StandardModelWithRelationsDehydrator } from '.
 import { Wrap } from './statements.js';
 import { OrmDriver } from './driver.js';
 import { Relation, SingleRelation } from './relation-objects.js';
-import { createSnapshot, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
+import { baselineValue, createSnapshot, IModelChange, IModelSnapshot, snapshotEquals, snapshotValue } from './snapshot.js';
 import { UnitOfWork } from './unit-of-work.js';
 
 import { DI, isConstructor, IContainer, Constructor, isClass, getInheritedDescriptor } from '@spinajs/di';
@@ -260,6 +260,76 @@ export class ModelBase<M = unknown> implements IModelBase {
    */
   public clearSnapshot(): void {
     this.__snapshot__ = null;
+  }
+
+  /**
+   * `true` until the row has been in the database: the diff baseline is `null`. This is what
+   * classifies the model as an INSERT - not the presence of a primary key, because
+   * `setDefaults()` pre-fills @Uuid keys on construction.
+   */
+  public get IsNew(): boolean {
+    return this.__snapshot__ === null;
+  }
+
+  /**
+   * Every persisted column whose current value differs from the baseline, in descriptor column
+   * order, followed by any @BelongsTo foreign key whose relation was re-pointed without a column
+   * write. On a model with no baseline every column is reported with `OldValue: undefined`.
+   *
+   * Computed on demand - nothing observes writes - so an in-place mutation of a JSON column is
+   * seen exactly like an assignment. Call it once and reuse the result rather than polling it
+   * in a loop.
+   */
+  public changes(): IModelChange[] {
+    return this.diff(false);
+  }
+
+  /**
+   * The single diff. `stopAtFirst` lets a boolean question return as soon as one change is found.
+   */
+  private diff(stopAtFirst: boolean): IModelChange[] {
+    const columns = this.snapshotColumns();
+    const snap = this.__snapshot__?.Columns;
+    const out: IModelChange[] = [];
+
+    for (const c of columns) {
+      const current = (this as any)[c.Name];
+      if (!snap || !snapshotEquals(snap.get(c.Name), current, c.Converter)) {
+        out.push({ Column: c.Name, OldValue: baselineValue(snap?.get(c.Name)), NewValue: current });
+        if (stopAtFirst) {
+          return out;
+        }
+      }
+    }
+
+    // A @BelongsTo re-pointed via SingleRelation.attach() writes no column: toSql() materialises
+    // the foreign key from Value.PrimaryKeyValue at write time, so it is derived the same way
+    // here. `Value === undefined` means never attached and never populated - nothing to report.
+    for (const [, r] of this.ModelDescriptor?.Relations ?? []) {
+      if (r.Type !== RelationType.One || !r.ForeignKey) {
+        continue;
+      }
+      if (out.some((x) => x.Column === r.ForeignKey)) {
+        continue;
+      }
+
+      const rel = (this as any)[r.Name];
+      if (!rel || rel.Value === undefined) {
+        continue;
+      }
+
+      const target = rel.Value === null ? null : rel.Value.PrimaryKeyValue;
+      const converter = columns.find((c) => c.Name === r.ForeignKey)?.Converter;
+
+      if (!snap || !snapshotEquals(snap.get(r.ForeignKey), target, converter)) {
+        out.push({ Column: r.ForeignKey, OldValue: baselineValue(snap?.get(r.ForeignKey)), NewValue: target });
+        if (stopAtFirst) {
+          return out;
+        }
+      }
+    }
+
+    return out;
   }
 
   /**

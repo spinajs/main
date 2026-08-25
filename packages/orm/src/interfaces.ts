@@ -17,7 +17,7 @@ import { Lazy } from '@spinajs/util';
 import { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
-import type { IModelSnapshot } from './snapshot.js';
+import type { IModelChange, IModelSnapshot } from './snapshot.js';
 
 export enum QueryContext {
   Insert,
@@ -828,6 +828,9 @@ export interface IModelBase {
    */
   Snapshot: IModelSnapshot | null;
 
+  /** `true` until the row has been in the database - there is no diff baseline. */
+  readonly IsNew: boolean;
+
   /** Captures the current column values as the diff baseline. */
   takeSnapshot(): void;
 
@@ -839,6 +842,9 @@ export interface IModelBase {
 
   /** Column names whose current value differs from the baseline. */
   changedColumns(): string[];
+
+  /** Column-level differences between the baseline and the current values, old and new. */
+  changes(): IModelChange[];
 
   /** Records `prop` as changed and marks the model dirty. */
   markDirty(prop: string): void;

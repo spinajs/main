@@ -10,6 +10,8 @@ import { Orm } from '../src/orm.js';
 import { SelectQueryCompiler, DeleteQueryCompiler, UpdateQueryCompiler, InsertQueryCompiler, TableQueryCompiler } from '../src/interfaces.js';
 import { DbPropertyHydrator, NonDbPropertyHydrator, ModelHydrator } from '../src/hydrators.js';
 import { Model1 } from './mocks/models/Model1.js';
+import { Model4 } from './mocks/models/Model4.js';
+import { IModelChange, UNCOPYABLE } from '../src/snapshot.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { _prepareColumnDesc } from '../src/decorators.js';
 import './../src/bootstrap.js';
@@ -197,5 +199,133 @@ describe('ModelBase snapshot', () => {
     const m = new Model1();
     m.snapshotRelation('Nope');
     expect(m.Snapshot).to.equal(null);
+  });
+
+  it('IsNew is true until a snapshot exists and true again after clearSnapshot', () => {
+    const m = new Model1();
+    expect(m.IsNew).to.equal(true);
+
+    m.takeSnapshot();
+    expect(m.IsNew).to.equal(false);
+
+    m.clearSnapshot();
+    expect(m.IsNew).to.equal(true);
+  });
+
+  it('changes() reports every column with OldValue undefined when there is no snapshot', () => {
+    const m = new Model1();
+    m.Id = 1;
+    m.Bar = 'x';
+
+    const changes = m.changes();
+
+    expect(changes.find((c) => c.Column === 'Bar')).to.deep.equal({ Column: 'Bar', OldValue: undefined, NewValue: 'x' });
+    expect(changes.map((c) => c.Column)).to.include('Id');
+  });
+
+  it('changes() is empty right after takeSnapshot', () => {
+    const m = new Model1();
+    m.Id = 1;
+    m.Bar = 'x';
+    m.takeSnapshot();
+
+    expect(m.changes()).to.deep.equal([]);
+  });
+
+  it('changes() names exactly the differing columns with old and new values', () => {
+    const m = new Model1();
+    m.Id = 1;
+    m.Bar = 'x';
+    m.takeSnapshot();
+
+    m.Bar = 'y';
+
+    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: 'x', NewValue: 'y' }]);
+  });
+
+  it('changes() ignores a write that restores the original value', () => {
+    const m = new Model1();
+    m.Bar = 'x';
+    m.takeSnapshot();
+
+    m.Bar = 'y';
+    m.Bar = 'x';
+
+    expect(m.changes()).to.deep.equal([]);
+  });
+
+  it('changes() sees an in-place mutation of a mutable column value', () => {
+    const m = new Model1() as any;
+    m.Bar = { tags: ['a'] };
+    m.takeSnapshot();
+
+    m.Bar.tags.push('b');
+
+    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: { tags: ['a'] }, NewValue: { tags: ['a', 'b'] } }]);
+  });
+
+  it('changes() compares DateTime by instant, not identity', () => {
+    const m = new Model1() as any;
+    m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
+    m.takeSnapshot();
+
+    m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
+    expect(m.changes()).to.deep.equal([]);
+
+    m.Bar = DateTime.fromISO('2021-01-01T00:00:00.000Z');
+    expect(m.changes().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
+  });
+
+  it('changes() compares a Buffer by content', () => {
+    const m = new Model1() as any;
+    m.Bar = Buffer.from('ab');
+    m.takeSnapshot();
+
+    m.Bar = Buffer.from('ab');
+    expect(m.changes()).to.deep.equal([]);
+
+    m.Bar = Buffer.from('ac');
+    expect(m.changes().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
+  });
+
+  it('changes() reports an UNCOPYABLE baseline as changed, with OldValue undefined', () => {
+    class Opaque {
+      constructor(public v: number) {}
+    }
+    const m = new Model1() as any;
+    m.Bar = new Opaque(1);
+    m.takeSnapshot();
+
+    expect(m.Snapshot!.Columns.get('Bar')).to.equal(UNCOPYABLE);
+    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: undefined, NewValue: m.Bar }]);
+  });
+
+  it('changes() reports a belongsTo foreign key re-pointed through the relation', () => {
+    const m = new Model1();
+    (m as any).OwnerId = 1;
+    m.takeSnapshot();
+
+    m.Owner.attach(new Model4({ Id: 2 }));
+
+    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: 2 }]);
+  });
+
+  it('changes() reports a detached belongsTo as a change to null', () => {
+    const m = new Model1();
+    (m as any).OwnerId = 1;
+    m.takeSnapshot();
+
+    m.Owner.detach();
+
+    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: null }]);
+  });
+
+  it('changes() does not report a belongsTo that was never attached or populated', () => {
+    const m = new Model1();
+    (m as any).OwnerId = 1;
+    m.takeSnapshot();
+
+    expect(m.Owner.Value).to.equal(undefined);
+    expect(m.changes()).to.deep.equal([]);
   });
 });
