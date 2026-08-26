@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import 'mocha';
 
 import { TimeSpan } from '@spinajs/util';
-import { UNCOPYABLE, snapshotValue } from '@spinajs/orm';
+import { snapshotValue } from '@spinajs/orm';
 
 import { SqlBooleanValueConverter, SqlTimeValueConverter } from './../src/converters.js';
 
@@ -72,7 +72,11 @@ describe('SqlTimeValueConverter snapshot hooks', () => {
 
     // the value the converter hands the snapshot must survive the ORM's generic copy step
     expect(snapshotValue(baseline, converter)).to.equal(8 * TimeSpan.MILLIS_PER_HOUR);
-    expect(snapshotValue(TimeSpan.fromHours(8), converter)).to.not.equal(UNCOPYABLE);
+
+    // and the generic path must route a LIVE TimeSpan through the hook rather than answering
+    // UNCOPYABLE. Pinned to the exact millis, not merely `not.equal(UNCOPYABLE)`: that weaker form
+    // holds for any wrong number too, and this is the assertion the whole fix rests on.
+    expect(snapshotValue(TimeSpan.fromHours(8), converter)).to.equal(8 * TimeSpan.MILLIS_PER_HOUR);
   });
 
   it('passes null and undefined through unchanged', () => {
