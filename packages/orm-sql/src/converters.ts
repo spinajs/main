@@ -142,6 +142,50 @@ export class SqlTimeValueConverter extends TimeValueConverter {
 
     return new TimeSpan(totalMillis);
   }
+
+  /**
+   * `fromDB` hands the model a {@link TimeSpan}, an instance of a class the ORM does not own.
+   * Without this hook the snapshot could only mark such a column `UNCOPYABLE`, which never
+   * compares equal to anything — so a `time` column was reported as changed on EVERY diff, with
+   * no usable `OldValue`, and the model never converged to clean.
+   *
+   * A TimeSpan is fully described by its total milliseconds, so the baseline holds that number:
+   * a copyable primitive that cannot alias the live value.
+   *
+   * @param value - the converted, in-memory column value
+   */
+  public snapshotValue(value: TimeSpan | number | null | undefined): number | null | undefined {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    return value instanceof TimeSpan ? value.totalMilliseconds : value;
+  }
+
+  /**
+   * Diff equality for a `time` column. Compares by total milliseconds, so the baseline number
+   * produced by {@link snapshotValue} and a live `TimeSpan` compare as the same instant.
+   *
+   * Keeps the strictness of the generic `snapshotEquals`: `null` ("explicitly cleared") and
+   * `undefined` ("never set") are different from each other and from any value.
+   *
+   * @param a - baseline value
+   * @param b - current value
+   */
+  public snapshotEquals(a: TimeSpan | number | null | undefined, b: TimeSpan | number | null | undefined): boolean {
+    if (a === b) {
+      return true;
+    }
+
+    if (a === null || a === undefined || b === null || b === undefined) {
+      return false;
+    }
+
+    const aMillis = a instanceof TimeSpan ? a.totalMilliseconds : a;
+    const bMillis = b instanceof TimeSpan ? b.totalMilliseconds : b;
+
+    return aMillis === bMillis;
+  }
 }
 
 export class SqlDatetimeValueConverter extends DatetimeValueConverter {

@@ -1,7 +1,10 @@
 import { expect } from 'chai';
 import 'mocha';
 
-import { SqlBooleanValueConverter } from './../src/converters.js';
+import { TimeSpan } from '@spinajs/util';
+import { UNCOPYABLE, snapshotValue } from '@spinajs/orm';
+
+import { SqlBooleanValueConverter, SqlTimeValueConverter } from './../src/converters.js';
 
 /**
  * `toDB` serves two callers with two encodings, and only the ARITY tells them apart.
@@ -49,5 +52,62 @@ describe('SqlBooleanValueConverter', () => {
     expect(converter.fromDB('0')).to.equal(false);
     expect(converter.fromDB(false)).to.equal(false);
     expect(converter.fromDB(null)).to.equal(false);
+  });
+});
+
+/**
+ * `time` columns hydrate to a {@link TimeSpan}, an instance of a class the ORM does not own.
+ * The generic snapshot path can only mark such a value `UNCOPYABLE`, which never compares equal
+ * to anything: the column is then reported as changed on every single diff, with no usable
+ * `OldValue`, and the model never converges to clean. These hooks are how the converter opts
+ * into a real baseline — the TimeSpan's total milliseconds, a copyable primitive.
+ */
+describe('SqlTimeValueConverter snapshot hooks', () => {
+  const converter = new SqlTimeValueConverter();
+
+  it('baselines a TimeSpan as a copyable primitive, not UNCOPYABLE', () => {
+    const baseline = converter.snapshotValue(TimeSpan.fromHours(8));
+
+    expect(baseline).to.equal(8 * TimeSpan.MILLIS_PER_HOUR);
+
+    // the value the converter hands the snapshot must survive the ORM's generic copy step
+    expect(snapshotValue(baseline, converter)).to.equal(8 * TimeSpan.MILLIS_PER_HOUR);
+    expect(snapshotValue(TimeSpan.fromHours(8), converter)).to.not.equal(UNCOPYABLE);
+  });
+
+  it('passes null and undefined through unchanged', () => {
+    expect(converter.snapshotValue(null)).to.equal(null);
+    expect(converter.snapshotValue(undefined)).to.equal(undefined);
+  });
+
+  it('compares equal TimeSpans as equal, whichever side is already a number', () => {
+    expect(converter.snapshotEquals(TimeSpan.fromHours(8), TimeSpan.fromHours(8))).to.equal(true);
+    expect(converter.snapshotEquals(converter.snapshotValue(TimeSpan.fromHours(8)), TimeSpan.fromHours(8))).to.equal(true);
+    expect(converter.snapshotEquals(TimeSpan.fromMinutes(90), new TimeSpan(90 * TimeSpan.MILLIS_PER_MINUTE))).to.equal(true);
+  });
+
+  it('compares different TimeSpans as not equal', () => {
+    expect(converter.snapshotEquals(TimeSpan.fromHours(8), TimeSpan.fromHours(9))).to.equal(false);
+    expect(converter.snapshotEquals(converter.snapshotValue(TimeSpan.fromHours(8)), TimeSpan.fromHours(9))).to.equal(false);
+  });
+
+  it('keeps null / undefined / value strictly distinct, like the generic snapshotEquals', () => {
+    expect(converter.snapshotEquals(null, TimeSpan.fromHours(8))).to.equal(false);
+    expect(converter.snapshotEquals(TimeSpan.fromHours(8), null)).to.equal(false);
+    expect(converter.snapshotEquals(undefined, TimeSpan.fromHours(8))).to.equal(false);
+    expect(converter.snapshotEquals(null, undefined)).to.equal(false);
+    expect(converter.snapshotEquals(undefined, null)).to.equal(false);
+
+    // both absent in the same way is still "no change"
+    expect(converter.snapshotEquals(null, null)).to.equal(true);
+    expect(converter.snapshotEquals(undefined, undefined)).to.equal(true);
+  });
+
+  it('a clean round trip through the converter leaves the column clean', () => {
+    // what hydration does: fromDB -> snapshotValue as the baseline, then the same value re-read
+    const baseline = converter.snapshotValue(converter.fromDB('08:30:00'));
+
+    expect(converter.snapshotEquals(baseline, converter.fromDB('08:30:00'))).to.equal(true);
+    expect(converter.snapshotEquals(baseline, converter.fromDB('09:30:00'))).to.equal(false);
   });
 });

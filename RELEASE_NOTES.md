@@ -57,6 +57,9 @@ Behaviour changes:
 - After every successful write the foreign-key columns are reconciled with their relations
   before the fresh snapshot is taken, so a model converges to clean. Static bulk
   `Model.insert()` now re-baselines (and reconciles) model instances too.
+- `SqlTimeValueConverter` (`@spinajs/orm-sql`) implements the snapshot hooks, so a `time` column
+  (`TimeSpan`) baselines by value instead of `UNCOPYABLE` — previously such a column was reported
+  as changed on every diff, with no usable `OldValue`, and its model never converged to clean.
 
 ---
 
