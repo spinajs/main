@@ -38,10 +38,22 @@ Behaviour changes:
   the row's key, as before.
 - Foreign keys are resolved from the relation's **join column** (`Relation.PrimaryKey`)
   everywhere a model is serialized — `toSql()` in both `ModelToSqlConverter`s, the diff,
-  `attach()`, and the unit of work's pending keys (`IPendingForeignKey` gained `JoinColumn`);
-  the plain-object payload path (`StandardObjectToSqlConverter`) still uses the target's primary
-  key. Previously the target's primary key was used even when `@BelongsTo` declared another
-  column. A relation holding a target overrides a direct write of the raw foreign-key column.
+  `attach()`, and the unit of work's pending keys (`IPendingForeignKey` gained `JoinColumn`
+  — required, a compile break for external code constructing one). Previously the target's
+  primary key was used even when `@BelongsTo` declared another column. A relation holding a
+  target overrides a direct write of the raw foreign-key column. Three paths remain exceptions
+  and still stamp the target's **primary key**: the plain-object payload path
+  (`StandardObjectToSqlConverter`); `OneToOneRelationHydrator` and `DbPropertyHydrator`, where a
+  model instance passed under a relation or foreign-key name is stamped as `PrimaryKeyValue`
+  (`packages/orm/src/hydrators.ts:39,120`); and `StandardModelDehydrator`'s foreign-key fallback
+  (`packages/orm/src/dehydrators.ts:38`). The write path and the diff still resolve the join
+  column correctly, so the rows that reach the database are right — but the in-memory and
+  dehydrated value can be the primary key until the next write-back.
+- `ForwardBelongsTo(ref)` without an explicit `primaryKey` now defaults the join column from the
+  **target** model's primary key, resolved lazily on first access; it previously defaulted from
+  the **source** model's. No in-repo caller relies on that default, so nothing here changes —
+  flagged because the decorator is a published export, and an external model whose source and
+  target primary keys differ will now join on a different column.
 - After every successful write the foreign-key columns are reconciled with their relations
   before the fresh snapshot is taken, so a model converges to clean. Static bulk
   `Model.insert()` now re-baselines (and reconciles) model instances too.

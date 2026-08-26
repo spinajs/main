@@ -304,6 +304,11 @@ Re-reads the row and copies every column onto **this** instance, then takes a fr
 the baseline is what the database holds. Use `save({ reload: true })` when you need the diff
 against current database state without discarding your in-memory edits.
 
+One caveat: a populated `@BelongsTo` still holds the target from before the refresh, and a held
+target overrides the column — so if another writer re-pointed the row, the next `update()` writes
+the stale relation's key back. Clear or re-`populate()` such relations after `refresh()` when
+concurrent re-pointing is possible; reconciling this automatically is a planned follow-up.
+
 ```ts sample
 import { Connection, Model, ModelBase, Primary } from '@spinajs/orm';
 

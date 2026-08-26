@@ -131,8 +131,10 @@ export class TreeNode extends ModelBase<TreeNode> {
 }
 ```
 
-Note `@ForwardBelongsTo` derives its default `primaryKey` from the **source** model, unlike
-`@BelongsTo` which uses the target's. Pass it explicitly when the two differ.
+Note `@ForwardBelongsTo` derives its default `primaryKey` from the **target** model, like
+`@BelongsTo` — resolved lazily on first access, because the forward-referenced class does not
+exist yet when the decorator runs. It previously defaulted from the source model. Pass the
+parameter explicitly when the source and target primary keys differ.
 
 ### Composite keys
 
@@ -471,6 +473,12 @@ export async function lists() {
 `IsDirty`. A child re-parented onto this owner needs its key rewritten and persisted; filtering
 first would leave a previously-clean child holding its old foreign key, and a following `sync()`
 would then delete it as "not belonging" here.
+
+Caveat: a child loaded through the **lazy** `OneToManyRelationList.populate()` carries a
+back-reference to its previous owner, and a held target overrides the rewritten column —
+re-parenting such a child through `update()` / `save()` is currently **not** persisted. Children
+loaded through the **eager** `.populate('Name')` middleware carry no back-reference and re-parent
+correctly; automatic re-pointing of the back-reference is a planned follow-up.
 
 `OneToManyRelationList.sync()` then disposes of the orphans — the rows still pointing at this
 owner that are no longer in the list. When the target model declares `@SoftDelete` they are

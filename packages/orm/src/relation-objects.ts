@@ -700,6 +700,8 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // this owner needs its FK rewritten and persisted; if we snapshot `dirty`
     // first, a previously-clean child keeps its old FK in the DB and a following
     // sync() can delete it as "not belonging" to the new owner.
+    // KNOWN GAP: a back-reference set by the lazy populate() still overrides this
+    // column via effectiveForeignKeys(); see 07-relations.md.
     this.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.OwnerJoinValue;
     });
