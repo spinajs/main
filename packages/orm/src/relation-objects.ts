@@ -322,11 +322,16 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
   }
 
   /**
-   * Points this relation at `obj` and records the owner's foreign key as changed.
+   * Points this relation at `obj` and writes the owner's foreign-key column to match: the
+   * target's join-column value — its primary key unless `@BelongsTo` names another column
+   * ( `Relation.PrimaryKey` ) — or NULL when detaching. No database access.
    *
-   * Uses the model's own `markDirty` rather than an `any` cast into the owner's private
-   * dirty-column list, which is what this used to do ( A6 ). `markDirty` de-duplicates and
-   * owns the `IsDirty` flag, so repeated attaches record the column once.
+   * The column is what the snapshot records and what the diff compares, so it has to follow
+   * the relation - otherwise a detach would leave column and relation disagreeing and the model
+   * dirty forever. An unsaved target has no key yet, so the column holds whatever that empty key
+   * reads as ( `undefined`, or `null` once `setDefaults()` has filled it from the column default )
+   * until the unit of work inserts the parent and backfills it; `toSql()` reads the same join
+   * column off `Value` at write time either way.
    *
    * @param obj - the related model, or null to clear the relation
    */
@@ -334,13 +339,8 @@ export class SingleRelation<R extends ModelBase, O extends ModelBase = ModelBase
     this.Value = obj;
 
     const foreignKey = this.Relation?.ForeignKey;
-
     if (foreignKey) {
-      this._owner.markDirty(foreignKey);
-    } else {
-      // A query relation has no descriptor and therefore no foreign-key column, but the
-      // owner still changed.
-      this._owner.IsDirty = true;
+      (this._owner as any)[foreignKey] = obj === null ? null : (obj as any)[this.Relation!.PrimaryKey];
     }
   }
 
@@ -700,13 +700,15 @@ export class OneToManyRelationList<T extends ModelBase, O extends ModelBase> ext
     // this owner needs its FK rewritten and persisted; if we snapshot `dirty`
     // first, a previously-clean child keeps its old FK in the DB and a following
     // sync() can delete it as "not belonging" to the new owner.
+    // KNOWN GAP: a back-reference set by the lazy populate() still overrides this
+    // column via effectiveForeignKeys(); see 07-relations.md.
     this.forEach((d) => {
       (d as any)[this.Relation.ForeignKey] = this.OwnerJoinValue;
     });
 
-    // Fresh models have an undefined PK ( setDefaults uses the column default ),
-    // so treat undefined as "needs insert" alongside null and the dirty flag.
-    const dirty = this.filter((x) => x.IsDirty || x.PrimaryKeyValue === null || x.PrimaryKeyValue === undefined);
+    // A fresh model ( never in the database ) is dirty by definition; a loaded one is dirty when
+    // the key assignment above - or any other write - moved it away from its snapshot.
+    const dirty = this.filter((x) => x.IsDirty);
 
     for (const f of dirty) {
       await f.insert(InsertBehaviour.InsertOrUpdate);

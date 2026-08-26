@@ -631,7 +631,7 @@ describe('General model tests', () => {
     expect(result).instanceof(Model1);
   });
 
-  it('a query-produced model records a dirty prop exactly once', async () => {
+  it('a query-produced model is clean and reports a single write as its only change', async () => {
     await db();
 
     sinon.stub(FakeSqliteDriver.prototype, 'execute').returns(
@@ -645,15 +645,14 @@ describe('General model tests', () => {
     );
 
     const model = await Model1.get(1);
+    expect(model.IsDirty).to.be.false;
 
-    // start from a clean dirty state, then mutate a single column
-    model.IsDirty = false;
     model.Bar = 'changed';
 
-    expect((model as any).__dirty_props__.length).to.eq(1);
+    expect(model.changeSet().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 
-  it('refresh clears dirty state', async () => {
+  it('refresh re-baselines the snapshot to the fresh values', async () => {
     await db();
 
     const model = new Model1({ Id: 1 });
@@ -663,7 +662,9 @@ describe('General model tests', () => {
     await model.refresh();
 
     expect(model.IsDirty).to.be.false;
-    expect((model as any).__dirty_props__.length).to.eq(0);
+    expect(model.Snapshot).to.not.equal(null);
+    expect(model.Snapshot!.Columns.get('Bar')).to.eq('refreshed');
+    expect(model.changeSet()).to.deep.equal([]);
   });
 
   it('Find mixin should work', async () => {
@@ -1434,7 +1435,7 @@ describe('General model tests', () => {
 
     const model = new RawModel();
     model.PrimaryKeyValue = 1;
-    model.IsDirty = false;
+    model.takeSnapshot();
 
     const result = await _update()(model as any);
     expect(result).to.eq(model);

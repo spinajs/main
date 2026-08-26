@@ -43,7 +43,7 @@ Model.where('Age', '>', 30)
   │     ├─ IBuilderMiddleware.afterQuery on the raw rows
   │     ├─ per row: modelCreation (reverse order, first non-null wins)
   │     │           → DI.resolve('__orm_model_factory__', [model])
-  │     │           → model.hydrate(row); IsDirty = false; takeSnapshot()
+  │     │           → model.hydrate(row); takeSnapshot()
   │     │           → snapshotRelation for every already-populated relation
   │     └─ await IBuilderMiddleware.afterHydration(models)   ← relations load here
   │

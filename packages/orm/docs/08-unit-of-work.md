@@ -197,8 +197,8 @@ Each collected model becomes a `Subject` with one operation:
 
 | Operation | When |
 | --- | --- |
-| `Insert` | `model.Snapshot === null` — never hydrated from the database. |
-| `Update` | Snapshot diff is non-empty. |
+| `Insert` | `model.IsNew` — never in the database. |
+| `Update` | `model.IsDirty` — the snapshot diff is non-empty. |
 | `None` | Nothing changed. |
 
 Classification is deliberately **not** keyed on the primary key: `setDefaults()` pre-fills
@@ -341,9 +341,10 @@ For each row: generate client-side keys, assert `assigned` keys, request `RETURN
 `auto` key needs to come back and the dialect supports it, then backfill.
 
 The insert payload starts from `model.toSql()`, drops every deferred foreign-key column, then
-overwrites each pending foreign key from its target's now-known key. That overwrite matters:
-`StandardModelToSqlConverter` already wrote the column from the relation object, and for a
-target inserted moments ago that value was `undefined` at serialization time.
+overwrites each pending foreign key from its target's now-known join-column value
+(`IPendingForeignKey.JoinColumn`). That overwrite matters: `StandardModelToSqlConverter` already
+wrote the column from the relation object, and for a target inserted moments ago that value was
+`undefined` at serialization time.
 
 Backfill uses `setPkValue`, not the `PrimaryKeyValue` setter — the setter's `One` branch also
 writes the new key onto the owner's `SingleRelation` wrapper, which persists nothing.
@@ -351,7 +352,7 @@ writes the new key onto the owner's `SingleRelation` wrapper, which persists not
 ### Updates
 
 The update payload resolves pending **and** deferred foreign keys onto the model first, *then*
-re-reads `changedColumns()`. This is the single place that decides whether a row really changed:
+re-reads `changeSet()`. This is the single place that decides whether a row really changed:
 a re-parented child that was clean when subjects were built is caught here and nowhere else.
 
 An empty payload emits nothing. Primary key columns are excluded from the `SET` list. `@UpdatedAt`

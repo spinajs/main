@@ -17,7 +17,7 @@ import { Lazy } from '@spinajs/util';
 import { IConnectionResilienceOptions } from './resilience.js';
 // Type-only: `snapshot.ts` imports IModelDescriptor from here, so a value import would close
 // the cycle. Keep this import type-only.
-import type { IModelSnapshot } from './snapshot.js';
+import type { IModelChange, IModelSnapshot } from './snapshot.js';
 
 export enum QueryContext {
   Insert,
@@ -818,15 +818,16 @@ export interface IModelBase {
   PrimaryKeyName: string[];
   PrimaryKeyValue: any;
 
-  /**
-   * Marks model as dirty. It means that model have unsaved changes
-   */
-  IsDirty: boolean;
+  /** Whether save() would write anything. Derived from the snapshot; no setter. */
+  readonly IsDirty: boolean;
 
   /**
    * Diff baseline captured at hydration, or null for a model that has never been in the database.
    */
   Snapshot: IModelSnapshot | null;
+
+  /** `true` until the row has been in the database - there is no diff baseline. */
+  readonly IsNew: boolean;
 
   /** Captures the current column values as the diff baseline. */
   takeSnapshot(): void;
@@ -837,11 +838,8 @@ export interface IModelBase {
   /** Discards the diff baseline. */
   clearSnapshot(): void;
 
-  /** Column names whose current value differs from the baseline. */
-  changedColumns(): string[];
-
-  /** Records `prop` as changed and marks the model dirty. */
-  markDirty(prop: string): void;
+  /** Column-level differences between the baseline and the current values, old and new. */
+  changeSet(): IModelChange[];
 
   /**
    * Persists this model and everything reachable from it in one transaction.

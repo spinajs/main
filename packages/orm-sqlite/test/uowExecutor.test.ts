@@ -52,7 +52,7 @@ describe('SubjectExecutor - insert phase', function () {
 
     expect(order.IsDirty).to.equal(false);
     expect(order.Snapshot).to.not.equal(null);
-    expect(order.changedColumns()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('inserts the belongsTo parent first and stamps its key on the child', async () => {
@@ -160,7 +160,7 @@ describe('SubjectExecutor - update phase', function () {
     await run(order);
 
     expect(order.IsDirty).to.equal(false);
-    expect(order.changedColumns()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('emits no statement for a model whose write restored the original value', async () => {

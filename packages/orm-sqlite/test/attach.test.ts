@@ -41,16 +41,17 @@ describe('ModelBase.attach', function () {
     expect(order.Tags.length).to.equal(0);
   });
 
-  it('attaches a belongsTo target and marks the foreign key dirty exactly once', () => {
-    const item = new UowOrderItem({ Sku: 'A', Qty: 1 });
-    item.IsDirty = false;
+  it('attaches a belongsTo target and reports the foreign key exactly once', () => {
+    const item = new UowOrderItem({ Sku: 'A', Qty: 1, order_id: 5 });
+    item.takeSnapshot();
     const order = new UowOrder({ Total: 1 });
+    order.Id = 7;
 
     item.attach(order);
     item.attach(order);
 
     expect((item.Order as any).Value).to.equal(order);
-    expect((item as any).__dirty_props__.filter((p: string) => p === 'order_id')).to.have.length(1);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 5, NewValue: 7 }]);
   });
 
   it('matches relations by constructor identity, not class name', () => {

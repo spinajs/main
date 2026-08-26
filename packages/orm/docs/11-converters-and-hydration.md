@@ -207,14 +207,17 @@ The rules:
 2. **Throw** `Field X cannot be null` for a non-nullable, non-primary-key column holding `null`,
    `undefined` or `''`.
 3. Run each column's `Converter.toDB`.
-4. For each `One` relation: write the foreign key from the related model's primary key. When the
-   `SingleRelation` has no `Value`, fall back to the raw foreign-key column hydrated from the
-   row — without that fallback `InsertOrUpdate` emits an empty binding and orphans the row.
+4. For each `One` relation holding a target: write the foreign key from the target's **join
+   column** (`Relation.PrimaryKey` — its own primary key unless `@BelongsTo` names another
+   one). When the `SingleRelation` has no `Value`, fall back to the raw foreign-key column
+   hydrated from the row — without that fallback `InsertOrUpdate` emits an empty binding and
+   orphans the row. A relation left detached by `attach(null)` writes `NULL`.
 5. For a `Recursive` relation, copy the foreign key straight through.
 
 `ObjectToSqlConverter` does the same for a plain object plus a descriptor — it is what
-`Model.insert({...})` uses. It skips `undefined` values entirely and handles `One` relations only
-when the property holds a `ModelBase`.
+`Model.insert({...})` uses — except that it still writes the target's **primary key**, not the
+join column. It skips `undefined` values entirely and handles `One` relations only when the
+property holds a `ModelBase`.
 
 ### Replacing them
 

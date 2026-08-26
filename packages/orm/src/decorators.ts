@@ -52,6 +52,30 @@ export function _relationDefaultKey(descriptor: IModelDescriptor, relationName: 
   return keys[0];
 }
 
+/**
+ * Descriptor of a relation target named by string, resolved as late as the read that needs it.
+ *
+ * Two sources, in this order and for a reason. `Orm.wireRelations()` writes `TargetModel` before
+ * anything can read a relation's join columns, and it is the ONLY one available while `Orm` itself
+ * is still resolving: `DI.get(Orm)` hands back undefined until `resolve()` returns, and a
+ * migration's `data()` seed phase runs inside it. Reaching straight for the container there read
+ * `Models` off undefined and threw, which killed every seed inserting a model that has a
+ * string-target relation ( rbac's UserMetadata -> User being the one every startup seed hits ).
+ *
+ * Null rather than a throw when neither source knows the name - callers already have a fallback
+ * for an unresolvable target, and a name that never gets registered is reported by
+ * `Orm.wireRelations()` with the model and file that declared it, which is a far better message
+ * than a TypeError from a property getter.
+ */
+function _lazyTargetDescriptor(descriptor: IRelationDescriptor, targetModel: string): IModelDescriptor | null {
+  if (descriptor.TargetModel) {
+    return extractModelDescriptor(descriptor.TargetModel);
+  }
+
+  const registered = DI.get(Orm)?.Models.find((x) => x.name === targetModel)?.type;
+  return registered ? extractModelDescriptor(registered) : null;
+}
+
 function _getMetadataFrom(target: any) {
   // Sampled BEFORE getInheritedDescriptor, which stores own metadata as a side
   // effect - so this is only true on the very first decorator to touch `target`.
@@ -421,7 +445,7 @@ export function BelongsTo(targetModel: Constructor<ModelBase> | string, foreignK
       if (typeof targetModel === 'string') {
         // target resolved by name at runtime - read its PK lazily ( same pattern as HasManyToMany )
         const getModel = function () {
-          return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
+          return _lazyTargetDescriptor(descriptor, targetModel);
         };
 
         Object.defineProperty(descriptor, 'PrimaryKey', {
@@ -497,16 +521,33 @@ export function Query<T extends ModelBase<unknown>, D extends ModelBase<unknown>
  */
 export function ForwardBelongsTo(forwardRef: IForwardReference, foreignKey?: string, primaryKey?: string) {
   return extractDecoratorPropertyDescriptor((model: IModelDescriptor, target: any, propertyKey: string) => {
-    model.Relations.set(propertyKey, {
+    const descriptor: IRelationDescriptor = {
       Name: propertyKey,
       Type: RelationType.One,
       SourceModel: target,
       TargetModelType: forwardRef.forwardRef,
       TargetModel: undefined as any,
       ForeignKey: foreignKey ?? `${propertyKey.toLowerCase()}_id`,
+      // default PK must come from the TARGET model, not the source ( fixed below )
       PrimaryKey: primaryKey ?? _relationDefaultKey(model, propertyKey, 'primaryKey'),
       Recursive: false,
-    });
+    };
+
+    if (!primaryKey) {
+      // The target class does not exist yet - that is the whole reason a forward ref is used -
+      // so its descriptor cannot be read here. Read it on first access instead, the same lazy
+      // pattern `@BelongsTo` uses for a target named by string. The join column has to be the
+      // target's, because that is the column `toSql()`, `diff()` and the unit of work all read
+      // off the target model.
+      Object.defineProperty(descriptor, 'PrimaryKey', {
+        get: function () {
+          const targetModelDesc = extractModelDescriptor(forwardRef.forwardRef);
+          return targetModelDesc ? _relationDefaultKey(targetModelDesc, propertyKey, 'primaryKey') : _relationDefaultKey(model, propertyKey, 'primaryKey');
+        },
+      });
+    }
+
+    model.Relations.set(propertyKey, descriptor);
   });
 }
 
@@ -647,7 +688,7 @@ export function HasManyToMany(junctionModel: Constructor<ModelBase>, targetModel
     // using of getters is temporary ??? too much code change for now
     if (typeof targetModel === 'string') {
       const getModel = function () {
-        return extractModelDescriptor(DI.get(Orm)!.Models.find((x) => x.name === targetModel)!.type);
+        return _lazyTargetDescriptor(descriptor, targetModel);
       };
 
       Object.defineProperty(descriptor, 'ForeignKey', {

@@ -2,7 +2,7 @@
 import { expect } from 'chai';
 import 'mocha';
 import { DateTime } from 'luxon';
-import { createSnapshot, snapshotEquals, snapshotValue, UNCOPYABLE } from '../src/snapshot.js';
+import { baselineValue, createSnapshot, snapshotEquals, snapshotValue, UNCOPYABLE } from '../src/snapshot.js';
 
 describe('snapshot primitives', () => {
   describe('snapshotValue', () => {
@@ -176,6 +176,21 @@ describe('snapshot primitives', () => {
 
       live.amount = 20;
       expect(snapshotEquals(baseline, live, converter)).to.equal(false);
+    });
+  });
+
+  describe('baselineValue', () => {
+    it('passes an ordinary baseline through untouched', () => {
+      const obj = { a: 1 };
+
+      expect(baselineValue(1)).to.equal(1);
+      expect(baselineValue(null)).to.equal(null);
+      expect(baselineValue(undefined)).to.equal(undefined);
+      expect(baselineValue(obj)).to.equal(obj);
+    });
+
+    it('maps the UNCOPYABLE marker to undefined so it never leaks into a change record', () => {
+      expect(baselineValue(UNCOPYABLE)).to.equal(undefined);
     });
   });
 });

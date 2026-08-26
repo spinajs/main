@@ -140,7 +140,6 @@ export class Builder<T = any> implements IBuilder<T> {
         }
 
         model.hydrate(r);
-        model.IsDirty = false;
 
         // This is the one point at which the instance's columns hold exactly what the
         // database returned, so it is the diff baseline for `save()`. Relation members
