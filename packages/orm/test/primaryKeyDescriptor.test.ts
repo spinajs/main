@@ -5,6 +5,8 @@ import { ModelBase } from '../src/model.js';
 import { extractModelDescriptor } from '../src/descriptor.js';
 import { SingleRelation } from '../src/relation-objects.js';
 import { pkGeneration, generateClientSideKeys, assertAssignedKeys } from '../src/primary-keys.js';
+import { DI } from '@spinajs/di';
+import { Orm } from '../src/orm.js';
 
 @Connection('sqlite')
 class SinglePkModel extends ModelBase {
@@ -179,5 +181,56 @@ describe('relation defaults against composite keys', () => {
       }
       return BelongsChild;
     }).to.throw(/composite primary key/);
+  });
+});
+
+/**
+ * A string-target relation reads its target's key lazily, and the seed phase of a migration run
+ * is the one moment where the lazy read happens while `Orm` itself is still resolving - the
+ * container has no instance to hand back yet, so a getter that goes through `DI.get(Orm)` reads
+ * `Models` off undefined and throws. `Orm.wireRelations()` has already run by then, so the wired
+ * `TargetModel` is the source of truth that IS available.
+ */
+describe('string-target relation PrimaryKey without a resolved Orm', () => {
+  @Connection('sqlite')
+  class LazyKeyTarget extends ModelBase {
+    @Primary()
+    public Id: number;
+  }
+
+  @Connection('sqlite')
+  class LazyKeySource extends ModelBase {
+    @Primary()
+    public Id: number;
+
+    @BelongsTo('LazyKeyTarget')
+    public Target: SingleRelation<any>;
+  }
+
+  @Connection('sqlite')
+  class UnwiredKeySource extends ModelBase {
+    @Primary()
+    public Id: number;
+
+    @BelongsTo('NeverRegisteredTarget')
+    public Target: SingleRelation<any>;
+  }
+
+  beforeEach(() => {
+    DI.uncache(Orm);
+  });
+
+  it('reads the wired TargetModel when the container has no Orm instance', () => {
+    const relation = extractModelDescriptor(LazyKeySource)!.Relations.get('Target')!;
+    relation.TargetModel = LazyKeyTarget as any;
+
+    expect(relation.PrimaryKey).to.equal('Id');
+  });
+
+  it('falls back to the source model key instead of throwing when the target cannot be resolved at all', () => {
+    const relation = extractModelDescriptor(UnwiredKeySource)!.Relations.get('Target')!;
+
+    expect(() => relation.PrimaryKey).to.not.throw();
+    expect(relation.PrimaryKey).to.equal('Id');
   });
 });
