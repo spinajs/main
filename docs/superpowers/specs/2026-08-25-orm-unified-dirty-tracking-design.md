@@ -25,7 +25,7 @@ Defects that follow from that split:
 7. `IsDirty = false` is a public reset that does not refresh the baseline — the model claims clean while the snapshot says dirty.
 8. `insert()` runs its reset before the query executes (`query.values()` returns the thenable builder; the caller awaits it).
 
-The motivating consumer, yourscreen-backend entity history, worked around all of this with `_dto_changes()` — a hand-rolled JSON-shape diff of a DTO against the live model, which must be called before `hydrate()` and reads the old value off the live entity (wrong for a JSON column mutated in place).
+The motivating consumer, yourscreen-backend entity history, worked around all of this with `_dto_changeSet()` — a hand-rolled JSON-shape diff of a DTO against the live model, which must be called before `hydrate()` and reads the old value off the live entity (wrong for a JSON column mutated in place).
 
 ## 2. Goals and non-goals
 
@@ -33,9 +33,9 @@ Goals:
 
 - One mechanism: the snapshot is the only state; every answer is derived from it on demand.
 - Every persist path and every read path ends by re-baselining. Nothing else touches the snapshot.
-- A public `changes()` that yields old and new values, so a consumer can record history without a private diff of its own.
+- A public `changeSet()` that yields old and new values, so a consumer can record history without a private diff of its own.
 - Delete the Proxy.
-- yourscreen-backend records entity history from `changes()`, drops `_dto_changes` and its own `IChangeValue`.
+- yourscreen-backend records entity history from `changeSet()`, drops `_dto_changes` and its own `IChangeValue`.
 
 Non-goals:
 
@@ -67,7 +67,7 @@ Public API (`IModelBase` in `interfaces.ts` updated to match):
 |---|---|
 | `get IsNew(): boolean` | `Snapshot === null` |
 | `get IsDirty(): boolean` | `IsNew \|\| diff(true).length > 0`. No setter. Short-circuits on the first differing column. |
-| `changes(): IModelChange[]` | Every persisted column whose live value differs from the baseline, in descriptor column order, followed by any `@BelongsTo` foreign key whose relation was re-pointed without a column write. On an `IsNew` model: every column, `OldValue: undefined`. |
+| `changeSet(): IModelChange[]` | Every persisted column whose live value differs from the baseline, in descriptor column order, followed by any `@BelongsTo` foreign key whose relation was re-pointed without a column write. On an `IsNew` model: every column, `OldValue: undefined`. |
 | `Snapshot`, `takeSnapshot()`, `snapshotRelation(name)`, `clearSnapshot()` | Unchanged. `takeSnapshot()` stays public — `rbac-http-token` `narrowRoles()` depends on it. |
 
 New exported interface in `snapshot.ts` (re-exported from `index.ts`):
@@ -100,7 +100,7 @@ Verified nothing else depends on the Proxy: no `isProxy` checks, the identity ma
 
 ### 3.2 The diff
 
-One private method computes everything; `IsDirty` and `changes()` are views over it.
+One private method computes everything; `IsDirty` and `changeSet()` are views over it.
 
 ```ts
 /** The single diff. `stopAtFirst` lets IsDirty short-circuit. */
@@ -140,7 +140,7 @@ private diff(stopAtFirst: boolean): IModelChange[] {
 
 public get IsNew(): boolean { return this.__snapshot__ === null; }
 public get IsDirty(): boolean { return this.IsNew || this.diff(true).length > 0; }
-public changes(): IModelChange[] { return this.diff(false); }
+public changeSet(): IModelChange[] { return this.diff(false); }
 ```
 
 `baselineValue()` is a small exported helper in `snapshot.ts` that maps the `UNCOPYABLE` marker to `undefined` so the Symbol never leaks into a change record; the column is still reported (the marker is never equal to anything), so the write is never lost.
@@ -150,7 +150,7 @@ Decisions baked in:
 - Foreign-key value is `Value.PrimaryKeyValue` whenever the relation holds a target, matching `StandardModelToSqlConverter` (`converters.ts:151`), and it overrides a direct column write — the diff must agree with the write path, and the write path lets the relation win. A relation holding `null` or `undefined` decides nothing; the column is authoritative.
 - Cascade insert still works: an attached but unsaved target has `PrimaryKeyValue === undefined`, unequal to any baseline, so the foreign key is reported changed — which is what `runUpdates` in `subject-executor.ts` relies on.
 - Amended during execution (Task 3 review): `SingleRelation.attach(obj)` also writes the owner's foreign-key column — the target's key, or `null` on detach — and `toSql()` writes `NULL` for a detached relation (`Value === null`) instead of falling back to the raw column. Without this a detach was never persisted and, with the diff driving `update()`, the relation (`null`) and the column/snapshot (old id) disagreed forever. A `populate()` that finds no row leaves the column untouched, so a read never becomes a change.
-- Primary-key columns are included in `changes()`. `update()` filters them from the SET list as today.
+- Primary-key columns are included in `changeSet()`. `update()` filters them from the SET list as today.
 - Cost: `IsDirty` on a clean hydrated model is one `snapshotEquals` per column (`===` for scalars, `_.isEqual` for JSON). Same work `classify()` already does per model on every `save()`.
 
 ### 3.3 Persist and read paths
@@ -161,23 +161,23 @@ Rule: a persist path re-baselines after the statement ran; a read path re-baseli
 |---|---|---|
 | `model.ts:26-38`, `:605` | `MODEL_PROXY_HANDLER`, `new Proxy(...)` | deleted |
 | `model.ts:73-95` | `__is_dirty__`, `IsDirty` get/set, `__dirty_props__` | `get IsDirty()` derived; `get IsNew()` added |
-| `model.ts:279-318`, `:333-339` | `changedColumns()`, `relationDirtyColumns()`, `markDirty()` | replaced by `diff()`, `changes()` |
+| `model.ts:279-318`, `:333-339` | `changedColumns()`, `relationDirtyColumns()`, `markDirty()` | replaced by `diff()`, `changeSet()` |
 | `model.ts:637`, `:664` `attach()` | `markDirty(fk)`, `IsDirty = true` | lines deleted — `Value` is the signal |
-| `model.ts:694-699` `toSql(onlyDirty)` | `_.pick(vals, __dirty_props__)` | `_.pick(vals, this.changes().map((c) => c.Column))` |
+| `model.ts:694-699` `toSql(onlyDirty)` | `_.pick(vals, __dirty_props__)` | `_.pick(vals, this.changeSet().map((c) => c.Column))` |
 | `model.ts:718` `destroy()` | `IsDirty = false` | line deleted; snapshot untouched |
 | `model.ts:730-735` `archive()` | writes all columns, no reset | `takeSnapshot()` after the awaited write |
-| `model.ts:757-790` `update()` | `union(changedColumns, relationDirtyColumns)`; `IsDirty = false` twice | `changes().map(...)`; `IsDirty` lines deleted; existing `takeSnapshot()` stays |
+| `model.ts:757-790` `update()` | `union(changedColumns, relationDirtyColumns)`; `IsDirty = false` twice | `changeSet().map(...)`; `IsDirty` lines deleted; existing `takeSnapshot()` stays |
 | `model.ts:846-851` `insert()` | `result = query.values(...); IsDirty = false; return result` | `result = await query.values(...); takeSnapshot(); return result` |
 | `model.ts:913-923` `refresh()` | `IsDirty = false` | `takeSnapshot()` |
 | `builders.ts:143` | `IsDirty = false` before `takeSnapshot()` | line deleted |
 | `subject-executor.ts:92`, `:117` | `IsDirty = false` before `takeSnapshot()` | lines deleted |
-| `subject-builder.ts:128` | `model.changedColumns()` | `model.changes().map((c) => c.Column)` |
+| `subject-builder.ts:128` | `model.changedColumns()` | `model.changeSet().map((c) => c.Column)` |
 | `subject-builder.ts:339-343` `classify()` | `Snapshot === null` / `changedColumns().length` | `IsNew` / `IsDirty` |
 | `relation-objects.ts:339-343` `SingleRelation.attach()` | `markDirty(fk)` / `IsDirty = true` | `this.Value = obj` and the owner's foreign-key column set to the target's key or `null` |
 | `converters.ts:149-157` `toSql()` One branch | null `Value` falls back to the raw column | `Value` target → its key; raw column when non-null; `NULL` when the relation is detached |
 | `relation-objects.ts:709` `Relation._update()` gate | `IsDirty \|\| PK null \|\| PK undefined` | `IsDirty` |
 | `metadata.ts:127` | `x.Value = value; x.IsDirty = true` | second line deleted |
-| `interfaces.ts:822-844` `IModelBase` | `IsDirty` writable, `changedColumns()`, `markDirty()` | `readonly IsDirty`, `readonly IsNew`, `changes()` |
+| `interfaces.ts:822-844` `IModelBase` | `IsDirty` writable, `changedColumns()`, `markDirty()` | `readonly IsDirty`, `readonly IsNew`, `changeSet()` |
 | `snapshot.ts`, `index.ts` | — | `IModelChange` added and exported |
 | `rbac-http-token/src/middlewares.ts:160` | `takeSnapshot()` | unchanged |
 | `unit-of-work.ts` | `clearSnapshot()`, direct `snapshotEquals` | unchanged |
@@ -194,15 +194,15 @@ Accepted loss: `SingleRelation.attach()` on a `RelationType.Query` relation (no 
 - `update(data)` hydrates first, then diffs — unchanged. `UpdatedAt` is added after the change set is computed and lands in the post-write snapshot — unchanged.
 - `insert()` with `InsertOrUpdate`: no `RETURNING`; the key is backfilled from `LastInsertId` only when missing. The snapshot is taken after that middleware ran.
 - In-place JSON mutation is caught by the deep-cloned baseline and `_.isEqual`. This is now the only path that catches it.
-- Docs carry cost guidance: call `changes()` once and reuse rather than polling `IsDirty` in a loop over large JSON models.
+- Docs carry cost guidance: call `changeSet()` once and reuse rather than polling `IsDirty` in a loop over large JSON models.
 
 ### 3.5 Documentation
 
-- `orm/docs/05-instance-api.md`: constructor note (no Proxy), "Dirty tracking and snapshots" rewritten around `IsNew` / `IsDirty` / `changes()`, `update()`, `insert()`, `refresh()`, `archive()`, `toSql(onlyDirty)`.
+- `orm/docs/05-instance-api.md`: constructor note (no Proxy), "Dirty tracking and snapshots" rewritten around `IsNew` / `IsDirty` / `changeSet()`, `update()`, `insert()`, `refresh()`, `archive()`, `toSql(onlyDirty)`.
 - `orm/docs/07-relations.md`: `attach()` row, `update()` row, the populate note at `:494`, the Query-relation loss.
 - `orm/docs/08-unit-of-work.md`: classification table (`IsNew` / `IsDirty`), the `changedColumns()` mention at `:354`.
 - `orm/docs/12-architecture.md:46`: hydration line.
-- `RELEASE_NOTES.md`: BREAKING CHANGES entry — `markDirty()`, `changedColumns()`, the `IsDirty` setter and the Proxy removed; `IsDirty` true on new models; `IsNew` and `changes()` added; `insert()`, `refresh()`, `archive()` re-baseline. No manual version bump: CI cuts `2.0.x`.
+- `RELEASE_NOTES.md`: BREAKING CHANGES entry — `markDirty()`, `changedColumns()`, the `IsDirty` setter and the Proxy removed; `IsDirty` true on new models; `IsNew` and `changeSet()` added; `insert()`, `refresh()`, `archive()` re-baseline. No manual version bump: CI cuts `2.0.x`.
 
 ## 4. ORM tests
 
@@ -212,20 +212,20 @@ Rewrite, not patch: the deleted tests asserted the mechanism (`__dirty_props__` 
 
 - `IsNew` true on `new Model()`, false after `takeSnapshot()`, true after `clearSnapshot()`.
 - `IsDirty` true on a new model; false right after `takeSnapshot()`; true after a column write; false again after writing the original back.
-- `changes()` returns `{ Column, OldValue, NewValue }` for exactly the differing columns, in descriptor order.
-- `changes()` on an `IsNew` model: every column, `OldValue: undefined`.
+- `changeSet()` returns `{ Column, OldValue, NewValue }` for exactly the differing columns, in descriptor order.
+- `changeSet()` on an `IsNew` model: every column, `OldValue: undefined`.
 - `DateTime` compared by instant, `Buffer` by bytes, JSON column by deep equality including in-place mutation.
 - `UNCOPYABLE` column: reported, `OldValue` undefined.
-- `toSql(true)` narrowed to `changes()` columns.
+- `toSql(true)` narrowed to `changeSet()` columns.
 - `IsDirty` has no setter: assignment throws in strict mode.
 
 `orm/test/model.test.ts`: "a query-produced model records a dirty prop exactly once" and "refresh clears dirty state" become: a query-produced model is clean; after `refresh()` `IsDirty === false` and `Snapshot` holds the fresh values (defect 3, refresh side).
 
-`orm-sqlite/test/markDirty.test.ts` → renamed `attachDiff.test.ts`: `attach()` makes `changes()` contain the foreign key with the target's primary key as `NewValue`; repeated attach reports it once; `detach()` reports `null`; attaching an unsaved target reports the key (cascade case); `attach()` source contains no `__dirty_props__`.
+`orm-sqlite/test/markDirty.test.ts` → renamed `attachDiff.test.ts`: `attach()` makes `changeSet()` contain the foreign key with the target's primary key as `NewValue`; repeated attach reports it once; `detach()` reports `null`; attaching an unsaved target reports the key (cascade case); `attach()` source contains no `__dirty_props__`.
 
 `orm-sqlite/test/attach.test.ts:44-55`: same rewrite for the `ModelBase.attach()` path.
 
-`orm-sqlite/test/snapshotCapture.test.ts`, `uowExecutor.test.ts`, `uowSubject.test.ts`: `IsDirty === false` and `changedColumns()` assertions become `IsDirty` / `changes()`. Add: `insert()` then `update()` on the same instance emits an UPDATE with only the changed column (defect 3, insert side).
+`orm-sqlite/test/snapshotCapture.test.ts`, `uowExecutor.test.ts`, `uowSubject.test.ts`: `IsDirty === false` and `changedColumns()` assertions become `IsDirty` / `changeSet()`. Add: `insert()` then `update()` on the same instance emits an UPDATE with only the changed column (defect 3, insert side).
 
 ## 5. yourscreen-backend consumer
 
@@ -278,7 +278,7 @@ Chain step in `Emit.ts`; replaces `_update()` wherever history is recorded:
 export function _update_tracked(tag: string, opts?: IEmitOptions) {
   return async <T extends ModelBase>(model: T): Promise<T> => {
     // Diff BEFORE update(): a successful update re-baselines the snapshot and the diff is gone.
-    const changes = model.changes();
+    const changes = model.changeSet();
     const event = changes.length > 0
       ? _entity_changed(changeResourceOf(model), model.PrimaryKeyValue, tag, changes, opts)
       : null;
@@ -332,7 +332,7 @@ Behaviour change, accepted: `updateCampaign` today persists its step synchronous
 
 ### 5.5 README
 
-`features/src/entity-history/README.md`, "Producing events from an action": rewritten around `@ChangeTracked` + `_update_tracked` with the ordering rule (diff before `update()`, emit after). `_entity_changed` documented as the builder for synthetic steps only. The "FK re-pointed through a relation" limitation is deleted — `changes()` reports it.
+`features/src/entity-history/README.md`, "Producing events from an action": rewritten around `@ChangeTracked` + `_update_tracked` with the ordering rule (diff before `update()`, emit after). `_entity_changed` documented as the builder for synthetic steps only. The "FK re-pointed through a relation" limitation is deleted — `changeSet()` reports it.
 
 ## 6. Consumer tests
 
@@ -353,10 +353,11 @@ Behaviour change, accepted: `updateCampaign` today persists its step synchronous
 | Question | Decision |
 |---|---|
 | Break policy | Clean cut, one change, tests rewritten. No shims. |
-| Public surface | `IsNew`, derived `IsDirty`, `changes()`. `changedColumns()` and `markDirty()` deleted. |
+| Public surface | `IsNew`, derived `IsDirty`, `changeSet()`. `changedColumns()` and `markDirty()` deleted. |
 | Approach | Pure derived diff (no write observer). Write-invalidated cache and baseline-at-construction rejected. |
 | Proxy | Dropped entirely. |
 | Scope | ORM and the yourscreen-backend consumer in one spec. |
 | Spec location | spinajs repo. |
 | Resource binding | `@ChangeTracked(resource)` decorator on the model. |
 | Write step | The combinator writes: `_update_tracked(tag, opts)` = diff → `update()` → emit. |
+| Method name | `changeSet()` — the approved `changes()` collided with the real `entity_change.changes` column (Task 6 blocker); model members and columns share one namespace. |

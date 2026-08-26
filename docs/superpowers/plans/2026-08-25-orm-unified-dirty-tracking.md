@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Collapse `ModelBase`'s three change-tracking mechanisms (Proxy dirty list, snapshot diff, implicit "persisted" flag) into one snapshot-derived API — `IsNew`, `IsDirty`, `changes()` — and make yourscreen-backend record entity history from it through `@ChangeTracked` + `_update_tracked`.
+**Goal:** Collapse `ModelBase`'s three change-tracking mechanisms (Proxy dirty list, snapshot diff, implicit "persisted" flag) into one snapshot-derived API — `IsNew`, `IsDirty`, `changeSet()` — and make yourscreen-backend record entity history from it through `@ChangeTracked` + `_update_tracked`.
 
-**Architecture:** One private field, `__snapshot__`, is the only state; `IsNew`, `IsDirty` and `changes()` are computed from it on demand, and every read/write path ends in `takeSnapshot()`. The Proxy, `__dirty_props__`, `markDirty()`, `changedColumns()` and the `IsDirty` setter are deleted. The backend gains a `@ChangeTracked(resource)` model decorator and an FP chain step `_update_tracked(tag, opts)` = diff → `update()` → emit, replacing the hand-rolled `_dto_changes`.
+**Architecture:** One private field, `__snapshot__`, is the only state; `IsNew`, `IsDirty` and `changeSet()` are computed from it on demand, and every read/write path ends in `takeSnapshot()`. The Proxy, `__dirty_props__`, `markDirty()`, `changedColumns()` and the `IsDirty` setter are deleted. The backend gains a `@ChangeTracked(resource)` model decorator and an FP chain step `_update_tracked(tag, opts)` = diff → `update()` → emit, replacing the hand-rolled `_dto_changes`.
 
 **Tech Stack:** TypeScript (ESM), `@spinajs/orm` 2.0.x monorepo (mocha + chai + sinon, `ts-mocha`), sqlite integration suite in `packages/orm-sqlite`; yourscreen-backend monorepo (`common` → `features` → `backend`, mocha over a local MySQL stack).
 
@@ -106,7 +106,7 @@ git commit -m "feat(orm): IModelChange and baselineValue snapshot primitives"
 
 ---
 
-## Task 2: `IsNew`, `changes()` and the single diff on `ModelBase` (additive)
+## Task 2: `IsNew`, `changeSet()` and the single diff on `ModelBase` (additive)
 
 The old members stay in this task so the package keeps compiling; they go in Task 4.
 
@@ -117,7 +117,7 @@ The old members stay in this task so the package keeps compiling; they go in Tas
 
 **Interfaces:**
 - Consumes: `IModelChange`, `baselineValue` (Task 1); existing `snapshotEquals`, `snapshotColumns()`, `RelationType` (already imported in `model.ts`).
-- Produces on `ModelBase` / `IModelBase`: `readonly IsNew: boolean`, `changes(): IModelChange[]`, and `private diff(stopAtFirst: boolean): IModelChange[]`.
+- Produces on `ModelBase` / `IModelBase`: `readonly IsNew: boolean`, `changeSet(): IModelChange[]`, and `private diff(stopAtFirst: boolean): IModelChange[]`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -142,27 +142,27 @@ and add these cases inside `describe('ModelBase snapshot', ...)`, before its clo
     expect(m.IsNew).to.equal(true);
   });
 
-  it('changes() reports every column with OldValue undefined when there is no snapshot', () => {
+  it('changeSet() reports every column with OldValue undefined when there is no snapshot', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
 
-    const changes = m.changes();
+    const changes = m.changeSet();
 
     expect(changes.find((c) => c.Column === 'Bar')).to.deep.equal({ Column: 'Bar', OldValue: undefined, NewValue: 'x' });
     expect(changes.map((c) => c.Column)).to.include('Id');
   });
 
-  it('changes() is empty right after takeSnapshot', () => {
+  it('changeSet() is empty right after takeSnapshot', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
     m.takeSnapshot();
 
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 
-  it('changes() names exactly the differing columns with old and new values', () => {
+  it('changeSet() names exactly the differing columns with old and new values', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
@@ -170,10 +170,10 @@ and add these cases inside `describe('ModelBase snapshot', ...)`, before its clo
 
     m.Bar = 'y';
 
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: 'x', NewValue: 'y' }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: 'x', NewValue: 'y' }]);
   });
 
-  it('changes() ignores a write that restores the original value', () => {
+  it('changeSet() ignores a write that restores the original value', () => {
     const m = new Model1();
     m.Bar = 'x';
     m.takeSnapshot();
@@ -181,44 +181,44 @@ and add these cases inside `describe('ModelBase snapshot', ...)`, before its clo
     m.Bar = 'y';
     m.Bar = 'x';
 
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 
-  it('changes() sees an in-place mutation of a mutable column value', () => {
+  it('changeSet() sees an in-place mutation of a mutable column value', () => {
     const m = new Model1() as any;
     m.Bar = { tags: ['a'] };
     m.takeSnapshot();
 
     m.Bar.tags.push('b');
 
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: { tags: ['a'] }, NewValue: { tags: ['a', 'b'] } }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: { tags: ['a'] }, NewValue: { tags: ['a', 'b'] } }]);
   });
 
-  it('changes() compares DateTime by instant, not identity', () => {
+  it('changeSet() compares DateTime by instant, not identity', () => {
     const m = new Model1() as any;
     m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
     m.takeSnapshot();
 
     m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
 
     m.Bar = DateTime.fromISO('2021-01-01T00:00:00.000Z');
-    expect(m.changes().map((c) => c.Column)).to.deep.equal(['Bar']);
+    expect(m.changeSet().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 
-  it('changes() compares a Buffer by content', () => {
+  it('changeSet() compares a Buffer by content', () => {
     const m = new Model1() as any;
     m.Bar = Buffer.from('ab');
     m.takeSnapshot();
 
     m.Bar = Buffer.from('ab');
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
 
     m.Bar = Buffer.from('ac');
-    expect(m.changes().map((c) => c.Column)).to.deep.equal(['Bar']);
+    expect(m.changeSet().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 
-  it('changes() reports an UNCOPYABLE baseline as changed, with OldValue undefined', () => {
+  it('changeSet() reports an UNCOPYABLE baseline as changed, with OldValue undefined', () => {
     class Opaque {
       constructor(public v: number) {}
     }
@@ -227,36 +227,36 @@ and add these cases inside `describe('ModelBase snapshot', ...)`, before its clo
     m.takeSnapshot();
 
     expect(m.Snapshot!.Columns.get('Bar')).to.equal(UNCOPYABLE);
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: undefined, NewValue: m.Bar }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: undefined, NewValue: m.Bar }]);
   });
 
-  it('changes() reports a belongsTo foreign key re-pointed through the relation', () => {
+  it('changeSet() reports a belongsTo foreign key re-pointed through the relation', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     m.Owner.attach(new Model4({ Id: 2 }));
 
-    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: 2 }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: 2 }]);
   });
 
-  it('changes() reports a detached belongsTo as a change to null', () => {
+  it('changeSet() reports a detached belongsTo as a change to null', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     m.Owner.detach();
 
-    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: null }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: null }]);
   });
 
-  it('changes() does not report a belongsTo that was never attached or populated', () => {
+  it('changeSet() does not report a belongsTo that was never attached or populated', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     expect(m.Owner.Value).to.equal(undefined);
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 ```
 
@@ -295,7 +295,7 @@ Directly after the `clearSnapshot()` method (ends `this.__snapshot__ = null; }`)
    * seen exactly like an assignment. Call it once and reuse the result rather than polling it
    * in a loop.
    */
-  public changes(): IModelChange[] {
+  public changeSet(): IModelChange[] {
     return this.diff(false);
   }
 
@@ -365,7 +365,7 @@ and after the `changedColumns(): string[];` member add:
 
 ```ts
   /** Column-level differences between the baseline and the current values, old and new. */
-  changes(): IModelChange[];
+  changeSet(): IModelChange[];
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -377,14 +377,14 @@ Expected: all passing (the pre-existing `changedColumns`/`markDirty` cases still
 
 ```bash
 git add packages/orm/src/model.ts packages/orm/src/interfaces.ts packages/orm/test/modelSnapshot.test.ts
-git commit -m "feat(orm): IsNew and changes() derived from the snapshot"
+git commit -m "feat(orm): IsNew and changeSet() derived from the snapshot"
 ```
 
 ---
 
 ## Task 3: Every write path uses the diff and re-baselines
 
-`insert()`, `refresh()` and `archive()` gain `takeSnapshot()`; `update()`, `toSql(onlyDirty)`, the subject builder and the relation update gate read `changes()` / `IsNew`. The `IsDirty = false` resets stay for now (Task 4 deletes them with the setter).
+`insert()`, `refresh()` and `archive()` gain `takeSnapshot()`; `update()`, `toSql(onlyDirty)`, the subject builder and the relation update gate read `changeSet()` / `IsNew`. The `IsDirty = false` resets stay for now (Task 4 deletes them with the setter).
 
 **Files:**
 - Modify: `packages/orm/src/model.ts` — `toSql()` (~694), `archive()` (~727), `update()` docblock + body (~737-790), `insert()` tail (~846-851), `refresh()` (~913-923)
@@ -394,7 +394,7 @@ git commit -m "feat(orm): IsNew and changes() derived from the snapshot"
 - Create: `packages/orm-sqlite/test/rebaseline.test.ts`
 
 **Interfaces:**
-- Consumes: `IsNew`, `changes()` (Task 2).
+- Consumes: `IsNew`, `changeSet()` (Task 2).
 - Produces: `insert()` now awaits its statement and returns the resolved insert result; after `insert()` / `refresh()` / `archive()` the model has a fresh snapshot.
 
 - [ ] **Step 1: Write the failing tests**
@@ -425,7 +425,7 @@ describe('re-baseline after insert / refresh', function () {
 
     expect(order.IsNew).to.equal(false);
     expect(order.Snapshot!.Columns.get('Id')).to.equal(order.Id);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('update() after insert() on the same instance writes only the changed column', async () => {
@@ -458,7 +458,7 @@ describe('re-baseline after insert / refresh', function () {
 
     expect(order.Total).to.equal(55);
     expect(order.Snapshot!.Columns.get('Total')).to.equal(55);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 });
 ```
@@ -478,7 +478,7 @@ In `packages/orm/test/model.test.ts` replace the test `'refresh clears dirty sta
     expect(model.IsDirty).to.be.false;
     expect(model.Snapshot).to.not.equal(null);
     expect(model.Snapshot!.Columns.get('Bar')).to.eq('refreshed');
-    expect(model.changes()).to.deep.equal([]);
+    expect(model.changeSet()).to.deep.equal([]);
   });
 ```
 
@@ -501,7 +501,7 @@ Expected: first case fails with `expected true to equal false` (no snapshot afte
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
 
     if (onlyDirty) {
-      return _.pick(vals, this.changes().map((c) => c.Column));
+      return _.pick(vals, this.changeSet().map((c) => c.Column));
     }
 
     return vals;
@@ -525,7 +525,7 @@ Expected: first case fails with `expected true to equal false` (no snapshot afte
   /**
    * Writes the columns that differ from the snapshot.
    *
-   * The change set is `changes()` - the snapshot diff, which also covers a foreign key that was
+   * The change set is `changeSet()` - the snapshot diff, which also covers a foreign key that was
    * re-pointed through its relation - so re-assigning a column its current value produces no
    * UPDATE, and a column written A -> B -> A is not written back.
    *
@@ -545,7 +545,7 @@ Expected: first case fails with `expected true to equal false` (no snapshot afte
     }
 
     const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
-    const changed = this.changes()
+    const changed = this.changeSet()
       .map((c) => c.Column)
       .filter((c) => !keyColumns.includes(c));
 ```
@@ -588,7 +588,7 @@ with
 `packages/orm/src/subject-builder.ts` line 128:
 
 ```ts
-        subject.ChangedColumns = model.changes().map((c) => c.Column);
+        subject.ChangedColumns = model.changeSet().map((c) => c.Column);
 ```
 
 and `classify()`:
@@ -606,7 +606,7 @@ function classify(model: ModelBase): SubjectOperation {
     return SubjectOperation.Insert;
   }
 
-  return model.changes().length > 0 ? SubjectOperation.Update : SubjectOperation.None;
+  return model.changeSet().length > 0 ? SubjectOperation.Update : SubjectOperation.None;
 }
 ```
 
@@ -630,7 +630,7 @@ Expected: all passing, including `rebaseline.test.ts`.
 
 ```bash
 git add packages/orm/src packages/orm/test/model.test.ts packages/orm-sqlite/test/rebaseline.test.ts
-git commit -m "fix(orm): write paths read changes() and re-baseline after insert, refresh and archive"
+git commit -m "fix(orm): write paths read changeSet() and re-baseline after insert, refresh and archive"
 ```
 
 ---
@@ -650,17 +650,17 @@ git commit -m "fix(orm): write paths read changes() and re-baseline after insert
 - Test (rewrite): `packages/orm-sqlite/test/markDirty.test.ts` → `packages/orm-sqlite/test/attachDiff.test.ts`, `packages/orm-sqlite/test/attach.test.ts:44-55`, `packages/orm-sqlite/test/snapshotCapture.test.ts:43,53,62`, `packages/orm-sqlite/test/uowExecutor.test.ts:55,163`
 
 **Interfaces:**
-- Consumes: `IsNew`, `changes()`, `diff()` (Task 2).
+- Consumes: `IsNew`, `changeSet()`, `diff()` (Task 2).
 - Produces: `readonly IsDirty: boolean` (getter only); `markDirty`, `relationDirtyColumns`, `changedColumns`, the `IsDirty` setter and the constructor Proxy no longer exist. `SingleRelation.attach(obj)` now also writes the owner's foreign-key column (target key, or `null`); `toSql()` writes `NULL` for a detached relation and keeps the raw column for a relation that was never attached or whose `populate()` found no row.
 
-Why the write-path fix lives here (decided during execution, after the Task 3 review): `toSql()` treated a detached relation (`Value === null`) like an untouched one and wrote the old key back, so `detach()` + `update()` and `SingleRelation.remove()` never cleared the foreign key — and once `changes()` drives `update()`, the relation (`null`) and the column/snapshot (old id) disagree forever and the model never converges. The column must follow the relation and the write path must honour a detach.
+Why the write-path fix lives here (decided during execution, after the Task 3 review): `toSql()` treated a detached relation (`Value === null`) like an untouched one and wrote the old key back, so `detach()` + `update()` and `SingleRelation.remove()` never cleared the foreign key — and once `changeSet()` drives `update()`, the relation (`null`) and the column/snapshot (old id) disagree forever and the model never converges. The column must follow the relation and the write path must honour a detach.
 
 - [ ] **Step 1: Write the failing tests (unit)**
 
 `packages/orm/test/modelSnapshot.test.ts`:
 
-1. In `'takeSnapshot skips Virtual columns, ...'` replace `expect(m.changedColumns()).to.not.include('Owner');` with `expect(m.changes().map((c) => c.Column)).to.not.include('Owner');`.
-2. Delete these seven cases outright (Task 2 added their `changes()` equivalents): `'changedColumns is empty right after takeSnapshot'`, `'changedColumns names only the columns that actually differ'`, `'changedColumns ignores a write that restores the original value'`, `'changedColumns compares DateTime by instant, not identity'`, `'changedColumns lists every column when there is no snapshot'`, `'markDirty records the property and flips IsDirty'`, `'markDirty does not record the same property twice'`.
+1. In `'takeSnapshot skips Virtual columns, ...'` replace `expect(m.changedColumns()).to.not.include('Owner');` with `expect(m.changeSet().map((c) => c.Column)).to.not.include('Owner');`.
+2. Delete these seven cases outright (Task 2 added their `changeSet()` equivalents): `'changedColumns is empty right after takeSnapshot'`, `'changedColumns names only the columns that actually differ'`, `'changedColumns ignores a write that restores the original value'`, `'changedColumns compares DateTime by instant, not identity'`, `'changedColumns lists every column when there is no snapshot'`, `'markDirty records the property and flips IsDirty'`, `'markDirty does not record the same property twice'`.
 3. Add before the closing `});` of the describe:
 
 ```ts
@@ -715,7 +715,7 @@ Why the write-path fix lives here (decided during execution, after the Task 3 re
     expect(util.types.isProxy(m)).to.equal(false);
   });
 
-  it('toSql(true) is narrowed to the columns changes() reports', () => {
+  it('toSql(true) is narrowed to the columns changeSet() reports', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
@@ -750,7 +750,7 @@ and add `import util from 'node:util';` to the imports.
 
     model.Bar = 'changed';
 
-    expect(model.changes().map((c) => c.Column)).to.deep.equal(['Bar']);
+    expect(model.changeSet().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 ```
 
@@ -771,7 +771,7 @@ and at line 1437 replace `model.IsDirty = false;` with `model.takeSnapshot();`.
 
     expect(existing.value).to.eq('new');
     expect(existing.IsDirty).to.be.true;
-    expect(existing.changes()).to.deep.equal([{ Column: 'value', OldValue: 'old', NewValue: 'new' }]);
+    expect(existing.changeSet()).to.deep.equal([{ Column: 'value', OldValue: 'old', NewValue: 'new' }]);
   });
 
   it('Should NOT report a change when the value is unchanged', async () => {
@@ -828,7 +828,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.attach(target);
 
     expect(item.IsDirty).to.equal(true);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
   });
 
   it('reports the foreign key once across repeated attaches', async () => {
@@ -838,7 +838,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.attach(target);
     item.Order.attach(target);
 
-    expect(item.changes().filter((c) => c.Column === 'order_id')).to.have.length(1);
+    expect(item.changeSet().filter((c) => c.Column === 'order_id')).to.have.length(1);
   });
 
   it('reports an attached target that is not saved yet, so a cascade can insert it first', async () => {
@@ -846,7 +846,7 @@ describe('SingleRelation.attach change tracking', function () {
 
     item.Order.attach(new UowOrder({ Total: 9 }));
 
-    const change = item.changes().find((c) => c.Column === 'order_id');
+    const change = item.changeSet().find((c) => c.Column === 'order_id');
     expect(change).to.not.equal(undefined);
     expect(change!.OldValue).to.equal(1);
     expect(change!.NewValue).to.equal(undefined);
@@ -858,7 +858,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.detach();
 
     expect(item.IsDirty).to.equal(true);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: null }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: null }]);
     expect((item.Order as any).Value).to.equal(null);
   });
 
@@ -893,13 +893,13 @@ describe('SingleRelation.attach change tracking', function () {
     item.attach(order);
 
     expect((item.Order as any).Value).to.equal(order);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 5, NewValue: 7 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 5, NewValue: 7 }]);
   });
 ```
 
-`packages/orm-sqlite/test/snapshotCapture.test.ts`: line 43 `expect(item.changedColumns()).to.deep.equal([]);` → `expect(item.changes()).to.deep.equal([]);`; line 53 `expect(item.changedColumns()).to.deep.equal(['Val']);` → `expect(item.changes().map((c) => c.Column)).to.deep.equal(['Val']);`; line 62 `expect(c.changedColumns()).to.deep.equal([]);` → `expect(c.changes()).to.deep.equal([]);`.
+`packages/orm-sqlite/test/snapshotCapture.test.ts`: line 43 `expect(item.changedColumns()).to.deep.equal([]);` → `expect(item.changeSet()).to.deep.equal([]);`; line 53 `expect(item.changedColumns()).to.deep.equal(['Val']);` → `expect(item.changeSet().map((c) => c.Column)).to.deep.equal(['Val']);`; line 62 `expect(c.changedColumns()).to.deep.equal([]);` → `expect(c.changeSet()).to.deep.equal([]);`.
 
-`packages/orm-sqlite/test/uowExecutor.test.ts`: lines 55 and 163 `expect(order.changedColumns()).to.deep.equal([]);` → `expect(order.changes()).to.deep.equal([]);`.
+`packages/orm-sqlite/test/uowExecutor.test.ts`: lines 55 and 163 `expect(order.changedColumns()).to.deep.equal([]);` → `expect(order.changeSet()).to.deep.equal([]);`.
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
@@ -1022,7 +1022,7 @@ and in `_update()` the filter becomes `const dirty = this.filter((x) => x.IsDirt
             });
 ```
 
-`packages/orm/src/subject-executor.ts` `updatePayload()` (~line 139): `const changed = subject.Model.changedColumns().filter((c) => !keyColumns.includes(c));` → `const changed = subject.Model.changes().map((c) => c.Column).filter((c) => !keyColumns.includes(c));`; in the `runUpdates()` doc comment (~line 102) replace `` `changedColumns()` `` with `` `changes()` ``.
+`packages/orm/src/subject-executor.ts` `updatePayload()` (~line 139): `const changed = subject.Model.changedColumns().filter((c) => !keyColumns.includes(c));` → `const changed = subject.Model.changeSet().map((c) => c.Column).filter((c) => !keyColumns.includes(c));`; in the `runUpdates()` doc comment (~line 102) replace `` `changedColumns()` `` with `` `changeSet()` ``.
 
 - [ ] **Step 5b: Write the failing tests — detach must persist and converge**
 
@@ -1044,7 +1044,7 @@ Append to `packages/orm-sqlite/test/attachDiff.test.ts` (inside the describe; ad
 
     expect((await rows('uow_order'))[0].client_id).to.equal(null);
     expect(order.IsDirty).to.equal(false);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('remove() deletes the target and clears the foreign key', async () => {
@@ -1203,7 +1203,7 @@ last read from or written to the database. Everything else is derived from it on
 | `Snapshot` | The baseline, or `null` for a model that has never been in the database. Read-only. |
 | `IsNew` | `Snapshot === null`. This — not the absence of a primary key — is what classifies a model as an INSERT, because `setDefaults()` pre-fills `@Uuid` keys at construction. |
 | `IsDirty` | `IsNew`, or at least one column differs from the baseline. Derived on every read; no setter. |
-| `changes()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order, followed by any `@BelongsTo` foreign key re-pointed through its relation. On an `IsNew` model: every column, `OldValue: undefined`. |
+| `changeSet()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order, followed by any `@BelongsTo` foreign key re-pointed through its relation. On an `IsNew` model: every column, `OldValue: undefined`. |
 | `takeSnapshot()` | Capture current column values as the baseline. Values are **copied**, never aliased. |
 | `snapshotRelation(name)` | Record the current member primary keys of one relation. No-op without a snapshot. |
 | `clearSnapshot()` | Discard the baseline. The model is then `IsNew` again — an INSERT. |
@@ -1214,8 +1214,8 @@ column (`model.Tags.push('x')`) **is** one. `snapshotEquals` compares `DateTime`
 `Buffer` by bytes and objects by deep equality; a converter can supply its own hooks
 (`11-converters-and-hydration.md`).
 
-`IsDirty` costs one comparison per column until the first difference, and `changes()` compares
-every column. Call `changes()` once and reuse the result rather than polling `IsDirty` in a loop
+`IsDirty` costs one comparison per column until the first difference, and `changeSet()` compares
+every column. Call `changeSet()` once and reuse the result rather than polling `IsDirty` in a loop
 over models with large JSON columns.
 
 Every write path re-baselines after its statement ran — `insert()`, `update()`, `archive()`,
@@ -1253,11 +1253,11 @@ export async function tracking() {
 
   const originalName = user.Name;
   user.Name = 'Changed';
-  user.changes();          // [{ Column: 'Name', OldValue: originalName, NewValue: 'Changed' }]
+  user.changeSet();          // [{ Column: 'Name', OldValue: originalName, NewValue: 'Changed' }]
 
   user.Name = originalName;
   user.IsDirty;            // false — net change is nothing
-  user.changes();          // []
+  user.changeSet();          // []
 
   await user.update();     // issues no statement
 }
@@ -1275,7 +1275,7 @@ same instance writes only what changed since.
 Replace the body of `### \`update(data?)\`` (lines 219-226) with:
 
 ```
-Hydrates `data` when given, then writes the columns `changes()` reports — including a foreign key
+Hydrates `data` when given, then writes the columns `changeSet()` reports — including a foreign key
 re-pointed through a relation. Primary key columns are excluded from the `SET` list.
 
 When nothing changed it returns `{ RowsAffected: 0, LastInsertId: 0 }` without touching the
@@ -1300,12 +1300,12 @@ the baseline is what the database holds. Use `save({ reload: true })` when you n
 against current database state without discarding your in-memory edits.
 ```
 
-In `### \`toSql(onlyDirty?)\`` replace "With `onlyDirty` it is narrowed to `__dirty_props__` — the *dirty list*, not the snapshot diff." with "With `onlyDirty` it is narrowed to the columns `changes()` reports."
+In `### \`toSql(onlyDirty?)\`` replace "With `onlyDirty` it is narrowed to `__dirty_props__` — the *dirty list*, not the snapshot diff." with "With `onlyDirty` it is narrowed to the columns `changeSet()` reports."
 
 - [ ] **Step 2: `07-relations.md`, `08-unit-of-work.md`, `12-architecture.md`**
 
 `07-relations.md`:
-- line 352 → `| \`attach(obj \| null)\` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL). No database access; the owner's \`changes()\` then reports the key. |`
+- line 352 → `| \`attach(obj \| null)\` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL). No database access; the owner's \`changeSet()\` then reports the key. |`
 - line 424 → `| \`update()\` | Insert-or-update every member that is \`IsDirty\` (new, or changed since it was loaded), in one transaction. |`
 - lines 470-473 → 
 
@@ -1322,7 +1322,7 @@ unsaved changes — feed every sibling relation" with "Attaching would feed ever
 `08-unit-of-work.md`:
 - line 200 → `| \`Insert\` | \`model.IsNew\` — never in the database. |`
 - line 201 → `| \`Update\` | \`model.IsDirty\` — the snapshot diff is non-empty. |`
-- line 354: `changedColumns()` → `changes()`.
+- line 354: `changedColumns()` → `changeSet()`.
 
 `12-architecture.md` line 46 → `  │     │           → model.hydrate(row); takeSnapshot()`.
 
@@ -1346,15 +1346,15 @@ every write is the only state; everything is derived from it.
 | Removed | Use instead |
 |---|---|
 | `IsDirty` setter (`model.IsDirty = false`) | Persist the model, or `takeSnapshot()` to re-baseline by hand. |
-| `markDirty(prop)` | Nothing — `attach()` / `detach()` are visible to `changes()` directly. |
-| `changedColumns()` | `changes().map((c) => c.Column)` |
+| `markDirty(prop)` | Nothing — `attach()` / `detach()` are visible to `changeSet()` directly. |
+| `changedColumns()` | `changeSet().map((c) => c.Column)` |
 | The constructor's `Proxy` | Nothing — `new Model()` returns the plain instance. |
 
 Behaviour changes:
 
 - `IsDirty` is `true` for a model that has never been in the database (`IsNew`), and `false`
   again when a write restores the original value. It is computed on every read.
-- `IsNew` and `changes(): IModelChange[]` (`{ Column, OldValue, NewValue }`) are new.
+- `IsNew` and `changeSet(): IModelChange[]` (`{ Column, OldValue, NewValue }`) are new.
 - `insert()`, `refresh()` and `archive()` take a fresh snapshot after their statement, so a
   following `update()` on the same instance writes only what changed since. `insert()` now awaits
   its statement internally.
@@ -1698,7 +1698,7 @@ git commit -m "feat(entity-history): @ChangeTracked declares a model's history r
 - Test: `packages/backend/test/features/entity-history/update-tracked.test.ts`
 
 **Interfaces:**
-- Consumes: `changeResourceOf` (Task 7), `ModelBase.changes()` / `update()` (Tasks 2-4), `_entity_changed`, `_ev` from `@spinajs/queue`, `_chain` from `@spinajs/util`.
+- Consumes: `changeResourceOf` (Task 7), `ModelBase.changeSet()` / `update()` (Tasks 2-4), `_entity_changed`, `_ev` from `@spinajs/queue`, `_chain` from `@spinajs/util`.
 - Produces: `_update_tracked(tag: string, opts?: IEmitOptions): <T extends ModelBase>(model: T) => Promise<T>`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1757,7 +1757,7 @@ describe('_update_tracked', function () {
 
     expect(result).to.equal(group);
     expect((await EntriesGroup.getOrFail(group.id)).name).to.equal(newName);
-    expect(group.changes()).to.deep.equal([]);
+    expect(group.changeSet()).to.deep.equal([]);
 
     const events = emitted();
     expect(events).to.have.length(1);
@@ -1828,7 +1828,7 @@ and after `_entity_changed` add:
  * Chain step that persists a mutated model and records what the write changed - one step, so the
  * ordering the history depends on cannot be got wrong at a call site:
  *
- * 1. `changes()` is read BEFORE `update()`: a successful update re-baselines the snapshot, and
+ * 1. `changeSet()` is read BEFORE `update()`: a successful update re-baselines the snapshot, and
  *    the diff is gone.
  * 2. `update()` runs.
  * 3. The `EntityChanged` is emitted only once the write landed. A step describing a write that
@@ -1840,7 +1840,7 @@ and after `_entity_changed` add:
  */
 export function _update_tracked(tag: string, opts?: IEmitOptions) {
   return async <T extends ModelBase>(model: T): Promise<T> => {
-    const changes = model.changes();
+    const changes = model.changeSet();
     const event = changes.length > 0 ? _entity_changed(changeResourceOf(model), model.PrimaryKeyValue, tag, changes, opts) : null;
 
     await model.update();
@@ -1987,7 +1987,7 @@ git commit -m "refactor(player-content): record group and entry history through 
 
 ## Task 10: Comment updates use `_update_tracked`; comment tests move to the database harness
 
-`fakeComment()` (`test/campaigns/helpers.ts`) builds its comment with `Object.create(prototype)` and no ORM boot: no snapshot field, no column descriptors. `changes()` needs both, so the `_update_comment` cases run against a real row from now on. Other `fakeComment` users (add / delete / attach) are untouched.
+`fakeComment()` (`test/campaigns/helpers.ts`) builds its comment with `Object.create(prototype)` and no ORM boot: no snapshot field, no column descriptors. `changeSet()` needs both, so the `_update_comment` cases run against a real row from now on. Other `fakeComment` users (add / delete / attach) are untouched.
 
 **Files:**
 - Modify: `packages/features/src/campaigns/actions/Comments.ts:1-20`, `:31-66`
@@ -2195,7 +2195,7 @@ Expected: all passing.
 In the spinajs repo, `docs/superpowers/specs/2026-08-25-orm-unified-dirty-tracking-design.md`, section 6, replace the first bullet with:
 
 ```
-- Existing group / entry history tests (`groups.actions.test.ts`, `entries.actions.test.ts`) pass unchanged. That is the acceptance criterion for those call-site rewrites. The `_update_comment` cases move from `comments-actions.test.ts` to a database-backed `comment-update.test.ts`: their `fakeComment()` stand-in is built with `Object.create(prototype)` and no ORM boot, so it has neither a snapshot nor column descriptors and `changes()` cannot see it.
+- Existing group / entry history tests (`groups.actions.test.ts`, `entries.actions.test.ts`) pass unchanged. That is the acceptance criterion for those call-site rewrites. The `_update_comment` cases move from `comments-actions.test.ts` to a database-backed `comment-update.test.ts`: their `fakeComment()` stand-in is built with `Object.create(prototype)` and no ORM boot, so it has neither a snapshot nor column descriptors and `changeSet()` cannot see it.
 ```
 
 Commit it there: `git commit -am "docs(orm): spec - comment tests run on the database harness"`.
@@ -2415,7 +2415,7 @@ return _chain(
 );
 ```
 
-`_update_tracked` reads `model.changes()` — the ORM's snapshot diff, `{ Column, OldValue,
+`_update_tracked` reads `model.changeSet()` — the ORM's snapshot diff, `{ Column, OldValue,
 NewValue }` per column that actually moved — builds the `EntityChanged`, runs `model.update()`,
 and emits only once the write landed. The ordering is the whole point and it lives in that one
 function: the diff is taken BEFORE `update()`, because a successful update re-baselines the
