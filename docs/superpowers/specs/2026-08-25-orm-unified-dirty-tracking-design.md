@@ -336,7 +336,7 @@ Behaviour change, accepted: `updateCampaign` today persists its step synchronous
 
 ## 6. Consumer tests
 
-- Existing group / entry / comment history tests (`groups.actions.test.ts`, `entries.actions.test.ts`, `comments-actions.test.ts`) pass unchanged. That is the acceptance criterion for the call-site rewrite.
+- Existing group / entry history tests (`groups.actions.test.ts`, `entries.actions.test.ts`) pass unchanged. That is the acceptance criterion for those call-site rewrites. The `_update_comment` cases move from `comments-actions.test.ts` to a database-backed `comment-update.test.ts`: their `fakeComment()` stand-in is built with `Object.create(prototype)` and no ORM boot, so it has neither a snapshot nor column descriptors and `changeSet()` cannot see it.
 - New `ChangeTracked` unit test: `changeResourceOf` returns the declared string; throws for an undecorated model.
 - New `_update_tracked` unit test on `EntriesGroup`: emits one event with exactly the changed columns; no event when clean; no event when `update()` throws.
 - New `updateCampaign` controller test capturing the queue event: `UPDATED` with the changed columns including `author` resolved from a uuid; nothing when the body repeats stored values. Harness pattern from `campaign-documents.controller.test.ts`.
