@@ -25,7 +25,7 @@ Defects that follow from that split:
 7. `IsDirty = false` is a public reset that does not refresh the baseline — the model claims clean while the snapshot says dirty.
 8. `insert()` runs its reset before the query executes (`query.values()` returns the thenable builder; the caller awaits it).
 
-The motivating consumer, yourscreen-backend entity history, worked around all of this with `_dto_changeSet()` — a hand-rolled JSON-shape diff of a DTO against the live model, which must be called before `hydrate()` and reads the old value off the live entity (wrong for a JSON column mutated in place).
+The motivating consumer, yourscreen-backend entity history, worked around all of this with `_dto_changes()` — a hand-rolled JSON-shape diff of a DTO against the live model, which must be called before `hydrate()` and reads the old value off the live entity (wrong for a JSON column mutated in place).
 
 ## 2. Goals and non-goals
 
