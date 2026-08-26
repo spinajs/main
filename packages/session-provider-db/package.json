@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/session-provider-db",
-  "version": "2.0.520",
+  "version": "2.0.521",
   "description": "Simple session provider based on relational db. Usefull for testing or small projects",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -51,18 +51,18 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.520",
-    "@spinajs/di": "2.0.520",
-    "@spinajs/exceptions": "2.0.520",
-    "@spinajs/log": "2.0.520",
-    "@spinajs/orm": "2.0.520",
-    "@spinajs/rbac": "2.0.520",
-    "@spinajs/reflection": "2.0.520",
-    "@spinajs/util": "2.0.520",
+    "@spinajs/configuration": "2.0.521",
+    "@spinajs/di": "2.0.521",
+    "@spinajs/exceptions": "2.0.521",
+    "@spinajs/log": "2.0.521",
+    "@spinajs/orm": "2.0.521",
+    "@spinajs/rbac": "2.0.521",
+    "@spinajs/reflection": "2.0.521",
+    "@spinajs/util": "2.0.521",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/orm-sqlite": "2.0.520"
+    "@spinajs/orm-sqlite": "2.0.521"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }
