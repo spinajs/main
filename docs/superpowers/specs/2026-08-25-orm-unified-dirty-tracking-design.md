@@ -328,7 +328,7 @@ export function _update_group(group: EntriesGroup | number, data: Partial<Entrie
 }
 ```
 
-Behaviour change, accepted: `updateCampaign` today persists its step synchronously via `_record_change`. Every other producer emits `EntityChanged` to the queue and the worker persists it; the API app is configured as the producer (`backend/src/apps/api/config/queue.prod.ts:28`). `_update_tracked` uses the queue path, so this endpoint joins the others and its step lands asynchronously.
+Behaviour note: by the time this branch was cut, upstream `main` had already removed the synchronous `_record_change` path from `updateCampaign` — the endpoint recorded no history at all. `_update_tracked` therefore ADDS recording, via the queue like every other producer (`backend/src/apps/api/config/queue.prod.ts`).
 
 ### 5.5 README
 
