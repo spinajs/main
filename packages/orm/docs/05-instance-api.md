@@ -97,7 +97,7 @@ last read from or written to the database. Everything else is derived from it on
 | `Snapshot` | The baseline, or `null` for a model that has never been in the database. Read-only. |
 | `IsNew` | `Snapshot === null`. This — not the absence of a primary key — is what classifies a model as an INSERT, because `setDefaults()` pre-fills `@Uuid` keys at construction. |
 | `IsDirty` | `IsNew`, or at least one column differs from the baseline. Derived on every read; no setter. |
-| `changes()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order — a foreign key whose relation holds a target takes the relation's join value — followed by any `@BelongsTo` foreign key the descriptor declares no column for. On an `IsNew` model: every column, `OldValue: undefined`. |
+| `changeSet()` | `{ Column, OldValue, NewValue }` for every column that differs, in descriptor order — a foreign key whose relation holds a target takes the relation's join value — followed by any `@BelongsTo` foreign key the descriptor declares no column for. On an `IsNew` model: every column, `OldValue: undefined`. |
 | `takeSnapshot()` | Capture current column values as the baseline. Values are **copied**, never aliased. |
 | `snapshotRelation(name)` | Record the current member primary keys of one relation. No-op without a snapshot. |
 | `clearSnapshot()` | Discard the baseline. The model is then `IsNew` again — an INSERT. |
@@ -108,8 +108,8 @@ column (`model.Tags.push('x')`) **is** one. `snapshotEquals` compares `DateTime`
 `Buffer` by bytes and objects by deep equality; a converter can supply its own hooks
 (`11-converters-and-hydration.md`).
 
-`IsDirty` costs one comparison per column until the first difference, and `changes()` compares
-every column. Call `changes()` once and reuse the result rather than polling `IsDirty` in a loop
+`IsDirty` costs one comparison per column until the first difference, and `changeSet()` compares
+every column. Call `changeSet()` once and reuse the result rather than polling `IsDirty` in a loop
 over models with large JSON columns.
 
 Every write path re-baselines after its statement ran — `insert()`, `update()`, `archive()`,
@@ -147,11 +147,11 @@ export async function tracking() {
 
   const originalName = user.Name;
   user.Name = 'Changed';
-  user.changes();          // [{ Column: 'Name', OldValue: originalName, NewValue: 'Changed' }]
+  user.changeSet();          // [{ Column: 'Name', OldValue: originalName, NewValue: 'Changed' }]
 
   user.Name = originalName;
   user.IsDirty;            // false — net change is nothing
-  user.changes();          // []
+  user.changeSet();          // []
 
   await user.update();     // issues no statement
 }
@@ -231,7 +231,7 @@ a `uuid` or `assigned` key you supplied is never overwritten.
 
 ### `update(data?)` → `Promise<IUpdateResult>`
 
-Hydrates `data` when given, then writes the columns `changes()` reports — including a foreign key
+Hydrates `data` when given, then writes the columns `changeSet()` reports — including a foreign key
 re-pointed through a relation. Primary key columns are excluded from the `SET` list.
 
 When nothing changed it returns `{ RowsAffected: 0, LastInsertId: 0 }` without touching the
@@ -353,7 +353,7 @@ Note that `omit` is **not** propagated into nested relations — the recursive c
 ### `toSql(onlyDirty?)`
 
 The database-shaped payload, via `ModelToSqlConverter`. With `onlyDirty` it is narrowed to the
-columns `changes()` reports.
+columns `changeSet()` reports.
 
 `IDehydrateOptions`:
 

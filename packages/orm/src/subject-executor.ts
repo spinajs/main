@@ -98,7 +98,7 @@ export class SubjectExecutor {
    *
    * A subject whose payload comes out empty emits nothing. This is the single place that
    * decides whether a row actually changed: pending foreign keys are written onto the model
-   * first and `changes()` is read afterwards, so a re-parented child that was clean
+   * first and `changeSet()` is read afterwards, so a re-parented child that was clean
    * when the subjects were built is caught here and nowhere else.
    */
   protected async runUpdates(plan: ISortedPlan, result: ISaveResult): Promise<void> {
@@ -137,7 +137,7 @@ export class SubjectExecutor {
     }
 
     const keyColumns = pkColumns(subject.Descriptor);
-    const changed = subject.Model.changes()
+    const changed = subject.Model.changeSet()
       .map((c) => c.Column)
       .filter((c) => !keyColumns.includes(c));
     if (changed.length === 0) {

@@ -84,9 +84,9 @@ describe('ModelBase snapshot', () => {
       expect(m.Snapshot!.Columns.has('Owner')).to.equal(false);
       expect(m.Snapshot!.Columns.has('Id')).to.equal(true);
 
-      // and changes() has to read the same set back, or the column it never snapshotted is
+      // and changeSet() has to read the same set back, or the column it never snapshotted is
       // compared against undefined and reported changed on every save
-      expect(m.changes().map((c) => c.Column)).to.not.include('Owner');
+      expect(m.changeSet().map((c) => c.Column)).to.not.include('Owner');
     } finally {
       descriptor.Columns = descriptor.Columns.filter((c) => c.Name !== 'Owner');
     }
@@ -137,27 +137,27 @@ describe('ModelBase snapshot', () => {
     expect(m.IsNew).to.equal(true);
   });
 
-  it('changes() reports every column with OldValue undefined when there is no snapshot', () => {
+  it('changeSet() reports every column with OldValue undefined when there is no snapshot', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
 
-    const changes = m.changes();
+    const changes = m.changeSet();
 
     expect(changes.find((c) => c.Column === 'Bar')).to.deep.equal({ Column: 'Bar', OldValue: undefined, NewValue: 'x' });
     expect(changes.map((c) => c.Column)).to.include('Id');
   });
 
-  it('changes() is empty right after takeSnapshot', () => {
+  it('changeSet() is empty right after takeSnapshot', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
     m.takeSnapshot();
 
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 
-  it('changes() names exactly the differing columns with old and new values', () => {
+  it('changeSet() names exactly the differing columns with old and new values', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';
@@ -165,10 +165,10 @@ describe('ModelBase snapshot', () => {
 
     m.Bar = 'y';
 
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: 'x', NewValue: 'y' }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: 'x', NewValue: 'y' }]);
   });
 
-  it('changes() ignores a write that restores the original value', () => {
+  it('changeSet() ignores a write that restores the original value', () => {
     const m = new Model1();
     m.Bar = 'x';
     m.takeSnapshot();
@@ -176,44 +176,44 @@ describe('ModelBase snapshot', () => {
     m.Bar = 'y';
     m.Bar = 'x';
 
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 
-  it('changes() sees an in-place mutation of a mutable column value', () => {
+  it('changeSet() sees an in-place mutation of a mutable column value', () => {
     const m = new Model1() as any;
     m.Bar = { tags: ['a'] };
     m.takeSnapshot();
 
     m.Bar.tags.push('b');
 
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: { tags: ['a'] }, NewValue: { tags: ['a', 'b'] } }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: { tags: ['a'] }, NewValue: { tags: ['a', 'b'] } }]);
   });
 
-  it('changes() compares DateTime by instant, not identity', () => {
+  it('changeSet() compares DateTime by instant, not identity', () => {
     const m = new Model1() as any;
     m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
     m.takeSnapshot();
 
     m.Bar = DateTime.fromISO('2020-01-01T00:00:00.000Z');
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
 
     m.Bar = DateTime.fromISO('2021-01-01T00:00:00.000Z');
-    expect(m.changes().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
+    expect(m.changeSet().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
   });
 
-  it('changes() compares a Buffer by content', () => {
+  it('changeSet() compares a Buffer by content', () => {
     const m = new Model1() as any;
     m.Bar = Buffer.from('ab');
     m.takeSnapshot();
 
     m.Bar = Buffer.from('ab');
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
 
     m.Bar = Buffer.from('ac');
-    expect(m.changes().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
+    expect(m.changeSet().map((c: IModelChange) => c.Column)).to.deep.equal(['Bar']);
   });
 
-  it('changes() reports an UNCOPYABLE baseline as changed, with OldValue undefined', () => {
+  it('changeSet() reports an UNCOPYABLE baseline as changed, with OldValue undefined', () => {
     class Opaque {
       constructor(public v: number) {}
     }
@@ -222,36 +222,36 @@ describe('ModelBase snapshot', () => {
     m.takeSnapshot();
 
     expect(m.Snapshot!.Columns.get('Bar')).to.equal(UNCOPYABLE);
-    expect(m.changes()).to.deep.equal([{ Column: 'Bar', OldValue: undefined, NewValue: m.Bar }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'Bar', OldValue: undefined, NewValue: m.Bar }]);
   });
 
-  it('changes() reports a belongsTo foreign key re-pointed through the relation', () => {
+  it('changeSet() reports a belongsTo foreign key re-pointed through the relation', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     m.Owner.attach(new Model4({ Id: 2 }));
 
-    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: 2 }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: 2 }]);
   });
 
-  it('changes() reports a detached belongsTo as a change to null', () => {
+  it('changeSet() reports a detached belongsTo as a change to null', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     m.Owner.detach();
 
-    expect(m.changes()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: null }]);
+    expect(m.changeSet()).to.deep.equal([{ Column: 'OwnerId', OldValue: 1, NewValue: null }]);
   });
 
-  it('changes() does not report a belongsTo that was never attached or populated', () => {
+  it('changeSet() does not report a belongsTo that was never attached or populated', () => {
     const m = new Model1();
     (m as any).OwnerId = 1;
     m.takeSnapshot();
 
     expect(m.Owner.Value).to.equal(undefined);
-    expect(m.changes()).to.deep.equal([]);
+    expect(m.changeSet()).to.deep.equal([]);
   });
 
   it('IsDirty is true on a model that was never in the database', () => {
@@ -305,7 +305,7 @@ describe('ModelBase snapshot', () => {
     expect(util.types.isProxy(m)).to.equal(false);
   });
 
-  it('toSql(true) is narrowed to the columns changes() reports', () => {
+  it('toSql(true) is narrowed to the columns changeSet() reports', () => {
     const m = new Model1();
     m.Id = 1;
     m.Bar = 'x';

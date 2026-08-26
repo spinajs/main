@@ -21,7 +21,7 @@ describe('re-baseline after insert / refresh', function () {
 
     expect(order.IsNew).to.equal(false);
     expect(order.Snapshot!.Columns.get('Id')).to.equal(order.Id);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('update() after insert() on the same instance writes only the changed column', async () => {
@@ -54,7 +54,7 @@ describe('re-baseline after insert / refresh', function () {
 
     expect(order.Total).to.equal(55);
     expect(order.Snapshot!.Columns.get('Total')).to.equal(55);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('static bulk insert leaves the inserted models clean and snapshotted', async () => {

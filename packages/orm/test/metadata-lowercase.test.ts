@@ -71,7 +71,7 @@ describe('MetadataRelation lowercase columns', () => {
 
     expect(existing.value).to.eq('new');
     expect(existing.IsDirty).to.be.true;
-    expect(existing.changes()).to.deep.equal([{ Column: 'value', OldValue: 'old', NewValue: 'new' }]);
+    expect(existing.changeSet()).to.deep.equal([{ Column: 'value', OldValue: 'old', NewValue: 'new' }]);
   });
 
   it('Should NOT report a change when the value is unchanged', async () => {

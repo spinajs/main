@@ -839,7 +839,7 @@ export interface IModelBase {
   clearSnapshot(): void;
 
   /** Column-level differences between the baseline and the current values, old and new. */
-  changes(): IModelChange[];
+  changeSet(): IModelChange[];
 
   /**
    * Persists this model and everything reachable from it in one transaction.

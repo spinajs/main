@@ -305,8 +305,11 @@ export class ModelBase<M = unknown> implements IModelBase {
    * Computed on demand - nothing observes writes - so an in-place mutation of a JSON column is
    * seen exactly like an assignment. Call it once and reuse the result rather than polling it
    * in a loop.
+   *
+   * Named `changeSet` - not `changes` - because model members and columns share a namespace and
+   * `changes` is a real column name in downstream schemas.
    */
-  public changes(): IModelChange[] {
+  public changeSet(): IModelChange[] {
     return this.diff(false);
   }
 
@@ -314,7 +317,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * The single diff. `stopAtFirst` lets a boolean question return as soon as one change is found.
    *
    * Every foreign key is resolved to ONE effective value before anything is compared, so
-   * `IsDirty` and `changes()` can never disagree and the short-circuit can never skip a
+   * `IsDirty` and `changeSet()` can never disagree and the short-circuit can never skip a
    * decision the full diff would have made.
    *
    * The rule: a @BelongsTo holding a target decides its foreign key, because that is what
@@ -712,7 +715,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     const vals = this.Container.resolve(ModelToSqlConverter).toSql(this) as Partial<this>;
 
     if (onlyDirty) {
-      return _.pick(vals, this.changes().map((c) => c.Column));
+      return _.pick(vals, this.changeSet().map((c) => c.Column));
     }
 
     return vals;
@@ -761,7 +764,7 @@ export class ModelBase<M = unknown> implements IModelBase {
   /**
    * Writes the columns that differ from the snapshot.
    *
-   * The change set is `changes()` - the snapshot diff, which also covers a foreign key that was
+   * The change set is `changeSet()` - the snapshot diff, which also covers a foreign key that was
    * re-pointed through its relation - so re-assigning a column its current value produces no
    * UPDATE, and a column written A -> B -> A is not written back.
    *
@@ -781,7 +784,7 @@ export class ModelBase<M = unknown> implements IModelBase {
     }
 
     const keyColumns = this.ModelDescriptor!.PrimaryKey ?? [];
-    const changed = this.changes()
+    const changed = this.changeSet()
       .map((c) => c.Column)
       .filter((c) => !keyColumns.includes(c));
 

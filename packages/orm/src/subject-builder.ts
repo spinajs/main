@@ -125,7 +125,7 @@ export class SubjectBuilder {
       // Only an UPDATE needs a column list: an INSERT writes every column, and a no-op
       // writes none. Reading the diff again here is cheap and keeps `classify` pure.
       if (subject.Operation === SubjectOperation.Update) {
-        subject.ChangedColumns = model.changes().map((c) => c.Column);
+        subject.ChangedColumns = model.changeSet().map((c) => c.Column);
       }
 
       set.add(subject);

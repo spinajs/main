@@ -51,7 +51,7 @@ describe('ModelBase.attach', function () {
     item.attach(order);
 
     expect((item.Order as any).Value).to.equal(order);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 5, NewValue: 7 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 5, NewValue: 7 }]);
   });
 
   it('matches relations by constructor identity, not class name', () => {

@@ -13,15 +13,18 @@ every write is the only state; everything is derived from it.
 | Removed | Use instead |
 |---|---|
 | `IsDirty` setter (`model.IsDirty = false`) | Persist the model, or `takeSnapshot()` to re-baseline by hand. |
-| `markDirty(prop)` | Nothing — `attach()` / `detach()` are visible to `changes()` directly. |
-| `changedColumns()` | `changes().map((c) => c.Column)` |
+| `markDirty(prop)` | Nothing — `attach()` / `detach()` are visible to `changeSet()` directly. |
+| `changedColumns()` | `changeSet().map((c) => c.Column)` |
 | The constructor's `Proxy` | Nothing — `new Model()` returns the plain instance. |
 
 Behaviour changes:
 
 - `IsDirty` is `true` for a model that has never been in the database (`IsNew`), and `false`
   again when a write restores the original value. It is computed on every read.
-- `IsNew` and `changes(): IModelChange[]` (`{ Column, OldValue, NewValue }`) are new.
+- `IsNew` and `changeSet(): IModelChange[]` (`{ Column, OldValue, NewValue }`) are new.
+- Model members and column names share one namespace (active-record); a column named like a
+  `ModelBase` member shadows it. The diff accessor is `changeSet()` — not `changes` — because
+  `changes` is a real column name in downstream schemas.
 - `insert()`, `refresh()` and `archive()` take a fresh snapshot after their statement, so a
   following `update()` on the same instance writes only what changed since. `insert()` now awaits
   its statement internally.

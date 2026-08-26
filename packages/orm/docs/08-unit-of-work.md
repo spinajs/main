@@ -352,7 +352,7 @@ writes the new key onto the owner's `SingleRelation` wrapper, which persists not
 ### Updates
 
 The update payload resolves pending **and** deferred foreign keys onto the model first, *then*
-re-reads `changes()`. This is the single place that decides whether a row really changed:
+re-reads `changeSet()`. This is the single place that decides whether a row really changed:
 a re-parented child that was clean when subjects were built is caught here and nowhere else.
 
 An empty payload emits nothing. Primary key columns are excluded from the `SET` list. `@UpdatedAt`

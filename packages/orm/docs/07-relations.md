@@ -349,7 +349,7 @@ the `HistoricalModel` interface (`__action__`, `__revision__`, `__start__`, `__e
 | --- | --- |
 | `Value` | The related model, `null`, or `undefined` when not loaded. |
 | `Populated` | Whether it has been loaded. |
-| `attach(obj \| null)` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL; a query relation has no foreign-key column to write). No database access; the owner's `changes()` then reports the key. |
+| `attach(obj \| null)` | Point at a model and write the owner's foreign key to match (the target's join-column value, or NULL; a query relation has no foreign-key column to write). No database access; the owner's `changeSet()` then reports the key. |
 | `detach()` | `attach(null)`. |
 | `set(obj)` | `attach` + `owner.update()`, in one transaction. |
 | `remove()` | Delete the related row and clear the foreign key, in one transaction. |

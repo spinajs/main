@@ -29,7 +29,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.attach(target);
 
     expect(item.IsDirty).to.equal(true);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
   });
 
   it('reports the foreign key once across repeated attaches', async () => {
@@ -39,7 +39,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.attach(target);
     item.Order.attach(target);
 
-    expect(item.changes().filter((c) => c.Column === 'order_id')).to.have.length(1);
+    expect(item.changeSet().filter((c) => c.Column === 'order_id')).to.have.length(1);
   });
 
   it('reports an attached target that is not saved yet, so a cascade can insert it first', async () => {
@@ -52,7 +52,7 @@ describe('SingleRelation.attach change tracking', function () {
     // back as null rather than undefined. What matters is that the foreign key is reported at
     // all: the unit of work inserts the parent first and backfills the real key before the
     // statement runs.
-    const change = item.changes().find((c) => c.Column === 'order_id');
+    const change = item.changeSet().find((c) => c.Column === 'order_id');
     expect(change).to.not.equal(undefined);
     expect(change!.OldValue).to.equal(1);
     expect(change!.NewValue).to.equal(null);
@@ -64,7 +64,7 @@ describe('SingleRelation.attach change tracking', function () {
     item.Order.detach();
 
     expect(item.IsDirty).to.equal(true);
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: null }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: null }]);
     expect((item.Order as any).Value).to.equal(null);
   });
 
@@ -99,7 +99,7 @@ describe('SingleRelation.attach change tracking', function () {
 
     expect((await rows('uow_order'))[0].client_id).to.equal(null);
     expect(order.IsDirty).to.equal(false);
-    expect(order.changes()).to.deep.equal([]);
+    expect(order.changeSet()).to.deep.equal([]);
   });
 
   it('remove() deletes the target and clears the foreign key', async () => {
@@ -133,7 +133,7 @@ describe('SingleRelation.attach change tracking', function () {
 
     (item as any).order_id = 5;
 
-    expect(item.changes()).to.deep.equal([]);
+    expect(item.changeSet()).to.deep.equal([]);
     expect(item.IsDirty).to.equal(false);
   });
 
@@ -144,7 +144,7 @@ describe('SingleRelation.attach change tracking', function () {
     // The relation machinery sets back-references this way, without touching the column.
     item.Order.Value = target;
 
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
     expect(item.IsDirty).to.equal(true);
   });
 
@@ -154,7 +154,7 @@ describe('SingleRelation.attach change tracking', function () {
 
     (item as any).order_id = 5;
     item.Order.Value = target;
-    expect(item.changes()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
+    expect(item.changeSet()).to.deep.equal([{ Column: 'order_id', OldValue: 1, NewValue: 2 }]);
 
     await item.update();
 
@@ -173,7 +173,7 @@ describe('SingleRelation.attach change tracking', function () {
     owner.Target.attach(alpha);
 
     expect(owner.target_code).to.equal('ALPHA');
-    expect(owner.changes()).to.deep.equal([{ Column: 'target_code', OldValue: 'BETA', NewValue: 'ALPHA' }]);
+    expect(owner.changeSet()).to.deep.equal([{ Column: 'target_code', OldValue: 'BETA', NewValue: 'ALPHA' }]);
 
     await owner.update();
 

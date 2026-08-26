@@ -649,7 +649,7 @@ describe('General model tests', () => {
 
     model.Bar = 'changed';
 
-    expect(model.changes().map((c) => c.Column)).to.deep.equal(['Bar']);
+    expect(model.changeSet().map((c) => c.Column)).to.deep.equal(['Bar']);
   });
 
   it('refresh re-baselines the snapshot to the fresh values', async () => {
@@ -664,7 +664,7 @@ describe('General model tests', () => {
     expect(model.IsDirty).to.be.false;
     expect(model.Snapshot).to.not.equal(null);
     expect(model.Snapshot!.Columns.get('Bar')).to.eq('refreshed');
-    expect(model.changes()).to.deep.equal([]);
+    expect(model.changeSet()).to.deep.equal([]);
   });
 
   it('Find mixin should work', async () => {
