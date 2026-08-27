@@ -125,7 +125,7 @@ describe('User model tests', function () {
   it('Should create user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: U, Password } = await create('test@wp.pl', 'test222', ['admin'], { password: 'bbbb' });
+    const { User: U, Password } = await create('test@wp.pl', 'test222', ['admin'], { password: 'bbbb1234' });
 
     const user = await User.query().whereAnything('test@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
@@ -152,7 +152,7 @@ describe('User model tests', function () {
   it('Should persist the registration date of a created user', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await create('registered@wp.pl', 'registered', ['admin'], { password: 'bbbb' });
+    await create('registered@wp.pl', 'registered', ['admin'], { password: 'bbbb1234' });
 
     // read back from the database, not from the in-memory model
     const user = await User.query().whereAnything('registered@wp.pl').firstOrFail();
@@ -165,7 +165,7 @@ describe('User model tests', function () {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const { User: U, Password } = await create('meta@wp.pl', 'metameta', ['admin'], {
-      password: 'bbbb',
+      password: 'bbbb1234',
       metadata: {
         'user:niceName': 'Meta User',
         'user:locale': 'en',
@@ -208,7 +208,7 @@ describe('User model tests', function () {
     config.set('rbac.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
     config.set('rbac.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
 
-    const { User: U } = await create('middleware@wp.pl', 'middlewareuser', ['admin'], { password: 'bbbb' });
+    const { User: U } = await create('middleware@wp.pl', 'middlewareuser', ['admin'], { password: 'bbbb1234' });
 
     const user = await User.query().whereAnything('middleware@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
@@ -241,7 +241,7 @@ describe('User model tests', function () {
     config.set('rbac.actions.create.beforeCreate', []);
     config.set('rbac.actions.create.afterCreate', []);
 
-    const { User: U } = await create('empty-mw@wp.pl', 'emptymw', ['admin'], { password: 'bbbb' });
+    const { User: U } = await create('empty-mw@wp.pl', 'emptymw', ['admin'], { password: 'bbbb1234' });
 
     expect(U).to.be.instanceOf(User);
     const user = await User.query().whereAnything('empty-mw@wp.pl').firstOrFail();
@@ -257,7 +257,7 @@ describe('User model tests', function () {
     const config = DI.get(Configuration)!;
     config.set('rbac.actions', undefined);
 
-    const { User: U } = await create('no-mw@wp.pl', 'nomw', ['admin'], { password: 'bbbb' });
+    const { User: U } = await create('no-mw@wp.pl', 'nomw', ['admin'], { password: 'bbbb1234' });
 
     expect(U).to.be.instanceOf(User);
     const user = await User.query().whereAnything('no-mw@wp.pl').firstOrFail();
@@ -272,7 +272,7 @@ describe('User model tests', function () {
     const config = DI.get(Configuration)!;
     config.set('rbac.actions.create.beforeCreate', 'not-a-list' as any);
 
-    const { User: U } = await create('bad-mw@wp.pl', 'badmw', ['admin'], { password: 'bbbb' });
+    const { User: U } = await create('bad-mw@wp.pl', 'badmw', ['admin'], { password: 'bbbb1234' });
 
     expect(U).to.be.instanceOf(User);
 
@@ -280,11 +280,11 @@ describe('User model tests', function () {
   });
 
   it('Shouldn create user with already existing email', async () => {
-    await expect(create('test@spinajs.pl', 'test', ['admin'], { password: 'bbbb' })).to.be.rejected;
+    await expect(create('test@spinajs.pl', 'test', ['admin'], { password: 'bbbb1234' })).to.be.rejected;
   });
 
   it('Shouldn create user with already existing login', async () => {
-    await expect(create('dasda@wp.pl', 'test', ['admin'], { password: 'bbbb' })).to.be.rejected;
+    await expect(create('dasda@wp.pl', 'test', ['admin'], { password: 'bbbb1234' })).to.be.rejected;
   });
 
   /**
@@ -295,14 +295,14 @@ describe('User model tests', function () {
   it('Should name the clashing field when refusing a duplicate', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb' });
+    await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb1234' });
 
-    const err = await create('clash@wp.pl', 'other-login', ['admin'], { password: 'bbbb' }).catch((e) => e);
+    const err = await create('clash@wp.pl', 'other-login', ['admin'], { password: 'bbbb1234' }).catch((e) => e);
     expect(err).to.be.instanceOf(ErrorCode);
     expect((err as any).code).to.eq(E_CODES.E_USER_ALREADY_EXISTS);
     expect((err as any).data.fields).to.deep.eq(['Email']);
 
-    const both = await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb' }).catch((e) => e);
+    const both = await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb1234' }).catch((e) => e);
     expect((both as any).data.fields, 'both fields clash, both must be reported').to.deep.eq(['Login', 'Email']);
   });
 
@@ -313,10 +313,10 @@ describe('User model tests', function () {
   it('Should refuse a login taken by a soft-deleted account', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: u } = await create('gone@wp.pl', 'goneuser', ['admin'], { password: 'bbbb' });
+    const { User: u } = await create('gone@wp.pl', 'goneuser', ['admin'], { password: 'bbbb1234' });
     await deleteUser(u);
 
-    await expect(create('other@wp.pl', 'goneuser', ['admin'], { password: 'bbbb' })).to.be.rejectedWith(/Login already in use/);
+    await expect(create('other@wp.pl', 'goneuser', ['admin'], { password: 'bbbb1234' })).to.be.rejectedWith(/Login already in use/);
   });
 
   /**
@@ -331,7 +331,7 @@ describe('User model tests', function () {
     const before = sinon.stub().callsFake((u: User) => u);
     config.set('rbac.actions.create.beforeCreate', [before as unknown as CreateMiddleware]);
 
-    await expect(create('test@spinajs.pl', 'whoever', ['admin'], { password: 'bbbb' })).to.be.rejected;
+    await expect(create('test@spinajs.pl', 'whoever', ['admin'], { password: 'bbbb1234' })).to.be.rejected;
     expect(before.callCount, 'middleware must not run for a refused creation').to.eq(0);
 
     config.set('rbac.actions.create.beforeCreate', []);
@@ -364,7 +364,7 @@ describe('User model tests', function () {
   it('Should not issue a reset link when the caller supplied the password', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await create('supplied@wp.pl', 'supplied', ['admin'], { password: 'bbbb' });
+    await create('supplied@wp.pl', 'supplied', ['admin'], { password: 'bbbb1234' });
 
     const user = await User.query().whereAnything('supplied@wp.pl').populate('Metadata').firstOrFail();
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a caller-supplied password must not be invalidated by a reset link').to.not.exist;
@@ -401,7 +401,7 @@ describe('User model tests', function () {
 
     await expect(
       create('planted@wp.pl', 'planted', ['admin'], {
-        password: 'bbbb',
+        password: 'bbbb1234',
         metadata: { [USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]: 'known-token' },
       }),
     ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
@@ -416,13 +416,13 @@ describe('User model tests', function () {
   it('Should refuse glob metadata keys', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await expect(create('globber@wp.pl', 'globber', ['admin'], { password: 'bbbb', metadata: { '*': 'overwritten' } })).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
+    await expect(create('globber@wp.pl', 'globber', ['admin'], { password: 'bbbb1234', metadata: { '*': 'overwritten' } })).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
   });
 
   it('Should honour an explicit id', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: u } = await create('withid@wp.pl', 'withid', ['admin'], { password: 'bbbb', id: 4321 });
+    const { User: u } = await create('withid@wp.pl', 'withid', ['admin'], { password: 'bbbb1234', id: 4321 });
 
     expect(u.Id).to.eq(4321);
   });
@@ -911,5 +911,26 @@ describe('User model tests', function () {
 
       expect(await provider.restore(session.SessionId)).to.be.null;
     });
+  });
+
+  /**
+   * `changePassword` has always refused a password that fails the configured
+   * rule. Creation accepting one plants a password the account can never
+   * legitimately return to.
+   */
+  it('Should refuse a supplied password that does not meet requirements', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(create('weak@wp.pl', 'weakling', ['admin'], { password: 'short' })).to.be.rejectedWith(InvalidArgument, /does not meet requirements/);
+
+    expect(await User.query().whereAnything('weak@wp.pl').first(), 'nothing may be written for a refused creation').to.not.exist;
+  });
+
+  it('Should accept a supplied password that meets requirements', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { User: u } = await create('strong@wp.pl', 'strongman', ['admin'], { password: 'passw0rd123' });
+
+    expect(u).to.be.instanceOf(User);
   });
 });

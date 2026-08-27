@@ -477,6 +477,17 @@ export async function create(email: string, login: string, roles: string[], opti
     _default(() => sPassword.generate()),
   )(options?.password, 'password');
 
+  // Only the SUPPLIED branch is checked. A generated password is asserted
+  // against the same rule inside `generate()`, and re-checking it here would
+  // only re-report a configuration fault as a caller mistake.
+  if (!generated) {
+    const validator = await _service<PasswordValidationProvider>('rbac.password.validation', PasswordValidationProvider)();
+
+    if (!validator.check(password)) {
+      throw new InvalidArgument('Password does not meet requirements', 'password');
+    }
+  }
+
   const hPassword = await sPassword.hash(password);
   const id = options?.id;
   const metadata = options?.metadata;
