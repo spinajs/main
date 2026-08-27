@@ -1,6 +1,9 @@
-import { isPromise } from './types.js';
-
-export type Constructor<T> = new (...args: any[]) => T;
+import { Constructor, isPromise } from './types.js';
+import { TimeSpan } from './timespan.js';
+import { sleep } from './process.js';
+import { BackoffType, Outcome, _abortReason } from './resilience/core.js';
+import { retryStrategy } from './resilience/strategies/retry.js';
+import { timeoutStrategy } from './resilience/strategies/timeout.js';
 
 /**
  * Value that may be wrapped in a promise.
@@ -8,10 +11,17 @@ export type Constructor<T> = new (...args: any[]) => T;
 export type MaybePromise<T> = T | Promise<T>;
 
 /**
- * Step accepted by `_chain` / `_pipe`: a function receiving the previous result,
- * a promise, or a plain value.
+ * A single typed step of `_chain` / `_pipe` - receives the previous result.
  */
-export type ChainStep = ((arg?: any) => unknown) | Promise<unknown> | unknown;
+export type ChainFn<A, B> = (arg: A) => MaybePromise<B>;
+
+/**
+ * Merged accumulator shape used by context-building steps (`_use`, `_struct`).
+ * Non-object inputs (undefined start of a chain) begin a fresh context.
+ */
+type Ctx<A> = A extends object ? A : object;
+
+const RESCUE_HANDLER = Symbol('fp rescue handler');
 
 /**
  * Invokes `fn` converting synchronous throws into rejections,
@@ -25,23 +35,23 @@ function _invoke<Args extends unknown[], R>(fn: (...args: Args) => MaybePromise<
   }
 }
 
-function _reduceSteps(initial: Promise<unknown>, fns: ChainStep[]): Promise<unknown> {
+function _reduceSteps(initial: Promise<unknown>, fns: Array<(arg?: unknown) => unknown>): Promise<unknown> {
+  for (const fn of fns) {
+    if (typeof fn !== 'function') {
+      throw new Error(`chain steps must be functions, got ${typeof fn} - wrap plain values in a thunk: () => value`);
+    }
+  }
+
   return fns.reduce<Promise<unknown>>((prev, curr) => {
-    if (typeof curr === 'function') {
-      return prev.then((res) => (curr as (arg?: unknown) => unknown)(res));
-    } else if (isPromise(curr)) {
-      // eager promise - if an earlier step failed it would never be observed,
-      // suppress its rejection to avoid unhandled rejection warnings
+    const rescue = (curr as { [RESCUE_HANDLER]?: (err: unknown) => unknown })[RESCUE_HANDLER];
+    if (rescue) {
       return prev.then(
-        () => curr,
-        (err) => {
-          curr.catch(() => null);
-          throw err;
-        },
+        (res) => res,
+        (err) => rescue(err),
       );
     }
 
-    return prev.then(() => curr);
+    return prev.then((res) => curr(res));
   }, initial);
 }
 
@@ -49,25 +59,34 @@ function _reduceSteps(initial: Promise<unknown>, fns: ChainStep[]): Promise<unkn
  * Chains a list of functions together, passing the result of each function to the next.
  * Executes eagerly - for a reusable, lazy pipeline see `_pipe`.
  *
- * Steps can be functions (sync or async), promises or plain values.
+ * Steps are functions (sync or async); the first step receives no argument.
+ * Types flow through the chain - step parameters and the final result are inferred.
  *
  * @example
  * ```ts
  * const res = await _chain(
  *   () => Promise.resolve(1),
- *   (v: number) => v + 1,
- *   (v: number) => Promise.resolve(v * 2),
- * ); // 4
- *
- * // plain values and promises are valid steps too
- * await _chain(5, (v: number) => v + 1); // 6
+ *   (v) => v + 1,
+ *   (v) => Promise.resolve(v * 2),
+ * ); // 4, typed number
  * ```
- *
- * @param fns
- * @returns
  */
-export function _chain<T = unknown>(...fns: ChainStep[]): Promise<T> {
-  return _reduceSteps(Promise.resolve(null), fns) as Promise<T>;
+export function _chain(): Promise<null>;
+export function _chain<A>(a: () => MaybePromise<A>): Promise<A>;
+export function _chain<A, B>(a: () => MaybePromise<A>, ab: ChainFn<A, B>): Promise<B>;
+export function _chain<A, B, C>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>): Promise<C>;
+export function _chain<A, B, C, D>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>): Promise<D>;
+export function _chain<A, B, C, D, E>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>): Promise<E>;
+export function _chain<A, B, C, D, E, F>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>): Promise<F>;
+export function _chain<A, B, C, D, E, F, G>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>): Promise<G>;
+export function _chain<A, B, C, D, E, F, G, H>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>): Promise<H>;
+export function _chain<A, B, C, D, E, F, G, H, I>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>): Promise<I>;
+export function _chain<A, B, C, D, E, F, G, H, I, J>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>, ij: ChainFn<I, J>): Promise<J>;
+export function _chain<A, B, C, D, E, F, G, H, I, J, K>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>, ij: ChainFn<I, J>, jk: ChainFn<J, K>): Promise<K>;
+export function _chain<A, B, C, D, E, F, G, H, I, J, K, L>(a: () => MaybePromise<A>, ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>, ij: ChainFn<I, J>, jk: ChainFn<J, K>, kl: ChainFn<K, L>): Promise<L>;
+export function _chain(...fns: Array<(arg?: unknown) => unknown>): Promise<unknown>;
+export function _chain(...fns: Array<(arg?: unknown) => unknown>): Promise<unknown> {
+  return _reduceSteps(Promise.resolve(null), fns);
 }
 
 /**
@@ -76,16 +95,45 @@ export function _chain<T = unknown>(...fns: ChainStep[]): Promise<T> {
  *
  * @example
  * ```ts
- * const pipeline = _pipe((v: number) => v + 1, (v: number) => v * 2);
+ * const pipeline = _pipe((v: number) => v + 1, (v) => v * 2);
  * await pipeline(2); // 6
  * await pipeline(5); // 12
  * ```
- *
- * @param fns
- * @returns
  */
-export function _pipe<T = unknown>(...fns: ChainStep[]): (arg?: unknown) => Promise<T> {
-  return (arg?: unknown) => _reduceSteps(Promise.resolve(arg), fns) as Promise<T>;
+export function _pipe<A, B>(ab: ChainFn<A, B>): (arg: A) => Promise<B>;
+export function _pipe<A, B, C>(ab: ChainFn<A, B>, bc: ChainFn<B, C>): (arg: A) => Promise<C>;
+export function _pipe<A, B, C, D>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>): (arg: A) => Promise<D>;
+export function _pipe<A, B, C, D, E>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>): (arg: A) => Promise<E>;
+export function _pipe<A, B, C, D, E, F>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>): (arg: A) => Promise<F>;
+export function _pipe<A, B, C, D, E, F, G>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>): (arg: A) => Promise<G>;
+export function _pipe<A, B, C, D, E, F, G, H>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>): (arg: A) => Promise<H>;
+export function _pipe<A, B, C, D, E, F, G, H, I>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>): (arg: A) => Promise<I>;
+export function _pipe<A, B, C, D, E, F, G, H, I, J>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>, ij: ChainFn<I, J>): (arg: A) => Promise<J>;
+export function _pipe<A, B, C, D, E, F, G, H, I, J, K>(ab: ChainFn<A, B>, bc: ChainFn<B, C>, cd: ChainFn<C, D>, de: ChainFn<D, E>, ef: ChainFn<E, F>, fg: ChainFn<F, G>, gh: ChainFn<G, H>, hi: ChainFn<H, I>, ij: ChainFn<I, J>, jk: ChainFn<J, K>): (arg: A) => Promise<K>;
+export function _pipe(...fns: Array<(arg?: unknown) => unknown>): (arg?: unknown) => Promise<unknown>;
+export function _pipe(...fns: Array<(arg?: unknown) => unknown>): (arg?: unknown) => Promise<unknown> {
+  return (arg?: unknown) => _reduceSteps(Promise.resolve(arg), fns);
+}
+
+/**
+ * Step-shaped error boundary for `_chain` / `_pipe`. On upstream failure the handler
+ * is called and its result becomes the recovery value the chain continues with.
+ * On success the value passes through untouched and the handler is not called.
+ * Errors thrown by steps AFTER the rescue are not caught by it.
+ *
+ * @example
+ * ```ts
+ * const res = await _chain(
+ *   () => loadFromCache(),
+ *   _rescue(() => loadFromDb()),
+ *   (v) => v.id,
+ * );
+ * ```
+ */
+export function _rescue<R>(handler: (err: unknown) => MaybePromise<R>): <T>(arg: T) => Promise<T | R> {
+  const step = <T>(arg: T): Promise<T | R> => Promise.resolve(arg);
+  (step as { [RESCUE_HANDLER]?: unknown })[RESCUE_HANDLER] = handler;
+  return step;
 }
 
 /**
@@ -94,16 +142,16 @@ export function _pipe<T = unknown>(...fns: ChainStep[]): (arg?: unknown) => Prom
  * @example
  * ```ts
  * const res = await _chain(
- *   2,
- *   _zip(
+ *   () => 2,
+ *   _fanout(
  *     async (v: number) => v + 1,
  *     async (v: number) => v * 10,
  *   ),
  * ); // [3, 20]
  * ```
  */
-export function _zip<T = any, F extends ((arg: T) => unknown)[] = ((arg: T) => unknown)[]>(...fns: F) {
-  return (val: T): Promise<{ [K in keyof F]: Awaited<ReturnType<F[K]>> }> => Promise.all(fns.map((fn) => _invoke(fn, [val]))) as Promise<{ [K in keyof F]: Awaited<ReturnType<F[K]>> }>;
+export function _fanout<T = any, F extends ((arg: T) => unknown)[] = ((arg: T) => unknown)[]>(...fns: F) {
+  return (val?: T): Promise<{ [K in keyof F]: Awaited<ReturnType<F[K]>> }> => Promise.all(fns.map((fn) => _invoke(fn, [val as T]))) as Promise<{ [K in keyof F]: Awaited<ReturnType<F[K]>> }>;
 }
 
 /**
@@ -135,9 +183,6 @@ export function _map<T, R>(callback: (val: T) => MaybePromise<R>) {
  * @example
  * ```ts
  * const res = await _filter(async (v: number) => v % 2 === 0)([1, 2, 3, 4]); // [2, 4]
- *
- * // in a chain
- * await _chain(() => [1, 2, 3, 4], _filter((v: number) => v > 2)); // [3, 4]
  * ```
  */
 export function _filter<T>(predicate: (val: T) => MaybePromise<boolean>) {
@@ -198,6 +243,23 @@ export function _sequence<T, R>(callback: (val: T) => MaybePromise<R>) {
 }
 
 /**
+ * Options for `_concurrent`.
+ */
+export interface ConcurrentOptions {
+  /**
+   * Cooperative cancellation - when the signal aborts, no new items are claimed
+   * and the mapping rejects with the abort reason. In-flight callbacks are not interrupted.
+   */
+  signal?: AbortSignal;
+
+  /**
+   * When true, a failed item stops the remaining workers from claiming new items.
+   * Default false - remaining items keep processing even though the mapping already rejected.
+   */
+  failFast?: boolean;
+}
+
+/**
  * Maps every element of the input array with at most `concurrency` callbacks
  * running at the same time - middle ground between `_sequence` (one at a time)
  * and `_map` (all at once). Order of results is preserved regardless of
@@ -207,12 +269,9 @@ export function _sequence<T, R>(callback: (val: T) => MaybePromise<R>) {
  * ```ts
  * // at most 2 requests in flight at any moment
  * const res = await _concurrent(async (id: number) => fetchUser(id), 2)([1, 2, 3, 4, 5]);
- *
- * // in a chain
- * await _chain(() => ids, _concurrent((id: number) => fetchUser(id), 4));
  * ```
  */
-export function _concurrent<T, R>(callback: (val: T) => MaybePromise<R>, concurrency: number) {
+export function _concurrent<T, R>(callback: (val: T) => MaybePromise<R>, concurrency: number, options?: ConcurrentOptions) {
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`_concurrent concurrency must be a positive integer, got ${concurrency}`);
   }
@@ -222,13 +281,31 @@ export function _concurrent<T, R>(callback: (val: T) => MaybePromise<R>, concurr
       throw new Error(`_concurrent expects an array, got ${typeof val}`);
     }
 
+    if (options?.signal?.aborted) {
+      return Promise.reject(_abortReason(options.signal));
+    }
+
     const result: R[] = new Array<R>(val.length);
     let next = 0;
+    let failed = false;
 
     const worker = async () => {
       while (next < val.length) {
+        if (options?.signal?.aborted) {
+          throw _abortReason(options.signal);
+        }
+
+        if (failed && options?.failFast) {
+          return;
+        }
+
         const i = next++;
-        result[i] = await callback(val[i]);
+        try {
+          result[i] = await callback(val[i]);
+        } catch (err) {
+          failed = true;
+          throw err;
+        }
       }
     };
 
@@ -244,13 +321,6 @@ export function _concurrent<T, R>(callback: (val: T) => MaybePromise<R>, concurr
  * @example
  * ```ts
  * _batch(3)([1, 2, 3, 4, 5, 6, 7]); // [[1, 2, 3], [4, 5, 6], [7]]
- *
- * // process 100 records at a time, one batch after another
- * await _chain(
- *   () => records,
- *   _batch(100),
- *   _sequence((batch: Record[]) => db.insert(batch)),
- * );
  * ```
  */
 export function _batch<T>(size: number) {
@@ -299,33 +369,85 @@ export function _all<T = unknown>() {
  * ```
  */
 export function _race<T = any, R = unknown>(...fns: ((arg: T) => MaybePromise<R>)[]) {
-  return (val: T): Promise<R> => Promise.race(fns.map((fn) => _invoke(fn, [val])));
+  return (val?: T): Promise<R> => Promise.race(fns.map((fn) => _invoke(fn, [val as T])));
 }
 
 /**
+ * Value merged by `_use` - a factory returning a function is unwrapped one level,
+ * so lazy producers ( eg. a deferred `_chain` wrapped in a thunk ) merge their result,
+ * not the function itself.
+ */
+type Used<V> = V extends (...args: any[]) => infer U ? Awaited<U> : V;
+
+/**
  * Evaluates `value` and merges the result into the accumulator object under `name`.
+ * The merged value type is inferred, so downstream steps can destructure without annotations.
  *
- * NOTE: non-object accumulator values are dropped - `_use` is meant to build up
- * an object context, previous primitive results are not carried over.
+ * When the factory resolves to a function, that function is called and its (awaited)
+ * result is merged instead - allows lazy producers that defer the actual computation.
+ *
+ * An undefined / null accumulator starts a fresh context; a primitive accumulator
+ * is an error - `_use` builds up an object context and would silently drop it.
  *
  * @example
  * ```ts
  * const res = await _chain(
  *   _use(() => Promise.resolve('service A'), 'a'),
  *   _use(() => Promise.resolve('service B'), 'b'),
- *   ({ a, b }: { a: string; b: string }) => `${a} + ${b}`,
+ *   ({ a, b }) => `${a} + ${b}`,
  * ); // 'service A + service B'
  * ```
  */
-export function _use<N extends string, A extends object = object>(value: () => unknown, name: N) {
-  return async (arg?: A): Promise<A & Record<N, unknown>> => {
-    const res = await _chain(value());
-    return Object.assign({}, arg, { [name]: res } as Record<N, unknown>) as A & Record<N, unknown>;
+export function _use<N extends string, V>(value: () => MaybePromise<V>, name: N): <A = object>(arg?: A) => Promise<Ctx<A> & Record<N, Used<V>>> {
+  return async <A = object>(arg?: A): Promise<Ctx<A> & Record<N, Used<V>>> => {
+    if (arg !== undefined && arg !== null && typeof arg !== 'object') {
+      throw new Error(`_use expects an object accumulator, got ${typeof arg} - it would be silently dropped`);
+    }
+
+    let res: unknown = await _invoke(value, []);
+    if (typeof res === 'function') {
+      res = await (res as () => unknown)();
+    }
+
+    return Object.assign({}, arg, { [name]: res } as Record<N, Used<V>>) as Ctx<A> & Record<N, Used<V>>;
   };
 }
 
 /**
+ * Evaluates all field functions in parallel with the chain input and merges the
+ * results into the accumulator - a parallel, multi-key variant of `_use`.
+ * Rejects as soon as any field rejects.
  *
+ * @example
+ * ```ts
+ * const res = await _chain(
+ *   _use(() => loadCampaign(id), 'campaign'),
+ *   _struct({
+ *     owner: (ctx) => loadOwner(ctx),
+ *     stats: (ctx) => loadStats(ctx),
+ *   }),
+ * ); // { campaign, owner, stats } - owner and stats resolved in parallel
+ * ```
+ */
+export function _struct<S extends Record<string, (input: any) => unknown>>(spec: S): <A = object>(arg?: A) => Promise<Ctx<A> & { [K in keyof S]: Awaited<ReturnType<S[K]>> }> {
+  return async <A = object>(arg?: A) => {
+    if (arg !== undefined && arg !== null && typeof arg !== 'object') {
+      throw new Error(`_struct expects an object accumulator, got ${typeof arg} - it would be silently dropped`);
+    }
+
+    const keys = Object.keys(spec);
+    const values = await Promise.all(keys.map((k) => _invoke(spec[k], [arg])));
+
+    const merged = Object.assign({}, arg) as Record<string, unknown>;
+    keys.forEach((k, i) => {
+      merged[k] = values[i];
+    });
+
+    return merged as Ctx<A> & { [K in keyof S]: Awaited<ReturnType<S[K]>> };
+  };
+}
+
+/**
  * Catches errors from a promise and calls the provided error handler.
  * Value returned from the handler becomes the recovery value of the chain.
  *
@@ -337,17 +459,10 @@ export function _use<N extends string, A extends object = object>(value: () => u
  *   () => Promise.reject(new Error('boom')),
  *   async (err) => 'recovered',
  * )(); // 'recovered'
- *
- * // sync throws are caught too
- * await _catch(() => { throw new Error('boom'); }, async () => 'recovered')(); // 'recovered'
  * ```
- *
- * @param promise
- * @param onError
- * @returns
  */
-export function _catch<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, onError: (err: Error, ...args: Args) => MaybePromise<E>) {
-  return (...args: Args): Promise<R | E> => _invoke(promise, args).catch((err: Error) => onError(err, ...args));
+export function _catch<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, onError: (err: unknown, ...args: Args) => MaybePromise<E>) {
+  return (...args: Args): Promise<R | E> => _invoke(promise, args).catch((err: unknown) => onError(err, ...args));
 }
 
 /**
@@ -359,18 +474,13 @@ export function _catch<Args extends unknown[], R, E>(promise: (...args: Args) =>
  * const res = await _catchFilter(
  *   () => Promise.reject(new Error('not found')),
  *   () => null,
- *   (err) => err.message === 'not found',
+ *   (err) => err instanceof Error && err.message === 'not found',
  * )(); // null - handled
  * ```
- *
- * @param promise
- * @param onError
- * @param filter
- * @returns
  */
-export function _catchFilter<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, onError: (err: Error) => MaybePromise<E>, filter: (err: Error) => boolean) {
+export function _catchFilter<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, onError: (err: unknown) => MaybePromise<E>, filter: (err: unknown) => boolean) {
   return (...args: Args): Promise<R | E> =>
-    _invoke(promise, args).catch((err: Error) => {
+    _invoke(promise, args).catch((err: unknown) => {
       if (filter(err)) {
         return onError(err);
       } else {
@@ -410,11 +520,6 @@ export function _catchValue<Args extends unknown[], R, E>(promise: (...args: Arg
  *   NotFoundError,
  * )(); // null - handled, TypeError etc. would re-throw
  * ```
- *
- * @param promise
- * @param onError
- * @param exception
- * @returns
  */
 export function _catchException<Args extends unknown[], R, E, X extends Error>(promise: (...args: Args) => MaybePromise<R>, onError: (err: X) => MaybePromise<E>, exception: Constructor<X>) {
   return (...args: Args): Promise<R | E> =>
@@ -432,13 +537,11 @@ export function _catchException<Args extends unknown[], R, E, X extends Error>(p
  *
  * @example
  * ```ts
- * const res = await _chain(
- *   _use(_fallback(() => loadConfig(), () => defaultConfig), 'cfg'),
- *   ({ cfg }) => cfg,
- * ); // defaultConfig when loadConfig fails
+ * const res = await _fallback(() => loadConfig(), () => defaultConfig)();
+ * // defaultConfig when loadConfig fails
  * ```
  */
-export function _fallback<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, fallback: (err: Error) => MaybePromise<E>) {
+export function _fallback<Args extends unknown[], R, E>(promise: (...args: Args) => MaybePromise<R>, fallback: (err: unknown) => MaybePromise<E>) {
   return (...args: Args): Promise<R | E> => _invoke(promise, args).catch(fallback);
 }
 
@@ -450,13 +553,13 @@ export function _fallback<Args extends unknown[], R, E>(promise: (...args: Args)
  * ```ts
  * await _tapError(
  *   () => saveUser(user),
- *   (err) => log.error(`save failed: ${err.message}`),
+ *   (err) => log.error(`save failed: ${err}`),
  * )(); // logs, then still rejects with the original error
  * ```
  */
-export function _tapError<Args extends unknown[], R>(promise: (...args: Args) => MaybePromise<R>, onError: (err: Error, ...args: Args) => unknown) {
+export function _tapError<Args extends unknown[], R>(promise: (...args: Args) => MaybePromise<R>, onError: (err: unknown, ...args: Args) => unknown) {
   return (...args: Args): Promise<R> =>
-    _invoke(promise, args).catch(async (err: Error) => {
+    _invoke(promise, args).catch(async (err: unknown) => {
       await onError(err, ...args);
       throw err;
     });
@@ -479,52 +582,56 @@ export function _finally<Args extends unknown[], R>(promise: (...args: Args) => 
 }
 
 /**
- * Runs the side effect (function or promise) and passes the input value through unchanged.
+ * Runs side-effect steps and passes the input value through unchanged.
+ * Steps execute sequentially - the first receives the tapped value, each
+ * subsequent step receives the previous step's result. A failing side effect
+ * rejects the chain.
  *
  * @example
  * ```ts
  * const res = await _chain(
  *   () => loadUser(1),
- *   _tap((user) => log.info(`loaded ${user.id}`)),
- * ); // resolves with the user, not the log result
+ *   _tap(
+ *     (user) => log.info(`loaded ${user.id}`),
+ *     () => audit.record('user-load'),
+ *   ),
+ * ); // resolves with the user, not the side effect results
  * ```
  */
-export function _tap<T>(sideEffect: ((arg: T) => unknown) | Promise<unknown>) {
-  return (arg?: T): Promise<T> => {
-    if (typeof sideEffect === 'function') {
-      return _invoke(sideEffect, [arg as T]).then(() => arg as T);
-    }
-
-    return sideEffect.then(() => arg as T);
+export function _tap<T = unknown>(fn: (arg: T) => unknown, ...rest: Array<(arg: any) => unknown>): <A extends T>(arg: A) => Promise<A> {
+  return <A extends T>(arg: A): Promise<A> => {
+    const steps: Array<(arg?: unknown) => unknown> = [fn as (arg?: unknown) => unknown, ...rest];
+    return _reduceSteps(Promise.resolve(arg as unknown), steps).then(() => arg);
   };
 }
 
 /**
- * Branches the chain - when the (possibly async) condition is truthy calls `onFulfilled`,
- * otherwise `onRejected`. When `onRejected` is omitted and condition is falsy, resolves with `null`.
+ * Branches the chain - when the (possibly async) condition is truthy calls `onTrue`,
+ * otherwise `onFalse`. When `onFalse` is omitted and the condition is falsy,
+ * the input value passes through unchanged.
  *
  * @example
  * ```ts
  * const res = await _chain(
  *   () => loadUser(1),
- *   _either(
- *     async (user) => user.isActive,
- *     async (user) => grantAccess(user),
- *     async (user) => denyAccess(user),
+ *   _ifElse(
+ *     (user) => user.isActive,
+ *     (user) => grantAccess(user),
+ *     (user) => denyAccess(user),
  *   ),
  * );
  * ```
  */
-export function _either<T = unknown, A = unknown, B = unknown>(cond: (arg: T) => MaybePromise<unknown>, onFulfilled: (arg?: T) => MaybePromise<A>, onRejected?: (arg?: T) => MaybePromise<B>) {
-  return (arg?: T): Promise<A | B | null> => {
-    const branch = (res: unknown): Promise<A | B | null> => {
+export function _ifElse<T, A, B = T>(cond: (arg: T) => MaybePromise<unknown>, onTrue: (arg: T) => MaybePromise<A>, onFalse?: (arg: T) => MaybePromise<B>) {
+  return (arg: T): Promise<A | B> => {
+    const branch = (res: unknown): Promise<A | B> => {
       if (res) {
-        return Promise.resolve(onFulfilled(arg));
+        return Promise.resolve(onTrue(arg));
       }
-      return onRejected ? Promise.resolve(onRejected(arg)) : Promise.resolve(null);
+      return onFalse ? Promise.resolve(onFalse(arg)) : (Promise.resolve(arg) as Promise<unknown> as Promise<B>);
     };
 
-    const r = cond(arg as T);
+    const r = cond(arg);
     if (isPromise(r)) {
       return r.then(branch);
     }
@@ -535,19 +642,19 @@ export function _either<T = unknown, A = unknown, B = unknown>(cond: (arg: T) =>
 
 /**
  * Runs `fn` when the (possibly async) condition is truthy, otherwise passes the input value through.
- * One-sided `_either`.
+ * One-sided `_ifElse`.
  *
  * @example
  * ```ts
- * await _when((v: number) => v > 5, (v: number) => v * 2)(10); // 20
- * await _when((v: number) => v > 5, (v: number) => v * 2)(3);  // 3 - passed through
+ * await _when((v: number) => v > 5, (v) => v * 2)(10); // 20
+ * await _when((v: number) => v > 5, (v) => v * 2)(3);  // 3 - passed through
  * ```
  */
-export function _when<T = unknown, R = unknown>(cond: (arg: T) => MaybePromise<unknown>, fn: (arg: T) => MaybePromise<R>) {
-  return (arg?: T): Promise<T | R> => {
-    const branch = (res: unknown): Promise<T | R> => (res ? Promise.resolve(fn(arg as T)) : Promise.resolve(arg as T));
+export function _when<T, R>(cond: (arg: T) => MaybePromise<unknown>, fn: (arg: T) => MaybePromise<R>) {
+  return (arg: T): Promise<T | R> => {
+    const branch = (res: unknown): Promise<T | R> => (res ? Promise.resolve(fn(arg)) : Promise.resolve(arg));
 
-    const r = cond(arg as T);
+    const r = cond(arg);
     if (isPromise(r)) {
       return r.then(branch);
     }
@@ -562,15 +669,15 @@ export function _when<T = unknown, R = unknown>(cond: (arg: T) => MaybePromise<u
  *
  * @example
  * ```ts
- * await _unless((v: number) => v > 5, (v: number) => v * 2)(3);  // 6
- * await _unless((v: number) => v > 5, (v: number) => v * 2)(10); // 10 - passed through
+ * await _unless((v: number) => v > 5, (v) => v * 2)(3);  // 6
+ * await _unless((v: number) => v > 5, (v) => v * 2)(10); // 10 - passed through
  * ```
  */
-export function _unless<T = unknown, R = unknown>(cond: (arg: T) => MaybePromise<unknown>, fn: (arg: T) => MaybePromise<R>) {
-  return (arg?: T): Promise<T | R> => {
-    const branch = (res: unknown): Promise<T | R> => (res ? Promise.resolve(arg as T) : Promise.resolve(fn(arg as T)));
+export function _unless<T, R>(cond: (arg: T) => MaybePromise<unknown>, fn: (arg: T) => MaybePromise<R>) {
+  return (arg: T): Promise<T | R> => {
+    const branch = (res: unknown): Promise<T | R> => (res ? Promise.resolve(arg) : Promise.resolve(fn(arg)));
 
-    const r = cond(arg as T);
+    const r = cond(arg);
     if (isPromise(r)) {
       return r.then(branch);
     }
@@ -586,12 +693,12 @@ export function _unless<T = unknown, R = unknown>(cond: (arg: T) => MaybePromise
  *
  * @example
  * ```ts
- * await _chain(() => findUser(id), _or_else(guestUser)); // guestUser when null
- * await _or_else(async () => loadDefault())(undefined);  // lazy async default
- * await _or_else('def')(0); // 0 - only null/undefined replaced
+ * await _chain(() => findUser(id), _orElse(guestUser)); // guestUser when null
+ * await _orElse(async () => loadDefault())(undefined);  // lazy async default
+ * await _orElse('def')(0); // 0 - only null/undefined replaced
  * ```
  */
-export function _or_else<T, D>(defaultValue: D | (() => MaybePromise<D>)) {
+export function _orElse<T, D>(defaultValue: D | (() => MaybePromise<D>)) {
   return (arg?: T): Promise<T | D> => {
     if (arg !== null && arg !== undefined) {
       return Promise.resolve(arg);
@@ -610,10 +717,114 @@ export function _or_else<T, D>(defaultValue: D | (() => MaybePromise<D>)) {
  *
  * @example
  * ```ts
- * _to_array()(5);      // [5]
- * _to_array()([1, 2]); // [1, 2] - same reference
+ * _toArray()(5);      // [5]
+ * _toArray()([1, 2]); // [1, 2] - same reference
  * ```
  */
-export function _to_array<T>(): (args: T | T[]) => T[] {
+export function _toArray<T>(): (args: T | T[]) => T[] {
   return (args: T | T[]) => (Array.isArray(args) ? args : [args]);
+}
+
+/**
+ * Options for `_retry`.
+ */
+export interface RetryOptions {
+  /**
+   * Total number of attempts, including the first one. Default 3.
+   */
+  attempts?: number;
+
+  /**
+   * Base delay between attempts in milliseconds. Default 100.
+   */
+  delay?: number;
+
+  /**
+   * How the delay grows across attempts. Default 'fixed'.
+   */
+  backoff?: 'fixed' | 'exponential';
+
+  /**
+   * Retry only errors matching the predicate. Default: retry every error.
+   */
+  retryIf?: (err: unknown) => boolean;
+}
+
+/**
+ * Retries the wrapped function until it succeeds or attempts are exhausted.
+ * Thin fp-shaped adapter over the resilience `retryStrategy` - for jitter,
+ * max delay caps or result-based retries use `ResiliencePipelineBuilder` directly.
+ *
+ * @example
+ * ```ts
+ * const res = await _chain(
+ *   _retry(() => fetchRates(), { attempts: 3, delay: 200, backoff: 'exponential' }),
+ *   (rates) => rates.eur,
+ * );
+ * ```
+ */
+export function _retry<Args extends unknown[], R>(fn: (...args: Args) => MaybePromise<R>, options: RetryOptions = {}) {
+  const attempts = options.attempts ?? 3;
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new Error(`_retry attempts must be a positive integer, got ${attempts}`);
+  }
+
+  const delay = options.delay ?? 100;
+  if (!Number.isFinite(delay) || delay < 0) {
+    throw new Error(`_retry delay must be a non-negative number of milliseconds, got ${delay}`);
+  }
+
+  const retryIf = options.retryIf;
+  const strategy = retryStrategy<R>({
+    MaxRetryAttempts: attempts - 1,
+    Delay: TimeSpan.fromMilliseconds(delay),
+    BackoffType: options.backoff === 'exponential' ? BackoffType.Exponential : BackoffType.Constant,
+    ShouldHandle: retryIf ? (o: Outcome<R>) => o.Error !== undefined && retryIf(o.Error) : undefined,
+  });
+
+  return (...args: Args): Promise<R> => {
+    const controller = new AbortController();
+    return strategy(() => _invoke(fn, args))({ Signal: controller.signal, Properties: new Map<string, unknown>() });
+  };
+}
+
+/**
+ * Rejects with `TimeoutRejectedException` when the wrapped function does not
+ * settle within `ms` milliseconds. The underlying operation is NOT interrupted -
+ * it keeps running orphaned (plain promises are not cancelable). For cooperative
+ * cancellation use `ResiliencePipelineBuilder` with a signal-aware callback.
+ *
+ * @example
+ * ```ts
+ * const res = await _timeout(() => fetchSlowService(), 5000)();
+ * ```
+ */
+export function _timeout<Args extends unknown[], R>(fn: (...args: Args) => MaybePromise<R>, ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    throw new Error(`_timeout duration must be a positive number of milliseconds, got ${ms}`);
+  }
+
+  const strategy = timeoutStrategy<R>(TimeSpan.fromMilliseconds(ms));
+
+  return (...args: Args): Promise<R> => {
+    const controller = new AbortController();
+    return strategy(() => _invoke(fn, args))({ Signal: controller.signal, Properties: new Map<string, unknown>() });
+  };
+}
+
+/**
+ * Waits `ms` milliseconds, then passes the input value through unchanged.
+ * Step-shaped variant of `sleep` for use inside chains.
+ *
+ * @example
+ * ```ts
+ * await _chain(() => save(record), _sleep(500), () => verify(record));
+ * ```
+ */
+export function _sleep(ms: number): <A>(arg: A) => Promise<A> {
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw new Error(`_sleep duration must be a non-negative number of milliseconds, got ${ms}`);
+  }
+
+  return <A>(arg: A): Promise<A> => sleep(TimeSpan.fromMilliseconds(ms)).then(() => arg);
 }

@@ -15,7 +15,7 @@ Everything is re-exported from the package root; import by name.
 | **Resilience** | [documentation/resilience.md](./documentation/resilience.md) | retry, timeout, circuit breaker, fallback, hedging, concurrency limiter; pipeline builder; `PredicateBuilder`; cancellation |
 | **TimeSpan** | [documentation/timespan.md](./documentation/timespan.md) | immutable duration type: construction, parsing, arithmetic, comparison, Date/Luxon interop, formatting |
 | **Args validation** | [documentation/args.md](./documentation/args.md) | `_check_arg` + composable validate/transform checks |
-| **FP / async** | [documentation/fp.md](./documentation/fp.md) | `_chain`, `_zip`, `_map`, `_use`, `_tap`, `_either`, error combinators |
+| **FP / async** | [documentation/fp.md](./documentation/fp.md) | `_chain`, `_fanout`, `_map`, `_use`, `_struct`, `_tap`, `_ifElse`, `_rescue`, `_retry`, error combinators |
 | **Process** | [documentation/process.md](./documentation/process.md) | `sleep`/`withTimeout`, graceful shutdown, typed env parsing |
 | **Assertions** | [documentation/assert.md](./documentation/assert.md) | type-narrowing runtime asserts |
 | **Core helpers** | [documentation/utilities.md](./documentation/utilities.md) | `array`, `hash`, `json`, `string`, `func`, `types` |
