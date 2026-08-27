@@ -177,6 +177,24 @@ const rbac = {
     password: {
       service: 'BasicPasswordProvider',
 
+      /**
+       * How auto-generated passwords are built. Separate from `validation.rule`
+       * on purpose: the rule is a JSON schema describing what a HUMAN may
+       * choose, and a schema is not something you can generate from. This says
+       * which characters to draw and how many.
+       *
+       * `characters` entries are concatenated into one pool, so both
+       * `['abc', 'def']` and `['a', 'b', 'c']` mean the same thing.
+       *
+       * Keep this pool able to satisfy `validation.rule` — the default rule
+       * demands a digit, so the default pool contains digits. `generate()`
+       * asserts the result against the rule and throws if the two disagree.
+       */
+      generator: {
+        length: 16,
+        characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'],
+      },
+
       validation: {
         service: 'BasicPasswordValidationProvider',
         rule: {

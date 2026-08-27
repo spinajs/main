@@ -1,41 +1,74 @@
-import { BasicPasswordProvider } from '../src/password.js';
-import { DI } from '@spinajs/di';
-import chaiAsPromised from 'chai-as-promised';
-import * as chai from 'chai';
-import { PasswordProvider } from '../src/index.js';
+import 'mocha';
 import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { UnexpectedServerError } from '@spinajs/exceptions';
+import { join, normalize, resolve } from 'path';
 
-chai.use(chaiAsPromised);
+import { BasicPasswordProvider, BasicPasswordValidationProvider } from '../src/password.js';
+import { PasswordProvider, PasswordValidationProvider } from '../src/interfaces.js';
+import { TestConfiguration } from './common.test.js';
 
-describe('Password provider tests', () => {
-  before(async () => {
+function dir(path: string) {
+  return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+describe('BasicPasswordProvider.generate', function () {
+  this.timeout(15000);
+
+  let provider: PasswordProvider;
+  let config: Configuration;
+
+  beforeEach(async () => {
+    DI.register(TestConfiguration).as(Configuration);
     DI.register(BasicPasswordProvider).as(PasswordProvider);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+
+    config = await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+    provider = await DI.resolve(PasswordProvider);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     DI.clearCache();
   });
 
-  it('Should hash password', async () => {
-    const provider = DI.resolve(PasswordProvider);
-    const hashed = await provider.hash('bbbb');
-    expect(typeof hashed).to.be.eq('string');
-    expect(hashed.length).to.gt(12);
-  });
+  it('generates a password of the configured length from the configured characters', () => {
+    config.set('rbac.password.generator', { length: 24, characters: ['abc', '123'] });
 
-  it('Should verify password', async () => {
-    const provider = DI.resolve(PasswordProvider);
-    const ok = await provider.verify('$argon2i$v=19$m=4096,t=3,p=1$xS9IIsZik2It+PrdjFNKiA$3sEyHfIHLXObxIm8Jva5F18MNB9O+yOw4Lkh+P7+Sdk', 'bbbb');
-    const notok = await provider.verify('$argon2i$v=19$m=4096,t=3,p=1$xSddasddsaqPrdjFNKiA$3sEyHfIHLXObxIm8Jva5F18MNB9O+yOw4Lkh+P7+Sdk', 'bbbb');
-
-    expect(notok).to.be.false;
-    expect(ok).to.be.true;
-  });
-
-  it('Should generate password', async () => {
-    const provider = DI.resolve(PasswordProvider);
     const password = provider.generate();
-    expect(typeof password).to.be.eq('string');
-    expect(password.length).to.gt(1);
+
+    expect(password).to.have.lengthOf(24);
+    expect(password.split('').every((c) => 'abc123'.includes(c)), `unexpected character in ${password}`).to.eq(true);
+  });
+
+  /**
+   * The shipped default rule demands a digit. A uniform draw from an
+   * alphanumeric pool misses one often enough (~6% at length 16) that the
+   * generator must retry rather than hand back an invalid password.
+   */
+  it('always returns a password satisfying the validation rule', () => {
+    config.set('rbac.password.generator', { length: 16, characters: ['abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] });
+    config.set('rbac.password.validation.rule', { type: 'string', pattern: '^(?=.*\\d).{8,}$' });
+
+    for (let i = 0; i < 200; i++) {
+      expect(/^(?=.*\d).{8,}$/.test(provider.generate()), 'generated password must satisfy the configured rule').to.eq(true);
+    }
+  });
+
+  /**
+   * A pool that cannot satisfy the rule is a misconfiguration the caller cannot
+   * fix, so it must surface as a server error - never as a 400 on whoever
+   * happened to create an account.
+   */
+  it('throws a server error when the pool cannot satisfy the rule', () => {
+    config.set('rbac.password.generator', { length: 16, characters: ['abcdef'] });
+    config.set('rbac.password.validation.rule', { type: 'string', pattern: '^(?=.*\\d).{8,}$' });
+
+    expect(() => provider.generate()).to.throw(UnexpectedServerError);
+  });
+
+  it('does not repeat itself', () => {
+    const seen = new Set(Array.from({ length: 50 }, () => provider.generate()));
+    expect(seen.size, 'generated passwords must not collide').to.eq(50);
   });
 });

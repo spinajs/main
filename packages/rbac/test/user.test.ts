@@ -419,7 +419,7 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same email is used', async () => {
-      const provider = DI.resolve(PasswordProvider);
+      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'test@spinajs.pl',
@@ -434,7 +434,7 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same uuid is used', async () => {
-      const provider = DI.resolve(PasswordProvider);
+      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'tessssst@spinajs.pl',
@@ -449,7 +449,7 @@ describe('User model tests', function () {
     });
 
     it('Should throw if same login is used', async () => {
-      const provider = DI.resolve(PasswordProvider);
+      const provider = await DI.resolve(PasswordProvider);
 
       const user = new User({
         Email: 'test-22222@spinajs.pl',

@@ -46,7 +46,7 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
   public async down(_connection: OrmDriver<IDriverOptions>): Promise<void> {}
 
   public async data() {
-    const provider = DI.resolve(PasswordProvider);
+    const provider = await DI.resolve(PasswordProvider);
 
     const user = new User({
       Email: 'test@spinajs.pl',

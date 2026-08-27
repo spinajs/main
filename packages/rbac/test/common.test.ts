@@ -139,6 +139,14 @@ export class TestConfiguration extends FrameworkConfiguration {
         password: {
           service: 'BasicPasswordProvider',
 
+          // mirrors the production default in src/config/rbac.ts so tests that
+          // trigger auto-generated passwords (eg. create() without a `password`
+          // option) exercise generate() the same way the app does.
+          generator: {
+            length: 16,
+            characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'],
+          },
+
           validation: {
             service: 'BasicPasswordValidationProvider',
             rule: {

@@ -108,7 +108,8 @@ export abstract class PasswordProvider {
   public abstract hash(input: string): Promise<string>;
 
   /**
-   * Generates random user password
+   * Generates a random password drawn from `rbac.password.generator` and
+   * satisfying `rbac.password.validation.rule`.
    */
   public abstract generate(): string;
 }
