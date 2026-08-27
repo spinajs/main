@@ -213,6 +213,18 @@ import { randomInt } from 'crypto';
 const GENERATE_ATTEMPTS = 10;
 
 /**
+ * Used when an application has not declared `rbac.password.generator`. Mirrors
+ * the shipped config default, so an application that never configures a
+ * generator still creates usable accounts - the same reason `_create_middleware`
+ * carries a fallback for `rbac.actions`, and the same reason the admin test
+ * harness can declare its own `rbac` block without merging the shipped one.
+ *
+ * A DECLARED but empty pool still throws - `??` catches only null and undefined
+ * - because that is a misconfiguration rather than an omission.
+ */
+const DEFAULT_GENERATOR = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] };
+
+/**
  * Simple password service that use argon2 hash alghoritm
  */
 @Injectable(PasswordProvider)
@@ -252,8 +264,9 @@ export class BasicPasswordProvider implements PasswordProvider {
    *   this can fix, so it must never reach a client as a 400.
    */
   public generate(): string {
-    const length = this.GeneratorOptions?.length ?? 16;
-    const pool = (this.GeneratorOptions?.characters ?? []).join('');
+    const options = this.GeneratorOptions ?? DEFAULT_GENERATOR;
+    const length = options.length ?? DEFAULT_GENERATOR.length;
+    const pool = (options.characters ?? DEFAULT_GENERATOR.characters).join('');
 
     if (length < 1 || pool.length === 0) {
       throw new UnexpectedServerError('rbac.password.generator must define a positive length and a non-empty character pool');
