@@ -524,7 +524,7 @@ Nothing in rbac checks a role against the configured grants. An account holding 
   it('Should refuse a role that is not configured in grants', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await expect(create('bogus@wp.pl', 'bogususer', ['not-a-role'], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants: not-a-role/);
+    await expect(create('bogus@wp.pl', 'bogususer', ['not-a-role'], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants or rbac.roles: not-a-role/);
 
     expect(await User.query().whereAnything('bogus@wp.pl').first()).to.not.exist;
   });
@@ -532,7 +532,7 @@ Nothing in rbac checks a role against the configured grants. An account holding 
   it('Should refuse granting a role that is not configured in grants', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await expect(grant('test@spinajs.pl', 'not-a-role')).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants/);
+    await expect(grant('test@spinajs.pl', 'not-a-role')).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants or rbac.roles/);
   });
 ```
 
@@ -558,6 +558,15 @@ Add to `packages/rbac/src/actions.ts`, next to `assertRolesExist`'s siblings:
  * @param roles - role names to check; every unknown name is reported at once
  */
 export function assertRolesExist(roles: string[]): void {
+  // An application whose roles are defined at runtime rather than in static
+  // config turns this off wholesale. `rbac-http-admin`'s DefaultRoleGuard has
+  // carried the same escape hatch for its own route-level check since before
+  // this one existed; a library-level check that could not be turned off would
+  // make rbac unusable for those applications.
+  if (_cfg('rbac.requireKnownRole', true)() === false) {
+    return;
+  }
+
   const ac = DI.get<AccessControl>('AccessControl');
 
   if (!ac) {
@@ -566,10 +575,16 @@ export function assertRolesExist(roles: string[]): void {
     return;
   }
 
-  const unknown = roles.filter((r) => !ac.hasRole(r));
+  // "Known" the same way DefaultRoleGuard already means it: holding grants, or
+  // merely DECLARED. A role may legitimately be named before it is given any
+  // permission, and a narrower definition here would refuse roles the route
+  // layer of this same codebase already accepts.
+  const declared = (_cfg<Array<{ Name: string }>>('rbac.roles', [])() ?? []).map((r) => r.Name);
+
+  const unknown = roles.filter((r) => !ac.hasRole(r) && !declared.includes(r));
 
   if (unknown.length > 0) {
-    throw new InvalidArgument(`Role(s) not configured in rbac.grants: ${unknown.join(', ')}`, 'roles');
+    throw new InvalidArgument(`Role(s) not configured in rbac.grants or rbac.roles: ${unknown.join(', ')}`, 'roles');
   }
 }
 ```
@@ -1644,7 +1659,7 @@ Expected: only the pre-existing `@types/luxon` identity errors in `src/migration
 - [ ] **Step 4: Run the backend tests**
 
 Run: `cd yourscreen-backend && npm test`
-Expected: PASS. A test asserting that `addUserWithRole` throws for an unknown role now gets the message from rbac — the text is identical (`Role(s) not configured in rbac.grants: ...`), so the assertion should hold; the exception type changes from the locally-thrown `InvalidArgument` to rbac's, which is also `InvalidArgument`.
+Expected: PASS. A test asserting that `addUserWithRole` throws for an unknown role now gets the message from rbac — the text CHANGED to `Role(s) not configured in rbac.grants or rbac.roles: ...`, so any backend assertion on it must be updated; the exception type changes from the locally-thrown `InvalidArgument` to rbac's, which is also `InvalidArgument`.
 
 - [ ] **Step 5: Commit**
 
