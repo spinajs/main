@@ -458,6 +458,27 @@ describe('Admin user controllers', function () {
       await expect(usersController.addUser(await admin(), { Login: 'user', Email: 'other@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(/already in use/);
     });
 
+    /**
+     * The message alone says something clashed, never WHICH field — a form
+     * receiving only that can do nothing but show a banner. `parameter` carries
+     * the same ajv-shaped per-field detail a schema rejection does, and
+     * `__handle_error__` spreads the exception's own enumerable properties into
+     * the body, so it survives the trip to the client.
+     */
+    it('names the clashing field in the conflict, in the ajv shape a schema rejection uses', async () => {
+      const error = await usersController.addUser(await admin(), { Login: 'other', Email: 'user@spinajs.pl', Role: 'user' } as any).catch((e: any) => e);
+
+      expect(error.parameter).to.be.an('array').with.lengthOf(1);
+      expect(error.parameter[0]).to.include({ instancePath: '/Email', keyword: 'duplicate' });
+      expect(error.parameter[0].params).to.deep.equal({ field: 'Email' });
+    });
+
+    it('names both fields when the login and the email are each taken', async () => {
+      const error = await usersController.addUser(await admin(), { Login: 'user', Email: 'user@spinajs.pl', Role: 'user' } as any).catch((e: any) => e);
+
+      expect(error.parameter.map((p: any) => p.instancePath)).to.have.members(['/Login', '/Email']);
+    });
+
     it('rejects a malformed email', async () => {
       await expect(usersController.addUser(await admin(), { Login: 'bademail', Email: 'not-an-email', Role: 'user' } as any)).to.be.rejected;
     });

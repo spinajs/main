@@ -521,6 +521,18 @@ export class Users extends BaseController {
    *
    * Soft-deleted rows are included on purpose: they still occupy the unique
    * indexes, so ignoring them would trade this 409 for a driver error and a 500.
+   *
+   * The 409 carries WHICH field clashed, not only that something did. The error
+   * body is built by spreading the thrown exception's own enumerable properties
+   * (`__handle_error__`, @spinajs/http), so `parameter` reaches the client
+   * alongside `message` in the shape {@link ValidationFailed} already uses for
+   * schema rejections — an AJV-style entry per offending field. A form can then
+   * mark the Email input rather than showing "something is already in use"
+   * somewhere off to the side.
+   *
+   * Attached to a plain {@link ResourceDuplicated} rather than a subclass on
+   * purpose: `__handle_error__` looks the response up by `err.constructor.name`,
+   * so a subclass would miss the 409 mapping entirely and answer 500.
    */
   // base User on purpose: uniqueness is global — a scoped model would hide the
   // clashing row and turn this 409 into a driver 500
@@ -542,7 +554,21 @@ export class Users extends BaseController {
     }
 
     if (clashes.length > 0) {
-      throw new ResourceDuplicated(`${clashes.join(' and ')} already in use`);
+      const error = new ResourceDuplicated(`${clashes.join(' and ')} already in use`);
+
+      Object.assign(error, {
+        parameter: clashes.map((field) => ({
+          // JSON Pointer into the request body, exactly as ajv reports one — a
+          // client maps it to its own field name with the same code path it
+          // already uses for a 400.
+          instancePath: `/${field}`,
+          keyword: 'duplicate',
+          params: { field },
+          message: `${field} already in use`,
+        })),
+      });
+
+      throw error;
     }
   }
 }
