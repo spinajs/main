@@ -550,7 +550,13 @@ export class Users extends BaseController {
    */
   protected async issuePasswordReset(user: User): Promise<void> {
     try {
-      await passwordChangeRequest(user);
+      // BY UUID, not by the instance `create()` returned: `_user()` resolves an
+      // identifier through a query that POPULATES `Metadata`, and passes an
+      // instance straight through. The reset writes three metadata entries, so
+      // handing it an instance whose relation was never loaded stored nothing at
+      // all and left the account with no token — silently, since the write
+      // itself does not fail.
+      await passwordChangeRequest(user.Uuid);
     } catch (err) {
       this.Log.error(err as Error, `Could not issue the initial password reset for ${user.Uuid}. The account exists but its owner has no way in yet - re-send the link from POST /users/security/password-reset-request/:user.`);
     }
