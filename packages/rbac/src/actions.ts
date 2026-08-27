@@ -441,7 +441,13 @@ export function assertRolesExist(roles: string[]): void {
   // merely DECLARED. A role may legitimately be named before it is given any
   // permission, and a narrower definition here would refuse roles the route
   // layer of this same codebase already accepts.
-  const declared = (_cfg<Array<{ Name: string }>>('rbac.roles', [])() ?? []).map((r: { Name: string }) => r.Name);
+  //
+  // Guarded the way DefaultRoleGuard guards the same list: `rbac.roles` may be
+  // assembled dynamically, and one malformed entry must not turn every create()
+  // in the application into an unhandled TypeError. An entry without a `Name`
+  // simply never matches a real role.
+  const configured = _cfg<Array<{ Name: string }>>('rbac.roles', [])();
+  const declared = (Array.isArray(configured) ? configured : []).map((r) => r?.Name).filter(Boolean);
 
   const unknown = roles.filter((r) => !ac.hasRole(r) && !declared.includes(r));
 

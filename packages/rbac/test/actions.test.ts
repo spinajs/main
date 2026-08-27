@@ -989,4 +989,24 @@ describe('User model tests', function () {
       config.set('rbac.requireKnownRole', true);
     }
   });
+
+  /**
+   * `rbac.roles` may be assembled dynamically (the escape hatch above exists
+   * for exactly that scenario), so one malformed entry must not turn a routine
+   * refusal into an unhandled TypeError thrown before assertRolesExist ever
+   * gets to report which role was the problem.
+   */
+  it('Should refuse an unknown role rather than throw when rbac.roles holds a malformed entry', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    const original = config.get('rbac.roles');
+    config.set('rbac.roles', [null, { Name: 'admin' }]);
+
+    try {
+      await expect(create('malformed-roles@wp.pl', 'malformedroles', ['not-a-role'], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants or rbac.roles: not-a-role/);
+    } finally {
+      config.set('rbac.roles', original);
+    }
+  });
 });
