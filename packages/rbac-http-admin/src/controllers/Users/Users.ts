@@ -1,13 +1,11 @@
-import { Autoinject } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
-import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
+import { ErrorCode, InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { create, deleteUser, passwordChangeRequest, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update, userModel } from '@spinajs/rbac';
+import { assertUserUnique, create, deleteUser, E_CODES, User, _user_update, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
-import { Log, Logger } from '@spinajs/log';
 
 import { RoleGuard } from '../../interfaces.js';
 
@@ -248,12 +246,6 @@ const USER_FILTER: IColumnFilter<User>[] = [
 @Policy(AuthorizedPolicy)
 @Resource('users')
 export class Users extends BaseController {
-  @Logger('rbac-admin')
-  protected Log: Log;
-
-  @Autoinject()
-  protected PasswordProvider: PasswordProvider;
-
   @AutoinjectService('rbac.admin.roleGuard')
   protected RoleGuard: RoleGuard;
 
@@ -435,27 +427,16 @@ export class Users extends BaseController {
     const roles = roleList(data.Role);
 
     await this.RoleGuard.assertCanAssignRoles(actor, null, roles);
-    this.assertNoProtectedMetadata(data.Metadata);
-    await this.assertUnique(data.Login, data.Email);
 
-    const temporaryPassword = this.PasswordProvider.generate();
-    const { User: created } = await create(data.Email, data.Login, temporaryPassword, roles, undefined, data.Metadata);
+    // No password: `create()` generates one AND mails the reset link that hands
+    // the account to its owner. Both belong to the action, not to this route —
+    // every other caller that creates an account needs them just as much, and
+    // the uniqueness refusal comes from there now for the same reason.
+    const { User: created } = await this.asDuplicateResponse(() => create(data.Email, data.Login, roles, { metadata: data.Metadata }));
 
-    // Hand the account over to its owner. The temporary password above is
-    // deliberately discarded — never returned, never mailed — so without this
-    // the new account is unreachable until an administrator remembers to press
-    // "send a reset link" on a second screen, which is what made every freshly
-    // created account arrive dead.
-    //
-    // Not fatal: the account EXISTS at this point, and answering 500 would tell
-    // the caller the creation failed when it did not, inviting a retry that then
-    // fails on the duplicate login. A mail that could not be queued is a mail an
-    // administrator can re-send from the security routes.
-    await this.issuePasswordReset(created);
-
-    // NOTE: create() returns { User, Password } where Password is the plaintext
-    // temporary password. It must NOT be sent in the response — return only the
-    // created user (dehydrated, so the hash and internal id stay hidden too).
+    // NOTE: create() also returns the plaintext generated password. It must NOT
+    // be sent in the response — return only the created user (dehydrated, so the
+    // hash and internal id stay hidden too).
     return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
@@ -498,7 +479,7 @@ export class Users extends BaseController {
     }
 
     if ((data.Login && data.Login !== user.Login) || (data.Email && data.Email !== user.Email)) {
-      await this.assertUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id);
+      await this.asDuplicateResponse(() => assertUserUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id));
     }
 
     user.Login = data.Login ?? user.Login;
@@ -565,23 +546,47 @@ export class Users extends BaseController {
   }
 
   /**
-   * Issues the reset token that hands a freshly created account to its owner,
-   * logging rather than throwing when it cannot be delivered.
+   * Runs `work`, turning rbac's duplicate-account refusal into the 409 this API
+   * has always answered.
    *
-   * Wrapped as its own method so a test can stub it, and so the swallow has one
-   * place and one reason: see the call site in {@link addUser}.
+   * rbac throws a transport-agnostic {@link ErrorCode} — it has no business
+   * knowing about status codes — so the translation belongs here. `__handle_error__`
+   * looks the response up by `err.constructor.name`, which is why this rethrows a
+   * plain {@link ResourceDuplicated} rather than a subclass: a subclass would miss
+   * the 409 mapping entirely and answer 500.
+   *
+   * The 409 carries WHICH field clashed, not only that something did. The error
+   * body is built by spreading the thrown exception's own enumerable properties
+   * (`__handle_error__`, @spinajs/http), so `parameter` reaches the client
+   * alongside `message` in the shape {@link ValidationFailed} already uses for
+   * schema rejections — an ajv-style entry per offending field. A form can then
+   * mark the Email input rather than showing "something is already in use"
+   * somewhere off to the side.
    */
-  protected async issuePasswordReset(user: User): Promise<void> {
+  protected async asDuplicateResponse<T>(work: () => Promise<T>): Promise<T> {
     try {
-      // BY UUID, not by the instance `create()` returned: `_user()` resolves an
-      // identifier through a query that POPULATES `Metadata`, and passes an
-      // instance straight through. The reset writes three metadata entries, so
-      // handing it an instance whose relation was never loaded stored nothing at
-      // all and left the account with no token — silently, since the write
-      // itself does not fail.
-      await passwordChangeRequest(user.Uuid);
+      return await work();
     } catch (err) {
-      this.Log.error(err as Error, `Could not issue the initial password reset for ${user.Uuid}. The account exists but its owner has no way in yet - re-send the link from POST /users/security/password-reset-request/:user.`);
+      if (!(err instanceof ErrorCode) || err.code !== E_CODES.E_USER_ALREADY_EXISTS) {
+        throw err;
+      }
+
+      const clashes = ((err.data as { fields?: string[] })?.fields ?? []).slice();
+      const duplicated = new ResourceDuplicated(err.message);
+
+      Object.assign(duplicated, {
+        parameter: clashes.map((field) => ({
+          // JSON Pointer into the request body, exactly as ajv reports one — a
+          // client maps it to its own field name with the same code path it
+          // already uses for a 400.
+          instancePath: `/${field}`,
+          keyword: 'duplicate',
+          params: { field },
+          message: `${field} already in use`,
+        })),
+      });
+
+      throw duplicated;
     }
   }
 
@@ -603,90 +608,4 @@ export class Users extends BaseController {
     return column;
   }
 
-  /**
-   * Refuses metadata keys that decide account access.
-   *
-   * `user:pwd_reset:token` is a bearer credential for the public reset endpoint
-   * and `user:2fa:*` is the second factor itself — writing either through a
-   * generic key-value merge hands out an account rather than annotating one.
-   * Ban and lockout keys are refused for the same reason bans have their own
-   * route: written directly they skip the event, the email and the session
-   * revocation that make a ban mean something.
-   */
-  protected assertNoProtectedMetadata(metadata?: { [key: string]: any }): void {
-    if (!metadata) {
-      return;
-    }
-
-    const offending = Object.keys(metadata).filter((key) => {
-      // A glob reaches the metadata relation's setter as a PATTERN and rewrites
-      // every matching entry, so `*` alone would overwrite the whole set —
-      // including the protected keys listed above.
-      if (key.includes('*') || key.includes('?')) {
-        return true;
-      }
-
-      return USER_SECURITY_METADATA_KEYS.includes(key);
-    });
-
-    if (offending.length > 0) {
-      throw new InvalidArgument(`Metadata keys cannot be set through this endpoint: ${offending.join(', ')}`);
-    }
-  }
-
-  /**
-   * Rejects a login / email already taken by another account.
-   *
-   * Soft-deleted rows are included on purpose: they still occupy the unique
-   * indexes, so ignoring them would trade this 409 for a driver error and a 500.
-   *
-   * The 409 carries WHICH field clashed, not only that something did. The error
-   * body is built by spreading the thrown exception's own enumerable properties
-   * (`__handle_error__`, @spinajs/http), so `parameter` reaches the client
-   * alongside `message` in the shape {@link ValidationFailed} already uses for
-   * schema rejections — an AJV-style entry per offending field. A form can then
-   * mark the Email input rather than showing "something is already in use"
-   * somewhere off to the side.
-   *
-   * Attached to a plain {@link ResourceDuplicated} rather than a subclass on
-   * purpose: `__handle_error__` looks the response up by `err.constructor.name`,
-   * so a subclass would miss the 409 mapping entirely and answer 500.
-   */
-  // base User on purpose: uniqueness is global — a scoped model would hide the
-  // clashing row and turn this 409 into a driver 500
-  protected async assertUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
-    const clashes: string[] = [];
-
-    if (login) {
-      const found = await User.query().withDeleted().where('Login', login).first();
-      if (found && found.Id !== exceptUserId) {
-        clashes.push('Login');
-      }
-    }
-
-    if (email) {
-      const found = await User.query().withDeleted().where('Email', email).first();
-      if (found && found.Id !== exceptUserId) {
-        clashes.push('Email');
-      }
-    }
-
-    if (clashes.length > 0) {
-      const error = new ResourceDuplicated(`${clashes.join(' and ')} already in use`);
-
-      Object.assign(error, {
-        parameter: clashes.map((field) => ({
-          // JSON Pointer into the request body, exactly as ajv reports one — a
-          // client maps it to its own field name with the same code path it
-          // already uses for a 400.
-          instancePath: `/${field}`,
-          keyword: 'duplicate',
-          params: { field },
-          message: `${field} already in use`,
-        })),
-      });
-
-      throw error;
-    }
-  }
 }

@@ -105,7 +105,7 @@ describe('AccessTokenController - scopes route', function () {
   // `{ User, Password }`, not a bare user - and the account it makes is
   // inactive, so it must be activated before it can authenticate as anyone.
   const activeUser = async (login: string, roles: string[]) => {
-    const { User: user } = await create(`${login}@spinajs.pl`, login, 'Bb1234567!', roles);
+    const { User: user } = await create(`${login}@spinajs.pl`, login, roles, { password: 'Bb1234567!' });
     await activate(user.Id);
     return user;
   };

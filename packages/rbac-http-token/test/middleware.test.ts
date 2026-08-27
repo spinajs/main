@@ -107,7 +107,7 @@ describe('TokenAuthMiddleware', function () {
   });
 
   async function tokenFor(mail: string, login: string, ownerRoles: string[] = ['user'], tokenRoles: string[] = ['user']) {
-    const { User: owner } = await create(mail, login, 'password123', ownerRoles);
+    const { User: owner } = await create(mail, login, ownerRoles, { password: 'password123' });
     await activate(owner.Id);
     return { owner, ...(await createToken(owner, 'mw token', tokenRoles, null)) };
   }
@@ -355,7 +355,7 @@ describe('TokenAuthMiddleware', function () {
      * that clearing `ActiveRole` exists to prevent.
      */
     it('stamps the token profile on TokenAuth', async () => {
-      const { User: owner } = await create('m13@spinajs.com', 'm13', 'password123', ['user', 'admin']);
+      const { User: owner } = await create('m13@spinajs.com', 'm13', ['user', 'admin'], { password: 'password123' });
       await activate(owner.Id);
       const { Plaintext } = await createToken(owner, 'profiled mw token', ['user'], null, 'admin');
       const { req, res, next } = makeReqRes({ authorization: `Bearer ${Plaintext}` });

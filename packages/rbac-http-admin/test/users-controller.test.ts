@@ -393,26 +393,6 @@ describe('Admin user controllers', function () {
       expect(created.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a new account must be reachable by its owner').to.be.a('string');
     });
 
-    /**
-     * The row is already written when the handover runs, so a mail queue that is
-     * down must not report the creation as failed - the caller would retry and
-     * hit the duplicate login instead. The account stands and the link can be
-     * re-sent from the security routes.
-     */
-    it('still creates the account when the handover cannot be delivered', async () => {
-      const failing = sinon.stub(usersController as any, 'issuePasswordReset').rejects(new Error('mail queue down'));
-
-      try {
-        await expect(usersController.addUser(await admin(), { Login: 'nomail', Email: 'nomail@spinajs.pl', Role: 'user' } as any)).to.be.rejected;
-      } finally {
-        failing.restore();
-      }
-
-      // The stub replaces the swallow, so this asserts the ORDER rather than the
-      // swallow itself: the row is written BEFORE the handover is attempted.
-      expect(await User.query().whereLogin('nomail').first(), 'the account must already exist when the handover runs').to.exist;
-    });
-
     // Regression, reported from production:
     //   "Error in controller POST at path /api/users Exception:
     //    rbac.actions.create.beforeCreate should not be null, undefined or empty"
@@ -495,7 +475,7 @@ describe('Admin user controllers', function () {
           Role: 'user',
           Metadata: { [USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]: 'known-token' },
         } as any),
-      ).to.be.rejectedWith(/cannot be set through this endpoint/);
+      ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
 
       expect(await User.query().whereLogin('planted').first()).to.not.exist;
     });
@@ -510,7 +490,7 @@ describe('Admin user controllers', function () {
           Role: 'user',
           Metadata: { '*': 'overwritten' },
         } as any),
-      ).to.be.rejectedWith(/cannot be set through this endpoint/);
+      ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
     });
 
     it('emits the UserCreated event', async () => {

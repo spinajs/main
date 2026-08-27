@@ -67,7 +67,7 @@ describe('access token actions - crud', function () {
   });
 
   it('creates token for user, returns plaintext once, stores only hash', async () => {
-    const { User: owner } = await create('c1@spinajs.com', 'c1', 'password123', ['user', 'admin']);
+    const { User: owner } = await create('c1@spinajs.com', 'c1', ['user', 'admin'], { password: 'password123' });
 
     const { Token, Plaintext } = await createToken(owner, 'ci token', ['user'], null);
 
@@ -83,7 +83,7 @@ describe('access token actions - crud', function () {
   });
 
   it('accepts expiration date', async () => {
-    const { User: owner } = await create('c2@spinajs.com', 'c2', 'password123', ['user']);
+    const { User: owner } = await create('c2@spinajs.com', 'c2', ['user'], { password: 'password123' });
     const expires = DateTime.now().plus({ days: 7 });
 
     const { Token } = await createToken(owner, 'temp', ['user'], expires);
@@ -92,7 +92,7 @@ describe('access token actions - crud', function () {
   });
 
   it('rejects roles the owner does not hold', async () => {
-    const { User: owner } = await create('c3@spinajs.com', 'c3', 'password123', ['user']);
+    const { User: owner } = await create('c3@spinajs.com', 'c3', ['user'], { password: 'password123' });
 
     // the role-subset rule is a security invariant, so assert the exact
     // failure - "rejected somehow" would also pass on an unrelated crash
@@ -106,14 +106,14 @@ describe('access token actions - crud', function () {
   });
 
   it('resolves owner by uuid string', async () => {
-    const { User: owner } = await create('c4@spinajs.com', 'c4', 'password123', ['user']);
+    const { User: owner } = await create('c4@spinajs.com', 'c4', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner.Uuid, 'by uuid', ['user'], null);
     const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
     expect(row.user_id).to.equal(owner.Id);
   });
 
   it('deletes token by uuid', async () => {
-    const { User: owner } = await create('c5@spinajs.com', 'c5', 'password123', ['user']);
+    const { User: owner } = await create('c5@spinajs.com', 'c5', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner, 'to delete', ['user'], null);
 
     await deleteToken(Token.Uuid);
@@ -122,7 +122,7 @@ describe('access token actions - crud', function () {
   });
 
   it('grants and revokes role on token, only owner-held roles grantable', async () => {
-    const { User: owner } = await create('c6@spinajs.com', 'c6', 'password123', ['user', 'admin']);
+    const { User: owner } = await create('c6@spinajs.com', 'c6', ['user', 'admin'], { password: 'password123' });
     const { Token } = await createToken(owner, 'roles', ['user'], null);
 
     const granted = await grantTokenRole(Token.Uuid, 'admin');
@@ -142,7 +142,7 @@ describe('access token actions - crud', function () {
   });
 
   it('refuses to revoke the last role, leaving the row untouched', async () => {
-    const { User: owner } = await create('c7@spinajs.com', 'c7', 'password123', ['user']);
+    const { User: owner } = await create('c7@spinajs.com', 'c7', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner, 'single role', ['user'], null);
 
     const err = await revokeTokenRole(Token.Uuid, 'user').catch((e: unknown) => e);
@@ -179,7 +179,7 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken stores the profile when the policy allows it', async () => {
-      const { User: owner } = await create('c8@spinajs.com', 'c8', 'password123', ['user']);
+      const { User: owner } = await create('c8@spinajs.com', 'c8', ['user'], { password: 'password123' });
 
       const { Token } = await createToken(owner, 'profiled', ['user'], null, 'admin');
 
@@ -191,7 +191,7 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken refuses a profile the policy does not allow', async () => {
-      const { User: owner } = await create('c9@spinajs.com', 'c9', 'password123', ['user']);
+      const { User: owner } = await create('c9@spinajs.com', 'c9', ['user'], { password: 'password123' });
 
       const err = await createToken(owner, 'bad-profile', ['user'], null, 'not-a-profile').catch((e: unknown) => e);
       expect(err).to.be.instanceOf(ErrorCode);
@@ -203,7 +203,7 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken validates roles against the profile, not the owner union', async () => {
-      const { User: owner } = await create('c10@spinajs.com', 'c10', 'password123', ['user']);
+      const { User: owner } = await create('c10@spinajs.com', 'c10', ['user'], { password: 'password123' });
 
       // control: with no profile 'extra' is allowed, so the refusal below can
       // only come from the profile-relative answer
@@ -217,7 +217,7 @@ describe('access token actions - crud', function () {
     });
 
     it('grantTokenRole validates against the profile the token is pinned to', async () => {
-      const { User: owner } = await create('c11@spinajs.com', 'c11', 'password123', ['user']);
+      const { User: owner } = await create('c11@spinajs.com', 'c11', ['user'], { password: 'password123' });
       const { Token } = await createToken(owner, 'pinned', ['user'], null, 'admin');
 
       // granting reloads the token by uuid, so this also proves the pin

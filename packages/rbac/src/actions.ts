@@ -3,10 +3,11 @@ import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _either, _
 import _ from 'lodash';
 import { _email_deferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
-import { USER_COMMON_METADATA, User, UserBase } from './models/User.js';
+import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
 import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
@@ -339,33 +340,154 @@ function _create_middleware(path: string): CreateMiddleware[] {
 }
 
 /**
+ * Optional inputs of the {@link create} action.
+ */
+export interface ICreateUserOptions {
+  /**
+   * Plain-text password. Omit it and a random one is generated, the account is
+   * handed to its owner by a password-reset link, and the generated value is
+   * returned for a caller that needs it ( the CLI prints it ).
+   */
+  password?: string;
+
+  /** Explicit user id. Useful when migrating accounts from another system. */
+  id?: number;
+
+  /** Key-value metadata attached to the new account. */
+  metadata?: { [key: string]: any };
+}
+
+/**
+ * Refuses a login / email already taken by another account.
+ *
+ * Exported because uniqueness is not only a creation-time rule: an update that
+ * renames an account has to apply exactly the same one, and a second
+ * implementation of it would be a second thing to keep in step. `exceptUserId`
+ * is what an update passes so an account does not clash with itself.
+ *
+ * Queries the base {@link User} rather than `userModel()`: uniqueness is GLOBAL,
+ * and an application's scoped subclass would hide the clashing row — turning a
+ * clean refusal into a driver error on the unique index.
+ *
+ * Soft-deleted rows are included for the same reason. They still occupy the
+ * unique indexes, so ignoring them trades this error for that driver error.
+ *
+ * The thrown {@link ErrorCode} carries `fields`, naming WHICH of login / email
+ * clashed, so an http caller can mark the offending input rather than reporting
+ * that something, somewhere, is already in use.
+ *
+ * @param login - login to check, or undefined to skip the login check
+ * @param email - email to check, or undefined to skip the email check
+ * @param exceptUserId - id of the account being updated, which may keep its own values
+ */
+/**
+ * Refuses metadata keys that decide account access.
+ *
+ * `user:pwd_reset:token` is a bearer credential redeemable at the PUBLIC reset
+ * endpoint and `user:2fa:*` is the second factor itself — writing either through
+ * a generic key-value merge hands out an account rather than annotating one.
+ * Ban and lockout keys are refused for the same reason bans have their own
+ * action: written directly they skip the event, the email and the session
+ * revocation that make a ban mean something.
+ *
+ * Lives here rather than in one http controller because the keys it protects are
+ * rbac's own, and an account seeded with a known reset token is an account
+ * takeover no matter which caller planted it — a CLI, a migration and a route
+ * all need the same refusal.
+ *
+ * @param metadata - the key-value bag a caller wants attached to an account
+ */
+export function assertNoProtectedMetadata(metadata?: { [key: string]: any }): void {
+  if (!metadata) {
+    return;
+  }
+
+  const offending = Object.keys(metadata).filter((key) => {
+    // A glob reaches the metadata relation's setter as a PATTERN and rewrites
+    // every matching entry, so `*` alone would overwrite the whole set —
+    // including the protected keys listed above.
+    if (key.includes('*') || key.includes('?')) {
+      return true;
+    }
+
+    return USER_SECURITY_METADATA_KEYS.includes(key);
+  });
+
+  if (offending.length > 0) {
+    throw new InvalidArgument(`Protected metadata keys cannot be set directly: ${offending.join(', ')}`);
+  }
+}
+
+export async function assertUserUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
+  const clashes: string[] = [];
+
+  if (login) {
+    const found = await User.query().withDeleted().where('Login', login).first();
+    if (found && found.Id !== exceptUserId) {
+      clashes.push('Login');
+    }
+  }
+
+  if (email) {
+    const found = await User.query().withDeleted().where('Email', email).first();
+    if (found && found.Id !== exceptUserId) {
+      clashes.push('Email');
+    }
+  }
+
+  if (clashes.length > 0) {
+    throw new ErrorCode(E_CODES.E_USER_ALREADY_EXISTS, `${clashes.join(' and ')} already in use`, { fields: clashes });
+  }
+}
+
+/**
  * Creates a new user account.
  *
- * Validates and normalises inputs, hashes the password, inserts the user record,
- * optionally sets metadata, runs configured `beforeCreate` / `afterCreate` middleware,
- * emits a {@link UserCreated} event, and sends the "created" email.
+ * Validates and normalises inputs, refuses a duplicate login / email and
+ * protected metadata keys, hashes the password, inserts the user record,
+ * optionally sets metadata, runs configured `beforeCreate` / `afterCreate`
+ * middleware, emits a {@link UserCreated} event, and sends the "created" email.
+ *
+ * When no password is given, one is generated AND a password-reset link is
+ * mailed to the address. Those two are one decision, not two: a generated
+ * password is a secret nobody knows, so an account created without the reset
+ * link is an account with no way in at all. Callers that pass a password know
+ * it and own delivery themselves, so they get no link — which is what a CLI
+ * service account or a fixture wants.
  *
  * @param email - user email address (max 64 chars)
  * @param login - user login name (max 32 chars)
- * @param password - plain-text password; if empty a random one is generated
  * @param roles - array of role names to assign
- * @param id - optional explicit user id (useful when migrating from another system)
- * @param metadata - optional key-value metadata to attach to the new user
+ * @param options - see {@link ICreateUserOptions}
  * @returns an object containing the persisted {@link User} and the plain-text password
  */
-export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
+export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<{ User: User; Password: string }> {
   const sPassword = await _service<PasswordProvider>('rbac.password', PasswordProvider)();
+
+  // Whether the CALLER supplied a password decides who hands the account to its
+  // owner, so it is read before `_default` fills a generated one in and the two
+  // cases become indistinguishable.
+  const generated = _check_arg(_trim(), _default(''))(options?.password, 'password') === '';
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
-  password = _check_arg(
+
+  const password = _check_arg(
     _trim(),
     _default(() => sPassword.generate()),
-  )(password, 'password');
+  )(options?.password, 'password');
 
   const hPassword = await sPassword.hash(password);
+  const id = options?.id;
+  const metadata = options?.metadata;
 
   return _chain(
+    // Ahead of everything else, and ahead of `beforeCreate` in particular: a
+    // request that is about to be refused must not first run middleware that
+    // writes to another system ( the legacy-user mirror is one ).
+    _tap(() => assertNoProtectedMetadata(metadata)),
+    _tap(() => assertUserUnique(login, email)),
+
     // create user
     () =>
       Promise.resolve(
@@ -402,6 +524,32 @@ export async function create(email: string, login: string, password: string, rol
 
     // send email
     _tap(_user_email('created')),
+
+    // Hand the account to its owner when nobody else can: the password above was
+    // invented here and immediately hashed, so without this the account is
+    // unreachable until an administrator remembers a second screen.
+    //
+    // AFTER the "created" email so the two arrive in the order they are meant to
+    // be read, and BY UUID rather than by the instance in hand — the reset writes
+    // three metadata entries, and `_user()` re-reads with `Metadata` populated,
+    // which an instance built by `new User(...)` never is. Handing it the
+    // instance stored nothing, silently, and left the account with no token.
+    //
+    // Swallowed on purpose: the account EXISTS by now. Throwing would tell the
+    // caller creation failed when it did not, inviting a retry that then fails on
+    // the duplicate login. A link that could not be issued can be re-sent.
+    _tap(async (u: User) => {
+      if (!generated) {
+        return;
+      }
+
+      await _catch(
+        () => passwordChangeRequest(u.Uuid),
+        (err: Error) => {
+          DI.resolve(Log, ['rbac']).error(err, `Could not issue the initial password reset for ${u.Uuid}. The account exists but its owner has no way in yet.`);
+        },
+      )();
+    }),
 
     // return user & password - if generated we want to know not hashed password
     (u: User) => {

@@ -77,7 +77,7 @@ describe('access token actions - role policy', function () {
     // ( see actions-validate.test.ts's `activeUser` ) - validateToken refuses
     // an inactive owner, so every fixture here has to be activated too, even
     // in tests that only exercise createToken / grantTokenRole.
-    const { User: user } = await create(`${login}@spinajs.pl`, login, 'Bb1234567!', ['user']);
+    const { User: user } = await create(`${login}@spinajs.pl`, login, ['user'], { password: 'Bb1234567!' });
     await activate(user.Id);
     return user;
   };

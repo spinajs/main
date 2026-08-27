@@ -67,7 +67,7 @@ describe('access token actions - validate & cleanup', function () {
    * so every fixture user here has to be activated first.
    */
   async function activeUser(mail: string, login: string, roles: string[]) {
-    const { User: u } = await create(mail, login, 'password123', roles);
+    const { User: u } = await create(mail, login, roles, { password: 'password123' });
     await activate(u.Id);
     return u;
   }

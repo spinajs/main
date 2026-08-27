@@ -4,7 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
@@ -20,7 +20,7 @@ import { EmailSend } from '@spinajs/email';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { DateTime } from 'luxon';
 import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
-import { expirePassword } from '../src/actions.js';
+import { E_CODES, expirePassword } from '../src/actions.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 
 chai.use(chaiAsPromised);
@@ -125,7 +125,7 @@ describe('User model tests', function () {
   it('Should create user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: U, Password } = await create('test@wp.pl', 'test222', 'bbbb', ['admin']);
+    const { User: U, Password } = await create('test@wp.pl', 'test222', ['admin'], { password: 'bbbb' });
 
     const user = await User.query().whereAnything('test@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
@@ -152,7 +152,7 @@ describe('User model tests', function () {
   it('Should persist the registration date of a created user', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    await create('registered@wp.pl', 'registered', 'bbbb', ['admin']);
+    await create('registered@wp.pl', 'registered', ['admin'], { password: 'bbbb' });
 
     // read back from the database, not from the in-memory model
     const user = await User.query().whereAnything('registered@wp.pl').firstOrFail();
@@ -164,9 +164,12 @@ describe('User model tests', function () {
   it('Should create user with metadata', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: U, Password } = await create('meta@wp.pl', 'metameta', 'bbbb', ['admin'], undefined, {
-      'user:niceName': 'Meta User',
-      'user:locale': 'en',
+    const { User: U, Password } = await create('meta@wp.pl', 'metameta', ['admin'], {
+      password: 'bbbb',
+      metadata: {
+        'user:niceName': 'Meta User',
+        'user:locale': 'en',
+      },
     });
 
     const user = await User.query().whereAnything('meta@wp.pl').populate('Metadata').firstOrFail();
@@ -205,7 +208,7 @@ describe('User model tests', function () {
     config.set('rbac.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
     config.set('rbac.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
 
-    const { User: U } = await create('middleware@wp.pl', 'middlewareuser', 'bbbb', ['admin']);
+    const { User: U } = await create('middleware@wp.pl', 'middlewareuser', ['admin'], { password: 'bbbb' });
 
     const user = await User.query().whereAnything('middleware@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
@@ -238,7 +241,7 @@ describe('User model tests', function () {
     config.set('rbac.actions.create.beforeCreate', []);
     config.set('rbac.actions.create.afterCreate', []);
 
-    const { User: U } = await create('empty-mw@wp.pl', 'emptymw', 'bbbb', ['admin']);
+    const { User: U } = await create('empty-mw@wp.pl', 'emptymw', ['admin'], { password: 'bbbb' });
 
     expect(U).to.be.instanceOf(User);
     const user = await User.query().whereAnything('empty-mw@wp.pl').firstOrFail();
@@ -254,7 +257,7 @@ describe('User model tests', function () {
     const config = DI.get(Configuration)!;
     config.set('rbac.actions', undefined);
 
-    const { User: U } = await create('no-mw@wp.pl', 'nomw', 'bbbb', ['admin']);
+    const { User: U } = await create('no-mw@wp.pl', 'nomw', ['admin'], { password: 'bbbb' });
 
     expect(U).to.be.instanceOf(User);
     const user = await User.query().whereAnything('no-mw@wp.pl').firstOrFail();
@@ -269,7 +272,7 @@ describe('User model tests', function () {
     const config = DI.get(Configuration)!;
     config.set('rbac.actions.create.beforeCreate', 'not-a-list' as any);
 
-    const { User: U } = await create('bad-mw@wp.pl', 'badmw', 'bbbb', ['admin']);
+    const { User: U } = await create('bad-mw@wp.pl', 'badmw', ['admin'], { password: 'bbbb' });
 
     expect(U).to.be.instanceOf(User);
 
@@ -277,11 +280,151 @@ describe('User model tests', function () {
   });
 
   it('Shouldn create user with already existing email', async () => {
-    await expect(create('test@spinajs.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+    await expect(create('test@spinajs.pl', 'test', ['admin'], { password: 'bbbb' })).to.be.rejected;
   });
 
   it('Shouldn create user with already existing login', async () => {
-    await expect(create('dasda@wp.pl', 'test', 'bbbb', ['admin'])).to.be.rejected;
+    await expect(create('dasda@wp.pl', 'test', ['admin'], { password: 'bbbb' })).to.be.rejected;
+  });
+
+  /**
+   * The refusal has to name WHICH field clashed, not only that something did —
+   * an http caller marks the offending input from it, and a caller that cannot
+   * tell login from email has to make the user guess.
+   */
+  it('Should name the clashing field when refusing a duplicate', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb' });
+
+    const err = await create('clash@wp.pl', 'other-login', ['admin'], { password: 'bbbb' }).catch((e) => e);
+    expect(err).to.be.instanceOf(ErrorCode);
+    expect((err as any).code).to.eq(E_CODES.E_USER_ALREADY_EXISTS);
+    expect((err as any).data.fields).to.deep.eq(['Email']);
+
+    const both = await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb' }).catch((e) => e);
+    expect((both as any).data.fields, 'both fields clash, both must be reported').to.deep.eq(['Login', 'Email']);
+  });
+
+  /**
+   * Soft-deleted rows keep occupying the unique indexes, so skipping them would
+   * trade this refusal for a driver error on the insert.
+   */
+  it('Should refuse a login taken by a soft-deleted account', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { User: u } = await create('gone@wp.pl', 'goneuser', ['admin'], { password: 'bbbb' });
+    await deleteUser(u);
+
+    await expect(create('other@wp.pl', 'goneuser', ['admin'], { password: 'bbbb' })).to.be.rejectedWith(/Login already in use/);
+  });
+
+  /**
+   * The uniqueness check must run before `beforeCreate`: a middleware that writes
+   * to another system ( the legacy-user mirror is one ) must not fire for a
+   * request that is about to be refused.
+   */
+  it('Should refuse a duplicate before running create middleware', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    const before = sinon.stub().callsFake((u: User) => u);
+    config.set('rbac.actions.create.beforeCreate', [before as unknown as CreateMiddleware]);
+
+    await expect(create('test@spinajs.pl', 'whoever', ['admin'], { password: 'bbbb' })).to.be.rejected;
+    expect(before.callCount, 'middleware must not run for a refused creation').to.eq(0);
+
+    config.set('rbac.actions.create.beforeCreate', []);
+  });
+
+  /**
+   * A generated password is a secret nobody knows, so the account is unreachable
+   * unless the same call also hands its owner a way in.
+   */
+  it('Should generate a password and issue a reset link when none is given', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { Password } = await create('generated@wp.pl', 'generated', ['admin']);
+
+    expect(Password, 'the generated password is returned to the caller').to.be.a('string').and.not.empty;
+
+    const user = await User.query().whereAnything('generated@wp.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'an account nobody holds a password for must be reachable').to.be.a('string');
+
+    // the generated password is what was hashed, not something else
+    expect(await passwordMatch(Password)(user)).to.eq(true);
+  });
+
+  /**
+   * The inverse: a caller that supplied the password knows it and delivers it
+   * itself. Mailing a reset link there would invalidate a password the caller is
+   * about to hand out — which is what a CLI service account or a fixture wants
+   * least.
+   */
+  it('Should not issue a reset link when the caller supplied the password', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('supplied@wp.pl', 'supplied', ['admin'], { password: 'bbbb' });
+
+    const user = await User.query().whereAnything('supplied@wp.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a caller-supplied password must not be invalidated by a reset link').to.not.exist;
+  });
+
+  /**
+   * The account exists by the time the link is issued, so a mail that cannot be
+   * queued must not report the creation as failed — a caller that retries then
+   * fails on the duplicate login instead.
+   */
+  it('Should still create the account when the reset link cannot be issued', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    const template = config.get('rbac.email.changePassword');
+    config.set('rbac.email.changePassword', undefined);
+
+    const { User: u } = await create('nolink@wp.pl', 'nolink', ['admin']);
+
+    expect(u).to.be.instanceOf(User);
+    expect(await User.query().whereAnything('nolink@wp.pl').first(), 'the account must survive a failed reset').to.exist;
+
+    config.set('rbac.email.changePassword', template);
+  });
+
+  /**
+   * `user:pwd_reset:token` is redeemable at the PUBLIC reset endpoint, so an
+   * account seeded with a known one is an account takeover — planted through a
+   * CLI or a migration just as easily as through a route, which is why the
+   * refusal belongs to the action.
+   */
+  it('Should refuse metadata keys that decide account access', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(
+      create('planted@wp.pl', 'planted', ['admin'], {
+        password: 'bbbb',
+        metadata: { [USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]: 'known-token' },
+      }),
+    ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
+
+    expect(await User.query().whereAnything('planted@wp.pl').first(), 'nothing may be written for a refused creation').to.not.exist;
+  });
+
+  /**
+   * The metadata relation matches keys as GLOBS, so `*` is not a key — it is
+   * "every key", including the protected ones.
+   */
+  it('Should refuse glob metadata keys', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(create('globber@wp.pl', 'globber', ['admin'], { password: 'bbbb', metadata: { '*': 'overwritten' } })).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
+  });
+
+  it('Should honour an explicit id', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { User: u } = await create('withid@wp.pl', 'withid', ['admin'], { password: 'bbbb', id: 4321 });
+
+    expect(u.Id).to.eq(4321);
   });
 
   it('Should delete user', async () => {
