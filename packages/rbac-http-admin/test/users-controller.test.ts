@@ -381,12 +381,6 @@ describe('Admin user controllers', function () {
       expect(await User.query().whereLogin('partly').first(), 'nothing may be created when the guard refuses').to.not.exist;
     });
 
-    // The schema rejects an empty array outright; this is the case it cannot
-    // see - entries that are valid strings but name no role.
-    it('refuses a list that names no role', async () => {
-      await expect(usersController.addUser(await admin(), { Login: 'blank', Email: 'blank@spinajs.pl', Role: ['  ', ''] } as any)).to.be.rejectedWith(/At least one role/);
-    });
-
     /**
      * The temporary password is generated, hashed and thrown away - never
      * returned, never mailed - so without a reset token the new account has no
@@ -609,21 +603,6 @@ describe('Admin user controllers', function () {
       await usersController.updateUser(await admin(), await byUuid(USER_UUID), { Role: ['guest'] } as any);
 
       expect((await byUuid(USER_UUID)).Role).to.deep.equal(['guest']);
-    });
-
-    /**
-     * `[]` is TRUTHY in javascript, so a presence check on the field alone used
-     * to be enough while `Role` was a string and is not any more: an empty array
-     * must not slip through as "no role change", nor be applied as "take every
-     * role away" — an account that holds no role at all can do nothing and can
-     * only be repaired by another administrator.
-     */
-    it('refuses an empty role list rather than stripping the account', async () => {
-      const user = await byUuid(USER_UUID);
-
-      await expect(usersController.updateUser(await admin(), user, { Role: [] } as any)).to.be.rejectedWith(/At least one role/);
-
-      expect((await byUuid(USER_UUID)).Role, 'the stored roles must be untouched').to.deep.equal(['user']);
     });
 
     it('keeps existing values for fields that are not sent', async () => {

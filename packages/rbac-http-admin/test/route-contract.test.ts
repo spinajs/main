@@ -167,5 +167,44 @@ describe('Admin route contract', function () {
     it('rejects a malformed email on creation', () => {
       expect(() => validator.validate(new CreateUserDto({ Login: 'newbie', Email: 'not-an-email', Role: 'user' }))).to.throw();
     });
+
+    it('accepts one role name or a list of them', () => {
+      expect(() => validator.validate(new CreateUserDto({ Login: 'newbie', Email: 'newbie@spinajs.pl', Role: ['user', 'guest'] }))).to.not.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: 'user' }))).to.not.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: ['user', 'guest'] }))).to.not.throw();
+    });
+
+    /**
+     * An account that holds no role at all can do nothing and can only be
+     * repaired by another administrator, so a list naming no role is refused
+     * rather than applied. `[]` is caught by `minItems`; `['  ', '']` is the
+     * case `minLength` cannot see — every entry is a valid string of allowed
+     * length — and is why the role name carries a no-whitespace pattern.
+     */
+    it('refuses a role list that names no role', () => {
+      expect(() => validator.validate(new CreateUserDto({ Login: 'blank', Email: 'blank@spinajs.pl', Role: [] }))).to.throw();
+      expect(() => validator.validate(new CreateUserDto({ Login: 'blank', Email: 'blank@spinajs.pl', Role: ['  ', ''] }))).to.throw();
+      expect(() => validator.validate(new CreateUserDto({ Login: 'blank', Email: 'blank@spinajs.pl', Role: ' ' }))).to.throw();
+
+      expect(() => validator.validate(new UpdateUserDto({ Role: [] }))).to.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: ['  ', ''] }))).to.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: ' ' }))).to.throw();
+    });
+
+    /**
+     * Edge whitespace is banned so `uniqueItems` stays honest: `'user'` and
+     * `' user '` denote ONE role, and the role guard is charged per entry.
+     */
+    it('refuses padded and duplicated role names', () => {
+      expect(() => validator.validate(new UpdateUserDto({ Role: [' user ', 'guest'] }))).to.throw();
+      expect(() => validator.validate(new UpdateUserDto({ Role: ['user', 'user'] }))).to.throw();
+    });
+
+    /** Every entry costs a guard check, so the list has a ceiling. */
+    it('refuses more roles than one account may be given', () => {
+      const tooMany = Array.from({ length: 17 }, (_, i) => `role${i}`);
+
+      expect(() => validator.validate(new UpdateUserDto({ Role: tooMany }))).to.throw();
+    });
   });
 });

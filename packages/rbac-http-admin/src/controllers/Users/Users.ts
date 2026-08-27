@@ -45,20 +45,43 @@ const DEFAULT_PAGE_SIZE = 10;
 const MAX_ROLES_PER_USER = 16;
 
 /**
+ * A single role name: no whitespace anywhere, so a "role" made only of blanks
+ * cannot pass as one.
+ *
+ * `minLength` alone accepts `' '` and `['  ', '']` — every entry is a string of
+ * allowed length — which reached `create()` as an empty role list and produced
+ * an account nobody can use. The pattern refuses that here, in the schema, so
+ * the caller gets a 400 naming the offending field instead of a handler-thrown
+ * error with no field attached. Banning EDGE whitespace too keeps `uniqueItems`
+ * honest: `'user'` and `' user '` would otherwise be two distinct entries
+ * denoting one role, and the guard is charged per entry.
+ */
+const ROLE_NAME = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 32,
+  pattern: '^\\S+$',
+};
+
+/**
  * The `Role` field of both DTOs: one role name, or a list of them.
  *
  * An account has always held a role LIST (`User.Role` is a set), and the roles
  * an application defines are typically switchable profiles a person may hold
  * several of at once. The single-string form is kept because it is what every
  * existing caller sends.
+ *
+ * `minItems` is what refuses `[]`. Stripping every role off an account is not
+ * an update these routes perform: the account would keep existing while being
+ * able to do nothing at all, and only another administrator could repair it.
  */
 const ROLE_FIELD = {
   description: 'RBAC role to assign to the user, or a list of roles',
   oneOf: [
-    { type: 'string', minLength: 1, maxLength: 32 },
+    ROLE_NAME,
     {
       type: 'array',
-      items: { type: 'string', minLength: 1, maxLength: 32 },
+      items: ROLE_NAME,
       minItems: 1,
       maxItems: MAX_ROLES_PER_USER,
       uniqueItems: true,
@@ -97,9 +120,10 @@ export class CreateUserDto {
 /**
  * The roles a `Role` field denotes, whether it was sent as one name or a list.
  *
- * Trimmed, de-duplicated and stripped of blanks, so `['user', ' user ', '']`
- * reaches the guard as the single role it actually asks for — the guard is
- * charged per entry and a duplicate would be checked twice.
+ * Shape normalisation only — every rejection lives in {@link ROLE_FIELD}. The
+ * trim and the de-duplication are belt-and-braces for callers that reach the
+ * handler without body validation ( tests, in-process calls ): the guard is
+ * charged per entry, so a duplicate would be checked twice.
  */
 function roleList(role?: string | string[]): string[] {
   if (role === undefined || role === null) {
@@ -408,7 +432,7 @@ export class Users extends BaseController {
   @Post('/')
   @Permission(['createAny', 'createOwn'])
   public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
-    const roles = this.assertRoles(data.Role);
+    const roles = roleList(data.Role);
 
     await this.RoleGuard.assertCanAssignRoles(actor, null, roles);
     this.assertNoProtectedMetadata(data.Metadata);
@@ -455,10 +479,9 @@ export class Users extends BaseController {
   @Permission(['updateAny', 'updateOwn'])
   public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
     // `data.Role` may be an ARRAY, and `[]` is truthy — so the presence check is
-    // on the field, and `assertRoles` is what refuses an empty list. Stripping
-    // every role off an account is not an update this route performs: the
-    // account would keep existing while being able to do nothing at all.
-    const next = data.Role !== undefined ? this.assertRoles(data.Role) : null;
+    // on the FIELD, not on the value. An empty or blanks-only list never gets
+    // this far: `ROLE_FIELD` refuses it during body validation.
+    const next = data.Role !== undefined ? roleList(data.Role) : null;
 
     if (next) {
       const added = next.filter((r) => !user.Role.includes(r));
@@ -560,28 +583,6 @@ export class Users extends BaseController {
     } catch (err) {
       this.Log.error(err as Error, `Could not issue the initial password reset for ${user.Uuid}. The account exists but its owner has no way in yet - re-send the link from POST /users/security/password-reset-request/:user.`);
     }
-  }
-
-  /**
-   * The roles a request asks for, refusing a list that names none.
-   *
-   * The schema already rejects an empty array and a blank string, but it cannot
-   * reject `[' ', '']` — every entry is a valid string of allowed length. That
-   * would reach `create()` as an empty role list and produce an account nobody
-   * can use, so it is refused here instead.
-   */
-  protected assertRoles(role?: string | string[]): string[] {
-    const roles = roleList(role);
-
-    if (roles.length === 0) {
-      throw new InvalidArgument('At least one role must be given');
-    }
-
-    if (roles.length > MAX_ROLES_PER_USER) {
-      throw new InvalidArgument(`At most ${MAX_ROLES_PER_USER} roles can be assigned to one account`);
-    }
-
-    return roles;
   }
 
   /**
