@@ -933,4 +933,24 @@ describe('User model tests', function () {
 
     expect(u).to.be.instanceOf(User);
   });
+
+  it('Should trim and de-duplicate the role list', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { User: u } = await create('roles@wp.pl', 'roleuser', ['admin', ' admin ', 'guest'], { password: 'passw0rd123' });
+
+    expect(u.Role).to.have.members(['admin', 'guest']);
+    expect(u.Role, 'a duplicate would be checked twice by every downstream guard').to.have.lengthOf(2);
+  });
+
+  /**
+   * An account holding no role at all can do nothing and can only be repaired by
+   * another administrator, so an empty list is refused rather than applied.
+   */
+  it('Should refuse a role list that names no role', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(create('noroles@wp.pl', 'noroles', [], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
+    await expect(create('blankroles@wp.pl', 'blankroles', ['  ', ''], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
+  });
 });

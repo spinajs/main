@@ -381,6 +381,27 @@ export interface ICreateUserOptions {
  * @param exceptUserId - id of the account being updated, which may keep its own values
  */
 /**
+ * The roles a request denotes, whether it arrives as one name or a list.
+ *
+ * Trimmed, stripped of blanks and de-duplicated. Order is preserved so a caller
+ * that treats the first entry as the primary role keeps that meaning.
+ *
+ * De-duplication is not cosmetic: every downstream guard is charged per entry,
+ * so `['user', ' user ']` costs two checks for one role.
+ *
+ * @param role - a single role name or a list of them
+ */
+export function roleList(role?: string | string[]): string[] {
+  if (role === undefined || role === null) {
+    return [];
+  }
+
+  const wanted = (Array.isArray(role) ? role : [role]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0);
+
+  return [...new Set(wanted)];
+}
+
+/**
  * Refuses metadata keys that decide account access.
  *
  * `user:pwd_reset:token` is a bearer credential redeemable at the PUBLIC reset
@@ -472,6 +493,12 @@ export async function create(email: string, login: string, roles: string[], opti
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
 
+  const roleNames = roleList(roles);
+
+  if (roleNames.length === 0) {
+    throw new InvalidArgument('At least one role must be given', 'roles');
+  }
+
   const password = _check_arg(
     _trim(),
     _default(() => sPassword.generate()),
@@ -507,7 +534,7 @@ export async function create(email: string, login: string, roles: string[], opti
           Email: email,
           Login: login,
           Password: hPassword,
-          Role: roles,
+          Role: roleNames,
           RegisteredAt: DateTime.now(),
           CreatedAt: DateTime.now(),
           IsActive: false,
