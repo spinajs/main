@@ -12,6 +12,7 @@ import { UserEvent } from './events/UserEvent.js';
 import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
+import { AccessControl } from 'accesscontrol';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
@@ -402,6 +403,54 @@ export function roleList(role?: string | string[]): string[] {
 }
 
 /**
+ * Refuses a role the application has not configured.
+ *
+ * A role counts as configured if it either holds grants in the resolved
+ * {@link AccessControl} instance or is merely declared in `rbac.roles` - the
+ * same definition of "known" `DefaultRoleGuard` (`@spinajs/rbac-http-admin`)
+ * already uses for its own route-level check. A role may legitimately be named
+ * before it is given any permission, and a narrower definition here would
+ * refuse a role the route layer of this same codebase already accepts.
+ * `hasRole` resolves roles defined only through `$extend`, so an
+ * inheritance-only role such as `system` is recognised.
+ *
+ * `rbac.requireKnownRole: false` turns the whole check off - see the comment
+ * at its first use below.
+ *
+ * @param roles - role names to check; every unknown name is reported at once
+ */
+export function assertRolesExist(roles: string[]): void {
+  // An application whose roles are defined at runtime rather than in static
+  // config turns this off wholesale. `rbac-http-admin`'s DefaultRoleGuard has
+  // carried the same escape hatch for its own route-level check since before
+  // this one existed; a library-level check that could not be turned off would
+  // make rbac unusable for those applications.
+  if (_cfg('rbac.requireKnownRole', true)() === false) {
+    return;
+  }
+
+  const ac = DI.get<AccessControl>('AccessControl');
+
+  if (!ac) {
+    // No grants loaded at all means the application has not configured rbac, not
+    // that every role is invalid - refusing here would break bootstrap ordering.
+    return;
+  }
+
+  // "Known" the same way DefaultRoleGuard already means it: holding grants, or
+  // merely DECLARED. A role may legitimately be named before it is given any
+  // permission, and a narrower definition here would refuse roles the route
+  // layer of this same codebase already accepts.
+  const declared = (_cfg<Array<{ Name: string }>>('rbac.roles', [])() ?? []).map((r: { Name: string }) => r.Name);
+
+  const unknown = roles.filter((r) => !ac.hasRole(r) && !declared.includes(r));
+
+  if (unknown.length > 0) {
+    throw new InvalidArgument(`Role(s) not configured in rbac.grants or rbac.roles: ${unknown.join(', ')}`, 'roles');
+  }
+}
+
+/**
  * Refuses metadata keys that decide account access.
  *
  * `user:pwd_reset:token` is a bearer credential redeemable at the PUBLIC reset
@@ -498,6 +547,8 @@ export async function create(email: string, login: string, roles: string[], opti
   if (roleNames.length === 0) {
     throw new InvalidArgument('At least one role must be given', 'roles');
   }
+
+  assertRolesExist(roleNames);
 
   const password = _check_arg(
     _trim(),
@@ -629,6 +680,10 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
  */
 export async function grant(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
+
+  // A role you cannot create an account with must not be one you can add
+  // afterwards - otherwise grant is a way around the creation check.
+  assertRolesExist([role]);
 
   return _chain(
     _user(identifier),

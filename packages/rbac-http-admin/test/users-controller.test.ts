@@ -754,7 +754,13 @@ describe('Admin user controllers', function () {
     });
 
     it('is switchable: unknown roles may be allowed', async () => {
+      // Two independent layers each refuse an undeclared role: this controller's
+      // own DefaultRoleGuard, and rbac's own assertRolesExist() inside grant()
+      // (packages/rbac/src/actions.ts, gated by rbac.requireKnownRole). Both must
+      // be turned off for 'wizard' to actually get through - flipping only the
+      // guard above would still be refused one layer further in.
       DI.get(Configuration)!.set('rbac.admin.roleGuard.requireKnownRole', false);
+      DI.get(Configuration)!.set('rbac.requireKnownRole', false);
 
       const result = await rolesController.addRole(await admin(), await byUuid(USER_UUID), { role: 'wizard' } as any);
       expect(result).to.be.instanceOf(Ok);

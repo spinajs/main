@@ -953,4 +953,40 @@ describe('User model tests', function () {
     await expect(create('noroles@wp.pl', 'noroles', [], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
     await expect(create('blankroles@wp.pl', 'blankroles', ['  ', ''], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
   });
+
+  /**
+   * A role absent from the grants map inserts fine and then fails inside
+   * accesscontrol, far from whoever typed it.
+   */
+  it('Should refuse a role that is not configured in grants', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(create('bogus@wp.pl', 'bogususer', ['not-a-role'], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants or rbac.roles: not-a-role/);
+
+    expect(await User.query().whereAnything('bogus@wp.pl').first()).to.not.exist;
+  });
+
+  it('Should refuse granting a role that is not configured in grants', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(grant('test@spinajs.pl', 'not-a-role')).to.be.rejectedWith(InvalidArgument, /not configured in rbac.grants or rbac.roles/);
+  });
+
+  /**
+   * The escape hatch itself needs a test: without one, `rbac.requireKnownRole`
+   * could regress into a no-op and nothing here would notice.
+   */
+  it('Should accept an undeclared role when rbac.requireKnownRole is false', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const config = DI.get(Configuration)!;
+    config.set('rbac.requireKnownRole', false);
+
+    try {
+      const { User: u } = await create('escapehatch@wp.pl', 'escapehatch', ['neither-grants-nor-roles'], { password: 'passw0rd123' });
+      expect(u.Role).to.include('neither-grants-nor-roles');
+    } finally {
+      config.set('rbac.requireKnownRole', true);
+    }
+  });
 });

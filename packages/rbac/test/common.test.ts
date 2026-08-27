@@ -112,6 +112,15 @@ export class TestConfiguration extends FrameworkConfiguration {
             Description: 'test',
           },
         ],
+        // `assertRolesExist` (actions.ts) checks roles against THIS map, resolved
+        // through the `AccessControl` DI singleton - not against the shipped
+        // `packages/rbac/src/config/rbac.ts` defaults. This suite runs via
+        // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
+        // (unlike eg. rbac-http-admin/rbac-http-token), so the configuration
+        // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
+        // and the shipped defaults never merge in here. `admin`, `guest` and
+        // `admin.users` below are therefore copied verbatim from that shipped
+        // config, not invented, so every role a test assigns stays a real one.
         grants: {
           normal: {
             Test: {
@@ -119,6 +128,40 @@ export class TestConfiguration extends FrameworkConfiguration {
             },
             clients: {
               'read:own': ['*'],
+            },
+          },
+          guest: {
+            UserBase: {
+              'read:own': ['*'],
+            },
+          },
+          'admin.users': {
+            users: {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
+            },
+            'user.metadata': {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
+            },
+          },
+          admin: {
+            $extend: ['admin.users'],
+          },
+          // Exercises `grant()`/`revoke()` (actions.test.ts) with a role distinct
+          // from `admin`/`guest`. A generic content-editor role, mirroring the one
+          // `user.test.ts` already uses for its own (separately scoped)
+          // AccessControl instance.
+          editor: {
+            Article: {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
             },
           },
         },

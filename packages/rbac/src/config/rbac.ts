@@ -170,6 +170,20 @@ const rbac = {
         $extend: ['admin.users'],
       },
     },
+
+    /**
+     * `create()` and `grant()` (`packages/rbac/src/actions.ts`) refuse a role
+     * that is neither present in `grants` above nor declared by name in `roles`.
+     * Set this to `false` to turn that check off wholesale, for an application
+     * whose roles are defined at runtime rather than in this static config -
+     * the same escape hatch `@spinajs/rbac-http-admin`'s `DefaultRoleGuard` has
+     * long had for its own, separate route-level check
+     * (`rbac.admin.roleGuard.requireKnownRole`). The two are independent: an
+     * application using both layers must turn off both to actually allow an
+     * undeclared role through.
+     */
+    requireKnownRole: true,
+
     defaultRole: 'guest',
     auth: {
       service: 'SimpleDbAuthProvider',
