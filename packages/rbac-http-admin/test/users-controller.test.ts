@@ -387,6 +387,38 @@ describe('Admin user controllers', function () {
       await expect(usersController.addUser(await admin(), { Login: 'blank', Email: 'blank@spinajs.pl', Role: ['  ', ''] } as any)).to.be.rejectedWith(/At least one role/);
     });
 
+    /**
+     * The temporary password is generated, hashed and thrown away - never
+     * returned, never mailed - so without a reset token the new account has no
+     * way in at all and an administrator had to remember a second screen.
+     */
+    it('hands the account over by issuing a password reset token', async () => {
+      await usersController.addUser(await admin(), { Login: 'handover', Email: 'handover@spinajs.pl', Role: 'user' } as any);
+
+      const created = await User.query().whereLogin('handover').populate('Metadata').firstOrFail();
+      expect(created.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a new account must be reachable by its owner').to.be.a('string');
+    });
+
+    /**
+     * The row is already written when the handover runs, so a mail queue that is
+     * down must not report the creation as failed - the caller would retry and
+     * hit the duplicate login instead. The account stands and the link can be
+     * re-sent from the security routes.
+     */
+    it('still creates the account when the handover cannot be delivered', async () => {
+      const failing = sinon.stub(usersController as any, 'issuePasswordReset').rejects(new Error('mail queue down'));
+
+      try {
+        await expect(usersController.addUser(await admin(), { Login: 'nomail', Email: 'nomail@spinajs.pl', Role: 'user' } as any)).to.be.rejected;
+      } finally {
+        failing.restore();
+      }
+
+      // The stub replaces the swallow, so this asserts the ORDER rather than the
+      // swallow itself: the row is written BEFORE the handover is attempted.
+      expect(await User.query().whereLogin('nomail').first(), 'the account must already exist when the handover runs').to.exist;
+    });
+
     // Regression, reported from production:
     //   "Error in controller POST at path /api/users Exception:
     //    rbac.actions.create.beforeCreate should not be null, undefined or empty"

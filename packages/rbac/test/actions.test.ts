@@ -4,6 +4,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
@@ -386,11 +387,21 @@ describe('User model tests', function () {
     expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChanged)).to.be.true;
   });
 
+  /**
+   * The REJECTION TYPE is the assertion, not just the rejection: @spinajs/http maps
+   * `InvalidArgument` to 400 and anything unmapped to 500, so a bare `Error` here made
+   * every "your password is too weak" answer an internal server error - indistinguishable,
+   * to a client, from the server being broken.
+   */
   it('Should reject a password that does not meet requirements', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
     const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
     // password rule requires at least 8 chars with a letter and a digit
-    await expect(changePassword('short')(user)).to.be.rejected;
+    await expect(changePassword('short')(user)).to.be.rejectedWith(InvalidArgument);
+
+    const error = await changePassword('short')(user).catch((e: unknown) => e);
+    expect((error as InvalidArgument).fieldName).to.eq('password');
+    expect((error as InvalidArgument).errorCode).to.eq('E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   });
 
   it('Should grant role', async () => {
@@ -487,6 +498,67 @@ describe('User model tests', function () {
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(60 * 60);
 
     expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest)).to.be.true;
+  });
+
+  /**
+   * The token is written into metadata and never returned over HTTP —
+   * possession of the mailbox is what authorizes the reset — so an installation
+   * that does not deliver it has a reset flow nobody can complete. It used to be
+   * the application's job through the event, and an application that had not
+   * written that subscriber issued tokens into the void.
+   */
+  it('Password change request mails the token', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await passwordChangeRequest('test@spinajs.pl');
+
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+    expect(mail, 'the reset mail must be queued').to.exist;
+
+    // The very token that was stored — a mail carrying a different one, or none,
+    // sends the user to a page that cannot complete the reset.
+    expect((mail as any).model.Token).to.eq(token);
+    expect((mail as any).to).to.deep.eq(['test@spinajs.pl']);
+  });
+
+  // `rbac.password.resetUrl` is empty by default: only the application knows its
+  // own address, and a template must render without a link rather than with one
+  // pointing nowhere.
+  it('Password change request leaves ResetUrl empty when none is configured', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await passwordChangeRequest('test@spinajs.pl');
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+    expect((mail as any).model.ResetUrl).to.eq('');
+  });
+
+  it('Password change request builds the reset link from the configured page', async () => {
+    const cfg = DI.get(Configuration)!;
+    cfg.set('rbac.password.resetUrl', 'https://app.example.com/password-reset');
+
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    try {
+      await passwordChangeRequest('test@spinajs.pl');
+
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+      const url = new URL((mail as any).model.ResetUrl);
+
+      // The redemption page needs BOTH: `POST /auth/password/reset` identifies
+      // the account by e-mail and authorizes by token.
+      expect(url.origin + url.pathname).to.eq('https://app.example.com/password-reset');
+      expect(url.searchParams.get('token')).to.eq(token);
+      expect(url.searchParams.get('email')).to.eq('test@spinajs.pl');
+    } finally {
+      cfg.set('rbac.password.resetUrl', '');
+    }
   });
 
   it('Password change after request', async () => {

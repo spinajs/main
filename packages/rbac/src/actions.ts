@@ -10,7 +10,7 @@ import { Constructor } from '@spinajs/di';
 import { UserEvent } from './events/UserEvent.js';
 import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
-import { ErrorCode } from '@spinajs/exceptions';
+import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
@@ -151,10 +151,18 @@ export function _get_user_meta(key: string) {
  * Helper function for sending user notification emails
  * Templates are defined in rbac configuration
  *
- * @param cfgTemplate
+ * @param cfgTemplate - which `rbac.email.*` entry describes the message
+ * @param model - extra template variables merged over the user's own fields.
+ *   Given as a FUNCTION of the user so a caller can compute them from the row it
+ *   has just written ( the password-reset token is the case that needs it ).
+ *   Nothing here is persisted and nothing is logged: whatever it carries goes
+ *   straight into the rendered message.
  * @returns
  */
-export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired') {
+export function _user_email(
+  cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired',
+  model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown },
+) {
   interface _tCfg {
     enabled: boolean;
     template: string;
@@ -165,6 +173,8 @@ export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm
   // deliberately discarded. Actions end with this step and must resolve with
   // the User, not with an EmailSend job.
   return async (u: User) => {
+    const extra = model ? await model(u) : undefined;
+
     await _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
       _check_arg(_non_nil(new ErrorCode(E_CODES.E_NO_EMAIL_TEMPLATE, `Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
@@ -175,7 +185,7 @@ export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm
         _email_deferred({
           to: [u.Email],
           connection,
-          model: u.toJSON(),
+          model: { ...u.toJSON(), ...(extra ?? {}) },
           tag: `rbac-user-${cfgTemplate}`,
           template: template.template,
           subject: template.subject,
@@ -532,23 +542,68 @@ export async function unban(identifier: number | string | User): Promise<User> {
 }
 
 /**
+ * Builds the link a reset mail sends the user to.
+ *
+ * `rbac.password.resetUrl` is the application's own redemption page. The token
+ * and the address are appended as query parameters because that page has to send
+ * both back to `POST /auth/password/reset`, and it has no other way of knowing
+ * them. Returns an empty string when no url is configured — the template then
+ * renders whatever it does without one, rather than a link to nowhere.
+ */
+async function _pwd_reset_url(email: string, token: string): Promise<string> {
+  const base = await _cfg<string>('rbac.password.resetUrl', '')();
+
+  if (!base) {
+    return '';
+  }
+
+  const url = new URL(base);
+  url.searchParams.set('token', token);
+  url.searchParams.set('email', email);
+
+  return url.toString();
+}
+
+/**
  * Initiates a password-change request for a user.
  * Generates a reset token, stores it along with the current timestamp and configured
- * wait time in the user's metadata, and emits a {@link UserPasswordChangeRequest} event.
+ * wait time in the user's metadata, emits a {@link UserPasswordChangeRequest} event and
+ * sends the `changePassword` mail carrying the token.
+ *
+ * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
+ * possession of the mailbox is what authorizes the reset — so an installation that does not
+ * deliver it has a reset flow nobody can complete. It used to be the application's job, via
+ * the event, and every application that had not written that subscriber silently issued
+ * tokens into the void. `rbac.email.changePassword.enabled: false` still turns it off for an
+ * application that really does deliver it some other way.
+ *
+ * The token reaches the template through the model and is NOT logged: it is a bearer
+ * credential for `POST /auth/password/reset`.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function passwordChangeRequest(identifier: number | string | User) {
   const pwdWaitTime = await _cfg<number>('rbac.password.passwordResetWaitTime')();
+  const token = uuidv4();
 
   return _chain(
     _user(identifier),
     _set_user_meta([
       { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
-      { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
+      { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: token },
       { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
     ]),
     _user_ev(UserPasswordChangeRequest),
+    _tap(
+      _user_email('changePassword', async (u: User) => ({
+        Token: token,
+        ResetUrl: await _pwd_reset_url(u.Email, token),
+        // Minutes rather than the raw seconds: a template writes "the link is
+        // valid for X minutes", and doing the arithmetic in a handlebars
+        // expression is not something every template engine can do.
+        ExpiresInMinutes: Math.round(pwdWaitTime / 60),
+      })),
+    ),
   );
 }
 
@@ -657,7 +712,16 @@ export function changePassword(password: string): (u: User) => Promise<User> {
 
       _tap(async ({ validator }: { validator: PasswordValidationProvider }) => {
         if (!validator.check(password)) {
-          throw new Error('Password does not meet requirements');
+          // `InvalidArgument`, not a bare `Error`: a password the caller typed is
+          // invalid INPUT, and @spinajs/http maps this class to 400 ( BadRequestResponse
+          // via `@HandleException` ) while an unmapped error becomes a 500. Every route
+          // that lets a user pick a password - `PATCH /user/password`, the reset flow -
+          // answered "internal server error" for a password that was merely too weak,
+          // which reads to the user as a broken screen rather than as a rule they can
+          // satisfy. The field name and error code travel in the response body ( the
+          // error handler spreads the exception's own enumerable props ), so a client
+          // can point at the field and branch on the code instead of matching English.
+          throw new InvalidArgument('Password does not meet requirements', 'password', E_CODES[E_CODES.E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS]);
         }
       }),
 

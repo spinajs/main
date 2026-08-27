@@ -216,6 +216,18 @@ const rbac = {
       passwordResetWaitTime: 60 * 60,
 
       /**
+       * The application page that redeems a reset token, e.g.
+       * `https://app.example.com/password-reset`.
+       *
+       * `passwordChangeRequest` appends `token` and `email` to it and hands the
+       * result to the `changePassword` template as `ResetUrl`; that page sends
+       * both back to `POST /auth/password/reset`. Empty by default because only
+       * the application knows its own address — a template then renders without
+       * a link rather than with one pointing nowhere.
+       */
+      resetUrl: '',
+
+      /**
        * Consecutive failed logins that lock the account. 0 disables throttling.
        */
       blockAfterAttempts: 5,

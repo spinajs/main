@@ -4,9 +4,10 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Pos
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { create, deleteUser, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update, userModel } from '@spinajs/rbac';
+import { create, deleteUser, passwordChangeRequest, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
+import { Log, Logger } from '@spinajs/log';
 
 import { RoleGuard } from '../../interfaces.js';
 
@@ -223,6 +224,9 @@ const USER_FILTER: IColumnFilter<User>[] = [
 @Policy(AuthorizedPolicy)
 @Resource('users')
 export class Users extends BaseController {
+  @Logger('rbac-admin')
+  protected Log: Log;
+
   @Autoinject()
   protected PasswordProvider: PasswordProvider;
 
@@ -389,9 +393,9 @@ export class Users extends BaseController {
   /**
    * Create user (admin)
    * Creates a new user account with a system-generated temporary password. The account is
-   * created inactive and the temporary password is never returned — issue a reset link with
-   * `POST /users/security/password-reset-request/:user` and activate the account once the
-   * user has set their own password.
+   * created inactive and the temporary password is never returned: a single-use password-reset
+   * link is mailed to the address instead, so the owner sets their own password and nothing
+   * has to travel back through an administrator. Activate the account once they have.
    * `Role` takes one role name or a list of them; every entry is checked by the role guard, and
    * one refused entry refuses the whole request.
    * @security cookieAuth
@@ -412,6 +416,18 @@ export class Users extends BaseController {
 
     const temporaryPassword = this.PasswordProvider.generate();
     const { User: created } = await create(data.Email, data.Login, temporaryPassword, roles, undefined, data.Metadata);
+
+    // Hand the account over to its owner. The temporary password above is
+    // deliberately discarded — never returned, never mailed — so without this
+    // the new account is unreachable until an administrator remembers to press
+    // "send a reset link" on a second screen, which is what made every freshly
+    // created account arrive dead.
+    //
+    // Not fatal: the account EXISTS at this point, and answering 500 would tell
+    // the caller the creation failed when it did not, inviting a retry that then
+    // fails on the duplicate login. A mail that could not be queued is a mail an
+    // administrator can re-send from the security routes.
+    await this.issuePasswordReset(created);
 
     // NOTE: create() returns { User, Password } where Password is the plaintext
     // temporary password. It must NOT be sent in the response — return only the
@@ -523,6 +539,21 @@ export class Users extends BaseController {
     await _user_update({ DeletedAt: null as any })(user);
 
     return new Ok();
+  }
+
+  /**
+   * Issues the reset token that hands a freshly created account to its owner,
+   * logging rather than throwing when it cannot be delivered.
+   *
+   * Wrapped as its own method so a test can stub it, and so the swallow has one
+   * place and one reason: see the call site in {@link addUser}.
+   */
+  protected async issuePasswordReset(user: User): Promise<void> {
+    try {
+      await passwordChangeRequest(user);
+    } catch (err) {
+      this.Log.error(err as Error, `Could not issue the initial password reset for ${user.Uuid}. The account exists but its owner has no way in yet - re-send the link from POST /users/security/password-reset-request/:user.`);
+    }
   }
 
   /**
