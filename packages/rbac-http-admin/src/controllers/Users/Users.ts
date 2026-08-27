@@ -36,13 +36,42 @@ const MAX_PAGE_SIZE = 100;
 
 const DEFAULT_PAGE_SIZE = 10;
 
+/**
+ * Upper bound on how many roles one account may be given in a single request.
+ * An account holds a handful of switchable profiles, not an unbounded list, and
+ * every entry costs a guard check.
+ */
+const MAX_ROLES_PER_USER = 16;
+
+/**
+ * The `Role` field of both DTOs: one role name, or a list of them.
+ *
+ * An account has always held a role LIST (`User.Role` is a set), and the roles
+ * an application defines are typically switchable profiles a person may hold
+ * several of at once. The single-string form is kept because it is what every
+ * existing caller sends.
+ */
+const ROLE_FIELD = {
+  description: 'RBAC role to assign to the user, or a list of roles',
+  oneOf: [
+    { type: 'string', minLength: 1, maxLength: 32 },
+    {
+      type: 'array',
+      items: { type: 'string', minLength: 1, maxLength: 32 },
+      minItems: 1,
+      maxItems: MAX_ROLES_PER_USER,
+      uniqueItems: true,
+    },
+  ],
+};
+
 @Schema({
   type: 'object',
   $id: 'arrow.common.createUserDto',
   properties: {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
-    Role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role to assign to the user' },
+    Role: ROLE_FIELD,
     Metadata: {
       type: 'object',
       $id: 'arrow.common.userMetadata',
@@ -55,13 +84,30 @@ const DEFAULT_PAGE_SIZE = 10;
 export class CreateUserDto {
   public Login: string;
   public Email: string;
-  public Role: string;
+  public Role: string | string[];
 
   public Metadata?: { [key: string]: any };
 
   constructor(data: Partial<CreateUserDto>) {
     Object.assign(this, data);
   }
+}
+
+/**
+ * The roles a `Role` field denotes, whether it was sent as one name or a list.
+ *
+ * Trimmed, de-duplicated and stripped of blanks, so `['user', ' user ', '']`
+ * reaches the guard as the single role it actually asks for — the guard is
+ * charged per entry and a duplicate would be checked twice.
+ */
+function roleList(role?: string | string[]): string[] {
+  if (role === undefined || role === null) {
+    return [];
+  }
+
+  const wanted = (Array.isArray(role) ? role : [role]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0);
+
+  return [...new Set(wanted)];
 }
 
 /**
@@ -80,14 +126,14 @@ export class CreateUserDto {
   properties: {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
-    Role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role to assign to the user' },
+    Role: ROLE_FIELD,
   },
   additionalProperties: false,
 })
 export class UpdateUserDto {
   public Login?: string;
   public Email?: string;
-  public Role?: string;
+  public Role?: string | string[];
 
   constructor(data: Partial<UpdateUserDto>) {
     Object.assign(this, data);
@@ -346,22 +392,26 @@ export class Users extends BaseController {
    * created inactive and the temporary password is never returned — issue a reset link with
    * `POST /users/security/password-reset-request/:user` and activate the account once the
    * user has set their own password.
+   * `Role` takes one role name or a list of them; every entry is checked by the role guard, and
+   * one refused entry refuses the whole request.
    * @security cookieAuth
    * @returns {User} Created user account
-   * @response 400 Validation error — missing required fields, invalid format, unknown role or a protected metadata key
+   * @response 400 Validation error — missing required fields, invalid format, an empty or unknown role, or a protected metadata key
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — createAny permission required, or the requested role grants more than the caller holds
-   * @response 409 Login or email already in use
+   * @response 403 Forbidden — createAny permission required, or a requested role grants more than the caller holds
+   * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
   @Permission(['createAny', 'createOwn'])
   public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
-    await this.RoleGuard.assertCanAssignRoles(actor, null, [data.Role]);
+    const roles = this.assertRoles(data.Role);
+
+    await this.RoleGuard.assertCanAssignRoles(actor, null, roles);
     this.assertNoProtectedMetadata(data.Metadata);
     await this.assertUnique(data.Login, data.Email);
 
     const temporaryPassword = this.PasswordProvider.generate();
-    const { User: created } = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
+    const { User: created } = await create(data.Email, data.Login, temporaryPassword, roles, undefined, data.Metadata);
 
     // NOTE: create() returns { User, Password } where Password is the plaintext
     // temporary password. It must NOT be sent in the response — return only the
@@ -373,20 +423,28 @@ export class Users extends BaseController {
    * Update user (admin)
    * Partially updates a user account. All fields are optional — only provided fields are changed.
    * Metadata is NOT handled here; use the `/user/:uuid/metadata` routes.
+   * `Role` takes one role name or a list of them and REPLACES the account's whole role list, so
+   * an entry left out is revoked and goes through the revoke half of the role guard. An empty
+   * list is refused rather than applied.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
-   * @response 400 Validation error — invalid field format or unknown role
+   * @response 400 Validation error — invalid field format, an empty role list or an unknown role
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required, or the role change is refused by the role guard
+   * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
-   * @response 409 Login or email already in use by another account
    */
   @Patch(':user')
   @Permission(['updateAny', 'updateOwn'])
   public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
-    if (data.Role) {
-      const next = [data.Role];
+    // `data.Role` may be an ARRAY, and `[]` is truthy — so the presence check is
+    // on the field, and `assertRoles` is what refuses an empty list. Stripping
+    // every role off an account is not an update this route performs: the
+    // account would keep existing while being able to do nothing at all.
+    const next = data.Role !== undefined ? this.assertRoles(data.Role) : null;
+
+    if (next) {
       const added = next.filter((r) => !user.Role.includes(r));
       const removed = user.Role.filter((r) => !next.includes(r));
 
@@ -406,7 +464,7 @@ export class Users extends BaseController {
 
     user.Login = data.Login ?? user.Login;
     user.Email = data.Email ?? user.Email;
-    user.Role = data.Role ? [data.Role] : user.Role;
+    user.Role = next ?? user.Role;
 
     await user.update();
 
@@ -465,6 +523,28 @@ export class Users extends BaseController {
     await _user_update({ DeletedAt: null as any })(user);
 
     return new Ok();
+  }
+
+  /**
+   * The roles a request asks for, refusing a list that names none.
+   *
+   * The schema already rejects an empty array and a blank string, but it cannot
+   * reject `[' ', '']` — every entry is a valid string of allowed length. That
+   * would reach `create()` as an empty role list and produce an account nobody
+   * can use, so it is refused here instead.
+   */
+  protected assertRoles(role?: string | string[]): string[] {
+    const roles = roleList(role);
+
+    if (roles.length === 0) {
+      throw new InvalidArgument('At least one role must be given');
+    }
+
+    if (roles.length > MAX_ROLES_PER_USER) {
+      throw new InvalidArgument(`At most ${MAX_ROLES_PER_USER} roles can be assigned to one account`);
+    }
+
+    return roles;
   }
 
   /**

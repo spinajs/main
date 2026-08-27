@@ -343,6 +343,50 @@ describe('Admin user controllers', function () {
       expect(created.Uuid).to.be.a('string');
     });
 
+    /**
+     * `User.Role` has always been a SET, and roles are typically switchable
+     * profiles one person may legitimately hold several of (a seller working
+     * for two companies, an administrator who also edits content). The DTO
+     * accepted a single string, so the only way to give an account a second
+     * role was the separate grant route — one request per role, none of them
+     * atomic with the creation.
+     */
+    it('creates a user holding every role of a list', async () => {
+      await usersController.addUser(await admin(), { Login: 'multi', Email: 'multi@spinajs.pl', Role: ['user', 'guest'] } as any);
+
+      const created = await User.query().whereLogin('multi').firstOrFail();
+      expect(created.Role).to.have.members(['user', 'guest']);
+    });
+
+    it('still accepts a single role name', async () => {
+      await usersController.addUser(await admin(), { Login: 'single', Email: 'single@spinajs.pl', Role: 'user' } as any);
+
+      expect((await User.query().whereLogin('single').firstOrFail()).Role).to.deep.equal(['user']);
+    });
+
+    // Every entry is guard-checked, so a duplicate would be checked twice and
+    // stored twice.
+    it('trims and de-duplicates the list', async () => {
+      await usersController.addUser(await admin(), { Login: 'dedup', Email: 'dedup@spinajs.pl', Role: ['user', ' user ', 'guest'] } as any);
+
+      expect((await User.query().whereLogin('dedup').firstOrFail()).Role).to.have.members(['user', 'guest']);
+    });
+
+    // The guard runs per entry, so ONE refused role must refuse the whole
+    // request - a partially applied role list is not something the caller asked
+    // for and not something they can see.
+    it('refuses the whole list when one role is not allowed', async () => {
+      await expect(usersController.addUser(await admin(), { Login: 'partly', Email: 'partly@spinajs.pl', Role: ['user', 'superadmin'] } as any)).to.be.rejectedWith(/grants more than the caller holds/);
+
+      expect(await User.query().whereLogin('partly').first(), 'nothing may be created when the guard refuses').to.not.exist;
+    });
+
+    // The schema rejects an empty array outright; this is the case it cannot
+    // see - entries that are valid strings but name no role.
+    it('refuses a list that names no role', async () => {
+      await expect(usersController.addUser(await admin(), { Login: 'blank', Email: 'blank@spinajs.pl', Role: ['  ', ''] } as any)).to.be.rejectedWith(/At least one role/);
+    });
+
     // Regression, reported from production:
     //   "Error in controller POST at path /api/users Exception:
     //    rbac.actions.create.beforeCreate should not be null, undefined or empty"
@@ -514,6 +558,40 @@ describe('Admin user controllers', function () {
       expect(updated.Login).to.eq('renamed');
       expect(updated.Email).to.eq('renamed@spinajs.pl');
       expect(updated.Role).to.deep.eq(['admin']);
+    });
+
+    it('replaces the whole role list when one is sent', async () => {
+      const user = await byUuid(USER_UUID);
+
+      await usersController.updateUser(await admin(), user, { Role: ['user', 'guest'] } as any);
+
+      expect((await byUuid(USER_UUID)).Role).to.have.members(['user', 'guest']);
+    });
+
+    // The list is a REPLACEMENT, so dropping an entry is a revocation and goes
+    // through the revoke half of the guard.
+    it('revokes the roles a shorter list leaves out', async () => {
+      const user = await byUuid(USER_UUID);
+      await usersController.updateUser(await admin(), user, { Role: ['user', 'guest'] } as any);
+
+      await usersController.updateUser(await admin(), await byUuid(USER_UUID), { Role: ['guest'] } as any);
+
+      expect((await byUuid(USER_UUID)).Role).to.deep.equal(['guest']);
+    });
+
+    /**
+     * `[]` is TRUTHY in javascript, so a presence check on the field alone used
+     * to be enough while `Role` was a string and is not any more: an empty array
+     * must not slip through as "no role change", nor be applied as "take every
+     * role away" — an account that holds no role at all can do nothing and can
+     * only be repaired by another administrator.
+     */
+    it('refuses an empty role list rather than stripping the account', async () => {
+      const user = await byUuid(USER_UUID);
+
+      await expect(usersController.updateUser(await admin(), user, { Role: [] } as any)).to.be.rejectedWith(/At least one role/);
+
+      expect((await byUuid(USER_UUID)).Role, 'the stored roles must be untouched').to.deep.equal(['user']);
     });
 
     it('keeps existing values for fields that are not sent', async () => {
