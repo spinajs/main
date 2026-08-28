@@ -2,28 +2,11 @@ import ts from 'typescript';
 import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
 import { once } from '@spinajs/util';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
-
-/**
- * Path of this module's compiled file, resolved across the dual ESM/CJS build.
- * Under CJS `__filename` exists; under ESM it does not, so we fall back to
- * `import.meta.url` - accessed via `eval` so the `import.meta` token never
- * appears in the commonjs-compiled output (which would otherwise fail to
- * compile).
- */
-function moduleFile(): string {
-  if (typeof __filename !== 'undefined') {
-    return __filename;
-  }
-
-  // eslint-disable-next-line no-eval
-  return fileURLToPath(eval('import.meta.url') as string);
-}
 
 // ---------------------------------------------------------------------------
 // Documentation types — generic enough to live in http, used by http-swagger
@@ -201,17 +184,18 @@ export class DefaultControllerCache extends AsyncService {
    *
    * Mixing this hash into the key separates entries per extractor build, so an extractor change
    * invalidates exactly the entries it can now read differently, with no manual cache wipe.
-   * `moduleFile()` resolves to the built file actually running, so a released version and a
-   * locally edited one are distinguished alike.
    *
-   * Keep this in step with the extraction code: if `extractAll` and its helpers ever move out of
-   * this file, the moved module has to be hashed here as well.
+   * `String(class)` is the whole class body as the running process sees it, so every extraction
+   * method is covered automatically and a released build differs from a locally edited one.
+   * Hashing the module file on disk would be the obvious alternative, but this module is compiled
+   * into both an ESM and a CommonJS build and neither `import.meta.url` nor `__filename` exists
+   * in both - see the note on `parseFnParamNames`, which relies on the same `toString()`.
    *
    * `once` memoizes the promise rather than the string, so concurrent callers - every controller
-   * asks for this during startup - share one read instead of racing to repeat it. The read itself
-   * is deferred to the first call, by which point DI has injected `Hasher`.
+   * asks for this during startup - share one hash instead of racing to repeat it. The work is
+   * deferred to the first call, by which point DI has injected `Hasher`.
    */
-  private readonly parserHash = once(() => this.Hasher.hash(moduleFile()));
+  private readonly parserHash = once(() => this.Hasher.hashData(String(DefaultControllerCache)));
 
   /**
    * Fallback: derive route method parameter names by parsing each method's
