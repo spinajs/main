@@ -9,6 +9,22 @@ import { once } from '@spinajs/util';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
 
+/**
+ * Path of this module's compiled file, resolved across the dual ESM/CJS build.
+ * Under CJS `__filename` exists; under ESM it does not, so we fall back to
+ * `import.meta.url` - accessed via `eval` so the `import.meta` token never
+ * appears in the commonjs-compiled output (which would otherwise fail to
+ * compile).
+ */
+function moduleFile(): string {
+  if (typeof __filename !== 'undefined') {
+    return __filename;
+  }
+
+  // eslint-disable-next-line no-eval
+  return fileURLToPath(eval('import.meta.url') as string);
+}
+
 // ---------------------------------------------------------------------------
 // Documentation types — generic enough to live in http, used by http-swagger
 // ---------------------------------------------------------------------------
@@ -185,7 +201,7 @@ export class DefaultControllerCache extends AsyncService {
    *
    * Mixing this hash into the key separates entries per extractor build, so an extractor change
    * invalidates exactly the entries it can now read differently, with no manual cache wipe.
-   * `import.meta.url` resolves to the built file actually running, so a released version and a
+   * `moduleFile()` resolves to the built file actually running, so a released version and a
    * locally edited one are distinguished alike.
    *
    * Keep this in step with the extraction code: if `extractAll` and its helpers ever move out of
@@ -195,7 +211,7 @@ export class DefaultControllerCache extends AsyncService {
    * asks for this during startup - share one read instead of racing to repeat it. The read itself
    * is deferred to the first call, by which point DI has injected `Hasher`.
    */
-  private readonly parserHash = once(() => this.Hasher.hash(fileURLToPath(import.meta.url)));
+  private readonly parserHash = once(() => this.Hasher.hash(moduleFile()));
 
   /**
    * Fallback: derive route method parameter names by parsing each method's

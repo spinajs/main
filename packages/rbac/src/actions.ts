@@ -1,5 +1,5 @@
 import { insertModel, updateModel } from '@spinajs/orm';
-import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, _to_array } from '@spinajs/util';
+import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, _toArray } from '@spinajs/util';
 import _ from 'lodash';
 import { emailDeferred } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
@@ -92,7 +92,7 @@ export async function getUsersByRole(role: string[]): Promise<User[]> {
  * @param value - value to assign when `meta` is a single key string (default: `null`)
  */
 export async function setUserMeta(u: User, meta: string | { key: string; value: any }[], value: any = null): Promise<User> {
-  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _to_array())(meta, 'Metadata');
+  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _toArray())(meta, 'Metadata');
 
   mArgs.forEach((m: string | { key: string; value: any }) => {
     _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
