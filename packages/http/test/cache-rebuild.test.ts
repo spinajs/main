@@ -20,12 +20,12 @@ interface IFakeFsCall {
   args: unknown[];
 }
 
-function makeCache(existing: boolean) {
+function makeCache(existing: boolean, hash: (file: string) => Promise<string> = async () => 'deadbeef') {
   const calls: IFakeFsCall[] = [];
   const cache = new DefaultControllerCache();
 
   Object.defineProperty(cache, 'Log', { value: noopLog });
-  Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef' } });
+  Object.defineProperty(cache, 'Hasher', { value: { hash } });
   Object.defineProperty(cache, 'CacheFS', {
     value: {
       exists: async (...args: unknown[]) => {
@@ -68,7 +68,9 @@ describe('DefaultControllerCache rebuild option', () => {
     // Both the parameter cache and the doc cache entries must be rewritten.
     const writes = calls.filter((c) => c.op === 'write');
     expect(writes).to.have.lengthOf(2);
-    expect(writes.map((w) => w.args[0])).to.include.members(['deadbeef', 'doc_deadbeef']);
+    // Keys carry the extractor's hash as well as the source hash, so with a stubbed hasher both
+    // halves read `deadbeef` — see DefaultControllerCache.parserHash.
+    expect(writes.map((w) => w.args[0])).to.include.members(['deadbeef_deadbeef', 'doc_deadbeef_deadbeef']);
   });
 
   it('generates when cache missing regardless of rebuild flag', async () => {
@@ -76,5 +78,30 @@ describe('DefaultControllerCache rebuild option', () => {
     await cache.getCache(controllerInfo());
 
     expect(calls.filter((c) => c.op === 'write')).to.have.lengthOf(2);
+  });
+
+  it('keys entries by the extractor as well as the source, so an extractor change misses the old entry', async () => {
+    // The stub hashes by content, so returning a different digest for this file is what "the
+    // extractor changed" looks like from the key's point of view. Two builds that read the very
+    // same controller must not land on one key: an entry written before `classTags` was extracted
+    // would otherwise be handed back to the build that knows how to read it, tags and all missing,
+    // and nothing would ever re-parse.
+    const keysFor = async (extractorDigest: string) => {
+      const { cache, calls } = makeCache(false, async (f: string) =>
+        f.endsWith('cache.ts') || f.endsWith('cache.js') ? extractorDigest : 'sourcehash',
+      );
+      await cache.getCache(controllerInfo());
+      return calls.filter((c) => c.op === 'write').map((w) => w.args[0] as string);
+    };
+
+    const before = await keysFor('extractor_v1');
+    const after = await keysFor('extractor_v2');
+
+    expect(before).to.have.lengthOf(2);
+    expect(after).to.have.lengthOf(2);
+    expect(before).to.not.have.members(after);
+    // The source half is untouched — only the extractor half moved.
+    expect(before.every((k) => k.includes('sourcehash'))).to.equal(true);
+    expect(after.every((k) => k.includes('sourcehash'))).to.equal(true);
   });
 });

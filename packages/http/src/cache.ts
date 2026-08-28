@@ -2,8 +2,10 @@ import ts from 'typescript';
 import { resolve as resolvePath, dirname, join, isAbsolute } from 'path';
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
+import { once } from '@spinajs/util';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
 
@@ -141,30 +143,59 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
+    // Both entries are keyed by the source hash AND the extractor's own hash - see parserHash().
+    // Parameters go through the same extractAll() as the documentation, so both go stale the same
+    // way when the extractor changes.
+    const extractorHash = await this.parserHash();
     const hash = await this.Hasher.hash(file);
-    const docHash = `doc_${hash}`;
+    const paramHash = `${extractorHash}_${hash}`;
+    const docHash = `doc_${paramHash}`;
 
     const rebuild = options?.rebuild === true;
-    const paramExists = !rebuild && (await this.CacheFS.exists(hash));
+    const paramExists = !rebuild && (await this.CacheFS.exists(paramHash));
     const docExists = !rebuild && (await this.CacheFS.exists(docHash));
 
     if (!paramExists || !docExists) {
       this.Log.info(`Generating controller cache for ${controller.name}`);
       const { parameters, documentation } = this.extractAll(file, controller.name);
 
-      if (!paramExists) await this.CacheFS.write(hash, JSON.stringify(parameters));
+      if (!paramExists) await this.CacheFS.write(paramHash, JSON.stringify(parameters));
       if (!docExists) await this.CacheFS.write(docHash, JSON.stringify(documentation));
 
       this.Log.info(`Controller cache generated for ${controller.name}`);
     }
 
-    return this.CacheFS.read(hash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
+    return this.CacheFS.read(paramHash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
   }
 
   /** Whether `file` points at a real on-disk source we can parse. */
   private isResolvableSource(file: string | undefined): boolean {
     return isOnDiskSource(file);
   }
+
+  /**
+   * Content hash of this module — the code that turns a `.d.ts` into a cache entry.
+   *
+   * Entry keys hash the controller's `.d.ts`, which answers "did the controller change?" but not
+   * "did the way we read it change?". Those are different questions, and only the first one used
+   * to be asked: extend the extractor (as `classTags` did) and every entry written by the previous
+   * build still keys to the same name, so the new extractor reads back the old, poorer result and
+   * never re-parses. That is how controllers whose JSDoc declares a `@tags` ended up in the
+   * swagger under their class name instead — the tag was simply missing from the cached document.
+   *
+   * Mixing this hash into the key separates entries per extractor build, so an extractor change
+   * invalidates exactly the entries it can now read differently, with no manual cache wipe.
+   * `import.meta.url` resolves to the built file actually running, so a released version and a
+   * locally edited one are distinguished alike.
+   *
+   * Keep this in step with the extraction code: if `extractAll` and its helpers ever move out of
+   * this file, the moved module has to be hashed here as well.
+   *
+   * `once` memoizes the promise rather than the string, so concurrent callers - every controller
+   * asks for this during startup - share one read instead of racing to repeat it. The read itself
+   * is deferred to the first call, by which point DI has injected `Hasher`.
+   */
+  private readonly parserHash = once(() => this.Hasher.hash(fileURLToPath(import.meta.url)));
 
   /**
    * Fallback: derive route method parameter names by parsing each method's
@@ -194,8 +225,10 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
+    // Same key as getCache() writes under, extractor hash included - see parserHash().
+    const extractorHash = await this.parserHash();
     const hash = await this.Hasher.hash(file);
-    const docHash = `doc_${hash}`;
+    const docHash = `doc_${extractorHash}_${hash}`;
 
     if (!(await this.CacheFS.exists(docHash))) {
       await this.getCache(controller);
