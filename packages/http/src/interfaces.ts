@@ -415,6 +415,11 @@ export enum HTTP_STATUS_CODE {
   ENTITY_TOO_LARGE = 413,
 
   /**
+   * Rate limit exceeded ( see ThrottleMiddleware )
+   */
+  TOO_MANY_REQUESTS = 429,
+
+  /**
    * Internal server error.
    */
   INTERNAL_ERROR = 500,
