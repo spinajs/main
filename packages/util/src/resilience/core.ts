@@ -1,4 +1,4 @@
-import { Constructor } from '../fp.js';
+import { Constructor } from '../types.js';
 import { TimeSpan, TimeSpanLike } from '../timespan.js';
 import { CanceledException } from './exceptions.js';
 
