@@ -2,9 +2,9 @@ import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { AccessControl } from 'accesscontrol';
 import { User } from '@spinajs/rbac';
-import { _chain, _check_arg, _tap, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
-import { _service } from '@spinajs/configuration';
-import { _ev } from '@spinajs/queue';
+import { _check_arg, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
+import { service } from '@spinajs/configuration';
+import { ev } from '@spinajs/queue';
 import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from './exceptions.js';
 import { Constructor, DI } from '@spinajs/di';
 
@@ -15,43 +15,56 @@ import { AccessTokenCreated, AccessTokenDeleted, AccessTokenEvent, AccessTokenRo
 /**
  * Resolves an AccessToken from an instance or its uuid.
  */
-export function _token(token: AccessToken | string): () => Promise<AccessToken> {
+export async function getToken(token: AccessToken | string): Promise<AccessToken> {
   if (_.isString(token)) {
-    return () => AccessToken.where('Uuid', token).firstOrFail();
+    return AccessToken.where('Uuid', token).firstOrFail();
   }
 
-  return () => Promise.resolve(token);
+  return token;
 }
 
 /**
  * Resolves the owning user by instance, numeric id or uuid, with metadata
  * populated ( needed for IsBanned checks downstream ).
  */
-export function _owner(user: User | number | string): () => Promise<User> {
+export async function getOwner(user: User | number | string): Promise<User> {
   if (_.isString(user)) {
     // base User on purpose: token-auth infrastructure resolves the token OWNER before any request scope exists; must not be row-scoped by an application model override.
-    return () => User.where('Uuid', user).populate('Metadata').firstOrFail();
+    return User.where('Uuid', user).populate('Metadata').firstOrFail();
   }
 
   if (_.isNumber(user)) {
     // base User on purpose: token-auth infrastructure resolves the token OWNER before any request scope exists; must not be row-scoped by an application model override.
-    return () => User.where('Id', user).populate('Metadata').firstOrFail();
+    return User.where('Id', user).populate('Metadata').firstOrFail();
   }
 
-  return () => Promise.resolve(user);
+  return user;
 }
 
 /**
- * Emits a token-related event through the queue service and forwards the token.
+ * Thunk form of {@link getToken}.
+ */
+export function _token(token: AccessToken | string): () => Promise<AccessToken> {
+  return () => getToken(token);
+}
+
+/**
+ * Thunk form of {@link getOwner}.
+ */
+export function _owner(user: User | number | string): () => Promise<User> {
+  return () => getOwner(user);
+}
+
+/**
+ * Emits a token-related event through the queue service and returns the token.
  *
+ * @param t - subject of the event
  * @param event - constructor of the {@link AccessTokenEvent} subclass to emit
  * @param args - additional arguments forwarded to the event constructor
  */
-function _token_ev(event: Constructor<AccessTokenEvent>, ...args: any[]) {
-  return async (t: AccessToken) => {
-    await _ev(new event(t, ...args))();
-    return t;
-  };
+async function emitTokenEvent(t: AccessToken, event: Constructor<AccessTokenEvent>, ...args: any[]): Promise<AccessToken> {
+  await ev(new event(t, ...args));
+  return t;
 }
 
 /**
@@ -77,7 +90,7 @@ function _token_ev(event: Constructor<AccessTokenEvent>, ...args: any[]) {
  * this filter, get offered by `GET user/tokens/roles`, and be mintable onto a token.
  */
 export async function _allowed_roles(owner: User, profile?: string): Promise<string[]> {
-  const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
+  const policy = await service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy);
   const allowed = await policy.allowedRoles(owner, profile);
 
   const ac = DI.get<AccessControl>('AccessControl')!;
@@ -90,14 +103,14 @@ export async function _allowed_roles(owner: User, profile?: string): Promise<str
  * token to. Same live-resolution rationale as `_allowed_roles`.
  */
 export async function _allowed_profiles(owner: User): Promise<string[]> {
-  const policy = await _service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy)();
+  const policy = await service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy);
   return policy.allowedProfiles(owner);
 }
 
 /**
  * Ensures `profile` is one the configured policy lets `owner` pin a token to.
  */
-async function _assert_profile(owner: User, profile: string) {
+async function assertProfile(owner: User, profile: string): Promise<void> {
   const allowed = await _allowed_profiles(owner);
   if (!allowed.includes(profile)) {
     throw new AccessTokenRoleNotAllowed(`Owner may not pin a token to profile: ${profile}`, { roles: [profile] });
@@ -113,7 +126,7 @@ async function _assert_profile(owner: User, profile: string) {
  * With `profile` given the question is asked relative to that profile, which a
  * policy may answer more narrowly than the owner-wide union.
  */
-async function _assert_roles_subset(owner: User, roles: string[], profile?: string) {
+async function assertRolesSubset(owner: User, roles: string[], profile?: string): Promise<void> {
   const allowed = await _allowed_roles(owner, profile);
   const missing = roles.filter((r) => !allowed.includes(r));
 
@@ -144,34 +157,31 @@ export async function createToken(user: User | number | string, name: string, ro
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
   roles = _check_arg(_non_nil(), _non_empty())(roles, 'roles');
 
-  const generator = await _service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider)();
+  const generator = await service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider);
   const generated = await generator.generate();
 
-  return _chain(
-    _owner(user),
-    _tap(async (u: User) => {
-      if (profile) {
-        await _assert_profile(u, profile);
-      }
-      await _assert_roles_subset(u, roles, profile);
-    }),
-    async (u: User) => {
-      const token = new AccessToken({
-        Name: name,
-        Token: generated.Hash,
-        Roles: _.uniq(roles),
-        Profile: profile ?? undefined,
-        // `ExpiresAt` is optional rather than nullable ( see the model ), so a
-        // "never expires" token leaves the property unset instead of holding null.
-        ExpiresAt: expiresAt ?? undefined,
-        user_id: u.Id,
-      });
-      await token.insert();
-      return token;
-    },
-    _token_ev(AccessTokenCreated),
-    (t: AccessToken) => ({ Token: t, Plaintext: generated.Plaintext }),
-  );
+  const owner = await getOwner(user);
+
+  if (profile) {
+    await assertProfile(owner, profile);
+  }
+  await assertRolesSubset(owner, roles, profile);
+
+  const token = new AccessToken({
+    Name: name,
+    Token: generated.Hash,
+    Roles: _.uniq(roles),
+    Profile: profile ?? undefined,
+    // `ExpiresAt` is optional rather than nullable ( see the model ), so a
+    // "never expires" token leaves the property unset instead of holding null.
+    ExpiresAt: expiresAt ?? undefined,
+    user_id: owner.Id,
+  });
+  await token.insert();
+
+  await emitTokenEvent(token, AccessTokenCreated);
+
+  return { Token: token, Plaintext: generated.Plaintext };
 }
 
 /**
@@ -180,12 +190,10 @@ export async function createToken(user: User | number | string, name: string, ro
  * @param token - {@link AccessToken} instance or its uuid
  */
 export async function deleteToken(token: AccessToken | string): Promise<void> {
-  return _chain(
-    _token(token),
-    _tap((t: AccessToken) => t.destroy()),
-    _token_ev(AccessTokenDeleted),
-    () => undefined,
-  );
+  const t = await getToken(token);
+
+  await t.destroy();
+  await emitTokenEvent(t, AccessTokenDeleted);
 }
 
 /**
@@ -198,17 +206,17 @@ export async function deleteToken(token: AccessToken | string): Promise<void> {
 export async function grantTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(
-    _token(token),
-    _tap(async (t: AccessToken) => {
-      const owner = await _owner(t.user_id)();
-      await _assert_roles_subset(owner, [role], t.Profile);
+  const t = await getToken(token);
 
-      t.Roles = _.uniq([...t.Roles, role]);
-      await t.update();
-    }),
-    _token_ev(AccessTokenRoleGranted, role),
-  );
+  const owner = await getOwner(t.user_id);
+  await assertRolesSubset(owner, [role], t.Profile);
+
+  t.Roles = _.uniq([...t.Roles, role]);
+  await t.update();
+
+  await emitTokenEvent(t, AccessTokenRoleGranted, role);
+
+  return t;
 }
 
 /**
@@ -231,22 +239,22 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
 export async function revokeTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(
-    _token(token),
-    _tap(async (t: AccessToken) => {
-      const remaining = t.Roles.filter((r) => r !== role);
+  const t = await getToken(token);
 
-      // checked BEFORE mutating, so a refused revoke leaves the instance and
-      // the row exactly as they were
-      if (remaining.length === 0) {
-        throw new AccessTokenRoleNotAllowed('Cannot revoke the last role from a token - delete the token instead', { token: t.Uuid });
-      }
+  const remaining = t.Roles.filter((r) => r !== role);
 
-      t.Roles = remaining;
-      await t.update();
-    }),
-    _token_ev(AccessTokenRoleRevoked, role),
-  );
+  // checked BEFORE mutating, so a refused revoke leaves the instance and
+  // the row exactly as they were
+  if (remaining.length === 0) {
+    throw new AccessTokenRoleNotAllowed('Cannot revoke the last role from a token - delete the token instead', { token: t.Uuid });
+  }
+
+  t.Roles = remaining;
+  await t.update();
+
+  await emitTokenEvent(t, AccessTokenRoleRevoked, role);
+
+  return t;
 }
 
 export interface ITokenValidationResult {
@@ -286,7 +294,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
 
   plaintext = plaintext.trim();
 
-  const generator = await _service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider)();
+  const generator = await service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider);
   const hash = generator.hash(plaintext);
 
   const token = await AccessToken.where('Token', hash).first();

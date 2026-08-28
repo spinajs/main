@@ -1,36 +1,28 @@
-import { User, _user_ev, _user_unsafe, _user_update, UserLoginFailed } from '@spinajs/rbac';
-import { Unauthorized } from "@spinajs/http";
-import _ from 'lodash';
-import { _service } from '@spinajs/configuration';
+import { User, getUserUnsafe, emitUserEvent, updateUser, UserLoginFailed } from '@spinajs/rbac';
+import { Unauthorized } from '@spinajs/http';
+import { service } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
-import { _chain, _check_arg, _non_empty, _non_null, _map, _trim, _use, _catch, _either, _tap } from '@spinajs/util';
+import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { User2FaPassed } from '../events/User2FaPassed.js';
 import { User2FaEnabled } from '../events/User2FaEnabled.js';
-import { TwoFactorAuthProvider, } from '@spinajs/rbac-http';
+import { TwoFactorAuthProvider } from '@spinajs/rbac-http';
 import { User2FaReset } from '../events/User2FaReset.js';
 import { User2FaDisabled } from '../events/User2FaDisabled.js';
 
-
 /**
- * NOTE for enableUser2Fa: the event must be emitted for the USER, not for
- * whatever the provider call returned ( `initialize()` returns the otpauth
- * url ). `_user_ev` reads `Uuid` off its argument, so it is bound to `u`
- * explicitly via `_tap`, which fires the event as a side effect while passing
- * the provider result through untouched as the chain's result.
+ * Initializes 2fa for a user and switches it on.
+ *
+ * The event is emitted for the USER, while the action resolves with whatever
+ * the provider call returned ( `initialize()` returns the otpauth url ).
  */
-
 export async function enableUser2Fa(identifier: number | string | User) {
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                async (twoFa: TwoFactorAuthProvider) => twoFa.initialize(u),
-                // keeps the otpauth url as the result of the action
-                _tap(async () => _user_ev(User2FaEnabled)(u)),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  const result = await twoFa.initialize(u);
+  await emitUserEvent(u, User2FaEnabled);
+
+  return result;
 }
 
 /**
@@ -39,15 +31,10 @@ export async function enableUser2Fa(identifier: number | string | User) {
  * listening for User2FaEnabled would otherwise fire on an abandoned attempt.
  */
 export async function beginUser2FaEnrolment(identifier: number | string | User) {
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                async (twoFa: TwoFactorAuthProvider) => twoFa.beginEnrolment(u),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  return twoFa.beginEnrolment(u);
 }
 
 /**
@@ -56,16 +43,13 @@ export async function beginUser2FaEnrolment(identifier: number | string | User) 
  * code and emitted User2FaPassed by the time the session is authorized.
  */
 export async function activateUser2Fa(identifier: number | string | User) {
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                async (twoFa: TwoFactorAuthProvider) => twoFa.activate(u),
-                () => _user_ev(User2FaEnabled)(u),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  await twoFa.activate(u);
+  await emitUserEvent(u, User2FaEnabled);
+
+  return u;
 }
 
 /**
@@ -74,96 +58,71 @@ export async function activateUser2Fa(identifier: number | string | User) {
  * code does not match, leaving the enrolment pending so the user can retry.
  */
 export async function confirmUser2Fa(identifier: number | string | User, token: string) {
-    token = _check_arg(_trim(), _non_empty())(token, 'token');
+  token = _check_arg(_trim(), _non_empty())(token, 'token');
 
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                _either(
-                    (twoFa: TwoFactorAuthProvider) => twoFa.verifyToken(token, u),
-                    // Delegates to `activateUser2Fa`, which re-resolves the provider
-                    // itself. It is shared with the login-window flow, where the
-                    // code is already verified by the time activation is needed.
-                    () => activateUser2Fa(u),
-                    () => {
-                        throw new Unauthorized('2fa confirmation failed');
-                    },
-                ),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  if (!(await twoFa.verifyToken(token, u))) {
+    throw new Unauthorized('2fa confirmation failed');
+  }
+
+  // Delegates to `activateUser2Fa`, which re-resolves the provider itself. It
+  // is shared with the login-window flow, where the code is already verified
+  // by the time activation is needed.
+  return activateUser2Fa(u);
 }
 
 export async function disableUser2Fa(identifier: number | string | User) {
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                async (twoFa: TwoFactorAuthProvider) => twoFa.disable(u),
-                () => _user_ev(User2FaDisabled)(u),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  await twoFa.disable(u);
+  await emitUserEvent(u, User2FaDisabled);
+
+  return u;
 }
 
 export async function resetUser2Fa(identifier: number | string | User) {
-    return _chain(
-        _user_unsafe(identifier),
-        (u: User) => {
-            // NOTE: this used to read
-            //   return _chain( ... ), _tap(_user_ev(User2FaReset));
-            // The comma operator threw the disabling chain away un-awaited and
-            // returned the _tap function itself, so `await resetUser2Fa(user)`
-            // resolved before ( or without ) the secrets being cleared and the
-            // User2FaReset event was never emitted.
-            return _chain(
-                _service('rbac.twoFactorAuth', TwoFactorAuthProvider),
-                async (twoFa: TwoFactorAuthProvider) => twoFa.disable(u),
-                () => _user_ev(User2FaReset)(u),
-            );
-        },
-    );
+  const u = await getUserUnsafe(identifier);
+  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+
+  await twoFa.disable(u);
+  await emitUserEvent(u, User2FaReset);
+
+  return u;
 }
 
 /**
- * 
- * Verify 2fa token for user
- * 
- * @param user 
- * @param token 
- * @returns 
+ * Verify 2fa token for user.
+ *
+ * On success `LastLoginAt` is stamped and a {@link User2FaPassed} event is
+ * emitted. On failure a {@link UserLoginFailed} event is emitted and the
+ * original error is re-thrown.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
+ * @param token - 2fa code to verify
  */
 export async function auth2Fa(identifier: number | string | User, token: string) {
-    token = _check_arg(_trim(), _non_empty())(token, 'token');
+  token = _check_arg(_trim(), _non_empty())(token, 'token');
 
-    return _chain(
-        _user_unsafe(identifier),
-        _catch(
-            (u: User) => {
-                return _chain(_service('rbac.twoFactorAuth', TwoFactorAuthProvider), _either(
-                    (twoFa: TwoFactorAuthProvider) => twoFa.verifyToken(token, u),
-                    () => _chain(u, _user_update({ LastLoginAt: DateTime.now() }), _user_ev(User2FaPassed)),
-                    () => {
-                        throw new Unauthorized('2fa check failed');
-                    }
-                ))
-            },
-            (err, u: User) => {
-                return _chain(
-                    () => u,
+  // A lookup failure is not a failed 2fa attempt - there is no account to
+  // report it against.
+  const u = await getUserUnsafe(identifier);
 
-                    // send event of failed login
-                    _user_ev(UserLoginFailed, err),
+  try {
+    const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
-                    // rethrow error for caller
-                    () => {
-                        throw err;
-                    },
-                );
-            },
-        ),
-    );
+    if (!(await twoFa.verifyToken(token, u))) {
+      throw new Unauthorized('2fa check failed');
+    }
+
+    await updateUser(u, { LastLoginAt: DateTime.now() });
+    await emitUserEvent(u, User2FaPassed);
+
+    return u;
+  } catch (err) {
+    await emitUserEvent(u, UserLoginFailed, err);
+    throw err;
+  }
 }

@@ -1,12 +1,11 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, UserSession, passwordMatch, changePassword, AccessControl } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, UserSession, verifyPassword, changeUserPassword, AccessControl } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import _ from 'lodash';
 import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg, SessionId as SessionIdArg } from '@spinajs/rbac-http';
-import { _chain, _either } from '@spinajs/util';
 import { activeRoleOf, grantsFor } from '../services/grants.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 
@@ -108,17 +107,13 @@ export class UserController extends BaseController {
       throw new InvalidArgument('password does not match');
     }
 
-    await _chain(
-      user,
-      _either(
-        passwordMatch(pwd.OldPassword),
-        changePassword(pwd.Password),
-        () => {
-          throw new InvalidArgument('Old password is incorrect');
-        }),
-    );
+    if (!(await verifyPassword(user, pwd.OldPassword))) {
+      throw new InvalidArgument('Old password is incorrect');
+    }
 
-    // `changePassword` destroys every session of this user — anyone who got in
+    await changeUserPassword(user, pwd.Password);
+
+    // `changeUserPassword` destroys every session of this user — anyone who got in
     // with the old password is out, which is the whole point. That includes the
     // caller's own session, so it is replaced here with a brand new one ( a new
     // id, not the old one revived ) and the client is handed the new cookie.

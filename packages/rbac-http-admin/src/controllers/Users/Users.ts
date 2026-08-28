@@ -3,7 +3,7 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Pos
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { assertUserUnique, create, deleteUser, User, UserAlreadyExists, _user_update, userModel } from '@spinajs/rbac';
+import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 
@@ -540,7 +540,7 @@ export class Users extends BaseController {
       throw new InvalidArgument(`User ${uuid} is not deleted`);
     }
 
-    await _user_update({ DeletedAt: null as any })(user);
+    await updateUser(user, { DeletedAt: null as any });
 
     return new Ok();
   }
