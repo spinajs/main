@@ -1,5 +1,5 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, UserSession, verifyPassword, changeUserPassword, AccessControl } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, UserSession, verifyPassword, changeUserPassword, assertNotLocked, registerFailedLogin, LoginAttemptsExceeded, AccessControl } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -107,8 +107,22 @@ export class UserController extends BaseController {
       throw new InvalidArgument('password does not match');
     }
 
+    // The old-password check is a password oracle for whoever holds a stolen
+    // session - failures count into the same lockout the login throttle uses,
+    // and a locked account is refused before the check runs.
+    try {
+      assertNotLocked(user);
+    } catch (err) {
+      if (err instanceof LoginAttemptsExceeded) {
+        throw new InvalidArgument('Too many failed attempts - account is temporarily locked');
+      }
+      throw err;
+    }
+
     if (!(await verifyPassword(user, pwd.OldPassword))) {
-      throw new InvalidArgument('Old password is incorrect');
+      const err = new InvalidArgument('Old password is incorrect');
+      await registerFailedLogin(user, err);
+      throw err;
     }
 
     await changeUserPassword(user, pwd.Password);

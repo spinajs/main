@@ -92,7 +92,7 @@ export async function getUsersByRole(role: string[]): Promise<User[]> {
  * @param value - value to assign when `meta` is a single key string (default: `null`)
  */
 export async function setUserMeta(u: User, meta: string | { key: string; value: any }[], value: any = null): Promise<User> {
-  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
+  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _to_array())(meta, 'Metadata');
 
   mArgs.forEach((m: string | { key: string; value: any }) => {
     _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
@@ -102,11 +102,7 @@ export async function setUserMeta(u: User, meta: string | { key: string; value: 
 
   // the event carries the resolved entries, not the raw input - a single
   // string key is normalised to a { key, value } pair
-  await emitUserEvent(
-    u,
-    UserMetadataChange,
-    mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m)),
-  );
+  await ev(new UserMetadataChange(u, mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m))));
 
   return u;
 }
@@ -119,8 +115,8 @@ export async function setUserMeta(u: User, meta: string | { key: string; value: 
  * @param key - metadata key to retrieve
  */
 export async function getUserMeta(u: User, key: string): Promise<any> {
-  _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
-  _check_arg(_non_nil(new MetadataNotFound('Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
+  _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid, key })))(u.Metadata, 'Metadata');
+  _check_arg(_non_nil(new MetadataNotFound('Metadata not found in user data', { user: u.Uuid, key })))(u.Metadata[key], `Metadata.${key}`);
 
   return u.Metadata[key];
 }
@@ -178,18 +174,6 @@ export async function sendUserEmail(
 }
 
 /**
- * Emits a user-related event through the queue service and returns the user.
- *
- * @param u - subject of the event
- * @param event - constructor of the {@link UserEvent} subclass to emit
- * @param args - additional arguments forwarded to the event constructor
- */
-export async function emitUserEvent(u: User, event: Constructor<UserEvent>, ...args: any[]): Promise<User> {
-  await ev(new event(u, ...args));
-  return u;
-}
-
-/**
  * Persists partial changes to a user record and emits a {@link UserChanged} event.
  *
  * @param u - user to update
@@ -197,7 +181,7 @@ export async function emitUserEvent(u: User, event: Constructor<UserEvent>, ...a
  */
 export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
   await updateModel(u, data);
-  await emitUserEvent(u, UserChanged);
+  await ev(new UserChanged(u));
   return u;
 }
 
@@ -298,10 +282,13 @@ export function _user_email(cfgTemplate: Parameters<typeof sendUserEmail>[1], mo
 }
 
 /**
- * Chain step form of {@link emitUserEvent}.
+ * Chain step: emits a user-related event and forwards the user.
  */
 export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
-  return (u: User) => emitUserEvent(u, event, ...args);
+  return async (u: User) => {
+    await ev(new event(u, ...args));
+    return u;
+  };
 }
 
 /**
@@ -327,7 +314,7 @@ export async function activate(identifier: number | string | User): Promise<User
   const u = await getUser(identifier);
 
   await updateUser(u, { IsActive: true });
-  await emitUserEvent(u, UserActivated);
+  await ev(new UserActivated(u));
   await sendUserEmail(u, 'activated');
 
   return u;
@@ -348,7 +335,7 @@ export async function deactivate(identifier: number | string | User): Promise<Us
   // whenever their session happens to expire.
   await revokeUserSessions(u);
 
-  await emitUserEvent(u, UserDeactivated);
+  await ev(new UserDeactivated(u));
   await sendUserEmail(u, 'deactivated');
 
   return u;
@@ -647,7 +634,7 @@ export async function create(email: string, login: string, roles: string[], opti
 
   u = await runCreateMiddleware(u, 'rbac.actions.create.afterCreate');
 
-  await emitUserEvent(u, UserCreated);
+  await ev(new UserCreated(u));
   await sendUserEmail(u, 'created');
 
   // Hand the account to its owner when nobody else can: the password above was
@@ -693,7 +680,7 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   // the middleware instead of being cleanly logged out.
   await revokeUserSessions(u);
 
-  await emitUserEvent(u, UserDeleted);
+  await ev(new UserDeleted(u));
   await sendUserEmail(u, 'deleted');
 }
 
@@ -716,7 +703,7 @@ export async function grant(identifier: number | string | User, role: string): P
 
   u.Role = _.uniq([...u.Role, role]);
   await updateUser(u);
-  await emitUserEvent(u, UserRoleGranted, role);
+  await ev(new UserRoleGranted(u, role));
 
   return u;
 }
@@ -736,7 +723,7 @@ export async function revoke(identifier: number | string | User, role: string): 
 
   u.Role = u.Role.filter((r) => r !== role);
   await updateUser(u);
-  await emitUserEvent(u, UserRoleRevoked, role);
+  await ev(new UserRoleRevoked(u, role));
 
   return u;
 }
@@ -754,8 +741,10 @@ export async function ban(identifier: number | string | User, reason?: string, d
 
   const u = await getUser(identifier);
 
-  if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-    throw new UserIsBanned(`User is already banned`, { user: u });
+  // duration-aware: an EXPIRED ban must not block re-banning ( the raw flag
+  // stays behind until an explicit unban clears it )
+  if (u.IsBanned) {
+    throw new UserIsBanned(`User is already banned`, { user: u.Uuid });
   }
 
   await setUserMeta(u, [
@@ -770,7 +759,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
   // session would keep resolving happily.
   await revokeUserSessions(u);
 
-  await emitUserEvent(u, UserBanned);
+  await ev(new UserBanned(u));
   await sendUserEmail(u, 'banned');
 
   return u;
@@ -785,7 +774,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
   const u = await getUser(identifier);
 
   if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-    throw new UserIsBanned(`User is already unbanned`, { user: u });
+    throw new UserIsBanned(`User is already unbanned`, { user: u.Uuid });
   }
 
   // actually remove the ban metadata from the DB. Assigning a regex-like
@@ -795,7 +784,8 @@ export async function unban(identifier: number | string | User): Promise<User> {
   await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
   await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
 
-  await emitUserEvent(u, UserUnbanned);
+  await ev(new UserUnbanned(u));
+  await sendUserEmail(u, 'unbanned');
 
   return u;
 }
@@ -853,7 +843,7 @@ export async function passwordChangeRequest(identifier: number | string | User):
     { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
   ]);
 
-  await emitUserEvent(u, UserPasswordChangeRequest);
+  await ev(new UserPasswordChangeRequest(u));
 
   await sendUserEmail(u, 'changePassword', (usr: User) => ({
     Token: token,
@@ -882,12 +872,14 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   // deleted — otherwise the reset flow is a way around every one of those
   // states. Same exception family the caller already collapses into one
   // opaque failure, so this does not become an account-state oracle.
-  if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-    throw new UserIsBanned(`Password reset refused: user is banned`, { user: u });
+  // duration-aware: a user whose ban has expired can log in again, so they
+  // must be able to reset their password too
+  if (u.IsBanned) {
+    throw new UserIsBanned(`Password reset refused: user is banned`, { user: u.Uuid });
   }
 
   if (!u.IsActive || u.DeletedAt) {
-    throw new UserNotActive(`Password reset refused: user is not active`, { user: u });
+    throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
   }
 
   const dueDate: DateTime = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
@@ -898,17 +890,17 @@ export async function confirmPasswordReset(identifier: number | string | User, n
       dueDate,
       waitTime,
       time: DateTime.now(),
-      user: u,
+      user: u.Uuid,
     });
   }
 
   const resetToken = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
 
   if (!secureCompare(String(resetToken), token)) {
+    // the STORED token is a live bearer credential and the submitted one may
+    // be a near miss of it - neither belongs in a payload that gets logged
     throw new TokenInvalid(`Password change token invalid, operation not permitted`, {
-      token,
-      resetToken,
-      user: u,
+      user: u.Uuid,
     });
   }
 
@@ -994,7 +986,7 @@ export async function changeUserPassword(u: User, password: string): Promise<Use
   // ( eg. PATCH /user/password ) mint a fresh session afterwards.
   await revokeUserSessions(u);
 
-  await emitUserEvent(u, UserPasswordChanged);
+  await ev(new UserPasswordChanged(u));
 
   return u;
 }
@@ -1009,15 +1001,41 @@ export function changePassword(password: string): (u: User) => Promise<User> {
 }
 
 /**
- * Expire password for user
+ * Expire password for user.
+ *
+ * The stored credential is replaced with a freshly generated random one, so the
+ * expired password stops working even if the account is re-activated without a
+ * reset. The account is deactivated, {@link UserPasswordExpired} is emitted and
+ * the 'passwordExpired' mail is sent.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function expirePassword(identifier: number | string | User): Promise<void> {
   const u = await getUser(identifier);
 
+  const sPassword = await service('rbac.password', PasswordProvider);
+  const hPassword = await sPassword.hash(sPassword.generate());
+  await updateModel(u, { Password: hPassword });
+
   await deactivate(u);
-  await emitUserEvent(u, UserPasswordExpired);
+  await ev(new UserPasswordExpired(u));
+  await sendUserEmail(u, 'passwordExpired');
+}
+
+/**
+ * Sends the 'passwordWillExpire' warning mail. No account state changes -
+ * this is the notification half of the expiry flow, meant to be called by an
+ * application scheduler ahead of {@link expirePassword}.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param expiresAt - optional instant the password expires, passed to the template
+ */
+export async function notifyPasswordWillExpire(identifier: number | string | User, expiresAt?: DateTime): Promise<User> {
+  const u = await getUser(identifier);
+
+  await sendUserEmail(u, 'passwordWillExpire', () => ({ ExpiresAt: expiresAt?.toISO() ?? null }));
+
+  return u;
 }
 
 /**
@@ -1073,14 +1091,14 @@ export async function login(identifier: number | string | User, password: string
 
     await updateModel(authenticated, { LastLoginAt: DateTime.now() });
     await clearLoginThrottle(authenticated);
-    await emitUserEvent(authenticated, UserLogged);
+    await ev(new UserLogged(authenticated));
 
     return authenticated;
   } catch (err) {
     // count the failure and lock the account once the configured
     // threshold is reached, then notify and rethrow for the caller
     await registerFailedLogin(u, err);
-    await emitUserEvent(u, UserLoginFailed, err);
+    await ev(new UserLoginFailed(u, err));
 
     throw err;
   }
@@ -1117,7 +1135,7 @@ async function loginLookup(identifier: number | string | User): Promise<User> {
  *
  * @param u - user attempting to authenticate
  */
-function assertNotLocked(u: User): void {
+export function assertNotLocked(u: User): void {
   const raw = u?.Metadata?.[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
 
   if (!raw) {
@@ -1128,7 +1146,7 @@ function assertNotLocked(u: User): void {
 
   if (lockedUntil.isValid && lockedUntil > DateTime.now()) {
     throw new LoginAttemptsExceeded(`Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
-      user: u,
+      user: u.Uuid,
       lockedUntil,
     });
   }
@@ -1137,7 +1155,7 @@ function assertNotLocked(u: User): void {
 /**
  * Clears the failure counter and any expired lock after a successful login.
  */
-async function clearLoginThrottle(u: User): Promise<void> {
+export async function clearLoginThrottle(u: User): Promise<void> {
   const meta = u?.Metadata;
 
   if (!meta) {
@@ -1167,7 +1185,7 @@ async function clearLoginThrottle(u: User): Promise<void> {
  * @param u - user whose failed attempt is recorded
  * @param err - the error that ended the login attempt
  */
-async function registerFailedLogin(u: User, err: unknown): Promise<void> {
+export async function registerFailedLogin(u: User, err: unknown): Promise<void> {
   const meta = u?.Metadata;
 
   if (!meta) {

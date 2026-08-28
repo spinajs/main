@@ -1,4 +1,5 @@
-import { User, getUserUnsafe, emitUserEvent, updateUser, UserLoginFailed } from '@spinajs/rbac';
+import { User, getUserUnsafe, updateUser, UserLoginFailed, assertNotLocked, clearLoginThrottle, registerFailedLogin } from '@spinajs/rbac';
+import { ev } from '@spinajs/queue';
 import { Unauthorized } from '@spinajs/http';
 import { service } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
@@ -20,7 +21,7 @@ export async function enableUser2Fa(identifier: number | string | User) {
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
   const result = await twoFa.initialize(u);
-  await emitUserEvent(u, User2FaEnabled);
+  await ev(new User2FaEnabled(u));
 
   return result;
 }
@@ -47,7 +48,7 @@ export async function activateUser2Fa(identifier: number | string | User) {
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
   await twoFa.activate(u);
-  await emitUserEvent(u, User2FaEnabled);
+  await ev(new User2FaEnabled(u));
 
   return u;
 }
@@ -78,7 +79,7 @@ export async function disableUser2Fa(identifier: number | string | User) {
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
   await twoFa.disable(u);
-  await emitUserEvent(u, User2FaDisabled);
+  await ev(new User2FaDisabled(u));
 
   return u;
 }
@@ -88,7 +89,7 @@ export async function resetUser2Fa(identifier: number | string | User) {
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
   await twoFa.disable(u);
-  await emitUserEvent(u, User2FaReset);
+  await ev(new User2FaReset(u));
 
   return u;
 }
@@ -111,6 +112,11 @@ export async function auth2Fa(identifier: number | string | User, token: string)
   const u = await getUserUnsafe(identifier);
 
   try {
+    // A 6-digit code is brute-forceable; failed 2fa attempts count into the
+    // SAME lockout the password throttle uses, and a locked account refuses
+    // before the code is even checked.
+    assertNotLocked(u);
+
     const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
 
     if (!(await twoFa.verifyToken(token, u))) {
@@ -118,11 +124,13 @@ export async function auth2Fa(identifier: number | string | User, token: string)
     }
 
     await updateUser(u, { LastLoginAt: DateTime.now() });
-    await emitUserEvent(u, User2FaPassed);
+    await clearLoginThrottle(u);
+    await ev(new User2FaPassed(u));
 
     return u;
   } catch (err) {
-    await emitUserEvent(u, UserLoginFailed, err);
+    await registerFailedLogin(u, err);
+    await ev(new UserLoginFailed(u, err));
     throw err;
   }
 }

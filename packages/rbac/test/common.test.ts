@@ -92,6 +92,18 @@ export class TestConfiguration extends FrameworkConfiguration {
             template: './user-confirmation-email-template.pug',
             subject: 'Account created',
           },
+
+          passwordExpired: {
+            enabled: true,
+            template: './user-password-expired-template.pug',
+            subject: 'Password expired',
+          },
+
+          passwordWillExpire: {
+            enabled: true,
+            template: './user-password-will-expire-soon.pug',
+            subject: 'Your password will expire soon',
+          },
         },
         // default roles to manage users & guest account
         roles: [

@@ -6,11 +6,11 @@ import { _check_arg, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/u
 import { service } from '@spinajs/configuration';
 import { ev } from '@spinajs/queue';
 import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from './exceptions.js';
-import { Constructor, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 
 import { AccessToken } from './models/AccessToken.js';
 import { AccessTokenGenerationProvider, AccessTokenRolePolicy } from './interfaces.js';
-import { AccessTokenCreated, AccessTokenDeleted, AccessTokenEvent, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
+import { AccessTokenCreated, AccessTokenDeleted, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
 
 /**
  * Resolves an AccessToken from an instance or its uuid.
@@ -53,18 +53,6 @@ export function _token(token: AccessToken | string): () => Promise<AccessToken> 
  */
 export function _owner(user: User | number | string): () => Promise<User> {
   return () => getOwner(user);
-}
-
-/**
- * Emits a token-related event through the queue service and returns the token.
- *
- * @param t - subject of the event
- * @param event - constructor of the {@link AccessTokenEvent} subclass to emit
- * @param args - additional arguments forwarded to the event constructor
- */
-async function emitTokenEvent(t: AccessToken, event: Constructor<AccessTokenEvent>, ...args: any[]): Promise<AccessToken> {
-  await ev(new event(t, ...args));
-  return t;
 }
 
 /**
@@ -179,7 +167,7 @@ export async function createToken(user: User | number | string, name: string, ro
   });
   await token.insert();
 
-  await emitTokenEvent(token, AccessTokenCreated);
+  await ev(new AccessTokenCreated(token));
 
   return { Token: token, Plaintext: generated.Plaintext };
 }
@@ -193,7 +181,7 @@ export async function deleteToken(token: AccessToken | string): Promise<void> {
   const t = await getToken(token);
 
   await t.destroy();
-  await emitTokenEvent(t, AccessTokenDeleted);
+  await ev(new AccessTokenDeleted(t));
 }
 
 /**
@@ -214,7 +202,7 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
   t.Roles = _.uniq([...t.Roles, role]);
   await t.update();
 
-  await emitTokenEvent(t, AccessTokenRoleGranted, role);
+  await ev(new AccessTokenRoleGranted(t, role));
 
   return t;
 }
@@ -243,6 +231,12 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
 
   const remaining = t.Roles.filter((r) => r !== role);
 
+  // a role the token never carried: nothing to revoke - no row write and no
+  // AccessTokenRoleRevoked event recording a revocation that never happened
+  if (remaining.length === t.Roles.length) {
+    return t;
+  }
+
   // checked BEFORE mutating, so a refused revoke leaves the instance and
   // the row exactly as they were
   if (remaining.length === 0) {
@@ -252,7 +246,7 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
   t.Roles = remaining;
   await t.update();
 
-  await emitTokenEvent(t, AccessTokenRoleRevoked, role);
+  await ev(new AccessTokenRoleRevoked(t, role));
 
   return t;
 }

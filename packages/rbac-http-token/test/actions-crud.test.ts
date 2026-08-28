@@ -13,6 +13,9 @@ import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenRolePolicy } from '../src/interfaces.js';
 import { createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
+import sinon from 'sinon';
+import { DefaultQueueService } from '@spinajs/queue';
+import { AccessTokenRoleRevoked } from '../src/events/index.js';
 import '../src/generator.js';
 import '../src/role-policy.js';
 
@@ -230,4 +233,23 @@ describe('access token actions - crud', function () {
       expect(reloaded.Roles).to.deep.equal(['user']);
     });
   });
+// Regression for finding R5 ( fixed ): revoking a role the token never
+  // carried is a no-op - no row write and no AccessTokenRoleRevoked event
+  // recording a revocation that never happened.
+  it('R5: revoking a role the token does not carry emits no event and keeps the row', async () => {
+    const { User: owner } = await create('c12@spinajs.com', 'c12', ['user', 'admin'], { password: 'password123' });
+    const { Token } = await createToken(owner, 'no-phantom', ['user'], null);
+
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const result = await revokeTokenRole(Token.Uuid, 'role-not-on-token');
+    sinon.restore();
+
+    expect(result.Roles).to.deep.equal(['user']);
+    expect(eStub.args.some((a) => a[0] instanceof AccessTokenRoleRevoked)).to.eq(false);
+
+    const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    expect(reloaded.Roles).to.deep.equal(['user']);
+  });
 });
+
