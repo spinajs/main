@@ -5,7 +5,7 @@ import formidable, { Fields, Files, IncomingForm } from 'formidable';
 import { Config, Configuration } from '@spinajs/configuration';
 import { Autoinject, DI, Injectable, NewInstance, TypedArray } from '@spinajs/di';
 import { parse } from 'csv';
-import { fs, fsNative } from '@spinajs/fs';
+import { fs, fsNative, getFs } from '@spinajs/fs';
 import { createReadStream, promises } from 'fs';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log-common';
@@ -170,7 +170,7 @@ export class FromFile extends FromFormBase {
 
     const uploadOptions = param.Options ?? {};
     const fsName = uploadOptions.fs ? uploadOptions.fs : '__file_upload_default_provider__';
-    const uploadFs = DI.resolve<fs>('__file_provider__', [fsName]);
+    const uploadFs = getFs(fsName);
 
     // extract form data if not processed already
     // and prepare result object

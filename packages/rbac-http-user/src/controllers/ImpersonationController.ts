@@ -226,8 +226,8 @@ export class ImpersonationController extends BaseController {
    * Emit an impersonation lifecycle event. Wrapped in a protected method so
    * tests can intercept without stubbing module-level ESM bindings.
    */
-  protected emitEvent(event: UserImpersonationStarted): Promise<void> {
-    return _ev(event)();
+  protected async emitEvent(event: UserImpersonationStarted): Promise<void> {
+    await _ev(event)();
   }
 
   /**

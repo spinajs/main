@@ -303,13 +303,6 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   }
 }
 
-export enum AthenticationErrorCodes {
-  E_USER_BANNED = 1,
-  E_USER_NOT_ACTIVE = 2,
-  E_INVALID_CREDENTIALS = 3,
-  E_LOGIN_ATTEMPTS_EXCEEDED = 4,
-}
-
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
 /**

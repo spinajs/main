@@ -1,6 +1,6 @@
 import { ConfigVar, ConfigVarProtocol } from '@spinajs/configuration-common';
-import { DI, Injectable, Singleton } from '@spinajs/di';
-import { fs } from '@spinajs/fs';
+import { Injectable, Singleton } from '@spinajs/di';
+import { getFs } from '@spinajs/fs';
 import { InternalLogger } from '@spinajs/internal-logger';
 
 
@@ -32,7 +32,7 @@ export class ConfigurationFsPathProtocol extends ConfigVarProtocol {
       // and return null instead of throwing - ConfigVar caches only truthy values,
       // so the lookup is retried on next access and resolves once fsService is up.
       try {
-        const f = DI.resolve<fs>('__file_provider__', [fsName]);
+        const f = getFs(fsName);
 
         if (f) {
           return f.resolvePath(fPath);

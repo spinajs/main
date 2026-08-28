@@ -1,9 +1,9 @@
-import { AthenticationErrorCodes, AuthProvider, PasswordProvider } from './interfaces.js';
+import { AuthProvider, PasswordProvider } from './interfaces.js';
 import { User, UserBase } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 import { _check_arg, _is_email, _is_object, _is_string, _max_length, _non_empty, _non_nil, _or, _trim } from '@spinajs/util';
-import { ErrorCode } from '@spinajs/exceptions';
+import { InvalidCredentials, UserIsBanned, UserNotActive } from './exceptions.js';
 import { userModel } from './model-token.js';
 
 @Injectable(AuthProvider)
@@ -39,23 +39,23 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
     _check_arg(_trim(), _non_empty(), _max_length(64))(password, 'password');
 
-    // NOTE: every ErrorCode below carries an explicit message. `Error` with an
+    // NOTE: every exception below carries an explicit message. `Error` with an
     // empty message logs as a blank line ( the default layout renders
     // `${message} ... ${error:message}` ), which made failed logins show up as
     // `ERROR  Exception:  (http)` with nothing to go on.
-    const user = await UserBase.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
+    const user = await UserBase.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new InvalidCredentials('no user with given email'));
 
     const valid = await this.PasswordProvider.verify(user.Password, password);
     if (!valid) {
-      throw new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'invalid password');
+      throw new InvalidCredentials('invalid password');
     }
 
     if (user.IsBanned) {
-      throw new ErrorCode(AthenticationErrorCodes.E_USER_BANNED, 'user is banned');
+      throw new UserIsBanned('user is banned');
     }
 
     if (!user.IsActive) {
-      throw new ErrorCode(AthenticationErrorCodes.E_USER_NOT_ACTIVE, 'user is not active');
+      throw new UserNotActive('user is not active');
     }
 
     return user;

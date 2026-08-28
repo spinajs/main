@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { EmailService, IEmail } from '../src/interfaces.js';
-import { _email_send, _email_deferred } from '../src/fp.js';
+import { _emailSend, _emailDeferred } from '../src/fp.js';
 import { EmailSend } from '../src/jobs/EmailSend.js';
 
 const expect = chai.expect;
@@ -58,8 +58,8 @@ describe('email fp', function () {
     await DI.resolve(Configuration);
   });
 
-  it('_email_send resolves the email service and sends immediately', async () => {
-    await _email_send(email);
+  it('_emailSend resolves the email service and sends immediately', async () => {
+    await _emailSend(email);
 
     const svc = (await DI.resolve(EmailService)) as FakeEmailService;
     expect(svc.Sent.length).to.eq(1);
@@ -67,8 +67,8 @@ describe('email fp', function () {
     expect(svc.Deferred.length).to.eq(0);
   });
 
-  it('_email_deferred resolves the email service and defers', async () => {
-    const result = await _email_deferred(email);
+  it('_emailDeferred resolves the email service and defers', async () => {
+    const result = await _emailDeferred(email);
 
     const svc = (await DI.resolve(EmailService)) as FakeEmailService;
     expect(svc.Deferred.length).to.eq(1);

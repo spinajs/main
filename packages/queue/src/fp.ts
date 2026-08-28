@@ -1,7 +1,11 @@
-import { IQueueMessage, QueueEvent, QueueJob, QueueService } from './interfaces.js';
-import { _chain } from '@spinajs/util';
-import { _resolve } from '@spinajs/di';
+import { IQueueMessage, QueueEvent, QueueJob } from './interfaces.js';
+import { ev } from './helpers.js';
 
-export function _ev(event: IQueueMessage | QueueEvent | QueueJob): () => Promise<void> {
-  return () => _chain(_resolve(QueueService), (service: QueueService) => service.emit(event));
+/**
+ * Emits event / job / message to queue
+ *
+ * Kept for compatibility - delegates to the imperative {@link ev}.
+ */
+export function _ev(event: IQueueMessage | QueueEvent | QueueJob): () => Promise<string | undefined> {
+  return () => ev(event);
 }

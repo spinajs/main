@@ -21,7 +21,7 @@ const body = async <T = any>(r: any): Promise<T> => await r.responseData;
  *
  * `login()` resolves the user before the AuthProvider ever runs, and that lookup
  * used to end in `firstOrFail()` — an `OrmNotFoundException`, which is neither
- * `ErrorCode` nor `InvalidArgument`, so the controller rethrew it and
+ * a rbac exception nor `InvalidArgument`, so the controller rethrew it and
  * `@spinajs/orm-http` mapped it to a 404. A wrong password answered 401. The pair
  * is an account-enumeration oracle: the status code alone told an attacker whether
  * an address is registered, and no client-side flattening of the two can take that

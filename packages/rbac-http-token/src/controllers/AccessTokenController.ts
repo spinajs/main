@@ -1,11 +1,11 @@
 import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Policy, Post, Put, Query } from '@spinajs/http';
 import { User as UserModel } from '@spinajs/rbac';
 import { Permission, Resource, User } from '@spinajs/rbac-http';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenRoleNotAllowed } from '../exceptions.js';
 import { DateTime } from 'luxon';
 
 import { AccessToken } from '../models/AccessToken.js';
-import { E_TOKEN_CODES, _allowed_profiles, _allowed_roles, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
+import { _allowed_profiles, _allowed_roles, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../actions.js';
 import { CreateTokenDto } from '../dto/create-token-dto.js';
 import { NoTokenAuthPolicy } from '../policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy } from '../policies/NoImpersonationPolicy.js';
@@ -248,13 +248,13 @@ export class AccessTokenController extends BaseController {
   /**
    * Turns the actions layer's role refusals into a 400.
    *
-   * `ErrorCode` has no entry in the http error map, so an uncaught one leaves as
+   * `AccessTokenRoleNotAllowed` has no entry in the http error map, so an uncaught one leaves as
    * a 500 - and "you asked for a role you do not have" / "a token must keep one
    * role" are the caller's mistakes, not the server's. Anything else is rethrown
    * untouched so a genuine failure still reaches the error handler.
    */
   protected roleError(err: unknown): BadRequestResponse {
-    if (err instanceof ErrorCode && err.code === E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED) {
+    if (err instanceof AccessTokenRoleNotAllowed) {
       return new BadRequestResponse({ error: { code: 'E_TOKEN_ROLE_NOT_ALLOWED', message: err.message } });
     }
 

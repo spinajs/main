@@ -100,13 +100,13 @@ describe('Authorization provider tests', () => {
     // expect(result.User).to.be.undefined;
     // expect(result.Error).to.be.not.null;
     // expect(result.Error).to.deep.equal({
-    //   Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+    //   InvalidCredentials,
     //   Message: 'Invalid user credentials, or user not exist.',
     // });
 
     // result = await provider.authenticate('test@spinsajs.pl', 'bbbb');
     // expect(result.Error).to.deep.equal({
-    //   Code: AthenticationErrorCodes.E_INVALID_CREDENTIALS,
+    //   InvalidCredentials,
     //   Message: 'Invalid user credentials, or user not exist.',
     // });
   });

@@ -1,11 +1,10 @@
-import { DI } from '@spinajs/di';
 import { IOFail, ResourceNotFound } from '@spinajs/exceptions';
 import * as express from 'express';
 import _ from 'lodash';
 import { promises } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { IFileResponseOptions, IResponseOptions, Response } from './../interfaces.js';
-import { fs } from '@spinajs/fs';
+import { getFs } from '@spinajs/fs';
 // import from the defining module, not the package barrel - '../index.js' pulls
 // the whole export graph back through interfaces.js and re-forms an import cycle
 import { _setCoockies, _setHeaders } from '../responses.js';
@@ -26,7 +25,7 @@ export class ZipResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
-    const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    const provider = await getFs(this.Options.provider!);
     const exists = await provider.exists(this.Options.path);
 
     if (!exists) {
@@ -75,7 +74,7 @@ export class FileResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
-    const provider = await DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    const provider = await getFs(this.Options.provider!);
     if (!provider) {
       throw new IOFail(`Provider ${this.Options.provider} not registered in configuration. Use default or check configuration.`);
     }
@@ -141,7 +140,7 @@ export class JsonFileResponse extends Response {
   }
 
   public async execute(_req: express.Request, res: express.Response): Promise<void> {
-    const provider = await DI.resolve<fs>('__file_provider__', ['fs-temp']);
+    const provider = await getFs('fs-temp');
     const tmpPath = provider.tmppath();
     // Must await: sendFile below races the write otherwise and can hit the
     // path before it exists, producing an intermittent ENOENT / 500.

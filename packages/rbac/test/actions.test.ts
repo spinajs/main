@@ -4,7 +4,8 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
-import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { UserAlreadyExists } from '../src/exceptions.js';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
@@ -20,7 +21,7 @@ import { EmailSend } from '@spinajs/email';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { DateTime } from 'luxon';
 import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
-import { E_CODES, expirePassword } from '../src/actions.js';
+import { expirePassword } from '../src/actions.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 
 chai.use(chaiAsPromised);
@@ -298,8 +299,8 @@ describe('User model tests', function () {
     await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb1234' });
 
     const err = await create('clash@wp.pl', 'other-login', ['admin'], { password: 'bbbb1234' }).catch((e) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as any).code).to.eq(E_CODES.E_USER_ALREADY_EXISTS);
+    expect(err).to.be.instanceOf(UserAlreadyExists);
+    
     expect((err as any).data.fields).to.deep.eq(['Email']);
 
     const both = await create('clash@wp.pl', 'clashing', ['admin'], { password: 'bbbb1234' }).catch((e) => e);

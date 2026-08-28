@@ -1,7 +1,7 @@
 import { _insert, _update } from '@spinajs/orm';
 import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _either, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _non_null, _to_array } from '@spinajs/util';
 import _ from 'lodash';
-import { _email_deferred } from '@spinajs/email';
+import { _emailDeferred } from '@spinajs/email';
 import { _ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
 import { _cfg, _service } from '@spinajs/configuration';
@@ -9,9 +9,10 @@ import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, U
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
-import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
+import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
-import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserIsBanned, UserNotActive } from './exceptions.js';
 import { AccessControl } from 'accesscontrol';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -19,32 +20,6 @@ import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
-
-export enum E_CODES {
-  E_TOKEN_EXPIRED,
-
-  E_TOKEN_INVALID,
-
-  E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS,
-
-  E_USER_NOT_FOUND,
-
-  E_USER_ALREADY_EXISTS,
-
-  E_USER_NOT_ACTIVE,
-
-  E_USER_BANNED,
-
-  E_METADATA_NOT_FOUND,
-
-  E_METADATA_NOT_POPULATED,
-
-  E_EMAIL_NOT_CONFIGURED,
-
-  E_NO_EMAIL_TEMPLATE,
-
-  E_NOT_LOGGED,
-}
 
 /**
  * ===============================================
@@ -112,7 +87,7 @@ export function _get_user(user: User | number | string) {
  */
 export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
   return async (u: User) => {
-    const mArgs = _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
+    const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
 
     mArgs.forEach((m: string | { key: string; value: any }) => {
       _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
@@ -142,8 +117,8 @@ export function _set_user_meta(meta: string | { key: string; value: any }[], val
  */
 export function _get_user_meta(key: string) {
   return async (u: User) => {
-    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
-    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_FOUND, 'Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
+    _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
+    _check_arg(_non_nil(new MetadataNotFound('Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
 
     return u.Metadata[key];
   };
@@ -178,13 +153,13 @@ export function _user_email(
     const extra = model ? await model(u) : undefined;
 
     await _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
-      _check_arg(_non_nil(new ErrorCode(E_CODES.E_NO_EMAIL_TEMPLATE, `Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
+      _check_arg(_non_nil(new EmailTemplateNotConfigured(`Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
       _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
 
       return (
         template.enabled &&
-        _email_deferred({
+        _emailDeferred({
           to: [u.Email],
           connection,
           model: { ...u.toJSON(), ...(extra ?? {}) },
@@ -373,7 +348,7 @@ export interface ICreateUserOptions {
  * Soft-deleted rows are included for the same reason. They still occupy the
  * unique indexes, so ignoring them trades this error for that driver error.
  *
- * The thrown {@link ErrorCode} carries `fields`, naming WHICH of login / email
+ * The thrown {@link UserAlreadyExists} carries `fields`, naming WHICH of login / email
  * clashed, so an http caller can mark the offending input rather than reporting
  * that something, somewhere, is already in use.
  *
@@ -512,7 +487,7 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
   }
 
   if (clashes.length > 0) {
-    throw new ErrorCode(E_CODES.E_USER_ALREADY_EXISTS, `${clashes.join(' and ')} already in use`, { fields: clashes });
+    throw new UserAlreadyExists(`${clashes.join(' and ')} already in use`, { fields: clashes });
   }
 }
 
@@ -735,7 +710,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
     _user(identifier),
     (u: User) => {
       if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already banned`, { user: u });
+        throw new UserIsBanned(`User is already banned`, { user: u });
       }
 
       return u;
@@ -771,7 +746,7 @@ export async function unban(identifier: number | string | User): Promise<User> {
     // guard must return the user so the chain can keep flowing it downstream
     _tap(async (u: User) => {
       if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already unbanned`, { user: u });
+        throw new UserIsBanned(`User is already unbanned`, { user: u });
       }
     }),
 
@@ -868,22 +843,22 @@ export async function confirmPasswordReset(identifier: number | string | User, n
 
     // A reset must not resurrect an account that is banned, deactivated or
     // deleted — otherwise the reset flow is a way around every one of those
-    // states. Same ErrorCode family the caller already collapses into one
+    // states. Same exception family the caller already collapses into one
     // opaque failure, so this does not become an account-state oracle.
     _tap(async (u: User) => {
       if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `Password reset refused: user is banned`, { user: u });
+        throw new UserIsBanned(`Password reset refused: user is banned`, { user: u });
       }
 
       if (!u.IsActive || u.DeletedAt) {
-        throw new ErrorCode(E_CODES.E_USER_NOT_ACTIVE, `Password reset refused: user is not active`, { user: u });
+        throw new UserNotActive(`Password reset refused: user is not active`, { user: u });
       }
     }),
 
     _tap((u: User) =>
       _chain(u, _zip(_get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
         if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
-          throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, `Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
+          throw new TokenExpired(`Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
             dueDate,
             waitTime,
             time: DateTime.now(),
@@ -895,7 +870,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     _tap((u: User) =>
       _chain(u, _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
         if (!_secure_compare(String(resetToken), token)) {
-          throw new ErrorCode(E_CODES.E_TOKEN_INVALID, `Password change token invalid, operation not permitted`, {
+          throw new TokenInvalid(`Password change token invalid, operation not permitted`, {
             token,
             resetToken,
             user: u,
@@ -968,7 +943,7 @@ export function changePassword(password: string): (u: User) => Promise<User> {
           // satisfy. The field name and error code travel in the response body ( the
           // error handler spreads the exception's own enumerable props ), so a client
           // can point at the field and branch on the code instead of matching English.
-          throw new InvalidArgument('Password does not meet requirements', 'password', E_CODES[E_CODES.E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS]);
+          throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
         }
       }),
 
@@ -1085,7 +1060,7 @@ export async function login(identifier: number | string | User, password: string
  * rather than an orm one when no such account exists.
  *
  * {@link _user_unsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
- * neither `ErrorCode` nor `InvalidArgument`: the login controller cannot read it
+ * neither a rbac exception nor `InvalidArgument`: the login controller cannot read it
  * as an authentication failure, so it rethrows and `@spinajs/orm-http` maps it to
  * a 404 while a wrong password answers 401. That difference is an
  * account-enumeration oracle — the status code alone tells a caller whether an
@@ -1102,7 +1077,7 @@ function _login_lookup(identifier: number | string | User): () => Promise<User> 
     return () => Promise.resolve(id as User);
   }
 
-  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
+  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new InvalidCredentials('no user with given email'));
 }
 
 /**
@@ -1121,7 +1096,7 @@ async function _assert_not_locked(u: User): Promise<void> {
   const lockedUntil = raw instanceof DateTime ? raw : DateTime.fromISO(String(raw));
 
   if (lockedUntil.isValid && lockedUntil > DateTime.now()) {
-    throw new ErrorCode(AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED, `Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
+    throw new LoginAttemptsExceeded(`Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
       user: u,
       lockedUntil,
     });
@@ -1172,7 +1147,7 @@ function _register_failed_login(err: unknown) {
       return u;
     }
 
-    if (err instanceof ErrorCode && err.code === AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED) {
+    if (err instanceof LoginAttemptsExceeded) {
       return u;
     }
 

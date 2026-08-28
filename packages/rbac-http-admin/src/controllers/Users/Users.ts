@@ -1,9 +1,9 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
-import { ErrorCode, InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
+import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { assertUserUnique, create, deleteUser, E_CODES, User, _user_update, userModel } from '@spinajs/rbac';
+import { assertUserUnique, create, deleteUser, User, UserAlreadyExists, _user_update, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 
@@ -549,7 +549,7 @@ export class Users extends BaseController {
    * Runs `work`, turning rbac's duplicate-account refusal into the 409 this API
    * has always answered.
    *
-   * rbac throws a transport-agnostic {@link ErrorCode} — it has no business
+   * rbac throws a transport-agnostic {@link UserAlreadyExists} — it has no business
    * knowing about status codes — so the translation belongs here. `__handle_error__`
    * looks the response up by `err.constructor.name`, which is why this rethrows a
    * plain {@link ResourceDuplicated} rather than a subclass: a subclass would miss
@@ -567,7 +567,7 @@ export class Users extends BaseController {
     try {
       return await work();
     } catch (err) {
-      if (!(err instanceof ErrorCode) || err.code !== E_CODES.E_USER_ALREADY_EXISTS) {
+      if (!(err instanceof UserAlreadyExists)) {
         throw err;
       }
 

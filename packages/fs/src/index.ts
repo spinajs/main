@@ -11,6 +11,7 @@ export * from './temp-cleanup-strategy.js';
 export * from './decorators.js';
 export * from './file-hasher.js';
 export * from './file-info.js';
+export * from './helpers.js';
 export * from './fp.js';
 
 export class fsService extends AsyncService {

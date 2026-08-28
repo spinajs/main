@@ -5,30 +5,12 @@ import { User } from '@spinajs/rbac';
 import { _chain, _check_arg, _tap, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
 import { _service } from '@spinajs/configuration';
 import { _ev } from '@spinajs/queue';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from './exceptions.js';
 import { Constructor, DI } from '@spinajs/di';
 
 import { AccessToken } from './models/AccessToken.js';
 import { AccessTokenGenerationProvider, AccessTokenRolePolicy } from './interfaces.js';
 import { AccessTokenCreated, AccessTokenDeleted, AccessTokenEvent, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
-
-/**
- * Failure codes carried by every {@link ErrorCode} this module throws.
- *
- * Named `E_TOKEN_CODES` rather than the shorter `E_CODES` on purpose:
- * `@spinajs/rbac` exports an enum called `E_CODES` too, and both are re-exported
- * from their package index. A downstream barrel that does
- * `export * from '@spinajs/rbac'; export * from '@spinajs/rbac-http-token';`
- * would collide on the NAME while the members underneath carry different
- * numeric values - the kind of clash that resolves silently in a barrel and
- * makes an `err.code === E_CODES.X` comparison answer the wrong question.
- */
-export enum E_TOKEN_CODES {
-  E_TOKEN_NOT_FOUND,
-  E_TOKEN_EXPIRED,
-  E_TOKEN_OWNER_INVALID,
-  E_TOKEN_ROLE_NOT_ALLOWED,
-}
 
 /**
  * Resolves an AccessToken from an instance or its uuid.
@@ -118,7 +100,7 @@ export async function _allowed_profiles(owner: User): Promise<string[]> {
 async function _assert_profile(owner: User, profile: string) {
   const allowed = await _allowed_profiles(owner);
   if (!allowed.includes(profile)) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner may not pin a token to profile: ${profile}`, { roles: [profile] });
+    throw new AccessTokenRoleNotAllowed(`Owner may not pin a token to profile: ${profile}`, { roles: [profile] });
   }
 }
 
@@ -136,7 +118,7 @@ async function _assert_roles_subset(owner: User, roles: string[], profile?: stri
   const missing = roles.filter((r) => !allowed.includes(r));
 
   if (missing.length !== 0) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, `Owner may not put role(s) on a token: ${missing.join(', ')}`, { roles: missing });
+    throw new AccessTokenRoleNotAllowed(`Owner may not put role(s) on a token: ${missing.join(', ')}`, { roles: missing });
   }
 }
 
@@ -244,7 +226,7 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
  *
  * @param token - {@link AccessToken} instance or its uuid
  * @param role - role name to revoke
- * @throws ErrorCode E_TOKEN_ROLE_NOT_ALLOWED when `role` is the token's last role
+ * @throws AccessTokenRoleNotAllowed when `role` is the token's last role
  */
 export async function revokeTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
@@ -257,7 +239,7 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
       // checked BEFORE mutating, so a refused revoke leaves the instance and
       // the row exactly as they were
       if (remaining.length === 0) {
-        throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Cannot revoke the last role from a token - delete the token instead', { token: t.Uuid });
+        throw new AccessTokenRoleNotAllowed('Cannot revoke the last role from a token - delete the token instead', { token: t.Uuid });
       }
 
       t.Roles = remaining;
@@ -283,7 +265,7 @@ export interface ITokenValidationResult {
  *
  * Checks, in order: token exists ( by hash ), token not expired, owner active /
  * not soft-deleted / not banned, effective role intersection non-empty.
- * Throws ErrorCode with {@link E_TOKEN_CODES} on every failure path.
+ * Throws {@link AccessTokenException} subclasses on every failure path.
  *
  * The owner checks are spelled out instead of reusing the `isActiveUser` query
  * scope on purpose - a single "no such active user" result cannot say WHY, and
@@ -295,11 +277,11 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   // Degenerate input is a failed authentication like any other, so it has to
   // leave through the same door. `_check_arg(_trim(), _non_empty())` would
   // throw a raw InvalidArgument here - and a bare TypeError for nil, since
-  // `_non_empty` dereferences `.length` - breaking the "always an ErrorCode"
-  // contract this function is called under. Reported as E_TOKEN_NOT_FOUND with
+  // `_non_empty` dereferences `.length` - breaking the "always an AccessTokenException"
+  // contract this function is called under. Reported as AccessTokenNotFound with
   // the unknown-token message on purpose: a caller must not learn WHY.
   if (!_.isString(plaintext) || plaintext.trim().length === 0) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_NOT_FOUND, 'Access token not found');
+    throw new AccessTokenNotFound('Access token not found');
   }
 
   plaintext = plaintext.trim();
@@ -309,11 +291,11 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
 
   const token = await AccessToken.where('Token', hash).first();
   if (!token) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_NOT_FOUND, 'Access token not found');
+    throw new AccessTokenNotFound('Access token not found');
   }
 
   if (token.IsExpired) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_EXPIRED, 'Access token expired', { token: token.Uuid });
+    throw new AccessTokenExpired('Access token expired', { token: token.Uuid });
   }
 
   // Metadata carries the ban flag, so it must be populated - without it
@@ -324,7 +306,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   // `DeletedAt` is defence in depth: the orm's soft-delete scope already appends
   // `DeletedAt IS NULL` to User selects, so a deleted owner arrives as undefined.
   if (!owner || !owner.IsActive || owner.DeletedAt || owner.IsBanned) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID, 'Access token owner is not allowed to authenticate', { token: token.Uuid });
+    throw new AccessTokenOwnerInvalid('Access token owner is not allowed to authenticate', { token: token.Uuid });
   }
 
   // a profile token whose owner no longer passes the profile policy (role
@@ -333,7 +315,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   if (token.Profile) {
     const profiles = await _allowed_profiles(owner);
     if (!profiles.includes(token.Profile)) {
-      throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token profile is no longer allowed for its owner', { token: token.Uuid });
+      throw new AccessTokenRoleNotAllowed('Access token profile is no longer allowed for its owner', { token: token.Uuid });
     }
   }
 
@@ -344,7 +326,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   const allowed = await _allowed_roles(owner, token.Profile);
   const effective = token.Roles.filter((r) => allowed.includes(r));
   if (effective.length === 0) {
-    throw new ErrorCode(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED, 'Access token has no effective roles', { token: token.Uuid });
+    throw new AccessTokenRoleNotAllowed('Access token has no effective roles', { token: token.Uuid });
   }
 
   return { User: owner, Token: token, EffectiveRoles: effective };

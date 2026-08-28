@@ -8,10 +8,10 @@ import { FsBootsrapper, fs, fsService, IZipResult } from '../src/index.js';
 import { fsNative } from '../src/local-provider.js';
 import {
   _exists,
-  _read_file,
-  _file_hash,
-  _is_of_type,
-  _is_of_mimetype,
+  _readFile,
+  _fileHash,
+  _isOfType,
+  _isOfMimetype,
   _fs,
   _zip,
   _unzip,
@@ -25,8 +25,8 @@ import {
   _mkdir,
   _list,
   _stat,
-  _dir_exists,
-  _is_dir,
+  _dirExists,
+  _isDir,
   _download,
   _upload,
   _hash,
@@ -73,33 +73,33 @@ describe('fs fp helpers', function () {
     expect(await _exists(dir('sample-files/does-not-exist.txt'))()).to.be.false;
   });
 
-  it('_read_file reads file content', async () => {
-    const buf = await _read_file(dir('sample-files/test.txt'))();
+  it('_readFile reads file content', async () => {
+    const buf = await _readFile(dir('sample-files/test.txt'))();
     expect(buf.toString('utf-8')).to.eq('hello world');
   });
 
-  it('_file_hash returns the sha256 of a file', async () => {
-    const hash = await _file_hash(dir('sample-files/test.txt'));
+  it('_fileHash returns the sha256 of a file', async () => {
+    const hash = await _fileHash(dir('sample-files/test.txt'));
     expect(hash).to.eq('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
   });
 
-  it('_is_of_type accepts a matching extension and rejects a mismatch', async () => {
-    await _is_of_type(dir('sample-files/SamplePNGImage_100kbmb.png'), 'png')();
-    await expect(_is_of_type(dir('sample-files/SamplePNGImage_100kbmb.png'), 'jpg')()).to.be.rejectedWith(IOFail);
+  it('_isOfType accepts a matching extension and rejects a mismatch', async () => {
+    await _isOfType(dir('sample-files/SamplePNGImage_100kbmb.png'), 'png')();
+    await expect(_isOfType(dir('sample-files/SamplePNGImage_100kbmb.png'), 'jpg')()).to.be.rejectedWith(IOFail);
   });
 
-  it('_is_of_mimetype accepts a matching mime and rejects a mismatch', async () => {
-    await _is_of_mimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/png')();
-    await expect(_is_of_mimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/jpeg')()).to.be.rejectedWith(IOFail);
+  it('_isOfMimetype accepts a matching mime and rejects a mismatch', async () => {
+    await _isOfMimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/png')();
+    await expect(_isOfMimetype(dir('sample-files/SamplePNGImage_100kbmb.png'), 'image/jpeg')()).to.be.rejectedWith(IOFail);
   });
 
-  it('_is_of_type rejects with IOFail when file type cannot be determined', async () => {
+  it('_isOfType rejects with IOFail when file type cannot be determined', async () => {
     // plain text has no magic bytes - fileTypeFromFile returns undefined
-    await expect(_is_of_type(dir('sample-files/test.txt'), 'txt')()).to.be.rejectedWith(IOFail);
+    await expect(_isOfType(dir('sample-files/test.txt'), 'txt')()).to.be.rejectedWith(IOFail);
   });
 
-  it('_is_of_mimetype rejects with IOFail when file type cannot be determined', async () => {
-    await expect(_is_of_mimetype(dir('sample-files/test.txt'), 'text/plain')()).to.be.rejectedWith(IOFail);
+  it('_isOfMimetype rejects with IOFail when file type cannot be determined', async () => {
+    await expect(_isOfMimetype(dir('sample-files/test.txt'), 'text/plain')()).to.be.rejectedWith(IOFail);
   });
 
   it('_zip writes the archive into a different destination fs', async () => {
@@ -163,13 +163,13 @@ describe('fs fp helpers', function () {
       expect(await _exists('fp/missing.txt', 'test')()).to.be.false;
     });
 
-    it('_mkdir, _dir_exists and _is_dir work together', async () => {
+    it('_mkdir, _dirExists and _isDir work together', async () => {
       await _mkdir('fp/subdir', 'test');
-      expect(await _dir_exists('fp/subdir', 'test')).to.be.true;
-      expect(await _is_dir('fp/subdir', 'test')).to.be.true;
+      expect(await _dirExists('fp/subdir', 'test')).to.be.true;
+      expect(await _isDir('fp/subdir', 'test')).to.be.true;
 
       await _write('fp/file.txt', 'x', 'utf-8', 'test');
-      expect(await _is_dir('fp/file.txt', 'test')).to.be.false;
+      expect(await _isDir('fp/file.txt', 'test')).to.be.false;
     });
 
     it('_list returns directory entries', async () => {

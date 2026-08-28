@@ -6,6 +6,7 @@ import { DateTime } from 'luxon';
 import { PassThrough } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 import type { BinaryToTextEncoding } from 'node:crypto';
+import { getFs } from './helpers.js';
 
 /**
  * Class for handling fs URI eg. fs://fs-temp/path/to/file
@@ -29,7 +30,7 @@ export class URI {
     // fs://name ( no path ) -> whole match is the fs name, path is empty
     const fsName = slash === -1 ? match : match.substring(0, slash);
     this.Path = slash === -1 ? '' : match.substring(slash + 1);
-    this.Fs = DI.resolve<fs>('__file_provider__', [fsName]);
+    this.Fs = getFs(fsName);
 
     if (!this.Fs) {
       throw new InvalidArgument(`Filesystem ${fsName} not registered, check your fs configuration !`);
@@ -415,7 +416,7 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
   }
 
   public static tmppath(fs: string, ext?: string): string {
-    const f = DI.resolve<fs>('__file_provider__', [fs]);
+    const f = getFs(fs);
     if (!f) {
       throw new IOFail(`Filesystem ${fs} not exists, check your configuration`);
     }

@@ -1,6 +1,5 @@
-import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { fs } from '@spinajs/fs';
+import { getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
@@ -24,8 +23,8 @@ export class LazyUploadJob extends QueueJob {
   public async execute(progress: (p: number) => Promise<void>) {
     this.Log.info(`COPY: ${this.Path}, fs: ${this.SourceFilesystem} dst: ${this.ToFilesystem}, deleteAfterUpload: ${this.DeleteAfterUpload}`);
 
-    const sFs = DI.resolve<fs>('__file_provider__', [this.SourceFilesystem]);
-    const tFs = DI.resolve<fs>('__file_provider__', [this.ToFilesystem]);
+    const sFs = getFs(this.SourceFilesystem);
+    const tFs = getFs(this.ToFilesystem);
 
     if (!sFs) {
       throw new IOFail(`Filesystem ${this.SourceFilesystem} not exists, pleas check your configuration`);
