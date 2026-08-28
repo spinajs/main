@@ -69,6 +69,16 @@ export class TestConfiguration extends FrameworkConfiguration {
             template: './user-unbanned-email-template.pug',
             subject: 'Account unbanned',
           },
+          passwordExpired: {
+            enabled: false,
+            template: './user-password-expired-template.pug',
+            subject: 'Password expired',
+          },
+          passwordWillExpire: {
+            enabled: false,
+            template: './user-password-will-expire-soon.pug',
+            subject: 'Your password will expire soon',
+          },
         },
         roles: [
           { Name: 'admin', Description: 'Administrator' },

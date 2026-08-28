@@ -35,7 +35,7 @@ describe('AccessToken model', function () {
     // below address their owner by a literal id rather than creating one, so
     // seed a user here - that keeps them passing when mocha is given a filter
     // that skips the tests which create their own owners.
-    await create('model@spinajs.com', 'model', 'password123', ['user']);
+    await create('model@spinajs.com', 'model', ['user'], { password: 'password123' });
   });
 
   after(async () => {
@@ -43,7 +43,7 @@ describe('AccessToken model', function () {
   });
 
   it('persists and loads a token with roles set and null expiry', async () => {
-    const { User: owner } = await create('owner@spinajs.com', 'owner', 'password123', ['user']);
+    const { User: owner } = await create('owner@spinajs.com', 'owner', ['user'], { password: 'password123' });
 
     const token = new AccessToken({
       Name: 'test token',
@@ -63,7 +63,7 @@ describe('AccessToken model', function () {
   });
 
   it('IsExpired is true for past ExpiresAt', async () => {
-    const { User: owner } = await create('owner2@spinajs.com', 'owner2', 'password123', ['user']);
+    const { User: owner } = await create('owner2@spinajs.com', 'owner2', ['user'], { password: 'password123' });
     const token = new AccessToken({
       Name: 'expired',
       Token: 'b'.repeat(64),
@@ -78,7 +78,7 @@ describe('AccessToken model', function () {
   });
 
   it('hides hash, ids and owner when dehydrated', async () => {
-    const { User: owner } = await create('owner3@spinajs.com', 'owner3', 'password123', ['user']);
+    const { User: owner } = await create('owner3@spinajs.com', 'owner3', ['user'], { password: 'password123' });
     const token = new AccessToken({
       Name: 'hidden fields',
       Token: 'c'.repeat(64),

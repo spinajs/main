@@ -82,7 +82,7 @@ describe('AccessTokenController', function () {
   });
 
   async function makeUser(mail: string, login: string, roles: string[] = ['user']) {
-    const { User: u } = await create(mail, login, 'password123', roles);
+    const { User: u } = await create(mail, login, roles, { password: 'password123' });
     await activate(u.Id);
     return User.where('Id', u.Id).populate('Metadata').firstOrFail();
   }

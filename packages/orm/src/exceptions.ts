@@ -20,3 +20,13 @@ export class OrmException extends Exception {
  * Exception thrown when functionality is not supported
  */
 export class OrmNotFoundException extends OrmException {}
+
+/**
+ * Exception thrown when insert / update / delete affected no rows
+ * eg. delete of an already deleted model
+ */
+export class NoRowsAffected extends OrmException {
+  constructor(message = 'No rows affected by the query') {
+    super(message);
+  }
+}

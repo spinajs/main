@@ -1,16 +1,19 @@
-import { _insert, _update } from '@spinajs/orm';
-import { _use, _zip, _tap, _chain, _catch, _check_arg, _gt, _non_nil, _either, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _non_null, _to_array } from '@spinajs/util';
+import { insertModel, updateModel } from '@spinajs/orm';
+import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, _to_array } from '@spinajs/util';
 import _ from 'lodash';
-import { _email_deferred } from '@spinajs/email';
-import { _ev } from '@spinajs/queue';
-import { USER_COMMON_METADATA, User, UserBase } from './models/User.js';
-import { _cfg, _service } from '@spinajs/configuration';
+import { emailDeferred } from '@spinajs/email';
+import { ev } from '@spinajs/queue';
+import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
+import { cfg, service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
-import { Constructor } from '@spinajs/di';
+import { Constructor, DI } from '@spinajs/di';
+import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
-import { AthenticationErrorCodes, AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
+import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
-import { ErrorCode } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserIsBanned, UserNotActive } from './exceptions.js';
+import { AccessControl } from 'accesscontrol';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
@@ -18,201 +21,11 @@ import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
 
-export enum E_CODES {
-  E_TOKEN_EXPIRED,
-
-  E_TOKEN_INVALID,
-
-  E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS,
-
-  E_USER_NOT_FOUND,
-
-  E_USER_ALREADY_EXISTS,
-
-  E_USER_NOT_ACTIVE,
-
-  E_USER_BANNED,
-
-  E_METADATA_NOT_FOUND,
-
-  E_METADATA_NOT_POPULATED,
-
-  E_EMAIL_NOT_CONFIGURED,
-
-  E_NO_EMAIL_TEMPLATE,
-
-  E_NOT_LOGGED,
-}
-
 /**
  * ===============================================
- *  HELPER FUNCTIONS
+ *  FUNDAMENTALS ( imperative helpers )
  * ===============================================
  */
-
-/**
- *
- * Gets system user account
- *
- * @returns system user
- */
-export function _get_system_user() {
-  return _chain(
-    _zip(_cfg<string>('rbac.systemRole'), _cfg<string>('rbac.roleColumn')),
-    ([systemRole, roleColumn]: [string, string]) => {
-      const s = _check_arg(_trim(), _non_empty())(systemRole, 'rbac.systemRole');
-      const c = _check_arg(_trim(), _non_empty())(roleColumn, 'rbac.roleColumn');
-
-      return [s, c];
-    },
-    ([systemRole, roleColumn]: [string, string]) => User.query().where(roleColumn, systemRole).firstOrFail(), // base User on purpose: system account must resolve inside scoped request contexts
-  );
-}
-
-/**
- *
- * Gets users by role helper func.
- *
- * @param role user role
- * @returns
- */
-export function _get_users_by_role(role: string[]) {
-  return () => userModel().select().withRole(role);
-}
-
-/**
- *
- * Gets rbac user model
- *
- * @param user
- * @returns
- */
-export function _get_user(user: User | number | string) {
-  if (_.isString(user)) {
-    return async () => userModel().where('Uuid', user).firstOrFail();
-  }
-
-  if (_.isNumber(user)) {
-    return async () => userModel().getOrFail(user);
-  }
-
-  return () => Promise.resolve(user);
-}
-
-/**
- * Sets metadata key-value pairs on a user.
- * Accepts either an array of `{ key, value }` objects or a single metadata key string with a separate value.
- * Emits a {@link UserMetadataChange} event after the metadata is persisted.
- *
- * @param meta - metadata key (string) or array of `{ key, value }` entries to set
- * @param value - value to assign when `meta` is a single key string (default: `null`)
- * @returns a function that receives a {@link User} and returns the updated user
- */
-export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
-  return async (u: User) => {
-    const mArgs = _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u })), _to_array())(meta, 'Metadata');
-
-    mArgs.forEach((m: string | { key: string; value: any }) => {
-      _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
-    });
-
-    await _chain(
-      u,
-
-      _tap(() => u.Metadata.update()),
-      _user_ev(UserMetadataChange, () => {
-        return mArgs.map((m: string | { key: string; value: any }) => {
-          return _.isString(m) ? { key: m, value } : m;
-        });
-      }),
-    );
-
-    return u;
-  };
-}
-
-/**
- * Retrieves a single metadata value from a user by key.
- * Throws if the user's metadata has not been populated or the requested key does not exist.
- *
- * @param key - metadata key to retrieve
- * @returns a function that receives a {@link User} and returns the metadata value
- */
-export function _get_user_meta(key: string) {
-  return async (u: User) => {
-    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_POPULATED, 'User metadata not loaded', { user: u, key })))(u.Metadata, 'Metadata');
-    _check_arg(_non_nil(new ErrorCode(E_CODES.E_METADATA_NOT_FOUND, 'Metadata not found in user data', { user: u, key })))(u.Metadata[key], `Metadata.${key}`);
-
-    return u.Metadata[key];
-  };
-}
-
-/**
- * Helper function for sending user notification emails
- * Templates are defined in rbac configuration
- *
- * @param cfgTemplate
- * @returns
- */
-export function _user_email(cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired') {
-  interface _tCfg {
-    enabled: boolean;
-    template: string;
-    subject: string;
-  }
-
-  // NOTE: tap semantics - the user flows through, the email send result is
-  // deliberately discarded. Actions end with this step and must resolve with
-  // the User, not with an EmailSend job.
-  return async (u: User) => {
-    await _chain<void>(_use(_cfg('rbac.email.connection', 'default'), 'connection'), _use(_cfg(`rbac.email.${cfgTemplate}`), 'template'), ({ connection, template }: { connection: string; template: _tCfg }) => {
-      _check_arg(_non_nil(new ErrorCode(E_CODES.E_NO_EMAIL_TEMPLATE, `Email template ${cfgTemplate} not configured. Check rbac.email in config`)))(template, 'template');
-      _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
-      _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
-
-      return (
-        template.enabled &&
-        _email_deferred({
-          to: [u.Email],
-          connection,
-          model: u.toJSON(),
-          tag: `rbac-user-${cfgTemplate}`,
-          template: template.template,
-          subject: template.subject,
-        })
-      );
-    });
-
-    return u;
-  };
-}
-
-/**
- * Emits a user-related event through the queue service.
- *
- * @param event - constructor of the {@link UserEvent} subclass to emit
- * @param args - additional arguments forwarded to the event constructor
- * @returns a function that receives a {@link User}, emits the event, and returns the user
- */
-export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
-  return async (u: User) => {
-    await _ev(new event(u, ...args))();
-    return u;
-  };
-}
-
-/**
- * Persists partial changes to a user record and emits a {@link UserChanged} event.
- *
- * @param data - optional partial user fields to merge into the existing record
- * @returns a function that receives a {@link User}, applies the update, and returns the user
- */
-export function _user_update(data?: Partial<User>) {
-  return async (u: User) => {
-    await _chain(u, _update<User>(data), _user_ev(UserChanged));
-    return u;
-  };
-}
 
 /**
  * Resolves a user by identifier with metadata populated.
@@ -220,33 +33,156 @@ export function _user_update(data?: Partial<User>) {
  * looked up by id, uuid, email, or login and its metadata relation is populated.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @returns a thunk that resolves to the {@link User}
  */
-export function _user(identifier: number | string | User): () => Promise<User> {
+export async function getUser(identifier: number | string | User): Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
   if (id instanceof User) {
-    return () => Promise.resolve(id);
+    return id;
   }
 
-  return () => userModel().query().whereAnything(id).populate('Metadata').firstOrFail();
+  return userModel().query().whereAnything(id).populate('Metadata').firstOrFail();
 }
 
 /**
- * Unsafe user retrieval. It does not chack for rbac permission, to this
+ * Unsafe user retrieval. It does not check for rbac permission, so this
  * function can read ANY user in system. USE IT CAREFULLY
  *
- * @param identifier
- * @returns
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
-export function _user_unsafe(identifier: number | string | User): () => Promise<User> {
+export async function getUserUnsafe(identifier: number | string | User): Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
   if (id instanceof UserBase) {
-    return () => Promise.resolve(id);
+    return id as User;
   }
 
-  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrFail();
+  return UserBase.query().whereAnything(id).populate('Metadata').firstOrFail() as Promise<User>;
+}
+
+/**
+ * Gets system user account
+ *
+ * @returns system user
+ */
+export async function getSystemUser(): Promise<User> {
+  const systemRole = _check_arg(_trim(), _non_empty())(cfg<string>('rbac.systemRole'), 'rbac.systemRole');
+  const roleColumn = _check_arg(_trim(), _non_empty())(cfg<string>('rbac.roleColumn'), 'rbac.roleColumn');
+
+  // base User on purpose: system account must resolve inside scoped request contexts
+  return User.query().where(roleColumn, systemRole).firstOrFail();
+}
+
+/**
+ * Gets users by role.
+ *
+ * @param role user roles
+ */
+export async function getUsersByRole(role: string[]): Promise<User[]> {
+  return userModel().select().withRole(role);
+}
+
+/**
+ * Sets metadata key-value pairs on a user.
+ * Accepts either an array of `{ key, value }` objects or a single metadata key string with a separate value.
+ * Emits a {@link UserMetadataChange} event after the metadata is persisted.
+ *
+ * @param u - user to modify
+ * @param meta - metadata key (string) or array of `{ key, value }` entries to set
+ * @param value - value to assign when `meta` is a single key string (default: `null`)
+ */
+export async function setUserMeta(u: User, meta: string | { key: string; value: any }[], value: any = null): Promise<User> {
+  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _to_array())(meta, 'Metadata');
+
+  mArgs.forEach((m: string | { key: string; value: any }) => {
+    _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
+  });
+
+  await u.Metadata.update();
+
+  // the event carries the resolved entries, not the raw input - a single
+  // string key is normalised to a { key, value } pair
+  await ev(new UserMetadataChange(u, mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m))));
+
+  return u;
+}
+
+/**
+ * Retrieves a single metadata value from a user by key.
+ * Throws if the user's metadata has not been populated or the requested key does not exist.
+ *
+ * @param u - user to read from
+ * @param key - metadata key to retrieve
+ */
+export async function getUserMeta(u: User, key: string): Promise<any> {
+  _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid, key })))(u.Metadata, 'Metadata');
+  _check_arg(_non_nil(new MetadataNotFound('Metadata not found in user data', { user: u.Uuid, key })))(u.Metadata[key], `Metadata.${key}`);
+
+  return u.Metadata[key];
+}
+
+interface IEmailTemplateCfg {
+  enabled: boolean;
+  template: string;
+  subject: string;
+}
+
+/**
+ * Sends a user notification email. Templates are defined in rbac configuration.
+ *
+ * The email send result is deliberately discarded - actions end with this step
+ * and must resolve with the User, not with an EmailSend job.
+ *
+ * @param u - recipient
+ * @param cfgTemplate - which `rbac.email.*` entry describes the message
+ * @param model - extra template variables merged over the user's own fields.
+ *   Given as a FUNCTION of the user so a caller can compute them from the row it
+ *   has just written ( the password-reset token is the case that needs it ).
+ *   Nothing here is persisted and nothing is logged: whatever it carries goes
+ *   straight into the rendered message.
+ */
+export async function sendUserEmail(
+  u: User,
+  cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired',
+  model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown },
+): Promise<User> {
+  const extra = model ? await model(u) : undefined;
+  const connection = cfg<string>('rbac.email.connection', 'default');
+
+  let template: IEmailTemplateCfg;
+  try {
+    template = cfg<IEmailTemplateCfg>(`rbac.email.${cfgTemplate}`);
+  } catch (err) {
+    throw new EmailTemplateNotConfigured(`Email template ${cfgTemplate} not configured. Check rbac.email in config`, undefined, err);
+  }
+
+  _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
+  _check_arg(_is_string(_non_empty(), _max_length(128)))(template.subject, 'email.subject');
+
+  if (template.enabled) {
+    await emailDeferred({
+      to: [u.Email],
+      connection,
+      model: { ...u.toJSON(), ...(extra ?? {}) },
+      tag: `rbac-user-${cfgTemplate}`,
+      template: template.template,
+      subject: template.subject,
+    });
+  }
+
+  return u;
+}
+
+/**
+ * Persists partial changes to a user record and emits a {@link UserChanged} event.
+ *
+ * @param u - user to update
+ * @param data - optional partial user fields to merge into the existing record
+ */
+export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
+  await updateModel(u, data);
+  await ev(new UserChanged(u));
+  return u;
 }
 
 /**
@@ -271,18 +207,95 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
     return;
   }
 
-  const provider = await _service('rbac.session', SessionProvider)();
+  const provider = await service('rbac.session', SessionProvider);
   await provider.deleteByUser(userId);
 }
 
 /**
- * Chain step form of {@link revokeUserSessions} — revokes and forwards the user.
+ * ===============================================
+ *  FP WRAPPERS ( kept for compatibility and for use in chains )
+ * ===============================================
  */
-function _revoke_sessions() {
+
+/**
+ * Thunk form of {@link getSystemUser}.
+ */
+export function _get_system_user() {
+  return getSystemUser();
+}
+
+/**
+ * Thunk form of {@link getUsersByRole}.
+ */
+export function _get_users_by_role(role: string[]) {
+  return () => getUsersByRole(role);
+}
+
+/**
+ * Gets rbac user model by uuid or id, WITHOUT metadata populated.
+ */
+export function _get_user(user: User | number | string) {
+  if (_.isString(user)) {
+    return async () => userModel().where('Uuid', user).firstOrFail();
+  }
+
+  if (_.isNumber(user)) {
+    return async () => userModel().getOrFail(user);
+  }
+
+  return () => Promise.resolve(user);
+}
+
+/**
+ * Thunk form of {@link getUser}.
+ */
+export function _user(identifier: number | string | User): () => Promise<User> {
+  return () => getUser(identifier);
+}
+
+/**
+ * Thunk form of {@link getUserUnsafe}.
+ */
+export function _user_unsafe(identifier: number | string | User): () => Promise<User> {
+  return () => getUserUnsafe(identifier);
+}
+
+/**
+ * Chain step form of {@link setUserMeta}.
+ */
+export function _set_user_meta(meta: string | { key: string; value: any }[], value: any = null) {
+  return (u: User) => setUserMeta(u, meta, value);
+}
+
+/**
+ * Chain step form of {@link getUserMeta}.
+ */
+export function _get_user_meta(key: string) {
+  return (u: User) => getUserMeta(u, key);
+}
+
+/**
+ * Chain step form of {@link sendUserEmail}.
+ */
+export function _user_email(cfgTemplate: Parameters<typeof sendUserEmail>[1], model?: Parameters<typeof sendUserEmail>[2]) {
+  return (u: User) => sendUserEmail(u, cfgTemplate, model);
+}
+
+/**
+ * Chain step: emits a user-related event and forwards the user.
+ */
+export function _user_ev(event: Constructor<UserEvent>, ...args: any[]) {
   return async (u: User) => {
-    await revokeUserSessions(u);
+    await ev(new event(u, ...args));
     return u;
   };
+}
+
+/**
+ * Chain step form of {@link updateUser}.
+ */
+export function _user_update(data?: Partial<User>) {
+  return (u: User) => updateUser(u, data);
 }
 
 /**
@@ -298,7 +311,13 @@ function _revoke_sessions() {
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function activate(identifier: number | string | User): Promise<User> {
-  return _chain(_user(identifier), _user_update({ IsActive: true }), _user_ev(UserActivated), _user_email('activated'));
+  const u = await getUser(identifier);
+
+  await updateUser(u, { IsActive: true });
+  await ev(new UserActivated(u));
+  await sendUserEmail(u, 'activated');
+
+  return u;
 }
 
 /**
@@ -308,9 +327,18 @@ export async function activate(identifier: number | string | User): Promise<User
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function deactivate(identifier: number | string | User): Promise<User> {
+  const u = await getUser(identifier);
+
+  await updateUser(u, { IsActive: false });
+
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.
-  return _chain(_user(identifier), _user_update({ IsActive: false }), _revoke_sessions(), _user_ev(UserDeactivated), _user_email('deactivated'));
+  await revokeUserSessions(u);
+
+  await ev(new UserDeactivated(u));
+  await sendUserEmail(u, 'deactivated');
+
+  return u;
 }
 
 /**
@@ -321,83 +349,317 @@ export type CreateMiddleware = (u: User) => Promise<User> | User;
 /**
  * Reads a create-middleware list from configuration.
  * An unset or empty `beforeCreate` / `afterCreate` list is a valid
- * "no middleware" result ( `_cfg` accepts empty arrays ).
+ * "no middleware" result ( `cfg` accepts empty arrays ).
  */
-function _create_middleware(path: string): CreateMiddleware[] {
-  const mw = _cfg<CreateMiddleware[]>(path, [])();
+function middlewareList(path: string): CreateMiddleware[] {
+  const mw = cfg<CreateMiddleware[]>(path, []);
   return Array.isArray(mw) ? mw : [];
+}
+
+/**
+ * Runs the user through each middleware in turn, feeding each one the previous
+ * result.
+ */
+async function runCreateMiddleware(u: User, path: string): Promise<User> {
+  let current = u;
+  for (const mw of middlewareList(path)) {
+    current = await mw(current);
+  }
+  return current;
+}
+
+/**
+ * Optional inputs of the {@link create} action.
+ */
+export interface ICreateUserOptions {
+  /**
+   * Plain-text password. Omit it and a random one is generated, the account is
+   * handed to its owner by a password-reset link, and the generated value is
+   * returned for a caller that needs it ( the CLI prints it ).
+   */
+  password?: string;
+
+  /** Explicit user id. Useful when migrating accounts from another system. */
+  id?: number;
+
+  /** Key-value metadata attached to the new account. */
+  metadata?: { [key: string]: any };
+}
+
+/**
+ * The roles a request denotes, whether it arrives as one name or a list.
+ *
+ * Trimmed, stripped of blanks and de-duplicated. Order is preserved so a caller
+ * that treats the first entry as the primary role keeps that meaning.
+ *
+ * De-duplication is not cosmetic: every downstream guard is charged per entry,
+ * so `['user', ' user ']` costs two checks for one role.
+ *
+ * @param role - a single role name or a list of them
+ */
+export function roleList(role?: string | string[]): string[] {
+  if (role === undefined || role === null) {
+    return [];
+  }
+
+  const wanted = (Array.isArray(role) ? role : [role]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0);
+
+  return [...new Set(wanted)];
+}
+
+/**
+ * Refuses a role the application has not configured.
+ *
+ * A role counts as configured if it either holds grants in the resolved
+ * {@link AccessControl} instance or is merely declared in `rbac.roles` - the
+ * same definition of "known" `DefaultRoleGuard` (`@spinajs/rbac-http-admin`)
+ * already uses for its own route-level check. A role may legitimately be named
+ * before it is given any permission, and a narrower definition here would
+ * refuse a role the route layer of this same codebase already accepts.
+ * `hasRole` resolves roles defined only through `$extend`, so an
+ * inheritance-only role such as `system` is recognised.
+ *
+ * `rbac.requireKnownRole: false` turns the whole check off - see the comment
+ * at its first use below.
+ *
+ * @param roles - role names to check; every unknown name is reported at once
+ */
+export function assertRolesExist(roles: string[]): void {
+  // An application whose roles are defined at runtime rather than in static
+  // config turns this off wholesale. `rbac-http-admin`'s DefaultRoleGuard has
+  // carried the same escape hatch for its own route-level check since before
+  // this one existed; a library-level check that could not be turned off would
+  // make rbac unusable for those applications.
+  if (cfg<boolean>('rbac.requireKnownRole', true) === false) {
+    return;
+  }
+
+  const ac = DI.get<AccessControl>('AccessControl');
+
+  if (!ac) {
+    // No grants loaded at all means the application has not configured rbac, not
+    // that every role is invalid - refusing here would break bootstrap ordering.
+    return;
+  }
+
+  // "Known" the same way DefaultRoleGuard already means it: holding grants, or
+  // merely DECLARED. A role may legitimately be named before it is given any
+  // permission, and a narrower definition here would refuse roles the route
+  // layer of this same codebase already accepts.
+  //
+  // Guarded the way DefaultRoleGuard guards the same list: `rbac.roles` may be
+  // assembled dynamically, and one malformed entry must not turn every create()
+  // in the application into an unhandled TypeError. An entry without a `Name`
+  // simply never matches a real role.
+  const configured = cfg<Array<{ Name: string }>>('rbac.roles', []);
+  const declared = (Array.isArray(configured) ? configured : []).map((r) => r?.Name).filter(Boolean);
+
+  const unknown = roles.filter((r) => !ac.hasRole(r) && !declared.includes(r));
+
+  if (unknown.length > 0) {
+    throw new InvalidArgument(`Role(s) not configured in rbac.grants or rbac.roles: ${unknown.join(', ')}`, 'roles');
+  }
+}
+
+/**
+ * Refuses metadata keys that decide account access.
+ *
+ * `user:pwd_reset:token` is a bearer credential redeemable at the PUBLIC reset
+ * endpoint and `user:2fa:*` is the second factor itself — writing either through
+ * a generic key-value merge hands out an account rather than annotating one.
+ * Ban and lockout keys are refused for the same reason bans have their own
+ * action: written directly they skip the event, the email and the session
+ * revocation that make a ban mean something.
+ *
+ * Lives here rather than in one http controller because the keys it protects are
+ * rbac's own, and an account seeded with a known reset token is an account
+ * takeover no matter which caller planted it — a CLI, a migration and a route
+ * all need the same refusal.
+ *
+ * @param metadata - the key-value bag a caller wants attached to an account
+ */
+export function assertNoProtectedMetadata(metadata?: { [key: string]: any }): void {
+  if (!metadata) {
+    return;
+  }
+
+  const offending = Object.keys(metadata).filter((key) => {
+    // A glob reaches the metadata relation's setter as a PATTERN and rewrites
+    // every matching entry, so `*` alone would overwrite the whole set —
+    // including the protected keys listed above.
+    if (key.includes('*') || key.includes('?')) {
+      return true;
+    }
+
+    return USER_SECURITY_METADATA_KEYS.includes(key);
+  });
+
+  if (offending.length > 0) {
+    throw new InvalidArgument(`Protected metadata keys cannot be set directly: ${offending.join(', ')}`);
+  }
+}
+
+/**
+ * Refuses a login / email already taken by another account.
+ *
+ * Exported because uniqueness is not only a creation-time rule: an update that
+ * renames an account has to apply exactly the same one, and a second
+ * implementation of it would be a second thing to keep in step. `exceptUserId`
+ * is what an update passes so an account does not clash with itself.
+ *
+ * Queries the base {@link User} rather than `userModel()`: uniqueness is GLOBAL,
+ * and an application's scoped subclass would hide the clashing row — turning a
+ * clean refusal into a driver error on the unique index.
+ *
+ * Soft-deleted rows are included for the same reason. They still occupy the
+ * unique indexes, so ignoring them trades this error for that driver error.
+ *
+ * The thrown {@link UserAlreadyExists} carries `fields`, naming WHICH of login / email
+ * clashed, so an http caller can mark the offending input rather than reporting
+ * that something, somewhere, is already in use.
+ *
+ * @param login - login to check, or undefined to skip the login check
+ * @param email - email to check, or undefined to skip the email check
+ * @param exceptUserId - id of the account being updated, which may keep its own values
+ */
+export async function assertUserUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
+  const clashes: string[] = [];
+
+  if (login) {
+    const found = await User.query().withDeleted().where('Login', login).first();
+    if (found && found.Id !== exceptUserId) {
+      clashes.push('Login');
+    }
+  }
+
+  if (email) {
+    const found = await User.query().withDeleted().where('Email', email).first();
+    if (found && found.Id !== exceptUserId) {
+      clashes.push('Email');
+    }
+  }
+
+  if (clashes.length > 0) {
+    throw new UserAlreadyExists(`${clashes.join(' and ')} already in use`, { fields: clashes });
+  }
 }
 
 /**
  * Creates a new user account.
  *
- * Validates and normalises inputs, hashes the password, inserts the user record,
- * optionally sets metadata, runs configured `beforeCreate` / `afterCreate` middleware,
- * emits a {@link UserCreated} event, and sends the "created" email.
+ * Validates and normalises inputs, refuses a duplicate login / email and
+ * protected metadata keys, hashes the password, inserts the user record,
+ * optionally sets metadata, runs configured `beforeCreate` / `afterCreate`
+ * middleware, emits a {@link UserCreated} event, and sends the "created" email.
+ *
+ * When no password is given, one is generated AND a password-reset link is
+ * mailed to the address. Those two are one decision, not two: a generated
+ * password is a secret nobody knows, so an account created without the reset
+ * link is an account with no way in at all. Callers that pass a password know
+ * it and own delivery themselves, so they get no link — which is what a CLI
+ * service account or a fixture wants.
  *
  * @param email - user email address (max 64 chars)
  * @param login - user login name (max 32 chars)
- * @param password - plain-text password; if empty a random one is generated
  * @param roles - array of role names to assign
- * @param id - optional explicit user id (useful when migrating from another system)
- * @param metadata - optional key-value metadata to attach to the new user
+ * @param options - see {@link ICreateUserOptions}
  * @returns an object containing the persisted {@link User} and the plain-text password
  */
-export async function create(email: string, login: string, password: string, roles: string[], id?: number, metadata?: { [key: string]: any }): Promise<{ User: User; Password: string }> {
-  const sPassword = await _service<PasswordProvider>('rbac.password', PasswordProvider)();
+export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<{ User: User; Password: string }> {
+  const sPassword = await service<PasswordProvider>('rbac.password', PasswordProvider);
+
+  // Whether the CALLER supplied a password decides who hands the account to its
+  // owner, so it is read before `_default` fills a generated one in and the two
+  // cases become indistinguishable.
+  const generated = _check_arg(_trim(), _default(''))(options?.password, 'password') === '';
 
   email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
   login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
-  password = _check_arg(
+
+  const roleNames = roleList(roles);
+
+  if (roleNames.length === 0) {
+    throw new InvalidArgument('At least one role must be given', 'roles');
+  }
+
+  assertRolesExist(roleNames);
+
+  const password = _check_arg(
     _trim(),
     _default(() => sPassword.generate()),
-  )(password, 'password');
+  )(options?.password, 'password');
+
+  // Only the SUPPLIED branch is checked. A generated password is asserted
+  // against the same rule inside `generate()`, and re-checking it here would
+  // only re-report a configuration fault as a caller mistake.
+  if (!generated) {
+    const validator = await service<PasswordValidationProvider>('rbac.password.validation', PasswordValidationProvider);
+
+    if (!validator.check(password)) {
+      throw new InvalidArgument('Password does not meet requirements', 'password');
+    }
+  }
 
   const hPassword = await sPassword.hash(password);
+  const metadata = options?.metadata;
 
-  return _chain(
-    // create user
-    () =>
-      Promise.resolve(
-        new User({
-          Id: id,
-          Email: email,
-          Login: login,
-          Password: hPassword,
-          Role: roles,
-          RegisteredAt: DateTime.now(),
-          CreatedAt: DateTime.now(),
-          IsActive: false,
-          Uuid: uuidv4(),
-        }),
-      ),
+  // Ahead of everything else, and ahead of `beforeCreate` in particular: a
+  // request that is about to be refused must not first run middleware that
+  // writes to another system ( the legacy-user mirror is one ).
+  assertNoProtectedMetadata(metadata);
+  await assertUserUnique(login, email);
 
-    // run before create middleware
-    (u: User) => _chain(u, ..._create_middleware('rbac.actions.create.beforeCreate')),
+  let u = new User({
+    Id: options?.id,
+    Email: email,
+    Login: login,
+    Password: hPassword,
+    Role: roleNames,
+    RegisteredAt: DateTime.now(),
+    CreatedAt: DateTime.now(),
+    IsActive: false,
+    Uuid: uuidv4(),
+  });
 
-    // insert to db
-    _insert(),
+  u = await runCreateMiddleware(u, 'rbac.actions.create.beforeCreate');
 
-    _either(
-      () => metadata !== undefined,
-      _set_user_meta(metadata ? Object.entries(metadata).map(([key, value]) => ({ key, value })) : []),
-      async (u: User) => u,
-    ),
+  await insertModel(u);
 
-    // run after create middleware
-    (u: User) => _chain(u, ..._create_middleware('rbac.actions.create.afterCreate')),
+  if (metadata !== undefined) {
+    await setUserMeta(
+      u,
+      Object.entries(metadata).map(([key, value]) => ({ key, value })),
+    );
+  }
 
-    // send event
-    _user_ev(UserCreated, (u: User) => u.toJSON()),
+  u = await runCreateMiddleware(u, 'rbac.actions.create.afterCreate');
 
-    // send email
-    _tap(_user_email('created')),
+  await ev(new UserCreated(u));
+  await sendUserEmail(u, 'created');
 
-    // return user & password - if generated we want to know not hashed password
-    (u: User) => {
-      return { User: u, Password: password };
-    },
-  );
+  // Hand the account to its owner when nobody else can: the password above was
+  // invented here and immediately hashed, so without this the account is
+  // unreachable until an administrator remembers a second screen.
+  //
+  // AFTER the "created" email so the two arrive in the order they are meant to
+  // be read, and BY UUID rather than by the instance in hand — the reset writes
+  // three metadata entries, and `getUser()` re-reads with `Metadata` populated,
+  // which an instance built by `new User(...)` never is. Handing it the
+  // instance stored nothing, silently, and left the account with no token.
+  //
+  // Swallowed on purpose: the account EXISTS by now. Throwing would tell the
+  // caller creation failed when it did not, inviting a retry that then fails on
+  // the duplicate login. A link that could not be issued can be re-sent.
+  if (generated) {
+    try {
+      await passwordChangeRequest(u.Uuid);
+    } catch (err) {
+      DI.resolve(Log, ['rbac']).error(err as Error, `Could not issue the initial password reset for ${u.Uuid}. The account exists but its owner has no way in yet.`);
+    }
+  }
+
+  // if generated we want to know not hashed password
+  return { User: u, Password: password };
 }
 
 /**
@@ -407,20 +669,19 @@ export async function create(email: string, login: string, password: string, rol
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function deleteUser(identifier: number | string | User): Promise<void> {
-  return _chain(
-    _user(identifier),
-    _tap((u: User) => u.destroy()),
+  const u = await getUser(identifier);
 
-    // Same reason a deactivation revokes: the account may no longer act. A live
-    // session outlasting the deletion is worse here than there — the session
-    // middleware resolves its user through `isActiveUser()`, which no longer
-    // matches a soft-deleted row, so every request from that session dies in
-    // the middleware instead of being cleanly logged out.
-    _revoke_sessions(),
+  await u.destroy();
 
-    _user_ev(UserDeleted),
-    _user_email('deleted'),
-  );
+  // Same reason a deactivation revokes: the account may no longer act. A live
+  // session outlasting the deletion is worse here than there — the session
+  // middleware resolves its user through `isActiveUser()`, which no longer
+  // matches a soft-deleted row, so every request from that session dies in
+  // the middleware instead of being cleanly logged out.
+  await revokeUserSessions(u);
+
+  await ev(new UserDeleted(u));
+  await sendUserEmail(u, 'deleted');
 }
 
 /**
@@ -434,12 +695,17 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 export async function grant(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(
-    _user(identifier),
-    _tap(async (u: User) => (u.Role = _.uniq([...u.Role, role]))),
-    _user_update(),
-    _user_ev(UserRoleGranted, role),
-  );
+  // A role you cannot create an account with must not be one you can add
+  // afterwards - otherwise grant is a way around the creation check.
+  assertRolesExist([role]);
+
+  const u = await getUser(identifier);
+
+  u.Role = _.uniq([...u.Role, role]);
+  await updateUser(u);
+  await ev(new UserRoleGranted(u, role));
+
+  return u;
 }
 
 /**
@@ -453,103 +719,142 @@ export async function grant(identifier: number | string | User, role: string): P
 export async function revoke(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  return _chain(
-    _user(identifier),
-    _tap(async (u: User) => (u.Role = u.Role.filter((r) => r !== role))),
-    _user_update(),
-    _user_ev(UserRoleRevoked, role),
-  );
+  const u = await getUser(identifier);
+
+  u.Role = u.Role.filter((r) => r !== role);
+  await updateUser(u);
+  await ev(new UserRoleRevoked(u, role));
+
+  return u;
 }
 
 /**
- *
- * Bans user for specified time. If duration is 0 user is banned for 24h
+ * Bans user for specified time. If duration is not given user is banned for 24h
  *
  * @param identifier user identifier one of : id, uuid, email, login
- * @param reason reson for ban
+ * @param reason reason for ban
  * @param duration duration in seconds
- * @returns
  */
 export async function ban(identifier: number | string | User, reason?: string, duration?: number): Promise<User> {
   duration = _check_arg(_default(24 * 60 * 60), _is_number(_gt(0)))(duration, 'duration');
   reason = _check_arg(_default('NO_REASON'), _max_length(255))(reason, 'reason');
 
-  return _chain(
-    _user(identifier),
-    (u: User) => {
-      if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already banned`, { user: u });
-      }
+  const u = await getUser(identifier);
 
-      return u;
-    },
-    _set_user_meta([
-      { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
-      { key: USER_COMMON_METADATA.USER_BAN_REASON, value: reason },
-      { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
-      { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
-    ]),
+  // duration-aware: an EXPIRED ban must not block re-banning ( the raw flag
+  // stays behind until an explicit unban clears it )
+  if (u.IsBanned) {
+    throw new UserIsBanned(`User is already banned`, { user: u.Uuid });
+  }
 
-    // A ban that leaves the banned user's session alive bans nothing until that
-    // session expires — `isActiveUser` does not filter on the ban flag, so the
-    // session would keep resolving happily.
-    _revoke_sessions(),
+  await setUserMeta(u, [
+    { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
+    { key: USER_COMMON_METADATA.USER_BAN_REASON, value: reason },
+    { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
+    { key: USER_COMMON_METADATA.USER_BAN_START_DATE, value: DateTime.now() },
+  ]);
 
-    _user_ev(UserBanned),
-    _user_email('banned'),
-  );
+  // A ban that leaves the banned user's session alive bans nothing until that
+  // session expires — `isActiveUser` does not filter on the ban flag, so the
+  // session would keep resolving happily.
+  await revokeUserSessions(u);
+
+  await ev(new UserBanned(u));
+  await sendUserEmail(u, 'banned');
+
+  return u;
 }
 
 /**
- *
  * Unban user
  *
- * @param identifier
- * @returns
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function unban(identifier: number | string | User): Promise<User> {
-  return _chain(
-    _user(identifier),
+  const u = await getUser(identifier);
 
-    // guard must return the user so the chain can keep flowing it downstream
-    _tap(async (u: User) => {
-      if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `User is already unbanned`, { user: u });
-      }
-    }),
+  if (!u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
+    throw new UserIsBanned(`User is already unbanned`, { user: u.Uuid });
+  }
 
-    // actually remove the ban metadata from the DB. Assigning a regex-like
-    // string key never cleared anything; delete() removes each key from store.
-    _tap(async (u: User) => {
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_IS_BANNED);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_START_DATE);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
-    }),
+  // actually remove the ban metadata from the DB. Assigning a regex-like
+  // string key never cleared anything; delete() removes each key from store.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_IS_BANNED);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_START_DATE);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_DURATION);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_BAN_REASON);
 
-    _user_ev(UserUnbanned),
-  );
+  await ev(new UserUnbanned(u));
+  await sendUserEmail(u, 'unbanned');
+
+  return u;
+}
+
+/**
+ * Builds the link a reset mail sends the user to.
+ *
+ * `rbac.password.resetUrl` is the application's own redemption page. The token
+ * and the address are appended as query parameters because that page has to send
+ * both back to `POST /auth/password/reset`, and it has no other way of knowing
+ * them. Returns an empty string when no url is configured — the template then
+ * renders whatever it does without one, rather than a link to nowhere.
+ */
+function passwordResetUrl(email: string, token: string): string {
+  const base = cfg<string>('rbac.password.resetUrl', '');
+
+  if (!base) {
+    return '';
+  }
+
+  const url = new URL(base);
+  url.searchParams.set('token', token);
+  url.searchParams.set('email', email);
+
+  return url.toString();
 }
 
 /**
  * Initiates a password-change request for a user.
  * Generates a reset token, stores it along with the current timestamp and configured
- * wait time in the user's metadata, and emits a {@link UserPasswordChangeRequest} event.
+ * wait time in the user's metadata, emits a {@link UserPasswordChangeRequest} event and
+ * sends the `changePassword` mail carrying the token.
+ *
+ * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
+ * possession of the mailbox is what authorizes the reset — so an installation that does not
+ * deliver it has a reset flow nobody can complete. It used to be the application's job, via
+ * the event, and every application that had not written that subscriber silently issued
+ * tokens into the void. `rbac.email.changePassword.enabled: false` still turns it off for an
+ * application that really does deliver it some other way.
+ *
+ * The token reaches the template through the model and is NOT logged: it is a bearer
+ * credential for `POST /auth/password/reset`.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
-export async function passwordChangeRequest(identifier: number | string | User) {
-  const pwdWaitTime = await _cfg<number>('rbac.password.passwordResetWaitTime')();
+export async function passwordChangeRequest(identifier: number | string | User): Promise<User> {
+  const pwdWaitTime = cfg<number>('rbac.password.passwordResetWaitTime');
+  const token = uuidv4();
 
-  return _chain(
-    _user(identifier),
-    _set_user_meta([
-      { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
-      { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: uuidv4() },
-      { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
-    ]),
-    _user_ev(UserPasswordChangeRequest),
-  );
+  const u = await getUser(identifier);
+
+  await setUserMeta(u, [
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: token },
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
+  ]);
+
+  await ev(new UserPasswordChangeRequest(u));
+
+  await sendUserEmail(u, 'changePassword', (usr: User) => ({
+    Token: token,
+    ResetUrl: passwordResetUrl(usr.Email, token),
+    // Minutes rather than the raw seconds: a template writes "the link is
+    // valid for X minutes", and doing the arithmetic in a handlebars
+    // expression is not something every template engine can do.
+    ExpiresInMinutes: Math.round(pwdWaitTime / 60),
+  }));
+
+  return u;
 }
 
 /**
@@ -560,59 +865,56 @@ export async function passwordChangeRequest(identifier: number | string | User) 
  * @param newPassword - the new plain-text password to set
  * @param token - the reset token that was issued by {@link passwordChangeRequest}
  */
-export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string) {
-  return _chain(
-    _user(identifier),
+export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string): Promise<User> {
+  const u = await getUser(identifier);
 
-    // A reset must not resurrect an account that is banned, deactivated or
-    // deleted — otherwise the reset flow is a way around every one of those
-    // states. Same ErrorCode family the caller already collapses into one
-    // opaque failure, so this does not become an account-state oracle.
-    _tap(async (u: User) => {
-      if (u.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED]) {
-        throw new ErrorCode(E_CODES.E_USER_BANNED, `Password reset refused: user is banned`, { user: u });
-      }
+  // A reset must not resurrect an account that is banned, deactivated or
+  // deleted — otherwise the reset flow is a way around every one of those
+  // states. Same exception family the caller already collapses into one
+  // opaque failure, so this does not become an account-state oracle.
+  // duration-aware: a user whose ban has expired can log in again, so they
+  // must be able to reset their password too
+  if (u.IsBanned) {
+    throw new UserIsBanned(`Password reset refused: user is banned`, { user: u.Uuid });
+  }
 
-      if (!u.IsActive || u.DeletedAt) {
-        throw new ErrorCode(E_CODES.E_USER_NOT_ACTIVE, `Password reset refused: user is not active`, { user: u });
-      }
-    }),
+  if (!u.IsActive || u.DeletedAt) {
+    throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
+  }
 
-    _tap((u: User) =>
-      _chain(u, _zip(_get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE), _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME)), ([dueDate, waitTime]: [DateTime, number]) => {
-        if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
-          throw new ErrorCode(E_CODES.E_TOKEN_EXPIRED, `Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
-            dueDate,
-            waitTime,
-            time: DateTime.now(),
-            user: u,
-          });
-        }
-      }),
-    ),
-    _tap((u: User) =>
-      _chain(u, _get_user_meta(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN), async (resetToken: string) => {
-        if (!_secure_compare(String(resetToken), token)) {
-          throw new ErrorCode(E_CODES.E_TOKEN_INVALID, `Password change token invalid, operation not permitted`, {
-            token,
-            resetToken,
-            user: u,
-          });
-        }
-      }),
-    ),
-    changePassword(newPassword),
+  const dueDate: DateTime = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
+  const waitTime: number = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
 
-    // Burn the token. Validating it and leaving it in place made it a
-    // multi-use credential for the whole `passwordResetWaitTime` window:
-    // anyone who saw the reset mail once could keep re-taking the account.
-    _tap(async (u: User) => {
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
-      await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
-    }),
-  );
+  if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
+    throw new TokenExpired(`Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
+      dueDate,
+      waitTime,
+      time: DateTime.now(),
+      user: u.Uuid,
+    });
+  }
+
+  const resetToken = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
+
+  if (!secureCompare(String(resetToken), token)) {
+    // the STORED token is a live bearer credential and the submitted one may
+    // be a near miss of it - neither belongs in a payload that gets logged
+    throw new TokenInvalid(`Password change token invalid, operation not permitted`, {
+      user: u.Uuid,
+    });
+  }
+
+  await changeUserPassword(u, newPassword);
+
+  // Burn the token. Validating it and leaving it in place made it a
+  // multi-use credential for the whole `passwordResetWaitTime` window:
+  // anyone who saw the reset mail once could keep re-taking the account.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
+
+  return u;
 }
 
 /**
@@ -625,7 +927,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
  * @param a - value read from storage
  * @param b - value supplied by the caller
  */
-function _secure_compare(a: string, b: string): boolean {
+function secureCompare(a: string, b: string): boolean {
   const ha = createHash('sha256')
     .update(a ?? '')
     .digest();
@@ -639,83 +941,124 @@ function _secure_compare(a: string, b: string): boolean {
 }
 
 /**
- * Returns a function that changes a user's password.
+ * Changes a user's password.
  * The new password is validated against the configured {@link PasswordValidationProvider},
  * hashed via the configured {@link PasswordProvider}, persisted, and a
  * {@link UserPasswordChanged} event is emitted.
  *
+ * @param u - user to change the password for
  * @param password - new plain-text password
- * @returns a function that receives a {@link User} and returns the updated user
+ */
+export async function changeUserPassword(u: User, password: string): Promise<User> {
+  password = _check_arg(_trim(), _non_empty())(password, 'password');
+
+  const pwd = await service('rbac.password', PasswordProvider);
+  const validator = await service('rbac.password.validation', PasswordValidationProvider);
+
+  if (!validator.check(password)) {
+    // `InvalidArgument`, not a bare `Error`: a password the caller typed is
+    // invalid INPUT, and @spinajs/http maps this class to 400 ( BadRequestResponse
+    // via `@HandleException` ) while an unmapped error becomes a 500. Every route
+    // that lets a user pick a password - `PATCH /user/password`, the reset flow -
+    // answered "internal server error" for a password that was merely too weak,
+    // which reads to the user as a broken screen rather than as a rule they can
+    // satisfy. The field name and error code travel in the response body ( the
+    // error handler spreads the exception's own enumerable props ), so a client
+    // can point at the field and branch on the code instead of matching English.
+    throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
+  }
+
+  const hPassword = await pwd.hash(password);
+  await updateModel(u, { Password: hPassword });
+
+  await setUserMeta(u, [
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, value: DateTime.now().toISO() },
+
+    // a successful password change clears the login throttle: the
+    // credential the failures were counted against no longer exists
+    { key: USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, value: 0 },
+    { key: USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL, value: null },
+  ]);
+
+  // Every session was authorized by the OLD password. Whoever holds one
+  // — including whoever the user is changing the password because of —
+  // loses it here. Callers that want the acting user to stay logged in
+  // ( eg. PATCH /user/password ) mint a fresh session afterwards.
+  await revokeUserSessions(u);
+
+  await ev(new UserPasswordChanged(u));
+
+  return u;
+}
+
+/**
+ * Chain step form of {@link changeUserPassword}.
+ *
+ * @param password - new plain-text password
  */
 export function changePassword(password: string): (u: User) => Promise<User> {
-  password = _check_arg(_trim(), _non_empty())(password, 'password');
-
-  return async (u: User) => {
-    return _chain(
-      _use(_service('rbac.password', PasswordProvider), 'pwd'),
-      _use(_service('rbac.password.validation', PasswordValidationProvider), 'validator'),
-
-      _tap(async ({ validator }: { validator: PasswordValidationProvider }) => {
-        if (!validator.check(password)) {
-          throw new Error('Password does not meet requirements');
-        }
-      }),
-
-      // update password
-      ({ pwd }: { pwd: PasswordProvider }) => pwd.hash(password),
-      (hPassword: string) =>
-        _chain(
-          u,
-          _update<User>({ Password: hPassword }),
-          _set_user_meta([
-            { key: USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, value: DateTime.now().toISO() },
-
-            // a successful password change clears the login throttle: the
-            // credential the failures were counted against no longer exists
-            { key: USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, value: 0 },
-            { key: USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL, value: null },
-          ]),
-
-          // Every session was authorized by the OLD password. Whoever holds one
-          // — including whoever the user is changing the password because of —
-          // loses it here. Callers that want the acting user to stay logged in
-          // ( eg. PATCH /user/password ) mint a fresh session afterwards.
-          _revoke_sessions(),
-
-          _user_ev(UserPasswordChanged),
-        ),
-    );
-  };
+  return (u: User) => changeUserPassword(u, password);
 }
 
 /**
+ * Expire password for user.
  *
- * Expire password for user
+ * The stored credential is replaced with a freshly generated random one, so the
+ * expired password stops working even if the account is re-activated without a
+ * reset. The account is deactivated, {@link UserPasswordExpired} is emitted and
+ * the 'passwordExpired' mail is sent.
  *
- * @param identifier
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
 export async function expirePassword(identifier: number | string | User): Promise<void> {
-  return await _chain(_user(identifier), (user: User) => deactivate(user), _user_ev(UserPasswordExpired));
+  const u = await getUser(identifier);
+
+  const sPassword = await service('rbac.password', PasswordProvider);
+  const hPassword = await sPassword.hash(sPassword.generate());
+  await updateModel(u, { Password: hPassword });
+
+  await deactivate(u);
+  await ev(new UserPasswordExpired(u));
+  await sendUserEmail(u, 'passwordExpired');
 }
 
 /**
- * Check if password match user password stored in db
+ * Sends the 'passwordWillExpire' warning mail. No account state changes -
+ * this is the notification half of the expiry flow, meant to be called by an
+ * application scheduler ahead of {@link expirePassword}.
  *
- * @param identifier
- * @param password
- * @returns
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param expiresAt - optional instant the password expires, passed to the template
  */
-export function passwordMatch(password: string) {
+export async function notifyPasswordWillExpire(identifier: number | string | User, expiresAt?: DateTime): Promise<User> {
+  const u = await getUser(identifier);
+
+  await sendUserEmail(u, 'passwordWillExpire', () => ({ ExpiresAt: expiresAt?.toISO() ?? null }));
+
+  return u;
+}
+
+/**
+ * Checks if password matches the user's password stored in db.
+ *
+ * @param u - user to check against
+ * @param password - plain-text password to verify
+ */
+export async function verifyPassword(u: User, password: string): Promise<boolean> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  return async (u: User): Promise<boolean> => {
-    // NOTE: _chain forwards exactly ONE value from step to step, so the second
-    // parameter of the last step was always undefined and every call died with
-    // "Cannot read properties of undefined (reading 'Password')" — including
-    // the happy path of PATCH /user/password. The user is taken from the
-    // closure instead.
-    return await _chain(_service('rbac.password', PasswordProvider), async (sPwd: PasswordProvider) => sPwd.verify(u.Password, password));
-  };
+  const sPwd = await service('rbac.password', PasswordProvider);
+  return sPwd.verify(u.Password, password);
+}
+
+/**
+ * Chain step form of {@link verifyPassword}. The user is taken from the step
+ * argument - a regression once read it from a never-passed second parameter.
+ *
+ * @param password - plain-text password to verify
+ */
+export function passwordMatch(password: string) {
+  return (u: User): Promise<boolean> => verifyPassword(u, password);
 }
 
 /**
@@ -731,76 +1074,68 @@ export function passwordMatch(password: string) {
 export async function login(identifier: number | string | User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  return await _chain(
-    _login_lookup(identifier),
-    _catch(
-      (u: User) => {
-        return _chain(
-          async () => {
-            // Refuse before the password is even checked, so a locked account
-            // cannot be probed at all during the lockout window.
-            await _assert_not_locked(u);
-            return _service('rbac.auth', AuthProvider)();
-          },
-          async (sAuth: AuthProvider) => sAuth.authenticate(u.Email, password),
-          _update<User>({ LastLoginAt: DateTime.now() }),
-          _clear_login_throttle(),
-          _user_ev(UserLogged),
-        );
-      },
-      (err, u: User) => {
-        return _chain(
-          () => u,
+  // A lookup failure ( unknown account ) is NOT counted as a failed login -
+  // there is no account to count it against.
+  const u = await loginLookup(identifier);
 
-          // count the failure and lock the account once the configured
-          // threshold is reached
-          _register_failed_login(err),
+  try {
+    // Refuse before the password is even checked, so a locked account
+    // cannot be probed at all during the lockout window.
+    assertNotLocked(u);
 
-          // send event of failed login
-          _user_ev(UserLoginFailed, err),
+    const sAuth = await service('rbac.auth', AuthProvider);
 
-          // rethrow error for caller
-          () => {
-            throw err;
-          },
-        );
-      },
-    ),
-  );
+    // the authenticated user is a FRESH row read by the auth provider ( with
+    // metadata populated ) - every step below acts on it, not on the lookup
+    const authenticated = await sAuth.authenticate(u.Email, password);
+
+    await updateModel(authenticated, { LastLoginAt: DateTime.now() });
+    await clearLoginThrottle(authenticated);
+    await ev(new UserLogged(authenticated));
+
+    return authenticated;
+  } catch (err) {
+    // count the failure and lock the account once the configured
+    // threshold is reached, then notify and rethrow for the caller
+    await registerFailedLogin(u, err);
+    await ev(new UserLoginFailed(u, err));
+
+    throw err;
+  }
 }
 
 /**
  * Resolves the user a login attempt names, answering an authentication failure
  * rather than an orm one when no such account exists.
  *
- * {@link _user_unsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
- * neither `ErrorCode` nor `InvalidArgument`: the login controller cannot read it
+ * {@link getUserUnsafe} ends in `firstOrFail()`, whose `OrmNotFoundException` is
+ * neither a rbac exception nor `InvalidArgument`: the login controller cannot read it
  * as an authentication failure, so it rethrows and `@spinajs/orm-http` maps it to
  * a 404 while a wrong password answers 401. That difference is an
  * account-enumeration oracle — the status code alone tells a caller whether an
- * address is registered. Both cases carry `E_INVALID_CREDENTIALS`, exactly as
+ * address is registered. Both cases throw {@link InvalidCredentials}, exactly as
  * {@link SimpleDbAuthProvider.authenticate} already does for the password it
  * cannot verify.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
  */
-function _login_lookup(identifier: number | string | User): () => Promise<User> {
+async function loginLookup(identifier: number | string | User): Promise<User> {
   const id = _check_arg(_trim(), _non_nil())(identifier, 'identifier');
 
   if (id instanceof UserBase) {
-    return () => Promise.resolve(id as User);
+    return id as User;
   }
 
-  return () => UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new ErrorCode(AthenticationErrorCodes.E_INVALID_CREDENTIALS, 'no user with given email'));
+  return UserBase.query().whereAnything(id).populate('Metadata').firstOrThrow(new InvalidCredentials('no user with given email')) as Promise<User>;
 }
 
 /**
  * Throws when the account is inside a lockout window opened by
- * {@link _register_failed_login}.
+ * {@link registerFailedLogin}.
  *
  * @param u - user attempting to authenticate
  */
-async function _assert_not_locked(u: User): Promise<void> {
+export function assertNotLocked(u: User): void {
   const raw = u?.Metadata?.[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
 
   if (!raw) {
@@ -810,8 +1145,8 @@ async function _assert_not_locked(u: User): Promise<void> {
   const lockedUntil = raw instanceof DateTime ? raw : DateTime.fromISO(String(raw));
 
   if (lockedUntil.isValid && lockedUntil > DateTime.now()) {
-    throw new ErrorCode(AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED, `Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
-      user: u,
+    throw new LoginAttemptsExceeded(`Too many failed login attempts, account is temporarily locked until ${lockedUntil.toISO()}`, {
+      user: u.Uuid,
       lockedUntil,
     });
   }
@@ -820,26 +1155,22 @@ async function _assert_not_locked(u: User): Promise<void> {
 /**
  * Clears the failure counter and any expired lock after a successful login.
  */
-function _clear_login_throttle() {
-  return async (u: User) => {
-    const meta = u?.Metadata;
+export async function clearLoginThrottle(u: User): Promise<void> {
+  const meta = u?.Metadata;
 
-    if (!meta) {
-      return u;
-    }
+  if (!meta) {
+    return;
+  }
 
-    const hasAttempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) > 0;
-    const hasLock = Boolean(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL]);
+  const hasAttempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) > 0;
+  const hasLock = Boolean(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL]);
 
-    if (!hasAttempts && !hasLock) {
-      return u;
-    }
+  if (!hasAttempts && !hasLock) {
+    return;
+  }
 
-    await meta.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
-    await meta.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
-
-    return u;
-  };
+  await meta.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
+  await meta.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
 }
 
 /**
@@ -851,38 +1182,35 @@ function _clear_login_throttle() {
  * itself the lockout is not counted — otherwise hammering a locked account
  * would keep extending the lock indefinitely.
  *
+ * @param u - user whose failed attempt is recorded
  * @param err - the error that ended the login attempt
  */
-function _register_failed_login(err: unknown) {
-  return async (u: User) => {
-    const meta = u?.Metadata;
+export async function registerFailedLogin(u: User, err: unknown): Promise<void> {
+  const meta = u?.Metadata;
 
-    if (!meta) {
-      return u;
-    }
+  if (!meta) {
+    return;
+  }
 
-    if (err instanceof ErrorCode && err.code === AthenticationErrorCodes.E_LOGIN_ATTEMPTS_EXCEEDED) {
-      return u;
-    }
+  if (err instanceof LoginAttemptsExceeded) {
+    return;
+  }
 
-    const blockAfter = await _cfg<number>('rbac.password.blockAfterAttempts', 5)();
-    const lockoutTime = await _cfg<number>('rbac.password.lockoutTime', 15 * 60)();
+  const blockAfter = cfg<number>('rbac.password.blockAfterAttempts', 5);
+  const lockoutTime = cfg<number>('rbac.password.lockoutTime', 15 * 60);
 
-    if (!blockAfter || blockAfter <= 0) {
-      return u;
-    }
+  if (!blockAfter || blockAfter <= 0) {
+    return;
+  }
 
-    const attempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) + 1;
+  const attempts = Number(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] ?? 0) + 1;
 
-    if (attempts >= blockAfter) {
-      meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = 0;
-      meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().plus({ seconds: lockoutTime }).toISO();
-    } else {
-      meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = attempts;
-    }
+  if (attempts >= blockAfter) {
+    meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = 0;
+    meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().plus({ seconds: lockoutTime }).toISO();
+  } else {
+    meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS] = attempts;
+  }
 
-    await meta.update();
-
-    return u;
-  };
+  await meta.update();
 }

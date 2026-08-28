@@ -343,6 +343,56 @@ describe('Admin user controllers', function () {
       expect(created.Uuid).to.be.a('string');
     });
 
+    /**
+     * `User.Role` has always been a SET, and roles are typically switchable
+     * profiles one person may legitimately hold several of (a seller working
+     * for two companies, an administrator who also edits content). The DTO
+     * accepted a single string, so the only way to give an account a second
+     * role was the separate grant route — one request per role, none of them
+     * atomic with the creation.
+     */
+    it('creates a user holding every role of a list', async () => {
+      await usersController.addUser(await admin(), { Login: 'multi', Email: 'multi@spinajs.pl', Role: ['user', 'guest'] } as any);
+
+      const created = await User.query().whereLogin('multi').firstOrFail();
+      expect(created.Role).to.have.members(['user', 'guest']);
+    });
+
+    it('still accepts a single role name', async () => {
+      await usersController.addUser(await admin(), { Login: 'single', Email: 'single@spinajs.pl', Role: 'user' } as any);
+
+      expect((await User.query().whereLogin('single').firstOrFail()).Role).to.deep.equal(['user']);
+    });
+
+    // Every entry is guard-checked, so a duplicate would be checked twice and
+    // stored twice.
+    it('trims and de-duplicates the list', async () => {
+      await usersController.addUser(await admin(), { Login: 'dedup', Email: 'dedup@spinajs.pl', Role: ['user', ' user ', 'guest'] } as any);
+
+      expect((await User.query().whereLogin('dedup').firstOrFail()).Role).to.have.members(['user', 'guest']);
+    });
+
+    // The guard runs per entry, so ONE refused role must refuse the whole
+    // request - a partially applied role list is not something the caller asked
+    // for and not something they can see.
+    it('refuses the whole list when one role is not allowed', async () => {
+      await expect(usersController.addUser(await admin(), { Login: 'partly', Email: 'partly@spinajs.pl', Role: ['user', 'superadmin'] } as any)).to.be.rejectedWith(/grants more than the caller holds/);
+
+      expect(await User.query().whereLogin('partly').first(), 'nothing may be created when the guard refuses').to.not.exist;
+    });
+
+    /**
+     * The temporary password is generated, hashed and thrown away - never
+     * returned, never mailed - so without a reset token the new account has no
+     * way in at all and an administrator had to remember a second screen.
+     */
+    it('hands the account over by issuing a password reset token', async () => {
+      await usersController.addUser(await admin(), { Login: 'handover', Email: 'handover@spinajs.pl', Role: 'user' } as any);
+
+      const created = await User.query().whereLogin('handover').populate('Metadata').firstOrFail();
+      expect(created.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a new account must be reachable by its owner').to.be.a('string');
+    });
+
     // Regression, reported from production:
     //   "Error in controller POST at path /api/users Exception:
     //    rbac.actions.create.beforeCreate should not be null, undefined or empty"
@@ -425,7 +475,7 @@ describe('Admin user controllers', function () {
           Role: 'user',
           Metadata: { [USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]: 'known-token' },
         } as any),
-      ).to.be.rejectedWith(/cannot be set through this endpoint/);
+      ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
 
       expect(await User.query().whereLogin('planted').first()).to.not.exist;
     });
@@ -440,7 +490,7 @@ describe('Admin user controllers', function () {
           Role: 'user',
           Metadata: { '*': 'overwritten' },
         } as any),
-      ).to.be.rejectedWith(/cannot be set through this endpoint/);
+      ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
     });
 
     it('emits the UserCreated event', async () => {
@@ -456,6 +506,27 @@ describe('Admin user controllers', function () {
 
     it('rejects a duplicated login with a conflict, not a driver error', async () => {
       await expect(usersController.addUser(await admin(), { Login: 'user', Email: 'other@spinajs.pl', Role: 'user' } as any)).to.be.rejectedWith(/already in use/);
+    });
+
+    /**
+     * The message alone says something clashed, never WHICH field — a form
+     * receiving only that can do nothing but show a banner. `parameter` carries
+     * the same ajv-shaped per-field detail a schema rejection does, and
+     * `__handle_error__` spreads the exception's own enumerable properties into
+     * the body, so it survives the trip to the client.
+     */
+    it('names the clashing field in the conflict, in the ajv shape a schema rejection uses', async () => {
+      const error = await usersController.addUser(await admin(), { Login: 'other', Email: 'user@spinajs.pl', Role: 'user' } as any).catch((e: any) => e);
+
+      expect(error.parameter).to.be.an('array').with.lengthOf(1);
+      expect(error.parameter[0]).to.include({ instancePath: '/Email', keyword: 'duplicate' });
+      expect(error.parameter[0].params).to.deep.equal({ field: 'Email' });
+    });
+
+    it('names both fields when the login and the email are each taken', async () => {
+      const error = await usersController.addUser(await admin(), { Login: 'user', Email: 'user@spinajs.pl', Role: 'user' } as any).catch((e: any) => e);
+
+      expect(error.parameter.map((p: any) => p.instancePath)).to.have.members(['/Login', '/Email']);
     });
 
     it('rejects a malformed email', async () => {
@@ -493,6 +564,25 @@ describe('Admin user controllers', function () {
       expect(updated.Login).to.eq('renamed');
       expect(updated.Email).to.eq('renamed@spinajs.pl');
       expect(updated.Role).to.deep.eq(['admin']);
+    });
+
+    it('replaces the whole role list when one is sent', async () => {
+      const user = await byUuid(USER_UUID);
+
+      await usersController.updateUser(await admin(), user, { Role: ['user', 'guest'] } as any);
+
+      expect((await byUuid(USER_UUID)).Role).to.have.members(['user', 'guest']);
+    });
+
+    // The list is a REPLACEMENT, so dropping an entry is a revocation and goes
+    // through the revoke half of the guard.
+    it('revokes the roles a shorter list leaves out', async () => {
+      const user = await byUuid(USER_UUID);
+      await usersController.updateUser(await admin(), user, { Role: ['user', 'guest'] } as any);
+
+      await usersController.updateUser(await admin(), await byUuid(USER_UUID), { Role: ['guest'] } as any);
+
+      expect((await byUuid(USER_UUID)).Role).to.deep.equal(['guest']);
     });
 
     it('keeps existing values for fields that are not sent', async () => {
@@ -664,7 +754,13 @@ describe('Admin user controllers', function () {
     });
 
     it('is switchable: unknown roles may be allowed', async () => {
+      // Two independent layers each refuse an undeclared role: this controller's
+      // own DefaultRoleGuard, and rbac's own assertRolesExist() inside grant()
+      // (packages/rbac/src/actions.ts, gated by rbac.requireKnownRole). Both must
+      // be turned off for 'wizard' to actually get through - flipping only the
+      // guard above would still be refused one layer further in.
       DI.get(Configuration)!.set('rbac.admin.roleGuard.requireKnownRole', false);
+      DI.get(Configuration)!.set('rbac.requireKnownRole', false);
 
       const result = await rolesController.addRole(await admin(), await byUuid(USER_UUID), { role: 'wizard' } as any);
       expect(result).to.be.instanceOf(Ok);

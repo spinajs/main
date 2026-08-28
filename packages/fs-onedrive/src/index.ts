@@ -1,9 +1,9 @@
 import { ClientSecretCredential } from '@azure/identity';
 import { Client } from '@microsoft/microsoft-graph-client';
 
-import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log-common';
-import { fs, IStat, IZipResult } from '@spinajs/fs';
+import { fs, getFs, IStat, IZipResult } from '@spinajs/fs';
 import { Config } from '@spinajs/configuration';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
@@ -73,7 +73,7 @@ export class fsOneDrive extends fs {
       },
     });
 
-    this.TempFs = await DI.resolve<Promise<fs>>('__file_provider__', ['fs-temp']);
+    this.TempFs = await getFs('fs-temp');
   }
 
   private notImplemented(method: string): never {

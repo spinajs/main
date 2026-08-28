@@ -1,6 +1,6 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
-import { activate, ban, changePassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/rbac';
+import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { FromModel } from '@spinajs/orm-http';
@@ -118,7 +118,7 @@ export class Security extends BaseController {
   @Patch('changePassword/:user')
   @Permission(['updateAny', 'updateOwn'])
   public async changeUserPassword(@FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: ChangePasswordDto) {
-    await changePassword(dto.password)(user);
+    await changeUserPassword(user, dto.password);
     return new Ok();
   }
 

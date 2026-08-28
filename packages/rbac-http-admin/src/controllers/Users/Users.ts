@@ -1,10 +1,9 @@
-import { Autoinject } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { create, deleteUser, PasswordProvider, User, USER_SECURITY_METADATA_KEYS, _user_update, userModel } from '@spinajs/rbac';
+import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 
@@ -36,13 +35,65 @@ const MAX_PAGE_SIZE = 100;
 
 const DEFAULT_PAGE_SIZE = 10;
 
+/**
+ * Upper bound on how many roles one account may be given in a single request.
+ * An account holds a handful of switchable profiles, not an unbounded list, and
+ * every entry costs a guard check.
+ */
+const MAX_ROLES_PER_USER = 16;
+
+/**
+ * A single role name: no whitespace anywhere, so a "role" made only of blanks
+ * cannot pass as one.
+ *
+ * `minLength` alone accepts `' '` and `['  ', '']` — every entry is a string of
+ * allowed length — which reached `create()` as an empty role list and produced
+ * an account nobody can use. The pattern refuses that here, in the schema, so
+ * the caller gets a 400 naming the offending field instead of a handler-thrown
+ * error with no field attached. Banning EDGE whitespace too keeps `uniqueItems`
+ * honest: `'user'` and `' user '` would otherwise be two distinct entries
+ * denoting one role, and the guard is charged per entry.
+ */
+const ROLE_NAME = {
+  type: 'string',
+  minLength: 1,
+  maxLength: 32,
+  pattern: '^\\S+$',
+};
+
+/**
+ * The `Role` field of both DTOs: one role name, or a list of them.
+ *
+ * An account has always held a role LIST (`User.Role` is a set), and the roles
+ * an application defines are typically switchable profiles a person may hold
+ * several of at once. The single-string form is kept because it is what every
+ * existing caller sends.
+ *
+ * `minItems` is what refuses `[]`. Stripping every role off an account is not
+ * an update these routes perform: the account would keep existing while being
+ * able to do nothing at all, and only another administrator could repair it.
+ */
+const ROLE_FIELD = {
+  description: 'RBAC role to assign to the user, or a list of roles',
+  oneOf: [
+    ROLE_NAME,
+    {
+      type: 'array',
+      items: ROLE_NAME,
+      minItems: 1,
+      maxItems: MAX_ROLES_PER_USER,
+      uniqueItems: true,
+    },
+  ],
+};
+
 @Schema({
   type: 'object',
   $id: 'arrow.common.createUserDto',
   properties: {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
-    Role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role to assign to the user' },
+    Role: ROLE_FIELD,
     Metadata: {
       type: 'object',
       $id: 'arrow.common.userMetadata',
@@ -55,13 +106,31 @@ const DEFAULT_PAGE_SIZE = 10;
 export class CreateUserDto {
   public Login: string;
   public Email: string;
-  public Role: string;
+  public Role: string | string[];
 
   public Metadata?: { [key: string]: any };
 
   constructor(data: Partial<CreateUserDto>) {
     Object.assign(this, data);
   }
+}
+
+/**
+ * The roles a `Role` field denotes, whether it was sent as one name or a list.
+ *
+ * Shape normalisation only — every rejection lives in {@link ROLE_FIELD}. The
+ * trim and the de-duplication are belt-and-braces for callers that reach the
+ * handler without body validation ( tests, in-process calls ): the guard is
+ * charged per entry, so a duplicate would be checked twice.
+ */
+function roleList(role?: string | string[]): string[] {
+  if (role === undefined || role === null) {
+    return [];
+  }
+
+  const wanted = (Array.isArray(role) ? role : [role]).map((r) => String(r ?? '').trim()).filter((r) => r.length > 0);
+
+  return [...new Set(wanted)];
 }
 
 /**
@@ -80,14 +149,14 @@ export class CreateUserDto {
   properties: {
     Login: { type: 'string', minLength: 3, maxLength: 32, description: 'Unique login name (3–32 characters)' },
     Email: { type: 'string', format: 'email', description: 'Unique email address' },
-    Role: { type: 'string', minLength: 1, maxLength: 32, description: 'RBAC role to assign to the user' },
+    Role: ROLE_FIELD,
   },
   additionalProperties: false,
 })
 export class UpdateUserDto {
   public Login?: string;
   public Email?: string;
-  public Role?: string;
+  public Role?: string | string[];
 
   constructor(data: Partial<UpdateUserDto>) {
     Object.assign(this, data);
@@ -177,9 +246,6 @@ const USER_FILTER: IColumnFilter<User>[] = [
 @Policy(AuthorizedPolicy)
 @Resource('users')
 export class Users extends BaseController {
-  @Autoinject()
-  protected PasswordProvider: PasswordProvider;
-
   @AutoinjectService('rbac.admin.roleGuard')
   protected RoleGuard: RoleGuard;
 
@@ -343,29 +409,34 @@ export class Users extends BaseController {
   /**
    * Create user (admin)
    * Creates a new user account with a system-generated temporary password. The account is
-   * created inactive and the temporary password is never returned — issue a reset link with
-   * `POST /users/security/password-reset-request/:user` and activate the account once the
-   * user has set their own password.
+   * created inactive and the temporary password is never returned: a single-use password-reset
+   * link is mailed to the address instead, so the owner sets their own password and nothing
+   * has to travel back through an administrator. Activate the account once they have.
+   * `Role` takes one role name or a list of them; every entry is checked by the role guard, and
+   * one refused entry refuses the whole request.
    * @security cookieAuth
    * @returns {User} Created user account
-   * @response 400 Validation error — missing required fields, invalid format, unknown role or a protected metadata key
+   * @response 400 Validation error — missing required fields, invalid format, an empty or unknown role, or a protected metadata key
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — createAny permission required, or the requested role grants more than the caller holds
-   * @response 409 Login or email already in use
+   * @response 403 Forbidden — createAny permission required, or a requested role grants more than the caller holds
+   * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
   @Permission(['createAny', 'createOwn'])
   public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
-    await this.RoleGuard.assertCanAssignRoles(actor, null, [data.Role]);
-    this.assertNoProtectedMetadata(data.Metadata);
-    await this.assertUnique(data.Login, data.Email);
+    const roles = roleList(data.Role);
 
-    const temporaryPassword = this.PasswordProvider.generate();
-    const { User: created } = await create(data.Email, data.Login, temporaryPassword, [data.Role], undefined, data.Metadata);
+    await this.RoleGuard.assertCanAssignRoles(actor, null, roles);
 
-    // NOTE: create() returns { User, Password } where Password is the plaintext
-    // temporary password. It must NOT be sent in the response — return only the
-    // created user (dehydrated, so the hash and internal id stay hidden too).
+    // No password: `create()` generates one AND mails the reset link that hands
+    // the account to its owner. Both belong to the action, not to this route —
+    // every other caller that creates an account needs them just as much, and
+    // the uniqueness refusal comes from there now for the same reason.
+    const { User: created } = await this.asDuplicateResponse(() => create(data.Email, data.Login, roles, { metadata: data.Metadata }));
+
+    // NOTE: create() also returns the plaintext generated password. It must NOT
+    // be sent in the response — return only the created user (dehydrated, so the
+    // hash and internal id stay hidden too).
     return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
   }
 
@@ -373,20 +444,27 @@ export class Users extends BaseController {
    * Update user (admin)
    * Partially updates a user account. All fields are optional — only provided fields are changed.
    * Metadata is NOT handled here; use the `/user/:uuid/metadata` routes.
+   * `Role` takes one role name or a list of them and REPLACES the account's whole role list, so
+   * an entry left out is revoked and goes through the revoke half of the role guard. An empty
+   * list is refused rather than applied.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
-   * @response 400 Validation error — invalid field format or unknown role
+   * @response 400 Validation error — invalid field format, an empty role list or an unknown role
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required, or the role change is refused by the role guard
+   * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
-   * @response 409 Login or email already in use by another account
    */
   @Patch(':user')
   @Permission(['updateAny', 'updateOwn'])
   public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
-    if (data.Role) {
-      const next = [data.Role];
+    // `data.Role` may be an ARRAY, and `[]` is truthy — so the presence check is
+    // on the FIELD, not on the value. An empty or blanks-only list never gets
+    // this far: `ROLE_FIELD` refuses it during body validation.
+    const next = data.Role !== undefined ? roleList(data.Role) : null;
+
+    if (next) {
       const added = next.filter((r) => !user.Role.includes(r));
       const removed = user.Role.filter((r) => !next.includes(r));
 
@@ -401,12 +479,12 @@ export class Users extends BaseController {
     }
 
     if ((data.Login && data.Login !== user.Login) || (data.Email && data.Email !== user.Email)) {
-      await this.assertUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id);
+      await this.asDuplicateResponse(() => assertUserUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id));
     }
 
     user.Login = data.Login ?? user.Login;
     user.Email = data.Email ?? user.Email;
-    user.Role = data.Role ? [data.Role] : user.Role;
+    user.Role = next ?? user.Role;
 
     await user.update();
 
@@ -462,9 +540,54 @@ export class Users extends BaseController {
       throw new InvalidArgument(`User ${uuid} is not deleted`);
     }
 
-    await _user_update({ DeletedAt: null as any })(user);
+    await updateUser(user, { DeletedAt: null as any });
 
     return new Ok();
+  }
+
+  /**
+   * Runs `work`, turning rbac's duplicate-account refusal into the 409 this API
+   * has always answered.
+   *
+   * rbac throws a transport-agnostic {@link UserAlreadyExists} — it has no business
+   * knowing about status codes — so the translation belongs here. `__handle_error__`
+   * looks the response up by `err.constructor.name`, which is why this rethrows a
+   * plain {@link ResourceDuplicated} rather than a subclass: a subclass would miss
+   * the 409 mapping entirely and answer 500.
+   *
+   * The 409 carries WHICH field clashed, not only that something did. The error
+   * body is built by spreading the thrown exception's own enumerable properties
+   * (`__handle_error__`, @spinajs/http), so `parameter` reaches the client
+   * alongside `message` in the shape {@link ValidationFailed} already uses for
+   * schema rejections — an ajv-style entry per offending field. A form can then
+   * mark the Email input rather than showing "something is already in use"
+   * somewhere off to the side.
+   */
+  protected async asDuplicateResponse<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (err) {
+      if (!(err instanceof UserAlreadyExists)) {
+        throw err;
+      }
+
+      const clashes = ((err.data as { fields?: string[] })?.fields ?? []).slice();
+      const duplicated = new ResourceDuplicated(err.message);
+
+      Object.assign(duplicated, {
+        parameter: clashes.map((field) => ({
+          // JSON Pointer into the request body, exactly as ajv reports one — a
+          // client maps it to its own field name with the same code path it
+          // already uses for a 400.
+          instancePath: `/${field}`,
+          keyword: 'duplicate',
+          params: { field },
+          message: `${field} already in use`,
+        })),
+      });
+
+      throw duplicated;
+    }
   }
 
   /**
@@ -485,64 +608,4 @@ export class Users extends BaseController {
     return column;
   }
 
-  /**
-   * Refuses metadata keys that decide account access.
-   *
-   * `user:pwd_reset:token` is a bearer credential for the public reset endpoint
-   * and `user:2fa:*` is the second factor itself — writing either through a
-   * generic key-value merge hands out an account rather than annotating one.
-   * Ban and lockout keys are refused for the same reason bans have their own
-   * route: written directly they skip the event, the email and the session
-   * revocation that make a ban mean something.
-   */
-  protected assertNoProtectedMetadata(metadata?: { [key: string]: any }): void {
-    if (!metadata) {
-      return;
-    }
-
-    const offending = Object.keys(metadata).filter((key) => {
-      // A glob reaches the metadata relation's setter as a PATTERN and rewrites
-      // every matching entry, so `*` alone would overwrite the whole set —
-      // including the protected keys listed above.
-      if (key.includes('*') || key.includes('?')) {
-        return true;
-      }
-
-      return USER_SECURITY_METADATA_KEYS.includes(key);
-    });
-
-    if (offending.length > 0) {
-      throw new InvalidArgument(`Metadata keys cannot be set through this endpoint: ${offending.join(', ')}`);
-    }
-  }
-
-  /**
-   * Rejects a login / email already taken by another account.
-   *
-   * Soft-deleted rows are included on purpose: they still occupy the unique
-   * indexes, so ignoring them would trade this 409 for a driver error and a 500.
-   */
-  // base User on purpose: uniqueness is global — a scoped model would hide the
-  // clashing row and turn this 409 into a driver 500
-  protected async assertUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
-    const clashes: string[] = [];
-
-    if (login) {
-      const found = await User.query().withDeleted().where('Login', login).first();
-      if (found && found.Id !== exceptUserId) {
-        clashes.push('Login');
-      }
-    }
-
-    if (email) {
-      const found = await User.query().withDeleted().where('Email', email).first();
-      if (found && found.Id !== exceptUserId) {
-        clashes.push('Email');
-      }
-    }
-
-    if (clashes.length > 0) {
-      throw new ResourceDuplicated(`${clashes.join(' and ')} already in use`);
-    }
-  }
 }

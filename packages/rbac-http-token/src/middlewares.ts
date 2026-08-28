@@ -3,7 +3,7 @@ import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenException } from './exceptions.js';
 import { User } from '@spinajs/rbac';
 
 import { validateToken, touchToken } from './actions.js';
@@ -94,7 +94,7 @@ export class TokenAuthMiddleware extends ServerMiddleware {
           // safe to write down - `validateToken` attaches it as `data.token` on
           // every failure past the lookup. The presented plaintext is NEVER
           // logged, here or anywhere else.
-          const data = err instanceof ErrorCode ? (err.data as { token?: string } | undefined) : undefined;
+          const data = err instanceof AccessTokenException ? (err.data as { token?: string } | undefined) : undefined;
           this.Log.warn(`Access token rejected: ${(err as Error).message}`, { Ip: req.ip, Token: data?.token });
           return next();
         }

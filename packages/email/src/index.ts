@@ -11,6 +11,7 @@ export * from './transports.js';
 export * from './jobs/EmailSend.js';
 export * from './events/EmailSent.js';
 export * from './events/EmailSendFailed.js';
+export * from './helpers.js';
 export * from "./fp.js";
 
 @Injectable(Bootstrapper)

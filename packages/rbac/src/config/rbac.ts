@@ -170,12 +170,44 @@ const rbac = {
         $extend: ['admin.users'],
       },
     },
+
+    /**
+     * `create()` and `grant()` (`packages/rbac/src/actions.ts`) refuse a role
+     * that is neither present in `grants` above nor declared by name in `roles`.
+     * Set this to `false` to turn that check off wholesale, for an application
+     * whose roles are defined at runtime rather than in this static config -
+     * the same escape hatch `@spinajs/rbac-http-admin`'s `DefaultRoleGuard` has
+     * long had for its own, separate route-level check
+     * (`rbac.admin.roleGuard.requireKnownRole`). The two are independent: an
+     * application using both layers must turn off both to actually allow an
+     * undeclared role through.
+     */
+    requireKnownRole: true,
+
     defaultRole: 'guest',
     auth: {
       service: 'SimpleDbAuthProvider',
     },
     password: {
       service: 'BasicPasswordProvider',
+
+      /**
+       * How auto-generated passwords are built. Separate from `validation.rule`
+       * on purpose: the rule is a JSON schema describing what a HUMAN may
+       * choose, and a schema is not something you can generate from. This says
+       * which characters to draw and how many.
+       *
+       * `characters` entries are concatenated into one pool, so both
+       * `['abc', 'def']` and `['a', 'b', 'c']` mean the same thing.
+       *
+       * Keep this pool able to satisfy `validation.rule` — the default rule
+       * demands a digit, so the default pool contains digits. `generate()`
+       * asserts the result against the rule and throws if the two disagree.
+       */
+      generator: {
+        length: 16,
+        characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'],
+      },
 
       validation: {
         service: 'BasicPasswordValidationProvider',
@@ -214,6 +246,18 @@ const rbac = {
        * How long we should wait to reset password ( after this time reset token is invalid )
        */
       passwordResetWaitTime: 60 * 60,
+
+      /**
+       * The application page that redeems a reset token, e.g.
+       * `https://app.example.com/password-reset`.
+       *
+       * `passwordChangeRequest` appends `token` and `email` to it and hands the
+       * result to the `changePassword` template as `ResetUrl`; that page sends
+       * both back to `POST /auth/password/reset`. Empty by default because only
+       * the application knows its own address — a template then renders without
+       * a link rather than with one pointing nowhere.
+       */
+      resetUrl: '',
 
       /**
        * Consecutive failed logins that lock the account. 0 disables throttling.

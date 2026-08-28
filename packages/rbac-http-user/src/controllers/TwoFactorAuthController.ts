@@ -140,8 +140,8 @@ export class TwoFactorAuthController extends BaseController {
    * module-level `auth2Fa` action in a protected method so tests can stub the
    * verification without a TOTP/DB setup.
    */
-  protected verifyTwoFactorToken(user: UserModel, token: string): Promise<void> {
-    return auth2Fa(user, token) as Promise<void>;
+  protected async verifyTwoFactorToken(user: UserModel, token: string): Promise<void> {
+    await auth2Fa(user, token);
   }
 
   /**

@@ -3,7 +3,7 @@ import { posix } from "path";
 import { Configuration, format } from "@spinajs/configuration";
 import { InvalidOption } from "@spinajs/exceptions";
 import { DI, IInstanceCheck, Injectable, PerInstanceCheck } from "@spinajs/di";
-import { fs } from "@spinajs/fs";
+import { fs, getFs } from "@spinajs/fs";
 import { IFileTargetOptions, Logger, Log, ILogEntry, LogTarget, BatchQueue } from "@spinajs/log-common";
 
 import { LogArchiveService } from "../archive/LogArchiveService.js";
@@ -132,8 +132,8 @@ export class FileTarget extends LogTarget<IFileTargetOptions> implements IInstan
     const o = this.Options.options;
 
     // o.fs is always populated from LOG_FILE_DEFAULTS ( see resolve() )
-    this.Fs = DI.resolve<fs>("__file_provider__", [o.fs]);
-    this.ArchiveFs = o.archiveFs ? DI.resolve<fs>("__file_provider__", [o.archiveFs]) : this.Fs;
+    this.Fs = getFs(o.fs!);
+    this.ArchiveFs = o.archiveFs ? getFs(o.archiveFs) : this.Fs;
 
     // path is relative to the fs provider base path; ensure its directory exists
     const logDir = posix.dirname(this.activePath());

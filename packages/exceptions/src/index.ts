@@ -14,15 +14,6 @@ export class Exception extends Error {
 }
 
 /**
- * Exception with error code
- */
-export class ErrorCode extends Exception {
-  constructor(public code: number, message?: string, public data? : unknown) {
-    super(message);
-  }
-}
-
-/**
  * Exception thrown when connection to resource is not found
  */
 export class ConnectionNotFound extends Exception {}

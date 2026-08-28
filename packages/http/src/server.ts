@@ -1,7 +1,7 @@
-import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject, DI } from '@spinajs/di';
+import { AsyncService, IContainer, Autoinject, Injectable, Container, Inject } from '@spinajs/di';
 import { Config, Configuration } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
-import { fsNative, IFsLocalOptions } from '@spinajs/fs';
+import { fsNative, getFs, IFsLocalOptions } from '@spinajs/fs';
 import { Templates } from '@spinajs/templates';
 import '@spinajs/templates-pug';
 
@@ -118,7 +118,7 @@ export class HttpServer extends AsyncService {
   
     this._createServer();
 
-    const f = DI.resolve<fsNative<IFsLocalOptions>>('__file_provider__', ['__fs_http_response_templates__']);
+    const f = getFs('__fs_http_response_templates__') as fsNative<IFsLocalOptions>;
     if (!f) {
       this.Log.info(`No fs provider for __fs_http_response_templates__ registered, response templates will not be available.`);
     } else {

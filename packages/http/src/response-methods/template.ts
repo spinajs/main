@@ -1,6 +1,5 @@
-import { DI } from '@spinajs/di';
 import { IOFail } from '@spinajs/exceptions';
-import { fs } from '@spinajs/fs';
+import { fs, getFs } from '@spinajs/fs';
 import * as express from 'express';
 import _ from 'lodash';
 import { HTTP_STATUS_CODE, IResponseOptions, ITemplateResponseOptions, Response } from '../interfaces.js';
@@ -19,8 +18,8 @@ export class TemplateResponse extends Response {
     super(model);
 
     this.fsTemplates = _.isString(file)
-      ? DI.resolve<fs>('__file_provider__', ['__fs_http_templates__'])
-      : DI.resolve<fs>('__file_provider__', [file.provider]);
+      ? getFs('__fs_http_templates__')
+      : getFs(file.provider as string);
 
     this.templateFile = file;
   }

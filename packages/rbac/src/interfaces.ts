@@ -108,7 +108,8 @@ export abstract class PasswordProvider {
   public abstract hash(input: string): Promise<string>;
 
   /**
-   * Generates random user password
+   * Generates a random password drawn from `rbac.password.generator` and
+   * satisfying `rbac.password.validation.rule`.
    */
   public abstract generate(): string;
 }
@@ -300,13 +301,6 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   protected isExpired(s: ISession): boolean {
     return !!s.Expiration && s.Expiration <= DateTime.now();
   }
-}
-
-export enum AthenticationErrorCodes {
-  E_USER_BANNED = 1,
-  E_USER_NOT_ACTIVE = 2,
-  E_INVALID_CREDENTIALS = 3,
-  E_LOGIN_ATTEMPTS_EXCEEDED = 4,
 }
 
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';

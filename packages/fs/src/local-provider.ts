@@ -3,7 +3,7 @@ import { IOFail } from '@spinajs/exceptions';
 import { constants, createReadStream, createWriteStream, existsSync, readFileSync, Stats } from 'fs';
 import { rm, stat, readdir, rename, mkdir, access, open, appendFile, readFile } from 'node:fs/promises';
 import { DateTime } from 'luxon';
-import { DI, Injectable, PerInstanceCheck } from '@spinajs/di';
+import { Injectable, PerInstanceCheck } from '@spinajs/di';
 import { fs, IFsLocalOptions, IStat, IZipResult } from './interfaces.js';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve as pathResolve } from 'path';
 import { Log, Logger } from '@spinajs/log-common';
@@ -11,6 +11,7 @@ import archiver from 'archiver';
 import unzipper from 'unzipper';
 import { cp, FileHandle } from 'fs/promises';
 import { toArray } from '@spinajs/util';
+import { getFs } from './helpers.js';
 
 /**
  * Abstract layer for file operations.
@@ -405,7 +406,7 @@ export class fsNative<T extends IFsLocalOptions> extends fs {
 
     await this.assertSourcesExist(paths);
 
-    const fs = dstFs ?? (await DI.resolve<fs>('__file_provider__', ['fs-temp']));
+    const fs = dstFs ?? (await getFs('fs-temp'));
     const outFile = dstFile ?? `${fs.tmpname()}.zip`;
     const wStream = await fs.writeStream(outFile);
     const archive = archiver('zip');

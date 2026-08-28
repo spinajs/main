@@ -74,7 +74,7 @@ describe('RbacSystemUserFactory', function () {
     // model ( override=true, exactly as a real app's bootstrapper does ).
     DI.register(AppUserModel).asValue(RBAC_USER_MODEL, true);
 
-    const provider = DI.resolve(PasswordProvider);
+    const provider = await DI.resolve(PasswordProvider);
     const existing = await User.select().where('Login', '__system__').first();
     if (!existing) {
       await new User({

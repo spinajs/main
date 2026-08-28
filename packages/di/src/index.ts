@@ -10,6 +10,8 @@ export * from './binder.js';
 export * from './registry.js';
 export * from './container.js';
 export * as DI from './root.js';
+// imperative-first entry points, also available under the DI namespace
+export { resolve, get, getRegisteredTypes, check } from './root.js';
 export * from './exceptions.js';
 export * from './fp.js';
 export * from './descriptor-inheritance.js';

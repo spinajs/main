@@ -6,13 +6,16 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, create } from '@spinajs/rbac';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenRoleNotAllowed } from '../src/exceptions.js';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenRolePolicy } from '../src/interfaces.js';
-import { E_TOKEN_CODES, createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
+import { createToken, deleteToken, grantTokenRole, revokeTokenRole } from '../src/actions.js';
+import sinon from 'sinon';
+import { DefaultQueueService } from '@spinajs/queue';
+import { AccessTokenRoleRevoked } from '../src/events/index.js';
 import '../src/generator.js';
 import '../src/role-policy.js';
 
@@ -67,7 +70,7 @@ describe('access token actions - crud', function () {
   });
 
   it('creates token for user, returns plaintext once, stores only hash', async () => {
-    const { User: owner } = await create('c1@spinajs.com', 'c1', 'password123', ['user', 'admin']);
+    const { User: owner } = await create('c1@spinajs.com', 'c1', ['user', 'admin'], { password: 'password123' });
 
     const { Token, Plaintext } = await createToken(owner, 'ci token', ['user'], null);
 
@@ -83,7 +86,7 @@ describe('access token actions - crud', function () {
   });
 
   it('accepts expiration date', async () => {
-    const { User: owner } = await create('c2@spinajs.com', 'c2', 'password123', ['user']);
+    const { User: owner } = await create('c2@spinajs.com', 'c2', ['user'], { password: 'password123' });
     const expires = DateTime.now().plus({ days: 7 });
 
     const { Token } = await createToken(owner, 'temp', ['user'], expires);
@@ -92,13 +95,13 @@ describe('access token actions - crud', function () {
   });
 
   it('rejects roles the owner does not hold', async () => {
-    const { User: owner } = await create('c3@spinajs.com', 'c3', 'password123', ['user']);
+    const { User: owner } = await create('c3@spinajs.com', 'c3', ['user'], { password: 'password123' });
 
     // the role-subset rule is a security invariant, so assert the exact
     // failure - "rejected somehow" would also pass on an unrelated crash
     const err = await createToken(owner, 'bad', ['admin'], null).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+    
 
     // nothing may be persisted by a refused create
     const rows = await AccessToken.where('Name', 'bad').all();
@@ -106,14 +109,14 @@ describe('access token actions - crud', function () {
   });
 
   it('resolves owner by uuid string', async () => {
-    const { User: owner } = await create('c4@spinajs.com', 'c4', 'password123', ['user']);
+    const { User: owner } = await create('c4@spinajs.com', 'c4', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner.Uuid, 'by uuid', ['user'], null);
     const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
     expect(row.user_id).to.equal(owner.Id);
   });
 
   it('deletes token by uuid', async () => {
-    const { User: owner } = await create('c5@spinajs.com', 'c5', 'password123', ['user']);
+    const { User: owner } = await create('c5@spinajs.com', 'c5', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner, 'to delete', ['user'], null);
 
     await deleteToken(Token.Uuid);
@@ -122,7 +125,7 @@ describe('access token actions - crud', function () {
   });
 
   it('grants and revokes role on token, only owner-held roles grantable', async () => {
-    const { User: owner } = await create('c6@spinajs.com', 'c6', 'password123', ['user', 'admin']);
+    const { User: owner } = await create('c6@spinajs.com', 'c6', ['user', 'admin'], { password: 'password123' });
     const { Token } = await createToken(owner, 'roles', ['user'], null);
 
     const granted = await grantTokenRole(Token.Uuid, 'admin');
@@ -137,17 +140,17 @@ describe('access token actions - crud', function () {
     expect(reloaded.Roles).to.deep.equal(['admin']);
 
     const err = await grantTokenRole(Token.Uuid, 'system').catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+    
   });
 
   it('refuses to revoke the last role, leaving the row untouched', async () => {
-    const { User: owner } = await create('c7@spinajs.com', 'c7', 'password123', ['user']);
+    const { User: owner } = await create('c7@spinajs.com', 'c7', ['user'], { password: 'password123' });
     const { Token } = await createToken(owner, 'single role', ['user'], null);
 
     const err = await revokeTokenRole(Token.Uuid, 'user').catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+    
 
     // an empty @Set() column stores as '' and reads back as [''] - a phantom
     // role that survives every later grant, so the refusal must be total
@@ -179,7 +182,7 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken stores the profile when the policy allows it', async () => {
-      const { User: owner } = await create('c8@spinajs.com', 'c8', 'password123', ['user']);
+      const { User: owner } = await create('c8@spinajs.com', 'c8', ['user'], { password: 'password123' });
 
       const { Token } = await createToken(owner, 'profiled', ['user'], null, 'admin');
 
@@ -191,11 +194,11 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken refuses a profile the policy does not allow', async () => {
-      const { User: owner } = await create('c9@spinajs.com', 'c9', 'password123', ['user']);
+      const { User: owner } = await create('c9@spinajs.com', 'c9', ['user'], { password: 'password123' });
 
       const err = await createToken(owner, 'bad-profile', ['user'], null, 'not-a-profile').catch((e: unknown) => e);
-      expect(err).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+      expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+      
 
       // nothing may be persisted by a refused create
       const rows = await AccessToken.where('Name', 'bad-profile').all();
@@ -203,7 +206,7 @@ describe('access token actions - crud', function () {
     });
 
     it('createToken validates roles against the profile, not the owner union', async () => {
-      const { User: owner } = await create('c10@spinajs.com', 'c10', 'password123', ['user']);
+      const { User: owner } = await create('c10@spinajs.com', 'c10', ['user'], { password: 'password123' });
 
       // control: with no profile 'extra' is allowed, so the refusal below can
       // only come from the profile-relative answer
@@ -211,23 +214,42 @@ describe('access token actions - crud', function () {
       expect(Token.Roles).to.deep.equal(['extra']);
 
       const err = await createToken(owner, 'narrowed', ['extra'], null, 'admin').catch((e: unknown) => e);
-      expect(err).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
-      expect((err as ErrorCode).data).to.deep.equal({ roles: ['extra'] });
+      expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+      
+      expect((err as AccessTokenRoleNotAllowed).data).to.deep.equal({ roles: ['extra'] });
     });
 
     it('grantTokenRole validates against the profile the token is pinned to', async () => {
-      const { User: owner } = await create('c11@spinajs.com', 'c11', 'password123', ['user']);
+      const { User: owner } = await create('c11@spinajs.com', 'c11', ['user'], { password: 'password123' });
       const { Token } = await createToken(owner, 'pinned', ['user'], null, 'admin');
 
       // granting reloads the token by uuid, so this also proves the pin
       // round-trips through the row rather than living on the instance only
       const err = await grantTokenRole(Token.Uuid, 'extra').catch((e: unknown) => e);
-      expect(err).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+      expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+      
 
       const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
       expect(reloaded.Roles).to.deep.equal(['user']);
     });
   });
+// Regression for finding R5 ( fixed ): revoking a role the token never
+  // carried is a no-op - no row write and no AccessTokenRoleRevoked event
+  // recording a revocation that never happened.
+  it('R5: revoking a role the token does not carry emits no event and keeps the row', async () => {
+    const { User: owner } = await create('c12@spinajs.com', 'c12', ['user', 'admin'], { password: 'password123' });
+    const { Token } = await createToken(owner, 'no-phantom', ['user'], null);
+
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const result = await revokeTokenRole(Token.Uuid, 'role-not-on-token');
+    sinon.restore();
+
+    expect(result.Roles).to.deep.equal(['user']);
+    expect(eStub.args.some((a) => a[0] instanceof AccessTokenRoleRevoked)).to.eq(false);
+
+    const reloaded = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    expect(reloaded.Roles).to.deep.equal(['user']);
+  });
 });
+

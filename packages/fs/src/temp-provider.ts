@@ -5,6 +5,7 @@ import { WriteStream } from 'fs';
 import { PassThrough } from 'stream';
 import { fs, IFsTempOptions, IStat, IZipResult } from './interfaces.js';
 import { MaxAgeTempCleanupStrategy, TempCleanupStrategy } from './temp-cleanup-strategy.js';
+import { getFs } from './helpers.js';
 
 /**
  * Temp filesystem. Use it for creating and storing temporary files and dirs.
@@ -61,7 +62,7 @@ export class fsTemp extends fs {
     }
 
     // throws ResolveException when backend fs is not registered
-    this.Provider = DI.resolve<fs>('__file_provider__', [this.Options.provider]);
+    this.Provider = getFs(this.Options.provider);
 
     const strategies = DI.RootContainer.Registry.getTypes(TempCleanupStrategy);
     const strategyName = this.Options.cleanupStrategy ?? MaxAgeTempCleanupStrategy.name;

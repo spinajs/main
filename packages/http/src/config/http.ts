@@ -80,6 +80,17 @@ const http = {
 
     },
     
+    /**
+     * Per-ip, per-route rate limiting ( ThrottleMiddleware ). Disabled by
+     * default - enable and add rules per app, eg. for the unauthenticated
+     * auth surface:
+     *   rules: [{ path: '/auth', methods: ['POST'], limit: 10, windowSeconds: 60 }]
+     */
+    throttle: {
+      enabled: false,
+      rules: [] as { path: string; methods?: string[]; limit: number; windowSeconds: number }[],
+    },
+
     ssl: {
       key: '',
       cert: '',

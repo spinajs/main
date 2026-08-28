@@ -5,7 +5,8 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 
 import { BadRequestResponse, Ok } from '@spinajs/http';
-import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidCredentials, TokenExpired, TokenInvalid } from '@spinajs/rbac';
 
 import { PasswordResetController } from '../src/controllers/PasswordResetController.js';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../src/dto/password-reset-dto.js';
@@ -53,7 +54,7 @@ describe('PasswordResetController', function () {
     it('answers an unknown address exactly as it answers a known one', async () => {
       const known = await body(await controller.requestReset(new PasswordResetRequestDto({ Email: 'me@spinajs.pl' })));
 
-      issueStub.rejects(new ErrorCode(3, 'user not found'));
+      issueStub.rejects(new InvalidCredentials('user not found'));
       const unknown = await controller.requestReset(new PasswordResetRequestDto({ Email: 'ghost@spinajs.pl' }));
 
       // identical status and body — the route must not be an enumeration oracle
@@ -93,7 +94,7 @@ describe('PasswordResetController', function () {
     });
 
     it('returns one opaque error for an expired token', async () => {
-      redeemStub.rejects(new ErrorCode(0, 'Password change token expired'));
+      redeemStub.rejects(new TokenExpired('Password change token expired'));
 
       const result = await controller.confirmReset(payload());
 
@@ -102,10 +103,10 @@ describe('PasswordResetController', function () {
     });
 
     it('returns the same opaque error for a wrong token and an unknown account', async () => {
-      redeemStub.rejects(new ErrorCode(1, 'token invalid'));
+      redeemStub.rejects(new TokenInvalid('token invalid'));
       const wrongToken = await body<any>(await controller.confirmReset(payload()));
 
-      redeemStub.rejects(new ErrorCode(3, 'user not found'));
+      redeemStub.rejects(new InvalidCredentials('user not found'));
       const unknownUser = await body<any>(await controller.confirmReset(payload({ Email: 'ghost@spinajs.pl' })));
 
       // a caller must not be able to tell these two apart

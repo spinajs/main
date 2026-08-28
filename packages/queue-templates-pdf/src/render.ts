@@ -2,7 +2,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Templates } from '@spinajs/templates';
 import { PdfRenderer } from '@spinajs/templates-pdf';
-import { fs, fsService, FsBootsrapper } from '@spinajs/fs';
+import { fsService, FsBootsrapper, getFs } from '@spinajs/fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { unlink } from 'fs/promises';
@@ -53,7 +53,7 @@ export async function renderPdfToProvider(req: IRenderRequest, onProgress: (m: P
 
   const templates = await DI.resolve(Templates);
   const renderer = await DI.resolve(PdfRenderer, [req.pdfOptions ?? {}]);
-  const provider = await DI.resolve<fs>('__file_provider__', [req.output.provider]);
+  const provider = await getFs(req.output.provider);
 
   const html = req.template ? await templates.render(req.input, req.model, req.lang) : req.input;
 

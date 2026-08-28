@@ -3,15 +3,47 @@
 import { PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
-import { Config } from '@spinajs/configuration';
+import { AutoinjectService, Config } from '@spinajs/configuration';
 import { DataValidator } from '@spinajs/validation';
-import { Entropy, charset32 } from 'entropy-string';
+import { UnexpectedServerError } from '@spinajs/exceptions';
+import { randomInt } from 'crypto';
 
 /**
- * Simple password service that use argon2 hash alghoritm and entropy-string to generate password
+ * How many draws `generate()` makes before declaring the generator pool and the
+ * validation rule incompatible.
+ *
+ * The pool says which characters may appear, not which classes are MANDATORY, so
+ * a uniform draw can legitimately miss a class the rule demands - with a
+ * 62-character alphanumeric pool at length 16, about 6% of draws contain no
+ * digit. One draw plus an assertion would therefore fail 6% of the time, which
+ * is a broken generator rather than a misconfiguration signal. Ten draws bring a
+ * spurious failure to roughly 6e-13, while a pool that genuinely cannot satisfy
+ * the rule still exhausts every attempt and throws.
+ */
+const GENERATE_ATTEMPTS = 10;
+
+/**
+ * Used when an application has not declared `rbac.password.generator`. Mirrors
+ * the shipped config default, so an application that never configures a
+ * generator still creates usable accounts - the same reason `_create_middleware`
+ * carries a fallback for `rbac.actions`.
+ *
+ * A DECLARED but empty pool still throws: that is a misconfiguration, not an
+ * omission.
+ */
+const DEFAULT_GENERATOR = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] };
+
+/**
+ * Simple password service that use argon2 hash alghoritm
  */
 @Injectable(PasswordProvider)
 export class BasicPasswordProvider implements PasswordProvider {
+  @Config('rbac.password.generator')
+  protected GeneratorOptions: { length: number; characters: string[] };
+
+  @AutoinjectService('rbac.password.validation')
+  protected Validation: PasswordValidationProvider;
+
   public async hash(input: string): Promise<string> {
     // uses default argon settings, no need to tweak
     return await argon.hash(input);
@@ -28,10 +60,38 @@ export class BasicPasswordProvider implements PasswordProvider {
     return await argon.verify(hash, password);
   }
 
+  /**
+   * A random password drawn from `rbac.password.generator` and guaranteed to
+   * satisfy `rbac.password.validation.rule`.
+   *
+   * The guarantee matters: a generated password is what a freshly created
+   * account holds, and one that fails the application's own rule is a password
+   * the account can never legitimately return to.
+   *
+   * @throws UnexpectedServerError when the configured pool cannot produce a
+   *   password the rule accepts. That is a configuration fault nobody calling
+   *   this can fix, so it must never reach a client as a 400.
+   */
   public generate(): string {
-    // generates password with entropy of 60 bits ( balance of ease vs value )
-    const random = new Entropy({ charset: charset32 });
-    return random.string(60);
+    const options = this.GeneratorOptions ?? DEFAULT_GENERATOR;
+    const length = options.length ?? DEFAULT_GENERATOR.length;
+    const pool = (options.characters ?? DEFAULT_GENERATOR.characters).join('');
+
+    if (length < 1 || pool.length === 0) {
+      throw new UnexpectedServerError('rbac.password.generator must define a positive length and a non-empty character pool');
+    }
+
+    for (let attempt = 0; attempt < GENERATE_ATTEMPTS; attempt++) {
+      // randomInt is the CSPRNG - Math.random is predictable from a handful of
+      // outputs, and this value guards an account.
+      const candidate = Array.from({ length }, () => pool[randomInt(pool.length)]).join('');
+
+      if (this.Validation.check(candidate)) {
+        return candidate;
+      }
+    }
+
+    throw new UnexpectedServerError(`Could not generate a password satisfying rbac.password.validation.rule in ${GENERATE_ATTEMPTS} attempts. The generator character pool and the validation rule disagree - check rbac.password.generator.`);
   }
 }
 

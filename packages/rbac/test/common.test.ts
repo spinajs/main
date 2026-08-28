@@ -92,6 +92,18 @@ export class TestConfiguration extends FrameworkConfiguration {
             template: './user-confirmation-email-template.pug',
             subject: 'Account created',
           },
+
+          passwordExpired: {
+            enabled: true,
+            template: './user-password-expired-template.pug',
+            subject: 'Password expired',
+          },
+
+          passwordWillExpire: {
+            enabled: true,
+            template: './user-password-will-expire-soon.pug',
+            subject: 'Your password will expire soon',
+          },
         },
         // default roles to manage users & guest account
         roles: [
@@ -112,6 +124,15 @@ export class TestConfiguration extends FrameworkConfiguration {
             Description: 'test',
           },
         ],
+        // `assertRolesExist` (actions.ts) checks roles against THIS map, resolved
+        // through the `AccessControl` DI singleton - not against the shipped
+        // `packages/rbac/src/config/rbac.ts` defaults. This suite runs via
+        // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
+        // (unlike eg. rbac-http-admin/rbac-http-token), so the configuration
+        // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
+        // and the shipped defaults never merge in here. `admin`, `guest` and
+        // `admin.users` below are therefore copied verbatim from that shipped
+        // config, not invented, so every role a test assigns stays a real one.
         grants: {
           normal: {
             Test: {
@@ -119,6 +140,40 @@ export class TestConfiguration extends FrameworkConfiguration {
             },
             clients: {
               'read:own': ['*'],
+            },
+          },
+          guest: {
+            UserBase: {
+              'read:own': ['*'],
+            },
+          },
+          'admin.users': {
+            users: {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
+            },
+            'user.metadata': {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
+            },
+          },
+          admin: {
+            $extend: ['admin.users'],
+          },
+          // Exercises `grant()`/`revoke()` (actions.test.ts) with a role distinct
+          // from `admin`/`guest`. A generic content-editor role, mirroring the one
+          // `user.test.ts` already uses for its own (separately scoped)
+          // AccessControl instance.
+          editor: {
+            Article: {
+              'create:any': ['*'],
+              'read:any': ['*'],
+              'update:any': ['*'],
+              'delete:any': ['*'],
             },
           },
         },
@@ -139,6 +194,10 @@ export class TestConfiguration extends FrameworkConfiguration {
         password: {
           service: 'BasicPasswordProvider',
 
+          // rbac.password.generator is deliberately absent: BasicPasswordProvider.generate()
+          // (src/password.ts) falls back to an in-code default that mirrors this exact
+          // value, so tests that auto-generate a password (eg. create() without a
+          // `password` option) still exercise a real, working generate() call.
           validation: {
             service: 'BasicPasswordValidationProvider',
             rule: {

@@ -82,7 +82,7 @@ describe('TokenPolicy e2e', function () {
   });
 
   async function makeUserToken(mail: string, login: string, roles: string[], tokenRoles: string[], expires: DateTime<true> | null = null) {
-    const { User: u } = await create(mail, login, 'password123', roles);
+    const { User: u } = await create(mail, login, roles, { password: 'password123' });
     await activate(u.Id);
     const owner = await User.where('Id', u.Id).populate('Metadata').firstOrFail();
     return { owner, ...(await createToken(owner, 'e2e', tokenRoles, expires)) };

@@ -1,9 +1,9 @@
-import { AsyncService, Autoinject, DI, IMappableService, Injectable, NewInstance, ResolveException } from '@spinajs/di';
+import { AsyncService, Autoinject, IMappableService, Injectable, NewInstance, ResolveException } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
-import { fs } from '@spinajs/fs';
+import { fs, getFs } from '@spinajs/fs';
 export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
 
@@ -20,7 +20,7 @@ export abstract class EmailSender extends AsyncService implements IMappableServi
 
   public async resolve() {
     if (this.defaultTemplateFsName) {
-      this.defaultTemplateFs = DI.resolve("__file_provider__", [this.defaultTemplateFsName]);
+      this.defaultTemplateFs = getFs(this.defaultTemplateFsName);
 
       if (!this.defaultTemplateFs) {
         throw new ResolveException('Default email template filesystem ' + this.defaultTemplateFsName + ' not found. Please check your configuration for email.templateFs and make sure that fs provider with name ' + this.defaultTemplateFsName + ' is registered');

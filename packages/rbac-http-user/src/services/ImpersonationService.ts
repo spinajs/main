@@ -161,7 +161,7 @@ export class ImpersonationService {
    * Hook for tests to intercept event emission without stubbing the
    * module-level `_ev` ESM binding.
    */
-  protected emitEnded(original: User, target: User): Promise<void> {
-    return _ev(new UserImpersonationEnded(original, target))();
+  protected async emitEnded(original: User, target: User): Promise<void> {
+    await _ev(new UserImpersonationEnded(original, target))();
   }
 }

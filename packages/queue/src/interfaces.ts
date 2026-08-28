@@ -1,4 +1,5 @@
-import { AsyncService, Constructor, DI, IInstanceCheck, IMappableService } from '@spinajs/di';
+import { AsyncService, Constructor, IInstanceCheck, IMappableService } from '@spinajs/di';
+import { ev } from './helpers.js';
 import { DateTime } from 'luxon';
 import _ from 'lodash';
 import { Log, Logger } from '@spinajs/log';
@@ -154,8 +155,6 @@ export abstract class QueueEvent extends QueueMessage {
   }
 
   public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<void> {
-    const queue = await DI.resolve(QueueService);
-
     const message = {
       ...val,
       Type: QueueMessageType.Event,
@@ -165,7 +164,7 @@ export abstract class QueueEvent extends QueueMessage {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    await queue.emit(message);
+    await ev(message);
   }
 }
 
@@ -235,8 +234,6 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
    * the job's progress / status (e.g. via queue-http-progress `:jobId/status`).
    */
   public static async emit<T extends typeof QueueMessage>(this: T, val: Partial<InstanceType<T>>, options?: IMessageOptions): Promise<string | undefined> {
-    const queue = await DI.resolve(QueueService);
-
     const message = {
       // jobs must not be lost by default - persist unless the caller opts out.
       // ( val / options below can still override this )
@@ -249,7 +246,7 @@ export abstract class QueueJob extends QueueMessage implements IQueueJob {
     } as IQueueMessage;
 
     // partial of queue job always is queue message
-    return queue.emit(message);
+    return ev(message);
   }
 }
 

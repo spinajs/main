@@ -17,6 +17,7 @@ export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
+export * from './helpers.js';
 export * from './fp.js';
 
 /** Fallback progress-throttle values used when `queue.progress` is not configured. */

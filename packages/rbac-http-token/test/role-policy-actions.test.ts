@@ -6,11 +6,11 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/rbac';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenRoleNotAllowed } from '../src/exceptions.js';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessTokenRolePolicy } from '../src/interfaces.js';
-import { E_TOKEN_CODES, _allowed_roles, createToken, grantTokenRole, validateToken } from '../src/actions.js';
+import { _allowed_roles, createToken, grantTokenRole, validateToken } from '../src/actions.js';
 import '../src/generator.js';
 import '../src/role-policy.js';
 
@@ -77,7 +77,7 @@ describe('access token actions - role policy', function () {
     // ( see actions-validate.test.ts's `activeUser` ) - validateToken refuses
     // an inactive owner, so every fixture here has to be activated too, even
     // in tests that only exercise createToken / grantTokenRole.
-    const { User: user } = await create(`${login}@spinajs.pl`, login, 'Bb1234567!', ['user']);
+    const { User: user } = await create(`${login}@spinajs.pl`, login, ['user'], { password: 'Bb1234567!' });
     await activate(user.Id);
     return user;
   };
@@ -98,8 +98,8 @@ describe('access token actions - role policy', function () {
     await createToken(user, 'nope', ['billing.write'], null).then(
       () => expect.fail('createToken should have refused'),
       (err: unknown) => {
-        expect(err).to.be.instanceOf(ErrorCode);
-        expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+        expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+        
       },
     );
   });
@@ -139,7 +139,7 @@ describe('access token actions - role policy', function () {
     await validateToken(Plaintext).then(
       () => expect.fail('validateToken should have refused'),
       (err: unknown) => {
-        expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+        expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
       },
     );
   });
@@ -160,9 +160,9 @@ describe('access token actions - role policy', function () {
     await createToken(user, 'partially unknown', ['reports.read', 'ghost-role'], null).then(
       () => expect.fail('createToken should have refused the unknown role'),
       (err: unknown) => {
-        expect(err).to.be.instanceOf(ErrorCode);
-        expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
-        expect((err as ErrorCode).data).to.deep.equal({ roles: ['ghost-role'] });
+        expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
+        
+        expect((err as AccessTokenRoleNotAllowed).data).to.deep.equal({ roles: ['ghost-role'] });
       },
     );
   });

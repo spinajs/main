@@ -6,13 +6,13 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/rbac';
-import { ErrorCode } from '@spinajs/exceptions';
+import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from '../src/exceptions.js';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
 import { AccessTokenRolePolicy } from '../src/interfaces.js';
-import { E_TOKEN_CODES, createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/actions.js';
+import { createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/actions.js';
 import '../src/generator.js';
 import '../src/role-policy.js';
 
@@ -67,7 +67,7 @@ describe('access token actions - validate & cleanup', function () {
    * so every fixture user here has to be activated first.
    */
   async function activeUser(mail: string, login: string, roles: string[]) {
-    const { User: u } = await create(mail, login, 'password123', roles);
+    const { User: u } = await create(mail, login, roles, { password: 'password123' });
     await activate(u.Id);
     return u;
   }
@@ -86,18 +86,16 @@ describe('access token actions - validate & cleanup', function () {
 
   it('rejects unknown token', async () => {
     const err = await validateToken('spt_does-not-exist').catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_NOT_FOUND);
+    expect(err).to.be.instanceOf(AccessTokenNotFound);
   });
 
   it('rejects degenerate input as an unknown token', async () => {
     // empty / whitespace / nil must not escape as InvalidArgument or TypeError -
-    // callers catch ErrorCode and would let a raw throw become a 500 instead of
+    // callers catch AccessTokenException and would let a raw throw become a 500 instead of
     // a 401. The code is deliberately the same as for a wrong token.
     for (const bad of ['', '   ', undefined, null]) {
       const err = await validateToken(bad as unknown as string).catch((e: unknown) => e);
-      expect(err, `input: ${JSON.stringify(bad)}`).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code, `input: ${JSON.stringify(bad)}`).to.equal(E_TOKEN_CODES.E_TOKEN_NOT_FOUND);
+      expect(err, `input: ${JSON.stringify(bad)}`).to.be.instanceOf(AccessTokenNotFound);
     }
   });
 
@@ -111,8 +109,7 @@ describe('access token actions - validate & cleanup', function () {
     await row.update();
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_EXPIRED);
+    expect(err).to.be.instanceOf(AccessTokenExpired);
   });
 
   it('infinite token (null expiry) validates', async () => {
@@ -127,8 +124,7 @@ describe('access token actions - validate & cleanup', function () {
     await deactivate(owner.Id);
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
+    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
   });
 
   it('rejects token of soft-deleted owner', async () => {
@@ -140,8 +136,7 @@ describe('access token actions - validate & cleanup', function () {
     await deleteUser(owner.Id);
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
+    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
   });
 
   it('rejects token of banned owner', async () => {
@@ -152,8 +147,7 @@ describe('access token actions - validate & cleanup', function () {
     // a ban lives in user metadata, so this also proves validation loads the
     // owner with Metadata populated - without it IsBanned is always false
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_OWNER_INVALID);
+    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
   });
 
   it('effective roles shrink when user loses a role', async () => {
@@ -176,8 +170,7 @@ describe('access token actions - validate & cleanup', function () {
     await revoke(owner.Id, 'admin');
 
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(ErrorCode);
-    expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+    expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
   });
 
   /**
@@ -265,8 +258,7 @@ describe('access token actions - validate & cleanup', function () {
       ValidateProfileStubPolicy.Profiles = [];
 
       const err = await validateToken(Plaintext).catch((e: unknown) => e);
-      expect(err).to.be.instanceOf(ErrorCode);
-      expect((err as ErrorCode).code).to.equal(E_TOKEN_CODES.E_TOKEN_ROLE_NOT_ALLOWED);
+      expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
     });
 
     it('intersects effective roles against the profile-relative allowed set', async () => {

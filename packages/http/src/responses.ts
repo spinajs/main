@@ -7,7 +7,7 @@ import _ from 'lodash';
 import * as randomstring from 'randomstring';
 import { __translate, __translateH, __translateL, __translateNumber } from '@spinajs/intl';
 import { Templates } from '@spinajs/templates';
-import { fs } from '@spinajs/fs';
+import { getFs } from '@spinajs/fs';
 // NOTE: import the exception, not the `ServerError` *response* from './index.js'.
 // That barrel import created the cycle interfaces -> responses -> index ->
 // response-methods/badRequest -> interfaces, which blew up with
@@ -139,7 +139,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
 
   return (req: express.Request, res: express.Response) => {
     if (!req.accepts('html')) {
-      const f = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+      const f = getFs('__fs_http_response_templates__');
       f.download('serverError.pug').then((file) => {
         httpResponse(
           {
@@ -169,7 +169,7 @@ export function htmlResponse(file: string, model: any, options?: IResponseOption
 
       log.warn(`Cannot render html file ${file}, error: ${err.message}:${err.stack}`, err);
 
-      const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+      const fs = getFs('__fs_http_response_templates__');
       fs.download('serverError.pug').then((file) => {
         // try to render server error response
         _render(file, { error: err }, HTTP_STATUS_CODE.INTERNAL_ERROR).catch((err2) => {
@@ -247,7 +247,7 @@ export function httpResponse(model: any, template: string, options?: IResponseOp
   };
 
   const htmlBranch = (req: express.Request, res: express.Response) => {
-    const fs = DI.resolve<fs>('__file_provider__', ['__fs_http_response_templates__']);
+    const fs = getFs('__fs_http_response_templates__');
 
     if (!fs) {
       throw new UnexpectedServerError('file provider __fs_http_response_templates__ not set. Pleas set response template file provider for html http default responses !');

@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Body, BadRequestResponse, Ok, Post } from '@spinajs/http';
-import { confirmPasswordReset, passwordChangeRequest } from '@spinajs/rbac';
-import { ErrorCode, InvalidArgument } from '@spinajs/exceptions';
+import { confirmPasswordReset, passwordChangeRequest, RbacException } from '@spinajs/rbac';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { SkipModelPermission } from '@spinajs/rbac-http';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../dto/password-reset-dto.js';
 
@@ -75,7 +75,7 @@ export class PasswordResetController extends BaseController {
       // One opaque failure for every rejection reason: unknown account, wrong
       // token, expired token. Distinguishing them would tell a caller which
       // addresses exist and let them probe tokens by the error they get back.
-      const isRedemptionFailure = err instanceof ErrorCode || err instanceof InvalidArgument;
+      const isRedemptionFailure = err instanceof RbacException || err instanceof InvalidArgument;
 
       if (!isRedemptionFailure) {
         this._log.error(err as Error, `Password reset failed unexpectedly for ${payload.Email}`);

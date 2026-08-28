@@ -20,6 +20,7 @@ import { UserMetadataBase } from './models/UserMetadata.js';
 import { RBAC_USER_MODEL, userModel } from './model-token.js';
 
 export * from './interfaces.js';
+export * from './exceptions.js';
 export * from './auth.js';
 export * from './password.js';
 export * from './session.js';
