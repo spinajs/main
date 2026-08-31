@@ -170,3 +170,68 @@ export class LazyPolicy extends OrmPermissionPolicy<LazyPolicyModel> {
     );
   }
 }
+
+/** Model with a default policy AND a named 'subset' policy. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyScoped')
+export class ScopedModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(ScopedModel)
+export class ScopedDefaultPolicy extends OrmPermissionPolicy<ScopedModel> {
+  /** Toggled per test; the class survives DI.clearCache() so this is reset in beforeEach. */
+  public static RejectCreate = false;
+
+  public scope(q: IWhereBuilder<ScopedModel>, _u: User): void {
+    POLICY_CALLS.push('default');
+    q.where('Value', 'default-visible');
+  }
+
+  public async authorizeCreate(q: InsertQueryBuilder, _u: User): Promise<void> {
+    POLICY_CALLS.push('authorizeCreate:default');
+    if (ScopedDefaultPolicy.RejectCreate) {
+      throw new Forbidden('default policy rejects create');
+    }
+    q.forceColumn('Value', 'created-by-default');
+  }
+}
+
+@OrmPermission(ScopedModel, 'subset')
+export class ScopedSubsetPolicy extends OrmPermissionPolicy<ScopedModel> {
+  public static RejectCreate = false;
+
+  public scope(q: IWhereBuilder<ScopedModel>, _u: User): void {
+    POLICY_CALLS.push('subset');
+    q.where('Value', 'subset-visible');
+  }
+
+  public async authorizeCreate(q: InsertQueryBuilder, _u: User): Promise<void> {
+    POLICY_CALLS.push('authorizeCreate:subset');
+    if (ScopedSubsetPolicy.RejectCreate) {
+      throw new Forbidden('subset policy rejects create');
+    }
+    q.forceColumn('Value', 'created-by-subset');
+  }
+}
+
+/** Named scope granted in config but never registered — must fail loud. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyGhostScope')
+export class GhostScopeModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}

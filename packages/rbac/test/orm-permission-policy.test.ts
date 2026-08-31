@@ -14,7 +14,25 @@ import { TestConfiguration } from './common.test.js';
 import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
 
 import './migration/rbac.migration.js';
-import { AllPolicy, AllPolicyModel, AsyncCreateModel, AsyncCreatePolicy, GenericPolicy, GenericPolicyModel, InheritedPolicyModel, LazyPolicy, LazyPolicyModel, NakedModel, OwnerFieldOnlyModel, POLICY_CALLS, resetPolicyCalls } from './models/PolicyModels.js';
+import {
+  AllPolicy,
+  AllPolicyModel,
+  AsyncCreateModel,
+  AsyncCreatePolicy,
+  GenericPolicy,
+  GenericPolicyModel,
+  GhostScopeModel,
+  InheritedPolicyModel,
+  LazyPolicy,
+  LazyPolicyModel,
+  NakedModel,
+  OwnerFieldOnlyModel,
+  POLICY_CALLS,
+  resetPolicyCalls,
+  ScopedDefaultPolicy,
+  ScopedModel,
+  ScopedSubsetPolicy,
+} from './models/PolicyModels.js';
 import { OrmException } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
@@ -52,6 +70,12 @@ describe('OrmPermissionPolicy where-path', function () {
     OrmPermission(GenericPolicyModel)(GenericPolicy);
     OrmPermission(AsyncCreateModel)(AsyncCreatePolicy);
     OrmPermission(LazyPolicyModel)(LazyPolicy);
+    OrmPermission(ScopedModel)(ScopedDefaultPolicy);
+    OrmPermission(ScopedModel, 'subset')(ScopedSubsetPolicy);
+    // GhostScopeModel is deliberately left unregistered — its tests pin the fail-loud path.
+
+    ScopedDefaultPolicy.RejectCreate = false;
+    ScopedSubsetPolicy.RejectCreate = false;
   });
 
   afterEach(() => {
@@ -67,9 +91,10 @@ describe('OrmPermissionPolicy where-path', function () {
   }
 
   // query builders are thenables, not Promises — await inside so callers get a real Promise
-  function as<T>(user: User, role: string, fn: () => PromiseLike<T>): Promise<T> {
+  function as<T>(user: User, role: string | string[], fn: () => PromiseLike<T>): Promise<T> {
     const store = DI.resolve(AsyncLocalStorage);
-    return store.run({ User: new User({ Id: user.Id, Role: [role] }) }, async () => await fn());
+    const roles = Array.isArray(role) ? role : [role];
+    return store.run({ User: new User({ Id: user.Id, Role: roles }) }, async () => await fn());
   }
 
   describe('operation routing', () => {
@@ -269,6 +294,129 @@ describe('OrmPermissionPolicy where-path', function () {
 
       const row = await AllPolicyModel.where('Value', 'unstamped').firstOrFail();
       expect(row.UserId).to.eq(u.Id);
+    });
+
+    describe('multi-role OR-composition', () => {
+      beforeEach(() => {
+        grant({
+          roleScopedCreateDefault: { PolicyScoped: { 'create:own': ['*'] } },
+          roleScopedCreateSubset: { PolicyScoped: { 'create:own': ['scope:subset'] } },
+        });
+      });
+
+      it('first-success-wins: row lands via the second policy after the first rejects', async () => {
+        const u = await owner();
+        ScopedDefaultPolicy.RejectCreate = true;
+        ScopedSubsetPolicy.RejectCreate = false;
+
+        await as(u, ['roleScopedCreateDefault', 'roleScopedCreateSubset'], async () => {
+          await new ScopedModel({ UserId: u.Id, Value: 'from-payload' } as any).insert();
+        });
+
+        expect(POLICY_CALLS).to.eql(['authorizeCreate:default', 'authorizeCreate:subset']);
+
+        const row = await ScopedModel.where('Value', 'created-by-subset').firstOrFail();
+        expect(row.UserId).to.eq(u.Id);
+      });
+
+      it('all-reject: insert is rejected and the last policy error surfaces', async () => {
+        const u = await owner();
+        ScopedDefaultPolicy.RejectCreate = true;
+        ScopedSubsetPolicy.RejectCreate = true;
+
+        await expect(
+          as(u, ['roleScopedCreateDefault', 'roleScopedCreateSubset'], async () => {
+            await new ScopedModel({ UserId: u.Id, Value: 'from-payload-multi-reject' } as any).insert();
+          }),
+        ).to.be.rejectedWith(/subset policy rejects create/);
+
+        expect(POLICY_CALLS).to.eql(['authorizeCreate:default', 'authorizeCreate:subset']);
+        expect(await ScopedModel.where('Value', 'from-payload-multi-reject').first()).to.be.undefined;
+      });
+    });
+  });
+
+  describe('named scopes', () => {
+    beforeEach(() => {
+      grant({
+        roleSubset: { PolicyScoped: { 'read:own': ['scope:subset'] } },
+        roleDefault: { PolicyScoped: { 'read:own': ['*'] } },
+        roleGhost: { PolicyGhostScope: { 'read:own': ['scope:ghost'] } },
+      });
+    });
+
+    it("a 'scope:subset' grant attribute routes to the named policy", async () => {
+      const u = await owner();
+      await new ScopedModel({ UserId: u.Id, Value: 'default-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'subset-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'neither' } as any).insert();
+
+      resetPolicyCalls();
+
+      const rows = (await as(u, 'roleSubset', () => ScopedModel.all())) as ScopedModel[];
+
+      expect(POLICY_CALLS).to.eql(['subset']);
+      expect(rows).to.be.an('array').with.length(1);
+      expect(rows[0].Value).to.eq('subset-visible');
+    });
+
+    it("attributes ['*'] route to the default policy", async () => {
+      const u = await owner();
+      await new ScopedModel({ UserId: u.Id, Value: 'default-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'subset-visible' } as any).insert();
+
+      resetPolicyCalls();
+
+      const rows = (await as(u, 'roleDefault', () => ScopedModel.all())) as ScopedModel[];
+
+      expect(POLICY_CALLS).to.eql(['default']);
+      expect(rows).to.be.an('array').with.length(1);
+      expect(rows[0].Value).to.eq('default-visible');
+    });
+
+    it('two roles with different scopes OR-compose', async () => {
+      // A caller-side WHERE ('UserId', u.Id) is added on top of the RBAC scope so the SQL
+      // shape is provable: correct grouping is `UserId=u.Id AND (default OR subset)`. If the
+      // OR ever leaked to the top level (or the base WHERE got dropped), the other user's
+      // 'default-visible'/'subset-visible' rows would leak into the result too — this seeding
+      // makes that a detectable difference in row count/content, not just an equal-or-not.
+      const u = await owner();
+      const other = await User.query().whereAnything('test-banned@spinajs.pl').firstOrFail();
+
+      await new ScopedModel({ UserId: u.Id, Value: 'default-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'subset-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'neither' } as any).insert();
+      await new ScopedModel({ UserId: other.Id, Value: 'default-visible' } as any).insert();
+      await new ScopedModel({ UserId: other.Id, Value: 'subset-visible' } as any).insert();
+
+      resetPolicyCalls();
+
+      const rows = (await as(u, ['roleSubset', 'roleDefault'], () => ScopedModel.where('UserId', u.Id).all())) as ScopedModel[];
+
+      expect(POLICY_CALLS).to.have.members(['default', 'subset']);
+      expect(rows).to.be.an('array').with.length(2);
+      expect(rows.every((r) => r.UserId === u.Id)).to.be.true;
+      expect(rows.map((r) => r.Value).sort()).to.eql(['default-visible', 'subset-visible']);
+    });
+
+    it("a '*'-attribute role does NOT absorb another role's scope token", async () => {
+      // Same two-role user as above: a combined `ac.can(roles)` query would union attributes
+      // to ['*', 'scope:subset'] and a naive '*' short-circuit would drop the subset policy
+      // entirely. Per-role resolution must still run it.
+      const u = await owner();
+      await new ScopedModel({ UserId: u.Id, Value: 'subset-visible' } as any).insert();
+
+      resetPolicyCalls();
+
+      await as(u, ['roleSubset', 'roleDefault'], () => ScopedModel.all());
+
+      expect(POLICY_CALLS).to.include('subset');
+    });
+
+    it('a granted scope with no registered policy throws OrmException', async () => {
+      const u = await owner();
+
+      await expect(as(u, 'roleGhost', () => GhostScopeModel.all())).to.be.rejectedWith(OrmException, /scope 'ghost'/);
     });
   });
 });
