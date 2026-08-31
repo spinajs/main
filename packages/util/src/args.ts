@@ -1,7 +1,7 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 import GlobToRegExp from 'glob-to-regexp';
 import { trimChar } from './string.js';
-import { Constructor } from './types.js';
+import { Constructor } from './fp.js';
 import { DateTime } from 'luxon';
 
 /**

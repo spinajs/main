@@ -2,7 +2,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
 
-import { _check_arg, _default, _is_array, _is_array_of, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _fanout, _catch, _use, _fallback, _tap, _catchException, _catchValue, _ifElse, _map, _custom } from '../src/index.js';
+import { _check_arg, _default, _is_array, _is_array_of, _is_object, _is_string, _catchFilter, _max, _max_length, _min, _min_length, _non_nil, _non_null, _non_undefined, _is_number, _trim, _or, _between, _contains_key, _is_map, _is_boolean, _gt, _lt, _reg_match, _is_email, _is_uuid, _chain, _zip, _catch, _use, _fallback, _tap, _catchException, _catchValue, _either, _map, _all, _custom } from '../src/index.js';
 import _ from 'lodash';
 import { _resolve } from '@spinajs/di';
 
@@ -36,11 +36,11 @@ describe('util', () => {
       await expect(_chain(a, b, c)).to.be.rejectedWith(Error);
     });
 
-    it('fanout', async () => {
+    it('zip', async () => {
       const a = () => Promise.resolve(1);
       const b = () => Promise.resolve(2);
 
-      const res = await _chain(_fanout(a, b));
+      const res = await _chain(_zip(a, b));
       expect(res).to.be.an('array');
       expect(res).to.have.lengthOf(2);
       expect(res).to.include(1);
@@ -50,7 +50,7 @@ describe('util', () => {
     it('map', async () => {
       const callback = (a: number) => Promise.resolve(a * a);
 
-      const res = await _chain(() => [1, 2, 3, 4], _map(callback));
+      const res = await _chain<number[]>(() => [1, 2, 3, 4], _map(callback), _all());
       expect(res).to.be.an('array');
       expect(res).to.have.lengthOf(4);
       expect(res[0]).to.eq(1);
@@ -59,19 +59,19 @@ describe('util', () => {
       expect(res[3]).to.eq(16);
     });
 
-    it('fanout with error', async () => {
+    it('zip with error', async () => {
       const a = () => Promise.resolve(1);
       const b = () => Promise.reject(new Error('error'));
 
-      await expect(_chain(_fanout(a, b))).to.be.rejectedWith(Error);
+      await expect(_chain(_zip(a, b))).to.be.rejectedWith(Error);
     });
 
-    it('fanout with chained method', async () => {
+    it('zip with chained method', async () => {
       const a = () => Promise.resolve(1);
       const b = () => Promise.resolve(2);
       const c = (val: number[]) => Promise.resolve(val[0] + val[1]);
 
-      const res = await _chain(_fanout(a, b), c);
+      const res = await _chain(_zip(a, b), c);
       expect(res).to.be.eq(3);
     });
 
@@ -167,7 +167,7 @@ describe('util', () => {
             (_err) => {
               return true;
             },
-            (err) => err instanceof Error && err.message === 'error',
+            (err) => err.message === 'error',
           ),
         ),
       ).to.be.become(true);
@@ -178,7 +178,7 @@ describe('util', () => {
             (_err) => {
               return true;
             },
-            (err) => err instanceof Error && err.message === 'error 2',
+            (err) => err.message === 'error 2',
           ),
         ),
       ).to.be.rejectedWith('error');
@@ -203,7 +203,7 @@ describe('util', () => {
       const b = () => Promise.resolve('service B');
       const c = ({ a, b }: { a: string; b: string }) => Promise.resolve({ a, b });
 
-      const res = await _chain(_use(a, 'a'), _use(b, 'b'), c);
+      const res = await _chain<{ a: string; b: string }>(_use(a, 'a'), _use(b, 'b'), c);
       expect(res).to.be.an('object');
       expect(res).to.have.property('a');
       expect(res).to.have.property('b');
@@ -243,13 +243,13 @@ describe('util', () => {
     it('_use should evaluate chained method', async () => {
       const foo = () => () => Promise.resolve('123');
       const step2 = _use(foo, 'x'); // callCount still 0
-      const result = await _chain(step2, ({ x }: { x: string }) => {
+      const result = await _chain<any>(step2, ({ x }: { x: string }) => {
         return x
       });
       expect(result).to.equal('123');
 
 
-      const result2 = await _chain(_use(() => _chain(() => 1, (x : number) => x + 4), 'y'), ({ y }: { y: number }) => {
+      const result2 = await _chain<any>(_use(() => _chain(() => 1, (x : number) => x + 4), 'y'), ({ y }: { y: number }) => {
         return y;
       });
 
@@ -264,7 +264,7 @@ describe('util', () => {
         const b = () => Promise.resolve('service B');
         const c = ({ a, b }: { a: string; b: string }) => Promise.resolve({ a, b });
 
-        const res = await _chain(
+        const res = await _chain<{ a: string; b: string }>(
           _use(
             _fallback(a, (_err) => 'fallback'),
             'a',
@@ -302,18 +302,18 @@ describe('util', () => {
         expect(res).to.be.eq('service A');
       });
 
-      it('_ifElse', async () => {
+      it('_either', async () => {
         const a = _chain(
-          () => true,
-          _ifElse(
+          true,
+          _either(
             async (arg) => arg,
             async () => 'true',
             async () => 'false',
           ),
         );
         const b = _chain(
-          () => false,
-          _ifElse(
+          false,
+          _either(
             async (arg) => arg,
             async () => 'true',
             async () => 'false',

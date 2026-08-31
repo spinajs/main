@@ -1,9 +1,4 @@
 /**
- * Newable class type producing instances of `T`.
- */
-export type Constructor<T> = new (...args: any[]) => T;
-
-/**
  * Type guard for native promises.
  *
  * Deliberately strict - NOT duck-typed. Awaitable objects that expose `.then`
