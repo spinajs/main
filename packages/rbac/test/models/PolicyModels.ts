@@ -1,0 +1,172 @@
+import { Connection, InsertQueryBuilder, IWhereBuilder, Model, ModelBase, Primary } from '@spinajs/orm';
+import { Forbidden } from '@spinajs/exceptions';
+import { Lazy } from '@spinajs/util';
+import { OrmResource, ResourceOwner } from '../../src/decorators.js';
+import { OrmPermission, OrmPermissionPolicy } from '../../src/orm-permission.js';
+import type { User } from '../../src/models/User.js';
+
+export const POLICY_CALLS: string[] = [];
+export function resetPolicyCalls() {
+  POLICY_CALLS.length = 0;
+}
+
+/** Overrides every operation — proves the middleware routes each builder type to its method. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyAll')
+export class AllPolicyModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(AllPolicyModel)
+export class AllPolicy extends OrmPermissionPolicy<AllPolicyModel> {
+  public scope(q: IWhereBuilder<AllPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scope');
+    q.where('Value', 'generic');
+  }
+  public scopeRead(q: IWhereBuilder<AllPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scopeRead');
+    q.where('Value', 'readable');
+  }
+  public scopeUpdate(q: IWhereBuilder<AllPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scopeUpdate');
+    q.where('Value', 'updatable');
+  }
+  public scopeDelete(q: IWhereBuilder<AllPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scopeDelete');
+    q.where('Value', 'deletable');
+  }
+  public async authorizeCreate(q: InsertQueryBuilder, _u: User): Promise<void> {
+    POLICY_CALLS.push('authorizeCreate');
+    q.forceColumn('Value', 'stamped-by-policy');
+  }
+}
+
+/** Only the generic scope() — read/update/delete all delegate to it; insert denied by base default. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyGeneric')
+export class GenericPolicyModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(GenericPolicyModel)
+export class GenericPolicy extends OrmPermissionPolicy<GenericPolicyModel> {
+  public scope(q: IWhereBuilder<GenericPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scope');
+    q.where('Value', 'generic');
+  }
+}
+
+/**
+ * Subclass model declaring the SAME resource — must resolve AllPolicy through the shared
+ * resource key (the EntriesGroupView-over-EntriesGroup shape). A subclass declaring a
+ * DIFFERENT resource is a different permission identity and needs its own registration.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyAll')
+export class InheritedPolicyModel extends AllPolicyModel {}
+
+/** OwnerField fallback: @ResourceOwner but NO registered policy. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyOwnerField')
+export class OwnerFieldOnlyModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+/** Fail-loud: @OrmResource, no policy, no @ResourceOwner. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyNaked')
+export class NakedModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Value: string;
+}
+
+/** Async create with a real round-trip, ported from AsyncCreateHookModel. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyAsync')
+export class AsyncCreateModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(AsyncCreateModel)
+export class AsyncCreatePolicy extends OrmPermissionPolicy<AsyncCreateModel> {
+  public static AllowedOwners: number[] = [];
+
+  public scope(q: IWhereBuilder<AsyncCreateModel>, _u: User): void {
+    q.where('Value', 'readable');
+  }
+
+  public async authorizeCreate(q: InsertQueryBuilder, user: User): Promise<void> {
+    POLICY_CALLS.push('authorizeCreate:start');
+    const requested = q.getColumnValues('UserId');
+    const allowed = await Promise.resolve(AsyncCreatePolicy.AllowedOwners);
+    if (requested.some((r) => !allowed.includes(r as number))) {
+      POLICY_CALLS.push('authorizeCreate:reject');
+      throw new Forbidden(`owner ${requested.join(',')} is not assigned to this user`);
+    }
+    POLICY_CALLS.push('authorizeCreate:allow');
+    q.forceColumn('Value', `checked-for-${user.Id}`);
+  }
+}
+
+/**
+ * `scopeRead` expressed as a deferred `Lazy`, ported from `LazyHookModel` — pins that the
+ * middleware's callback wrapping does not double-run a policy when the where clause it
+ * pushes is itself deferred and gets cloned/compiled later.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyLazy')
+export class LazyPolicyModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(LazyPolicyModel)
+export class LazyPolicy extends OrmPermissionPolicy<LazyPolicyModel> {
+  public scopeRead(q: IWhereBuilder<LazyPolicyModel>, _u: User): void {
+    POLICY_CALLS.push('scopeRead');
+
+    q.andWhere(
+      new Lazy(function (this: IWhereBuilder<LazyPolicyModel>) {
+        this.where('Value', 'readable');
+      }),
+    );
+  }
+}

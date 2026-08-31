@@ -1,10 +1,12 @@
 import { Autoinject, DI, Injectable } from '@spinajs/di';
-import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
+import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, IWhereBuilder, ModelBase, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor, PermissionType, RBAC_HOOK_FALLBACK, RbacHookName } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
+import type { User } from './models/User.js';
+import { DEFAULT_PERMISSION_SCOPE, ORM_PERMISSION_POLICY_MAP, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
 
 type QueryBuilderType = new (...args: any[]) => QueryBuilder;
 
@@ -91,9 +93,24 @@ function rbacHook(model: unknown, hook: RbacHookName, allowFallback: boolean): F
   return undefined;
 }
 
+/** Fallback for models with `@ResourceOwner()` and no registered policy class. */
+class OwnerFieldPolicy extends OrmPermissionPolicy {
+  constructor(private ownerField: string) {
+    super();
+  }
+
+  public scope(query: IWhereBuilder<ModelBase<unknown>>, user: User): void {
+    query.andWhere(this.ownerField, user.PrimaryKeyValue);
+  }
+
+  public async authorizeCreate(query: InsertQueryBuilder, user: User): Promise<void> {
+    // Overwrite, never merge: a caller-supplied owner id is exactly the IDOR this closes.
+    query.forceColumn(this.ownerField, user.PrimaryKeyValue);
+  }
+}
+
 @Injectable(QueryMiddleware)
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
-
   @Logger('RBAC')
   protected Log!: Log;
 
@@ -178,12 +195,6 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     this.Log.trace(`Resource ${resource}:own permission granted`);
 
     /**
-     * Model can have a custom rbac permission check, either for this operation
-     * specifically (`rbacRead` / `rbacUpdate` / `rbacDelete`) or generically (`rbac`).
-     */
-    const rbacFunc = rbacHook(builder.Model, context.hook, true);
-
-    /**
      * `relationScope: 'join'` ( @OrmResource options ): when this model is populated as a
      * BelongsTo relation, its :own constraint folded into the parent WHERE would silently
      * narrow the LEFT JOIN into an inner one and drop parent rows. `whereOnJoin` tags the
@@ -192,33 +203,99 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
      * or DELETE has no populate JOIN, and its builder does not narrow through one.
      */
     const joinScoped = descriptor.RbacRelationScope === 'join' && builder instanceof SelectQueryBuilder;
+
     const user = context.user;
+    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor);
 
-    if (rbacFunc) {
-      this.Log.trace(`Applying custom ${context.hook} func for ${resource}`);
-      if (joinScoped) {
-        (builder as SelectQueryBuilder).whereOnJoin(function (this: unknown) {
-          rbacFunc.call(builder, user);
-        });
-      } else {
-        rbacFunc.call(builder, user);
+    const method = builder instanceof UpdateQueryBuilder ? 'scopeUpdate' : builder instanceof DeleteQueryBuilder ? 'scopeDelete' : 'scopeRead';
+
+    const apply = (target: IWhereBuilder<unknown>) => {
+      if (policies.length === 1) {
+        policies[0][method](target, user);
+        return;
       }
-      return;
-    }
+      // Distinct scopes across the caller's roles OR-compose: reachable if ANY admits.
+      target.andWhere(function (this: IWhereBuilder<unknown>) {
+        for (const policy of policies) {
+          this.orWhere(function (this: IWhereBuilder<unknown>) {
+            policy[method](this, user);
+          });
+        }
+      });
+    };
 
-    if (!descriptor.OwnerField) {
-      this.Log.error(`Model ${descriptor.Name} does not have OwnerField set or static rbac function, cannot apply :own permission`);
-      throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
-    }
+    this.Log.trace(`Applying ${policies.length} permission ${policies.length === 1 ? 'policy' : 'policies'} (${method}) for ${resource}`);
 
-    this.Log.trace(`Applying owner field restriction for ${resource}`);
     if (joinScoped) {
       (builder as SelectQueryBuilder).whereOnJoin(function (this: unknown) {
-        builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+        apply(builder as unknown as IWhereBuilder<unknown>);
       });
     } else {
-      builder.andWhere(descriptor.OwnerField, user.PrimaryKeyValue);
+      apply(builder as unknown as IWhereBuilder<unknown>);
     }
+  }
+
+  /**
+   * Policies to apply for this query: one per distinct scope name across the caller's
+   * granted roles. A role without the grant must not contribute a policy — that would
+   * WIDEN the OR-composition in `afterQueryCreation`. Multiple distinct scopes OR-compose
+   * downstream: permissions are additive, a row is reachable if any granted role's policy
+   * admits it.
+   */
+  protected policiesFor(roles: string[], resource: string, ownScope: PermissionType, descriptor: IRbacModelDescriptor): OrmPermissionPolicy[] {
+    const scopeNames = new Set<string>();
+
+    for (const role of roles) {
+      let granted = false;
+      let attrs: string[] = [];
+      try {
+        const permission = (this.Ac!.can([role]) as any)[ownScope](resource);
+        granted = permission.granted;
+        attrs = (permission.attributes as string[]) ?? [];
+      } catch {
+        // role unknown to accesscontrol — contributes no grant, no scope
+      }
+
+      if (!granted) {
+        continue;
+      }
+
+      const tokens = attrs.filter((a) => typeof a === 'string' && a.startsWith(PERMISSION_SCOPE_ATTR_PREFIX)).map((a) => a.slice(PERMISSION_SCOPE_ATTR_PREFIX.length));
+
+      if (tokens.length === 0) {
+        scopeNames.add(DEFAULT_PERMISSION_SCOPE);
+      } else {
+        tokens.forEach((t) => scopeNames.add(t));
+      }
+    }
+
+    // canOwn was computed over the role union; per-role queries can still all miss when
+    // grants come from odd extension shapes. Degrade to the default scope — resolution
+    // below still fails loud if nothing is registered.
+    if (scopeNames.size === 0) {
+      scopeNames.add(DEFAULT_PERMISSION_SCOPE);
+    }
+
+    const registered = DI.get<Map<string, OrmPermissionPolicyClass>>(ORM_PERMISSION_POLICY_MAP);
+
+    const policies: OrmPermissionPolicy[] = [];
+    for (const name of scopeNames) {
+      const policyClass = registered?.get(policyMapKey(resource, name));
+      if (policyClass) {
+        policies.push(DI.resolve(policyClass));
+        continue;
+      }
+
+      if (name === DEFAULT_PERMISSION_SCOPE && descriptor.OwnerField) {
+        policies.push(new OwnerFieldPolicy(descriptor.OwnerField));
+        continue;
+      }
+
+      this.Log.error(`No OrmPermissionPolicy registered for ${descriptor.Name}/${name} and no OwnerField fallback`);
+      throw new OrmException(`no OrmPermissionPolicy registered for model ${descriptor.Name} scope '${name}' and no OwnerField fallback — refusing to run an unscoped :own query`);
+    }
+
+    return policies;
   }
 
   /**
@@ -294,6 +371,6 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     // the old hard-coded ':read', which was wrong for updates and deletes.
     const action = anyScope.replace(/(Any|Own)$/, '');
 
-    return { descriptor, resource, canOwn, canAny, action, hook: scopes.hook, user: storage.User };
+    return { descriptor, resource, canOwn, canAny, action, hook: scopes.hook, user: storage.User, roles, ownScope };
   }
 }
