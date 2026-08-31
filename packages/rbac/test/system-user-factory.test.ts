@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, RBAC_USER_MODEL } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Connection, Model, Orm } from '@spinajs/orm';
+import { Connection, IWhereBuilder, Model, Orm } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { AsyncLocalStorage } from 'async_hooks';
 import { join, normalize, resolve } from 'path';
@@ -14,6 +14,7 @@ import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
 import { OrmResource } from '../src/decorators.js';
+import { OrmPermission, OrmPermissionPolicy, clearOrmPermissionRegistry } from '../src/orm-permission.js';
 
 chai.use(chaiAsPromised);
 
@@ -23,18 +24,21 @@ function dir(path: string) {
 
 /**
  * An application's user model, standing in for what a real app registers at `RbacUserModel`:
- * it declares an rbac resource and a read hook that constrains every query built from it.
+ * it declares an rbac resource and a read policy that constrains every query built from it.
  * Sharing the `users` table and connection with `User` is the same trick `UserBase`/`User`
  * themselves use.
  */
 @Connection('default')
 @Model('users')
 @OrmResource('users')
-export class AppUserModel extends User {
-  public static rbacRead(this: any): void {
-    // Deliberately matches nothing: any query that reaches this hook comes back empty, which
+export class AppUserModel extends User {}
+
+@OrmPermission(AppUserModel)
+export class AppUserPolicy extends OrmPermissionPolicy<AppUserModel> {
+  public scopeRead(q: IWhereBuilder<AppUserModel>, _u: User): void {
+    // Deliberately matches nothing: any query that reaches this policy comes back empty, which
     // is what makes "the system lookup is not row-scoped" observable.
-    this.where('Login', '__never__');
+    q.where('Login', '__never__');
   }
 }
 
@@ -69,6 +73,11 @@ describe('RbacSystemUserFactory', function () {
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
+
+    // DI.clearCache() below (afterEach) wipes the policy map — decorators only run once
+    // at import, so every test after the first needs the registration rebuilt here.
+    clearOrmPermissionRegistry();
+    OrmPermission(AppUserModel)(AppUserPolicy);
 
     // What an application does at boot to make the framework build user queries with its own
     // model ( override=true, exactly as a real app's bootstrapper does ).

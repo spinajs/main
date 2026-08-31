@@ -13,7 +13,8 @@ import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
-import { CloneRbacModel } from './models/CloneModels.js';
+import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
+import { CloneRbacModel, CloneRbacPolicy } from './models/CloneModels.js';
 
 chai.use(chaiAsPromised);
 
@@ -56,6 +57,11 @@ describe('rbac constraints survive query cloning', function () {
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
+
+    // DI.clearCache() below (afterEach) wipes the policy map — decorators only run once
+    // at import, so every test after the first needs the registration rebuilt here.
+    clearOrmPermissionRegistry();
+    OrmPermission(CloneRbacModel)(CloneRbacPolicy);
   });
 
   afterEach(() => {

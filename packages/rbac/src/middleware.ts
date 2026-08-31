@@ -1,7 +1,7 @@
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, IWhereBuilder, ModelBase, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'async_hooks';
-import { IRbacAsyncStorage, IRbacModelDescriptor, PermissionType, RBAC_HOOK_FALLBACK, RbacHookName } from './interfaces.js';
+import { IRbacAsyncStorage, IRbacModelDescriptor, PermissionType } from './interfaces.js';
 import { AccessControl } from 'accesscontrol';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
@@ -13,14 +13,10 @@ type QueryBuilderType = new (...args: any[]) => QueryBuilder;
 interface IBuilderPermissions {
   own: PermissionType;
   all: PermissionType;
-
-  /** Operation-specific model static consulted before the generic `rbac`. */
-  hook: RbacHookName;
 }
 
 /**
- * Which permission scopes a builder type is checked against, and which per-operation
- * model hook it looks for.
+ * Which permission scopes a builder type is checked against.
  *
  * Keyed on the CONSTRUCTOR, not on `constructor.name`. A name-keyed lookup breaks under
  * minification and silently yields "no mapping" — for a security check that means an
@@ -29,14 +25,13 @@ interface IBuilderPermissions {
  * `InsertQueryBuilder` was missing here while `PERMISSION_SCOPE_TO_QUERY` claimed to
  * support `createOwn`/`createAny`, so the insert branch of the middleware could only ever
  * have thrown a TypeError. The inverse map below is now DERIVED from this one, so the two
- * cannot drift apart again — and the hook name lives here for the same reason, so a hook
- * can never be paired with the wrong builder type.
+ * cannot drift apart again.
  */
 const QUERY_TO_PERMISSION = new Map<QueryBuilderType, IBuilderPermissions>([
-  [DeleteQueryBuilder as unknown as QueryBuilderType, { own: 'deleteOwn', all: 'deleteAny', hook: 'rbacDelete' }],
-  [UpdateQueryBuilder as unknown as QueryBuilderType, { own: 'updateOwn', all: 'updateAny', hook: 'rbacUpdate' }],
-  [SelectQueryBuilder as unknown as QueryBuilderType, { own: 'readOwn', all: 'readAny', hook: 'rbacRead' }],
-  [InsertQueryBuilder as unknown as QueryBuilderType, { own: 'createOwn', all: 'createAny', hook: 'rbacCreate' }],
+  [DeleteQueryBuilder as unknown as QueryBuilderType, { own: 'deleteOwn', all: 'deleteAny' }],
+  [UpdateQueryBuilder as unknown as QueryBuilderType, { own: 'updateOwn', all: 'updateAny' }],
+  [SelectQueryBuilder as unknown as QueryBuilderType, { own: 'readOwn', all: 'readAny' }],
+  [InsertQueryBuilder as unknown as QueryBuilderType, { own: 'createOwn', all: 'createAny' }],
 ]);
 
 /** Derived inverse of {@link QUERY_TO_PERMISSION}. Never hand-maintained. */
@@ -59,43 +54,6 @@ function permissionsFor(builder: QueryBuilder): IBuilderPermissions | undefined 
 
   return undefined;
 }
-
-/**
- * The custom rbac constraint `model` declares for this operation, or `undefined` when it
- * declares none and the caller should fall through to `OwnerField`.
- *
- * Resolution is specific-then-generic: `rbacDelete` beats `rbac` on a delete, and a model
- * declaring only `rbac` keeps its pre-split behaviour on every operation. Statics resolve
- * through the prototype chain, so a subclass inherits whichever hooks it does not override.
- *
- * `allowFallback` is false for INSERT only. `rbac` has always been called on builders that
- * have a WHERE clause, so every implementation in the wild is where-shaped —
- * `ContentEntries.rbac` and `EntriesGroup.rbac` both call `whereExist`, which
- * `InsertQueryBuilder` does not define. Falling back there would turn a silent gap into a
- * crash on every insert for every model already using the feature. Insert-time control is
- * opt-in via an explicit `rbacCreate`.
- */
-function rbacHook(model: unknown, hook: RbacHookName, allowFallback: boolean): Function | undefined {
-  const statics = model as Record<string, unknown> | undefined | null;
-
-  if (!statics) {
-    return undefined;
-  }
-
-  if (typeof statics[hook] === 'function') {
-    return statics[hook] as Function;
-  }
-
-  if (allowFallback && typeof statics[RBAC_HOOK_FALLBACK] === 'function') {
-    return statics[RBAC_HOOK_FALLBACK] as Function;
-  }
-
-  return undefined;
-}
-
-// Unreferenced now that both hooks route through OrmPermissionPolicy — kept for Task 5
-// removal, not deleted here. Void-read only to satisfy noUnusedLocals.
-void rbacHook;
 
 /** Fallback for models with `@ResourceOwner()` and no registered policy class. */
 class OwnerFieldPolicy extends OrmPermissionPolicy {
@@ -369,6 +327,6 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     // the old hard-coded ':read', which was wrong for updates and deletes.
     const action = anyScope.replace(/(Any|Own)$/, '');
 
-    return { descriptor, resource, canOwn, canAny, action, hook: scopes.hook, user: storage.User, roles, ownScope };
+    return { descriptor, resource, canOwn, canAny, action, user: storage.User, roles, ownScope };
   }
 }
