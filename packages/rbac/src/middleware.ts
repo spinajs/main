@@ -93,6 +93,10 @@ function rbacHook(model: unknown, hook: RbacHookName, allowFallback: boolean): F
   return undefined;
 }
 
+// Unreferenced now that both hooks route through OrmPermissionPolicy — kept for Task 5
+// removal, not deleted here. Void-read only to satisfy noUnusedLocals.
+void rbacHook;
+
 /** Fallback for models with `@ResourceOwner()` and no registered policy class. */
 class OwnerFieldPolicy extends OrmPermissionPolicy {
   constructor(private ownerField: string) {
@@ -144,29 +148,23 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
       throw new Forbidden(`User does not have permission to access ${resource}:${context.action} permission`);
     }
 
-    /**
-     * Model can take over insert-time ownership itself. No fallback to the generic `rbac`
-     * here — see {@link rbacHook}.
-     *
-     * Awaited: unlike the where-clause hooks, an insert rule usually cannot be decided from
-     * the payload alone — "is this the caller's group?" is a lookup. Dropping the returned
-     * promise would let the row land before the answer came back.
-     */
-    const rbacFunc = rbacHook(builder.Model, context.hook, false);
+    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor);
 
-    if (rbacFunc) {
-      this.Log.trace(`Applying custom ${context.hook} func for ${resource}`);
-      await rbacFunc.call(builder, context.user);
-      return;
+    // Multiple distinct scopes OR-compose on inserts too: the insert is allowed if ANY
+    // granted role's policy authorizes it. Policies are tried in registration-set order;
+    // when every one denies, the last error propagates.
+    let lastError: unknown;
+    for (const policy of policies) {
+      try {
+        this.Log.trace(`Applying authorizeCreate of ${policy.constructor.name} for ${resource}`);
+        await policy.authorizeCreate(builder as InsertQueryBuilder, context.user);
+        return;
+      } catch (err) {
+        lastError = err;
+      }
     }
 
-    if (!descriptor.OwnerField) {
-      this.Log.error(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
-      throw new OrmException(`Model ${descriptor.Name} does not have OwnerField set, cannot apply :own permission`);
-    }
-
-    // Overwrite, never merge: a caller-supplied owner id is exactly the IDOR this closes.
-    builder.forceColumn(descriptor.OwnerField, context.user.PrimaryKeyValue);
+    throw lastError;
   }
 
   afterQueryCreation(builder: QueryBuilder) {

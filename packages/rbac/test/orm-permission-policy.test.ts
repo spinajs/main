@@ -15,6 +15,7 @@ import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission
 
 import './migration/rbac.migration.js';
 import { AllPolicy, AllPolicyModel, AsyncCreateModel, AsyncCreatePolicy, GenericPolicy, GenericPolicyModel, InheritedPolicyModel, LazyPolicy, LazyPolicyModel, NakedModel, OwnerFieldOnlyModel, POLICY_CALLS, resetPolicyCalls } from './models/PolicyModels.js';
+import { OrmException } from '@spinajs/orm';
 
 chai.use(chaiAsPromised);
 
@@ -185,6 +186,89 @@ describe('OrmPermissionPolicy where-path', function () {
       expect(POLICY_CALLS).to.eql(['scopeRead']);
       expect(rows).to.be.an('array').with.length(1);
       expect(rows[0].Value).to.eq('readable');
+    });
+  });
+
+  describe('insert', () => {
+    it('insert uses authorizeCreate and suppresses OwnerField stamping', async () => {
+      grant({ r: { PolicyAll: { 'create:own': ['*'] } } });
+      const u = await owner();
+
+      await as(u, 'r', async () => {
+        await new AllPolicyModel({ UserId: 4242, Value: 'from-payload' } as any).insert();
+      });
+
+      expect(POLICY_CALLS).to.eql(['authorizeCreate']);
+
+      const row = await AllPolicyModel.where('Value', 'stamped-by-policy').firstOrFail();
+      expect(row.UserId).to.eq(4242);
+    });
+
+    it('awaits an async authorizeCreate before the row lands (allow path)', async () => {
+      grant({ r: { PolicyAsync: { 'create:own': ['*'] } } });
+      const u = await owner();
+      AsyncCreatePolicy.AllowedOwners = [u.Id];
+
+      await as(u, 'r', async () => {
+        await new AsyncCreateModel({ UserId: u.Id, Value: 'from-payload' } as any).insert();
+      });
+
+      expect(POLICY_CALLS).to.eql(['authorizeCreate:start', 'authorizeCreate:allow']);
+
+      const row = await AsyncCreateModel.where('Value', `checked-for-${u.Id}`).firstOrFail();
+      expect(row.UserId).to.eq(u.Id);
+    });
+
+    it('a rejecting async authorizeCreate prevents the insert', async () => {
+      grant({ r: { PolicyAsync: { 'create:own': ['*'] } } });
+      const u = await owner();
+      AsyncCreatePolicy.AllowedOwners = [];
+
+      await expect(
+        as(u, 'r', async () => {
+          await new AsyncCreateModel({ UserId: u.Id, Value: 'forged' } as any).insert();
+        }),
+      ).to.be.rejectedWith(/is not assigned to this user/);
+
+      expect(POLICY_CALLS).to.eql(['authorizeCreate:start', 'authorizeCreate:reject']);
+      expect(await AsyncCreateModel.where('Value', 'forged').first()).to.be.undefined;
+    });
+
+    it('OwnerField model with no policy stamps the owner column on insert', async () => {
+      grant({ r: { PolicyOwnerField: { 'create:own': ['*'] } } });
+      const u = await owner();
+
+      await as(u, 'r', async () => {
+        await new OwnerFieldOnlyModel({ UserId: u.Id + 999, Value: 'forged' } as any).insert();
+      });
+
+      const row = await OwnerFieldOnlyModel.where('Value', 'forged').firstOrFail();
+      expect(row.UserId).to.eq(u.Id);
+    });
+
+    it('model with neither policy nor OwnerField throws OrmException on :own insert', async () => {
+      grant({ r: { PolicyNaked: { 'create:own': ['*'] } } });
+      const u = await owner();
+
+      await expect(
+        as(u, 'r', async () => {
+          await new NakedModel({ Value: 'x' } as any).insert();
+        }),
+      ).to.be.rejectedWith(OrmException, /no OrmPermissionPolicy registered/);
+    });
+
+    it('create:any skips authorizeCreate', async () => {
+      grant({ admin: { PolicyAll: { 'create:any': ['*'] } } });
+      const u = await owner();
+
+      await as(u, 'admin', async () => {
+        await new AllPolicyModel({ UserId: u.Id, Value: 'unstamped' } as any).insert();
+      });
+
+      expect(POLICY_CALLS).to.eql([]);
+
+      const row = await AllPolicyModel.where('Value', 'unstamped').firstOrFail();
+      expect(row.UserId).to.eq(u.Id);
     });
   });
 });
