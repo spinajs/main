@@ -260,6 +260,47 @@ describe('Where query builder', () => {
     expect(result.bindings).to.be.an('array').to.include.members([1, 2, 3]);
   });
 
+  it('whereIn accepts a sub-query builder', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where('active', true)
+      .whereIn('group_id', sqb().select('group_id').from('groups').where('user_id', 1) as ISelectQueryBuilder<ModelBase<unknown>>)
+      .toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `active` = ? AND `group_id` IN ( SELECT `group_id` FROM `groups` WHERE `user_id` = ? )');
+    // `active` binds through SqlBooleanValueConverter (SQLite has no native boolean type),
+    // so `true` compiles to `1` — the order below is what matters: outer binding first, then
+    // the sub-query's own binding spliced in after it.
+    expect(result.bindings).to.eql([1, 1]);
+  });
+
+  it('whereNotIn accepts a sub-query builder', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .where('active', true)
+      .whereNotIn('group_id', sqb().select('group_id').from('groups').where('user_id', 1) as ISelectQueryBuilder<ModelBase<unknown>>)
+      .toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` WHERE `active` = ? AND `group_id` NOT IN ( SELECT `group_id` FROM `groups` WHERE `user_id` = ? )');
+    // `active` binds through SqlBooleanValueConverter (SQLite has no native boolean type),
+    // so `true` compiles to `1` — the order below is what matters: outer binding first, then
+    // the sub-query's own binding spliced in after it.
+    expect(result.bindings).to.eql([1, 1]);
+  });
+
+  it('cloned query keeps the IN sub-query predicate', () => {
+    const query = sqb()
+      .select('*')
+      .from('users')
+      .where('active', true)
+      .whereIn('group_id', sqb().select('group_id').from('groups').where('user_id', 1) as ISelectQueryBuilder<ModelBase<unknown>>);
+
+    const cloned = query.clone();
+
+    expect(cloned.toDB().expression).to.equal(query.toDB().expression);
+    expect(cloned.toDB().bindings).to.eql(query.toDB().bindings);
+  });
+
   // These used to expect FIND_IN_SET. That is MySQL and nothing else, and this is
   // the package every driver inherits from — SQLite and MSSQL took it and failed at
   // the database. The shared implementation is now portable; the FIND_IN_SET shape

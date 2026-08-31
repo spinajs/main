@@ -1260,8 +1260,8 @@ export interface IWhereBuilder<T> {
   whereNotNull(column: string): this;
   whereNull(column: string): this;
   whereNot(column: string, val: unknown): this;
-  whereIn(column: string, val: unknown[]): this;
-  whereNotIn(column: string, val: unknown[]): this;
+  whereIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
+  whereNotIn(column: string, val: unknown[] | ISelectQueryBuilder): this;
   whereExist<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereNotExists<R>(query: ISelectQueryBuilder | string, callback?: WhereFunction<R>): this;
   whereBetween(column: string, val: unknown[]): this;
