@@ -35,6 +35,7 @@ export * from './actions.js';
 export * from './middleware.js';
 export * from './decorators.js';
 export * from './orm-permission.js';
+export * from './permission-service.js';
 export * from './util.js';
 export * from './profile.js';
 export * from './impersonation.js';
