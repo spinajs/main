@@ -20,12 +20,12 @@ interface IFakeFsCall {
   args: unknown[];
 }
 
-function makeCache(existing: boolean, hash: (file: string) => Promise<string> = async () => 'deadbeef') {
+function makeCache(existing: boolean) {
   const calls: IFakeFsCall[] = [];
   const cache = new DefaultControllerCache();
 
   Object.defineProperty(cache, 'Log', { value: noopLog });
-  Object.defineProperty(cache, 'Hasher', { value: { hash } });
+  Object.defineProperty(cache, 'Hasher', { value: { hash: async () => 'deadbeef' } });
   Object.defineProperty(cache, 'CacheFS', {
     value: {
       exists: async (...args: unknown[]) => {
@@ -36,6 +36,11 @@ function makeCache(existing: boolean, hash: (file: string) => Promise<string> = 
         calls.push({ op: 'write', args });
       },
       read: async () => Buffer.from('{}'),
+      list: async () => ['stale_entry', 'doc_stale_entry'],
+      dirExists: async () => true,
+      rm: async (...args: unknown[]) => {
+        calls.push({ op: 'rm', args });
+      },
       resolvePath: () => '',
     },
   });
@@ -53,55 +58,43 @@ function controllerInfo(): ClassInfo<BaseController> {
   });
 }
 
-describe('DefaultControllerCache rebuild option', () => {
-  it('does not regenerate when cache exists and rebuild not requested', async () => {
+describe('DefaultControllerCache keying', () => {
+  it('does not regenerate when the entry already exists', async () => {
     const { cache, calls } = makeCache(true);
     await cache.getCache(controllerInfo());
 
     expect(calls.filter((c) => c.op === 'write')).to.have.lengthOf(0);
   });
 
-  it('regenerates and overwrites when rebuild requested even if cache exists', async () => {
-    const { cache, calls } = makeCache(true);
-    await cache.getCache(controllerInfo(), { rebuild: true });
-
-    // Both the parameter cache and the doc cache entries must be rewritten.
-    const writes = calls.filter((c) => c.op === 'write');
-    expect(writes).to.have.lengthOf(2);
-    // Keys carry the extractor's hash as well as the source hash, so with a stubbed hasher both
-    // halves read `deadbeef` — see DefaultControllerCache.parserHash.
-    expect(writes.map((w) => w.args[0])).to.include.members(['deadbeef_deadbeef', 'doc_deadbeef_deadbeef']);
-  });
-
-  it('generates when cache missing regardless of rebuild flag', async () => {
+  it('generates both entries when they are missing', async () => {
     const { cache, calls } = makeCache(false);
     await cache.getCache(controllerInfo());
 
     expect(calls.filter((c) => c.op === 'write')).to.have.lengthOf(2);
   });
 
-  it('keys entries by the extractor as well as the source, so an extractor change misses the old entry', async () => {
-    // The stub hashes by content, so returning a different digest for this file is what "the
-    // extractor changed" looks like from the key's point of view. Two builds that read the very
-    // same controller must not land on one key: an entry written before `classTags` was extracted
-    // would otherwise be handed back to the build that knows how to read it, tags and all missing,
-    // and nothing would ever re-parse.
-    const keysFor = async (extractorDigest: string) => {
-      const { cache, calls } = makeCache(false, async (f: string) =>
-        f.endsWith('cache.ts') || f.endsWith('cache.js') ? extractorDigest : 'sourcehash',
-      );
-      await cache.getCache(controllerInfo());
-      return calls.filter((c) => c.op === 'write').map((w) => w.args[0] as string);
-    };
+  it('prefixes every key with the package version, so a new package build misses old entries', async () => {
+    // The extractor's own code lives in this package, so its version is what says "the way we read
+    // controllers may have changed". Without the prefix, adding `classTags` support left every
+    // entry under its old key and the new extractor was handed the document written before it -
+    // tags missing, nothing ever re-parsing.
+    const { cache, calls } = makeCache(false);
+    await cache.getCache(controllerInfo());
 
-    const before = await keysFor('extractor_v1');
-    const after = await keysFor('extractor_v2');
+    const keys = calls.filter((c) => c.op === 'write').map((w) => w.args[0] as string);
+    const paramKey = keys.find((k) => !k.startsWith('doc_'));
 
-    expect(before).to.have.lengthOf(2);
-    expect(after).to.have.lengthOf(2);
-    expect(before).to.not.have.members(after);
-    // The source half is untouched — only the extractor half moved.
-    expect(before.every((k) => k.includes('sourcehash'))).to.equal(true);
-    expect(after.every((k) => k.includes('sourcehash'))).to.equal(true);
+    // A real version, not the `unknown` fallback - the package must expose ./package.json for the
+    // lookup to resolve, and the source half is carried untouched alongside it.
+    expect(paramKey).to.match(/^\d+\.\d+\.\d+[^_]*_deadbeef$/);
+    expect(keys).to.include(`doc_${paramKey}`);
+  });
+
+  it('clear() removes every entry in the cache directory', async () => {
+    const { cache, calls } = makeCache(true);
+    await cache.clear();
+
+    const removed = calls.filter((c) => c.op === 'rm').map((c) => c.args[0]);
+    expect(removed).to.deep.equal(['stale_entry', 'doc_stale_entry']);
   });
 });

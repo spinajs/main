@@ -332,7 +332,9 @@ Routes inherited from a base class declared in another file are fine — paramet
 
 ## Controller cache & CLI
 
-Route parameter names and JSDoc documentation ( used by `@spinajs/http-swagger` ) are extracted from `.d.ts` files with the TypeScript compiler and cached under `__cache__/__controllers__` ( configurable via the `__fs_controller_cache__` fs provider ). Entries are keyed by source file content hash — changed files regenerate automatically.
+Route parameter names and JSDoc documentation ( used by `@spinajs/http-swagger` ) are extracted from `.d.ts` files with the TypeScript compiler and cached under `__cache__/__controllers__` ( configurable via the `__fs_controller_cache__` fs provider ).
+
+Entries are keyed by `<@spinajs/http version>_<content hash of the .d.ts>`. The hash covers "did the controller change?", the version covers "did the extractor that reads it change?" — installing a new package build lands on keys nothing was ever written under, so a release that learns to read a new JSDoc tag never serves documents written before it could.
 
 First app start pays the parsing cost. To avoid that ( e.g. docker images ), pre-build the cache at image build time:
 
@@ -340,8 +342,14 @@ First app start pays the parsing cost. To avoid that ( e.g. docker images ), pre
 # generate missing cache entries
 spinajs http:controllers:cache
 
-# force regeneration even if entries exist
+# clear the directory and regenerate every entry — also the manual revalidation hook
 spinajs http:controllers:cache --rebuild
+```
+
+While developing controllers locally, hang it off a watcher rather than the framework:
+
+```json
+"watch:controllers": "nodemon --watch src/controllers --ext ts --exec \"spinajs http:controllers:cache --rebuild\""
 ```
 
 ```dockerfile
