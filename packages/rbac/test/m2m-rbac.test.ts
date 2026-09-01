@@ -14,7 +14,18 @@ import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
 import './migration/m2m.migration.js';
-import { M2M_HOOK_CALLS, M2MJunctionModel, M2MLazyOwnerModel, M2MLazyTargetModel, M2MOwnerModel, M2MTargetModel, resetM2MHookCalls } from './models/M2MModels.js';
+import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
+import {
+  M2M_HOOK_CALLS,
+  M2MJunctionModel,
+  M2MLazyOwnerModel,
+  M2MLazyTargetModel,
+  M2MLazyTargetPolicy,
+  M2MOwnerModel,
+  M2MTargetModel,
+  M2MTargetPolicy,
+  resetM2MHookCalls,
+} from './models/M2MModels.js';
 
 chai.use(chaiAsPromised);
 
@@ -57,6 +68,12 @@ describe('rbac on a hasManyToMany target model', function () {
     await DI.resolve(Orm);
 
     resetM2MHookCalls();
+
+    // DI.clearCache() below (afterEach) wipes the policy map — decorators only run once
+    // at import, so every test after the first needs the registrations rebuilt here.
+    clearOrmPermissionRegistry();
+    OrmPermission(M2MTargetModel)(M2MTargetPolicy);
+    OrmPermission(M2MLazyTargetModel)(M2MLazyTargetPolicy);
   });
 
   afterEach(() => {

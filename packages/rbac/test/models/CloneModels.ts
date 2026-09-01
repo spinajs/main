@@ -1,5 +1,6 @@
 import { BelongsTo, Connection, IWhereBuilder, Model, ModelBase, Primary, SingleRelation } from '@spinajs/orm';
 import { OrmResource, ResourceOwner } from '../../src/decorators.js';
+import { OrmPermission, OrmPermissionPolicy } from '../../src/orm-permission.js';
 import { User } from '../../src/models/User.js';
 
 /**
@@ -28,9 +29,12 @@ export class CloneRbacModel extends ModelBase {
 
   @BelongsTo(User, 'UserId', 'Id')
   public Owner: SingleRelation<User>;
+}
 
-  public static rbac(this: IWhereBuilder<CloneRbacModel>, user: User) {
-    this.whereExist('Owner', function (this: IWhereBuilder<User>) {
+@OrmPermission(CloneRbacModel)
+export class CloneRbacPolicy extends OrmPermissionPolicy<CloneRbacModel> {
+  public scope(q: IWhereBuilder<CloneRbacModel>, user: User): void {
+    q.whereExist('Owner', function (this: IWhereBuilder<User>) {
       this.where('Id', '=', user.Id);
     });
   }

@@ -6,7 +6,7 @@ import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
 import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
-import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
+import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
 import { ModelBase } from './model.js';
@@ -998,10 +998,19 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this.where(column, SqlOperator.NOT, val);
   }
 
-  public whereIn(column: string, val: any[]): this {
+  public whereIn(column: string, val: any[] | ISelectQueryBuilder): this {
+    if (val instanceof SelectQueryBuilder) {
+      this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
+      return this;
+    }
+
+    if (!Array.isArray(val)) {
+      throw new InvalidArgument(`whereIn value must be an array or a sub-query builder, got ${typeof val}`);
+    }
+
     // `IN ()` matches nothing in SQL; compile an empty set to FALSE rather than
     // emitting no condition (which would silently match every row).
-    if (Array.isArray(val) && val.length === 0) {
+    if (val.length === 0) {
       this.where(false);
       return this;
     }
@@ -1009,7 +1018,16 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
     return this;
   }
 
-  public whereNotIn(column: string, val: any[]): this {
+  public whereNotIn(column: string, val: any[] | ISelectQueryBuilder): this {
+    if (val instanceof SelectQueryBuilder) {
+      this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
+      return this;
+    }
+
+    if (!Array.isArray(val)) {
+      throw new InvalidArgument(`whereNotIn value must be an array or a sub-query builder, got ${typeof val}`);
+    }
+
     this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));
     return this;
   }
