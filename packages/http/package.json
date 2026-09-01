@@ -9,7 +9,8 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "type": "module",
   "private": false,

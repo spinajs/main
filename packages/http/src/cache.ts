@@ -98,6 +98,33 @@ export interface ITagExtractor {
 
 // ---------------------------------------------------------------------------
 
+/** Stand-in prefix used when the package version cannot be read - see `resolveVersion()`. */
+const UNKNOWN_VERSION = 'unknown';
+
+/**
+ * Shape of a cache entry file: `<package version>_<content hash>`, with a `doc_` twin holding the
+ * documentation. Tells this class's own files apart from anything else that ends up in the
+ * directory - `fs.rm()` is recursive, so a stray subdirectory would go whole.
+ */
+const ENTRY_NAME = /^(doc_)?[^_]+_[0-9a-f]+$/;
+
+/**
+ * Best-effort lookup of this package's version, the same way `@spinajs/cli` reads its own.
+ *
+ * Resolved rather than joined onto cwd: node walks the parent `node_modules` chain, so this holds
+ * when the process starts somewhere below the app root - a monorepo package, a test runner. Node's
+ * own resolver is used because neither `import.meta.url` nor `__filename` exists in both the ESM
+ * and the CommonJS build of this module. Requires `./package.json` in the package's `exports`.
+ */
+function resolveVersion(): string {
+  try {
+    const require = createRequire(`${process.env.WORKSPACE_ROOT_PATH ?? process.cwd()}/`);
+    return (require('@spinajs/http/package.json') as { version: string }).version;
+  } catch {
+    return UNKNOWN_VERSION;
+  }
+}
+
 /** Wrapper types unwrapped to their first type argument (`Promise<T>`, `Ok<T>`, `ModelData<T>`, …). */
 const TRANSPARENT_WRAPPERS = new Set<string>([
   'Promise', 'Ok', 'Json', 'Created', 'BadRequest', 'NotFound',
@@ -117,21 +144,78 @@ export class DefaultControllerCache extends AsyncService {
   @Autoinject(FileHasher)
   protected Hasher: FileHasher;
 
+  /**
+   * Version of the installed `@spinajs/http`, prefixed onto every cache key.
+   *
+   * Entries are keyed by the hash of a controller's `.d.ts`, which answers "did the controller
+   * change?" but not "did the extractor that reads it change?". Adding `classTags` support touched
+   * no controller, so every entry kept its key and the new extractor read back the old, tagless
+   * document - endpoints then showed in the swagger under their class name instead of their
+   * `@tags`. Prefixing the version means a newly installed package build starts from keys nothing
+   * was ever written under, which is exactly when the extractor can have changed.
+   *
+   * A version we cannot read degrades to a fixed prefix, so the cache keeps working as it did
+   * before this prefix existed.
+   */
+  protected Version = resolveVersion();
+
   public async resolve() {
     await super.resolve();
-    this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')}`);
+    await this.dropStaleEntries();
+    this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')} ( @spinajs/http ${this.Version} )`);
+  }
+
+  /**
+   * Drops every entry in the cache directory, whatever version wrote it.
+   *
+   * Used by `http:controllers:cache --rebuild`, so a run leaves the directory holding exactly what
+   * the current build produces.
+   */
+  public async clear(): Promise<void> {
+    if (!(await this.CacheFS.dirExists(''))) {
+      return;
+    }
+
+    for (const entry of await this.CacheFS.list('')) {
+      if (ENTRY_NAME.test(entry)) {
+        await this.CacheFS.rm(entry);
+      }
+    }
+  }
+
+  /**
+   * Removes entries left behind by other versions of this package.
+   *
+   * They key under a prefix nothing will ever look up again, so a directory that grows one full
+   * set per installed version buys nothing - one readdir on startup is cheaper than that, and it
+   * means upgrading the package needs no cache command at all.
+   *
+   * Skipped when the version could not be resolved: every entry would then look foreign and the
+   * cache would be wiped on every boot.
+   */
+  protected async dropStaleEntries(): Promise<void> {
+    if (this.Version === UNKNOWN_VERSION || !(await this.CacheFS.dirExists(''))) {
+      return;
+    }
+
+    const mine = (name: string) => name.startsWith(`${this.Version}_`) || name.startsWith(`doc_${this.Version}_`);
+
+    for (const entry of await this.CacheFS.list('')) {
+      if (ENTRY_NAME.test(entry) && !mine(entry)) {
+        this.Log.info(`Dropping stale controller cache entry ${entry}`);
+        await this.CacheFS.rm(entry);
+      }
+    }
   }
 
   /**
    * Returns parameter-name map used for route argument binding.
    *
-   * Cache entries are keyed by source-file content hash, so a changed file
-   * naturally gets a fresh entry. `options.rebuild` forces regeneration and
-   * overwrite even when entries for the current hash already exist — used by
-   * the `http:controllers:cache` CLI command to refresh a pre-built cache
-   * (e.g. inside a docker image build).
+   * Cache entries are keyed by source-file content hash and package version, so a changed file or
+   * a changed package naturally gets a fresh entry. Missing entries are generated here, which is
+   * also how `http:controllers:cache` pre-builds them after wiping the directory.
    */
-  public async getCache(controller: ClassInfo<BaseController>, options?: { rebuild?: boolean }): Promise<Record<string, string[]>> {
+  public async getCache(controller: ClassInfo<BaseController>): Promise<Record<string, string[]>> {
     // Sentinel values like `<di>` are set by Controllers.resolve() / add() for
     // controllers registered through DI rather than a file scan. There's no
     // on-disk source to parse, so fall back to a runtime extraction of
@@ -141,24 +225,26 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    const hash = await this.Hasher.hash(file);
-    const docHash = `doc_${hash}`;
+    // Both entries are keyed by the source hash AND the package version - see the Version field. Parameters
+    // go through the same extractAll() as the documentation, so both go stale the same way when
+    // the extractor changes.
+    const paramHash = `${this.Version}_${await this.Hasher.hash(file)}`;
+    const docHash = `doc_${paramHash}`;
 
-    const rebuild = options?.rebuild === true;
-    const paramExists = !rebuild && (await this.CacheFS.exists(hash));
-    const docExists = !rebuild && (await this.CacheFS.exists(docHash));
+    const paramExists = await this.CacheFS.exists(paramHash);
+    const docExists = await this.CacheFS.exists(docHash);
 
     if (!paramExists || !docExists) {
       this.Log.info(`Generating controller cache for ${controller.name}`);
       const { parameters, documentation } = this.extractAll(file, controller.name);
 
-      if (!paramExists) await this.CacheFS.write(hash, JSON.stringify(parameters));
+      if (!paramExists) await this.CacheFS.write(paramHash, JSON.stringify(parameters));
       if (!docExists) await this.CacheFS.write(docHash, JSON.stringify(documentation));
 
       this.Log.info(`Controller cache generated for ${controller.name}`);
     }
 
-    return this.CacheFS.read(hash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
+    return this.CacheFS.read(paramHash).then((x) => JSON.parse(x.toString()) as Record<string, string[]>);
   }
 
   /** Whether `file` points at a real on-disk source we can parse. */
@@ -194,8 +280,8 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    const hash = await this.Hasher.hash(file);
-    const docHash = `doc_${hash}`;
+    // Same key as getCache() writes under, package version included - see the Version field.
+    const docHash = `doc_${this.Version}_${await this.Hasher.hash(file)}`;
 
     if (!(await this.CacheFS.exists(docHash))) {
       await this.getCache(controller);

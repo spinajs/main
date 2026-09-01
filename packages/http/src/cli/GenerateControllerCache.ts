@@ -15,13 +15,13 @@ interface IControllersCacheOptions {
 /**
  * Pre-builds the controller parameter + documentation cache so a deployed app
  * (e.g. a docker image) does not pay the TypeScript-parsing cost on first
- * start. Default behavior only generates missing entries; `--rebuild` forces
- * regeneration of existing ones.
+ * start. Default behavior only generates missing entries; `--rebuild` wipes the
+ * directory first, which is also the manual revalidation hook.
  *
  * Exits non-zero when any controller fails, so image builds fail loudly.
  */
 @Command('http:controllers:cache', 'generate controllers cache ahead of time ( eg. during docker image build )')
-@Option('-r, --rebuild', false, 'regenerate cache entries even if they already exist')
+@Option('-r, --rebuild', false, 'clear the cache directory and regenerate every entry')
 export class ControllersCacheCommand extends CliCommand {
   @Logger('http')
   protected Log: Log;
@@ -45,12 +45,18 @@ export class ControllersCacheCommand extends CliCommand {
       (c) => c.name,
     );
 
+    // Wiped rather than overwritten: entries written under an earlier package version key
+    // elsewhere, so overwriting them in place would leave them behind for nothing to ever read.
+    if (rebuild) {
+      await cache.clear();
+    }
+
     this.Log.info(`Generating controllers cache for ${controllers.length} controllers ( rebuild: ${rebuild} ) ...`);
 
     const failed: string[] = [];
     for (const c of controllers) {
       try {
-        await cache.getCache(c, { rebuild });
+        await cache.getCache(c);
       } catch (err) {
         failed.push(c.name);
         this.Log.error(`Failed to generate cache for controller ${c.name} ( ${c.file} ): ${(err as Error).message}`);
