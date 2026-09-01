@@ -98,6 +98,9 @@ export interface ITagExtractor {
 
 // ---------------------------------------------------------------------------
 
+/** Stand-in prefix used when the package version cannot be read - see `resolveVersion()`. */
+const UNKNOWN_VERSION = 'unknown';
+
 /**
  * Best-effort lookup of this package's version, the same way `@spinajs/cli` reads its own.
  *
@@ -111,7 +114,7 @@ function resolveVersion(): string {
     const require = createRequire(`${process.env.WORKSPACE_ROOT_PATH ?? process.cwd()}/`);
     return (require('@spinajs/http/package.json') as { version: string }).version;
   } catch {
-    return 'unknown';
+    return UNKNOWN_VERSION;
   }
 }
 
@@ -151,15 +154,32 @@ export class DefaultControllerCache extends AsyncService {
 
   public async resolve() {
     await super.resolve();
+    await this.dropStaleEntries();
     this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')} ( @spinajs/http ${this.Version} )`);
   }
 
   /**
-   * Drops every entry in the cache directory.
+   * Whether a file name is one this class wrote: `<version>_<hash>`, or its `doc_` twin. Anything
+   * else in the directory is not ours to delete - and `fs.rm()` is recursive, so a stray
+   * subdirectory would go whole.
+   */
+  protected isEntry(name: string): boolean {
+    const body = name.startsWith('doc_') ? name.slice('doc_'.length) : name;
+    const separator = body.indexOf('_');
+
+    return separator > 0 && /^[0-9a-f]+$/.test(body.slice(separator + 1));
+  }
+
+  /** Whether an entry was written by the running version, as opposed to an earlier install. */
+  protected isCurrentEntry(name: string): boolean {
+    return name.startsWith(`${this.Version}_`) || name.startsWith(`doc_${this.Version}_`);
+  }
+
+  /**
+   * Drops every entry in the cache directory, whatever version wrote it.
    *
-   * Used by `http:controllers:cache` before it regenerates, so a run leaves the directory holding
-   * exactly what the current build produces - entries keyed by earlier versions are dead weight
-   * that nothing will ever read again.
+   * Used by `http:controllers:cache --rebuild`, so a run leaves the directory holding exactly what
+   * the current build produces.
    */
   public async clear(): Promise<void> {
     if (!(await this.CacheFS.dirExists(''))) {
@@ -167,7 +187,32 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     for (const entry of await this.CacheFS.list('')) {
-      await this.CacheFS.rm(entry);
+      if (this.isEntry(entry)) {
+        await this.CacheFS.rm(entry);
+      }
+    }
+  }
+
+  /**
+   * Removes entries left behind by other versions of this package.
+   *
+   * They key under a prefix nothing will ever look up again, so a directory that grows one full
+   * set per installed version buys nothing - one readdir on startup is cheaper than that, and it
+   * means upgrading the package needs no cache command at all.
+   *
+   * Skipped when the version could not be resolved: every entry would then look foreign and the
+   * cache would be wiped on every boot.
+   */
+  protected async dropStaleEntries(): Promise<void> {
+    if (this.Version === UNKNOWN_VERSION || !(await this.CacheFS.dirExists(''))) {
+      return;
+    }
+
+    for (const entry of await this.CacheFS.list('')) {
+      if (this.isEntry(entry) && !this.isCurrentEntry(entry)) {
+        this.Log.info(`Dropping stale controller cache entry ${entry}`);
+        await this.CacheFS.rm(entry);
+      }
     }
   }
 

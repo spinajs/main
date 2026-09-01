@@ -20,7 +20,7 @@ interface IFakeFsCall {
   args: unknown[];
 }
 
-function makeCache(existing: boolean) {
+function makeCache(existing: boolean, entries: string[] = ['0.0.1_deadbeef', 'doc_0.0.1_deadbeef']) {
   const calls: IFakeFsCall[] = [];
   const cache = new DefaultControllerCache();
 
@@ -36,7 +36,7 @@ function makeCache(existing: boolean) {
         calls.push({ op: 'write', args });
       },
       read: async () => Buffer.from('{}'),
-      list: async () => ['stale_entry', 'doc_stale_entry'],
+      list: async () => entries,
       dirExists: async () => true,
       rm: async (...args: unknown[]) => {
         calls.push({ op: 'rm', args });
@@ -46,6 +46,14 @@ function makeCache(existing: boolean) {
   });
 
   return { cache, calls };
+}
+
+/** The version prefix the instance keys under, read back off a generated key. */
+async function versionOf(cache: DefaultControllerCache, calls: IFakeFsCall[]) {
+  await cache.getCache(controllerInfo());
+  const key = calls.filter((c) => c.op === 'write').map((w) => w.args[0] as string)[0];
+
+  return key.replace('_deadbeef', '');
 }
 
 function controllerInfo(): ClassInfo<BaseController> {
@@ -90,11 +98,30 @@ describe('DefaultControllerCache keying', () => {
     expect(keys).to.include(`doc_${paramKey}`);
   });
 
-  it('clear() removes every entry in the cache directory', async () => {
-    const { cache, calls } = makeCache(true);
+  it('clear() removes every entry whatever version wrote it, and nothing else', async () => {
+    const entries = ['0.0.1_deadbeef', 'doc_0.0.1_deadbeef', '9.9.9_cafe', 'notes.txt', 'subdir'];
+    const { cache, calls } = makeCache(true, entries);
     await cache.clear();
 
     const removed = calls.filter((c) => c.op === 'rm').map((c) => c.args[0]);
-    expect(removed).to.deep.equal(['stale_entry', 'doc_stale_entry']);
+    expect(removed).to.deep.equal(['0.0.1_deadbeef', 'doc_0.0.1_deadbeef', '9.9.9_cafe']);
+  });
+
+  it('drops entries left by other versions on startup, keeping its own', async () => {
+    // Upgrading the package would otherwise leave a full set of entries behind for every version
+    // ever installed, none of which anything looks up again.
+    const probe = makeCache(false);
+    const version = await versionOf(probe.cache, probe.calls);
+
+    const mine = [`${version}_deadbeef`, `doc_${version}_deadbeef`];
+    const theirs = ['0.0.1_deadbeef', 'doc_0.0.1_deadbeef'];
+    const foreign = ['notes.txt', 'subdir'];
+    const { cache, calls } = makeCache(true, [...mine, ...theirs, ...foreign]);
+
+    await (cache as unknown as { dropStaleEntries(): Promise<void> }).dropStaleEntries();
+
+    // Only other versions' entries: this version's are still wanted, and the rest is not ours.
+    const removed = calls.filter((c) => c.op === 'rm').map((c) => c.args[0]);
+    expect(removed).to.deep.equal(theirs);
   });
 });
