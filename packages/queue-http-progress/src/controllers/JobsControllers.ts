@@ -6,7 +6,7 @@ import { IJobStatusResponse } from '../models/JobEntry.js';
 export class JobsController extends BaseController {
 
     @Get(':jobId/status')
-    public async getStatus(@Param('jobId') jobId: string): Promise<Ok> {
+    public async getStatus(@Param() jobId: string): Promise<Ok> {
         const row = await JobModel.select().where('JobId', jobId).first();
 
         if (!row) {

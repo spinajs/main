@@ -1,5 +1,5 @@
 import { insertModel, updateModel } from '@spinajs/orm';
-import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, _to_array } from '@spinajs/util';
+import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, _toArray } from '@spinajs/util';
 import _ from 'lodash';
 import { emailDeferred } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
@@ -92,7 +92,7 @@ export async function getUsersByRole(role: string[]): Promise<User[]> {
  * @param value - value to assign when `meta` is a single key string (default: `null`)
  */
 export async function setUserMeta(u: User, meta: string | { key: string; value: any }[], value: any = null): Promise<User> {
-  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _to_array())(meta, 'Metadata');
+  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), _toArray())(meta, 'Metadata');
 
   mArgs.forEach((m: string | { key: string; value: any }) => {
     _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
@@ -102,7 +102,12 @@ export async function setUserMeta(u: User, meta: string | { key: string; value: 
 
   // the event carries the resolved entries, not the raw input - a single
   // string key is normalised to a { key, value } pair
-  await ev(new UserMetadataChange(u, mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m))));
+  await ev(
+    new UserMetadataChange(
+      u,
+      mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m)),
+    ),
+  );
 
   return u;
 }
@@ -141,11 +146,7 @@ interface IEmailTemplateCfg {
  *   Nothing here is persisted and nothing is logged: whatever it carries goes
  *   straight into the rendered message.
  */
-export async function sendUserEmail(
-  u: User,
-  cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired',
-  model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown },
-): Promise<User> {
+export async function sendUserEmail(u: User, cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired', model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown }): Promise<User> {
   const extra = model ? await model(u) : undefined;
   const connection = cfg<string>('rbac.email.connection', 'default');
 
