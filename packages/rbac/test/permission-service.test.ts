@@ -8,14 +8,14 @@ import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { User } from '../src/models/User.js';
 import type { IRbacAsyncStorage } from '../src/interfaces.js';
-import { PermissionService, usePermission, probeGrant, type PermissionVerb } from '../src/permission-service.js';
+import { PermissionService, ResourceRules, usePermission, probeGrant, type PermissionVerb } from '../src/permission-service.js';
 
 chai.use(chaiAsPromised);
 
 const GRANTS = {
-  admin: { TestRes: { 'create:any': ['*'], 'update:any': ['*'] } },
-  member: { TestRes: { 'create:own': ['*'], 'update:own': ['*'] } },
-  viewer: { TestRes: { 'read:own': ['*'] } },
+  admin: { TestRes: { 'create:any': ['*'], 'update:any': ['*'] }, Widget: { 'create:any': ['*'], 'update:any': ['*'] } },
+  member: { TestRes: { 'create:own': ['*'], 'update:own': ['*'] }, Widget: { 'update:own': ['*'] } },
+  viewer: { TestRes: { 'read:own': ['*'] }, Widget: { 'read:own': ['*'] } },
 };
 
 class CustomNoPermission extends Forbidden {}
@@ -194,6 +194,74 @@ describe('PermissionService', () => {
       expect(probeGrant(['admin'], 'createAny', 'TestRes')?.granted).to.equal(true);
       expect(probeGrant(['viewer'], 'createAny', 'TestRes')?.granted).to.equal(false);
       expect(probeGrant(['ghost'], 'createAny', 'TestRes')).to.equal(null);
+    });
+  });
+
+  describe('class-based Resource', () => {
+    /** Any class qualifies as a resource — this one is not a model, just a plain class. */
+    class Widget {
+      constructor(public id: number) {}
+    }
+
+    class Renamed {
+      constructor(public id: number) {}
+    }
+
+    class WidgetPermission extends ResourceRules<Widget> {
+      protected readonly Resource = Widget;
+      public owned = new Set<number>();
+
+      protected owns(_user: User, subject: Widget): boolean {
+        return this.owned.has(subject.id);
+      }
+    }
+
+    class RenamedPermission extends ResourceRules<Renamed> {
+      protected readonly Resource = Renamed;
+      protected owns(): boolean {
+        return true;
+      }
+    }
+
+    let widgets: WidgetPermission;
+
+    beforeEach(() => {
+      widgets = new WidgetPermission();
+    });
+
+    it("the class NAME is the grant key — no string restated, no metadata lookup", async () => {
+      await widgets.assert('create', undefined, fakeUser(1, ['admin']));
+    });
+
+    it('a resource class unknown to the grants fails loud, not closed', async () => {
+      // 'Renamed' appears in no grants map — the class-rename failure mode. Silent fail-closed
+      // would refuse with the domain 403; the contract is a named programming error instead.
+      await expect(new RenamedPermission().assert('update', new Renamed(1), fakeUser(1, ['admin']))).to.be.rejectedWith(/resource 'Renamed'.*not present/);
+    });
+
+    describe('assert', () => {
+      it('any scope passes with or without a subject, never consulting owns()', async () => {
+        const admin = fakeUser(1, ['admin']);
+        await widgets.assert('update', new Widget(999), admin);
+        await widgets.assert('create', undefined, admin);
+      });
+
+      it('none scope refuses with noPermissionError', async () => {
+        await expect(widgets.assert('update', new Widget(1), fakeUser(1, ['ghost']))).to.be.rejectedWith(Forbidden, /no update grant/);
+      });
+
+      it('own scope passes when owns() answers true', async () => {
+        widgets.owned = new Set([5]);
+        await widgets.assert('update', new Widget(5), fakeUser(1, ['member']));
+      });
+
+      it('own scope refuses when owns() answers false', async () => {
+        await expect(widgets.assert('update', new Widget(5), fakeUser(1, ['member']))).to.be.rejectedWith(Forbidden, /does not own/);
+      });
+
+      it('own scope refuses a missing subject — ownership of nothing is undecidable', async () => {
+        await expect(widgets.assert('update', undefined, fakeUser(1, ['member']))).to.be.rejectedWith(Forbidden, /does not own/);
+      });
     });
   });
 });

@@ -20,8 +20,31 @@ export type PermissionGrantScope = 'any' | 'own' | 'none';
  * `usePermission()` anywhere else share one instance safely.
  */
 export abstract class PermissionService {
-  /** Rbac resource name this service guards — same string the grants config uses. */
-  protected abstract readonly Resource: string;
+  /**
+   * The rbac resource this service guards. A class constructor is the preferred form — its NAME
+   * is the accesscontrol grant key, resolved directly with no descriptor or metadata lookup, and
+   * ANY class qualifies (an ORM model, a DTO, a plain feature class). A string stays legal for
+   * grant keys that have no class behind them (config-only pseudo-resources).
+   */
+  protected abstract readonly Resource: Class<unknown> | string;
+
+  /**
+   * The grant key {@link Resource} resolves to, self-checked against the registered grants:
+   * with a class as the resource the class NAME is the config contract, so a renamed class
+   * would otherwise fail closed silently (probeGrant answers false for a key accesscontrol
+   * has never seen). Checked here, it fails loud at first use instead — a programming error,
+   * not a refusal. Skipped when no AccessControl is registered; the probe itself throws then.
+   */
+  protected resourceName(): string {
+    const name = typeof this.Resource === 'function' ? this.Resource.name : this.Resource;
+
+    const ac = DI.get<AccessControl>('AccessControl');
+    if (ac && !ac.hasResource(name)) {
+      throw new Error(`rbac resource '${name}' (guarded by ${this.constructor.name}) is not present in the AccessControl grants — renamed class or missing grants config?`);
+    }
+
+    return name;
+  }
 
   /**
    * The acting user: explicit argument wins, else the rbac AsyncLocalStorage store.
@@ -60,7 +83,7 @@ export abstract class PermissionService {
 
   /** Single guarded probe against this.Resource — an unknown role answers false. */
   protected can(roles: string[], permission: string): boolean {
-    return probeGrant(roles, permission, this.Resource)?.granted ?? false;
+    return probeGrant(roles, permission, this.resourceName())?.granted ?? false;
   }
 
   /** Resolve acting user + scope, refusing `none` with the (overridable) domain error. */
@@ -94,7 +117,7 @@ export abstract class PermissionService {
   }
 
   protected noPermissionError(user: User, verb: PermissionVerb): Error {
-    return new Forbidden(`user ${user.Id} has no ${verb} grant for resource ${this.Resource}`);
+    return new Forbidden(`user ${user.Id} has no ${verb} grant for resource ${this.resourceName()}`);
   }
 
   protected noUserError(): Error {
@@ -103,6 +126,53 @@ export abstract class PermissionService {
 
   private storage(): AsyncLocalStorage<IRbacAsyncStorage> {
     return DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage>;
+  }
+}
+
+/**
+ * Model-aware permission service: the generic verb gate computed from {@link Resource} plus the
+ * accesscontrol grants, so a concrete domain service declares only what config cannot state —
+ * what "own" MEANS for its resource — plus its typed errors and genuine business rules.
+ *
+ * `TModel` is the ownership CARRIER, not necessarily a persisted row: anything `owns` can decide
+ * from. The Resource class doubles as the grant key and as the compile-time subject type, so the
+ * declaration cannot drift from what `assert` accepts.
+ *
+ * `read` deliberately has no special treatment here, but domain convention is to not gate reads
+ * through `assert` at all: a refused read should answer an empty list or 404 from the scoped
+ * query layer, never a 403.
+ */
+export abstract class ResourceRules<TModel> extends PermissionService {
+  protected abstract override readonly Resource: Class<TModel>;
+
+  /**
+   * THE one domain fact the grants config cannot express: does this user own this subject.
+   * Runs only when the grant projects to `own` scope — an `any` grant never calls it.
+   */
+  protected abstract owns(user: User, subject: TModel): Promise<boolean> | boolean;
+
+  /**
+   * The generic gate: grant first (refusing `none` with {@link noPermissionError}), ownership
+   * second when the grant is `own`-scoped. A missing subject under `own` scope refuses too —
+   * ownership of nothing is undecidable, and an undecidable permission never passes. Verbs on
+   * the collection (a `create:any` insert) pass with no subject because scope is `any`.
+   */
+  public async assert(verb: PermissionVerb, subject?: TModel, user?: User): Promise<void> {
+    const { user: acting, scope } = this.assertGrant(verb, user);
+
+    if (scope !== 'own') {
+      return;
+    }
+
+    if (subject === undefined || !(await this.owns(acting, subject))) {
+      throw this.notOwnedError(acting, subject);
+    }
+  }
+
+  /** Override hook for typed domain errors, like {@link noPermissionError}. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected notOwnedError(user: User, _subject: TModel | undefined): Error {
+    return new Forbidden(`user ${user.Id} does not own the ${this.resourceName()} subject of this action`);
   }
 }
 
