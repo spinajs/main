@@ -328,6 +328,31 @@ export abstract class ExistsQueryStatement extends SelectQueryStatement {
 }
 
 /**
+ * Sub-query membership test: `column IN ( SELECT ... )`. The IN twin of
+ * {@link ExistsQueryStatement} — carries the tested column alongside the inner builder.
+ */
+@NewInstance()
+export abstract class InQueryStatement extends SelectQueryStatement {
+  protected _column: string;
+  protected _not: boolean;
+
+  // The OUTER query this predicate belongs to ( distinct from `_builder`, which - inherited
+  // from SelectQueryStatement - is the INNER sub-select ). Needed to qualify `_column` with the
+  // outer table alias, the same way InStatement's `_builder` is the outer query.
+  protected _ownerBuilder: WhereBuilder<any>;
+
+  constructor(builder: SelectQueryBuilder, column: string, not: boolean, ownerBuilder: WhereBuilder<any>) {
+    super(builder);
+
+    this._column = column || '';
+    this._not = not || false;
+    this._ownerBuilder = ownerBuilder;
+  }
+
+  public abstract build(): IQueryStatementResult;
+}
+
+/**
  * Membership test against a `@Set()` column — a single column holding several values
  * joined by {@link SET_DELIMITER} ( see the SetValueConverter ).
  *

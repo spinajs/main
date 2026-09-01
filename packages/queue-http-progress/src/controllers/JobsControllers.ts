@@ -13,6 +13,7 @@ export class JobsController extends BaseController {
         jobId,
         status: "queued",
         progress: 0,
+        result: undefined,
         message: undefined,
         createdAt: undefined,
       });

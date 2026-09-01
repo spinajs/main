@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { MODEL_STATIC_MIXINS, Orm, SortOrder } from '@spinajs/orm';
+import { IWhereBuilder, MODEL_STATIC_MIXINS, Orm, SortOrder } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, NotFound, Ok } from '@spinajs/http';
@@ -15,6 +15,8 @@ import { RbacPolicy } from '@spinajs/rbac-http';
 import {
   AuthProvider,
   BasicPasswordProvider,
+  OrmPermission,
+  OrmPermissionPolicy,
   OrmResource,
   PasswordProvider,
   RBAC_USER_MODEL,
@@ -1051,12 +1053,15 @@ describe('Admin user controllers', function () {
     });
 
     it('list is row-scoped once an @OrmResource-carrying subclass is registered', async () => {
-      class ScopedUser extends User {
-        public static rbacRead(this: any, _user: User) {
-          this.where('Login', 'visible-user'); // deterministic marker predicate
+      class ScopedUser extends User {}
+      OrmResource('users')(ScopedUser);
+
+      class ScopedUserPolicy extends OrmPermissionPolicy<ScopedUser> {
+        public scopeRead(q: IWhereBuilder<ScopedUser>, _u: User): void {
+          q.where('Login', 'visible-user'); // deterministic marker predicate
         }
       }
-      OrmResource('users')(ScopedUser);
+      OrmPermission(ScopedUser)(ScopedUserPolicy);
 
       /**
        * A real application's `RbacUserModel` subclass lives in its own file and

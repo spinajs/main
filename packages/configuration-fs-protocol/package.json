@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/configuration-fs-protocol",
-  "version": "2.0.522",
+  "version": "2.0.523",
   "description": "> TODO: description",
   "author": "Grzegorz Beń <grzegorz.ben@coderush.pl>",
   "homepage": "https://github.com/spinajs/main#readme",
@@ -47,15 +47,15 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
-    "@spinajs/log": "2.0.522",
+    "@spinajs/log": "2.0.523",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "2.0.522",
-    "@spinajs/di": "2.0.522",
-    "@spinajs/fs": "2.0.522",
-    "@spinajs/internal-logger": "2.0.522",
+    "@spinajs/configuration-common": "2.0.523",
+    "@spinajs/di": "2.0.523",
+    "@spinajs/fs": "2.0.523",
+    "@spinajs/internal-logger": "2.0.523",
     "@aws-sdk/client-secrets-manager": "^3.709.0"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

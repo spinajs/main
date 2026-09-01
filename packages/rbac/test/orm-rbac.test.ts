@@ -12,9 +12,10 @@ import { TestConfiguration } from './common.test.js';
 
 import './migration/rbac.migration.js';
 import { AsyncLocalStorage } from 'async_hooks';
+import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
 import { ResourceModel } from './models/ResourceModel.js';
 import { TestCampaign } from './models/TestCampaign.js';
-import { TestClient } from './models/TestClient.js';
+import { TestClient, TestClientPolicy } from './models/TestClient.js';
 import { TestScope } from './models/TestScope.js';
 
 chai.use(chaiAsPromised);
@@ -41,6 +42,11 @@ describe('Orm rbac test', function () {
 
     await DI.resolve(Configuration, [null, null, [dir('./config')]]);
     await DI.resolve(Orm);
+
+    // DI.clearCache() below (afterEach) wipes the policy map — decorators only run once
+    // at import, so every test after the first needs the registration rebuilt here.
+    clearOrmPermissionRegistry();
+    OrmPermission(TestClient)(TestClientPolicy);
   });
 
   afterEach(() => {
@@ -114,7 +120,7 @@ describe('Orm rbac test', function () {
         async () => {
           const result = TestCampaign.where('Id', '>', 0).populate('Client').toDB() as ICompilerOutput;
 
-          // constraint from TestClient.rbac() must land in the LEFT JOIN ON clause
+          // constraint from TestClientPolicy.scope() must land in the LEFT JOIN ON clause
           expect(result.expression).to.match(/LEFT JOIN .*test_client.* ON .*`\$Client\$`\.`type` IN \(\?,\?\)/);
 
           // and must NOT leak into the parent query WHERE
