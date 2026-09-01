@@ -999,9 +999,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereIn(column: string, val: any[] | ISelectQueryBuilder): this {
-    if (!Array.isArray(val)) {
+    if (val instanceof SelectQueryBuilder) {
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, false, this]));
       return this;
+    }
+
+    if (!Array.isArray(val)) {
+      throw new InvalidArgument(`whereIn value must be an array or a sub-query builder, got ${typeof val}`);
     }
 
     // `IN ()` matches nothing in SQL; compile an empty set to FALSE rather than
@@ -1015,9 +1019,13 @@ export class WhereBuilder<T> implements IWhereBuilder<T> {
   }
 
   public whereNotIn(column: string, val: any[] | ISelectQueryBuilder): this {
-    if (!Array.isArray(val)) {
+    if (val instanceof SelectQueryBuilder) {
       this.pushStatement(this._container.resolve<InQueryStatement>(InQueryStatement, [val, column, true, this]));
       return this;
+    }
+
+    if (!Array.isArray(val)) {
+      throw new InvalidArgument(`whereNotIn value must be an array or a sub-query builder, got ${typeof val}`);
     }
 
     this.pushStatement(this._container.resolve<InStatement>(InStatement, [column, val, true, this]));

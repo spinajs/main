@@ -1,9 +1,24 @@
 import { Class, DI } from '@spinajs/di';
 import { extractModelDescriptor, InsertQueryBuilder, IWhereBuilder, ModelBase, OrmException } from '@spinajs/orm';
+import { Forbidden } from '@spinajs/exceptions';
 import type { IRbacModelDescriptor } from './interfaces.js';
 import type { User } from './models/User.js';
 
 export const DEFAULT_PERMISSION_SCOPE = 'default';
+
+/**
+ * Attribute prefix marking a named permission scope on a role grant (eg. `'scope:pool'`),
+ * read by `RbacModelPermissionMiddleware.policiesFor()` to pick a non-default
+ * `OrmPermissionPolicy`.
+ *
+ * WARNING: `accesscontrol`'s attribute union across a role and every role it `$extend`s
+ * collapses `['*']` merged with `['scope:x']` down to `['*']` (glob union absorption). A role
+ * granting `read:own: ['scope:pool']` while a role it `$extend`s (or that extends it) grants
+ * the same resource `['*']` silently loses the `scope:pool` token, and resolution falls
+ * through to the DEFAULT policy instead of the named one. This is a known limitation, not
+ * handled by this module — never mix `['*']` and `scope:` attributes for the SAME resource
+ * across an `$extend` chain.
+ */
 export const PERMISSION_SCOPE_ATTR_PREFIX = 'scope:';
 export const ORM_PERMISSION_POLICY_MAP = '__orm_permission_policy__';
 
@@ -47,22 +62,37 @@ export abstract class OrmPermissionPolicy<M extends ModelBase<unknown> = ModelBa
 
   /**
    * Default denies: a policy that does not opt into insert control must not silently
-   * allow inserts under a `:own` grant.
+   * allow inserts under a `:own` grant. An authorization denial, not a config error, so
+   * `Forbidden` (403) — contrast `scope()`'s default, which stays `OrmException` because an
+   * unimplemented scope is a config bug. Callers with an `OwnerField` never reach this: see
+   * `RbacModelPermissionMiddleware.beforeQueryExecution`'s OwnerField fallback.
    */
   public async authorizeCreate(_query: InsertQueryBuilder, _user: User): Promise<void> {
-    throw new OrmException(`${this.constructor.name} does not implement authorizeCreate — INSERT under :own is not permitted by this policy`);
+    throw new Forbidden(`${this.constructor.name} does not implement authorizeCreate — INSERT under :own is not permitted by this policy`);
   }
 }
 
 export type OrmPermissionPolicyClass = Class<OrmPermissionPolicy>;
 
 /** The model `@OrmPermission` bound `policy` to, or `undefined` for a policy built by hand
- * (eg. the `OwnerFieldPolicy` fallback) that never went through the decorator. */
+ * (eg. the `OwnerFieldPolicy` fallback) that never went through the decorator.
+ *
+ * Read as an OWN property: `target[ORM_PERMISSION_MODEL] = model` stamps the constructor
+ * object itself, and ES class inheritance chains constructors ( `Sub.__proto__ === Base` ), so
+ * a plain property read here would let an undecorated `class Sub extends Base {}` silently
+ * inherit `Base`'s bound model instead of having none.
+ */
 export function ormPermissionModel(policy: OrmPermissionPolicyClass): Class<ModelBase<unknown>> | undefined {
-  return (policy as unknown as Record<symbol, Class<ModelBase<unknown>> | undefined>)[ORM_PERMISSION_MODEL];
+  const target = policy as unknown as Record<symbol, Class<ModelBase<unknown>> | undefined>;
+  return Object.prototype.hasOwnProperty.call(policy, ORM_PERMISSION_MODEL) ? target[ORM_PERMISSION_MODEL] : undefined;
 }
 
-function getOrCreatePolicyMap(): Map<string, OrmPermissionPolicyClass[]> {
+/**
+ * The single accessor for the policy map — used by both the registration side
+ * (`OrmPermission`) and the resolution side (`RbacModelPermissionMiddleware.policiesFor`) so
+ * the two can never read/write through differing DI cache accessors and drift apart.
+ */
+export function getOrCreatePolicyMap(): Map<string, OrmPermissionPolicyClass[]> {
   if (DI.RootContainer.Cache.has(ORM_PERMISSION_POLICY_MAP)) {
     return DI.RootContainer.Cache.get(ORM_PERMISSION_POLICY_MAP)[0] as Map<string, OrmPermissionPolicyClass[]>;
   }

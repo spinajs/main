@@ -6,7 +6,7 @@ import { AccessControl } from 'accesscontrol';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { User } from './models/User.js';
-import { DEFAULT_PERMISSION_SCOPE, ORM_PERMISSION_POLICY_MAP, ormPermissionModel, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
+import { DEFAULT_PERMISSION_SCOPE, getOrCreatePolicyMap, ormPermissionModel, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
 
 type QueryBuilderType = new (...args: any[]) => QueryBuilder;
 
@@ -156,11 +156,21 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
 
     const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor, builder.Model);
 
+    // A candidate that does not opt into insert control denies by default (see
+    // OrmPermissionPolicy.authorizeCreate). Pre-refactor, a model with no rbacCreate static
+    // but an OwnerField had its owner column stamped and the insert allowed — an unrelated
+    // policy registered only for scope() must not shadow that. Deny-by-default is kept when
+    // there is no OwnerField to fall back to.
+    const createPolicies = policies.map((policy) => {
+      const opensOwnCreate = policy.authorizeCreate !== OrmPermissionPolicy.prototype.authorizeCreate;
+      return !opensOwnCreate && descriptor.OwnerField ? new OwnerFieldPolicy(descriptor.OwnerField) : policy;
+    });
+
     // Multiple distinct scopes OR-compose on inserts too: the insert is allowed if ANY
     // granted role's policy authorizes it. Policies are tried in registration-set order;
     // when every one denies, the last error propagates.
     let lastError: unknown;
-    for (const policy of policies) {
+    for (const policy of createPolicies) {
       try {
         this.Log.trace(`Applying authorizeCreate of ${policy.constructor.name} for ${resource}`);
         await policy.authorizeCreate(builder as InsertQueryBuilder, context.user);
@@ -280,11 +290,11 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
       scopeNames.add(DEFAULT_PERMISSION_SCOPE);
     }
 
-    const registered = DI.get<Map<string, OrmPermissionPolicyClass[]>>(ORM_PERMISSION_POLICY_MAP);
+    const registered = getOrCreatePolicyMap();
 
     const policies: OrmPermissionPolicy[] = [];
     for (const name of scopeNames) {
-      const candidates = registered?.get(policyMapKey(resource, name));
+      const candidates = registered.get(policyMapKey(resource, name));
       const policyClass = selectPolicyClass(candidates, model);
       if (policyClass) {
         policies.push(DI.resolve(policyClass));

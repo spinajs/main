@@ -12,6 +12,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
 import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
+import { Forbidden } from '@spinajs/exceptions';
 
 import './migration/rbac.migration.js';
 import {
@@ -23,6 +24,8 @@ import {
   DerivedBasePolicy,
   DerivedSubModel,
   DerivedSubPolicy,
+  GenericNoOwnerModel,
+  GenericNoOwnerPolicy,
   GenericPolicy,
   GenericPolicyModel,
   GhostScopeModel,
@@ -78,6 +81,7 @@ describe('OrmPermissionPolicy where-path', function () {
     clearOrmPermissionRegistry();
     OrmPermission(AllPolicyModel)(AllPolicy);
     OrmPermission(GenericPolicyModel)(GenericPolicy);
+    OrmPermission(GenericNoOwnerModel)(GenericNoOwnerPolicy);
     OrmPermission(AsyncCreateModel)(AsyncCreatePolicy);
     OrmPermission(LazyPolicyModel)(LazyPolicy);
     OrmPermission(ScopedModel)(ScopedDefaultPolicy);
@@ -97,7 +101,9 @@ describe('OrmPermissionPolicy where-path', function () {
     DI.clearCache();
   });
 
-  function grant(grants: Record<string, Record<string, Record<string, string[]>>>) {
+  // Resource value is normally `Record<string, string[]>` (action -> attributes); the
+  // `string[]` arm additionally admits a role-level `$extend: [...]` entry.
+  function grant(grants: Record<string, Record<string, Record<string, string[]> | string[]>>) {
     DI.get<AccessControl>('AccessControl')!.setGrants(grants);
   }
 
@@ -286,6 +292,36 @@ describe('OrmPermissionPolicy where-path', function () {
       expect(row.UserId).to.eq(u.Id);
     });
 
+    it('a registered policy implementing only scope() falls back to OwnerField and stamps the owner column (IDOR closure)', async () => {
+      // Regression case for the OwnerField-fallback fix: GenericPolicy never implements
+      // authorizeCreate, but GenericPolicyModel has @ResourceOwner — pre-refactor this
+      // combination stamped the owner column and allowed the insert; a registered policy
+      // that only implements scope() must not shadow that into a denial.
+      grant({ r: { PolicyGeneric: { 'create:own': ['*'] } } });
+      const u = await owner();
+
+      await as(u, 'r', async () => {
+        await new GenericPolicyModel({ UserId: u.Id + 999, Value: 'forged' } as any).insert();
+      });
+
+      const row = await GenericPolicyModel.where('Value', 'forged').firstOrFail();
+      expect(row.UserId).to.eq(u.Id);
+    });
+
+    it('a registered policy with no authorizeCreate override and no OwnerField still denies, as Forbidden', async () => {
+      // Contrast with the GenericPolicy case above: with no OwnerField to fall back to, the
+      // base OrmPermissionPolicy.authorizeCreate default runs and must deny — and that denial
+      // is an authorization failure (Forbidden/403), not a config error (OrmException).
+      grant({ r: { PolicyGenericNoOwner: { 'create:own': ['*'] } } });
+      const u = await owner();
+
+      await expect(
+        as(u, 'r', async () => {
+          await new GenericNoOwnerModel({ Value: 'x' } as any).insert();
+        }),
+      ).to.be.rejectedWith(Forbidden, /does not implement authorizeCreate/);
+    });
+
     it('model with neither policy nor OwnerField throws OrmException on :own insert', async () => {
       grant({ r: { PolicyNaked: { 'create:own': ['*'] } } });
       const u = await owner();
@@ -426,6 +462,30 @@ describe('OrmPermissionPolicy where-path', function () {
       await as(u, ['roleSubset', 'roleDefault'], () => ScopedModel.all());
 
       expect(POLICY_CALLS).to.include('subset');
+    });
+
+    it("KNOWN LIMITATION: a role's scope: token is silently absorbed by a role it $extends granting '*' on the same resource", async () => {
+      // Contrast with the test above: that one holds for two SEPARATE roles queried
+      // independently. Here a SINGLE role $extends another, and accesscontrol unions grant
+      // attributes across the whole $extend chain BEFORE this module ever sees them —
+      // Notation.Glob.union(['*'], ['scope:subset']) collapses to ['*'], so the 'scope:subset'
+      // token is lost and resolution silently falls through to the default policy instead of
+      // the named one. This pins the ACTUAL (undesired) behavior, not the desired one — see
+      // the warning on PERMISSION_SCOPE_ATTR_PREFIX.
+      grant({
+        roleScopedPackage: { PolicyScoped: { 'read:own': ['*'] } },
+        roleScopedExtender: { $extend: ['roleScopedPackage'], PolicyScoped: { 'read:own': ['scope:subset'] } },
+      });
+      const u = await owner();
+      await new ScopedModel({ UserId: u.Id, Value: 'default-visible' } as any).insert();
+      await new ScopedModel({ UserId: u.Id, Value: 'subset-visible' } as any).insert();
+
+      resetPolicyCalls();
+
+      const rows = (await as(u, 'roleScopedExtender', () => ScopedModel.all())) as ScopedModel[];
+
+      expect(POLICY_CALLS).to.eql(['default']);
+      expect(rows.map((r) => r.Value)).to.eql(['default-visible']);
     });
 
     it('a granted scope with no registered policy throws OrmException', async () => {

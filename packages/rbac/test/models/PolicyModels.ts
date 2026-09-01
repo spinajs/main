@@ -48,7 +48,9 @@ export class AllPolicy extends OrmPermissionPolicy<AllPolicyModel> {
   }
 }
 
-/** Only the generic scope() — read/update/delete all delegate to it; insert denied by base default. */
+/** Only the generic scope() — read/update/delete all delegate to it; insert falls back to
+ * OwnerField stamping since the model has @ResourceOwner and the policy does not implement
+ * authorizeCreate. */
 @Connection('default')
 @Model('test')
 @OrmResource('PolicyGeneric')
@@ -66,6 +68,25 @@ export class GenericPolicyModel extends ModelBase {
 export class GenericPolicy extends OrmPermissionPolicy<GenericPolicyModel> {
   public scope(q: IWhereBuilder<GenericPolicyModel>, _u: User): void {
     POLICY_CALLS.push('scope');
+    q.where('Value', 'generic');
+  }
+}
+
+/** Same shape as GenericPolicy/GenericPolicyModel but with NO @ResourceOwner: nothing for
+ * insert to fall back to, so authorizeCreate must reach the base default and deny. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyGenericNoOwner')
+export class GenericNoOwnerModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Value: string;
+}
+
+@OrmPermission(GenericNoOwnerModel)
+export class GenericNoOwnerPolicy extends OrmPermissionPolicy<GenericNoOwnerModel> {
+  public scope(q: IWhereBuilder<GenericNoOwnerModel>, _u: User): void {
     q.where('Value', 'generic');
   }
 }
