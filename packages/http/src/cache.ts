@@ -102,6 +102,13 @@ export interface ITagExtractor {
 const UNKNOWN_VERSION = 'unknown';
 
 /**
+ * Shape of a cache entry file: `<package version>_<content hash>`, with a `doc_` twin holding the
+ * documentation. Tells this class's own files apart from anything else that ends up in the
+ * directory - `fs.rm()` is recursive, so a stray subdirectory would go whole.
+ */
+const ENTRY_NAME = /^(doc_)?[^_]+_[0-9a-f]+$/;
+
+/**
  * Best-effort lookup of this package's version, the same way `@spinajs/cli` reads its own.
  *
  * Resolved rather than joined onto cwd: node walks the parent `node_modules` chain, so this holds
@@ -159,23 +166,6 @@ export class DefaultControllerCache extends AsyncService {
   }
 
   /**
-   * Whether a file name is one this class wrote: `<version>_<hash>`, or its `doc_` twin. Anything
-   * else in the directory is not ours to delete - and `fs.rm()` is recursive, so a stray
-   * subdirectory would go whole.
-   */
-  protected isEntry(name: string): boolean {
-    const body = name.startsWith('doc_') ? name.slice('doc_'.length) : name;
-    const separator = body.indexOf('_');
-
-    return separator > 0 && /^[0-9a-f]+$/.test(body.slice(separator + 1));
-  }
-
-  /** Whether an entry was written by the running version, as opposed to an earlier install. */
-  protected isCurrentEntry(name: string): boolean {
-    return name.startsWith(`${this.Version}_`) || name.startsWith(`doc_${this.Version}_`);
-  }
-
-  /**
    * Drops every entry in the cache directory, whatever version wrote it.
    *
    * Used by `http:controllers:cache --rebuild`, so a run leaves the directory holding exactly what
@@ -187,7 +177,7 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     for (const entry of await this.CacheFS.list('')) {
-      if (this.isEntry(entry)) {
+      if (ENTRY_NAME.test(entry)) {
         await this.CacheFS.rm(entry);
       }
     }
@@ -208,8 +198,10 @@ export class DefaultControllerCache extends AsyncService {
       return;
     }
 
+    const mine = (name: string) => name.startsWith(`${this.Version}_`) || name.startsWith(`doc_${this.Version}_`);
+
     for (const entry of await this.CacheFS.list('')) {
-      if (this.isEntry(entry) && !this.isCurrentEntry(entry)) {
+      if (ENTRY_NAME.test(entry) && !mine(entry)) {
         this.Log.info(`Dropping stale controller cache entry ${entry}`);
         await this.CacheFS.rm(entry);
       }
