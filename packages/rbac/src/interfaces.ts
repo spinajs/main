@@ -305,32 +305,6 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
 
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
-/**
- * Static a model may declare to constrain ONE operation, checked by
- * `RbacModelPermissionMiddleware` before the generic `rbac` fallback.
- *
- * The hook receives the query builder as `this` and the acting user as its only argument,
- * and is called only on the `:own` path — an `:any` grant short-circuits before it.
- *
- * ```ts
- * class Entry extends ModelBase<Entry> {
- *   // fallback for whichever of read / update / delete has no specific hook
- *   static rbac(this: IWhereBuilder<Entry>, user: User) { ... }
- *   static rbacDelete(this: DeleteQueryBuilder<Entry>, user: User) { ... }
- * }
- * ```
- *
- * `rbacCreate` is deliberately excluded from the `rbac` fallback: `rbac` has only ever run
- * on builders with a WHERE clause, so every existing implementation is where-shaped and
- * `InsertQueryBuilder` has no `where`. See {@link RBAC_HOOK_FALLBACK}.
- */
-export type RbacHookName = 'rbacRead' | 'rbacUpdate' | 'rbacDelete' | 'rbacCreate';
-
-/**
- * Name of the generic hook every operation except create falls back to.
- */
-export const RBAC_HOOK_FALLBACK = 'rbac';
-
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
 

@@ -1,6 +1,7 @@
 import { Connection, HasManyToMany, IWhereBuilder, Model, ModelBase, Primary, Relation } from '@spinajs/orm';
 import { Lazy } from '@spinajs/util';
 import { OrmResource, ResourceOwner } from '../../src/decorators.js';
+import { OrmPermission, OrmPermissionPolicy } from '../../src/orm-permission.js';
 import type { User } from '../../src/models/User.js';
 
 /**
@@ -46,10 +47,13 @@ export class M2MTargetModel extends ModelBase {
   public Segment: string;
 
   public Value: string;
+}
 
-  public static rbacRead(this: IWhereBuilder<M2MTargetModel>, _user: User) {
+@OrmPermission(M2MTargetModel)
+export class M2MTargetPolicy extends OrmPermissionPolicy<M2MTargetModel> {
+  public scopeRead(q: IWhereBuilder<M2MTargetModel>, _u: User): void {
     M2M_HOOK_CALLS.push('rbacRead');
-    this.where('Segment', 'allowed');
+    q.where('Segment', 'allowed');
   }
 }
 
@@ -91,11 +95,14 @@ export class M2MLazyTargetModel extends ModelBase {
   public Segment: string;
 
   public Value: string;
+}
 
-  public static rbacRead(this: IWhereBuilder<M2MLazyTargetModel>, _user: User) {
+@OrmPermission(M2MLazyTargetModel)
+export class M2MLazyTargetPolicy extends OrmPermissionPolicy<M2MLazyTargetModel> {
+  public scopeRead(q: IWhereBuilder<M2MLazyTargetModel>, _u: User): void {
     M2M_HOOK_CALLS.push('rbacRead:lazy');
 
-    this.andWhere(
+    q.andWhere(
       new Lazy(function (this: IWhereBuilder<M2MLazyTargetModel>) {
         const context = this as unknown as { _table?: string };
 
