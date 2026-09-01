@@ -54,7 +54,13 @@ export class NonDbPropertyHydrator extends ModelHydrator {
     }
 
     // get only properties that are not in DB
-    const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k) === undefined);
+    //
+    // `undefined` is skipped, `null` is not: a payload that omits a property ( or carries it as
+    // undefined, which is what a partial DTO produces ) says nothing about it and must leave the
+    // stored value alone, while `null` is an explicit "set it to nothing". DbPropertyHydrator has
+    // always made that distinction for columns; this keeps non-db properties consistent with it,
+    // so callers can hand a partial object to hydrate() without pre-filtering it themselves.
+    const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k) === undefined && values[k] !== undefined);
     keys.forEach((k) => {
       (target as any)[k] = values[k];
     });
