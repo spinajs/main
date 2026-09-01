@@ -1,12 +1,12 @@
-import { Autoinject, Class, DI, Injectable } from '@spinajs/di';
+import { Class, DI, Injectable } from '@spinajs/di';
 import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, IWhereBuilder, ModelBase, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor, PermissionType } from './interfaces.js';
-import { AccessControl } from 'accesscontrol';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { User } from './models/User.js';
 import { DEFAULT_PERMISSION_SCOPE, getOrCreatePolicyMap, ormPermissionModel, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
+import { effectiveRoles, probeGrant } from './permission-service.js';
 
 type QueryBuilderType = new (...args: any[]) => QueryBuilder;
 
@@ -123,9 +123,6 @@ class OwnerFieldPolicy extends OrmPermissionPolicy {
 export class RbacModelPermissionMiddleware extends QueryMiddleware {
   @Logger('RBAC')
   protected Log!: Log;
-
-  @Autoinject()
-  protected Ac!: AccessControl;
 
   /**
    * INSERT is enforced here rather than in `afterQueryCreation` because the row payload does
@@ -260,19 +257,12 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     const scopeNames = new Set<string>();
 
     for (const role of roles) {
-      let granted = false;
-      let attrs: string[] = [];
-      try {
-        const permission = (this.Ac!.can([role]) as any)[ownScope](resource);
-        granted = permission.granted;
-        attrs = (permission.attributes as string[]) ?? [];
-      } catch {
-        // role unknown to accesscontrol — contributes no grant, no scope
-      }
-
-      if (!granted) {
+      // role unknown to accesscontrol answers null — contributes no grant, no scope
+      const permission = probeGrant([role], ownScope, resource);
+      if (!permission?.granted) {
         continue;
       }
+      const attrs = (permission.attributes as string[]) ?? [];
 
       const tokens = attrs.filter((a) => typeof a === 'string' && a.startsWith(PERMISSION_SCOPE_ATTR_PREFIX)).map((a) => a.slice(PERMISSION_SCOPE_ATTR_PREFIX.length));
 
@@ -369,18 +359,9 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
 
     const ownScope = storage.PermissionScope ?? scopes.own;
     const anyScope = storage.PermissionScope ?? scopes.all;
-    const roles = storage.ActiveRole ? [storage.ActiveRole] : storage.User.Role;
-
-    let canAny = false;
-    let canOwn = false;
-    try {
-      canAny = (this.Ac!.can(roles) as any)[anyScope](resource).granted;
-      canOwn = (this.Ac!.can(roles) as any)[ownScope](resource).granted;
-    } catch (err) {
-      // accesscontrol throws eg. "Role not found" when role has no grants registered
-      // treat as no permission so caller gets Forbidden instead of library error
-      this.Log.trace(`Permission check for roles ${roles} on resource ${resource} failed: ${(err as Error).message}, treating as no permission`);
-    }
+    const roles = effectiveRoles(storage.User, storage);
+    const canAny = probeGrant(roles, anyScope, resource)?.granted ?? false;
+    const canOwn = probeGrant(roles, ownScope, resource)?.granted ?? false;
 
     // 'readOwn' -> 'read'. Keeps the Forbidden message accurate per builder type instead of
     // the old hard-coded ':read', which was wrong for updates and deletes.

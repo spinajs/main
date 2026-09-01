@@ -145,8 +145,11 @@ export function probeGrant(roles: string | string[], permission: string, resourc
  * query middleware and rbac-http's checkRoutePermission. The session's ActiveRole
  * applies only to the user it was selected for — matched by id; any other user answers
  * their full role list.
+ *
+ * The storage parameter is structural (not IRbacAsyncStorage) so both the rbac ALS
+ * store and http's request storage (whose User is `User | null`) fit.
  */
-export function effectiveRoles(user: User, storage?: IRbacAsyncStorage): string[] {
+export function effectiveRoles(user: User, storage?: { User?: User | null; ActiveRole?: string }): string[] {
   if (storage?.ActiveRole && storage.User?.Id === user.Id) {
     return [storage.ActiveRole];
   }
