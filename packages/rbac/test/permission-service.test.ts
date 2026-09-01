@@ -182,6 +182,11 @@ describe('PermissionService', () => {
       expect(a).to.be.instanceOf(TestPermission);
       expect(a).to.equal(b);
     });
+
+    it('refuses a class that is not a PermissionService', () => {
+      class NotAPermission {}
+      expect(() => usePermission(NotAPermission as never)).to.throw(/only PermissionService/);
+    });
   });
 
   describe('probeGrant', () => {

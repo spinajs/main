@@ -111,8 +111,15 @@ export abstract class PermissionService {
  * functions down the callstack, so code reads as intent
  * (`usePermission(ContentEntriesPermission)`) instead of container plumbing.
  * Answers the same DI-cached instance controllers receive via `@FromDI()`.
+ *
+ * Accepts ONLY PermissionService subclasses — the generic constraint is erased at
+ * runtime, so this is enforced here too instead of degrading into a bare DI.resolve.
  */
 export function usePermission<T extends PermissionService>(type: Class<T>): T {
+  if (typeof type !== 'function' || !(type.prototype instanceof PermissionService)) {
+    throw new Error(`usePermission accepts only PermissionService subclasses, got ${typeof type === 'function' ? type.name : typeof type}`);
+  }
+
   return DI.resolve(type) as T;
 }
 
