@@ -4,7 +4,6 @@ import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import { AsyncService, Autoinject, ClassInfo, Singleton } from '@spinajs/di';
 import { fs as fFs, FileHasher, FileSystem } from '@spinajs/fs';
-import { once } from '@spinajs/util';
 import type { BaseController } from './base-controller.js';
 import { Logger, Log } from '@spinajs/log';
 
@@ -118,8 +117,17 @@ export class DefaultControllerCache extends AsyncService {
   @Autoinject(FileHasher)
   protected Hasher: FileHasher;
 
+  /**
+   * Content hash of the extractor, mixed into every cache key: entry keys hash the controller's
+   * `.d.ts`, so without it a changed extractor keeps reading back its predecessor's poorer result.
+   */
+  protected ExtractorHash: string;
+
   public async resolve() {
     await super.resolve();
+    // Not a field initializer: those run in the constructor, and the container assigns
+    // @Autoinject properties only afterwards, so `this.Hasher` would still be undefined.
+    this.ExtractorHash = await this.Hasher.hashData(String(DefaultControllerCache));
     this.Log.info(`Controller cache dir is: ${this.CacheFS.resolvePath('')}`);
   }
 
@@ -142,12 +150,10 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    // Both entries are keyed by the source hash AND the extractor's own hash - see parserHash().
+    // Both entries are keyed by the source hash AND the extractor's own hash - see ExtractorHash.
     // Parameters go through the same extractAll() as the documentation, so both go stale the same
     // way when the extractor changes.
-    const extractorHash = await this.parserHash();
-    const hash = await this.Hasher.hash(file);
-    const paramHash = `${extractorHash}_${hash}`;
+    const paramHash = `${this.ExtractorHash}_${await this.Hasher.hash(file)}`;
     const docHash = `doc_${paramHash}`;
 
     const rebuild = options?.rebuild === true;
@@ -171,31 +177,6 @@ export class DefaultControllerCache extends AsyncService {
   private isResolvableSource(file: string | undefined): boolean {
     return isOnDiskSource(file);
   }
-
-  /**
-   * Content hash of this module — the code that turns a `.d.ts` into a cache entry.
-   *
-   * Entry keys hash the controller's `.d.ts`, which answers "did the controller change?" but not
-   * "did the way we read it change?". Those are different questions, and only the first one used
-   * to be asked: extend the extractor (as `classTags` did) and every entry written by the previous
-   * build still keys to the same name, so the new extractor reads back the old, poorer result and
-   * never re-parses. That is how controllers whose JSDoc declares a `@tags` ended up in the
-   * swagger under their class name instead — the tag was simply missing from the cached document.
-   *
-   * Mixing this hash into the key separates entries per extractor build, so an extractor change
-   * invalidates exactly the entries it can now read differently, with no manual cache wipe.
-   *
-   * `String(class)` is the whole class body as the running process sees it, so every extraction
-   * method is covered automatically and a released build differs from a locally edited one.
-   * Hashing the module file on disk would be the obvious alternative, but this module is compiled
-   * into both an ESM and a CommonJS build and neither `import.meta.url` nor `__filename` exists
-   * in both - see the note on `parseFnParamNames`, which relies on the same `toString()`.
-   *
-   * `once` memoizes the promise rather than the string, so concurrent callers - every controller
-   * asks for this during startup - share one hash instead of racing to repeat it. The work is
-   * deferred to the first call, by which point DI has injected `Hasher`.
-   */
-  private readonly parserHash = once(() => this.Hasher.hashData(String(DefaultControllerCache)));
 
   /**
    * Fallback: derive route method parameter names by parsing each method's
@@ -225,10 +206,8 @@ export class DefaultControllerCache extends AsyncService {
     }
 
     const file = resolvePath(controller.file.replace('.js', '.d.ts'));
-    // Same key as getCache() writes under, extractor hash included - see parserHash().
-    const extractorHash = await this.parserHash();
-    const hash = await this.Hasher.hash(file);
-    const docHash = `doc_${extractorHash}_${hash}`;
+    // Same key as getCache() writes under, extractor hash included - see ExtractorHash.
+    const docHash = `doc_${this.ExtractorHash}_${await this.Hasher.hash(file)}`;
 
     if (!(await this.CacheFS.exists(docHash))) {
       await this.getCache(controller);
