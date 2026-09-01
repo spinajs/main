@@ -1,32 +1,41 @@
-﻿import { BaseController, BasePath, Get, Ok, Param } from '@spinajs/http';
-import { JobModel } from '@spinajs/queue';
-import { IJobStatusResponse } from '../models/JobEntry.js';
+﻿import { BaseController, BasePath, Get, Ok, Param } from "@spinajs/http";
+import { JobModel } from "@spinajs/queue";
+import { IJobStatusResponse } from "../models/JobEntry.js";
 
-@BasePath('jobs/v1')
+@BasePath("jobs/v1")
 export class JobsController extends BaseController {
+  @Get(":jobId/status")
+  public async getStatus(@Param() jobId: string): Promise<Ok> {
+    const row = await JobModel.select().where("JobId", jobId).first();
 
-    @Get(':jobId/status')
-    public async getStatus(@Param() jobId: string): Promise<Ok> {
-        const row = await JobModel.select().where('JobId', jobId).first();
-
-        if (!row) {
-            return new Ok({ jobId, status: 'queued', progress: 0, message: undefined, createdAt: undefined });
-        }
-
-        const failed = row.Status === 'dead' || row.Status === 'error';
-        const response: IJobStatusResponse = {
-            jobId: row.JobId,
-            progress: row.Progress,
-            status: row.Status,
-            phase: row.Phase ?? undefined,
-            message: row.Message ?? undefined,
-            error: failed || row.Status === 'retrying' ? row.LastError ?? undefined : undefined,
-            attempt: row.Attempt,
-            maxAttempts: row.MaxAttempts,
-            createdAt: row.CreatedAt,
-            finishedAt: row.FinishedAt,
-        };
-
-        return new Ok(response);
+    if (!row) {
+      return new Ok({
+        jobId,
+        status: "queued",
+        progress: 0,
+        message: undefined,
+        createdAt: undefined,
+      });
     }
+
+    const failed = row.Status === "dead" || row.Status === "error";
+    const response: IJobStatusResponse = {
+      jobId: row.JobId,
+      result: row.Result ?? undefined,
+      progress: row.Progress,
+      status: row.Status,
+      phase: row.Phase ?? undefined,
+      message: row.Message ?? undefined,
+      error:
+        failed || row.Status === "retrying"
+          ? row.LastError ?? undefined
+          : undefined,
+      attempt: row.Attempt,
+      maxAttempts: row.MaxAttempts,
+      createdAt: row.CreatedAt,
+      finishedAt: row.FinishedAt,
+    };
+
+    return new Ok(response);
+  }
 }
