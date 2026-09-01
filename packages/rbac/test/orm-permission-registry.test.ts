@@ -7,6 +7,7 @@ import {
   OrmPermissionPolicy,
   clearOrmPermissionRegistry,
   policyMapKey,
+  ormPermissionModel,
   ORM_PERMISSION_POLICY_MAP,
   DEFAULT_PERMISSION_SCOPE,
 } from '../src/orm-permission.js';
@@ -26,6 +27,17 @@ class RegistryModel extends ModelBase {
 @OrmResource('RegistryModel')
 class RegistryViewModel extends RegistryModel {}
 
+/** Structurally UNRELATED to RegistryModel, but shares its resource string on purpose
+ * (the CampaignFileAttachment / ArrowV1CampaignView shape) — must register alongside it,
+ * not overwrite it. */
+@Connection('default')
+@Model('test')
+@OrmResource('RegistryModel')
+class UnrelatedSharedResourceModel extends ModelBase {
+  @Primary()
+  public Id: number;
+}
+
 /** No @OrmResource — registration must be refused. */
 @Connection('default')
 @Model('test')
@@ -34,19 +46,19 @@ class UnresourcedModel extends ModelBase {
   public Id: number;
 }
 
-function registeredClass(resource: string, scope: string): Class<OrmPermissionPolicy> | undefined {
-  return DI.get<Map<string, Class<OrmPermissionPolicy>>>(ORM_PERMISSION_POLICY_MAP)?.get(policyMapKey(resource, scope));
+function registeredClasses(resource: string, scope: string): Class<OrmPermissionPolicy>[] | undefined {
+  return DI.get<Map<string, Class<OrmPermissionPolicy>[]>>(ORM_PERMISSION_POLICY_MAP)?.get(policyMapKey(resource, scope));
 }
 
 describe('OrmPermissionPolicy registration', () => {
   beforeEach(() => clearOrmPermissionRegistry());
 
-  it('registers the default-scope policy under <resource>:default in the DI map', () => {
+  it('registers the default-scope policy under <resource>:default in the DI map as a single-entry list', () => {
     @OrmPermission(RegistryModel)
     class P extends OrmPermissionPolicy<RegistryModel> {
       public scope(_q: IWhereBuilder<RegistryModel>, _u: User): void {}
     }
-    expect(registeredClass('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.equal(P);
+    expect(registeredClasses('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.eql([P]);
     expect(DI.resolve(P)).to.be.instanceOf(P);
   });
 
@@ -59,8 +71,16 @@ describe('OrmPermissionPolicy registration', () => {
     class Pool extends OrmPermissionPolicy<RegistryModel> {
       public scope(): void {}
     }
-    expect(registeredClass('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.equal(Def);
-    expect(registeredClass('RegistryModel', 'pool')).to.equal(Pool);
+    expect(registeredClasses('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.eql([Def]);
+    expect(registeredClasses('RegistryModel', 'pool')).to.eql([Pool]);
+  });
+
+  it('records the bound model on the policy class', () => {
+    @OrmPermission(RegistryModel)
+    class P extends OrmPermissionPolicy<RegistryModel> {
+      public scope(): void {}
+    }
+    expect(ormPermissionModel(P)).to.equal(RegistryModel);
   });
 
   it('a model sharing a resource name resolves the same policy (view over base table)', () => {
@@ -73,16 +93,32 @@ describe('OrmPermissionPolicy registration', () => {
     class ViewOnly extends OrmPermissionPolicy<RegistryViewModel> {
       public scope(): void {}
     }
-    expect(registeredClass('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.equal(P);
-    expect(registeredClass('RegistryModel', 'extra')).to.equal(ViewOnly);
+    expect(registeredClasses('RegistryModel', DEFAULT_PERMISSION_SCOPE)).to.eql([P]);
+    expect(registeredClasses('RegistryModel', 'extra')).to.eql([ViewOnly]);
+  });
+
+  it('two structurally unrelated models sharing one resource+scope both register — no overwrite', () => {
+    @OrmPermission(RegistryModel)
+    class P extends OrmPermissionPolicy<RegistryModel> {
+      public scope(): void {}
+    }
+    @OrmPermission(UnrelatedSharedResourceModel)
+    class Q extends OrmPermissionPolicy<UnrelatedSharedResourceModel> {
+      public scope(): void {}
+    }
+    const list = registeredClasses('RegistryModel', DEFAULT_PERMISSION_SCOPE);
+    expect(list).to.have.members([P, Q]);
+    expect(list).to.have.length(2);
+    expect(ormPermissionModel(P)).to.equal(RegistryModel);
+    expect(ormPermissionModel(Q)).to.equal(UnrelatedSharedResourceModel);
   });
 
   it('unknown resource/scope yields undefined from the map', () => {
-    expect(registeredClass('Nope', DEFAULT_PERMISSION_SCOPE)).to.equal(undefined);
-    expect(registeredClass('RegistryModel', 'nope')).to.equal(undefined);
+    expect(registeredClasses('Nope', DEFAULT_PERMISSION_SCOPE)).to.equal(undefined);
+    expect(registeredClasses('RegistryModel', 'nope')).to.equal(undefined);
   });
 
-  it('throws on duplicate registration for the same resource+scope', () => {
+  it('throws on duplicate registration for the same model+scope', () => {
     @OrmPermission(RegistryModel)
     class P1 extends OrmPermissionPolicy<RegistryModel> {
       public scope(): void {}
@@ -94,6 +130,21 @@ describe('OrmPermissionPolicy registration', () => {
       }
       void P2;
     }).to.throw(/duplicate/i);
+    void P1;
+  });
+
+  it('does NOT throw when a different model shares the resource+scope of an already-registered policy', () => {
+    @OrmPermission(RegistryModel)
+    class P1 extends OrmPermissionPolicy<RegistryModel> {
+      public scope(): void {}
+    }
+    expect(() => {
+      @OrmPermission(UnrelatedSharedResourceModel)
+      class P2 extends OrmPermissionPolicy<UnrelatedSharedResourceModel> {
+        public scope(): void {}
+      }
+      void P2;
+    }).to.not.throw();
     void P1;
   });
 

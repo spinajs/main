@@ -19,6 +19,10 @@ import {
   AllPolicyModel,
   AsyncCreateModel,
   AsyncCreatePolicy,
+  DerivedBaseModel,
+  DerivedBasePolicy,
+  DerivedSubModel,
+  DerivedSubPolicy,
   GenericPolicy,
   GenericPolicyModel,
   GhostScopeModel,
@@ -32,6 +36,12 @@ import {
   ScopedDefaultPolicy,
   ScopedModel,
   ScopedSubsetPolicy,
+  SiblingAModel,
+  SiblingAPolicy,
+  SiblingBModel,
+  SiblingBPolicy,
+  SiblingUnregisteredModel,
+  SiblingUnregisteredNakedModel,
 } from './models/PolicyModels.js';
 import { OrmException } from '@spinajs/orm';
 
@@ -72,7 +82,12 @@ describe('OrmPermissionPolicy where-path', function () {
     OrmPermission(LazyPolicyModel)(LazyPolicy);
     OrmPermission(ScopedModel)(ScopedDefaultPolicy);
     OrmPermission(ScopedModel, 'subset')(ScopedSubsetPolicy);
-    // GhostScopeModel is deliberately left unregistered — its tests pin the fail-loud path.
+    OrmPermission(SiblingAModel)(SiblingAPolicy);
+    OrmPermission(SiblingBModel)(SiblingBPolicy);
+    OrmPermission(DerivedBaseModel)(DerivedBasePolicy);
+    OrmPermission(DerivedSubModel)(DerivedSubPolicy);
+    // GhostScopeModel, SiblingUnregisteredModel and SiblingUnregisteredNakedModel are
+    // deliberately left unregistered — their tests pin the fallback/fail-loud paths.
 
     ScopedDefaultPolicy.RejectCreate = false;
     ScopedSubsetPolicy.RejectCreate = false;
@@ -417,6 +432,69 @@ describe('OrmPermissionPolicy where-path', function () {
       const u = await owner();
 
       await expect(as(u, 'roleGhost', () => GhostScopeModel.all())).to.be.rejectedWith(OrmException, /scope 'ghost'/);
+    });
+  });
+
+  describe('model-precise resolution (shared @OrmResource)', () => {
+    beforeEach(() => {
+      grant({
+        r: {
+          PolicySibling: { 'read:own': ['*'] },
+          PolicyDerived: { 'read:own': ['*'] },
+        },
+      });
+    });
+
+    it('two unrelated models sharing one resource each resolve their OWN policy', async () => {
+      const u = await owner();
+      await new SiblingAModel({ UserId: u.Id, Value: 'a-visible' } as any).insert();
+      await new SiblingBModel({ UserId: u.Id, Value: 'b-visible' } as any).insert();
+
+      resetPolicyCalls();
+      const aRows = (await as(u, 'r', () => SiblingAModel.all())) as SiblingAModel[];
+      expect(POLICY_CALLS).to.eql(['siblingA']);
+      expect(aRows.map((r) => r.Value)).to.eql(['a-visible']);
+
+      resetPolicyCalls();
+      const bRows = (await as(u, 'r', () => SiblingBModel.all())) as SiblingBModel[];
+      expect(POLICY_CALLS).to.eql(['siblingB']);
+      expect(bRows.map((r) => r.Value)).to.eql(['b-visible']);
+    });
+
+    it('a shared-resource model with no own policy and no matching ancestor falls back to OwnerField', async () => {
+      const u = await owner();
+      await new SiblingUnregisteredModel({ UserId: u.Id, Value: 'mine' } as any).insert();
+      await new SiblingUnregisteredModel({ UserId: u.Id + 999, Value: 'theirs' } as any).insert();
+
+      resetPolicyCalls();
+      const rows = (await as(u, 'r', () => SiblingUnregisteredModel.all())) as SiblingUnregisteredModel[];
+
+      // no bound policy matched -> OwnerFieldPolicy fallback, no sibling policy ran
+      expect(POLICY_CALLS).to.eql([]);
+      expect(rows).to.be.an('array').with.length(1);
+      expect(rows[0].Value).to.eq('mine');
+    });
+
+    it('a shared-resource model with no own policy, no matching ancestor and no OwnerField fails loud', async () => {
+      const u = await owner();
+
+      await expect(as(u, 'r', () => SiblingUnregisteredNakedModel.all())).to.be.rejectedWith(OrmException, /no OrmPermissionPolicy registered/);
+    });
+
+    it('most-derived-wins: an exact-bound subclass policy shadows its ancestor-bound sibling', async () => {
+      const u = await owner();
+
+      resetPolicyCalls();
+      await as(u, 'r', () => DerivedSubModel.all());
+      expect(POLICY_CALLS).to.eql(['derivedSub']);
+    });
+
+    it('the ancestor model still resolves its own policy when queried directly', async () => {
+      const u = await owner();
+
+      resetPolicyCalls();
+      await as(u, 'r', () => DerivedBaseModel.all());
+      expect(POLICY_CALLS).to.eql(['derivedBase']);
     });
   });
 });

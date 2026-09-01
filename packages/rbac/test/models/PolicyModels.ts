@@ -235,3 +235,115 @@ export class GhostScopeModel extends ModelBase {
 
   public Value: string;
 }
+
+/**
+ * Two structurally UNRELATED models sharing one @OrmResource string on purpose (the
+ * CampaignFileAttachment / ArrowV1CampaignView collision) — each must resolve its OWN
+ * bound policy, never the sibling's.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicySibling')
+export class SiblingAModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(SiblingAModel)
+export class SiblingAPolicy extends OrmPermissionPolicy<SiblingAModel> {
+  public scope(q: IWhereBuilder<SiblingAModel>, _u: User): void {
+    POLICY_CALLS.push('siblingA');
+    q.where('Value', 'a-visible');
+  }
+}
+
+@Connection('default')
+@Model('test')
+@OrmResource('PolicySibling')
+export class SiblingBModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(SiblingBModel)
+export class SiblingBPolicy extends OrmPermissionPolicy<SiblingBModel> {
+  public scope(q: IWhereBuilder<SiblingBModel>, _u: User): void {
+    POLICY_CALLS.push('siblingB');
+    q.where('Value', 'b-visible');
+  }
+}
+
+/** Shares the sibling resource but is unrelated to either sibling and registers no policy
+ * of its own — must fall through to OwnerField, never borrow a sibling's policy. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicySibling')
+export class SiblingUnregisteredModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+/** Same shape, but no OwnerField either — must fail loud. */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicySibling')
+export class SiblingUnregisteredNakedModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  public Value: string;
+}
+
+/**
+ * Most-derived-wins fixture: a base model with its own policy, and an exact-bound
+ * subclass declaring the SAME resource with its own policy. Both entries live under the
+ * same map key; resolution must pick the closer one for each model.
+ */
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyDerived')
+export class DerivedBaseModel extends ModelBase {
+  @Primary()
+  public Id: number;
+
+  @ResourceOwner()
+  public UserId: number;
+
+  public Value: string;
+}
+
+@OrmPermission(DerivedBaseModel)
+export class DerivedBasePolicy extends OrmPermissionPolicy<DerivedBaseModel> {
+  public scope(q: IWhereBuilder<DerivedBaseModel>, _u: User): void {
+    POLICY_CALLS.push('derivedBase');
+    q.where('Value', 'base-visible');
+  }
+}
+
+@Connection('default')
+@Model('test')
+@OrmResource('PolicyDerived')
+export class DerivedSubModel extends DerivedBaseModel {}
+
+@OrmPermission(DerivedSubModel)
+export class DerivedSubPolicy extends OrmPermissionPolicy<DerivedSubModel> {
+  public scope(q: IWhereBuilder<DerivedSubModel>, _u: User): void {
+    POLICY_CALLS.push('derivedSub');
+    q.where('Value', 'sub-visible');
+  }
+}

@@ -1,4 +1,4 @@
-import { Autoinject, DI, Injectable } from '@spinajs/di';
+import { Autoinject, Class, DI, Injectable } from '@spinajs/di';
 import { DeleteQueryBuilder, extractModelDescriptor, InsertQueryBuilder, IWhereBuilder, ModelBase, OrmException, QueryBuilder, QueryMiddleware, SelectQueryBuilder, UpdateQueryBuilder } from '@spinajs/orm';
 import { AsyncLocalStorage } from 'async_hooks';
 import { IRbacAsyncStorage, IRbacModelDescriptor, PermissionType } from './interfaces.js';
@@ -6,7 +6,7 @@ import { AccessControl } from 'accesscontrol';
 import { Forbidden } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log-common';
 import type { User } from './models/User.js';
-import { DEFAULT_PERMISSION_SCOPE, ORM_PERMISSION_POLICY_MAP, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
+import { DEFAULT_PERMISSION_SCOPE, ORM_PERMISSION_POLICY_MAP, ormPermissionModel, OrmPermissionPolicy, OrmPermissionPolicyClass, PERMISSION_SCOPE_ATTR_PREFIX, policyMapKey } from './orm-permission.js';
 
 type QueryBuilderType = new (...args: any[]) => QueryBuilder;
 
@@ -53,6 +53,54 @@ function permissionsFor(builder: QueryBuilder): IBuilderPermissions | undefined 
   }
 
   return undefined;
+}
+
+/**
+ * Steps from `model` up its prototype (class inheritance) chain to `boundModel`, or
+ * `undefined` if `boundModel` is not `model` itself or an ancestor. ES class inheritance
+ * puts the parent constructor at `Object.getPrototypeOf(Child)`, so walking constructors —
+ * not instances — is the correct way to test "is a subclass of".
+ */
+function distanceTo(model: Class<ModelBase<unknown>> | undefined, boundModel: Class<ModelBase<unknown>>): number | undefined {
+  let current: Class<ModelBase<unknown>> | null | undefined = model;
+  for (let distance = 0; current; distance++) {
+    if (current === boundModel) {
+      return distance;
+    }
+    current = Object.getPrototypeOf(current) as Class<ModelBase<unknown>> | null;
+  }
+  return undefined;
+}
+
+/**
+ * Picks the policy bound to `model` itself or the closest bound ancestor. Two unrelated
+ * models can share one resource+scope key on purpose (CampaignFileAttachment /
+ * ArrowV1CampaignView) — the resource string alone cannot disambiguate them, so every
+ * candidate is checked against `model`'s actual prototype chain. When both an ancestor-bound
+ * and an exact-bound policy are registered, the most-derived (smallest distance) one wins.
+ */
+function selectPolicyClass(candidates: OrmPermissionPolicyClass[] | undefined, model: Class<ModelBase<unknown>> | undefined): OrmPermissionPolicyClass | undefined {
+  if (!candidates) {
+    return undefined;
+  }
+
+  let best: OrmPermissionPolicyClass | undefined;
+  let bestDistance = Infinity;
+
+  for (const candidate of candidates) {
+    const boundModel = ormPermissionModel(candidate);
+    if (!boundModel) {
+      continue;
+    }
+
+    const distance = distanceTo(model, boundModel);
+    if (distance !== undefined && distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 /** Fallback for models with `@ResourceOwner()` and no registered policy class. */
@@ -106,7 +154,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
       throw new Forbidden(`User does not have permission to access ${resource}:${context.action} permission`);
     }
 
-    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor);
+    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor, builder.Model);
 
     // Multiple distinct scopes OR-compose on inserts too: the insert is allowed if ANY
     // granted role's policy authorizes it. Policies are tried in registration-set order;
@@ -161,7 +209,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
     const joinScoped = descriptor.RbacRelationScope === 'join' && builder instanceof SelectQueryBuilder;
 
     const user = context.user;
-    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor);
+    const policies = this.policiesFor(context.roles, resource, context.ownScope, descriptor, builder.Model);
 
     const method = builder instanceof UpdateQueryBuilder ? 'scopeUpdate' : builder instanceof DeleteQueryBuilder ? 'scopeDelete' : 'scopeRead';
 
@@ -198,7 +246,7 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
    * downstream: permissions are additive, a row is reachable if any granted role's policy
    * admits it.
    */
-  protected policiesFor(roles: string[], resource: string, ownScope: PermissionType, descriptor: IRbacModelDescriptor): OrmPermissionPolicy[] {
+  protected policiesFor(roles: string[], resource: string, ownScope: PermissionType, descriptor: IRbacModelDescriptor, model: Class<ModelBase<unknown>> | undefined): OrmPermissionPolicy[] {
     const scopeNames = new Set<string>();
 
     for (const role of roles) {
@@ -232,11 +280,12 @@ export class RbacModelPermissionMiddleware extends QueryMiddleware {
       scopeNames.add(DEFAULT_PERMISSION_SCOPE);
     }
 
-    const registered = DI.get<Map<string, OrmPermissionPolicyClass>>(ORM_PERMISSION_POLICY_MAP);
+    const registered = DI.get<Map<string, OrmPermissionPolicyClass[]>>(ORM_PERMISSION_POLICY_MAP);
 
     const policies: OrmPermissionPolicy[] = [];
     for (const name of scopeNames) {
-      const policyClass = registered?.get(policyMapKey(resource, name));
+      const candidates = registered?.get(policyMapKey(resource, name));
+      const policyClass = selectPolicyClass(candidates, model);
       if (policyClass) {
         policies.push(DI.resolve(policyClass));
         continue;

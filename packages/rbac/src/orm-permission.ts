@@ -8,6 +8,14 @@ export const PERMISSION_SCOPE_ATTR_PREFIX = 'scope:';
 export const ORM_PERMISSION_POLICY_MAP = '__orm_permission_policy__';
 
 /**
+ * Bound model recorded on a policy class by `@OrmPermission`. Needed because the map is
+ * keyed on the shared resource STRING (minification-safe), which two unrelated models can
+ * legally share for grant purposes — the model recorded here is what lets `policiesFor()`
+ * in middleware.ts pick the right policy for `builder.Model` instead of an arbitrary one.
+ */
+export const ORM_PERMISSION_MODEL = Symbol.for('orm-permission-model');
+
+/**
  * Keyed on the DECLARED `@OrmResource` string, never on `constructor.name` — grants are
  * keyed on the same string, so a model's resource name is the single permission identity
  * everywhere, and models sharing a resource (a view over the base table) share policies.
@@ -48,11 +56,27 @@ export abstract class OrmPermissionPolicy<M extends ModelBase<unknown> = ModelBa
 
 export type OrmPermissionPolicyClass = Class<OrmPermissionPolicy>;
 
+/** The model `@OrmPermission` bound `policy` to, or `undefined` for a policy built by hand
+ * (eg. the `OwnerFieldPolicy` fallback) that never went through the decorator. */
+export function ormPermissionModel(policy: OrmPermissionPolicyClass): Class<ModelBase<unknown>> | undefined {
+  return (policy as unknown as Record<symbol, Class<ModelBase<unknown>> | undefined>)[ORM_PERMISSION_MODEL];
+}
+
+function getOrCreatePolicyMap(): Map<string, OrmPermissionPolicyClass[]> {
+  if (DI.RootContainer.Cache.has(ORM_PERMISSION_POLICY_MAP)) {
+    return DI.RootContainer.Cache.get(ORM_PERMISSION_POLICY_MAP)[0] as Map<string, OrmPermissionPolicyClass[]>;
+  }
+  const map = new Map<string, OrmPermissionPolicyClass[]>();
+  DI.RootContainer.Cache.add(ORM_PERMISSION_POLICY_MAP, map);
+  return map;
+}
+
 /**
- * Registers `target` as the policy for `model`'s resource + `scope` in the DI hashmap.
- * Refuses a model without `@OrmResource` (cannot be permission-guarded) and a duplicate
- * (resource, scope) pair (two policies competing for one scope is a configuration bug —
- * `asMapValue` alone would silently overwrite).
+ * Registers `target` as a policy for `model`'s resource + `scope` in the DI hashmap.
+ * Refuses a model without `@OrmResource` (cannot be permission-guarded). The map value is a
+ * LIST: two unrelated models are allowed to share one resource+scope key (the
+ * CampaignFileAttachment / ArrowV1CampaignView shape) — only the same (model, scope) pair
+ * registered twice is a duplicate/config bug.
  */
 export function OrmPermission<M extends ModelBase<unknown>>(model: Class<M>, scope: string = DEFAULT_PERMISSION_SCOPE) {
   return (target: Class<OrmPermissionPolicy<M>>): void => {
@@ -63,13 +87,18 @@ export function OrmPermission<M extends ModelBase<unknown>>(model: Class<M>, sco
       throw new OrmException(`cannot register ${target.name} for ${model.name}: model has no @OrmResource declaration`);
     }
 
+    (target as unknown as Record<symbol, Class<M>>)[ORM_PERMISSION_MODEL] = model;
+
     const key = policyMapKey(resource, scope);
-    const existing = DI.get<Map<string, OrmPermissionPolicyClass>>(ORM_PERMISSION_POLICY_MAP);
-    if (existing?.has(key)) {
-      throw new OrmException(`duplicate OrmPermission registration for ${key} (${target.name} vs ${existing.get(key)!.name})`);
+    const map = getOrCreatePolicyMap();
+    const list = map.get(key) ?? [];
+
+    if (list.some((p) => ormPermissionModel(p) === model)) {
+      throw new OrmException(`duplicate OrmPermission registration for ${model.name}/${scope} (${target.name} already registered for this model+scope)`);
     }
 
-    DI.register(target).asMapValue(ORM_PERMISSION_POLICY_MAP, key);
+    list.push(target as unknown as OrmPermissionPolicyClass);
+    map.set(key, list);
   };
 }
 
