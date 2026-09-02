@@ -386,3 +386,29 @@ export class PostgresDefaultValueBuilder<T> extends SqlDefaultValueBuilder<T> {
     return this.Owner;
   }
 }
+
+/**
+ * Table references carry NO database prefix in postgres. The shared `SqlTableAliasCompiler`
+ * prepends `builder.Database.` — MySQL semantics, where a connection may address sibling
+ * databases and "database" and "schema" are the same thing. A postgres connection is bound to
+ * one database for its lifetime, and the same prefix position names a SCHEMA — so qualifying
+ * with the database name produced `"galaxy"."table"` lookups that resolved to a schema that
+ * does not exist, while the tables sat in `public` (wherever an unqualified CREATE TABLE lands,
+ * per search_path). Unqualified references are exactly right here; if schema support is ever
+ * modelled, it enters through a dedicated option, not through `Database`.
+ */
+@NewInstance()
+export class PostgresTableAliasCompiler implements TableAliasCompiler {
+  @Autoinject(IdentifierQuoter)
+  public Quoter: IdentifierQuoter;
+
+  public compile(builder: Parameters<TableAliasCompiler['compile']>[0], tbl?: string) {
+    let table = this.Quoter.quote(tbl ? tbl : builder.Table);
+
+    if (builder.TableAlias) {
+      table += ` as ${this.Quoter.quote(builder.TableAlias)}`;
+    }
+
+    return table;
+  }
+}

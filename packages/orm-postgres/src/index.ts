@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder } from './compilers.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler } from './compilers.js';
 import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier } from './statements.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
@@ -205,6 +205,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresLimitQueryCompiler).as(LimitQueryCompiler);
     this.Container.register(PostgresCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
     this.Container.register(PostgresDefaultValueBuilder).as(DefaultValueBuilder);
+    // Table references carry no database prefix in postgres — see PostgresTableAliasCompiler.
+    this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
@@ -298,7 +300,14 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   public async tableInfo(name: string, schema?: string): Promise<IColumnDescriptor[]> {
-    const dbSchema = schema ?? (this.Options.Options?.Schema as string | undefined) ?? 'public';
+    // Callers written against mysql semantics (orm's model bootstrap among them) pass
+    // `Options.Database` here, where database and schema are the same word. In postgres they are
+    // not: this connection IS the database, and the second argument can only usefully name a
+    // schema. Receiving our own database name therefore means "the default scope", not a schema
+    // literally called 'galaxy' — without this normalization every model descriptor came back
+    // EMPTY and inserts failed with "invalid column count".
+    const requested = schema && schema !== this.Options.Database ? schema : undefined;
+    const dbSchema = requested ?? (this.Options.Options?.Schema as string | undefined) ?? 'public';
 
     // ORDER BY ordinal_position is not decoration: column order is part of what a table
     // descriptor means, and without it postgres is free to return rows in any order.
@@ -351,7 +360,10 @@ export class PostgresOrmDriver extends SqlDriver {
         Aggregate: false,
         Converter: null as any,
         Schema: dbSchema,
-        Unique: isUnique,
+        // A primary key IS a unique constraint. The distinction matters downstream:
+        // `onDuplicate()` builds its conflict target from columns flagged Unique, and without
+        // this a PK-only table upserts into "no unique or primary key columns defined".
+        Unique: isUnique || isPrimary,
       };
     });
   }
