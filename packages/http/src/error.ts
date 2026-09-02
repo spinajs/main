@@ -7,6 +7,29 @@ import { ServerError } from './response-methods/serverError.js';
 import randomstring from 'randomstring';
 import { Log } from '@spinajs/log';
 import { Configuration } from '@spinajs/configuration';
+/**
+ * The response registered for an exception, or for the nearest MAPPED class it inherits from.
+ *
+ * The map is keyed by class NAME (that is what `@HandleException` registers), so an exact hit is
+ * the common case. The walk up the prototype chain is what makes DOMAIN exceptions work: a
+ * feature that declares `class GroupNotOwned extends Forbidden` to say WHICH rule refused the
+ * request is the documented way to use these base classes, and without the walk every such
+ * subclass fell through to a 500 - the framework answering "internal error" to an error it fully
+ * understands, and leaking the domain message into the wrong status.
+ *
+ * An exact registration always wins over an inherited one, because the chain is walked from the
+ * concrete class up.
+ */
+export function __resolve_error_response__(errorMap: Map<string, Constructor<HttpResponse>>, err: any): Constructor<HttpResponse> | null {
+    for (let ctor = err?.constructor; typeof ctor === 'function' && ctor !== Object; ctor = Object.getPrototypeOf(ctor)) {
+        if (ctor.name && errorMap.has(ctor.name)) {
+            return errorMap.get(ctor.name)!;
+        }
+    }
+
+    return null;
+}
+
 export function __handle_error__() {
 
     const logger = DI.resolve(Log, ['http']);
@@ -48,9 +71,9 @@ export function __handle_error__() {
 
 
         let response: HttpResponse | null = null;
-        if (errorMap && errorMap.has(err.constructor.name)) {
-            const httpResponse = errorMap.get(err.constructor.name);
-            response = new httpResponse!(error);
+        const httpResponse = errorMap ? __resolve_error_response__(errorMap, err) : null;
+        if (httpResponse) {
+            response = new httpResponse(error);
         } else {
             logger.warn(`Error type ${err.constructor?.name} dont have assigned http response. Map error to response via _http_error_map__ in DI container`);
             response = new ServerError(error);
