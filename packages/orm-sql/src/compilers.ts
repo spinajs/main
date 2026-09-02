@@ -647,6 +647,18 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
       .map(({ i }) => i);
   }
 
+  /**
+   * What an unsupplied auto-increment primary key renders as inside a VALUES tuple.
+   *
+   * NULL here, because it is what MySQL and SQLite understand as "assign the key" — and
+   * SQLite does not accept the DEFAULT keyword inside VALUES at all. PostgreSQL is the
+   * other way around: an identity column rejects NULL and wants DEFAULT, so its driver
+   * overrides this instead of re-implementing the whole values() walk.
+   */
+  protected autoIncrementPlaceholder(): string {
+    return 'NULL';
+  }
+
   protected values() {
     if (this._builder.Values.length === 0) {
       throw new InvalidArgument('values count invalid');
@@ -668,11 +680,9 @@ export class SqlInsertQueryCompiler extends SqlQueryCompiler<InsertQueryBuilder>
             throw new InvalidArgument(`value column ${descriptor.Name} cannot be null`);
           }
 
-          // Auto increment PK this row does not supply. NULL (not DEFAULT) lets
-          // the engine assign it and is portable - sqlite does not accept the
-          // DEFAULT keyword inside a VALUES tuple.
+          // Auto increment PK this row does not supply — the engine assigns the value.
           if (descriptor.AutoIncrement && descriptor.PrimaryKey && (v === undefined || v === null)) {
-            return 'NULL';
+            return this.autoIncrementPlaceholder();
           }
         }
 
