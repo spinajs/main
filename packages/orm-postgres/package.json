@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-postgres",
-  "version": "2.0.527",
+  "version": "2.0.528",
   "description": "orm postgresql integration",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -59,14 +59,14 @@
     "@types/pg": "^8.11.10",
     "chai": "^4.3.7",
     "chai-as-promised": "^7.1.1",
-    "@spinajs/log": "2.0.527",
-    "@spinajs/telemetry-common": "2.0.527"
+    "@spinajs/log": "2.0.528",
+    "@spinajs/telemetry-common": "2.0.528"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.527",
-    "@spinajs/di": "2.0.527",
-    "@spinajs/orm": "2.0.527",
-    "@spinajs/orm-sql": "2.0.527",
+    "@spinajs/configuration": "2.0.528",
+    "@spinajs/di": "2.0.528",
+    "@spinajs/orm": "2.0.528",
+    "@spinajs/orm-sql": "2.0.528",
     "pg": "^8.13.1"
   }
 }
