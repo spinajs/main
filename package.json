@@ -111,6 +111,7 @@
     "@spinajs/orm-http": "file:packages\\orm-http",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",
+    "@spinajs/orm-postgres": "file:packages\\orm-postgres",
     "@spinajs/orm-sql": "file:packages\\orm-sql",
     "@spinajs/orm-sqlite": "file:packages\\orm-sqlite",
     "@spinajs/orm-threading": "file:packages\\orm-threading",

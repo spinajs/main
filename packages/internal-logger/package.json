@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/internal-logger",
-  "version": "2.0.526",
+  "version": "2.0.527",
   "description": "internal logger used by some packages. do not use it in production environment",
   "homepage": "https://github.com/spinajs/main#readme",
   "license": "MIT",
@@ -33,9 +33,9 @@
     "sinon": "15.0.1"
   },
   "dependencies": {
-    "@spinajs/configuration-common": "2.0.526",
-    "@spinajs/di": "2.0.526",
-    "@spinajs/log-common": "2.0.526",
+    "@spinajs/configuration-common": "2.0.527",
+    "@spinajs/di": "2.0.527",
+    "@spinajs/log-common": "2.0.527",
     "lodash": "^4.17.21"
   },
   "scripts": {

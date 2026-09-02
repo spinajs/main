@@ -28,6 +28,7 @@
     { "path": "packages/orm-http/tsconfig.mjs.json" },
     { "path": "packages/orm-mssql/tsconfig.mjs.json" },
     { "path": "packages/orm-mysql/tsconfig.mjs.json" },
+    { "path": "packages/orm-postgres/tsconfig.mjs.json" },
     { "path": "packages/orm-sql/tsconfig.mjs.json" },
     { "path": "packages/orm-sqlite/tsconfig.mjs.json" },
     { "path": "packages/orm-cli/tsconfig.mjs.json" },
