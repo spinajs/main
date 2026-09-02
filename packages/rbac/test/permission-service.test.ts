@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { User } from '../src/models/User.js';
 import type { IRbacAsyncStorage } from '../src/interfaces.js';
-import { PermissionService, ResourceRules, usePermission, probeGrant, type PermissionVerb } from '../src/permission-service.js';
+import { PermissionService, ResourceRules, ruleChain, usePermission, probeGrant, type PermissionVerb } from '../src/permission-service.js';
 
 chai.use(chaiAsPromised);
 
@@ -261,6 +261,86 @@ describe('PermissionService', () => {
 
       it('own scope refuses a missing subject — ownership of nothing is undecidable', async () => {
         await expect(widgets.assert('update', undefined, fakeUser(1, ['member']))).to.be.rejectedWith(Forbidden, /does not own/);
+      });
+    });
+
+    describe('chain', () => {
+      class ChainedRules {
+        public calls: string[] = [];
+
+        public first(tag: string): void {
+          this.calls.push(`first:${tag}`);
+        }
+
+        public second(): Promise<void> {
+          this.calls.push('second');
+          return Promise.resolve();
+        }
+
+        public failing(): Promise<void> {
+          this.calls.push('failing');
+          return Promise.reject(new Forbidden('refused mid-chain'));
+        }
+      }
+
+      it('runs queued steps in call order on await', async () => {
+        const rules = new ChainedRules();
+
+        await ruleChain(rules).first('a').second().first('b');
+
+        expect(rules.calls).to.eql(['first:a', 'second', 'first:b']);
+      });
+
+      it('nothing runs before the chain is awaited', () => {
+        const rules = new ChainedRules();
+
+        ruleChain(rules).first('never').second();
+
+        expect(rules.calls).to.be.empty;
+      });
+
+      it('fails fast — a rejected step stops the chain and later steps never run', async () => {
+        const rules = new ChainedRules();
+
+        await expect(ruleChain(rules).first('a').failing().second()).to.be.rejectedWith(Forbidden, /refused mid-chain/);
+        expect(rules.calls).to.eql(['first:a', 'failing']);
+      });
+
+      it('awaiting the same chain twice runs it once', async () => {
+        const rules = new ChainedRules();
+        const chain = ruleChain(rules).first('once');
+
+        await chain;
+        await chain;
+
+        expect(rules.calls).to.eql(['first:once']);
+      });
+
+      it('composes the generic verb gate with a domain rule on a ResourceRules service', async () => {
+        widgets.owned = new Set([5]);
+        const seen: number[] = [];
+
+        class ChainingWidgetPermission extends WidgetPermission {
+          public assertCapacity(id: number): void {
+            seen.push(id);
+          }
+
+          public async canFrob(subject: Widget, user?: User): Promise<void> {
+            // the composite rule the chain exists for: grant first, domain rule second
+            await this.chain().assert('update', subject, user).assertCapacity(subject.id);
+          }
+        }
+
+        const chaining = new ChainingWidgetPermission();
+        chaining.owned = new Set([5]);
+
+        await chaining.canFrob(new Widget(5), fakeUser(1, ['member']));
+        expect(seen).to.eql([5]);
+
+        // the grant step refuses before the domain rule runs
+        seen.length = 0;
+        await expect(chaining.canFrob(new Widget(7), fakeUser(1, ['member']))).to.be.rejectedWith(Forbidden, /does not own/);
+        expect(seen).to.be.empty;
       });
     });
   });
