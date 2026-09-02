@@ -64,6 +64,45 @@ describe('Hydrator undefined handling', () => {
     });
   });
 
+  /**
+   * hydrate() is fed whole DTOs and rows. A body-supplied primary key re-keying a fetched model
+   * would redirect its next UPDATE at another row, so a model the database has answered for -
+   * marked by its Snapshot baseline - never has its pkey hydrated over. A snapshot-less model
+   * still keys freely: that is the SELECT hydration path itself, and constructors may pre-fill
+   * defaults into the pkey slot, so the VALUE cannot be the marker.
+   */
+  describe('primary key protection', () => {
+    it('does not re-key a model the database has answered for', () => {
+      const m = new Model1();
+      (m as any).Id = 7;
+      m.takeSnapshot();
+
+      m.hydrate({ Id: 12, Bar: 'moved' } as any);
+
+      expect(m.PrimaryKeyValue).to.equal(7);
+      expect(m.Bar).to.equal('moved');
+    });
+
+    it('still keys a fresh model, even over a pre-filled default', () => {
+      const m = new Model1();
+      (m as any).Id = 0;
+
+      m.hydrate({ Id: 12 } as any);
+
+      expect(m.PrimaryKeyValue).to.equal(12);
+    });
+
+    it('null never clears an existing key', () => {
+      const m = new Model1();
+      (m as any).Id = 7;
+      m.takeSnapshot();
+
+      m.hydrate({ Id: null } as any);
+
+      expect(m.PrimaryKeyValue).to.equal(7);
+    });
+  });
+
   describe('non-db properties', () => {
     it('leaves a stored value untouched when the payload carries undefined', () => {
       const m = new Model1() as any;

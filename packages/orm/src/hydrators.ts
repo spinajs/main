@@ -20,10 +20,19 @@ export class DbPropertyHydrator extends ModelHydrator {
     // we handle it in later
     const keys = Object.keys(values).filter((k) => descriptor.Columns?.find((c) => c.Name === k));
     keys.forEach((k) => {
-      // skip if column is primary key & is null
-      // we dont want to override pkey of target model
-      if (descriptor.PrimaryKey.includes(k) && (values[k] === null || values[k] === undefined)) {
-        return;
+      // Never re-key a model the database has already answered for: hydrate() is fed whole
+      // DTOs, and a body-supplied id re-keying a fetched model redirects its next UPDATE at
+      // another row. The marker is the diff baseline - `Snapshot` exists exactly when the model
+      // was hydrated from a row or persisted - NOT the property value, because constructors may
+      // pre-fill a default into the pkey slot and the SELECT path must still be able to key it.
+      // null/undefined never touches a pkey either way.
+      if (descriptor.PrimaryKey.includes(k)) {
+        if (values[k] === null || values[k] === undefined) {
+          return;
+        }
+        if (target.Snapshot) {
+          return;
+        }
       }
 
       const column = descriptor.Columns?.find((c) => c.Name === k);
