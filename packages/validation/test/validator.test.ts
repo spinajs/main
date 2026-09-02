@@ -73,6 +73,55 @@ describe('validator tests', function () {
     expect(v).to.be.not.null;
   });
 
+  describe('validateSchema', () => {
+    it('accepts a well formed schema', async () => {
+      const v = await val();
+
+      const [isValid, errors] = v.validateSchema({ type: 'object', properties: { a: { type: 'string' } } });
+
+      expect(isValid).to.be.true;
+      expect(errors).to.be.null;
+    });
+
+    it('refuses a schema the meta-schema rejects', async () => {
+      const v = await val();
+
+      // `type` must be a string or an array of strings, never a number
+      const [isValid, errors] = v.validateSchema({ type: 7 });
+
+      expect(isValid).to.be.false;
+      expect(errors).to.be.an('array').that.is.not.empty;
+    });
+
+    /**
+     * The meta-schema accepts ANY string as a `format`; only compiling discovers that no such
+     * format is registered - and that is the failure mode that would otherwise surface much
+     * later, as a throw from every validation against the stored schema.
+     */
+    it('refuses a meta-valid schema that cannot compile', async () => {
+      const v = await val();
+
+      const [isValid, errors] = v.validateSchema({ type: 'string', format: 'no-such-format' });
+
+      expect(isValid).to.be.false;
+      expect(errors![0].message).to.contain('no-such-format');
+    });
+
+    it('refuses a null, undefined or non-object schema', async () => {
+      const v = await val();
+
+      expect(v.validateSchema(null as unknown as object)[0]).to.be.false;
+      expect(v.validateSchema(undefined as unknown as object)[0]).to.be.false;
+      expect(v.validateSchema('not a schema' as unknown as object)[0]).to.be.false;
+    });
+
+    it('accepts the empty schema - it validates everything, which is a legitimate "no rules"', async () => {
+      const v = await val();
+
+      expect(v.validateSchema({})[0]).to.be.true;
+    });
+  });
+
   it('should load schemas from json and js files', async () => {
     const v = await val();
     expect(v.hasSchema('http://spinajs/example_js.schema.js')).to.be.true;
