@@ -2,7 +2,7 @@
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
-import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
+import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
 import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
@@ -371,25 +371,9 @@ export class PostgresCreateDatabaseQueryCompiler extends CreateDatabaseCompiler 
   }
 }
 
-@NewInstance()
-@Inject(Container)
-export class PostgresDropDatabaseQueryCompiler extends DropDatabaseCompiler {
-  @Autoinject(IdentifierQuoter)
-  public Quoter: IdentifierQuoter;
-
-  constructor(protected container: Container, protected builder: DropDatabaseQueryBuilder) {
-    super();
-  }
-
-  public compile(): ICompilerOutput {
-    const exists = this.builder.Exists ? ' IF EXISTS' : '';
-
-    return {
-      bindings: [],
-      expression: `DROP DATABASE${exists} ${this.Quoter.quote(this.builder.Name)}`,
-    };
-  }
-}
+// No PostgresDropDatabaseQueryCompiler: `DROP DATABASE IF EXISTS "x"` is exactly what the
+// shared SqlDropDatabaseQueryCompiler emits once this driver's quoter is injected, so the
+// driver claims the shared compiler instead of duplicating it.
 
 /**
  * `CURRENT_DATE()` — with the parentheses the shared builder emits — is a syntax error in
