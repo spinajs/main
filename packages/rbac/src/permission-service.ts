@@ -116,6 +116,20 @@ export abstract class PermissionService {
     return storage.run({ ...parent, User: user, ActiveRole: undefined }, async () => fn());
   }
 
+  /**
+   * A fluent, awaitable sequence of this service's own rule checks — see {@link RuleChain}.
+   * Composite rules build out of the simple ones without imperative glue:
+   *
+   *     await this.chain().assert('update', entry, user).assertFileCapacity(entry);
+   *
+   * Public so a domain service can compose the rules it consumes the same way:
+   *
+   *     await this.permissions.chain().assert('update', entry, actor).assertFileCapacity(entry);
+   */
+  public chain(): RuleChain<this> {
+    return ruleChain(this);
+  }
+
   protected noPermissionError(user: User, verb: PermissionVerb): Error {
     return new Forbidden(`user ${user.Id} has no ${verb} grant for resource ${this.resourceName()}`);
   }
@@ -174,6 +188,55 @@ export abstract class ResourceRules<TModel> extends PermissionService {
   protected notOwnedError(user: User, _subject: TModel | undefined): Error {
     return new Forbidden(`user ${user.Id} does not own the ${this.resourceName()} subject of this action`);
   }
+}
+
+/**
+ * A fluent, awaitable sequence of rule checks — what `chain()` answers.
+ *
+ * Every method of the underlying service appears here with the same arguments but answering
+ * the chain again (meant for the assert-style rules; a queued step's own return value is
+ * discarded), so composite rules read as one sentence:
+ *
+ *     await this.chain().assert('update', entry, user).assertFileCapacity(entry);
+ *
+ * Nothing runs until the chain is awaited; then the steps run IN CALL ORDER, sequentially and
+ * fail-fast — the first throw rejects the chain and later steps never execute, so a cheap grant
+ * check placed first still spares the DB lookups behind it. Awaiting the same chain twice runs
+ * it once.
+ */
+export type RuleChain<T> = PromiseLike<void> & {
+  [K in keyof T]: T[K] extends (...args: infer A) => unknown ? (...args: A) => RuleChain<T> : never;
+};
+
+/** Builds a {@link RuleChain} over any rules object — the mechanics behind `chain()`. */
+export function ruleChain<T extends object>(target: T): RuleChain<T> {
+  const steps: (() => unknown)[] = [];
+  let run: Promise<void> | undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proxy: any = new Proxy(
+    {},
+    {
+      get(_, prop) {
+        if (prop === 'then') {
+          run ??= (async () => {
+            for (const step of steps) {
+              await step();
+            }
+          })();
+          return run.then.bind(run);
+        }
+
+        return (...args: unknown[]) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call
+          steps.push(() => (target as any)[prop](...args));
+          return proxy;
+        };
+      },
+    },
+  );
+
+  return proxy as RuleChain<T>;
 }
 
 /**

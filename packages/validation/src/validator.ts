@@ -193,6 +193,36 @@ export class DataValidator extends AsyncService {
   }
 
   /**
+   * Checks that `schema` is ITSELF a valid JSON Schema - the meta-schema check, plus a compile
+   * attempt, because the two catch different things: the meta-schema accepts any string as a
+   * `format`, and only compiling discovers that no such format is registered.
+   *
+   * For schemas that arrive at runtime ( stored in a column, sent by a client ) rather than
+   * shipped with the code, so a malformed one is refused where it is written instead of throwing
+   * later, at every attempt to validate data against it.
+   */
+  public validateSchema(schema: object): [boolean, IValidationError[] | null] {
+    if (schema === null || schema === undefined || typeof schema !== 'object') {
+      return [false, [syntheticError('invalid_argument', 'schema is null, undefined or not an object')]];
+    }
+
+    try {
+      const isValid = this.Validator.validateSchema(schema) as boolean;
+
+      if (!isValid) {
+        return [false, (this.Validator.errors as IValidationError[]) ?? []];
+      }
+
+      // meta-valid but uncompilable - an unknown `format`, an unresolvable `$ref`
+      this.Validator.compile(schema);
+
+      return [true, null];
+    } catch (err) {
+      return [false, [syntheticError('invalid_schema', (err as Error).message)]];
+    }
+  }
+
+  /**
    * Internal method to get the schema being used for validation
    */
   private resolveSchema(schemaOrData: object | string, data?: object): ISchemaObject | null {
