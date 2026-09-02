@@ -268,16 +268,16 @@ describe('PermissionService', () => {
       class ChainedRules {
         public calls: string[] = [];
 
-        public first(tag: string): void {
+        public assertFirst(tag: string): void {
           this.calls.push(`first:${tag}`);
         }
 
-        public second(): Promise<void> {
+        public assertSecond(): Promise<void> {
           this.calls.push('second');
           return Promise.resolve();
         }
 
-        public failing(): Promise<void> {
+        public assertFailing(): Promise<void> {
           this.calls.push('failing');
           return Promise.reject(new Forbidden('refused mid-chain'));
         }
@@ -286,7 +286,7 @@ describe('PermissionService', () => {
       it('runs queued steps in call order on await', async () => {
         const rules = new ChainedRules();
 
-        await ruleChain(rules).first('a').second().first('b');
+        await ruleChain(rules).assertFirst('a').assertSecond().assertFirst('b');
 
         expect(rules.calls).to.eql(['first:a', 'second', 'first:b']);
       });
@@ -294,7 +294,7 @@ describe('PermissionService', () => {
       it('nothing runs before the chain is awaited', () => {
         const rules = new ChainedRules();
 
-        ruleChain(rules).first('never').second();
+        ruleChain(rules).assertFirst('never').assertSecond();
 
         expect(rules.calls).to.be.empty;
       });
@@ -302,13 +302,26 @@ describe('PermissionService', () => {
       it('fails fast — a rejected step stops the chain and later steps never run', async () => {
         const rules = new ChainedRules();
 
-        await expect(ruleChain(rules).first('a').failing().second()).to.be.rejectedWith(Forbidden, /refused mid-chain/);
+        await expect(ruleChain(rules).assertFirst('a').assertFailing().assertSecond()).to.be.rejectedWith(Forbidden, /refused mid-chain/);
         expect(rules.calls).to.eql(['first:a', 'failing']);
+      });
+
+      it('exposes only assert*/can* rule methods, and a rule-shaped typo dies at build time', () => {
+        const rules = new ChainedRules();
+
+        // non-rule members are simply not there - thenable probes (`catch`, symbols) must not
+        // throw, or every promise-inspecting consumer would
+        expect((ruleChain(rules) as never as { calls?: unknown }).calls).to.be.undefined;
+        expect((ruleChain(rules) as never as { catch?: unknown }).catch).to.be.undefined;
+
+        // but a rule-SHAPED name with no method behind it is a typo on a permission gate
+        expect(() => (ruleChain(rules) as never as { assertFrist: () => void }).assertFrist()).to.throw(/'assertFrist' is not a rule method/);
+        expect(rules.calls).to.be.empty;
       });
 
       it('awaiting the same chain twice runs it once', async () => {
         const rules = new ChainedRules();
-        const chain = ruleChain(rules).first('once');
+        const chain = ruleChain(rules).assertFirst('once');
 
         await chain;
         await chain;

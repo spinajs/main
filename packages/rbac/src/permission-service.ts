@@ -125,6 +125,12 @@ export abstract class PermissionService {
    * Public so a domain service can compose the rules it consumes the same way:
    *
    *     await this.permissions.chain().assert('update', entry, actor).assertFileCapacity(entry);
+   *
+   * CONVENTIONS the chain enforces: only `assert*` / `can*` methods are chainable (anything else
+   * throws at build time), and chainable rules are public - `keyof this` sees only public
+   * members. And the one discipline it cannot enforce: an UN-AWAITED chain runs nothing, so the
+   * consuming package must lint with `@typescript-eslint/no-floating-promises` - the chain is a
+   * PromiseLike precisely so that rule catches a forgotten await on a permission gate.
    */
   public chain(): RuleChain<this> {
     return ruleChain(this);
@@ -225,6 +231,20 @@ export function ruleChain<T extends object>(target: T): RuleChain<T> {
             }
           })();
           return run.then.bind(run);
+        }
+
+        // Only rule methods are chainable - the `assert*` / `can*` naming convention IS the
+        // contract (it also forces them public: `keyof T` sees only public members, so the type
+        // mirrors this gate). Anything else answers undefined rather than throwing: the chain is
+        // a thenable, and consumers PROBE it (`catch`/`finally`, inspection symbols - chai's
+        // promise detection reads `.catch`), so only a rule-shaped name that names no method is
+        // a build-time error - that one is a typo on a permission gate, and it must not
+        // typecheck into a queued nonsense call whose result is silently discarded.
+        if (typeof prop !== 'string' || !/^(assert|can)/.test(prop)) {
+          return undefined;
+        }
+        if (typeof (target as Record<string, unknown>)[prop] !== 'function') {
+          throw new Error(`RuleChain: '${prop}' is not a rule method on ${target.constructor.name}`);
         }
 
         return (...args: unknown[]) => {
