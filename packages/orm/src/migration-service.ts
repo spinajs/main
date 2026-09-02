@@ -155,16 +155,23 @@ export class DefaultMigrationService extends OrmMigrationService {
    */
   protected async createTableIfAbsent(name: string, columns: (t: TableQueryBuilder) => void): Promise<boolean> {
     // a builder executes at most once, so every statement needs a fresh SchemaQueryBuilder
-    const db = this.driver.Options.Database;
+    //
+    // The probe deliberately passes NO database: a migration table always lives wherever an
+    // unqualified CREATE TABLE on this connection lands, and the drivers disagree about what a
+    // second argument means there. MySQL treats it as the database (== schema, and defaulting to
+    // the connection's own is identical); postgres treats it as a SCHEMA — so passing
+    // `Options.Database` ('galaxy') probed `table_schema = 'galaxy'` while the table sat in
+    // `public`, the guard reported "absent" forever, and every startup after the first crashed on
+    // the CREATE collision.
 
-    if (await this.driver.schema().tableExists(name, db)) {
+    if (await this.driver.schema().tableExists(name)) {
       return false;
     }
 
     try {
       await this.driver.schema().createTable(name, columns);
     } catch (err) {
-      if (!(await this.driver.schema().tableExists(name, db))) {
+      if (!(await this.driver.schema().tableExists(name))) {
         throw new OrmException(`Could not create migration table ${name} on connection ${this.driver.Options.Name}: ${(err as Error).message}`, undefined, undefined, undefined, err);
       }
 
@@ -177,7 +184,6 @@ export class DefaultMigrationService extends OrmMigrationService {
   public async ensureStorage(): Promise<void> {
     // a builder executes at most once, so every statement needs a fresh SchemaQueryBuilder
     const schema = () => this.driver.schema();
-    const db = this.driver.Options.Database;
 
     // "was absent when we probed", not "we created it" - a lost race reports absent too
     const wasAbsent = await this.createTableIfAbsent(this.table, (t) => {
@@ -192,7 +198,8 @@ export class DefaultMigrationService extends OrmMigrationService {
     });
 
     if (!wasAbsent) {
-      const cols = (await this.driver.tableInfo(this.table, db)) ?? [];
+      // Same unqualified-probe rule as createTableIfAbsent: the connection's own scope, no db arg.
+      const cols = (await this.driver.tableInfo(this.table)) ?? [];
       const has = (n: string) => cols.some((c) => c.Name === n);
 
       if (!has('StartedAt') || !has('FinishedAt') || !has('RolledBackAt') || !has('Logs') || !has('Checksum') || !has('Batch')) {
