@@ -125,12 +125,32 @@ for (const { manifestPath, pkg } of packages) {
 
 // Keep the committed lock file in sync with the rewritten manifests - build.yml runs
 // `npm ci`, which fails on any manifest/lock drift.
+//
+// The flags are all about how long this takes and whether you can tell it is alive:
+//
+//   --prefer-offline  build.yml runs `npm ci` immediately before this, so every tarball and
+//                     every piece of registry metadata is already in the npm cache. Only the
+//                     INTERNAL @spinajs/* pins changed above; the external graph is byte for
+//                     byte what `npm ci` just resolved. Re-fetching it from the registry is
+//                     pure latency, and on a slow registry day it is minutes of it.
+//   --no-audit        two more network round trips that cannot influence the lock file.
+//   --no-fund
+//
+// stdout is inherited rather than piped so npm's progress reaches the workflow log live. It
+// used to be captured and printed only on failure, which meant a slow run and a hung run
+// looked identical from the outside - a step logging "regenerating package-lock.json ..." and
+// then nothing for six minutes reads as dead, and a release got cancelled on that guess.
+// stderr stays piped so `fail` can still quote the actual error.
 console.log("regenerating package-lock.json ...");
 
-const lock = spawnSync("npm install --package-lock-only", { shell: true, encoding: "utf8" });
+const lock = spawnSync("npm install --package-lock-only --prefer-offline --no-audit --no-fund", {
+  shell: true,
+  encoding: "utf8",
+  stdio: ["ignore", "inherit", "pipe"],
+});
 
 if (lock.status !== 0) {
-  fail(`npm install --package-lock-only failed:\n${lock.stdout ?? ""}${lock.stderr ?? ""}`);
+  fail(`npm install --package-lock-only failed:\n${lock.stderr ?? ""}`);
 }
 
 console.log("done");
