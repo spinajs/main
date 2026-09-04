@@ -1,19 +1,14 @@
 import { IEmail } from './interfaces.js';
 
 /**
- * Environments where recipient redirection is refused outright, whatever a connection
- * configures. Compared against the value `@spinajs/configuration` resolves into
- * `process.env.APP_ENV` — the same value it uses to choose which config file loads, so the
- * guard and the loaded configuration cannot disagree.
+ * Recipient redirection is refused outright on production, whatever a connection configures.
+ * That decision is NOT made here: it reads `configuration.isProduction`, the framework's single
+ * source of truth, which derives from the same value that selects the config files and which an
+ * app may override in its own config.
  *
- * `prod` is here as well as `production` because `configuration.isProduction` is
- * `NODE_ENV === 'production'` exactly, and a stack running `NODE_ENV=prod` reports false there.
+ * This module used to carry its own `isProductionEnv` matcher over `APP_ENV`. Two sources of
+ * truth for one question is how they drift - and the local one could not see an app's override.
  */
-const PRODUCTION_ENVS = ['production', 'prod'];
-
-export function isProductionEnv(env: string | undefined): boolean {
-  return PRODUCTION_ENVS.includes((env ?? '').trim().toLowerCase());
-}
 
 /** How many original recipients the subject prefix names before it summarises the rest. */
 const MAX_LISTED_RECIPIENTS = 3;

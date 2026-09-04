@@ -22,7 +22,7 @@ class CapturingSender extends EmailSender {
 }
 
 /**
- * Minimal configuration: starts empty, `serviceWith` fills in `process.env.APP_ENV` and
+ * Minimal configuration: starts empty, `serviceWith` fills in `configuration.isProduction` and
  * `email.connections` per test via `cfg.set`.
  */
 class TestConf extends FrameworkConfiguration {
@@ -39,13 +39,13 @@ before(async () => {
 });
 
 /**
- * Builds a service with one connection. `AppEnv` and `Configuration` are `@Config`-decorated
+ * Builds a service with one connection. `IsProduction` and `Configuration` are `@Config`-decorated
  * fields - the decorator installs a getter-only accessor on the prototype (see
  * `@spinajs/configuration`'s `Config()` in decorators.ts), so poking them via `(service as
  * any).Field = ...` throws instead of taking effect. Going through the real `Configuration`
  * exercises the exact path production uses, including the config path string itself: a typo
- * in `@Config('process.env.APP_ENV')` would otherwise go undetected and the production guard
- * would silently fail open.
+ * in `@Config('configuration.isProduction')` would otherwise go undetected and the production
+ * guard would silently fail open.
  *
  * `Senders` and `Queue` are NOT `@Config` fields ( `@AutoinjectService` / `@Autoinject` don't
  * install accessors ), so plain assignment on those bypasses DI resolution as intended - no
@@ -61,10 +61,10 @@ before(async () => {
  * through the prototype's setter lookup, so the prototype accessor's `configurable: false`
  * doesn't block it.
  */
-function serviceWith(appEnv: string, redirectTo?: string[]) {
+function serviceWith(isProduction: boolean, redirectTo?: string[]) {
   const options = { name: 'test', service: 'CapturingSender', redirectTo };
 
-  cfg.set('process.env.APP_ENV', appEnv);
+  cfg.set('configuration.isProduction', isProduction);
   cfg.set('email.connections', [options]);
 
   const sender = new CapturingSender(options);
@@ -84,7 +84,7 @@ const anEmail = (): IEmail => ({ to: ['client@acme.com'], connection: 'test', su
 
 describe('DefaultEmailService recipient redirect', () => {
   it('hands the transport the redirected copy on a dev environment', async () => {
-    const { service, sender } = serviceWith('development', ['dev-inbox@screennetwork.pl']);
+    const { service, sender } = serviceWith(false, ['dev-inbox@screennetwork.pl']);
 
     await service.send(anEmail());
 
@@ -93,7 +93,7 @@ describe('DefaultEmailService recipient redirect', () => {
   });
 
   it('sends untouched when the connection configures no redirect', async () => {
-    const { service, sender } = serviceWith('development', undefined);
+    const { service, sender } = serviceWith(false, undefined);
 
     await service.send(anEmail());
 
@@ -101,19 +101,21 @@ describe('DefaultEmailService recipient redirect', () => {
     expect(sender.Captured!.subject).to.equal('Your invoice');
   });
 
-  for (const env of ['production', 'prod']) {
-    it(`refuses to redirect on ${env}, whatever the connection says`, async () => {
-      const { service, sender } = serviceWith(env, ['dev-inbox@screennetwork.pl']);
+  it('refuses to redirect on production, whatever the connection says', async () => {
+    // Which environment names count as production is not this package's business - it asks
+    // `configuration.isProduction` and believes the answer. The spellings, the APP_ENV over
+    // NODE_ENV precedence and the empty-string case are settled in @spinajs/configuration and
+    // tested there, in test/environment-flags.test.ts.
+    const { service, sender } = serviceWith(true, ['dev-inbox@screennetwork.pl']);
 
-      await service.send(anEmail());
+    await service.send(anEmail());
 
-      expect(sender.Captured!.to).to.deep.equal(['client@acme.com']);
-      expect(sender.Captured!.subject).to.equal('Your invoice');
-    });
-  }
+    expect(sender.Captured!.to).to.deep.equal(['client@acme.com']);
+    expect(sender.Captured!.subject).to.equal('Your invoice');
+  });
 
   it('logs an error at startup when a production connection configures a redirect', async () => {
-    const { service } = serviceWith('production', ['dev-inbox@screennetwork.pl']);
+    const { service } = serviceWith(true, ['dev-inbox@screennetwork.pl']);
 
     await service.resolve();
 
@@ -123,7 +125,7 @@ describe('DefaultEmailService recipient redirect', () => {
   });
 
   it('says nothing at startup on a dev environment', async () => {
-    const { service } = serviceWith('development', ['dev-inbox@screennetwork.pl']);
+    const { service } = serviceWith(false, ['dev-inbox@screennetwork.pl']);
 
     await service.resolve();
 
@@ -132,7 +134,7 @@ describe('DefaultEmailService recipient redirect', () => {
 
   it('logs the redirect without putting addresses above trace', async () => {
     // Recipient addresses are PII, matching how send() already treats them on failure.
-    const { service } = serviceWith('development', ['dev-inbox@screennetwork.pl']);
+    const { service } = serviceWith(false, ['dev-inbox@screennetwork.pl']);
 
     await service.send(anEmail());
 
@@ -146,7 +148,7 @@ describe('DefaultEmailService recipient redirect', () => {
     // The redirected subject embeds the real recipient by construction ( "[DEV->client@acme.com] ..." ),
     // so the pre-existing success log - which prints email.subject - must not be handed the
     // redirected copy, or a real customer address leaks at INFO level on every redirected send.
-    const { service } = serviceWith('development', ['dev-inbox@screennetwork.pl']);
+    const { service } = serviceWith(false, ['dev-inbox@screennetwork.pl']);
 
     await service.send(anEmail());
 

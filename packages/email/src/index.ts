@@ -6,7 +6,7 @@ import { IEmail, EmailService } from './interfaces.js';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
 import { EmailSent } from './events/EmailSent.js';
 import { EmailSend } from './jobs/EmailSend.js';
-import { isProductionEnv, redirectRecipients } from './redirect.js';
+import { redirectRecipients } from './redirect.js';
 
 export * from './interfaces.js';
 export * from './transports.js';
@@ -34,13 +34,19 @@ export class DefaultEmailService extends EmailService {
    * The same value that chose which config file loaded, so this guard and the loaded
    * configuration cannot disagree.
    */
-  @Config('process.env.APP_ENV')
-  protected AppEnv: string;
+  /**
+   * The framework's single source of truth for "am I running as production", derived from the
+   * same value that selected the config files and overridable by an app's own config. Read it
+   * rather than re-deriving from APP_ENV here: two matchers for one question drift, and a local
+   * one cannot see an override.
+   */
+  @Config('configuration.isProduction', { defaultValue: false })
+  protected IsProduction: boolean;
 
   public async resolve(): Promise<void> {
     await super.resolve();
 
-    if (!isProductionEnv(this.AppEnv)) {
+    if (!this.IsProduction) {
       return;
     }
 
@@ -50,7 +56,7 @@ export class DefaultEmailService extends EmailService {
     // guaranteed, and a guard that silently no-ops is worse than no guard.
     for (const c of this.Configuration?.connections ?? []) {
       if (c.redirectTo?.length) {
-        this.Log.error(`Email connection ${c.name} configures redirectTo, which is refused on APP_ENV=${this.AppEnv}. Recipients are NOT redirected.`);
+        this.Log.error(`Email connection ${c.name} configures redirectTo, which is refused on production. Recipients are NOT redirected.`);
       }
     }
   }
@@ -74,7 +80,7 @@ export class DefaultEmailService extends EmailService {
     // than by editing the options at startup so the guarantee does not depend on injection
     // order. No error log on this path: prod mail volume would flood it, and resolve()
     // already reported the misconfiguration once.
-    const target = isProductionEnv(this.AppEnv) ? undefined : this.Senders.get(connection)!.Options.redirectTo;
+    const target = this.IsProduction ? undefined : this.Senders.get(connection)!.Options.redirectTo;
     const redirected = redirectRecipients(email, target);
 
     if (redirected) {

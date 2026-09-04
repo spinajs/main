@@ -218,7 +218,7 @@ export interface EmailConnectionOptions {
    * recording the real ones in the subject. For dev and staging stacks that must exercise
    * the real SMTP path without mailing real people.
    *
-   * Refused outright when the app runs as production — see `isProductionEnv`.
+   * Refused outright when the app runs as production, decided by `configuration.isProduction`.
    */
   redirectTo?: string[];
 
