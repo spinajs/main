@@ -1,10 +1,12 @@
 import { InvalidOperation } from '@spinajs/exceptions';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';
 import { Perf } from '@spinajs/log';
+import { Config } from '@spinajs/configuration';
 import { IEmail, EmailService } from './interfaces.js';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
 import { EmailSent } from './events/EmailSent.js';
 import { EmailSend } from './jobs/EmailSend.js';
+import { redirectRecipients } from './redirect.js';
 
 export * from './interfaces.js';
 export * from './transports.js';
@@ -12,7 +14,8 @@ export * from './jobs/EmailSend.js';
 export * from './events/EmailSent.js';
 export * from './events/EmailSendFailed.js';
 export * from './helpers.js';
-export * from "./fp.js";
+export * from './fp.js';
+export * from './redirect.js';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
@@ -26,6 +29,38 @@ export class LogBotstrapper extends Bootstrapper {
  */
 @Injectable(EmailService)
 export class DefaultEmailService extends EmailService {
+  /**
+   * The environment configuration resolved — `Env ?? APP_ENV ?? NODE_ENV ?? 'development'`.
+   * The same value that chose which config file loaded, so this guard and the loaded
+   * configuration cannot disagree.
+   */
+  /**
+   * The framework's single source of truth for "am I running as production", derived from the
+   * same value that selected the config files and overridable by an app's own config. Read it
+   * rather than re-deriving from APP_ENV here: two matchers for one question drift, and a local
+   * one cannot see an override.
+   */
+  @Config('configuration.isProduction', { defaultValue: false })
+  protected IsProduction: boolean;
+
+  public async resolve(): Promise<void> {
+    await super.resolve();
+
+    if (!this.IsProduction) {
+      return;
+    }
+
+    // Visibility only - send() enforces this independently. Scans the configuration rather
+    // than the Senders map because config data is plainly present here, whereas the
+    // population order of an @AutoinjectService field relative to resolve() is not
+    // guaranteed, and a guard that silently no-ops is worse than no guard.
+    for (const c of this.Configuration?.connections ?? []) {
+      if (c.redirectTo?.length) {
+        this.Log.error(`Email connection ${c.name} configures redirectTo, which is refused on production. Recipients are NOT redirected.`);
+      }
+    }
+  }
+
   /**
    *
    * Tries to sends email immediately
@@ -41,8 +76,25 @@ export class DefaultEmailService extends EmailService {
       throw new InvalidOperation(`Email sender ${connection} not exists. Please check your configuration files.`);
     }
 
+    // Production never redirects, whatever the connection configures. Enforced here rather
+    // than by editing the options at startup so the guarantee does not depend on injection
+    // order. No error log on this path: prod mail volume would flood it, and resolve()
+    // already reported the misconfiguration once.
+    const target = this.IsProduction ? undefined : this.Senders.get(connection)!.Options.redirectTo;
+    const redirected = redirectRecipients(email, target);
+
+    if (redirected) {
+      this.Log.warn(`Email on connection ${connection} redirected to ${target!.length} configured address(es), ${email.to?.length ?? 0} original recipient(s) replaced`);
+      this.Log.trace(`Original recipients on connection ${connection}: ${(email.to ?? []).join(', ')}`);
+    }
+
+    // Only the transport sees the redirected copy. Every log line below, and the EmailSent
+    // event, keep referencing the caller's original `email` - the redirected subject embeds
+    // the real recipients by construction, and those log lines print the subject at INFO/ERROR.
+    const outgoing = redirected ?? email;
+
     try {
-      await Perf.measure('email.send', () => this.Senders.get(connection)!.send(email), { labels: { connection } });
+      await Perf.measure('email.send', () => this.Senders.get(connection)!.send(outgoing), { labels: { connection } });
     } catch (err) {
       // full recipient addresses are PII - keep them at trace level only, log just the count otherwise.
       this.Log.error(err, `Cannot send email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
@@ -73,7 +125,7 @@ export class DefaultEmailService extends EmailService {
     dEmail.RetryCount = email.retryCount ?? this.Configuration.retry?.count ?? 3;
 
     /** set queue schedule */
-    if(email.schedule){
+    if (email.schedule) {
       dEmail.ScheduleCron = email.schedule.cron;
       dEmail.ScheduleDelay = email.schedule.delay;
       dEmail.SchedulePeriod = email.schedule.period;

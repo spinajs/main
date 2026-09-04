@@ -42,6 +42,10 @@ const CONFIGURATION_SCHEMA = {
               mailFrom: { type: 'string' },
             },
           },
+          redirectTo: {
+            type: 'array',
+            items: { type: 'string' },
+          },
         },
         required: ['name', 'service'],
       },

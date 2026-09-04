@@ -35,7 +35,6 @@ export class BlackHoleEmailSender extends EmailSender {
   @Logger('email')
   protected Log: Log;
 
-
   constructor(public Options: EmailConnectionOptions) {
     super();
   }
@@ -72,7 +71,6 @@ export interface IEmailAttachement {
  * Email template def if template is in different fs than default templateFs
  */
 export interface IEmailTemplate {
-
   /**
    * Template name
    */
@@ -150,28 +148,26 @@ export interface IEmail {
    * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
    */
   schedule?: {
-
     /**
      * Use a Cron entry to set the schedule
      */
-    cron?: string,
+    cron?: string;
 
     /**
      * The time in milliseconds that a message will wait before being scheduled to be delivered
      */
-    delay?: number,
+    delay?: number;
 
     /**
      * The time in milliseconds to wait after the start time to wait before scheduling the message again
      */
-    period?: number,
+    period?: number;
 
     /**
      * The number of times to repeat scheduling a message for delivery
      */
-    repeat?: number
-
-  }
+    repeat?: number;
+  };
 }
 
 export interface EmailConfiguration {
@@ -218,6 +214,15 @@ export interface EmailConnectionOptions {
   };
 
   /**
+   * Replaces every recipient of every email on this connection with these addresses,
+   * recording the real ones in the subject. For dev and staging stacks that must exercise
+   * the real SMTP path without mailing real people.
+   *
+   * Refused outright when the app runs as production, decided by `configuration.isProduction`.
+   */
+  redirectTo?: string[];
+
+  /**
    * In-process SMTP send resilience ( retry / timeout ) applied by transports when
    * talking to the SMTP server, independent of the queue-level job retry.
    */
@@ -255,7 +260,6 @@ export abstract class EmailService extends AsyncService {
 
   @Autoinject(QueueService)
   protected Queue: QueueService;
-
 
   /**
    *
