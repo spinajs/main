@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/orm-cli",
-  "version": "2.0.530",
+  "version": "2.0.531",
   "description": "CLI commands for spinajs ORM migrations",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -53,17 +53,17 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/cli": "2.0.530",
-    "@spinajs/di": "2.0.530",
-    "@spinajs/exceptions": "2.0.530",
-    "@spinajs/log-common": "2.0.530",
-    "@spinajs/orm": "2.0.530",
+    "@spinajs/cli": "2.0.531",
+    "@spinajs/di": "2.0.531",
+    "@spinajs/exceptions": "2.0.531",
+    "@spinajs/log-common": "2.0.531",
+    "@spinajs/orm": "2.0.531",
     "luxon": "^3.6.1"
   },
   "devDependencies": {
-    "@spinajs/configuration": "2.0.530",
-    "@spinajs/log": "2.0.530",
-    "@spinajs/orm-sqlite": "2.0.530",
+    "@spinajs/configuration": "2.0.531",
+    "@spinajs/log": "2.0.531",
+    "@spinajs/orm-sqlite": "2.0.531",
     "@types/luxon": "^3.6.1",
     "@types/node": "^22.14.1"
   }
