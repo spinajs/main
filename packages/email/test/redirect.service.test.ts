@@ -141,4 +141,17 @@ describe('DefaultEmailService recipient redirect', () => {
     expect(warn.firstCall.args[0]).to.not.contain('client@acme.com');
     expect((service as any).Log.trace.calledOnce).to.equal(true);
   });
+
+  it('keeps the original recipients out of the info log on a redirected send', async () => {
+    // The redirected subject embeds the real recipient by construction ( "[DEV->client@acme.com] ..." ),
+    // so the pre-existing success log - which prints email.subject - must not be handed the
+    // redirected copy, or a real customer address leaks at INFO level on every redirected send.
+    const { service } = serviceWith('development', ['dev-inbox@screennetwork.pl']);
+
+    await service.send(anEmail());
+
+    const info = (service as any).Log.info as sinon.SinonStub;
+    expect(info.calledOnce).to.equal(true);
+    expect(info.firstCall.args[0]).to.not.contain('client@acme.com');
+  });
 });

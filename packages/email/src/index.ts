@@ -80,11 +80,15 @@ export class DefaultEmailService extends EmailService {
     if (redirected) {
       this.Log.warn(`Email on connection ${connection} redirected to ${target!.length} configured address(es), ${email.to?.length ?? 0} original recipient(s) replaced`);
       this.Log.trace(`Original recipients on connection ${connection}: ${(email.to ?? []).join(', ')}`);
-      email = redirected;
     }
 
+    // Only the transport sees the redirected copy. Every log line below, and the EmailSent
+    // event, keep referencing the caller's original `email` - the redirected subject embeds
+    // the real recipients by construction, and those log lines print the subject at INFO/ERROR.
+    const outgoing = redirected ?? email;
+
     try {
-      await Perf.measure('email.send', () => this.Senders.get(connection)!.send(email), { labels: { connection } });
+      await Perf.measure('email.send', () => this.Senders.get(connection)!.send(outgoing), { labels: { connection } });
     } catch (err) {
       // full recipient addresses are PII - keep them at trace level only, log just the count otherwise.
       this.Log.error(err, `Cannot send email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
