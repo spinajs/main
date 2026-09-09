@@ -1,6 +1,6 @@
 // tslint:disable-next-line: no-var-requires
 
-import { PasswordProvider, PasswordValidationProvider } from './interfaces.js';
+import { IPasswordPolicy, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -103,11 +103,51 @@ export class BasicPasswordValidationProvider extends PasswordValidationProvider 
   @Config('rbac.password.validation.rule')
   protected ValidationSchema: object;
 
+  /**
+   * Optional human-readable statement of the rule, surfaced verbatim through
+   * {@link describe}. The schema below is what is ENFORCED; this is what is
+   * SHOWN - an application whose rule is a bare regex has no other way to tell
+   * the user what that regex demands.
+   */
+  @Config('rbac.password.validation.description', { defaultValue: undefined as string | undefined })
+  protected Description: string | undefined;
+
   @Autoinject()
   protected Validator: DataValidator;
 
   public check(password: string): boolean {
     const [result] = this.Validator.tryValidate(this.ValidationSchema, password as any);
     return result;
+  }
+
+  /**
+   * The string constraints of the configured JSON schema, lifted out so a
+   * client can show and pre-check them. Only the three keywords a string
+   * schema commonly carries are read; anything else in the schema (`enum`,
+   * `format`, `allOf` ...) still applies in `check()` but is not described -
+   * the schema itself is not returned, because it is server configuration and
+   * may carry more than a user needs to see.
+   */
+  public describe(): IPasswordPolicy {
+    const schema = (this.ValidationSchema ?? {}) as { minLength?: unknown; maxLength?: unknown; pattern?: unknown };
+    const policy: IPasswordPolicy = {};
+
+    if (typeof schema.minLength === 'number') {
+      policy.minLength = schema.minLength;
+    }
+
+    if (typeof schema.maxLength === 'number') {
+      policy.maxLength = schema.maxLength;
+    }
+
+    if (typeof schema.pattern === 'string') {
+      policy.pattern = schema.pattern;
+    }
+
+    if (typeof this.Description === 'string' && this.Description.trim() !== '') {
+      policy.description = this.Description;
+    }
+
+    return policy;
   }
 }

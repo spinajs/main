@@ -211,6 +211,18 @@ const rbac = {
 
       validation: {
         service: 'BasicPasswordValidationProvider',
+
+        /**
+         * Human-readable statement of `rule`, returned by
+         * `PasswordValidationProvider.describe()` (and by
+         * `GET /auth/password/policy` in @spinajs/rbac-http-user) so a client
+         * can show the user what to type BEFORE the server refuses it. A regex
+         * cannot be turned back into words, so this is the application's job;
+         * keep it in step with `rule`. Unset by default: clients then fall back
+         * to the `minLength` / `maxLength` the rule itself declares.
+         */
+        // description: 'At least eight characters, including one digit',
+
         rule: {
           // UNCOMMENT ONE OF BELOW OR MODIFY
           // VALIDATION RULE IS JSON SCHEMA

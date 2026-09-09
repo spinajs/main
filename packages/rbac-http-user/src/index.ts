@@ -42,6 +42,7 @@ export * from './dto/impersonate-dto.js';
 export * from './dto/metadata-dto.js';
 export * from './dto/password-dto.js';
 export * from './dto/password-reset-dto.js';
+export * from './dto/password-policy-schema.js';
 export * from './dto/switchRole-dto.js';
 export * from './dto/token-dto.js';
 export * from './dto/userLogin-dto.js';
