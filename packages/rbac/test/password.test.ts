@@ -63,6 +63,61 @@ describe('Password provider tests', () => {
   });
 });
 
+describe('BasicPasswordValidationProvider.describe', function () {
+  this.timeout(15000);
+
+  beforeEach(async () => {
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+    await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  const withRule = (rule: object, description?: string) => {
+    const cfg = DI.get(Configuration)!;
+    cfg.set('rbac.password.validation.rule', rule);
+    cfg.set('rbac.password.validation.description', description);
+    return DI.resolve(PasswordValidationProvider);
+  };
+
+  it('lifts minLength, maxLength and pattern out of the configured schema', async () => {
+    const provider = await withRule({ type: 'string', minLength: 8, maxLength: 64, pattern: '^(?=.*\d).{8,}$' });
+
+    expect(provider.describe()).to.deep.equal({ minLength: 8, maxLength: 64, pattern: '^(?=.*\d).{8,}$' });
+  });
+
+  it('carries the configured description verbatim and omits it when blank', async () => {
+    const described = await withRule({ type: 'string', minLength: 8 }, 'Eight characters at least');
+    expect(described.describe().description).to.equal('Eight characters at least');
+
+    DI.clearCache();
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+    await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+
+    const blank = await withRule({ type: 'string', minLength: 8 }, '   ');
+    expect(blank.describe()).to.deep.equal({ minLength: 8 });
+  });
+
+  it('says nothing about a schema that carries none of the three keywords', async () => {
+    const provider = await withRule({ type: 'string' });
+
+    expect(provider.describe()).to.deep.equal({});
+  });
+
+  it('describes the same rule check() enforces', async () => {
+    const provider = await withRule({ type: 'string', pattern: '^(?=.*\d).{8,}$' });
+    const regex = new RegExp(provider.describe().pattern!);
+
+    for (const candidate of ['short1', 'longenough', 'longenough1']) {
+      expect(regex.test(candidate), candidate).to.equal(provider.check(candidate));
+    }
+  });
+});
+
 describe('BasicPasswordProvider.generate', function () {
   this.timeout(15000);
 

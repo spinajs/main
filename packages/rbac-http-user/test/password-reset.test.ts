@@ -42,6 +42,32 @@ describe('PasswordResetController', function () {
 
   afterEach(() => sinon.restore());
 
+  describe('passwordPolicy', () => {
+    it('answers exactly what the validation provider describes', async () => {
+      const policy = { minLength: 8, pattern: '^(?=.*\d).{8,}$', description: 'Eight characters and a digit' };
+      Object.defineProperty(controller, 'PasswordValidation', {
+        value: { check: sinon.stub().returns(true), describe: sinon.stub().returns(policy) },
+        configurable: true,
+        writable: true,
+      });
+
+      const result = controller.passwordPolicy();
+
+      expect(result).to.be.instanceOf(Ok);
+      expect(await body(result)).to.deep.equal(policy);
+    });
+
+    it('answers an empty policy for a provider that cannot describe its rule', async () => {
+      Object.defineProperty(controller, 'PasswordValidation', {
+        value: { check: sinon.stub().returns(true), describe: () => ({}) },
+        configurable: true,
+        writable: true,
+      });
+
+      expect(await body(controller.passwordPolicy())).to.deep.equal({});
+    });
+  });
+
   describe('requestReset', () => {
     it('issues a token for a known address', async () => {
       const result = await controller.requestReset(new PasswordResetRequestDto({ Email: 'me@spinajs.pl' }));

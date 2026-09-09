@@ -319,10 +319,49 @@ export interface IRbacModelDescriptor extends IModelDescriptor {
 }
 
 /**
+ * What a client may tell the user about the password rule BEFORE they submit
+ * one - the human-facing counterpart of {@link PasswordValidationProvider.check}.
+ *
+ * Every constraint is optional: a provider that validates in a way it cannot
+ * describe (a breach-list lookup, say) answers with only what it can, and a
+ * client renders whatever is present. `pattern` is an ECMAScript regular
+ * expression source, the JSON-schema dialect, so a browser can compile it with
+ * `new RegExp(pattern)` and refuse a password locally with the same verdict the
+ * server will give.
+ */
+export interface IPasswordPolicy {
+  /** Fewest characters accepted. */
+  minLength?: number;
+
+  /** Most characters accepted. */
+  maxLength?: number;
+
+  /** ECMAScript regular expression source every accepted password matches. */
+  pattern?: string;
+
+  /**
+   * Human-readable statement of the rule, as configured by the application
+   * (`rbac.password.validation.description`). Copy, not a constraint: a client
+   * shows it next to the password field; it never validates against it.
+   */
+  description?: string;
+}
+
+/**
  * Interface to provide implementation of password rule validation
  */
 export abstract class PasswordValidationProvider {
   public abstract check(password: string): boolean;
+
+  /**
+   * Describe the rule `check()` enforces, for display before a password is
+   * chosen. The default says nothing at all - an implementation that can
+   * state its constraints should override this so clients stop hardcoding a
+   * mirror of the server rule.
+   */
+  public describe(): IPasswordPolicy {
+    return {};
+  }
 }
 
 

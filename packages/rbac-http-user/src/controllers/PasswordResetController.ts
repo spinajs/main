@@ -1,6 +1,8 @@
-import { BaseController, BasePath, Body, BadRequestResponse, Ok, Post } from '@spinajs/http';
-import { confirmPasswordReset, passwordChangeRequest, RbacException } from '@spinajs/rbac';
+import { BaseController, BasePath, Body, BadRequestResponse, Get, Ok, Post } from '@spinajs/http';
+import { confirmPasswordReset, passwordChangeRequest, PasswordValidationProvider, RbacException } from '@spinajs/rbac';
+import type { IPasswordPolicy } from '@spinajs/rbac';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { AutoinjectService } from '@spinajs/configuration';
 import { SkipModelPermission } from '@spinajs/rbac-http';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../dto/password-reset-dto.js';
 
@@ -31,6 +33,25 @@ export interface IPasswordResetAck {
  */
 @BasePath('auth')
 export class PasswordResetController extends BaseController {
+  @AutoinjectService('rbac.password.validation')
+  protected PasswordValidation: PasswordValidationProvider;
+
+  /**
+   * Password policy
+   * Describes the rule every new password must satisfy - the one `PATCH /user/password`,
+   * `POST /auth/password/reset` and the admin password routes enforce - so a client can show
+   * it next to the field and refuse a password locally with the server's verdict. Public: the
+   * reset flow needs it before there is a session. Every field is optional; a provider that
+   * cannot state its rule answers `{}`.
+   * @security []
+   * @returns {IPasswordPolicy} Constraints of the configured rule: `minLength`, `maxLength`, `pattern` (ECMAScript regex source), `description`
+   */
+  @Get('password/policy')
+  @SkipModelPermission()
+  public passwordPolicy(): Ok<IPasswordPolicy> {
+    return new Ok(this.PasswordValidation.describe());
+  }
+
   /**
    * Request a password reset
    * Issues a reset token for the account and emits `UserPasswordChangeRequest` so the
