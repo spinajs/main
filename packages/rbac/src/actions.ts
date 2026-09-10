@@ -648,19 +648,19 @@ export async function create(email: string, login: string, roles: string[], opti
   // `getUser()` re-reads with `Metadata` populated, which an instance built by
   // `new User(...)` never is. Handing it the instance stored nothing, silently.
   //
-  // Swallowed on purpose: the account EXISTS by now. Throwing would tell the
-  // caller creation failed when it did not, inviting a retry that then fails on
-  // the duplicate login. A link that could not be issued can be re-sent through
+  // A failed token issue or marker write is a real failure the caller must
+  // learn about: it leaves the account without a usable invite state. Only the
+  // mail is swallowed — the account exists and the link can be re-sent through
   // `passwordChangeRequest`.
   if (generated) {
+    const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('rbac.password.invite.waitTime'));
+
+    // Before the mail, not after: the marker is what lets `confirmPasswordReset`
+    // touch this still-inactive account, so a mail that goes out without it points
+    // at a link the account cannot redeem.
+    await setUserMeta(invite.user, [{ key: USER_COMMON_METADATA.USER_INVITE_PENDING, value: true }]);
+
     try {
-      const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('rbac.password.invite.waitTime'));
-
-      // Before the mail, not after: the marker is what lets `confirmPasswordReset`
-      // touch this still-inactive account, so a mail that goes out without it points
-      // at a link the account cannot redeem.
-      await setUserMeta(invite.user, [{ key: USER_COMMON_METADATA.USER_INVITE_PENDING, value: true }]);
-
       await sendUserEmail(invite.user, 'created', (usr: User) => ({
         Token: invite.token,
         ResetUrl: passwordResetUrl(usr.Email, invite.token),
