@@ -52,7 +52,8 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
     "@types/luxon": "^3.6.1",
-    "@types/node": "^18.11.18"
+    "@types/node": "^18.11.18",
+    "@types/ws": "^8.18.1"
   },
   "dependencies": {
     "@spinajs/configuration": "2.0.532",
@@ -61,7 +62,7 @@
     "@spinajs/log": "2.0.532",
     "@spinajs/queue": "2.0.532",
     "@stomp/stompjs": "^6.1.2",
-    "websocket": "^1.0.34",
+    "ws": "^8.18.0",
     "@spinajs/util": "2.0.532"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"

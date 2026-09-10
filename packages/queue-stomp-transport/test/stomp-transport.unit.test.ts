@@ -8,7 +8,7 @@ import * as chai from 'chai';
 import { expect } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
-import { StompQueueClient } from '../src/connection.js';
+import { StompQueueClient, describeWebSocketError } from '../src/connection.js';
 
 chai.use(chaiAsPromised);
 
@@ -220,6 +220,90 @@ describe('stomp queue transport - unit', function () {
       expect(() => c.fake.onWebSocketError(new Error('blip'))).to.not.throw();
 
       expect(c.fake.deactivated).to.be.false;
+    });
+
+    /**
+     * Regression: the `websocket` package's W3C shim dispatches an `error` Event whose
+     * `target` walks into the TLSSocket -> HTTPParser -> socket cycle. The handler used to
+     * JSON.stringify it, which threw BEFORE the initial-connect promise was settled - an
+     * uncaughtException per attempt and a resolve() that hung forever.
+     */
+    function circularSocketEvent() {
+      const socket: any = { constructor: { name: 'TLSSocket' } };
+      socket.parser = { socket };
+      return { type: 'error', target: { _client: { socket } } };
+    }
+
+    it('rejects ( not hangs ) on a circular websocket error event before first connect', async () => {
+      const c = new TestableStompClient(options());
+      const p = c.resolve();
+
+      expect(() => c.fake.onWebSocketError(circularSocketEvent())).to.not.throw();
+
+      await expect(p).to.be.rejectedWith(UnexpectedServerError, /websocket error/);
+      expect(c.fake.deactivated).to.be.true;
+    });
+
+    it('survives a circular websocket error event after connect', async () => {
+      const c = await connected();
+
+      expect(() => c.fake.onWebSocketError(circularSocketEvent())).to.not.throw();
+      expect(c.fake.deactivated).to.be.false;
+    });
+
+    it('carries the underlying socket error reason into the rejection', async () => {
+      const c = new TestableStompClient(options());
+      const p = c.resolve();
+
+      // shape of the ErrorEvent `ws` hands to onerror
+      const inner: any = new Error('connect ECONNREFUSED 127.0.0.1:61614');
+      inner.code = 'ECONNREFUSED';
+      c.fake.onWebSocketError({ type: 'error', message: inner.message, error: inner });
+
+      await expect(p).to.be.rejectedWith(UnexpectedServerError, /ECONNREFUSED/);
+    });
+
+    it('logs the close code and reason without throwing', async () => {
+      const c = await connected();
+
+      expect(() => c.fake.onWebSocketClose({ code: 1006, reason: '' })).to.not.throw();
+      expect(() => c.fake.onWebSocketClose({ code: 1002, reason: 'protocol error' })).to.not.throw();
+      expect(() => c.fake.onWebSocketClose(undefined)).to.not.throw();
+    });
+
+    it('hands stompjs a websocket factory instead of relying on a global WebSocket', async () => {
+      const c = new TestableStompClient(options());
+      const p = c.resolve();
+      c.fake.simulateConnect();
+      await p;
+
+      expect(c.fake.config.webSocketFactory).to.be.a('function');
+      expect((global as any).WebSocket === undefined || (global as any).WebSocket.name !== 'W3CWebSocket').to.be.true;
+    });
+  });
+
+  describe('describeWebSocketError', () => {
+    it('prefers the wrapped error message and code', () => {
+      const inner: any = new Error('getaddrinfo ENOTFOUND mq.internal');
+      inner.code = 'ENOTFOUND';
+      expect(describeWebSocketError({ type: 'error', error: inner })).to.eq('getaddrinfo ENOTFOUND mq.internal ( ENOTFOUND )');
+    });
+
+    it('falls back to the event message, then type, then a placeholder', () => {
+      expect(describeWebSocketError(new Error('boom'))).to.eq('boom');
+      expect(describeWebSocketError({ type: 'error' })).to.eq("event 'error'");
+      expect(describeWebSocketError(undefined)).to.eq('unknown error');
+    });
+
+    it('explains the connection-timeout close that ws reports', () => {
+      const msg = describeWebSocketError(new Error('WebSocket was closed before the connection was established'));
+      expect(msg).to.match(/connection timeout/);
+    });
+
+    it('never throws on a circular structure', () => {
+      const e: any = { type: 'error' };
+      e.target = { parser: { socket: e } };
+      expect(() => describeWebSocketError(e)).to.not.throw();
     });
   });
 

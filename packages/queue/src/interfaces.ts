@@ -544,6 +544,13 @@ export interface IQueueConnectionOptions {
   receiptTimeout?: number;
 
   /**
+   * When true, the transport's low-level protocol chatter ( eg. stompjs debug output )
+   * is logged at `debug` level instead of `trace`, so it shows up with a typical
+   * non-local logger configuration.
+   */
+  debug?: boolean;
+
+  /**
    * Base delay ( ms ) for retry backoff when a job fails and is rescheduled.
    * Transports may apply exponential backoff based on this value. 0 means retry immediately.
    */
