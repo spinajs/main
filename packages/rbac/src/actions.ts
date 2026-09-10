@@ -636,27 +636,44 @@ export async function create(email: string, login: string, roles: string[], opti
   u = await runCreateMiddleware(u, 'rbac.actions.create.afterCreate');
 
   await ev(new UserCreated(u));
-  await sendUserEmail(u, 'created');
 
   // Hand the account to its owner when nobody else can: the password above was
   // invented here and immediately hashed, so without this the account is
-  // unreachable until an administrator remembers a second screen.
+  // unreachable until an administrator remembers a second screen. A caller that
+  // SUPPLIED the password knows it and delivers it itself, so that branch gets a
+  // plain welcome and no link — mailing one would invalidate the password the
+  // caller is about to hand out.
   //
-  // AFTER the "created" email so the two arrive in the order they are meant to
-  // be read, and BY UUID rather than by the instance in hand — the reset writes
-  // three metadata entries, and `getUser()` re-reads with `Metadata` populated,
-  // which an instance built by `new User(...)` never is. Handing it the
-  // instance stored nothing, silently, and left the account with no token.
+  // BY UUID rather than by the instance in hand: the issuing writes metadata, and
+  // `getUser()` re-reads with `Metadata` populated, which an instance built by
+  // `new User(...)` never is. Handing it the instance stored nothing, silently.
   //
   // Swallowed on purpose: the account EXISTS by now. Throwing would tell the
   // caller creation failed when it did not, inviting a retry that then fails on
-  // the duplicate login. A link that could not be issued can be re-sent.
+  // the duplicate login. A link that could not be issued can be re-sent through
+  // `passwordChangeRequest`.
   if (generated) {
     try {
-      await passwordChangeRequest(u.Uuid);
+      const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('rbac.password.invite.waitTime'));
+
+      // Before the mail, not after: the marker is what lets `confirmPasswordReset`
+      // touch this still-inactive account, so a mail that goes out without it points
+      // at a link the account cannot redeem.
+      await setUserMeta(invite.user, [{ key: USER_COMMON_METADATA.USER_INVITE_PENDING, value: true }]);
+
+      await sendUserEmail(invite.user, 'created', (usr: User) => ({
+        Token: invite.token,
+        ResetUrl: passwordResetUrl(usr.Email, invite.token),
+        ExpiresInMinutes: Math.round(invite.waitTime / 60),
+        // One template serves this mail and the password-reset one; the flag is what
+        // picks the welcome wording over the reset wording.
+        IsInvite: true,
+      }));
     } catch (err) {
       DI.resolve(Log, ['rbac']).error(err as Error, `Could not issue the initial password reset for ${u.Uuid}. The account exists but its owner has no way in yet.`);
     }
+  } else {
+    await sendUserEmail(u, 'created');
   }
 
   // if generated we want to know not hashed password

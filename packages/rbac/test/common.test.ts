@@ -229,6 +229,13 @@ export class TestConfiguration extends FrameworkConfiguration {
            * How long we should wait to reset password ( after this time reset token is invalid )
            */
           passwordResetWaitTime: 60 * 60,
+
+          /**
+           * Lifetime of the link mailed to a NEW account, in seconds.
+           */
+          invite: {
+            waitTime: 15 * 60,
+          },
         },
       },
 

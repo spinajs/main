@@ -380,15 +380,76 @@ describe('User model tests', function () {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
-    const template = config.get('rbac.email.changePassword');
-    config.set('rbac.email.changePassword', undefined);
+    const template = config.get('rbac.email.created');
+    config.set('rbac.email.created', undefined);
 
     const { User: u } = await create('nolink@wp.pl', 'nolink', ['admin']);
 
     expect(u).to.be.instanceOf(User);
     expect(await User.query().whereAnything('nolink@wp.pl').first(), 'the account must survive a failed reset').to.exist;
 
-    config.set('rbac.email.changePassword', template);
+    config.set('rbac.email.created', template);
+  });
+
+  /**
+   * ONE mail, not two. The account-created mail IS the invite: a separate reset mail
+   * would arrive alongside it carrying the same token and read as a second, contradictory
+   * instruction.
+   */
+  it('Should mail a new account exactly one message, carrying the reset link', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('invite@wp.pl', 'invite', ['admin']);
+
+    const mails = eStub.args.map((a) => (a as any)[0]).filter((e) => e instanceof EmailSend);
+    expect(mails, 'exactly one mail per created account').to.have.length(1);
+
+    const user = await User.query().whereAnything('invite@wp.pl').populate('Metadata').firstOrFail();
+    expect((mails[0] as any).model.Token, 'the mail must carry the token that was stored').to.eq(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]);
+    expect((mails[0] as any).to).to.deep.eq(['invite@wp.pl']);
+  });
+
+  it('Should issue the invite link with the invite lifetime, not the reset one', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('invitettl@wp.pl', 'invitettl', ['admin']);
+
+    const user = await User.query().whereAnything('invitettl@wp.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(15 * 60);
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+    expect((mail as any).model.ExpiresInMinutes).to.eq(15);
+  });
+
+  /**
+   * One template renders both account mails; without the flag a new user is welcomed with
+   * the password-reset wording.
+   */
+  it('Should mark the creation mail as an invite', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('inviteflag@wp.pl', 'inviteflag', ['admin']);
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+    expect((mail as any).model.IsInvite).to.eq(true);
+  });
+
+  it('Should mark a created account as awaiting its invite', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('invitemark@wp.pl', 'invitemark', ['admin']);
+
+    const user = await User.query().whereAnything('invitemark@wp.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING], 'the marker is what lets the inactive account redeem').to.be.ok;
+  });
+
+  it('Should not mark an account created with a caller-supplied password', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await create('nomark@wp.pl', 'nomark', ['admin'], { password: 'bbbb1234' });
+
+    const user = await User.query().whereAnything('nomark@wp.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING]).to.not.be.ok;
   });
 
   /**
