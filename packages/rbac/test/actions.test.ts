@@ -918,6 +918,84 @@ describe('User model tests', function () {
 
       await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
     });
+
+    /**
+     * A freshly created account is INACTIVE and the link mailed to it is the only way in,
+     * so the inactive guard has to make room for exactly this case — and for no other.
+     */
+    it('lets a newly invited account redeem its link and activates it', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('redeem@wp.pl', 'redeem', ['admin']);
+
+      const invited = () => User.query().whereAnything('redeem@wp.pl').populate('Metadata').firstOrFail();
+      const token = (await invited()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await confirmPasswordReset('redeem@wp.pl', 'brandNew123', token);
+
+      const after = await invited();
+      expect(after.IsActive, 'redeeming the invite is what activates the account').to.be.ok;
+      expect(after.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING], 'the marker is single-use like the token').to.not.be.ok;
+      expect(await passwordMatch('brandNew123')(after)).to.eq(true);
+    });
+
+    it('emits UserActivated when an invite is redeemed', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('redeemev@wp.pl', 'redeemev', ['admin']);
+      const token = (await User.query().whereAnything('redeemev@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      eStub.resetHistory();
+      await confirmPasswordReset('redeemev@wp.pl', 'brandNew123', token);
+
+      expect(eStub.args.some((a) => (a as any)[0] instanceof UserActivated)).to.be.true;
+    });
+
+    /**
+     * The marker is the whole of the exception. An account an administrator deactivated
+     * carries none, so the reset stays refused for it — otherwise the flow would be a way
+     * back into an account that was deliberately switched off.
+     */
+    it('still refuses an inactive account that was never invited', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('deact@wp.pl', 'deact', ['admin'], { password: 'bbbb1234' });
+      await activate('deact@wp.pl');
+      await passwordChangeRequest('deact@wp.pl');
+
+      const token = (await User.query().whereAnything('deact@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await deactivate('deact@wp.pl');
+
+      await expect(confirmPasswordReset('deact@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    it('refuses an invite whose link has expired', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('expinv@wp.pl', 'expinv', ['admin']);
+
+      const user = await User.query().whereAnything('expinv@wp.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      // force the invite to be older than the 15 minutes it was issued for
+      user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE] = DateTime.now().minus({ minutes: 30 });
+      await user.Metadata.update();
+
+      await expect(confirmPasswordReset('expinv@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    it('refuses an invited account that was banned before redeeming', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('bannedinv@wp.pl', 'bannedinv', ['admin']);
+      const token = (await User.query().whereAnything('bannedinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await ban('bannedinv@wp.pl', 'testing', 3600);
+
+      // a ban outranks an invite: the marker must not become a way past it
+      await expect(confirmPasswordReset('bannedinv@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
   });
 
   describe('login throttling', () => {

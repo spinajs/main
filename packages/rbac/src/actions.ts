@@ -909,7 +909,13 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     throw new UserIsBanned(`Password reset refused: user is banned`, { user: u.Uuid });
   }
 
-  if (!u.IsActive || u.DeletedAt) {
+  // An account created by an administrator is inactive until its owner redeems the link
+  // that was mailed to it, so the ONLY inactive user a reset may touch is one still
+  // carrying that marker. A deactivated or deleted account carries none, and the
+  // resurrection the guard exists to prevent stays prevented.
+  const invitePending = !!u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING];
+
+  if ((!u.IsActive && !invitePending) || u.DeletedAt) {
     throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
   }
 
@@ -937,6 +943,14 @@ export async function confirmPasswordReset(identifier: number | string | User, n
 
   await changeUserPassword(u, newPassword);
 
+  // Redeeming the invite is the activation: the owner has now proved they hold the
+  // mailbox and has chosen a password nobody else knows. No 'activated' mail — the
+  // person doing this is looking at the page that did it.
+  if (invitePending) {
+    await updateUser(u, { IsActive: true });
+    await ev(new UserActivated(u));
+  }
+
   // Burn the token. Validating it and leaving it in place made it a
   // multi-use credential for the whole `passwordResetWaitTime` window:
   // anyone who saw the reset mail once could keep re-taking the account.
@@ -944,6 +958,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
 
   return u;
 }
