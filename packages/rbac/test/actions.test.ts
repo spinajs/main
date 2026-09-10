@@ -996,6 +996,76 @@ describe('User model tests', function () {
       // a ban outranks an invite: the marker must not become a way past it
       await expect(confirmPasswordReset('bannedinv@wp.pl', 'brandNew123', token)).to.be.rejected;
     });
+
+    it('refuses an invited account that was soft-deleted before redeeming', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('deletedinv@wp.pl', 'deletedinv', ['admin']);
+      const token = (await User.query().whereAnything('deletedinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await deleteUser('deletedinv@wp.pl');
+
+      // a soft delete outranks an invite too, same as a ban
+      await expect(confirmPasswordReset('deletedinv@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    /**
+     * `deactivate()` is the only lever an administrator has to withdraw an invite that
+     * has not been redeemed yet. If it leaves the marker in place, whoever holds the
+     * mailed link can still redeem it and have the account activated behind the
+     * administrator's back.
+     */
+    it('refuses an invited account that was deactivated before redeeming', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('deactinv@wp.pl', 'deactinv', ['admin']);
+      const token = (await User.query().whereAnything('deactinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await deactivate('deactinv@wp.pl');
+
+      await expect(confirmPasswordReset('deactinv@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    /**
+     * An account an administrator activates directly is already active; leaving the
+     * marker behind makes the user's next ORDINARY reset take the invite branch and
+     * emit a spurious UserActivated for an account that never stopped being active.
+     */
+    it('an admin activation clears the invite marker so a later ordinary reset does not re-activate', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('directact@wp.pl', 'directact', ['admin']);
+      await activate('directact@wp.pl');
+
+      const activated = await User.query().whereAnything('directact@wp.pl').populate('Metadata').firstOrFail();
+      expect(activated.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING], 'an account activated directly is no longer a pending invite').to.not.be.ok;
+
+      await passwordChangeRequest('directact@wp.pl');
+      const token = (await User.query().whereAnything('directact@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      eStub.resetHistory();
+      await confirmPasswordReset('directact@wp.pl', 'brandNew123', token);
+
+      expect(eStub.args.some((a) => (a as any)[0] instanceof UserActivated), 'an already-active account must not re-emit UserActivated on an ordinary reset').to.be.false;
+    });
+
+    /**
+     * The sole writer of the marker stores a real boolean `true`. A stored STRING
+     * 'false' is truthy under `!!`, so only a strict `=== true` comparison keeps it
+     * from silently reopening the inactive-account guard.
+     */
+    it('treats the invite marker as pending only when it is stored as boolean true', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await create('stringmark@wp.pl', 'stringmark', ['admin']);
+      const user = await User.query().whereAnything('stringmark@wp.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = 'false';
+      await user.Metadata.update();
+
+      await expect(confirmPasswordReset('stringmark@wp.pl', 'brandNew123', token)).to.be.rejected;
+    });
   });
 
   describe('login throttling', () => {

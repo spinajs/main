@@ -315,6 +315,12 @@ export async function activate(identifier: number | string | User): Promise<User
   const u = await getUser(identifier);
 
   await updateUser(u, { IsActive: true });
+
+  // An account activated directly is no longer awaiting its invite - without this
+  // the marker survives and the user's next ORDINARY reset takes the invite branch,
+  // re-emitting UserActivated for an account that never stopped being active.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
+
   await ev(new UserActivated(u));
   await sendUserEmail(u, 'activated');
 
@@ -331,6 +337,11 @@ export async function deactivate(identifier: number | string | User): Promise<Us
   const u = await getUser(identifier);
 
   await updateUser(u, { IsActive: false });
+
+  // An account being switched off has no pending invite by definition - otherwise
+  // the mailed link still redeems and activates an account an administrator
+  // deliberately turned off.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
 
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.
@@ -913,7 +924,9 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   // that was mailed to it, so the ONLY inactive user a reset may touch is one still
   // carrying that marker. A deactivated or deleted account carries none, and the
   // resurrection the guard exists to prevent stays prevented.
-  const invitePending = !!u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING];
+  // Strict, not truthy: the sole writer stores a real boolean `true`, and a value ever
+  // stored as the STRING 'false' would otherwise silently reopen this guard.
+  const invitePending = u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] === true;
 
   if ((!u.IsActive && !invitePending) || u.DeletedAt) {
     throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
