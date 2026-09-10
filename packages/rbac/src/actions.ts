@@ -815,25 +815,18 @@ function passwordResetUrl(email: string, token: string): string {
 }
 
 /**
- * Initiates a password-change request for a user.
- * Generates a reset token, stores it along with the current timestamp and configured
- * wait time in the user's metadata, emits a {@link UserPasswordChangeRequest} event and
- * sends the `changePassword` mail carrying the token.
+ * Issues a password-reset token into the user's metadata and emits
+ * {@link UserPasswordChangeRequest}. Sends nothing.
  *
- * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
- * possession of the mailbox is what authorizes the reset — so an installation that does not
- * deliver it has a reset flow nobody can complete. It used to be the application's job, via
- * the event, and every application that had not written that subscriber silently issued
- * tokens into the void. `rbac.email.changePassword.enabled: false` still turns it off for an
- * application that really does deliver it some other way.
- *
- * The token reaches the template through the model and is NOT logged: it is a bearer
- * credential for `POST /auth/password/reset`.
+ * Separate from {@link passwordChangeRequest} because `create()` delivers the very same
+ * link inside the account-created mail: two mails carrying two tokens would leave
+ * whichever the user opened second pointing at an already-overwritten token.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
  */
-export async function passwordChangeRequest(identifier: number | string | User): Promise<User> {
-  const pwdWaitTime = cfg<number>('rbac.password.passwordResetWaitTime');
+export async function issuePasswordResetToken(identifier: number | string | User, waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
+  const ttl = waitTime ?? cfg<number>('rbac.password.passwordResetWaitTime');
   const token = uuidv4();
 
   const u = await getUser(identifier);
@@ -841,21 +834,41 @@ export async function passwordChangeRequest(identifier: number | string | User):
   await setUserMeta(u, [
     { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
     { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: token },
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: ttl },
   ]);
 
   await ev(new UserPasswordChangeRequest(u));
 
-  await sendUserEmail(u, 'changePassword', (usr: User) => ({
+  return { user: u, token, waitTime: ttl };
+}
+
+/**
+ * Initiates a password-change request for a user: issues the token and mails it.
+ *
+ * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
+ * possession of the mailbox is what authorizes the reset — so an installation that does not
+ * deliver it has a reset flow nobody can complete. `rbac.email.changePassword.enabled: false`
+ * still turns it off for an application that really does deliver it some other way.
+ *
+ * The token reaches the template through the model and is NOT logged: it is a bearer
+ * credential for `POST /auth/password/reset`.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
+ */
+export async function passwordChangeRequest(identifier: number | string | User, waitTime?: number): Promise<User> {
+  const { user, token, waitTime: ttl } = await issuePasswordResetToken(identifier, waitTime);
+
+  await sendUserEmail(user, 'changePassword', (usr: User) => ({
     Token: token,
     ResetUrl: passwordResetUrl(usr.Email, token),
     // Minutes rather than the raw seconds: a template writes "the link is
     // valid for X minutes", and doing the arithmetic in a handlebars
     // expression is not something every template engine can do.
-    ExpiresInMinutes: Math.round(pwdWaitTime / 60),
+    ExpiresInMinutes: Math.round(ttl / 60),
   }));
 
-  return u;
+  return user;
 }
 
 /**

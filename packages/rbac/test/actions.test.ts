@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, grant, revoke, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession, issuePasswordResetToken } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { UserAlreadyExists } from '../src/exceptions.js';
@@ -660,6 +660,33 @@ describe('User model tests', function () {
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(60 * 60);
 
     expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest)).to.be.true;
+  });
+
+  /**
+   * The issuing half has to be usable without the reset mail: `create()` puts the very
+   * same link into the account-created mail instead, and two mails carrying two tokens
+   * would invalidate whichever the user did not open first.
+   */
+  it('issuePasswordResetToken stores the token without sending a mail', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    const { token, waitTime } = await issuePasswordResetToken('test@spinajs.pl');
+
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]).to.eq(token);
+    expect(waitTime).to.eq(60 * 60);
+
+    expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest), 'the event still fires').to.be.true;
+    expect(eStub.args.some((a) => (a as any)[0] instanceof EmailSend), 'no mail may be queued by the issuing half').to.be.false;
+  });
+
+  it('issuePasswordResetToken honours an explicit wait time', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await issuePasswordResetToken('test@spinajs.pl', 900);
+
+    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(900);
   });
 
   /**
