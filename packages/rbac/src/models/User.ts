@@ -170,6 +170,14 @@ export enum USER_COMMON_METADATA {
   // reset password last succesyfull  attempt
   USER_PWD_RESET_LAST_ATTEMPT = 'user:pwd_reset:last_attempt',
 
+  /**
+   * Set by `create()` on an account whose password it generated, burned by
+   * `confirmPasswordReset()`. It marks an account that has never been activated and is
+   * waiting for its owner to set the first password — which is the only case where a
+   * reset may touch an inactive user.
+   */
+  USER_INVITE_PENDING = 'user:invite:pending',
+
   /** Login throttling */
 
   // consecutive failed login attempts since the last success
@@ -193,7 +201,7 @@ export enum USER_COMMON_METADATA {
  * covers every `dehydrateWithRelations` in every package. Keys that a client
  * legitimately needs ( avatar, phone, ... ) are deliberately absent.
  */
-export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_2FA_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, USER_COMMON_METADATA.USER_BAN_IS_BANNED, USER_COMMON_METADATA.USER_BAN_START_DATE, USER_COMMON_METADATA.USER_BAN_DURATION, USER_COMMON_METADATA.USER_BAN_REASON, USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
+export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_2FA_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, USER_COMMON_METADATA.USER_INVITE_PENDING, USER_COMMON_METADATA.USER_BAN_IS_BANNED, USER_COMMON_METADATA.USER_BAN_START_DATE, USER_COMMON_METADATA.USER_BAN_DURATION, USER_COMMON_METADATA.USER_BAN_REASON, USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
 
 /**
  * Base model for users used by auth and ACL system

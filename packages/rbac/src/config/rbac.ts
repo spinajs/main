@@ -260,6 +260,15 @@ const rbac = {
       passwordResetWaitTime: 60 * 60,
 
       /**
+       * Lifetime of the link mailed to a NEW account, in seconds. Deliberately shorter
+       * than `passwordResetWaitTime`: an invite is handed out by an administrator who is
+       * expecting the account to be taken up now, not in an hour.
+       */
+      invite: {
+        waitTime: 15 * 60,
+      },
+
+      /**
        * The application page that redeems a reset token, e.g.
        * `https://app.example.com/password-reset`.
        *

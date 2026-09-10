@@ -420,6 +420,24 @@ describe('User model tests', function () {
     await expect(create('globber@wp.pl', 'globber', ['admin'], { password: 'bbbb1234', metadata: { '*': 'overwritten' } })).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
   });
 
+  /**
+   * The marker is what lets a reset reach an INACTIVE account. Seeding it through the
+   * create API on an arbitrary account would make the reset flow a way past the
+   * deactivation guard, so it belongs on the protected list next to the reset token.
+   */
+  it('Should refuse the invite marker as caller-supplied metadata', async () => {
+    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await expect(
+      create('invited@wp.pl', 'invited', ['admin'], {
+        password: 'bbbb1234',
+        metadata: { [USER_COMMON_METADATA.USER_INVITE_PENDING]: true },
+      }),
+    ).to.be.rejectedWith(/Protected metadata keys cannot be set directly/);
+
+    expect(await User.query().whereAnything('invited@wp.pl').first(), 'nothing may be written for a refused creation').to.not.exist;
+  });
+
   it('Should honour an explicit id', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
