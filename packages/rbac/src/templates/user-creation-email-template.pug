@@ -1,10 +1,6 @@
 //- Account created
-//-
-//- Rendered with the serialized User as the model ( `_user_email` in actions.ts passes
-//- `user.toJSON()` ), so only User fields are in scope: Login, Email, Uuid, CreatedAt,
-//- RegisteredAt, LastLoginAt, IsActive. No absolute URL is available here — the deploying
-//- application owns its own domain, so action links are left to a project override of this
-//- template rather than guessed at.
+//- Rendered with the serialized User plus, for an invite, `Token`, `ResetUrl`, `ExpiresInMinutes`
+//- and `IsInvite` (see `create()` in actions.ts). `ResetUrl` is empty unless `rbac.password.resetUrl` is configured.
 doctype html
 html
   head

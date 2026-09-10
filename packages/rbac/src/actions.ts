@@ -1,7 +1,7 @@
 import { insertModel, updateModel } from '@spinajs/orm';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, toArray } from '@spinajs/util';
 import _ from 'lodash';
-import { emailDeferred } from '@spinajs/email';
+import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
@@ -130,6 +130,13 @@ interface IEmailTemplateCfg {
   enabled: boolean;
   template: string;
   subject: string;
+
+  /**
+   * Inline images ( `cid:logo` etc ) or file attachments a consuming
+   * application's own template markup references. Nothing in this stack
+   * attaches them automatically, so the producer must name them here.
+   */
+  attachments?: IEmailAttachement[];
 }
 
 /**
@@ -168,6 +175,9 @@ export async function sendUserEmail(u: User, cfgTemplate: 'changePassword' | 'cr
       tag: `rbac-user-${cfgTemplate}`,
       template: template.template,
       subject: template.subject,
+      // omitted rather than sent as `[]` - `IEmail.attachements` (the spelling
+      // @spinajs/email itself uses) means "carries attachments" to consumers
+      ...(template.attachments?.length ? { attachements: template.attachments } : {}),
     });
   }
 

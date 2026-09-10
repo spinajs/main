@@ -578,6 +578,36 @@ describe('User model tests', function () {
     await expect(unban('test-notactive@spinajs.pl')).to.be.rejected;
   });
 
+  /**
+   * `rbac.email.banned` (common.test.ts) configures attachments so a
+   * consuming application's branded template can reference its inline
+   * images ( cid:logo etc ) - nothing in this stack attaches them
+   * automatically, so the producer must carry them into the queued job.
+   */
+  it('Should carry configured attachments into the queued mail', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await ban('test@spinajs.pl', 'reason', 100);
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+    expect((mail as any).attachements).to.deep.eq([{ provider: 'fs', path: '/tmp/logo.png', name: 'logo.png', cid: 'logo' }]);
+  });
+
+  /**
+   * `rbac.email.unbanned` declares no attachments - the queued job must not
+   * carry an empty array where the current behaviour sends nothing.
+   */
+  it('Should queue a mail without an attachments field when the template declares none', async () => {
+    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+    await ban('test@spinajs.pl', 'reason', 100);
+    await unban('test@spinajs.pl');
+
+    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend && e.tag === 'rbac-user-unbanned');
+    expect(mail).to.exist;
+    expect((mail as any).attachements).to.be.undefined;
+  });
+
   it('Should treat a ban as expired once its duration elapses', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 

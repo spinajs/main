@@ -58,6 +58,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             enabled: true,
             template: './user-banned-email-template.pug',
             subject: 'Account banned',
+            attachments: [{ provider: 'fs', path: '/tmp/logo.png', name: 'logo.png', cid: 'logo' }],
           },
 
           unbanned: {
