@@ -10,7 +10,8 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 import { OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata } from '@spinajs/rbac';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User, UserMetadata } from '@spinajs/rbac';
 
 import { UserMetadataController } from '../src/controllers/UserMetadataController.js';
 import { DbTestConfiguration } from './db-common.js';
@@ -238,6 +239,40 @@ describe('UserMetadataController', function () {
       await controller.deleteMetadata(owner, foreign!.Id);
 
       expect(await metaOf(other, 'secret'), 'foreign metadata must survive').to.exist;
+    });
+  });
+
+  describe('protected metadata keys', () => {
+    it('refuses to plant the invite marker through own POST /user/metadata', async () => {
+      await expect(
+        controller.addMetadata(owner, new UserMetadata({ Key: USER_COMMON_METADATA.USER_INVITE_PENDING, Value: 'true', Type: 'boolean' })),
+      ).to.be.rejectedWith(InvalidArgument);
+
+      expect(await metaOf(owner, USER_COMMON_METADATA.USER_INVITE_PENDING)).to.not.exist;
+    });
+
+    it('refuses to rewrite an entry Key to the invite marker through own PATCH', async () => {
+      await expect(
+        controller.updateMetadata(owner, 'user:niceName', { Key: USER_COMMON_METADATA.USER_INVITE_PENDING, Value: 'true', Type: 'boolean' } as any),
+      ).to.be.rejectedWith(InvalidArgument);
+
+      expect((await metaOf(owner, 'user:niceName'))!.Value, 'the original entry must be untouched').to.eq('Owner');
+      expect(await metaOf(owner, USER_COMMON_METADATA.USER_INVITE_PENDING)).to.not.exist;
+    });
+
+    it('refuses to plant the invite marker through the admin route', async () => {
+      await expect(
+        controller.addUserMetadata(other, new UserMetadata({ Key: USER_COMMON_METADATA.USER_INVITE_PENDING, Value: 'true', Type: 'boolean' })),
+      ).to.be.rejectedWith(InvalidArgument);
+
+      expect(await metaOf(other, USER_COMMON_METADATA.USER_INVITE_PENDING)).to.not.exist;
+    });
+
+    it('still allows an ordinary key through the generic write API', async () => {
+      const result = await controller.addMetadata(owner, new UserMetadata({ Key: 'user:niceName', Value: 'Still Owner', Type: 'string' }));
+
+      expect(result).to.be.instanceOf(Ok);
+      expect((await metaOf(owner, 'user:niceName'))!.Value).to.eq('Still Owner');
     });
   });
 
