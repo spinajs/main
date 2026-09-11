@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { UserMetadata } from '@spinajs/rbac';
+import { UserMetadata, assertNoProtectedMetadata } from '@spinajs/rbac';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import type { IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
@@ -69,6 +69,10 @@ export class UserMetadataService {
    * to satisfy the generated schema. Ownership comes from the addressed user and nothing else.
    */
   public async upsert(ownerId: number, data: UserMetadataDto): Promise<void> {
+    // This route is generic enough to reach rbac's own security keys (invite marker, ban, 2FA, …);
+    // an admin has dedicated routes for those, so the generic API must refuse them for everyone.
+    assertNoProtectedMetadata({ [data.Key]: data.Value });
+
     const entry = new UserMetadata();
 
     entry.Key = data.Key;
@@ -96,6 +100,10 @@ export class UserMetadataService {
    *     number, so one update could rewrite two rows.
    */
   public async update(ownerId: number, idOrKey: string | number, data: UserMetadataDto): Promise<void> {
+    // The body can rewrite an existing (unprotected) entry's Key to a protected one, so the same
+    // guard as upsert() applies here regardless of which entry is currently addressed.
+    assertNoProtectedMetadata({ [data.Key]: data.Value });
+
     await UserMetadata.update({
       Key: data.Key,
       Value: data.Value,

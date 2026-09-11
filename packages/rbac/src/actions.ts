@@ -1,7 +1,7 @@
 import { insertModel, updateModel } from '@spinajs/orm';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _is_string, _default, _max_length, toArray } from '@spinajs/util';
 import _ from 'lodash';
-import { emailDeferred } from '@spinajs/email';
+import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
@@ -130,6 +130,13 @@ interface IEmailTemplateCfg {
   enabled: boolean;
   template: string;
   subject: string;
+
+  /**
+   * Inline images ( `cid:logo` etc ) or file attachments a consuming
+   * application's own template markup references. Nothing in this stack
+   * attaches them automatically, so the producer must name them here.
+   */
+  attachments?: IEmailAttachement[];
 }
 
 /**
@@ -168,6 +175,9 @@ export async function sendUserEmail(u: User, cfgTemplate: 'changePassword' | 'cr
       tag: `rbac-user-${cfgTemplate}`,
       template: template.template,
       subject: template.subject,
+      // omitted rather than sent as `[]` - `IEmail.attachements` (the spelling
+      // @spinajs/email itself uses) means "carries attachments" to consumers
+      ...(template.attachments?.length ? { attachements: template.attachments } : {}),
     });
   }
 
@@ -315,6 +325,12 @@ export async function activate(identifier: number | string | User): Promise<User
   const u = await getUser(identifier);
 
   await updateUser(u, { IsActive: true });
+
+  // An account activated directly is no longer awaiting its invite - without this
+  // the marker survives and the user's next ORDINARY reset takes the invite branch,
+  // re-emitting UserActivated for an account that never stopped being active.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
+
   await ev(new UserActivated(u));
   await sendUserEmail(u, 'activated');
 
@@ -331,6 +347,11 @@ export async function deactivate(identifier: number | string | User): Promise<Us
   const u = await getUser(identifier);
 
   await updateUser(u, { IsActive: false });
+
+  // An account being switched off has no pending invite by definition - otherwise
+  // the mailed link still redeems and activates an account an administrator
+  // deliberately turned off.
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
 
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.
@@ -636,27 +657,44 @@ export async function create(email: string, login: string, roles: string[], opti
   u = await runCreateMiddleware(u, 'rbac.actions.create.afterCreate');
 
   await ev(new UserCreated(u));
-  await sendUserEmail(u, 'created');
 
   // Hand the account to its owner when nobody else can: the password above was
   // invented here and immediately hashed, so without this the account is
-  // unreachable until an administrator remembers a second screen.
+  // unreachable until an administrator remembers a second screen. A caller that
+  // SUPPLIED the password knows it and delivers it itself, so that branch gets a
+  // plain welcome and no link — mailing one would invalidate the password the
+  // caller is about to hand out.
   //
-  // AFTER the "created" email so the two arrive in the order they are meant to
-  // be read, and BY UUID rather than by the instance in hand — the reset writes
-  // three metadata entries, and `getUser()` re-reads with `Metadata` populated,
-  // which an instance built by `new User(...)` never is. Handing it the
-  // instance stored nothing, silently, and left the account with no token.
+  // BY UUID rather than by the instance in hand: the issuing writes metadata, and
+  // `getUser()` re-reads with `Metadata` populated, which an instance built by
+  // `new User(...)` never is. Handing it the instance stored nothing, silently.
   //
-  // Swallowed on purpose: the account EXISTS by now. Throwing would tell the
-  // caller creation failed when it did not, inviting a retry that then fails on
-  // the duplicate login. A link that could not be issued can be re-sent.
+  // A failed token issue or marker write is a real failure the caller must
+  // learn about: it leaves the account without a usable invite state. Only the
+  // mail is swallowed — the account exists and the link can be re-sent through
+  // `passwordChangeRequest`.
   if (generated) {
+    const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('rbac.password.invite.waitTime'));
+
+    // Before the mail, not after: the marker is what lets `confirmPasswordReset`
+    // touch this still-inactive account, so a mail that goes out without it points
+    // at a link the account cannot redeem.
+    await setUserMeta(invite.user, [{ key: USER_COMMON_METADATA.USER_INVITE_PENDING, value: true }]);
+
     try {
-      await passwordChangeRequest(u.Uuid);
+      await sendUserEmail(invite.user, 'created', (usr: User) => ({
+        Token: invite.token,
+        ResetUrl: passwordResetUrl(usr.Email, invite.token),
+        ExpiresInMinutes: Math.round(invite.waitTime / 60),
+        // One template serves this mail and the password-reset one; the flag is what
+        // picks the welcome wording over the reset wording.
+        IsInvite: true,
+      }));
     } catch (err) {
       DI.resolve(Log, ['rbac']).error(err as Error, `Could not issue the initial password reset for ${u.Uuid}. The account exists but its owner has no way in yet.`);
     }
+  } else {
+    await sendUserEmail(u, 'created');
   }
 
   // if generated we want to know not hashed password
@@ -815,25 +853,18 @@ function passwordResetUrl(email: string, token: string): string {
 }
 
 /**
- * Initiates a password-change request for a user.
- * Generates a reset token, stores it along with the current timestamp and configured
- * wait time in the user's metadata, emits a {@link UserPasswordChangeRequest} event and
- * sends the `changePassword` mail carrying the token.
+ * Issues a password-reset token into the user's metadata and emits
+ * {@link UserPasswordChangeRequest}. Sends nothing.
  *
- * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
- * possession of the mailbox is what authorizes the reset — so an installation that does not
- * deliver it has a reset flow nobody can complete. It used to be the application's job, via
- * the event, and every application that had not written that subscriber silently issued
- * tokens into the void. `rbac.email.changePassword.enabled: false` still turns it off for an
- * application that really does deliver it some other way.
- *
- * The token reaches the template through the model and is NOT logged: it is a bearer
- * credential for `POST /auth/password/reset`.
+ * Separate from {@link passwordChangeRequest} because `create()` delivers the very same
+ * link inside the account-created mail: two mails carrying two tokens would leave
+ * whichever the user opened second pointing at an already-overwritten token.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
  */
-export async function passwordChangeRequest(identifier: number | string | User): Promise<User> {
-  const pwdWaitTime = cfg<number>('rbac.password.passwordResetWaitTime');
+export async function issuePasswordResetToken(identifier: number | string | User, waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
+  const ttl = waitTime ?? cfg<number>('rbac.password.passwordResetWaitTime');
   const token = uuidv4();
 
   const u = await getUser(identifier);
@@ -841,21 +872,41 @@ export async function passwordChangeRequest(identifier: number | string | User):
   await setUserMeta(u, [
     { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
     { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: token },
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: pwdWaitTime },
+    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: ttl },
   ]);
 
   await ev(new UserPasswordChangeRequest(u));
 
-  await sendUserEmail(u, 'changePassword', (usr: User) => ({
+  return { user: u, token, waitTime: ttl };
+}
+
+/**
+ * Initiates a password-change request for a user: issues the token and mails it.
+ *
+ * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
+ * possession of the mailbox is what authorizes the reset — so an installation that does not
+ * deliver it has a reset flow nobody can complete. `rbac.email.changePassword.enabled: false`
+ * still turns it off for an application that really does deliver it some other way.
+ *
+ * The token reaches the template through the model and is NOT logged: it is a bearer
+ * credential for `POST /auth/password/reset`.
+ *
+ * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
+ */
+export async function passwordChangeRequest(identifier: number | string | User, waitTime?: number): Promise<User> {
+  const { user, token, waitTime: ttl } = await issuePasswordResetToken(identifier, waitTime);
+
+  await sendUserEmail(user, 'changePassword', (usr: User) => ({
     Token: token,
     ResetUrl: passwordResetUrl(usr.Email, token),
     // Minutes rather than the raw seconds: a template writes "the link is
     // valid for X minutes", and doing the arithmetic in a handlebars
     // expression is not something every template engine can do.
-    ExpiresInMinutes: Math.round(pwdWaitTime / 60),
+    ExpiresInMinutes: Math.round(ttl / 60),
   }));
 
-  return u;
+  return user;
 }
 
 /**
@@ -879,7 +930,15 @@ export async function confirmPasswordReset(identifier: number | string | User, n
     throw new UserIsBanned(`Password reset refused: user is banned`, { user: u.Uuid });
   }
 
-  if (!u.IsActive || u.DeletedAt) {
+  // An account created by an administrator is inactive until its owner redeems the link
+  // that was mailed to it, so the ONLY inactive user a reset may touch is one still
+  // carrying that marker. A deactivated or deleted account carries none, and the
+  // resurrection the guard exists to prevent stays prevented.
+  // Strict, not truthy: the sole writer stores a real boolean `true`, and a value ever
+  // stored as the STRING 'false' would otherwise silently reopen this guard.
+  const invitePending = u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] === true;
+
+  if ((!u.IsActive && !invitePending) || u.DeletedAt) {
     throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
   }
 
@@ -907,6 +966,14 @@ export async function confirmPasswordReset(identifier: number | string | User, n
 
   await changeUserPassword(u, newPassword);
 
+  // Redeeming the invite is the activation: the owner has now proved they hold the
+  // mailbox and has chosen a password nobody else knows. No 'activated' mail — the
+  // person doing this is looking at the page that did it.
+  if (invitePending) {
+    await updateUser(u, { IsActive: true });
+    await ev(new UserActivated(u));
+  }
+
   // Burn the token. Validating it and leaving it in place made it a
   // multi-use credential for the whole `passwordResetWaitTime` window:
   // anyone who saw the reset mail once could keep re-taking the account.
@@ -914,6 +981,7 @@ export async function confirmPasswordReset(identifier: number | string | User, n
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
   await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
+  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
 
   return u;
 }
