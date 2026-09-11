@@ -4,11 +4,49 @@ import Stomp from '@stomp/stompjs';
 import _ from 'lodash';
 import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
-import websocket from 'websocket';
+import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
 import { DateTime } from 'luxon';
 
-Object.assign(global, { WebSocket: websocket.w3cwebsocket });
+/**
+ * Renders a websocket error for the log. The event stompjs hands to `onWebSocketError`
+ * comes straight from the socket implementation and can reference the underlying
+ * TLSSocket / HTTPParser ( a circular graph ), so it must NEVER be JSON.stringified.
+ * Prefer the real error ( `ws` wraps it in `ErrorEvent.error` ), then any message,
+ * then the event type.
+ */
+export function describeWebSocketError(err: unknown): string {
+  if (!err) {
+    return 'unknown error';
+  }
+
+  const e = err as { error?: unknown; message?: unknown; type?: unknown; code?: unknown };
+  const inner = e.error as { message?: unknown; code?: unknown } | undefined;
+
+  const message = inner?.message ?? e.message;
+  const code = inner?.code ?? e.code;
+
+  if (typeof message === 'string' && message.length > 0) {
+    // `ws` reports a socket that stompjs closed on `connectionTimeout` with this exact
+    // message - the TCP / TLS / HTTP upgrade never completed, which is almost always
+    // network ( security groups, routing, wrong port / scheme ) rather than the broker.
+    if (message.includes('closed before the connection was established')) {
+      return `${message} ( connection timeout - the websocket handshake never completed, check url / network path to the broker )`;
+    }
+
+    return code ? `${message} ( ${String(code)} )` : message;
+  }
+
+  if (typeof e.type === 'string') {
+    return `event '${e.type}'`;
+  }
+
+  try {
+    return String(err);
+  } catch {
+    return 'unserializable error';
+  }
+}
 
 /**
  * Default time to wait for a broker RECEIPT frame when publishing a message
@@ -142,6 +180,18 @@ export class StompQueueClient extends QueueClient {
     return new Stomp.Client(config);
   }
 
+  /**
+   * Creates the raw websocket stompjs drives. One `ws` socket per ( re )connect attempt;
+   * stompjs sets `binaryType`, the on* handlers and closes it itself.
+   */
+  protected createWebSocket(): Stomp.IStompSocket {
+    if (!this.Options.host) {
+      throw new InvalidArgument(`Queue connection ${this.Options.name} has no host configured`);
+    }
+
+    return new WebSocket(this.Options.host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
+  }
+
   public async resolve() {
     this.Log.info(`Connecting to STOMP queue at ${this.Options.host} with client-id: ${this.ClientId} ...`);
 
@@ -157,12 +207,20 @@ export class StompQueueClient extends QueueClient {
       heartbeatOutgoing: this.Options.heartbeatOutgoing ?? DEFAULT_HEARTBEAT_MS,
       connectionTimeout: this.Options.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS,
 
+      // `ws` instead of the `websocket` package's W3C shim: the shim swallows the
+      // connect-failure reason ( ECONNREFUSED / ETIMEDOUT / 401 / TLS ) and hands stompjs an
+      // event whose `target` walks into the TLSSocket, so nothing about WHY a connection
+      // failed ever reached the log. `ws` surfaces the real Error in `ErrorEvent.error`.
+      webSocketFactory: () => this.createWebSocket(),
+
       // additional options ( may override any of the defaults above )
       ...this.Options.options,
     });
 
+    // stompjs is chatty; keep it at trace unless the connection asks for debug output
+    const debugLevel = this.Options.debug ? 'debug' : 'trace';
     this.Client.debug = (str: string) => {
-      this.Log.trace(`${str}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
+      this.Log[debugLevel](`${str}, Client-id: ${this.ClientId}, name: ${this.Options.name}`);
     };
 
     // if a credential provider is configured, refresh credentials right before
@@ -190,8 +248,12 @@ export class StompQueueClient extends QueueClient {
       this.Log.warn(`Disconnected from STOMP client, client-id: ${this.ClientId}`);
     };
 
-    this.Client.onWebSocketClose = () => {
-      this.Log.warn(`STOMP websocket closed, client-id: ${this.ClientId} ( will auto-reconnect if active )`);
+    this.Client.onWebSocketClose = (evt) => {
+      // 1000 = clean close, 1006 = abnormal ( connect failed / dropped without a close frame ),
+      // anything else usually comes from the broker with a reason
+      const code = evt?.code ?? 'unknown';
+      const reason = evt?.reason ? `, reason: ${evt.reason}` : '';
+      this.Log.warn(`STOMP websocket closed ( code: ${code}${reason} ), client-id: ${this.ClientId} ( will auto-reconnect if active )`);
     };
 
     return new Promise<void>((resolve, reject) => {
@@ -231,12 +293,22 @@ export class StompQueueClient extends QueueClient {
       };
 
       this.Client.onWebSocketError = (err) => {
-        this.Log.error(`Websocket error: ${JSON.stringify(err)}, client-id: ${this.ClientId}`);
+        // Settle FIRST. This handler runs inside the socket's event dispatch - anything
+        // thrown here ( a bad log call, a serializer choking on the event ) becomes an
+        // uncaughtException and, worse, would leave the initial-connect promise pending
+        // forever, hanging whoever awaits resolve() ( QueueService boot ).
+        const reason = describeWebSocketError(err);
 
         if (!settled) {
           settled = true;
-          this.Client.deactivate();
-          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}, websocket error`, err));
+          void this.Client.deactivate();
+          reject(new UnexpectedServerError(`Cannot connect to queue server at ${this.Options.host}, websocket error: ${reason}`, err));
+        }
+
+        try {
+          this.Log.error(`Websocket error: ${reason}, client-id: ${this.ClientId}`);
+        } catch {
+          // logging must never take the connection down
         }
       };
 
@@ -504,9 +576,7 @@ export class StompQueueClient extends QueueClient {
     const attempts = (this.Options.options?.emitRetries as number) ?? 3;
     const base = this.Options.retryDelay && this.Options.retryDelay > 0 ? this.Options.retryDelay : 200;
 
-    return new ResiliencePipelineBuilder<void>()
-      .addRetry({ MaxRetryAttempts: attempts, Delay: base, MaxDelay: 30000, BackoffType: BackoffType.Exponential, UseJitter: true })
-      .build();
+    return new ResiliencePipelineBuilder<void>().addRetry({ MaxRetryAttempts: attempts, Delay: base, MaxDelay: 30000, BackoffType: BackoffType.Exponential, UseJitter: true }).build();
   }
 
   /**
