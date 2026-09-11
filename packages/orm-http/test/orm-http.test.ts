@@ -263,6 +263,51 @@ describe('Http orm tests', function () {
                     Operator: { type: 'string', enum: ['eq', 'gt', 'lt'] },
                   },
                 },
+                // A nested group, one level deep: what a multi-column search needs, where the
+                // searched columns OR each other while the filters beside them keep ANDing.
+                {
+                  type: 'object',
+                  required: ['filters'],
+                  properties: {
+                    op: { type: 'string', enum: ['and', 'or'] },
+                    filters: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        anyOf: [
+                          {
+                            type: 'object',
+                            required: ['Column', 'Operator'],
+                            properties: {
+                              Column: { const: 'Text' },
+                              Value: {
+                                type: ['string', 'integer', 'array', 'boolean'],
+                              },
+                              Operator: {
+                                type: 'string',
+                                enum: ['eq', 'like'],
+                              },
+                            },
+                          },
+                          {
+                            type: 'object',
+                            required: ['Column', 'Operator'],
+                            properties: {
+                              Column: { const: 'Number' },
+                              Value: {
+                                type: ['string', 'integer', 'array', 'boolean'],
+                              },
+                              Operator: {
+                                type: 'string',
+                                enum: ['eq', 'gt', 'lt'],
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
               ],
             },
           },

@@ -39,28 +39,54 @@ export const MODEL_STATIC_MIXINS = {
       return {};
     }
 
+    const logicalOperator = {
+      type: 'string',
+      enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
+    };
+
+    /** One condition on one filterable column - `{ Column, Operator, Value }`. */
+    const leaf = [...modelDescriptor.FilterableColumns.entries()].map(([key, val]: [string, IColumnFilter<unknown>]) => {
+      return {
+        type: 'object',
+        required: ['Column', 'Operator'],
+        properties: {
+          Column: { const: key },
+          Value: { type: ['string', 'integer', 'array', 'boolean'] },
+          Operator: { type: 'string', enum: val.operators },
+        },
+      };
+    });
+
+    /**
+     * A nested group - `{ op, filters }` holding leaves of its own.
+     *
+     * Needed by any search that spans columns: "find this text in the name OR in the id" has to
+     * OR those two while the filters around it keep ANDing, and a flat list cannot express that.
+     * One level deep is deliberate. It covers the case, and an unbounded schema would let a
+     * client nest arbitrarily far - the builder walks whatever arrives, so the depth is a cost
+     * someone else pays.
+     */
+    const group = {
+      type: 'object',
+      required: ['filters'],
+      properties: {
+        op: logicalOperator,
+        filters: {
+          type: 'array',
+          items: { type: 'object', anyOf: leaf },
+        },
+      },
+    };
+
     return {
       type: 'object',
       properties: {
-        op: {
-          type: 'string',
-          enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
-        },
+        op: logicalOperator,
         filters: {
           type: 'array',
           items: {
             type: 'object',
-            anyOf: [...modelDescriptor.FilterableColumns.entries()].map(([key, val]: [string, IColumnFilter<unknown>]) => {
-              return {
-                type: 'object',
-                required: ['Column', 'Operator'],
-                properties: {
-                  Column: { const: key },
-                  Value: { type: ['string', 'integer', 'array', 'boolean'] },
-                  Operator: { type: 'string', enum: val.operators },
-                },
-              };
-            }),
+            anyOf: [...leaf, group],
           },
         },
       },

@@ -15,6 +15,7 @@
  * `__file_provider_instance__`), and that failure is unrelated to the WHERE connector.
  * Testing the filter translation through a real SQLite compiler needs none of the HTTP stack.
  */
+import AjvModule from 'ajv';
 import { expect } from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
@@ -154,5 +155,227 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
     expect(out.expression).to.contain('( `Age` = ? AND `Active` = ? ) OR `Role` = ?');
     // `true` binds as 1: the SQLite driver's boolean converter runs before binding.
     expect(out.bindings).to.deep.equal([18, 1, 'admin']);
+  });
+
+  it('applies a nested group as one bracketed condition, ANDed to its siblings', () => {
+    // The multi-column search case: one text matched against several columns, while the filter
+    // narrowing the pool keeps ANDing. Flattening the group would turn that AND into an OR and
+    // widen the result to every row in every pool.
+    const filters = [
+      f('Role', 'eq', 'admin'),
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [f('Age', 'eq', 18), f('Active', 'eq', true)],
+      },
+    ];
+
+    const out = (q() as any)
+      .filter(filters, FilterableLogicalOperators.And)
+      .toDB();
+
+    expect(out.expression).to.contain('`Role` = ? AND ( `Age` = ? OR `Active` = ? )');
+    expect(out.bindings).to.deep.equal(['admin', 18, 1]);
+  });
+
+  it('rejects a group whose column is not filterable, like any other condition', () => {
+    const filters = [
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [f('Secret', 'eq', 'x')],
+      },
+    ];
+
+    expect(() =>
+      (q() as any).filter(filters, FilterableLogicalOperators.And).toDB(),
+    ).to.throw(/not filterable/);
+  });
+
+  it('ORs a group against its siblings when the outer level is OR', () => {
+    // The outer operator decides how the group JOINS the list; the group's own decides what
+    // happens inside it. Mixing the two up is the easy mistake here.
+    const filters = [
+      f('Role', 'eq', 'admin'),
+      {
+        op: FilterableLogicalOperators.And,
+        filters: [f('Age', 'gt', 18), f('Active', 'eq', true)],
+      },
+    ];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.Or).toDB();
+
+    expect(out.expression).to.contain('`Role` = ? OR ( `Age` > ? AND `Active` = ? )');
+    expect(out.bindings).to.deep.equal(['admin', 18, 1]);
+  });
+
+  it('defaults a group with no operator to AND, like the top level', () => {
+    const filters = [
+      {
+        filters: [f('Age', 'gt', 18), f('Role', 'eq', 'admin')],
+      },
+    ];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('( `Age` > ? AND `Role` = ? )');
+    expect(out.bindings).to.deep.equal([18, 'admin']);
+  });
+
+  it('keeps two groups independent of each other', () => {
+    // The shape a search produces once a second multi-column condition joins it.
+    const filters = [
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [f('Age', 'eq', 18), f('Age', 'eq', 21)],
+      },
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [f('Role', 'eq', 'admin'), f('Role', 'eq', 'editor')],
+      },
+    ];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('( `Age` = ? OR `Age` = ? ) AND ( `Role` = ? OR `Role` = ? )');
+    expect(out.bindings).to.deep.equal([18, 21, 'admin', 'editor']);
+  });
+
+  it('leaves a group holding a single condition unbracketed in effect', () => {
+    // One searched column is the degenerate case of the same shape - it has to behave like a
+    // plain condition rather than throw or drop out.
+    const filters = [
+      f('Role', 'eq', 'admin'),
+      { op: FilterableLogicalOperators.Or, filters: [f('Age', 'gt', 18)] },
+    ];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('`Role` = ?');
+    expect(out.expression).to.contain('`Age` > ?');
+    expect(out.bindings).to.deep.equal(['admin', 18]);
+  });
+
+  it('ignores an empty group instead of emitting a bare pair of brackets', () => {
+    const filters = [f('Role', 'eq', 'admin'), { op: FilterableLogicalOperators.Or, filters: [] }];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('`Role` = ?');
+    expect(out.expression).to.not.match(/\(\s*\)/);
+    expect(out.bindings).to.deep.equal(['admin']);
+  });
+
+  it('rejects an operator the column does not allow, inside a group too', () => {
+    // `Role` is @Filterable(['eq']) - nesting must not become a way around that.
+    const filters = [
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [f('Role', 'like', 'adm')],
+      },
+    ];
+
+    expect(() =>
+      (q() as any).filter(filters, FilterableLogicalOperators.And).toDB(),
+    ).to.throw(/not allowed for column/);
+  });
+
+  it('applies a group nested inside another group', () => {
+    // The builder walks whatever arrives; the schema only advertises one level, so this pins the
+    // runtime half rather than the contract.
+    const filters = [
+      {
+        op: FilterableLogicalOperators.Or,
+        filters: [
+          f('Age', 'eq', 18),
+          {
+            op: FilterableLogicalOperators.And,
+            filters: [f('Role', 'eq', 'admin'), f('Active', 'eq', true)],
+          },
+        ],
+      },
+    ];
+
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('`Age` = ? OR ( `Role` = ? AND `Active` = ? )');
+    expect(out.bindings).to.deep.equal([18, 'admin', 1]);
+  });
+});
+
+/**
+ * The schema half. `filter()` above proves the builder can execute a nested group; this proves the
+ * validator lets one through in the first place - the two failed independently, and the reported
+ * bug was the schema rejecting a payload the builder would have handled fine.
+ */
+describe('orm-http filter schema accepts what the builder executes', () => {
+  // ajv is CommonJS; under this tsconfig the constructor sits on `.default`.
+  const Ajv = ((AjvModule as any).default ?? AjvModule) as new (o?: unknown) => {
+    validate: (schema: unknown, data: unknown) => boolean;
+  };
+
+  const validate = (filter: unknown): boolean => {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    return ajv.validate(
+      (FilterRegressionModel as any).filterSchema(),
+      filter,
+    ) as boolean;
+  };
+
+  it('accepts a nested OR group beside a plain condition', () => {
+    // The exact shape a multi-column search sends: one condition narrowing the set, and a group
+    // ORing the searched columns. Every `anyOf` variant used to require `Column`/`Operator`,
+    // which a group has neither of, so this answered 400 and the search could not be built.
+    expect(
+      validate({
+        op: 'and',
+        filters: [
+          { Column: 'Role', Operator: 'eq', Value: 'admin' },
+          {
+            op: 'or',
+            filters: [
+              { Column: 'Age', Operator: 'like', Value: 'FAKE' },
+              { Column: 'Role', Operator: 'eq', Value: 'FAKE' },
+            ],
+          },
+        ],
+      }),
+    ).to.equal(true);
+  });
+
+  it('accepts a flat list, unchanged', () => {
+    expect(
+      validate({
+        op: 'and',
+        filters: [{ Column: 'Age', Operator: 'gt', Value: 18 }],
+      }),
+    ).to.equal(true);
+  });
+
+  it('rejects an operator the column does not allow, inside a group', () => {
+    // `Role` is @Filterable(['eq']); nesting must not be a way around that.
+    expect(
+      validate({
+        op: 'and',
+        filters: [
+          {
+            op: 'or',
+            filters: [{ Column: 'Role', Operator: 'like', Value: 'x' }],
+          },
+        ],
+      }),
+    ).to.equal(false);
+  });
+
+  it('rejects a column that is not filterable, inside a group', () => {
+    expect(
+      validate({
+        op: 'and',
+        filters: [
+          {
+            op: 'or',
+            filters: [{ Column: 'Secret', Operator: 'eq', Value: 'x' }],
+          },
+        ],
+      }),
+    ).to.equal(false);
   });
 });

@@ -37,6 +37,25 @@ export interface IFilter {
   Value: any;
 }
 
+/**
+ * A nested group of conditions - `{ op, filters }` instead of a single column condition.
+ *
+ * Lets a filter say "A AND (B OR C)", which a flat list cannot: searching several columns at once
+ * ORs those columns while the filters around them keep ANDing.
+ */
+export interface IFilterGroup {
+  op?: FilterableLogicalOperators;
+  filters: IFilterEntry[];
+}
+
+/** Either a single condition or a nested group of them. */
+export type IFilterEntry = IFilter | IFilterGroup;
+
+/** Narrows a filter entry to the nested-group shape. */
+export function isFilterGroup(entry: IFilterEntry): entry is IFilterGroup {
+  return Array.isArray((entry as IFilterGroup).filters);
+}
+
 
 export interface IFilterRequest {
   /**
