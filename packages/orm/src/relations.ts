@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { InvalidOperation } from '@spinajs/exceptions';
-import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder } from './interfaces.js';
+import { IRelationDescriptor, IModelDescriptor, RelationType, ForwardRefFunction, ISelectQueryBuilder, IColumnDescriptor } from './interfaces.js';
 import type { IQueryStatement } from './statements.js';
 import { NewInstance, DI, Constructor, Inject, Container } from '@spinajs/di';
 
@@ -12,6 +12,18 @@ import { OrmDriver } from './driver.js';
 import _ from 'lodash';
 import { JoinMethod } from './enums.js';
 import { extractModelDescriptor } from './descriptor.js';
+
+
+/**
+ * The columns a populate may SELECT from a model's table. A `Virtual` descriptor entry is a
+ * filter-only property (`@Filterable` on something that has no DB column) - the own-table
+ * select and the insert/update converters already skip it, and a relation query has to as
+ * well, or every populate of the model as a relation target selects a column the table does
+ * not have.
+ */
+function selectableColumns(descriptor: IModelDescriptor): IColumnDescriptor[] {
+  return descriptor.Columns.filter((c) => !c.Virtual);
+}
 
 export interface IOrmRelation {
   /**
@@ -133,7 +145,7 @@ export class BelongsToRelation extends NativeOrmRelation {
     super(_container, _query, _description, _parentRelation);
 
     this._relationQuery.from(this._targetModelDescriptor.TableName, this.Alias);
-    this._targetModelDescriptor.Columns.forEach((c) => {
+    selectableColumns(this._targetModelDescriptor).forEach((c) => {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
@@ -198,7 +210,7 @@ export class BelongsToRecursiveRelation extends NativeOrmRelation {
     super(_container, _query, _description, _parentRelation);
 
     this._relationQuery.withRecursive(this._description.ForeignKey, this._description.PrimaryKey).from(this._targetModelDescriptor.TableName, this.Alias);
-    this._targetModelDescriptor.Columns.forEach((c) => {
+    selectableColumns(this._targetModelDescriptor).forEach((c) => {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }
@@ -277,7 +289,7 @@ export class OneToManyRelation extends NativeOrmRelation {
 
     this._relationQuery.from(this._targetModelDescriptor.TableName, this.Alias);
     this._relationQuery.columns(
-      this._targetModelDescriptor.Columns.map((c) => {
+      selectableColumns(this._targetModelDescriptor).map((c) => {
         return c.Name;
       }),
     );
@@ -361,13 +373,13 @@ export class ManyToManyRelation extends NativeOrmRelation {
 
     this._joinQuery.from(this._joinModelDescriptor.TableName, `${this._separator}${this._joinModelDescriptor.TableName}${this._separator}`);
     this._joinQuery.columns(
-      this._joinModelDescriptor.Columns.map((c) => {
+      selectableColumns(this._joinModelDescriptor).map((c) => {
         return c.Name;
       }),
     );
 
     this._relationQuery.from(this._targetModelDescriptor.TableName, this.Alias);
-    this._targetModelDescriptor.Columns.forEach((c) => {
+    selectableColumns(this._targetModelDescriptor).forEach((c) => {
       this._relationQuery.select(c.Name, `${this.Alias}.${c.Name}`);
     });
   }

@@ -37,6 +37,13 @@ export class StandardModelDehydrator extends ModelDehydrator {
       const own = (model as any)[c.Name];
       const val = (own === null || own === undefined) && relation ? ((model as any)[relation.Name]?.Value?.PrimaryKeyValue ?? own) : own;
 
+      // A virtual column is a filter-only property with no column behind it ( `@Filterable` on a
+      // property the table does not have ). It has nothing to emit unless the instance carries a
+      // value ( an aggregate ), and it must never be the reason a real row fails to dehydrate.
+      if (c.Virtual && (val === null || val === undefined)) {
+        return;
+      }
+
       if (!c.PrimaryKey && !c.Nullable && !options?.ignoreNullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);
       }

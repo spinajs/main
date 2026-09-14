@@ -17,7 +17,8 @@ export class SqliteModelToSqlConverter extends ModelToSqlConverter {
     // actual relation manages; serialize unrelated FK columns like normal ones.
     const relationForeignKeys = new Set(relArr.map((r) => r.ForeignKey));
 
-    model.ModelDescriptor!.Columns?.filter((x) => !x.IsForeignKey || !relationForeignKeys.has(x.Name)).forEach((c) => {
+    // `Virtual` entries are filter-only properties with no column behind them - never written.
+    model.ModelDescriptor!.Columns?.filter((x) => !x.Virtual && (!x.IsForeignKey || !relationForeignKeys.has(x.Name))).forEach((c) => {
       const val = (model as any)[c.Name];
       if (!c.PrimaryKey && !c.Nullable && (val === null || val === undefined || val === '')) {
         throw new OrmException(`Field ${c.Name} cannot be null`);

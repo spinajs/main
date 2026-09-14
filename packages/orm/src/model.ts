@@ -832,7 +832,7 @@ export class ModelBase<M = unknown> implements IModelBase {
         query.orIgnore();
         break;
       case InsertBehaviour.InsertOrUpdate:
-        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
+        query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
         break;
       case InsertBehaviour.InsertOrReplace:
         query.orReplace();
@@ -1328,7 +1328,7 @@ export const MODEL_STATIC_MIXINS = {
           query.orIgnore();
           break;
         case InsertBehaviour.InsertOrUpdate:
-          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey).map((c) => c.Name));
+          query.onDuplicate().update(description.Columns.filter((c) => !c.PrimaryKey && !c.Virtual).map((c) => c.Name));
           break;
         case InsertBehaviour.InsertOrReplace:
           query.orReplace();
