@@ -179,7 +179,7 @@ export class StandardObjectToSqlConverter extends ObjectToSqlConverter {
     const obj = {};
     const relArr = [...descriptor.Relations.values()];
 
-    descriptor.Columns.forEach((c) => {
+    descriptor.Columns.filter((c) => !c.Virtual).forEach((c) => {
       const val = (model as any)[c.Name];
       if (val === undefined) return;
       (obj as any)[c.Name] = c.Converter ? c.Converter.toDB(val, undefined as unknown as ModelBase, c, descriptor.Converters.get(c.Name)?.Options) : val;
