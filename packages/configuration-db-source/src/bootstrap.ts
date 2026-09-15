@@ -10,6 +10,7 @@ import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
+import { ConfigurationEntryType } from './types.js';
 
 /**
  * watch interval, default 3 min
@@ -78,7 +79,9 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     // serialize the default value to its canonical stored form using the same
     // converter the model/source use, keyed off the declared `Type`.
-    const value = this.Converter.toDB(v.options.defaultValue, { Type: type } as any, undefined as any, { TypeColumn: 'Type' });
+    // toDB() is typed `any` upstream (IValueConverter) - `unknown` is the honest
+    // narrowing since the concrete shape depends on `type` and isn't known here.
+    const value = this.Converter.toDB(v.options.defaultValue, { Type: type } as any, undefined as any, { TypeColumn: 'Type' }) as unknown;
 
     await DbConfig.insert(
       {
@@ -112,15 +115,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     }
 
     const o = v.options.exposeOptions;
-    const upToDate =
-      (row.Group ?? null) === (o?.group ?? null) &&
-      (row.Label ?? null) === (o?.label ?? null) &&
-      (row.Description ?? null) === (o?.description ?? null) &&
-      row.Type === o?.type &&
-      !!row.Watch === !!o?.watch &&
-      !!row.Required === !!v.options.required &&
-      isConfigValueEqual(row.Meta ?? null, o?.meta ?? null) &&
-      isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
+    const upToDate = (row.Group ?? null) === (o?.group ?? null) && (row.Label ?? null) === (o?.label ?? null) && (row.Description ?? null) === (o?.description ?? null) && row.Type === o?.type && !!row.Watch === !!o?.watch && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o?.meta ?? null) && isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
 
     if (upToDate) {
       return;
@@ -130,7 +125,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     row.Label = o?.label;
     row.Description = o?.description;
     row.Meta = o?.meta;
-    row.Type = o?.type as any;
+    row.Type = o?.type as ConfigurationEntryType;
     row.Watch = o?.watch ?? false;
     row.Required = !!v.options.required;
     row.Default = v.options.defaultValue;
@@ -198,7 +193,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
 
     const run = async () => {
       try {
-        const result = (await DbConfig.select().whereIn('Slug', [...this.watchedSlugs])) as DbConfig[];
+        const result = await DbConfig.select().whereIn('Slug', [...this.watchedSlugs]);
         result.forEach((r) => {
           // Slug is the canonical config path (same value passed to @Config).
           // Group is display-only metadata and must not be part of the path.
