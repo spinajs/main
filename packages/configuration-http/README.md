@@ -42,6 +42,16 @@ sent to the API (an ISO string for `date`, an array for `manyOf`, an object for
 `json`), not the typed runtime value. Entries without a registered schema are
 validated by `Type` / `Meta` only.
 
+Schemas are compiled by ajv in strict mode: custom keywords (including `x-*`
+annotations) and formats must be registered with the validator, otherwise
+updates of that entry fail with a 500 and the error is logged.
+
+The [`@spinajs/validation`](../validation) options apply to the incoming
+value: with `useDefaults` the schema's defaults are written into object /
+array values before they are stored (so they are fixed at write time),
+`coerceTypes` coerces values, and with `removeAdditional` unknown properties
+are stripped instead of rejected.
+
 ## RBAC
 
 The package ships a dedicated `configuration` role granting `read:any` /

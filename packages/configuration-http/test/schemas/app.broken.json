@@ -1,0 +1,5 @@
+{
+  "$id": "app.broken",
+  "type": "string",
+  "x-widget": "select"
+}

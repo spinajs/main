@@ -49,7 +49,11 @@ export const VALUE_SCHEMAS: Record<ConfigurationEntryType, JsonSchema> = {
  *
  * @param schemaRef - `$id` of a registered schema for this entry, ie. its config path
  */
-export function valueSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta, schemaRef?: string): JsonSchema {
+export function valueSchema(
+  type: ConfigurationEntryType,
+  meta?: IConfigurationEntryMeta,
+  schemaRef?: string,
+): JsonSchema {
   const schema = typeSchema(type, meta);
   return schemaRef ? { allOf: [schema, { $ref: schemaRef }] } : schema;
 }
@@ -91,7 +95,9 @@ function typeSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta
  * into a single 400 message.
  */
 export function formatValidationErrors(field: string, errors: IValidationError[] | null): string {
-  const messages = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim());
+  const messages = (errors ?? []).map((e) =>
+    `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim(),
+  );
 
   // with allErrors on, the type schema and the registered schema report the same failure from both allOf branches
   return [...new Set(messages)].join('; ') || `invalid value for ${field}`;

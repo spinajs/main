@@ -1,9 +1,21 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
+import {
+  BadRequestResponse,
+  BaseController,
+  BasePath,
+  Body,
+  Get,
+  Ok,
+  Patch,
+  Policy,
+  Query,
+  ServerError,
+} from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
+import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { formatValidationErrors, valueSchema } from '../validation.js';
 
@@ -40,6 +52,9 @@ function present(entry: DbConfig) {
 export class ConfigurationController extends BaseController {
   @Autoinject()
   protected Validator!: DataValidator;
+
+  @Logger('configuration-http')
+  protected Log!: Log;
 
   /**
    * List configuration entries
@@ -86,14 +101,22 @@ export class ConfigurationController extends BaseController {
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required on configuration resource
    * @response 404 Configuration entry not found
+   * @response 500 Registered schema for this slug cannot be compiled
    */
   @Patch(':slug')
   @Permission(['updateAny'])
   public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
+    let schemaRef: string | undefined;
+    try {
+      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
+    } catch (err) {
+      return this.schemaCompileError(entry.Slug, err as Error);
+    }
+
     // Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
     // @spinajs/validation under the entry's config path, if any. Built here and not on the
     // request DTO because the entry Type isn't known until after this lookup.
-    const schema = valueSchema(entry.Type, entry.Meta, this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined);
+    const schema = valueSchema(entry.Type, entry.Meta, schemaRef);
 
     const valueError = this.validateValue(schema, 'Value', data.Value);
     if (valueError) {
@@ -121,6 +144,19 @@ export class ConfigurationController extends BaseController {
     await entry.update();
 
     return new Ok(present(entry));
+  }
+
+  /**
+   * `DataValidator.hasSchema` compiles the schema lazily via ajv. A schema that
+   * only passed the meta-schema check at startup ( see `@spinajs/validation` )
+   * can still fail strict-mode compilation here, e.g. an unregistered `x-*`
+   * keyword or format - logged and reported instead of falling back to
+   * type-only validation, which would silently skip the constraints the admin
+   * registered for this slug.
+   */
+  private schemaCompileError(slug: string, err: Error): ServerError {
+    this.Log.error(`Configuration schema '${slug}' cannot be compiled: ${err.message}`);
+    return new ServerError({ error: { message: `configuration schema '${slug}' is invalid` } });
   }
 
   /**

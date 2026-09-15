@@ -161,6 +161,7 @@ export async function seed() {
     row({ Slug: 'app.ratio', Group: 'app', Type: 'float', Value: '0.5', Default: '0.5', Meta: { min: 0, max: 1 } }),
     row({ Slug: 'app.window', Group: 'app', Type: 'datetime-range', Value: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00', Default: '2020-01-01T00:00:00.000+00:00;2020-12-31T00:00:00.000+00:00' }),
     row({ Slug: 'app.limits', Group: 'app', Type: 'json', Value: JSON.stringify({ perPage: 20 }), Default: JSON.stringify({ perPage: 20 }) }),
+    row({ Slug: 'app.broken', Group: 'app', Type: 'string', Value: 'x', Default: 'x' }),
     row({ Slug: 'mail.from', Group: 'mail', Type: 'string', Value: 'noreply@spinajs.com', Default: 'noreply@spinajs.com' }),
   ]);
 }

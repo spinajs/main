@@ -79,7 +79,7 @@ describe('configuration-http api', function () {
     it('lists all entries', async () => {
       const res = await req().get('configuration').set(JSON_HEADERS);
       expect(res).to.have.status(200);
-      expect(res.body).to.be.an('array').with.lengthOf(10);
+      expect(res.body).to.be.an('array').with.lengthOf(11);
       expect(res.body.map((e: any) => e.Slug)).to.include.members(['app.name', 'mail.from', 'app.maxUsers']);
     });
 
@@ -270,6 +270,15 @@ describe('configuration-http api', function () {
     it('keeps type-only validation for entries without a registered schema', async () => {
       const res = await req().patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'x' });
       expect(res).to.have.status(200);
+    });
+
+    it('responds 500 naming the slug when the registered schema cannot be compiled, and keeps the stored value', async () => {
+      const res = await req().patch('configuration/app.broken').set(JSON_HEADERS).send({ Value: 'y' });
+      expect(res).to.have.status(500);
+      expect(res.body.error.message).to.contain('app.broken');
+
+      const get = await req().get('configuration/app.broken').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('x');
     });
   });
 
