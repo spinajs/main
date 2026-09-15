@@ -1,4 +1,5 @@
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '@spinajs/configuration-db-source';
+import type { IValidationError } from '@spinajs/validation';
 
 /** A plain JSON Schema fragment. */
 type JsonSchema = Record<string, unknown>;
@@ -34,17 +35,26 @@ export const VALUE_SCHEMAS: Record<ConfigurationEntryType, JsonSchema> = {
 
 /**
  * Resolves the value schema for an entry: the constant base schema for its
- * `Type` with the entry `Meta` constraints applied.
+ * `Type` with the entry `Meta` constraints applied, combined via `allOf` with
+ * the schema registered in `@spinajs/validation` under `schemaRef`, if given.
  *
  * The constraints target the schema "leaf" - the `items` schema for array types
  * ( manyOf / *-range ), otherwise the schema itself - so allowed values and
- * bounds land on the element being validated regardless of arity.
+ * bounds land on the element being validated regardless of arity. The
+ * registered schema always applies to the whole value.
  *
  * Fed to `DataValidator` ( ajv ) in the controller, after the entry - and so its
  * Type / Meta - has been loaded from the db. It can't live on the request DTO
  * schema, which is validated before that lookup when the type is still unknown.
+ *
+ * @param schemaRef - `$id` of a registered schema for this entry, ie. its config path
  */
-export function valueSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta): JsonSchema {
+export function valueSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta, schemaRef?: string): JsonSchema {
+  const schema = typeSchema(type, meta);
+  return schemaRef ? { allOf: [schema, { $ref: schemaRef }] } : schema;
+}
+
+function typeSchema(type: ConfigurationEntryType, meta?: IConfigurationEntryMeta): JsonSchema {
   const schema = structuredClone(VALUE_SCHEMAS[type]);
 
   if (!meta) {
@@ -74,4 +84,15 @@ export function valueSchema(type: ConfigurationEntryType, meta?: IConfigurationE
   }
 
   return schema;
+}
+
+/**
+ * Joins validator errors reported for `field` ( validated wrapped as `{ [field]: value }` )
+ * into a single 400 message.
+ */
+export function formatValidationErrors(field: string, errors: IValidationError[] | null): string {
+  const messages = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim());
+
+  // with allErrors on, the type schema and the registered schema report the same failure from both allOf branches
+  return [...new Set(messages)].join('; ') || `invalid value for ${field}`;
 }
