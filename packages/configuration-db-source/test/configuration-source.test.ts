@@ -10,13 +10,13 @@ import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { join, normalize, resolve } from 'path';
 
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { Bootstrapper, DI, IContainer, Injectable } from '@spinajs/di';
 import '@spinajs/log';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 
-import { DbConfig } from './../src/index.js';
+import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
@@ -286,6 +286,46 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     await wait(3000);
 
     expect(c.get('late-watch')).to.equal('b');
+  });
+
+  it('Should arm the watch timer from the first watched slug registered after ORM resolve, when nothing was watched at resolve time', async () => {
+    const c = await cfg();
+
+    // A bootstrapper instance of its own, deliberately not wired through DI.register/DI.on:
+    // the shared instance the suite's beforeEach bootstraps is already armed (the `Test`
+    // class registers watched vars at module load), so routing this scenario through the
+    // real `di.registered.__configuration_property__` broadcast would also reach that
+    // already-armed listener, which would refresh our slug on its own and mask a broken
+    // arm(). Calling the real (unstubbed) private methods directly on a fresh instance
+    // keeps `watchedSlugs`/`armWatchTimer` isolated while still exercising production code.
+    const bootstrapper = new DbConfigSourceBotstrapper();
+    const internals = bootstrapper as unknown as {
+      Converter: DbConfigValueConverter;
+      startWatchTimer(container: IContainer): void;
+      syncConfigOption(v: { path: string; options: Record<string, unknown> }): Promise<void>;
+    };
+    internals.Converter = await DI.resolve(DbConfigValueConverter);
+
+    // simulates ORM resolve with nothing watched yet - no timer should be armed
+    internals.startWatchTimer({ get: () => c } as unknown as IContainer);
+
+    // simulates the first watched option registered after startup
+    await internals.syncConfigOption({
+      path: 'isolated-late-watch',
+      options: {
+        expose: true,
+        defaultValue: 'a',
+        exposeOptions: { type: 'string', group: 'db-config', watch: true },
+      },
+    });
+
+    expect(c.get('isolated-late-watch')).to.equal('a');
+
+    await DbConfig.update({ Value: 'b' }).where('Slug', 'isolated-late-watch');
+
+    await wait(3000);
+
+    expect(c.get('isolated-late-watch')).to.equal('b');
   });
 
   it('Should refresh metadata of an existing row and keep its Value', async () => {
