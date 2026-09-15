@@ -79,7 +79,7 @@ describe('configuration-http api', function () {
     it('lists all entries', async () => {
       const res = await req().get('configuration').set(JSON_HEADERS);
       expect(res).to.have.status(200);
-      expect(res.body).to.be.an('array').with.lengthOf(9);
+      expect(res.body).to.be.an('array').with.lengthOf(11);
       expect(res.body.map((e: any) => e.Slug)).to.include.members(['app.name', 'mail.from', 'app.maxUsers']);
     });
 
@@ -220,6 +220,65 @@ describe('configuration-http api', function () {
     it('returns 404 when updating an unknown slug', async () => {
       const res = await req().patch('configuration/does.not.exist').set(JSON_HEADERS).send({ Value: 'x' });
       expect(res).to.have.status(404);
+    });
+  });
+
+  describe('PATCH /configuration/:slug with a schema registered under the slug', () => {
+    it('accepts a string value that satisfies the registered schema', async () => {
+      const res = await req().patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'short' });
+      expect(res).to.have.status(200);
+      expect(res.body.Value).to.equal('short');
+    });
+
+    it('rejects a string value violating the registered schema and keeps the stored value', async () => {
+      const res = await req().patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'ab' });
+      expect(res).to.have.status(400);
+      expect(res.body.error.message).to.contain('Value');
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('accepts a json object matching the registered schema', async () => {
+      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 50, export: true } });
+      expect(res).to.have.status(200);
+      expect(JSON.parse(res.body.Value)).to.deep.equal({ perPage: 50, export: true });
+    });
+
+    it('rejects a json object with an out of range property', async () => {
+      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 0 } });
+      expect(res).to.have.status(400);
+      expect(res.body.error.message).to.contain('Value/perPage');
+    });
+
+    it('rejects a json object missing a required property', async () => {
+      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { export: true } });
+      expect(res).to.have.status(400);
+    });
+
+    it('rejects a json object with an unknown property', async () => {
+      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 10, other: 1 } });
+      expect(res).to.have.status(400);
+    });
+
+    it('validates the Default value against the registered schema too', async () => {
+      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 10 }, Default: { perPage: 1000 } });
+      expect(res).to.have.status(400);
+      expect(res.body.error.message).to.contain('Default');
+    });
+
+    it('keeps type-only validation for entries without a registered schema', async () => {
+      const res = await req().patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'x' });
+      expect(res).to.have.status(200);
+    });
+
+    it('responds 500 naming the slug when the registered schema cannot be compiled, and keeps the stored value', async () => {
+      const res = await req().patch('configuration/app.broken').set(JSON_HEADERS).send({ Value: 'y' });
+      expect(res).to.have.status(500);
+      expect(res.body.error.message).to.contain('app.broken');
+
+      const get = await req().get('configuration/app.broken').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('x');
     });
   });
 

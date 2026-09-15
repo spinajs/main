@@ -1,11 +1,23 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query } from '@spinajs/http';
+import {
+  BadRequestResponse,
+  BaseController,
+  BasePath,
+  Body,
+  Get,
+  Ok,
+  Patch,
+  Policy,
+  Query,
+  ServerError,
+} from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
+import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
-import { valueSchema } from '../validation.js';
+import { formatValidationErrors, valueSchema } from '../validation.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -40,6 +52,9 @@ function present(entry: DbConfig) {
 export class ConfigurationController extends BaseController {
   @Autoinject()
   protected Validator!: DataValidator;
+
+  @Logger('configuration-http')
+  protected Log!: Log;
 
   /**
    * List configuration entries
@@ -76,24 +91,32 @@ export class ConfigurationController extends BaseController {
   /**
    * Update configuration entry value
    * Updates the value ( and optionally default/watch flag ) of an existing entry.
-   * The incoming value is validated against the entry `Type` and `Meta` constraints.
+   * The incoming value is validated against the entry `Type` and `Meta` constraints and,
+   * when `@spinajs/validation` holds a schema whose `$id` equals the slug, against that schema.
    * Structural fields ( slug, group, type ) cannot be changed through this api.
    * @security cookieAuth
    * @param slug Unique configuration entry slug
    * @response 200 Updated configuration entry
-   * @response 400 Invalid value for the entry type or constraints
+   * @response 400 Invalid value for the entry type, constraints or registered schema
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required on configuration resource
    * @response 404 Configuration entry not found
+   * @response 500 Registered schema for this slug cannot be compiled
    */
   @Patch(':slug')
   @Permission(['updateAny'])
   public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
-    // Build the value schema from the entry Type + Meta ( entry.Meta is already an
-    // object here, parsed by its @Json converter on load ) and validate the
-    // incoming value(s) against it. Validation can only happen here - not on the
-    // request DTO - because the entry Type isn't known until after this lookup.
-    const schema = valueSchema(entry.Type, entry.Meta);
+    let schemaRef: string | undefined;
+    try {
+      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
+    } catch (err) {
+      return this.schemaCompileError(entry.Slug, err as Error);
+    }
+
+    // Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
+    // @spinajs/validation under the entry's config path, if any. Built here and not on the
+    // request DTO because the entry Type isn't known until after this lookup.
+    const schema = valueSchema(entry.Type, entry.Meta, schemaRef);
 
     const valueError = this.validateValue(schema, 'Value', data.Value);
     if (valueError) {
@@ -124,6 +147,19 @@ export class ConfigurationController extends BaseController {
   }
 
   /**
+   * `DataValidator.hasSchema` compiles the schema lazily via ajv. A schema that
+   * only passed the meta-schema check at startup ( see `@spinajs/validation` )
+   * can still fail strict-mode compilation here, e.g. an unregistered `x-*`
+   * keyword or format - logged and reported instead of falling back to
+   * type-only validation, which would silently skip the constraints the admin
+   * registered for this slug.
+   */
+  private schemaCompileError(slug: string, err: Error): ServerError {
+    this.Log.error(`Configuration schema '${slug}' cannot be compiled: ${err.message}`);
+    return new ServerError({ error: { message: `configuration schema '${slug}' is invalid` } });
+  }
+
+  /**
    * Validates a single value against the entry value schema, returning a 400
    * response on failure or `null` when it passes.
    *
@@ -141,8 +177,6 @@ export class ConfigurationController extends BaseController {
       return null;
     }
 
-    const message = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim()).join('; ') || `invalid value for ${field}`;
-
-    return new BadRequestResponse({ error: { message } });
+    return new BadRequestResponse({ error: { message: formatValidationErrors(field, errors) } });
   }
 }

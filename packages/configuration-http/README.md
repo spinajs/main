@@ -22,6 +22,36 @@ All routes require a valid session (`AuthorizedPolicy`) and are guarded by
 Incoming values are validated against the entry `Type` and `Meta` constraints
 (min/max, oneOf/manyOf, date bounds) and stored in their canonical string form.
 
+## Value schemas
+
+An entry can carry its own JSON schema. Register a schema in
+[`@spinajs/validation`](../validation) whose `$id` equals the config path passed
+to `@Config(path, { expose: true, ... })`, e.g. a file in `system.dirs.schemas`:
+
+```json
+{
+  "$id": "legacy.v1.reports.financial_full",
+  "type": "string",
+  "pattern": "\\.xlsx$"
+}
+```
+
+`PATCH /configuration/:slug` then validates `Value` and `Default` against the
+entry `Type` / `Meta` **and** that schema. The schema describes the JSON value as
+sent to the API (an ISO string for `date`, an array for `manyOf`, an object for
+`json`), not the typed runtime value. Entries without a registered schema are
+validated by `Type` / `Meta` only.
+
+Schemas are compiled by ajv in strict mode: custom keywords (including `x-*`
+annotations) and formats must be registered with the validator, otherwise
+updates of that entry fail with a 500 and the error is logged.
+
+The [`@spinajs/validation`](../validation) options apply to the incoming
+value: with `useDefaults` the schema's defaults are written into object /
+array values before they are stored (so they are fixed at write time),
+`coerceTypes` coerces values, and with `removeAdditional` unknown properties
+are stripped instead of rejected.
+
 ## RBAC
 
 The package ships a dedicated `configuration` role granting `read:any` /
