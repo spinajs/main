@@ -10,7 +10,6 @@ import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
-import { ConfigurationEntryType } from './types.js';
 
 /**
  * watch interval, default 3 min
@@ -109,24 +108,29 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
    * admin set.
    */
   private async syncMetadata(v: __dbCOnfigOptions): Promise<void> {
+    const o = v.options.exposeOptions;
+    // `Type` is a NOT NULL column: an untyped declaration has nothing valid to write there.
+    if (!o?.type) {
+      return;
+    }
+
     const row = await DbConfig.where('Slug', v.path).first();
     if (!row) {
       return;
     }
 
-    const o = v.options.exposeOptions;
-    const upToDate = (row.Group ?? null) === (o?.group ?? null) && (row.Label ?? null) === (o?.label ?? null) && (row.Description ?? null) === (o?.description ?? null) && row.Type === o?.type && !!row.Watch === !!o?.watch && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o?.meta ?? null) && isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
+    const upToDate = (row.Group ?? null) === (o.group ?? null) && (row.Label ?? null) === (o.label ?? null) && (row.Description ?? null) === (o.description ?? null) && row.Type === o.type && !!row.Watch === !!o.watch && !!row.Required === !!v.options.required && isConfigValueEqual(row.Meta ?? null, o.meta ?? null) && isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
 
     if (upToDate) {
       return;
     }
 
-    row.Group = o?.group as string;
-    row.Label = o?.label;
-    row.Description = o?.description;
-    row.Meta = o?.meta;
-    row.Type = o?.type as ConfigurationEntryType;
-    row.Watch = o?.watch ?? false;
+    row.Group = o.group as string;
+    row.Label = o.label;
+    row.Description = o.description;
+    row.Meta = o.meta;
+    row.Type = o.type;
+    row.Watch = o.watch ?? false;
     row.Required = !!v.options.required;
     row.Default = v.options.defaultValue;
 
