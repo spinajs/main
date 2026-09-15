@@ -266,6 +266,28 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect(c.get('test-watch-num')).to.equal(100);
   });
 
+  it('Should watch exposed options registered after startup', async () => {
+    const c = await cfg();
+
+    DI.register({
+      path: 'late-watch',
+      options: {
+        expose: true,
+        defaultValue: 'a',
+        exposeOptions: { type: 'string', group: 'db-config', watch: true },
+      },
+    }).asValue('__configuration_property__');
+
+    await wait(500);
+    expect(c.get('late-watch')).to.equal('a');
+
+    await DbConfig.update({ Value: 'b' }).where('Slug', 'late-watch');
+
+    await wait(3000);
+
+    expect(c.get('late-watch')).to.equal('b');
+  });
+
   it('Should refresh metadata of an existing row and keep its Value', async () => {
     await DbConfig.update({ Label: 'stale', Group: 'stale', Value: 'edited' }).where('Slug', 'test');
 
