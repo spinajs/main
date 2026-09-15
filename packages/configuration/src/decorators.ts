@@ -61,6 +61,8 @@ import { InternalLogger } from '@spinajs/internal-logger';
  *     - `watch` - when `true` the db row is polled (every 3 min by default, override
  *       with the `__config_watch_interval__` DI value) and changes are pushed into
  *       the live configuration without restarting the app.
+ *  - value schema - not an option: a JSON schema registered in `@spinajs/validation` with
+ *    `$id` equal to `path` is enforced by `@spinajs/configuration-http` on updates.
  *
  * @example
  * ```ts

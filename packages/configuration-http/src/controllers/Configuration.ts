@@ -5,7 +5,7 @@ import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
-import { valueSchema } from '../validation.js';
+import { formatValidationErrors, valueSchema } from '../validation.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -76,12 +76,13 @@ export class ConfigurationController extends BaseController {
   /**
    * Update configuration entry value
    * Updates the value ( and optionally default/watch flag ) of an existing entry.
-   * The incoming value is validated against the entry `Type` and `Meta` constraints.
+   * The incoming value is validated against the entry `Type` and `Meta` constraints and,
+   * when `@spinajs/validation` holds a schema whose `$id` equals the slug, against that schema.
    * Structural fields ( slug, group, type ) cannot be changed through this api.
    * @security cookieAuth
    * @param slug Unique configuration entry slug
    * @response 200 Updated configuration entry
-   * @response 400 Invalid value for the entry type or constraints
+   * @response 400 Invalid value for the entry type, constraints or registered schema
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required on configuration resource
    * @response 404 Configuration entry not found
@@ -89,11 +90,10 @@ export class ConfigurationController extends BaseController {
   @Patch(':slug')
   @Permission(['updateAny'])
   public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
-    // Build the value schema from the entry Type + Meta ( entry.Meta is already an
-    // object here, parsed by its @Json converter on load ) and validate the
-    // incoming value(s) against it. Validation can only happen here - not on the
-    // request DTO - because the entry Type isn't known until after this lookup.
-    const schema = valueSchema(entry.Type, entry.Meta);
+    // Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
+    // @spinajs/validation under the entry's config path, if any. Built here and not on the
+    // request DTO because the entry Type isn't known until after this lookup.
+    const schema = valueSchema(entry.Type, entry.Meta, this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined);
 
     const valueError = this.validateValue(schema, 'Value', data.Value);
     if (valueError) {
@@ -141,8 +141,6 @@ export class ConfigurationController extends BaseController {
       return null;
     }
 
-    const message = (errors ?? []).map((e) => `${field}${e.instancePath ? e.instancePath.replace(`/${field}`, '') : ''} ${e.message ?? 'is invalid'}`.trim()).join('; ') || `invalid value for ${field}`;
-
-    return new BadRequestResponse({ error: { message } });
+    return new BadRequestResponse({ error: { message: formatValidationErrors(field, errors) } });
   }
 }

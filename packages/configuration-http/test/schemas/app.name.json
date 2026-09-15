@@ -1,0 +1,6 @@
+{
+  "$id": "app.name",
+  "type": "string",
+  "minLength": 3,
+  "maxLength": 20
+}
