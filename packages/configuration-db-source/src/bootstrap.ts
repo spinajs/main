@@ -90,6 +90,46 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       },
       InsertBehaviour.InsertOrIgnore,
     );
+
+    await this.syncMetadata(v);
+  }
+
+  /**
+   * InsertOrIgnore leaves rows from an earlier release untouched, so label / group / meta / default
+   * edits in code would never reach them. Rewrites the declared columns; `Value` stays whatever an
+   * admin set.
+   */
+  private async syncMetadata(v: __dbCOnfigOptions): Promise<void> {
+    const row = await DbConfig.where('Slug', v.path).first();
+    if (!row) {
+      return;
+    }
+
+    const o = v.options.exposeOptions;
+    const upToDate =
+      (row.Group ?? null) === (o?.group ?? null) &&
+      (row.Label ?? null) === (o?.label ?? null) &&
+      (row.Description ?? null) === (o?.description ?? null) &&
+      row.Type === o?.type &&
+      !!row.Watch === !!o?.watch &&
+      !!row.Required === !!v.options.required &&
+      isConfigValueEqual(row.Meta ?? null, o?.meta ?? null) &&
+      isConfigValueEqual(row.Default ?? null, v.options.defaultValue ?? null);
+
+    if (upToDate) {
+      return;
+    }
+
+    row.Group = o?.group as string;
+    row.Label = o?.label;
+    row.Description = o?.description;
+    row.Meta = o?.meta;
+    row.Type = o?.type as any;
+    row.Watch = o?.watch ?? false;
+    row.Required = !!v.options.required;
+    row.Default = v.options.defaultValue;
+
+    await row.update();
   }
 
   /**

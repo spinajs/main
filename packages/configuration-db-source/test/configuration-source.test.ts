@@ -265,4 +265,23 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     // watched numeric value is refreshed AND converted back to a number
     expect(c.get('test-watch-num')).to.equal(100);
   });
+
+  it('Should refresh metadata of an existing row and keep its Value', async () => {
+    await DbConfig.update({ Label: 'stale', Group: 'stale', Value: 'edited' }).where('Slug', 'test');
+
+    DI.register({
+      path: 'test',
+      options: {
+        expose: true,
+        exposeOptions: { type: 'string', group: 'db-config', label: 'Fresh label' },
+      },
+    }).asValue('__configuration_property__');
+
+    await wait(500);
+
+    const row = await DbConfig.where('Slug', 'test').first();
+    expect(row.Label).to.equal('Fresh label');
+    expect(row.Group).to.equal('db-config');
+    expect(row.Value).to.equal('edited');
+  });
 });
