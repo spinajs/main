@@ -4,9 +4,12 @@ import {
   BasePath,
   Body,
   File,
+  FileResponse,
   Get,
   IUploadedFile,
+  NotFound,
   Ok,
+  Param,
   Patch,
   Policy,
   Post,
@@ -14,7 +17,7 @@ import {
   ServerError,
 } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
-import { User } from '@spinajs/rbac';
+import { User, userModel } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
@@ -42,6 +45,32 @@ function present(entry: DbConfig) {
 
 function badRequest(message: string) {
   return new BadRequestResponse({ error: { message } });
+}
+
+interface IUploaderJson {
+  Id: number;
+  Email: string;
+  Login: string;
+}
+
+/**
+ * Built by hand: rbac `User` hides `Id` on dehydrate, and dates go out as UTC ISO strings.
+ */
+function presentHistoryRow(row: DbConfigFileHistory, uploader: IUploaderJson | null) {
+  return {
+    Id: row.Id,
+    Slug: row.Slug,
+    Fs: row.Fs,
+    FileName: row.FileName,
+    OriginalName: row.OriginalName,
+    Size: row.Size,
+    Hash: row.Hash,
+    UploadedBy: row.UploadedBy,
+    UploadedAt: row.UploadedAt ? row.UploadedAt.toUTC().toISO() : null,
+    ArchivedPath: row.ArchivedPath ?? null,
+    ArchivedAt: row.ArchivedAt ? row.ArchivedAt.toUTC().toISO() : null,
+    Uploader: uploader,
+  };
 }
 
 /**
@@ -175,6 +204,73 @@ export class ConfigurationController extends BaseController {
     } finally {
       await rm(file.OriginalFile.filepath, { force: true });
     }
+  }
+
+  /**
+   * Download the current file of a file entry
+   * Streams the file named by the entry's `Value` from its fs provider.
+   * @security cookieAuth
+   * @param slug Unique configuration entry slug
+   * @response 200 File content
+   * @response 400 Not a file entry
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on configuration resource
+   * @response 404 Configuration entry or file not found
+   */
+  @Get(':slug/file')
+  @Permission(['readAny'])
+  public async downloadFile(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
+    const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
+    if (!options?.fs || !entry.Value) {
+      return badRequest(`configuration entry '${entry.Slug}' is not a file entry`);
+    }
+
+    const name = String(entry.Value);
+    return new FileResponse({ provider: options.fs, path: name, filename: name });
+  }
+
+  /**
+   * List uploaded files of a file entry
+   * Returns the upload history, newest first, with the uploader's id, email and login.
+   * @security cookieAuth
+   * @param slug Unique configuration entry slug
+   * @response 200 Upload history rows
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on configuration resource
+   * @response 404 Configuration entry not found
+   */
+  @Get(':slug/files')
+  @Permission(['readAny'])
+  public async listFiles(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
+    const rows = await DbConfigFileHistory.where('Slug', entry.Slug).orderByDescending('Id');
+
+    const userIds = [...new Set(rows.map((r) => r.UploadedBy))];
+    const users = userIds.length ? await userModel().select().whereIn('Id', userIds) : [];
+    const uploaders = new Map<number, IUploaderJson>(users.map((u) => [u.Id, { Id: u.Id, Email: u.Email, Login: u.Login }]));
+
+    return new Ok(rows.map((r) => presentHistoryRow(r, uploaders.get(r.UploadedBy) ?? null)));
+  }
+
+  /**
+   * Download one uploaded version of a file entry
+   * Streams the archived copy, or the original location when the version was never archived.
+   * @security cookieAuth
+   * @param slug Unique configuration entry slug
+   * @param id Upload history row id
+   * @response 200 File content
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — readAny permission required on configuration resource
+   * @response 404 Configuration entry, history row of this entry, or file not found
+   */
+  @Get(':slug/files/:id')
+  @Permission(['readAny'])
+  public async downloadFileVersion(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Param() id: number) {
+    const row = await DbConfigFileHistory.where('Slug', entry.Slug).where('Id', id).first();
+    if (!row) {
+      return new NotFound({ error: { message: `file version ${id} of '${entry.Slug}' not found` } });
+    }
+
+    return new FileResponse({ provider: row.Fs, path: row.ArchivedPath ?? row.FileName, filename: row.OriginalName });
   }
 
   private async storeFile(entry: DbConfig, file: IUploadedFile, user: User) {

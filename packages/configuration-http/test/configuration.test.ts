@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, w
 import { join } from 'path';
 import 'mocha';
 
-import { TestConfiguration, FakePolicy, FakeFileInfo, FILES_DIR, FILES_FS, UPLOAD_DIR, req, seed, seedFileEntries, seedUser, xlsx } from './common.js';
+import { TestConfiguration, FakePolicy, FakeFileInfo, FILES_DIR, FILES_FS, UPLOAD_DIR, binaryParser, req, seed, seedFileEntries, seedUser, xlsx } from './common.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
 import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
 import configurationHttpConfig from '../src/config/configuration-http.js';
@@ -463,6 +463,86 @@ describe('configuration-http api', function () {
         expect(firstRow.ArchivedPath).to.not.exist;
       });
     });
+
+    describe('downloads and history', () => {
+      const download = (path: string, headers: Record<string, string> = {}) => req().get(path).set(headers).buffer(true).parse(binaryParser);
+
+      it('downloads the file named by the current Value', async () => {
+        const res = await download('configuration/tpl.offer/file');
+        expect(res).to.have.status(200);
+        expect(res.body).to.deep.equal(xlsx('default'));
+        expect(res.header['content-disposition']).to.contain('attachment').and.to.contain('default.xlsx');
+
+        const uploaded = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        const after = await download('configuration/tpl.offer/file');
+        expect(after.body).to.deep.equal(xlsx('first'));
+        expect(after.header['content-disposition']).to.contain(uploaded.body.Value);
+      });
+
+      it('rejects downloading from an entry that is not a file entry', async () => {
+        const res = await req().get('configuration/app.name/file').set(JSON_HEADERS);
+        expect(res).to.have.status(400);
+      });
+
+      it('lists uploads newest first with their uploader', async () => {
+        const first = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        const second = await upload('tpl.offer', xlsx('second'), 'second.xlsx', { 'x-test-user-id': '99' });
+
+        const res = await req().get('configuration/tpl.offer/files').set(JSON_HEADERS);
+
+        expect(res).to.have.status(200);
+        expect(res.body).to.be.an('array').with.lengthOf(2);
+
+        expect(res.body[0]).to.include({ Slug: 'tpl.offer', Fs: FILES_FS, FileName: second.body.Value, OriginalName: 'second.xlsx', UploadedBy: 99, ArchivedPath: null, ArchivedAt: null, Uploader: null });
+        expect(res.body[0].UploadedAt).to.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+        expect(res.body[0].Hash).to.equal(createHash('sha256').update(xlsx('second')).digest('hex'));
+        expect(res.body[0].Size).to.equal(xlsx('second').length);
+
+        expect(res.body[1].FileName).to.equal(first.body.Value);
+        expect(res.body[1].ArchivedPath).to.equal(`archive/${first.body.Value}`);
+        expect(res.body[1].ArchivedAt).to.match(/Z$/);
+        expect(res.body[1].Uploader).to.deep.equal({ Id: 1, Email: 'admin@spinajs.test', Login: 'admin' });
+      });
+
+      it('downloads an archived and the current version under their original names', async () => {
+        await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        await upload('tpl.offer', xlsx('second'), 'second.xlsx');
+        const list = await req().get('configuration/tpl.offer/files').set(JSON_HEADERS);
+        const [secondRow, firstRow] = list.body;
+
+        const archived = await download(`configuration/tpl.offer/files/${firstRow.Id}`);
+        expect(archived).to.have.status(200);
+        expect(archived.body).to.deep.equal(xlsx('first'));
+        expect(archived.header['content-disposition']).to.contain('first.xlsx');
+
+        const current = await download(`configuration/tpl.offer/files/${secondRow.Id}`);
+        expect(current.body).to.deep.equal(xlsx('second'));
+        expect(current.header['content-disposition']).to.contain('second.xlsx');
+      });
+
+      it('returns 404 for a version of another entry', async () => {
+        const uploaded = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        const row = await DbConfigFileHistory.where('FileName', uploaded.body.Value).first();
+
+        const res = await req().get(`configuration/tpl.validated/files/${row.Id}`).set(JSON_HEADERS);
+        expect(res).to.have.status(404);
+      });
+    });
+
+    describe('permissions', () => {
+      it('forbids uploading for a role without updateAny', async () => {
+        const res = await upload('tpl.offer', xlsx('x'), 'offer.xlsx', { 'x-test-role': 'user' });
+        expect(res).to.have.status(403);
+        expect(readdirSync(FILES_DIR)).to.deep.equal(['default.xlsx']);
+      });
+
+      it('forbids downloads and history for a role without readAny', async () => {
+        const headers = { ...JSON_HEADERS, 'x-test-role': 'user' };
+        expect(await req().get('configuration/tpl.offer/file').set(headers)).to.have.status(403);
+        expect(await req().get('configuration/tpl.offer/files').set(headers)).to.have.status(403);
+        expect(await req().get('configuration/tpl.offer/files/1').set(headers)).to.have.status(403);
+      });
+    });
   });
 
   describe('model-level RBAC', () => {
@@ -490,6 +570,9 @@ describe('configuration-http rbac wiring', () => {
     expect(descriptor.Routes.get('get').Permission).to.deep.equal(['readAny']);
     expect(descriptor.Routes.get('update').Permission).to.deep.equal(['updateAny']);
     expect(descriptor.Routes.get('uploadFile').Permission).to.deep.equal(['updateAny']);
+    expect(descriptor.Routes.get('downloadFile').Permission).to.deep.equal(['readAny']);
+    expect(descriptor.Routes.get('listFiles').Permission).to.deep.equal(['readAny']);
+    expect(descriptor.Routes.get('downloadFileVersion').Permission).to.deep.equal(['readAny']);
   });
 
   it('grants configuration management only through an admin sub-role', () => {
