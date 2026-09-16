@@ -52,8 +52,7 @@
   ],
   "devDependencies": {
     "@spinajs/orm-sqlite": "2.0.537",
-    "@types/lodash": "^4.14.191",
-    "@types/luxon": "^3.2.0"
+    "@types/lodash": "^4.14.191"
   },
   "dependencies": {
     "@spinajs/configuration": "2.0.537",
@@ -61,7 +60,6 @@
     "@spinajs/configuration-db-source": "2.0.537",
     "@spinajs/di": "2.0.537",
     "@spinajs/exceptions": "2.0.537",
-    "@spinajs/fs": "2.0.537",
     "@spinajs/http": "2.0.537",
     "@spinajs/log": "2.0.537",
     "@spinajs/orm": "2.0.537",
@@ -69,8 +67,7 @@
     "@spinajs/rbac": "2.0.537",
     "@spinajs/rbac-http": "2.0.537",
     "@spinajs/validation": "2.0.537",
-    "lodash": "^4.17.21",
-    "luxon": "^3.6.1"
+    "lodash": "^4.17.21"
   },
   "gitHead": "002dc553b0ffffd72193d0121ac425a4083bc9ee"
 }

@@ -25,8 +25,5 @@ export class ConfigurationHttpBootstrapper extends Bootstrapper {
     if (descriptor) {
       descriptor.RbacResource = 'configuration';
     }
-
-    // DbConfigFileHistory stays unbound on purpose: only the upload route inserts into it, and a bound
-    // model would make that insert require createAny, which the configuration grants do not include.
   }
 }

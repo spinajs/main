@@ -15,10 +15,6 @@ lets operators tune existing values.
 | GET    | `/configuration`                 | `readAny`   | List all entries (optional `?group=` filter)         |
 | GET    | `/configuration/:slug`           | `readAny`   | Get a single entry by slug                           |
 | PATCH  | `/configuration/:slug`           | `updateAny` | Update an entry's `Value` (+ `Default`/`Watch`)      |
-| POST   | `/configuration/:slug/file`      | `updateAny` | Upload a file for a `file` entry (multipart `file`)  |
-| GET    | `/configuration/:slug/file`      | `readAny`   | Download the file named by the current `Value`       |
-| GET    | `/configuration/:slug/files`     | `readAny`   | Upload history, newest first, with uploader          |
-| GET    | `/configuration/:slug/files/:id` | `readAny`   | Download one uploaded version                        |
 
 All routes require a valid session (`AuthorizedPolicy`) and are guarded by
 `RbacPolicy` on the `configuration` resource.
@@ -55,32 +51,6 @@ value: with `useDefaults` the schema's defaults are written into object /
 array values before they are stored (so they are fixed at write time),
 `coerceTypes` coerces values, and with `removeAdditional` unknown properties
 are stripped instead of rejected.
-
-## File entries
-
-Entries of `type: 'file'` with `meta.file` ( see
-[`@spinajs/configuration-db-source`](../configuration-db-source#file-entries) ) accept uploads.
-`POST /configuration/:slug/file`:
-
-1. rejects with 400 an entry that is not a file entry, a file over `maxSize`, an extension
-   outside `extensions`, a content-detected mime type outside `mimeTypes` ( `FileInfoService`
-   from `@spinajs/fs` ) and a file the entry validator rejects with `ValidationFailed`
-   ( its message is the response message ), and an original name over 255 characters; an
-   unregistered validator name or fs provider is a 500;
-2. stores the file as `<original base name>-<yyyyMMdd-HHmmss UTC>.<ext>` ( characters outside
-   `[\w.-]` replaced with `_`, the base cut to 100 characters, `file` when empty ), after
-   validating that name like a `PATCH` value;
-3. inserts the history row and sets `Value` in one transaction ( the stored file is removed if
-   that fails );
-4. moves the previous upload to `archive/<name>` in its provider and stamps its history row.
-   A failed move is logged and does not fail the upload.
-
-The multipart file is parsed into the `__file_upload_default_provider__` fs ( configured by
-`@spinajs/http` ) and always removed afterwards. `PATCH` never moves or archives files.
-
-Downloads stream through `FileResponse` with `Content-Disposition: attachment`, using the
-current `Value` or the version's original name. A version whose row was not stamped after its
-file was moved is served from `archive/<name>`.
 
 ## RBAC
 
