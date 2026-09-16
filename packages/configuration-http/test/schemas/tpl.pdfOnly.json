@@ -1,0 +1,5 @@
+{
+  "$id": "tpl.pdfOnly",
+  "type": "string",
+  "pattern": "\\.pdf$"
+}

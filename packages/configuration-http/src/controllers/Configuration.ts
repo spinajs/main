@@ -3,21 +3,29 @@ import {
   BaseController,
   BasePath,
   Body,
+  File,
   Get,
+  IUploadedFile,
   Ok,
   Patch,
   Policy,
+  Post,
   Query,
   ServerError,
 } from '@spinajs/http';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
+import { User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
-import { DataValidator } from '@spinajs/validation';
+import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { CONFIG_FILE_DEFAULT_MAX_SIZE, DbConfig, DbConfigFileHistory, IConfigFileCandidate, configFileValidatorName, resolveConfigFileValidator } from '@spinajs/configuration-db-source';
+import { FileInfoService, getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log';
+import { DateTime } from 'luxon';
+import { rm } from 'node:fs/promises';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { formatValidationErrors, valueSchema } from '../validation.js';
+import { fileExtension, sha256File, storedFileName } from '../files.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -30,6 +38,10 @@ function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;
   out.Meta = entry.Meta ?? null;
   return out;
+}
+
+function badRequest(message: string) {
+  return new BadRequestResponse({ error: { message } });
 }
 
 /**
@@ -52,6 +64,9 @@ function present(entry: DbConfig) {
 export class ConfigurationController extends BaseController {
   @Autoinject()
   protected Validator!: DataValidator;
+
+  @Autoinject()
+  protected FileInfo!: FileInfoService;
 
   @Logger('configuration-http')
   protected Log!: Log;
@@ -106,17 +121,10 @@ export class ConfigurationController extends BaseController {
   @Patch(':slug')
   @Permission(['updateAny'])
   public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
-    let schemaRef: string | undefined;
-    try {
-      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
-    } catch (err) {
-      return this.schemaCompileError(entry.Slug, err as Error);
+    const schema = this.entryValueSchema(entry);
+    if (schema instanceof ServerError) {
+      return schema;
     }
-
-    // Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
-    // @spinajs/validation under the entry's config path, if any. Built here and not on the
-    // request DTO because the entry Type isn't known until after this lookup.
-    const schema = valueSchema(entry.Type, entry.Meta, schemaRef);
 
     const valueError = this.validateValue(schema, 'Value', data.Value);
     if (valueError) {
@@ -144,6 +152,149 @@ export class ConfigurationController extends BaseController {
     await entry.update();
 
     return new Ok(present(entry));
+  }
+
+  /**
+   * Upload a file for a file entry
+   * Checks the file against the entry's `Meta.file` rules and value schema, stores it in the entry's
+   * fs provider under a timestamped name, points `Value` at it and records it in the upload history.
+   * @security cookieAuth
+   * @param slug Unique configuration entry slug
+   * @response 200 Updated configuration entry
+   * @response 400 Not a file entry, or the file breaks the size / extension / content type / validator / value schema rules
+   * @response 401 Unauthorized — valid session required
+   * @response 403 Forbidden — updateAny permission required on configuration resource
+   * @response 404 Configuration entry not found
+   * @response 500 Unregistered validator, or the upload could not be saved
+   */
+  @Post(':slug/file')
+  @Permission(['updateAny'])
+  public async uploadFile(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @File({ required: true }) file: IUploadedFile, @CurrentUser() user: User) {
+    try {
+      return await this.storeFile(entry, file, user);
+    } finally {
+      await rm(file.OriginalFile.filepath, { force: true });
+    }
+  }
+
+  private async storeFile(entry: DbConfig, file: IUploadedFile, user: User) {
+    const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
+    if (!options?.fs) {
+      return badRequest(`configuration entry '${entry.Slug}' is not a file entry`);
+    }
+
+    const fsName = options.fs;
+    const localPath = file.OriginalFile.filepath;
+
+    const maxSize = options.maxSize ?? CONFIG_FILE_DEFAULT_MAX_SIZE;
+    if (file.Size > maxSize) {
+      return badRequest(`File is too large: ${file.Size} bytes, the limit is ${maxSize} bytes`);
+    }
+
+    const extension = fileExtension(file.Name);
+    if (options.extensions?.length && !options.extensions.some((e) => e.toLowerCase() === extension)) {
+      return badRequest(`File extension must be one of: ${options.extensions.join(', ')}. Got: ${extension || 'none'}`);
+    }
+
+    const mimeType = await this.detectMimeType(localPath);
+    if (options.mimeTypes?.length && !options.mimeTypes.includes(mimeType)) {
+      return badRequest(`File content type must be one of: ${options.mimeTypes.join(', ')}. Got: ${mimeType || 'unknown'}`);
+    }
+
+    if (options.validator) {
+      const rejection = await this.runValidator(entry, configFileValidatorName(options.validator), { localPath, originalName: file.Name, size: file.Size, mimeType });
+      if (rejection) {
+        return rejection;
+      }
+    }
+
+    const fileName = storedFileName(file.Name, DateTime.utc());
+
+    const schema = this.entryValueSchema(entry);
+    if (schema instanceof ServerError) {
+      return schema;
+    }
+    const valueError = this.validateValue(schema, 'Value', fileName);
+    if (valueError) {
+      return valueError;
+    }
+
+    const target = getFs(fsName);
+    // same name within the same second - uploading would overwrite the file the entry points at
+    if (await target.exists(fileName)) {
+      return badRequest(`File ${fileName} was uploaded a moment ago, try again`);
+    }
+
+    const hash = await sha256File(localPath);
+    await target.upload(localPath, fileName);
+
+    try {
+      await this.recordUpload(entry, { Slug: entry.Slug, Fs: fsName, FileName: fileName, OriginalName: file.Name, Size: file.Size, Hash: hash, UploadedBy: user.PrimaryKeyValue as number });
+    } catch (err) {
+      await target.rm(fileName).catch(() => undefined);
+      this.Log.error(`Cannot save uploaded file ${fileName} for '${entry.Slug}': ${(err as Error).message}`);
+      return new ServerError({ error: { message: `cannot save uploaded file for '${entry.Slug}'` } });
+    }
+
+    return new Ok(present(entry));
+  }
+
+  private recordUpload(entry: DbConfig, data: Pick<DbConfigFileHistory, 'Slug' | 'Fs' | 'FileName' | 'OriginalName' | 'Size' | 'Hash' | 'UploadedBy'>): Promise<DbConfigFileHistory> {
+    return DbConfigFileHistory.transaction(async () => {
+      const row = new DbConfigFileHistory({ ...data, ArchivedPath: null });
+      await row.insert();
+
+      entry.Value = data.FileName as typeof entry.Value;
+      await entry.update();
+
+      return row;
+    });
+  }
+
+  /**
+   * An unparseable file makes the detector fail; for the upload that is an unknown type, not a server error.
+   */
+  private async detectMimeType(localPath: string): Promise<string> {
+    try {
+      return (await this.FileInfo.getInfo(localPath)).MimeType ?? '';
+    } catch (err) {
+      this.Log.warn(`Cannot detect the content type of an uploaded file: ${(err as Error).message}`);
+      return '';
+    }
+  }
+
+  private async runValidator(entry: DbConfig, name: string, candidate: IConfigFileCandidate): Promise<BadRequestResponse | ServerError | null> {
+    const validator = await resolveConfigFileValidator(name);
+    if (!validator) {
+      this.Log.error(`Configuration file validator '${name}' of '${entry.Slug}' is not registered`);
+      return new ServerError({ error: { message: `configuration file validator '${name}' is not registered` } });
+    }
+
+    try {
+      await validator.validate(candidate, entry);
+      return null;
+    } catch (err) {
+      if (err instanceof ValidationFailed) {
+        return badRequest(err.message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
+   * @spinajs/validation under the entry's config path, if any. Built per request and not on the
+   * request DTO because the entry Type isn't known until the entry is loaded.
+   */
+  private entryValueSchema(entry: DbConfig): Record<string, unknown> | ServerError {
+    let schemaRef: string | undefined;
+    try {
+      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
+    } catch (err) {
+      return this.schemaCompileError(entry.Slug, err as Error);
+    }
+
+    return valueSchema(entry.Type, entry.Meta, schemaRef);
   }
 
   /**

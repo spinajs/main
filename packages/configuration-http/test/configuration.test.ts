@@ -2,14 +2,17 @@ import { DI, Bootstrapper } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { FileInfoService, FsBootsrapper, fsService } from '@spinajs/fs';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { DbConfig, DbConfigFileHistory } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
+import { createHash } from 'crypto';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import 'mocha';
 
-import { TestConfiguration, FakePolicy, req, seed } from './common.js';
+import { TestConfiguration, FakePolicy, FakeFileInfo, FILES_DIR, FILES_FS, UPLOAD_DIR, req, seed, seedFileEntries, seedUser, xlsx } from './common.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
 import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
 import configurationHttpConfig from '../src/config/configuration-http.js';
@@ -41,6 +44,7 @@ describe('configuration-http api', function () {
     // bypass auth so we can exercise controller logic
     DI.register(FakePolicy).as(AuthorizedPolicy);
     DI.register(FakePolicy).as(RbacPolicy);
+    DI.register(FakeFileInfo).as(FileInfoService);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
@@ -282,6 +286,139 @@ describe('configuration-http api', function () {
     });
   });
 
+  describe('file entries', () => {
+    const upload = (slug: string, content: Buffer, filename: string, headers: Record<string, string> = {}) =>
+      req()
+        .post(`configuration/${slug}/file`)
+        .set({ ...JSON_HEADERS, ...headers })
+        .attach('file', content, { filename });
+
+    const expectNothingStored = async (slug: string) => {
+      expect(readdirSync(FILES_DIR)).to.deep.equal(['default.xlsx']);
+      expect(await DbConfigFileHistory.where('Slug', slug)).to.be.empty;
+      const entry = await req().get(`configuration/${slug}`).set(JSON_HEADERS);
+      expect(entry.body.Value).to.equal('default.xlsx');
+    };
+
+    beforeEach(async () => {
+      await DbConfigFileHistory.truncate();
+      await seedFileEntries();
+      await seedUser();
+
+      for (const d of [FILES_DIR, UPLOAD_DIR]) {
+        rmSync(d, { recursive: true, force: true });
+        mkdirSync(d, { recursive: true });
+      }
+      writeFileSync(join(FILES_DIR, 'default.xlsx'), xlsx('default'));
+    });
+
+    after(() => {
+      for (const d of [FILES_DIR, UPLOAD_DIR]) {
+        rmSync(d, { recursive: true, force: true });
+      }
+    });
+
+    describe('POST /configuration/:slug/file', () => {
+      it('stores the file under a generated name, sets Value and records the upload', async () => {
+        const content = xlsx('first');
+
+        const res = await upload('tpl.offer', content, 'My Offer.XLSX');
+
+        expect(res).to.have.status(200);
+        expect(res.body.Slug).to.equal('tpl.offer');
+        expect(res.body.Value).to.match(/^My_Offer-\d{8}-\d{6}\.xlsx$/);
+        expect(readFileSync(join(FILES_DIR, res.body.Value))).to.deep.equal(content);
+
+        const get = await req().get('configuration/tpl.offer').set(JSON_HEADERS);
+        expect(get.body.Value).to.equal(res.body.Value);
+
+        const rows = await DbConfigFileHistory.where('Slug', 'tpl.offer');
+        expect(rows).to.have.lengthOf(1);
+        expect(rows[0].Fs).to.equal(FILES_FS);
+        expect(rows[0].FileName).to.equal(res.body.Value);
+        expect(rows[0].OriginalName).to.equal('My Offer.XLSX');
+        expect(rows[0].Size).to.equal(content.length);
+        expect(rows[0].Hash).to.equal(createHash('sha256').update(content).digest('hex'));
+        expect(rows[0].UploadedBy).to.equal(1);
+        expect(rows[0].ArchivedAt).to.not.exist;
+      });
+
+      it('removes the temporary upload file', async () => {
+        await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        expect(readdirSync(UPLOAD_DIR)).to.be.empty;
+
+        await upload('tpl.offer', Buffer.from('plain text'), 'first.xlsx');
+        expect(readdirSync(UPLOAD_DIR)).to.be.empty;
+      });
+
+      it('rejects an entry that is not of type file', async () => {
+        const res = await upload('app.name', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('not a file entry');
+        expect(readdirSync(FILES_DIR)).to.deep.equal(['default.xlsx']);
+      });
+
+      it('rejects a file entry without file options', async () => {
+        const res = await upload('tpl.noMeta', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(400);
+        await expectNothingStored('tpl.noMeta');
+      });
+
+      it('rejects a request without a file', async () => {
+        const res = await req().post('configuration/tpl.offer/file').set(JSON_HEADERS).field('note', 'no file');
+        expect(res).to.have.status(400);
+        await expectNothingStored('tpl.offer');
+      });
+
+      it('rejects a file over maxSize', async () => {
+        const res = await upload('tpl.offer', Buffer.concat([xlsx('big'), Buffer.alloc(2048)]), 'big.xlsx');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('too large');
+        await expectNothingStored('tpl.offer');
+      });
+
+      it('rejects a file with an extension outside the allowed list', async () => {
+        const res = await upload('tpl.offer', xlsx('x'), 'offer.xls');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('extension');
+        await expectNothingStored('tpl.offer');
+      });
+
+      it('rejects a file whose detected content type is not allowed', async () => {
+        const res = await upload('tpl.offer', Buffer.from('plain text'), 'offer.xlsx');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('text/plain');
+        await expectNothingStored('tpl.offer');
+      });
+
+      it('returns the ValidationFailed message of the entry validator as 400', async () => {
+        const res = await upload('tpl.validated', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.equal('Template is missing the Offer sheet');
+        await expectNothingStored('tpl.validated');
+      });
+
+      it('responds 500 naming an unregistered validator', async () => {
+        const res = await upload('tpl.unknownValidator', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(500);
+        expect(res.body.error.message).to.contain('NoSuchTemplateValidator');
+        await expectNothingStored('tpl.unknownValidator');
+      });
+
+      it('rejects a generated name that fails the value schema registered for the slug', async () => {
+        const res = await upload('tpl.pdfOnly', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('Value');
+        await expectNothingStored('tpl.pdfOnly');
+      });
+
+      it('returns 404 for an unknown slug', async () => {
+        const res = await upload('does.not.exist', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(404);
+      });
+    });
+  });
+
   describe('model-level RBAC', () => {
     // the `configuration` resource is bound to the DbConfig model, so the query
     // middleware denies a role without the grant even though the route policy is
@@ -306,6 +443,7 @@ describe('configuration-http rbac wiring', () => {
     expect(descriptor.Routes.get('list').Permission).to.deep.equal(['readAny']);
     expect(descriptor.Routes.get('get').Permission).to.deep.equal(['readAny']);
     expect(descriptor.Routes.get('update').Permission).to.deep.equal(['updateAny']);
+    expect(descriptor.Routes.get('uploadFile').Permission).to.deep.equal(['updateAny']);
   });
 
   it('grants configuration management only through an admin sub-role', () => {
