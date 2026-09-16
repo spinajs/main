@@ -1,6 +1,7 @@
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import chai from 'chai';
 import os from 'os';
+import { mkdirSync, readFileSync } from 'fs';
 import { join, normalize, resolve } from 'path';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
@@ -8,10 +9,13 @@ import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
 import express from 'express';
-import { BasePolicy, Request as sRequest } from '@spinajs/http';
+import { Injectable } from '@spinajs/di';
+import { BasePolicy, FileTypeEnum, Request as sRequest } from '@spinajs/http';
+import { FileInfoService, IFileInfo } from '@spinajs/fs';
+import { ValidationFailed } from '@spinajs/validation';
 
 // register models + migrations ( @Model / @Migration side effects )
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { ConfigFileValidator, DbConfig } from '@spinajs/configuration-db-source';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -25,6 +29,13 @@ chai.use(chaiThings);
 // service/security software is holding onto that exact port. Not a code bug;
 // picking a different port sidesteps it.
 export const PORT = 19697;
+
+export const UPLOAD_DIR = join(os.tmpdir(), 'spinajs-cfg-http-upload');
+export const FILES_DIR = join(os.tmpdir(), 'spinajs-cfg-http-files');
+export const FILES_FS = 'fs-cfg-http-files';
+
+mkdirSync(UPLOAD_DIR, { recursive: true });
+mkdirSync(FILES_DIR, { recursive: true });
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
@@ -65,6 +76,33 @@ export class FakePolicy extends BasePolicy {
   }
 }
 
+/**
+ * exiftool is not available on every machine. Content starting with the zip magic "PK" ( what an
+ * xlsx is ) reads as xlsx, anything else as plain text.
+ */
+export class FakeFileInfo extends FileInfoService {
+  public getInfo(pathToFile: string): Promise<IFileInfo> {
+    const content = readFileSync(pathToFile);
+    const mimeType = content.subarray(0, 2).toString('latin1') === 'PK' ? FileTypeEnum.xlsx : 'text/plain';
+    return Promise.resolve({ FileSize: content.length, MimeType: mimeType });
+  }
+
+  public getInfoFromStream(): Promise<IFileInfo> {
+    return Promise.reject(new Error('not used in tests'));
+  }
+}
+
+@Injectable(ConfigFileValidator)
+export class RejectingTemplateValidator extends ConfigFileValidator {
+  public validate(): Promise<void> {
+    return Promise.reject(new ValidationFailed('Template is missing the Offer sheet', []));
+  }
+}
+
+export function xlsx(content: string): Buffer {
+  return Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.from(content)]);
+}
+
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -80,6 +118,8 @@ export class TestConfiguration extends FrameworkConfiguration {
         defaultProvider: 'fs-temp',
         providers: [
           { service: 'fsNative', name: 'fs-temp', basePath: os.tmpdir() },
+          { service: 'fsNative', name: '__file_upload_default_provider__', basePath: UPLOAD_DIR },
+          { service: 'fsNative', name: FILES_FS, basePath: FILES_DIR },
           { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(os.tmpdir(), 'spinajs-cfg-http-cache') },
           { service: 'fsNative', name: '__fs_http_response_templates__', basePath: resolve(process.cwd(), '..', 'http', 'lib', 'views', 'responses') },
           { service: 'fsNative', name: '__fs_http_templates__', basePath: os.tmpdir() },
@@ -173,5 +213,35 @@ export async function seed() {
     row({ Slug: 'app.limits', Group: 'app', Type: 'json', Value: JSON.stringify({ perPage: 20 }), Default: JSON.stringify({ perPage: 20 }) }),
     row({ Slug: 'app.broken', Group: 'app', Type: 'string', Value: 'x', Default: 'x' }),
     row({ Slug: 'mail.from', Group: 'mail', Type: 'string', Value: 'noreply@spinajs.com', Default: 'noreply@spinajs.com' }),
+  ]);
+}
+
+/**
+ * `file` entries pointing at FILES_FS, each exercising one upload rule. Kept out of `seed()`
+ * so the list tests keep their entry count.
+ */
+export async function seedFileEntries() {
+  const file = (data: Record<string, unknown>) => ({
+    Slug: '',
+    Value: 'default.xlsx',
+    Default: 'default.xlsx',
+    Group: 'templates',
+    Label: null as unknown,
+    Description: null as unknown,
+    Meta: null as unknown,
+    Required: 0,
+    Exposed: 1,
+    Watch: 0,
+    Type: 'file',
+    ...data,
+  });
+
+  await DbConfig.insert([
+    file({ Slug: 'tpl.offer', Meta: { file: { fs: FILES_FS, extensions: ['xlsx'], mimeTypes: [FileTypeEnum.xlsx], maxSize: 1024 } } }),
+    file({ Slug: 'tpl.validated', Meta: { file: { fs: FILES_FS, validator: 'RejectingTemplateValidator' } } }),
+    file({ Slug: 'tpl.unknownValidator', Meta: { file: { fs: FILES_FS, validator: 'NoSuchTemplateValidator' } } }),
+    file({ Slug: 'tpl.pdfOnly', Meta: { file: { fs: FILES_FS } } }),
+    file({ Slug: 'tpl.noMeta' }),
+    file({ Slug: 'tpl.unknownFs', Meta: { file: { fs: 'no-such-fs' } } }),
   ]);
 }

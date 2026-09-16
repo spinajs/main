@@ -4,3 +4,4 @@ export * from './validation.js';
 export * from './bootstrap.js';
 export * from './errors.js';
 export * from './files.js';
+export * from './uploads.js';

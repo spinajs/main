@@ -52,6 +52,37 @@ array values before they are stored (so they are fixed at write time),
 `coerceTypes` coerces values, and with `removeAdditional` unknown properties
 are stripped instead of rejected.
 
+## File uploads
+
+Entries of `type: 'file'` with `meta.file` ( see
+[`@spinajs/configuration-db-source`](../configuration-db-source#file-entries) ) are uploaded through
+the `ConfigFileUploads` service. This package has no file route: the project composes the service
+in its own controller and owns everything after acceptance ( history, download, archive ).
+
+```ts
+const accepted = await uploads.accept(entry, file);   // 400 on a broken rule / validator / schema
+try {
+  await recordSomewhere(accepted);                    // the project's history row
+} catch (err) {
+  await uploads.discard(accepted);
+  throw err;
+}
+await uploads.commit(entry, accepted.fileName);       // Value = stored name
+```
+
+`accept`, in order: rejects with `NotAFileEntry` an entry that is not a file entry; with
+`ConfigFileRejected` an original name over 255 characters, an extension over 16 characters, a file
+over `maxSize`, an extension outside `extensions`, a content-detected mime type outside
+`mimeTypes` ( `FileInfoService` from `@spinajs/fs` ), a file the entry validator rejects with
+`ValidationFailed` ( its message is the response message ) and a generated name that fails the
+value schema of the slug; an unregistered validator name or fs provider throws an `Error`. The
+file is stored as `<original base name>-<yyyyMMdd-HHmmss UTC>.<ext>` ( characters outside
+`[\w.-]` replaced with `_`, the base cut to 100 characters, `file` when empty ); a name that
+already exists on the provider is refused. The multipart temp file is always removed.
+
+`commit` is the only way a file entry's `Value` should change outside a `PATCH`; a project's
+"restore an earlier version" goes through it too. `PATCH` never moves or removes files.
+
 ## RBAC
 
 The package ships a dedicated `configuration` role granting `read:any` /
