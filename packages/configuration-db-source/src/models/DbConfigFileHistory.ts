@@ -31,7 +31,7 @@ export class DbConfigFileHistory extends ModelBase<DbConfigFileHistory> {
   @CreatedAt()
   public UploadedAt!: DateTime;
 
-  public ArchivedPath?: string | null;
+  public ArchivedPath: string | null;
 
   // Declared optional rather than `DateTime | null`: an explicit union in the type
   // annotation erases to `Object` in emitted design:type metadata (regardless of the

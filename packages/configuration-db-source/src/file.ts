@@ -64,11 +64,12 @@ export function normalizeFileEntryOptions(path: string, exposeOptions?: { type: 
 /**
  * Same naming rule as `@AutoinjectService`: an instance `ServiceName` wins over the class name.
  */
-export function resolveConfigFileValidator(name: string): ConfigFileValidator | undefined {
+export async function resolveConfigFileValidator(name: string): Promise<ConfigFileValidator | undefined> {
   const types = DI.getRegisteredTypes(ConfigFileValidator) ?? [];
 
   for (const type of types) {
-    const validator = DI.resolve<ConfigFileValidator>(type);
+    // DI.resolve is typed as sync but returns a Promise while async dependencies resolve
+    const validator = await Promise.resolve(DI.resolve<ConfigFileValidator>(type));
     if (((validator as Partial<IMappableService>).ServiceName ?? type.name) === name) {
       return validator;
     }

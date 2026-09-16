@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import 'mocha';
-import { Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, Injectable } from '@spinajs/di';
 
 import { CONFIG_FILE_DEFAULT_MAX_SIZE, ConfigFileValidator, ConfigurationEntryType, IConfigurationEntryMeta, normalizeFileEntryOptions, resolveConfigFileValidator } from './../src/index.js';
 
@@ -14,6 +14,20 @@ class ClassNamedTemplateValidator extends ConfigFileValidator {
 @Injectable(ConfigFileValidator)
 class ServiceNamedTemplateValidator extends ConfigFileValidator {
   public ServiceName = 'custom-template-check';
+
+  public validate(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+class SlowTemplateDependency extends AsyncService {}
+
+@Injectable(ConfigFileValidator)
+class AsyncResolvedTemplateValidator extends ConfigFileValidator {
+  public ServiceName = 'async-template-check';
+
+  @Autoinject()
+  protected Dependency!: SlowTemplateDependency;
 
   public validate(): Promise<void> {
     return Promise.resolve();
@@ -59,6 +73,13 @@ describe('configuration file entry options', () => {
 
   it('resolves a registered validator by ServiceName', async () => {
     expect(await resolveConfigFileValidator('custom-template-check')).to.be.instanceOf(ServiceNamedTemplateValidator);
+  });
+
+  it('resolves a validator whose dependencies resolve asynchronously', async () => {
+    const validator = await resolveConfigFileValidator('async-template-check');
+
+    expect(validator).to.be.instanceOf(AsyncResolvedTemplateValidator);
+    expect(validator?.validate).to.be.a('function');
   });
 
   it('returns undefined for an unknown validator name', async () => {

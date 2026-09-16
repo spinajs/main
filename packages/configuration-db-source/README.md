@@ -162,6 +162,9 @@ protected Template: string;
   `ConfigFileValidator`, is registered with `@Injectable(ConfigFileValidator)` and rejects a
   file by throwing `ValidationFailed`; its message is returned to the client. It is looked up
   by instance `ServiceName` or class name ( `resolveConfigFileValidator` ).
+- A class `validator` must be declared before the class holding the decorated property in module
+  load order - otherwise the decorator reads it in its temporal dead zone ( ESM ) and throws.
+  Use the string form ( `validator: 'OfferTemplateValidator'` ) when that order cannot be guaranteed.
 
 ```ts
 @Injectable(ConfigFileValidator)
