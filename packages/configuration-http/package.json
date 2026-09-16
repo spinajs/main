@@ -51,7 +51,6 @@
     "configuration"
   ],
   "devDependencies": {
-    "@spinajs/fs": "2.0.537",
     "@spinajs/orm-sqlite": "2.0.537",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
@@ -62,6 +61,7 @@
     "@spinajs/configuration-db-source": "2.0.537",
     "@spinajs/di": "2.0.537",
     "@spinajs/exceptions": "2.0.537",
+    "@spinajs/fs": "2.0.537",
     "@spinajs/http": "2.0.537",
     "@spinajs/log": "2.0.537",
     "@spinajs/orm": "2.0.537",
