@@ -182,14 +182,17 @@ describe('ConfigFileUploads', function () {
     });
 
     it('rejects a second file that would be stored under the same name within one second', async () => {
-      // the name is clock based: pre-create the names of this second and the next one
+      const e = await entry('tpl.offer');
+      // the name is clock based: pre-create the names of this second and the next two,
+      // in case resolving the entry above crossed a second boundary
       const now = DateTime.utc();
-      for (const at of [now, now.plus({ seconds: 1 })]) {
+      for (const at of [now, now.plus({ seconds: 1 }), now.plus({ seconds: 2 })]) {
         writeFileSync(join(FILES_DIR, storedFileName('offer.xlsx', at)), 'x');
       }
-      const err = await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () => uploads.accept(e, uploaded(xlsx('x'), 'offer.xlsx')));
       expect(err).to.be.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.contain('a moment ago');
+      expect(readdirSync(UPLOAD_DIR)).to.be.empty;
     });
   });
 
@@ -207,6 +210,14 @@ describe('ConfigFileUploads', function () {
       expect(await rejects(async () => uploads.commit(await entry('tpl.pdfOnly'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(ConfigFileRejected);
       expect(await rejects(async () => uploads.commit(await entry('app.name'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(NotAFileEntry);
       expect(String((await entry('tpl.pdfOnly')).Value)).to.equal('default.xlsx');
+    });
+
+    it('rejects with a sanitized message naming the slug when the registered schema cannot be compiled', async () => {
+      const err = await rejects(async () => uploads.commit(await entry('tpl.broken'), 'offer-20260916-121530.xlsx'));
+      expect(err).to.be.instanceOf(Error).and.not.instanceOf(ConfigFileRejected);
+      expect((err as Error).message).to.contain('tpl.broken').and.to.contain('invalid');
+      // the ajv strict-mode detail (an unregistered 'x-widget' keyword) is logged, not returned
+      expect((err as Error).message).to.not.contain('strict');
     });
   });
 

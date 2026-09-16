@@ -1,5 +1,6 @@
 import { ConfigurationEntryType, IConfigurationEntryMeta } from '@spinajs/configuration-db-source';
-import type { IValidationError } from '@spinajs/validation';
+import type { DbConfig } from '@spinajs/configuration-db-source';
+import type { DataValidator, IValidationError } from '@spinajs/validation';
 
 /** A plain JSON Schema fragment. */
 type JsonSchema = Record<string, unknown>;
@@ -101,4 +102,45 @@ export function formatValidationErrors(field: string, errors: IValidationError[]
 
   // with allErrors on, the type schema and the registered schema report the same failure from both allOf branches
   return [...new Set(messages)].join('; ') || `invalid value for ${field}`;
+}
+
+/**
+ * A schema that only passed the meta-schema check at startup ( see `@spinajs/validation` ) can still
+ * fail strict-mode compilation lazily, eg. an unregistered `x-*` keyword or format. Callers log
+ * `message` and answer with a sanitized error instead of the ajv detail.
+ */
+export class SchemaCompileError extends Error {
+  public readonly Slug: string;
+
+  constructor(slug: string, cause: Error) {
+    super(`configuration schema '${slug}' cannot be compiled: ${cause.message}`);
+    this.Slug = slug;
+  }
+}
+
+/**
+ * Validates one `Value` / `Default` of an entry against its type, its meta and the schema registered
+ * under the slug, if any. The value is wrapped in an object so a bare null / scalar never confuses
+ * `tryValidate`'s schema-vs-data overload. Returns the formatted errors, `null` when valid.
+ */
+export function validateEntryValue(
+  validator: DataValidator,
+  entry: DbConfig,
+  field: string,
+  value: unknown,
+): string | null {
+  let schemaRef: string | undefined;
+  try {
+    schemaRef = validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
+  } catch (err) {
+    throw new SchemaCompileError(entry.Slug, err as Error);
+  }
+
+  const schema = valueSchema(entry.Type, entry.Meta, schemaRef);
+  const [isValid, errors] = validator.tryValidate(
+    { type: 'object', properties: { [field]: schema }, required: [field] },
+    { [field]: value },
+  );
+
+  return isValid ? null : formatValidationErrors(field, errors);
 }

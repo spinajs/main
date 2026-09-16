@@ -11,7 +11,7 @@ import type { IUploadedFile } from '@spinajs/http';
 
 import { ConfigFileRejected, NotAFileEntry } from './errors.js';
 import { checkFileRules, storedFileName } from './files.js';
-import { formatValidationErrors, valueSchema } from './validation.js';
+import { SchemaCompileError, validateEntryValue } from './validation.js';
 
 /** A file that passed every rule and sits on the entry's provider; `Value` still points at the previous one. */
 export interface IAcceptedConfigFile {
@@ -58,7 +58,9 @@ export class ConfigFileUploads {
     try {
       return await this.acceptFile(entry, file);
     } finally {
-      await rm(file.OriginalFile.filepath, { force: true }).catch(() => undefined);
+      await rm(file.OriginalFile.filepath, { force: true }).catch((err) =>
+        this.Log.warn(`Temporary upload file ${file.OriginalFile.filepath} was not removed: ${(err as Error).message}`),
+      );
     }
   }
 
@@ -114,7 +116,13 @@ export class ConfigFileUploads {
     }
 
     const hash = await _fileHash(localPath);
-    await target.upload(localPath, fileName);
+    try {
+      await target.upload(localPath, fileName);
+    } catch (err) {
+      // a partial write must not survive as a file the caller cannot discard
+      await target.rm(fileName).catch(() => undefined);
+      throw err;
+    }
 
     return {
       entry,
@@ -166,22 +174,21 @@ export class ConfigFileUploads {
   /**
    * The stored name is a `Value` and must satisfy the same schema a PATCH would: the entry type,
    * its meta, and the schema registered under the slug when there is one. A schema that only passed
-   * the meta-schema check at startup can still fail strict compilation here - reported, not skipped.
+   * the meta-schema check at startup can still fail strict compilation here - logged and reported
+   * as a plain server error, same door as PATCH takes for the same failure.
    */
   private validateStoredName(entry: DbConfig, fileName: string): void {
-    let schemaRef: string | undefined;
     try {
-      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
+      const broken = validateEntryValue(this.Validator, entry, 'Value', fileName);
+      if (broken) {
+        throw new ConfigFileRejected(broken);
+      }
     } catch (err) {
-      throw new Error(`configuration schema '${entry.Slug}' cannot be compiled: ${(err as Error).message}`);
-    }
-
-    const [isValid, errors] = this.Validator.tryValidate(
-      { type: 'object', properties: { Value: valueSchema(entry.Type, entry.Meta, schemaRef) }, required: ['Value'] },
-      { Value: fileName },
-    );
-    if (!isValid) {
-      throw new ConfigFileRejected(formatValidationErrors('Value', errors));
+      if (err instanceof SchemaCompileError) {
+        this.Log.error(err.message);
+        throw new Error(`configuration schema '${entry.Slug}' is invalid`);
+      }
+      throw err;
     }
   }
 }
