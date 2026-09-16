@@ -16,7 +16,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 
-import { ConfigFileValidator, DbConfig, DbConfigFileHistory, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
+import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
@@ -195,46 +195,6 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
   it('Should migrate configuration table', async () => {
     const result = await (await db()).Connections.get('sqlite')!.schema().tableExists('configuration');
     expect(result).to.be.true;
-  });
-
-  it('Should migrate configuration file history table', async () => {
-    const result = await (await db()).Connections.get('sqlite')!.schema().tableExists('configuration_file_history');
-    expect(result).to.be.true;
-  });
-
-  it('Should store and read configuration file history rows', async () => {
-    const row = new DbConfigFileHistory({
-      Slug: 'yourscreen.kalkulator.template',
-      Fs: 'fs-excel-templates',
-      FileName: 'kalkulator-20260916-121530.xlsx',
-      OriginalName: 'kalkulator.xlsx',
-      Size: 12345,
-      Hash: 'a'.repeat(64),
-      UploadedBy: 7,
-      ArchivedPath: null,
-      // `ArchivedAt` can't be typed `DateTime | null` and still satisfy the ORM's
-      // @DateTimeColumn() decorator (see DbConfigFileHistory) - undefined is the
-      // "not archived yet" value.
-      ArchivedAt: undefined,
-    });
-    await row.insert();
-
-    const read = await DbConfigFileHistory.where('Id', row.Id).first();
-
-    expect(read.Slug).to.equal('yourscreen.kalkulator.template');
-    expect(read.FileName).to.equal('kalkulator-20260916-121530.xlsx');
-    expect(read.UploadedBy).to.equal(7);
-    expect(DateTime.isDateTime(read.UploadedAt)).to.be.true;
-    expect(read.ArchivedPath).to.not.exist;
-    expect(read.ArchivedAt).to.not.exist;
-
-    read.ArchivedPath = `archive/${read.FileName}`;
-    read.ArchivedAt = DateTime.now();
-    await read.update();
-
-    const archived = await DbConfigFileHistory.where('Id', row.Id).first();
-    expect(archived.ArchivedPath).to.equal('archive/kalkulator-20260916-121530.xlsx');
-    expect(DateTime.isDateTime(archived.ArchivedAt)).to.be.true;
   });
 
   it('Should insert config values to db', async () => {

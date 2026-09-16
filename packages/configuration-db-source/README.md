@@ -176,11 +176,6 @@ export class OfferTemplateValidator extends ConfigFileValidator {
 }
 ```
 
-Uploads are recorded in `configuration_file_history` ( model `DbConfigFileHistory`, migration
-bundled, connection `default` ): slug, provider, stored name, original name, size, sha256,
-uploader id, upload time and — once a newer upload replaced it — the `archive/` path and
-archive time. `UploadedBy` is a plain user id; this package does not depend on `@spinajs/rbac`.
-
 ## Key concepts
 
 - **`Slug` is the config path** — exactly what you read with
