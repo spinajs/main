@@ -12,3 +12,4 @@ export * from './schema-providers.js';
 export * from './exceptions/index.js';
 export * from './sources.js';
 export * from './validator.js';
+export * from './types.js';
