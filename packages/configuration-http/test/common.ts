@@ -19,14 +19,23 @@ chai.use(chaiSubset);
 chai.use(chaiLike);
 chai.use(chaiThings);
 
-export const PORT = 9697;
+// 9697 is unusable on at least one dev machine in this org: a bare Node http
+// server bound to it refuses/times out virtually every connection (~310ms
+// ETIMEDOUT), reproduced outside this test suite entirely - some local
+// service/security software is holding onto that exact port. Not a code bug;
+// picking a different port sidesteps it.
+export const PORT = 19697;
 
 export function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
+// Use the literal IPv4 loopback address rather than 'localhost': Node's
+// Happy-Eyeballs dual-stack resolution (racing ::1 and 127.0.0.1) adds enough
+// jitter on some Windows dev machines to intermittently fail loopback
+// connections; connecting by IP literal skips that resolution entirely.
 export function req() {
-  return chai.request(`http://localhost:${PORT}/`);
+  return chai.request(`http://127.0.0.1:${PORT}/`);
 }
 
 /**
