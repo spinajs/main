@@ -54,6 +54,10 @@ function present(entry: DbConfig) {
 // size of the OriginalName column
 const ORIGINAL_NAME_MAX_LENGTH = 255;
 
+// storedFileName caps the base at 100 chars and appends a fixed-length timestamp, but not the
+// extension - an overlong one could still push the generated FileName past its column size.
+const EXTENSION_MAX_LENGTH = 16;
+
 function archivePath(fileName: string) {
   return `archive/${fileName}`;
 }
@@ -332,6 +336,13 @@ export class ConfigurationController extends BaseController {
       );
     }
 
+    const extension = fileExtension(file.Name);
+    if (extension.length > EXTENSION_MAX_LENGTH) {
+      return badRequest(
+        `File extension is too long: ${extension.length} characters, the limit is ${EXTENSION_MAX_LENGTH}`,
+      );
+    }
+
     const fsName = options.fs;
     const localPath = file.OriginalFile.filepath;
 
@@ -340,7 +351,6 @@ export class ConfigurationController extends BaseController {
       return badRequest(`File is too large: ${file.Size} bytes, the limit is ${maxSize} bytes`);
     }
 
-    const extension = fileExtension(file.Name);
     if (options.extensions?.length && !options.extensions.some((e) => e.toLowerCase() === extension)) {
       return badRequest(`File extension must be one of: ${options.extensions.join(', ')}. Got: ${extension || 'none'}`);
     }
@@ -438,6 +448,13 @@ export class ConfigurationController extends BaseController {
       .orderByDescending('Id')
       .first();
     if (!previous) {
+      return;
+    }
+
+    // Value can be reassigned between the history insert and this move (e.g. a concurrent PATCH
+    // or another upload's recordUpload) - re-read it so a row that became current again isn't archived.
+    const reloaded = await DbConfig.where('Slug', current.Slug).first();
+    if (reloaded && previous.FileName === String(reloaded.Value)) {
       return;
     }
 

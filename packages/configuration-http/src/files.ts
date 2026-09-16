@@ -7,7 +7,8 @@ export function fileExtension(name: string): string {
   return extname(name).slice(1).toLowerCase();
 }
 
-// keeps the stored name well inside the FileName column
+// caps the base name only - the caller must also bound the extension to keep the stored name
+// inside the FileName column
 const BASE_NAME_MAX_LENGTH = 100;
 
 /**

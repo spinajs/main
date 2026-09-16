@@ -425,6 +425,13 @@ describe('configuration-http api', function () {
         await expectNothingStored('tpl.offer');
       });
 
+      it('rejects an extension longer than 16 characters', async () => {
+        const res = await upload('tpl.validated', xlsx('x'), `a.${'x'.repeat(20)}`);
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('16');
+        await expectNothingStored('tpl.validated');
+      });
+
       it('responds 500 naming the slug and an unregistered fs provider', async () => {
         const res = await upload('tpl.unknownFs', xlsx('x'), 'offer.xlsx');
         expect(res).to.have.status(500);
@@ -507,6 +514,28 @@ describe('configuration-http api', function () {
         const row = await DbConfigFileHistory.where('FileName', first.body.Value).first();
         expect(row.ArchivedAt).to.not.exist;
         expect(existsSync(join(FILES_DIR, first.body.Value))).to.be.true;
+      });
+
+      it('does not archive a previous upload whose file name Value was raced back to after the current upload committed', async () => {
+        const RACED_NAME = 'raced-back.xlsx';
+        controller.recordUpload = async function (this: unknown, ...args: Parameters<Recorder>) {
+          writeFileSync(join(FILES_DIR, RACED_NAME), xlsx('raced'));
+          await historyRow(RACED_NAME);
+          const current = await recordUpload.apply(this, args);
+          // simulate a concurrent request that re-pointed Value at an older, still unarchived file
+          // between this recordUpload transaction committing and archivePrevious running
+          const raced = await DbConfig.where('Slug', 'tpl.offer').first();
+          raced.Value = RACED_NAME as typeof raced.Value;
+          await raced.update();
+          return current;
+        };
+
+        const res = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+
+        expect(res).to.have.status(200);
+        const racedRow = await DbConfigFileHistory.where('FileName', RACED_NAME).first();
+        expect(racedRow.ArchivedAt).to.not.exist;
+        expect(existsSync(join(FILES_DIR, RACED_NAME))).to.be.true;
       });
 
       it('still accepts the upload when the previous file cannot be archived', async () => {
