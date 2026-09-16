@@ -69,8 +69,15 @@ export class ConfigFileUploads {
     configFileOptions(entry);
     this.validateStoredName(entry, fileName);
 
+    const previous = entry.Value;
     entry.Value = fileName as typeof entry.Value;
-    await entry.update();
+    try {
+      await entry.update();
+    } catch (err) {
+      // a caller keeping the instance must not see a Value the database never accepted
+      entry.Value = previous;
+      throw err;
+    }
 
     return entry;
   }

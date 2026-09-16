@@ -206,6 +206,17 @@ describe('ConfigFileUploads', function () {
       expect(String((await entry('tpl.offer')).Value)).to.equal(accepted.fileName);
     });
 
+    it('restores the in-memory Value when the update is refused', async () => {
+      const e = await entry('tpl.offer');
+      e.update = () => Promise.reject(new Error('boom'));
+
+      const err = await rejects(() => uploads.commit(e, 'offer-20260916-121530.xlsx'));
+
+      expect((err as Error).message).to.equal('boom');
+      expect(String(e.Value)).to.equal('default.xlsx');
+      expect(String((await entry('tpl.offer')).Value)).to.equal('default.xlsx');
+    });
+
     it('refuses a name outside the slug schema and an entry that is not a file entry', async () => {
       expect(await rejects(async () => uploads.commit(await entry('tpl.pdfOnly'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(ConfigFileRejected);
       expect(await rejects(async () => uploads.commit(await entry('app.name'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(NotAFileEntry);
