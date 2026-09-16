@@ -8,7 +8,7 @@ import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinaj
 import { DbConfig, DbConfigFileHistory } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
 import { createHash } from 'crypto';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import 'mocha';
 
@@ -415,6 +415,52 @@ describe('configuration-http api', function () {
       it('returns 404 for an unknown slug', async () => {
         const res = await upload('does.not.exist', xlsx('x'), 'offer.xlsx');
         expect(res).to.have.status(404);
+      });
+    });
+
+    describe('archiving', () => {
+      it('moves the previous upload to archive/ and marks its history row', async () => {
+        const first = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        const second = await upload('tpl.offer', xlsx('second'), 'second.xlsx');
+
+        expect(second).to.have.status(200);
+        expect(second.body.Value).to.match(/^second-/);
+
+        const firstRow = await DbConfigFileHistory.where('FileName', first.body.Value).first();
+        expect(firstRow.ArchivedPath).to.equal(`archive/${first.body.Value}`);
+        expect(firstRow.ArchivedAt).to.exist;
+        expect(existsSync(join(FILES_DIR, 'archive', first.body.Value))).to.be.true;
+        expect(existsSync(join(FILES_DIR, first.body.Value))).to.be.false;
+
+        const secondRow = await DbConfigFileHistory.where('FileName', second.body.Value).first();
+        expect(secondRow.ArchivedAt).to.not.exist;
+        expect(existsSync(join(FILES_DIR, second.body.Value))).to.be.true;
+
+        // the default file has no history row, so it is never archived
+        expect(existsSync(join(FILES_DIR, 'default.xlsx'))).to.be.true;
+      });
+
+      it('does not archive on PATCH', async () => {
+        const first = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+
+        const patch = await req().patch('configuration/tpl.offer').set(JSON_HEADERS).send({ Value: 'default.xlsx' });
+        expect(patch).to.have.status(200);
+
+        const row = await DbConfigFileHistory.where('FileName', first.body.Value).first();
+        expect(row.ArchivedAt).to.not.exist;
+        expect(existsSync(join(FILES_DIR, first.body.Value))).to.be.true;
+      });
+
+      it('still accepts the upload when the previous file cannot be archived', async () => {
+        const first = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        unlinkSync(join(FILES_DIR, first.body.Value));
+
+        const second = await upload('tpl.offer', xlsx('second'), 'second.xlsx');
+
+        expect(second).to.have.status(200);
+        const firstRow = await DbConfigFileHistory.where('FileName', first.body.Value).first();
+        expect(firstRow.ArchivedAt).to.not.exist;
+        expect(firstRow.ArchivedPath).to.not.exist;
       });
     });
   });

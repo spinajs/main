@@ -228,13 +228,16 @@ export class ConfigurationController extends BaseController {
     const hash = await sha256File(localPath);
     await target.upload(localPath, fileName);
 
+    let history: DbConfigFileHistory;
     try {
-      await this.recordUpload(entry, { Slug: entry.Slug, Fs: fsName, FileName: fileName, OriginalName: file.Name, Size: file.Size, Hash: hash, UploadedBy: user.PrimaryKeyValue as number });
+      history = await this.recordUpload(entry, { Slug: entry.Slug, Fs: fsName, FileName: fileName, OriginalName: file.Name, Size: file.Size, Hash: hash, UploadedBy: user.PrimaryKeyValue as number });
     } catch (err) {
       await target.rm(fileName).catch(() => undefined);
       this.Log.error(`Cannot save uploaded file ${fileName} for '${entry.Slug}': ${(err as Error).message}`);
       return new ServerError({ error: { message: `cannot save uploaded file for '${entry.Slug}'` } });
     }
+
+    await this.archivePrevious(history);
 
     return new Ok(present(entry));
   }
@@ -249,6 +252,27 @@ export class ConfigurationController extends BaseController {
 
       return row;
     });
+  }
+
+  /**
+   * The new file is already current when this runs, so a failed move is only logged and leaves the
+   * previous row unarchived instead of failing the upload.
+   */
+  private async archivePrevious(current: DbConfigFileHistory): Promise<void> {
+    const previous = await DbConfigFileHistory.where('Slug', current.Slug).where('Id', '!=', current.Id).whereNull('ArchivedAt').orderByDescending('Id').first();
+    if (!previous) {
+      return;
+    }
+
+    const archivedPath = `archive/${previous.FileName}`;
+    try {
+      await getFs(previous.Fs).move(previous.FileName, archivedPath);
+      previous.ArchivedPath = archivedPath;
+      previous.ArchivedAt = DateTime.now();
+      await previous.update();
+    } catch (err) {
+      this.Log.warn(`Cannot archive ${previous.FileName} of '${previous.Slug}': ${(err as Error).message}`);
+    }
   }
 
   /**
