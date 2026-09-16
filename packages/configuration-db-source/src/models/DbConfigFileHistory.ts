@@ -37,6 +37,8 @@ export class DbConfigFileHistory extends ModelBase<DbConfigFileHistory> {
   // annotation erases to `Object` in emitted design:type metadata (regardless of the
   // `?` modifier), which fails the @DateTimeColumn() type check below. `undefined`
   // is the "not archived yet" value instead of `null` (see the model test).
+  // A row hydrated from a SELECT has `ArchivedAt === null` for an unarchived NULL column
+  // despite this type, so callers must check `== null`, never `=== undefined`.
   @DateTimeColumn()
   public ArchivedAt?: DateTime;
 }
