@@ -21,7 +21,14 @@ import { User, userModel } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
-import { CONFIG_FILE_DEFAULT_MAX_SIZE, DbConfig, DbConfigFileHistory, IConfigFileCandidate, configFileValidatorName, resolveConfigFileValidator } from '@spinajs/configuration-db-source';
+import {
+  CONFIG_FILE_DEFAULT_MAX_SIZE,
+  DbConfig,
+  DbConfigFileHistory,
+  IConfigFileCandidate,
+  configFileValidatorName,
+  resolveConfigFileValidator,
+} from '@spinajs/configuration-db-source';
 import { FileInfoService, getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
@@ -149,7 +156,10 @@ export class ConfigurationController extends BaseController {
    */
   @Patch(':slug')
   @Permission(['updateAny'])
-  public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
+  public async update(
+    @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
+    @Body() data: UpdateConfigDto,
+  ) {
     const schema = this.entryValueSchema(entry);
     if (schema instanceof ServerError) {
       return schema;
@@ -198,7 +208,11 @@ export class ConfigurationController extends BaseController {
    */
   @Post(':slug/file')
   @Permission(['updateAny'])
-  public async uploadFile(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @File({ required: true }) file: IUploadedFile, @CurrentUser() user: User) {
+  public async uploadFile(
+    @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
+    @File({ required: true }) file: IUploadedFile,
+    @CurrentUser() user: User,
+  ) {
     try {
       return await this.storeFile(entry, file, user);
     } finally {
@@ -219,7 +233,7 @@ export class ConfigurationController extends BaseController {
    */
   @Get(':slug/file')
   @Permission(['readAny'])
-  public async downloadFile(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
+  public downloadFile(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
     const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
     if (!options?.fs || !entry.Value) {
       return badRequest(`configuration entry '${entry.Slug}' is not a file entry`);
@@ -246,7 +260,9 @@ export class ConfigurationController extends BaseController {
 
     const userIds = [...new Set(rows.map((r) => r.UploadedBy))];
     const users = userIds.length ? await userModel().select().whereIn('Id', userIds) : [];
-    const uploaders = new Map<number, IUploaderJson>(users.map((u) => [u.Id, { Id: u.Id, Email: u.Email, Login: u.Login }]));
+    const uploaders = new Map<number, IUploaderJson>(
+      users.map((u) => [u.Id, { Id: u.Id, Email: u.Email, Login: u.Login }]),
+    );
 
     return new Ok(rows.map((r) => presentHistoryRow(r, uploaders.get(r.UploadedBy) ?? null)));
   }
@@ -264,7 +280,10 @@ export class ConfigurationController extends BaseController {
    */
   @Get(':slug/files/:id')
   @Permission(['readAny'])
-  public async downloadFileVersion(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Param() id: number) {
+  public async downloadFileVersion(
+    @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
+    @Param() id: number,
+  ) {
     const row = await DbConfigFileHistory.where('Slug', entry.Slug).where('Id', id).first();
     if (!row) {
       return new NotFound({ error: { message: `file version ${id} of '${entry.Slug}' not found` } });
@@ -294,11 +313,18 @@ export class ConfigurationController extends BaseController {
 
     const mimeType = await this.detectMimeType(localPath);
     if (options.mimeTypes?.length && !options.mimeTypes.includes(mimeType)) {
-      return badRequest(`File content type must be one of: ${options.mimeTypes.join(', ')}. Got: ${mimeType || 'unknown'}`);
+      return badRequest(
+        `File content type must be one of: ${options.mimeTypes.join(', ')}. Got: ${mimeType || 'unknown'}`,
+      );
     }
 
     if (options.validator) {
-      const rejection = await this.runValidator(entry, configFileValidatorName(options.validator), { localPath, originalName: file.Name, size: file.Size, mimeType });
+      const rejection = await this.runValidator(entry, configFileValidatorName(options.validator), {
+        localPath,
+        originalName: file.Name,
+        size: file.Size,
+        mimeType,
+      });
       if (rejection) {
         return rejection;
       }
@@ -326,7 +352,15 @@ export class ConfigurationController extends BaseController {
 
     let history: DbConfigFileHistory;
     try {
-      history = await this.recordUpload(entry, { Slug: entry.Slug, Fs: fsName, FileName: fileName, OriginalName: file.Name, Size: file.Size, Hash: hash, UploadedBy: user.PrimaryKeyValue as number });
+      history = await this.recordUpload(entry, {
+        Slug: entry.Slug,
+        Fs: fsName,
+        FileName: fileName,
+        OriginalName: file.Name,
+        Size: file.Size,
+        Hash: hash,
+        UploadedBy: user.PrimaryKeyValue as number,
+      });
     } catch (err) {
       await target.rm(fileName).catch(() => undefined);
       this.Log.error(`Cannot save uploaded file ${fileName} for '${entry.Slug}': ${(err as Error).message}`);
@@ -338,7 +372,10 @@ export class ConfigurationController extends BaseController {
     return new Ok(present(entry));
   }
 
-  private recordUpload(entry: DbConfig, data: Pick<DbConfigFileHistory, 'Slug' | 'Fs' | 'FileName' | 'OriginalName' | 'Size' | 'Hash' | 'UploadedBy'>): Promise<DbConfigFileHistory> {
+  private recordUpload(
+    entry: DbConfig,
+    data: Pick<DbConfigFileHistory, 'Slug' | 'Fs' | 'FileName' | 'OriginalName' | 'Size' | 'Hash' | 'UploadedBy'>,
+  ): Promise<DbConfigFileHistory> {
     return DbConfigFileHistory.transaction(async () => {
       const row = new DbConfigFileHistory({ ...data, ArchivedPath: null });
       await row.insert();
@@ -355,7 +392,11 @@ export class ConfigurationController extends BaseController {
    * previous row unarchived instead of failing the upload.
    */
   private async archivePrevious(current: DbConfigFileHistory): Promise<void> {
-    const previous = await DbConfigFileHistory.where('Slug', current.Slug).where('Id', '!=', current.Id).whereNull('ArchivedAt').orderByDescending('Id').first();
+    const previous = await DbConfigFileHistory.where('Slug', current.Slug)
+      .where('Id', '!=', current.Id)
+      .whereNull('ArchivedAt')
+      .orderByDescending('Id')
+      .first();
     if (!previous) {
       return;
     }
@@ -383,8 +424,12 @@ export class ConfigurationController extends BaseController {
     }
   }
 
-  private async runValidator(entry: DbConfig, name: string, candidate: IConfigFileCandidate): Promise<BadRequestResponse | ServerError | null> {
-    const validator = await resolveConfigFileValidator(name);
+  private async runValidator(
+    entry: DbConfig,
+    name: string,
+    candidate: IConfigFileCandidate,
+  ): Promise<BadRequestResponse | ServerError | null> {
+    const validator = resolveConfigFileValidator(name);
     if (!validator) {
       this.Log.error(`Configuration file validator '${name}' of '${entry.Slug}' is not registered`);
       return new ServerError({ error: { message: `configuration file validator '${name}' is not registered` } });
@@ -438,7 +483,11 @@ export class ConfigurationController extends BaseController {
    * non-null object for the validator - a bare `null` / scalar would otherwise
    * confuse `tryValidate`'s schema-vs-data overload resolution.
    */
-  private validateValue(valueSchema: Record<string, unknown>, field: string, value: unknown): BadRequestResponse | null {
+  private validateValue(
+    valueSchema: Record<string, unknown>,
+    field: string,
+    value: unknown,
+  ): BadRequestResponse | null {
     const [isValid, errors] = this.Validator.tryValidate(
       { type: 'object', properties: { [field]: valueSchema }, required: [field] },
       { [field]: value },
