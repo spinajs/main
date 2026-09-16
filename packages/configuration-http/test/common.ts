@@ -250,6 +250,7 @@ export async function seedFileEntries() {
     file({ Slug: 'tpl.unknownValidator', Meta: { file: { fs: FILES_FS, validator: 'NoSuchTemplateValidator' } } }),
     file({ Slug: 'tpl.pdfOnly', Meta: { file: { fs: FILES_FS } } }),
     file({ Slug: 'tpl.noMeta' }),
+    file({ Slug: 'tpl.unknownFs', Meta: { file: { fs: 'no-such-fs' } } }),
   ]);
 }
 

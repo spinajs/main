@@ -6,9 +6,10 @@ import { FileInfoService, FsBootsrapper, fsService } from '@spinajs/fs';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
 import { DbConfig, DbConfigFileHistory } from '@spinajs/configuration-db-source';
+import { IRbacModelDescriptor, userModel } from '@spinajs/rbac';
 import { expect } from 'chai';
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import 'mocha';
 
@@ -416,9 +417,66 @@ describe('configuration-http api', function () {
         const res = await upload('does.not.exist', xlsx('x'), 'offer.xlsx');
         expect(res).to.have.status(404);
       });
+
+      it('rejects an original name longer than 255 characters', async () => {
+        const res = await upload('tpl.offer', xlsx('x'), `${'a'.repeat(251)}.xlsx`);
+        expect(res).to.have.status(400);
+        expect(res.body.error.message).to.contain('255');
+        await expectNothingStored('tpl.offer');
+      });
+
+      it('responds 500 naming the slug and an unregistered fs provider', async () => {
+        const res = await upload('tpl.unknownFs', xlsx('x'), 'offer.xlsx');
+        expect(res).to.have.status(500);
+        expect(res.body.error.message).to.contain('tpl.unknownFs').and.to.contain('no-such-fs');
+        await expectNothingStored('tpl.unknownFs');
+        expect(readdirSync(UPLOAD_DIR)).to.be.empty;
+      });
     });
 
     describe('archiving', () => {
+      type Recorder = (entry: DbConfig, data: Record<string, unknown>) => Promise<DbConfigFileHistory>;
+      const controller = ConfigurationController.prototype as unknown as { recordUpload: Recorder };
+      const recordUpload = controller.recordUpload;
+
+      const historyRow = (fileName: string) =>
+        new DbConfigFileHistory({ Slug: 'tpl.offer', Fs: FILES_FS, FileName: fileName, OriginalName: fileName, Size: 1, Hash: 'x', UploadedBy: 1, ArchivedPath: null }).insert();
+
+      afterEach(() => {
+        controller.recordUpload = recordUpload;
+      });
+
+      it('does not archive an upload recorded after the current one', async () => {
+        controller.recordUpload = async function (this: unknown, ...args: Parameters<Recorder>) {
+          const current = await recordUpload.apply(this, args);
+          writeFileSync(join(FILES_DIR, 'newer.xlsx'), xlsx('newer'));
+          await historyRow('newer.xlsx');
+          return current;
+        };
+
+        const res = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+
+        expect(res).to.have.status(200);
+        expect(existsSync(join(FILES_DIR, 'newer.xlsx'))).to.be.true;
+        const newer = await DbConfigFileHistory.where('FileName', 'newer.xlsx').first();
+        expect(newer.ArchivedAt).to.not.exist;
+      });
+
+      it('does not archive an earlier upload stored under the current file name', async () => {
+        controller.recordUpload = async function (this: unknown, ...args: Parameters<Recorder>) {
+          await historyRow(args[1].FileName as string);
+          return recordUpload.apply(this, args);
+        };
+
+        const res = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+
+        expect(res).to.have.status(200);
+        expect(readFileSync(join(FILES_DIR, res.body.Value))).to.deep.equal(xlsx('first'));
+        const rows = await DbConfigFileHistory.where('FileName', res.body.Value);
+        expect(rows).to.have.lengthOf(2);
+        expect(rows.every((r) => r.ArchivedAt == null)).to.be.true;
+      });
+
       it('moves the previous upload to archive/ and marks its history row', async () => {
         const first = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
         const second = await upload('tpl.offer', xlsx('second'), 'second.xlsx');
@@ -518,6 +576,53 @@ describe('configuration-http api', function () {
         const current = await download(`configuration/tpl.offer/files/${secondRow.Id}`);
         expect(current.body).to.deep.equal(xlsx('second'));
         expect(current.header['content-disposition']).to.contain('second.xlsx');
+      });
+
+      it('lists uploaders even when the user model is guarded by a resource the role lacks', async () => {
+        const descriptor = extractModelDescriptor(userModel()) as IRbacModelDescriptor;
+        const resource = descriptor.RbacResource;
+        await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+
+        descriptor.RbacResource = 'users';
+        try {
+          const res = await req().get('configuration/tpl.offer/files').set(JSON_HEADERS);
+
+          expect(res).to.have.status(200);
+          expect(res.body[0].Uploader).to.deep.equal({ Id: 1, Email: 'admin@spinajs.test', Login: 'admin' });
+        } finally {
+          descriptor.RbacResource = resource;
+        }
+      });
+
+      it('downloads a version from archive/ when it was moved but its row was not updated', async () => {
+        const uploaded = await upload('tpl.offer', xlsx('first'), 'first.xlsx');
+        const row = await DbConfigFileHistory.where('FileName', uploaded.body.Value).first();
+        mkdirSync(join(FILES_DIR, 'archive'), { recursive: true });
+        renameSync(join(FILES_DIR, uploaded.body.Value), join(FILES_DIR, 'archive', uploaded.body.Value));
+
+        const res = await download(`configuration/tpl.offer/files/${row.Id}`);
+
+        expect(res).to.have.status(200);
+        expect(res.body).to.deep.equal(xlsx('first'));
+      });
+
+      it('returns 404 for a version id that is not a positive integer', async () => {
+        for (const id of ['abc', '0', '-1', '1.5']) {
+          const res = await req().get(`configuration/tpl.offer/files/${id}`).set(JSON_HEADERS);
+          expect(res, id).to.have.status(404);
+        }
+      });
+
+      it('responds 500 naming the slug and an unregistered fs provider on download', async () => {
+        const current = await req().get('configuration/tpl.unknownFs/file').set(JSON_HEADERS);
+        expect(current).to.have.status(500);
+        expect(current.body.error.message).to.contain('tpl.unknownFs').and.to.contain('no-such-fs');
+
+        const row = new DbConfigFileHistory({ Slug: 'tpl.unknownFs', Fs: 'no-such-fs', FileName: 'a.xlsx', OriginalName: 'a.xlsx', Size: 1, Hash: 'x', UploadedBy: 1, ArchivedPath: null });
+        await row.insert();
+        const version = await req().get(`configuration/tpl.unknownFs/files/${row.Id}`).set(JSON_HEADERS);
+        expect(version).to.have.status(500);
+        expect(version.body.error.message).to.contain('tpl.unknownFs').and.to.contain('no-such-fs');
       });
 
       it('returns 404 for a version of another entry', async () => {

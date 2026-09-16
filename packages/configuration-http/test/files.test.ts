@@ -26,6 +26,14 @@ describe('configuration file helpers', () => {
     it('omits the dot for a name without extension', () => {
       expect(storedFileName('template', at)).to.equal('template-20260916-121530');
     });
+
+    it('caps the base name at 100 characters', () => {
+      expect(storedFileName(`${'a'.repeat(300)}.xlsx`, at)).to.equal(`${'a'.repeat(100)}-20260916-121530.xlsx`);
+    });
+
+    it('uses "file" when the name has no base', () => {
+      expect(storedFileName('', at)).to.equal('file-20260916-121530');
+    });
   });
 
   describe('fileExtension', () => {

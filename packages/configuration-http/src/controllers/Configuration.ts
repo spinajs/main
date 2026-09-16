@@ -17,8 +17,8 @@ import {
   ServerError,
 } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
-import { User, userModel } from '@spinajs/rbac';
-import { Autoinject } from '@spinajs/di';
+import { IRbacAsyncStorage, User, userModel } from '@spinajs/rbac';
+import { Autoinject, DI } from '@spinajs/di';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
 import {
@@ -29,9 +29,10 @@ import {
   configFileValidatorName,
   resolveConfigFileValidator,
 } from '@spinajs/configuration-db-source';
-import { FileInfoService, getFs } from '@spinajs/fs';
+import { FileInfoService, fs, getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { rm } from 'node:fs/promises';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { formatValidationErrors, valueSchema } from '../validation.js';
@@ -48,6 +49,13 @@ function present(entry: DbConfig) {
   const out = entry.dehydrate() as Record<string, unknown>;
   out.Meta = entry.Meta ?? null;
   return out;
+}
+
+// size of the OriginalName column
+const ORIGINAL_NAME_MAX_LENGTH = 255;
+
+function archivePath(fileName: string) {
+  return `archive/${fileName}`;
 }
 
 function badRequest(message: string) {
@@ -204,7 +212,7 @@ export class ConfigurationController extends BaseController {
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — updateAny permission required on configuration resource
    * @response 404 Configuration entry not found
-   * @response 500 Unregistered validator, or the upload could not be saved
+   * @response 500 Unregistered validator or fs provider, or the upload could not be saved
    */
   @Post(':slug/file')
   @Permission(['updateAny'])
@@ -230,6 +238,7 @@ export class ConfigurationController extends BaseController {
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on configuration resource
    * @response 404 Configuration entry or file not found
+   * @response 500 The entry's fs provider is not registered
    */
   @Get(':slug/file')
   @Permission(['readAny'])
@@ -237,6 +246,11 @@ export class ConfigurationController extends BaseController {
     const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
     if (!options?.fs || !entry.Value) {
       return badRequest(`configuration entry '${entry.Slug}' is not a file entry`);
+    }
+
+    const target = this.fileSystem(entry.Slug, options.fs);
+    if (target instanceof ServerError) {
+      return target;
     }
 
     const name = String(entry.Value);
@@ -259,7 +273,7 @@ export class ConfigurationController extends BaseController {
     const rows = await DbConfigFileHistory.where('Slug', entry.Slug).orderByDescending('Id');
 
     const userIds = [...new Set(rows.map((r) => r.UploadedBy))];
-    const users = userIds.length ? await userModel().select().whereIn('Id', userIds) : [];
+    const users = userIds.length ? await this.findUsers(userIds) : [];
     const uploaders = new Map<number, IUploaderJson>(
       users.map((u) => [u.Id, { Id: u.Id, Email: u.Email, Login: u.Login }]),
     );
@@ -277,25 +291,45 @@ export class ConfigurationController extends BaseController {
    * @response 401 Unauthorized — valid session required
    * @response 403 Forbidden — readAny permission required on configuration resource
    * @response 404 Configuration entry, history row of this entry, or file not found
+   * @response 500 The version's fs provider is not registered
    */
   @Get(':slug/files/:id')
   @Permission(['readAny'])
   public async downloadFileVersion(
     @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
-    @Param() id: number,
+    @Param() id: string,
   ) {
-    const row = await DbConfigFileHistory.where('Slug', entry.Slug).where('Id', id).first();
+    const versionId = Number(id);
+    const row =
+      Number.isInteger(versionId) && versionId > 0
+        ? await DbConfigFileHistory.where('Slug', entry.Slug).where('Id', versionId).first()
+        : undefined;
     if (!row) {
       return new NotFound({ error: { message: `file version ${id} of '${entry.Slug}' not found` } });
     }
 
-    return new FileResponse({ provider: row.Fs, path: row.ArchivedPath ?? row.FileName, filename: row.OriginalName });
+    const target = this.fileSystem(entry.Slug, row.Fs);
+    if (target instanceof ServerError) {
+      return target;
+    }
+
+    return new FileResponse({
+      provider: row.Fs,
+      path: await this.versionPath(target, row),
+      filename: row.OriginalName,
+    });
   }
 
   private async storeFile(entry: DbConfig, file: IUploadedFile, user: User) {
     const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
     if (!options?.fs) {
       return badRequest(`configuration entry '${entry.Slug}' is not a file entry`);
+    }
+
+    if (file.Name.length > ORIGINAL_NAME_MAX_LENGTH) {
+      return badRequest(
+        `File name is too long: ${file.Name.length} characters, the limit is ${ORIGINAL_NAME_MAX_LENGTH}`,
+      );
     }
 
     const fsName = options.fs;
@@ -341,7 +375,10 @@ export class ConfigurationController extends BaseController {
       return valueError;
     }
 
-    const target = getFs(fsName);
+    const target = this.fileSystem(entry.Slug, fsName);
+    if (target instanceof ServerError) {
+      return target;
+    }
     // same name within the same second - uploading would overwrite the file the entry points at
     if (await target.exists(fileName)) {
       return badRequest(`File ${fileName} was uploaded a moment ago, try again`);
@@ -392,8 +429,11 @@ export class ConfigurationController extends BaseController {
    * previous row unarchived instead of failing the upload.
    */
   private async archivePrevious(current: DbConfigFileHistory): Promise<void> {
+    // A concurrent upload can record a newer row, or one under the same name within the same second;
+    // archiving either would move the file `Value` points at.
     const previous = await DbConfigFileHistory.where('Slug', current.Slug)
-      .where('Id', '!=', current.Id)
+      .where('Id', '<', current.Id)
+      .where('FileName', '!=', current.FileName)
       .whereNull('ArchivedAt')
       .orderByDescending('Id')
       .first();
@@ -401,15 +441,62 @@ export class ConfigurationController extends BaseController {
       return;
     }
 
-    const archivedPath = `archive/${previous.FileName}`;
+    const archivedPath = archivePath(previous.FileName);
     try {
       await getFs(previous.Fs).move(previous.FileName, archivedPath);
-      previous.ArchivedPath = archivedPath;
-      previous.ArchivedAt = DateTime.now();
-      await previous.update();
     } catch (err) {
       this.Log.warn(`Cannot archive ${previous.FileName} of '${previous.Slug}': ${(err as Error).message}`);
+      return;
     }
+
+    previous.ArchivedPath = archivedPath;
+    previous.ArchivedAt = DateTime.now();
+    try {
+      await previous.update();
+    } catch (err) {
+      const reason = (err as Error).message;
+      const row = `history row ${previous.Id} of '${previous.Slug}'`;
+      this.Log.warn(`Moved ${previous.FileName} to ${archivedPath}, but ${row} was not updated: ${reason}`);
+    }
+  }
+
+  /**
+   * A row can stay unarchived after its file was moved ( see `archivePrevious` ), so the archive is
+   * checked when the original location is gone.
+   */
+  private async versionPath(target: fs, row: DbConfigFileHistory): Promise<string> {
+    if (row.ArchivedPath) {
+      return row.ArchivedPath;
+    }
+
+    const archivedPath = archivePath(row.FileName);
+    if (!(await target.exists(row.FileName)) && (await target.exists(archivedPath))) {
+      return archivedPath;
+    }
+
+    return row.FileName;
+  }
+
+  private fileSystem(slug: string, provider: string): fs | ServerError {
+    try {
+      return getFs(provider);
+    } catch (err) {
+      this.Log.error(`File provider '${provider}' of '${slug}' cannot be resolved: ${(err as Error).message}`);
+      return new ServerError({
+        error: { message: `file provider '${provider}' of configuration entry '${slug}' is not registered` },
+      });
+    }
+  }
+
+  /**
+   * The caller holds the configuration grant, not necessarily one on the rbac resource an application
+   * binds its user model to.
+   */
+  private findUsers(ids: number[]): Promise<User[]> {
+    const lookup = async () => await userModel().select().whereIn('Id', ids);
+    const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
+
+    return store ? store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup) : lookup();
   }
 
   /**
@@ -429,7 +516,7 @@ export class ConfigurationController extends BaseController {
     name: string,
     candidate: IConfigFileCandidate,
   ): Promise<BadRequestResponse | ServerError | null> {
-    const validator = resolveConfigFileValidator(name);
+    const validator = await resolveConfigFileValidator(name);
     if (!validator) {
       this.Log.error(`Configuration file validator '${name}' of '${entry.Slug}' is not registered`);
       return new ServerError({ error: { message: `configuration file validator '${name}' is not registered` } });

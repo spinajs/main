@@ -65,9 +65,11 @@ Entries of `type: 'file'` with `meta.file` ( see
 1. rejects with 400 an entry that is not a file entry, a file over `maxSize`, an extension
    outside `extensions`, a content-detected mime type outside `mimeTypes` ( `FileInfoService`
    from `@spinajs/fs` ) and a file the entry validator rejects with `ValidationFailed`
-   ( its message is the response message ); an unregistered validator name is a 500;
+   ( its message is the response message ), and an original name over 255 characters; an
+   unregistered validator name or fs provider is a 500;
 2. stores the file as `<original base name>-<yyyyMMdd-HHmmss UTC>.<ext>` ( characters outside
-   `[\w.-]` replaced with `_` ), after validating that name like a `PATCH` value;
+   `[\w.-]` replaced with `_`, the base cut to 100 characters, `file` when empty ), after
+   validating that name like a `PATCH` value;
 3. inserts the history row and sets `Value` in one transaction ( the stored file is removed if
    that fails );
 4. moves the previous upload to `archive/<name>` in its provider and stamps its history row.
@@ -77,7 +79,8 @@ The multipart file is parsed into the `__file_upload_default_provider__` fs ( co
 `@spinajs/http` ) and always removed afterwards. `PATCH` never moves or archives files.
 
 Downloads stream through `FileResponse` with `Content-Disposition: attachment`, using the
-current `Value` or the version's original name.
+current `Value` or the version's original name. A version whose row was not stamped after its
+file was moved is served from `archive/<name>`.
 
 ## RBAC
 
