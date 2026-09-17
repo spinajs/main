@@ -206,7 +206,7 @@ export class MsSqlOrderByCompiler extends SqlOrderByQueryCompiler {
     const bindings = [] as unknown[];
 
     if (sort) {
-      stmt = ` ORDER BY ${escapeIdentifier(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+      stmt = ` ORDER BY ${sort.tableAlias ? `${escapeIdentifier(sort.tableAlias)}.` : ''}${escapeIdentifier(sort.column)} ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
     }
 
     return {
