@@ -1,7 +1,7 @@
 import { ModelData, ModelDataWithRelationData, PartialArray, PickRelations } from './types.js';
 import { SortOrder } from './enums.js';
 import { MODEL_DESCTRIPTION_SYMBOL } from './symbols.js';
-import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IColumnDescriptor, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult } from './interfaces.js';
+import { IModelDescriptor, RelationType, InsertBehaviour, IInsertResult, IOrderByBuilder, ISelectQueryBuilder, IWhereBuilder, QueryScope, IHistoricalModel, ModelToSqlConverter, ObjectToSqlConverter, IModelBase, IColumnDescriptor, IRelationDescriptor, ServerResponseMapper, IDehydrateOptions, DbServerResponse, ISupportedFeature, ISaveOptions, ISaveResult, ITransactionOptions } from './interfaces.js';
 import { WhereFunction } from './types.js';
 import { RawQuery, UpdateQueryBuilder, TruncateTableQueryBuilder, SelectQueryBuilder, DeleteQueryBuilder, InsertQueryBuilder, createQuery, _descriptor } from './builders.js';
 import { Op } from './enums.js';
@@ -616,7 +616,7 @@ export class ModelBase<M = unknown> implements IModelBase {
    * when the callback resolves and rolls back when it throws — see `OrmDriver.transaction`.
    * Resolves with whatever the callback returned.
    */
-  public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>): Promise<R> {
+  public static transaction<T extends typeof ModelBase, R>(this: T, _callback: (trx: OrmDriver) => Promise<R>, _options?: ITransactionOptions): Promise<R> {
     throw new Error('Not implemented');
   }
 
@@ -1650,9 +1650,8 @@ export const MODEL_STATIC_MIXINS = {
     return row?.count ?? 0;
   },
 
-  async transaction<T extends typeof ModelBase>(this: T, callback: (trx: OrmDriver) => Promise<void>) {
-    const driver = this.getModelDescriptor();
-    return driver.Driver!.transaction(callback);
+  async transaction<T extends typeof ModelBase, R>(this: T, callback: (trx: OrmDriver) => Promise<R>, options?: ITransactionOptions): Promise<R> {
+    return this.getModelDescriptor().Driver!.transaction(callback, options);
   }
 };
 
