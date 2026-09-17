@@ -113,7 +113,7 @@ export class SchemaCompileError extends Error {
   public readonly Slug: string;
 
   constructor(slug: string, cause: Error) {
-    super(`configuration schema '${slug}' cannot be compiled: ${cause.message}`);
+    super(`configuration schema '${slug}' cannot be compiled: ${cause.message}`, { cause });
     this.Slug = slug;
   }
 }

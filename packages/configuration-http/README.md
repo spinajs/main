@@ -70,6 +70,9 @@ try {
 await uploads.commit(entry, accepted.fileName);       // Value = stored name
 ```
 
+The multipart temp file is removed inside `accept`; anything the caller does before entering `accept`
+(a permission check, a lookup) owns it until then and must remove it on its own failure path.
+
 `accept`, in order: rejects with `NotAFileEntry` an entry that is not a file entry; with
 `ConfigFileRejected` an original name over 255 characters, an extension over 16 characters, a file
 over `maxSize`, an extension outside `extensions`, a content-detected mime type outside

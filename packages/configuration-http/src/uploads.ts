@@ -29,9 +29,12 @@ export interface IAcceptedConfigFile {
 }
 
 export function configFileOptions(entry: DbConfig): IConfigurationFileOptions {
-  const options = entry.Type === 'file' ? entry.Meta?.file : undefined;
-  if (!options?.fs) {
+  if (entry.Type !== 'file') {
     throw new NotAFileEntry(`configuration entry '${entry.Slug}' is not a file entry`);
+  }
+  const options = entry.Meta?.file;
+  if (!options?.fs) {
+    throw new NotAFileEntry(`configuration entry '${entry.Slug}' declares no file provider (meta.file.fs)`);
   }
   return options;
 }
@@ -127,7 +130,9 @@ export class ConfigFileUploads {
       await target.upload(localPath, fileName);
     } catch (err) {
       // a partial write must not survive as a file the caller cannot discard
-      await target.rm(fileName).catch(() => undefined);
+      await target.rm(fileName).catch((rmErr) =>
+        this.Log.warn(`Partially uploaded file ${fileName} of '${entry.Slug}' was not removed: ${(rmErr as Error).message}`),
+      );
       throw err;
     }
 

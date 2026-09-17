@@ -128,6 +128,12 @@ describe('ConfigFileUploads', function () {
       await nothingStored('tpl.noMeta');
     });
 
+    it('names the missing provider, not "not a file entry", for a file entry without meta.file.fs', async () => {
+      const err = await rejects(async () => uploads.accept(await entry('tpl.noMeta'), uploaded(xlsx('x'), 'offer.xlsx')));
+      expect(err).to.be.instanceOf(NotAFileEntry);
+      expect((err as Error).message).to.contain('declares no file provider');
+    });
+
     it('rejects a file over maxSize', async () => {
       const err = await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(Buffer.concat([xlsx('big'), Buffer.alloc(2048)]), 'big.xlsx')));
       expect(err).to.be.instanceOf(ConfigFileRejected);
@@ -233,7 +239,7 @@ describe('ConfigFileUploads', function () {
   });
 
   describe('discard', () => {
-    it('removes the stored file and tolerates a missing one', async () => {
+    it('removes the stored file and tolerates an unregistered provider', async () => {
       const e = await entry('tpl.offer');
       const accepted = await uploads.accept(e, uploaded(xlsx('first'), 'offer.xlsx'));
       expect(existsSync(join(FILES_DIR, accepted.fileName))).to.equal(true);
@@ -241,7 +247,9 @@ describe('ConfigFileUploads', function () {
       await uploads.discard(accepted);
       expect(existsSync(join(FILES_DIR, accepted.fileName))).to.equal(false);
 
-      await uploads.discard(accepted);
+      // getFs throws for an unregistered provider; discard must swallow that too
+      await uploads.discard({ ...accepted, fs: 'no-such-fs' });
+      expect(existsSync(join(FILES_DIR, accepted.fileName))).to.equal(false);
     });
   });
 });
