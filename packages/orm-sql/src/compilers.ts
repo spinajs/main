@@ -139,7 +139,7 @@ export class SqlOrderByQueryCompiler extends OrderByQueryCompiler {
     const bindings: string[] = [];
 
     if (sorts.length > 0) {
-      stmt = ` ORDER BY ${sorts.map((s) => `${this.Quoter.quote(s.column)} ${s.order}`).join(', ')}`;
+      stmt = ` ORDER BY ${sorts.map((s) => `${s.tableAlias ? `${this.Quoter.quote(s.tableAlias)}.` : ''}${this.Quoter.quote(s.column)} ${s.order}`).join(', ')}`;
     }
 
     return {

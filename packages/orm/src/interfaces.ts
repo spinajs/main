@@ -1143,6 +1143,11 @@ export interface IQueryLimit {
 export interface ISort {
   column: string;
   order: SortOrder;
+
+  /**
+   * Alias of the table the column belongs to, set when the sort was merged in from a joined relation
+   */
+  tableAlias?: string;
 }
 
 export interface IQueryBuilder {

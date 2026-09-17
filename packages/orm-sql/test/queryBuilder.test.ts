@@ -989,6 +989,23 @@ describe('Relations query builder', () => {
     expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation$`.`Id` as `$Relation$.Id`,`$Relation$`.`RelationProperty` as `$Relation$.RelationProperty`,`$Relation$.$Relation3$`.`Id` as `$Relation$.$Relation3$.Id`,`$Relation$.$Relation3$`.`RelationProperty` as `$Relation$.$Relation3$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation$` ON `$RelationModel$`.relation_id = `$Relation$`.Id LEFT JOIN `RelationTable2` as `$Relation$.$Relation3$` ON `$Relation$`.relation3_id = `$Relation$.$Relation3$`.Id WHERE `$RelationModel$`.`Id` = ?');
   });
 
+  it('order by a belongsTo relation column sorts the parent rows by the joined table', () => {
+    const result = RelationModel.where('Id', 1).populate('Relation').order('Relation.RelationProperty', SortOrder.DESC).toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` DESC$/);
+  });
+
+  it('order by a column the model does not have is a bad argument, not a driver error', () => {
+    expect(() => RelationModel.where('Id', 1).order('nope', SortOrder.ASC).toDB()).to.throw(InvalidArgument, /Cannot order by nope/);
+    expect(() => RelationModel.where('Id', 1).order('Relation.nope', SortOrder.ASC).toDB()).to.throw(InvalidArgument, /Cannot order by nope/);
+  });
+
+  it('order by a select alias is allowed', () => {
+    const result = RelationModel.query().select('Id', 'ident').order('ident', SortOrder.ASC).toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/ORDER BY `ident` ASC$/);
+  });
+
   it('belongsTo with custom keys', () => {
     const result = RelationModel.where('Id', 1).populate('Relation2').toDB() as ICompilerOutput;
     expect(result.expression).to.equal('SELECT `$RelationModel$`.*,`$Relation2$`.`Id` as `$Relation2$.Id`,`$Relation2$`.`RelationProperty` as `$Relation2$.RelationProperty` FROM `RelationTable` as `$RelationModel$` LEFT JOIN `RelationTable2` as `$Relation2$` ON `$RelationModel$`.fK_Id = `$Relation2$`.pK_Id WHERE `$RelationModel$`.`Id` = ?');

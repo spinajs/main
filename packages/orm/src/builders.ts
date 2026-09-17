@@ -1424,7 +1424,10 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     this._distinct = builder._distinct;
     // Fold the merged builder's sorts into this query's sorts (multi-column
     // ORDER BY). If the merged builder has no sorts, this keeps our own.
-    this._sorts = this._sorts.concat(builder._sorts.map((s) => ({ ...s })));
+    // Stamped with the merged builder's alias: a belongsTo relation rides in the parent FROM as a
+    // LEFT JOIN, so its bare column name would resolve against the parent table ( or be ambiguous ).
+    builder.validateSorts();
+    this._sorts = this._sorts.concat(builder._sorts.map((s) => ({ ...s, tableAlias: s.tableAlias ?? builder._tableAlias })));
     // `includeStatements: false` is used by JoinStatement so that a join
     // callback's WHERE conditions are NOT folded into the main query's WHERE
     // (which silently turns a LEFT JOIN into an inner filter). The join emits
@@ -1533,8 +1536,32 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
   }
 
   public toDB(): ICompilerOutput {
+    this.validateSorts();
     const compiler = this._container.resolve<SelectQueryCompiler>(SelectQueryCompiler, [this]);
     return compiler.compile();
+  }
+
+  /**
+   * A sort column usually arrives from a request. Unchecked it reaches the database as an
+   * unknown identifier and comes back as a driver error instead of a bad argument.
+   * Select aliases stay sortable, and a raw select opts the query out - its aliases are not visible here.
+   */
+  public validateSorts() {
+    const columns = extractModelDescriptor(this._model)?.Columns ?? [];
+    if (columns.length === 0 || this._columns.some((c) => c instanceof ColumnRawStatement)) {
+      return;
+    }
+
+    const aliases = this._columns.map((c) => (c as ColumnStatement).Alias).filter(Boolean);
+    for (const sort of this.getSorts()) {
+      if (sort.tableAlias || aliases.includes(sort.column)) {
+        continue;
+      }
+
+      if (!columns.some((c) => c.Name === sort.column && !c.Virtual)) {
+        throw new InvalidArgument(`Cannot order by ${sort.column}, column does not exist on model ${this._model?.name}`);
+      }
+    }
   }
 
   public async all(): Promise<T> {
