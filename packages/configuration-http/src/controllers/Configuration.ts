@@ -1,15 +1,4 @@
-import {
-  BadRequestResponse,
-  BaseController,
-  BasePath,
-  Body,
-  Get,
-  Ok,
-  Patch,
-  Policy,
-  Query,
-  ServerError,
-} from '@spinajs/http';
+import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query, ServerError } from '@spinajs/http';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
@@ -17,7 +6,7 @@ import { FromModel } from '@spinajs/orm-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
-import { formatValidationErrors, valueSchema } from '../validation.js';
+import { SchemaCompileError, validateEntryValue } from '../validation.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -105,29 +94,27 @@ export class ConfigurationController extends BaseController {
    */
   @Patch(':slug')
   @Permission(['updateAny'])
-  public async update(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig, @Body() data: UpdateConfigDto) {
-    let schemaRef: string | undefined;
+  public async update(
+    @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
+    @Body() data: UpdateConfigDto,
+  ) {
     try {
-      schemaRef = this.Validator.hasSchema(entry.Slug) ? entry.Slug : undefined;
-    } catch (err) {
-      return this.schemaCompileError(entry.Slug, err as Error);
-    }
-
-    // Type + Meta ( Meta already parsed by its @Json converter ), plus the schema registered in
-    // @spinajs/validation under the entry's config path, if any. Built here and not on the
-    // request DTO because the entry Type isn't known until after this lookup.
-    const schema = valueSchema(entry.Type, entry.Meta, schemaRef);
-
-    const valueError = this.validateValue(schema, 'Value', data.Value);
-    if (valueError) {
-      return valueError;
-    }
-
-    if (data.Default !== undefined) {
-      const defaultError = this.validateValue(schema, 'Default', data.Default);
-      if (defaultError) {
-        return defaultError;
+      const valueError = validateEntryValue(this.Validator, entry, 'Value', data.Value);
+      if (valueError) {
+        return new BadRequestResponse({ error: { message: valueError } });
       }
+
+      if (data.Default !== undefined) {
+        const defaultError = validateEntryValue(this.Validator, entry, 'Default', data.Default);
+        if (defaultError) {
+          return new BadRequestResponse({ error: { message: defaultError } });
+        }
+      }
+    } catch (err) {
+      if (err instanceof SchemaCompileError) {
+        return this.schemaCompileError(err);
+      }
+      throw err;
     }
 
     // Assign the raw, validated value(s). The DbConfigValueConverter does all the
@@ -154,29 +141,8 @@ export class ConfigurationController extends BaseController {
    * type-only validation, which would silently skip the constraints the admin
    * registered for this slug.
    */
-  private schemaCompileError(slug: string, err: Error): ServerError {
-    this.Log.error(`Configuration schema '${slug}' cannot be compiled: ${err.message}`);
-    return new ServerError({ error: { message: `configuration schema '${slug}' is invalid` } });
-  }
-
-  /**
-   * Validates a single value against the entry value schema, returning a 400
-   * response on failure or `null` when it passes.
-   *
-   * The value is wrapped in an object ( `{ [field]: value }` ) so it is always a
-   * non-null object for the validator - a bare `null` / scalar would otherwise
-   * confuse `tryValidate`'s schema-vs-data overload resolution.
-   */
-  private validateValue(valueSchema: Record<string, unknown>, field: string, value: unknown): BadRequestResponse | null {
-    const [isValid, errors] = this.Validator.tryValidate(
-      { type: 'object', properties: { [field]: valueSchema }, required: [field] },
-      { [field]: value },
-    );
-
-    if (isValid) {
-      return null;
-    }
-
-    return new BadRequestResponse({ error: { message: formatValidationErrors(field, errors) } });
+  private schemaCompileError(err: SchemaCompileError): ServerError {
+    this.Log.error(err.message);
+    return new ServerError({ error: { message: `configuration schema '${err.Slug}' is invalid` } });
   }
 }

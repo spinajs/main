@@ -10,6 +10,7 @@ import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
 import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntryOptionsCommon } from '@spinajs/configuration-common';
 import { InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
+import { normalizeFileEntryOptions } from './file.js';
 
 /**
  * watch interval, default 3 min
@@ -37,7 +38,14 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // before ORM is resolved there is no connection - those vars are handled by the
     // di.resolved.Orm handler below, so skip them here to avoid failing db calls.
     DI.on('di.registered.__configuration_property__', (v: __dbCOnfigOptions) => {
-      if (!v.options || !v.options.expose || !DI.has(Orm)) {
+      if (!v.options || !v.options.expose) {
+        return;
+      }
+
+      // synchronous, so a misdeclared file entry throws out of the registration itself
+      normalizeFileEntryOptions(v.path, v.options.exposeOptions);
+
+      if (!DI.has(Orm)) {
         return;
       }
 
@@ -50,6 +58,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         .get<__dbCOnfigOptions>(Array.ofType('__configuration_property__'))!
         .filter((x) => x.options)
         .filter((x) => x.options.expose);
+
+      vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
       // insert all exposed config options (InsertOrIgnore - safe to repeat)
       void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {

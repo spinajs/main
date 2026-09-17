@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import type { IConfigurationFileOptions } from './file.js';
 
 export interface IConfiguratioDbSourceConfig {
   connection: string;
@@ -31,6 +32,8 @@ export interface IConfigurationEntryMeta {
 
   oneOf?: string[];
   manyOf?: string[];
+
+  file?: IConfigurationFileOptions;
 }
 
 declare module '@spinajs/configuration-common' {

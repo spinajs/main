@@ -16,7 +16,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Config, Configuration, ConfigurationSource, FrameworkConfiguration, IConfigLike } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 
-import { DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
+import { ConfigFileValidator, DbConfig, DbConfigSourceBotstrapper, DbConfigValueConverter } from './../src/index.js';
 import './migration/test_config_data_2022_02_08_01_13_00.js';
 
 const expect = chai.expect;
@@ -86,6 +86,12 @@ export class ConnectionConf extends FrameworkConfiguration {
     // db source can see them during the load loop. onLoad is merged afterwards,
     // so returning TEST_CONFIG here too would only duplicate logger targets.
     return {};
+  }
+}
+
+class SampleTemplateValidator extends ConfigFileValidator {
+  public validate(): Promise<void> {
+    return Promise.resolve();
   }
 }
 
@@ -345,5 +351,25 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     expect(row.Label).to.equal('Fresh label');
     expect(row.Group).to.equal('db-config');
     expect(row.Value).to.equal('edited');
+  });
+
+  it('Should store a class file validator in Meta under its name', async () => {
+    DI.register({
+      path: 'test-file-template',
+      options: {
+        expose: true,
+        defaultValue: 'default.xlsx',
+        exposeOptions: {
+          type: 'file',
+          group: 'db-config',
+          meta: { file: { fs: 'fs-templates', extensions: ['xlsx'], validator: SampleTemplateValidator } },
+        },
+      },
+    }).asValue('__configuration_property__');
+
+    await wait(500);
+
+    const row = await DbConfig.where('Slug', 'test-file-template').first();
+    expect(row.Meta).to.deep.equal({ file: { fs: 'fs-templates', extensions: ['xlsx'], validator: 'SampleTemplateValidator' } });
   });
 });

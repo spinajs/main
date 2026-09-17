@@ -11,6 +11,7 @@
     { "path": "../configuration-db-source/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
+    { "path": "../fs/tsconfig.cjs.json" },
     { "path": "../http/tsconfig.cjs.json" },
     { "path": "../log/tsconfig.cjs.json" },
     { "path": "../orm/tsconfig.cjs.json" },

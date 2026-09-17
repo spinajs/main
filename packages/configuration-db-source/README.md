@@ -128,6 +128,54 @@ the config-only composite types — `oneOf`, `manyOf`, `file`, `range` and the
 `*-range` types — live in the subclass). See
 [04-entry-types.ts](examples/04-entry-types.ts) for a worked example.
 
+## File entries
+
+An entry of `type: 'file'` stores a file name in `Value`. `meta.file` says where the
+file lives and what may be uploaded through `@spinajs/configuration-http`:
+
+```ts
+import { FileTypeEnum } from '@spinajs/http';
+
+@Config('yourscreen.kalkulator.template', {
+  defaultValue: 'kalkulator.xlsx',
+  expose: true,
+  exposeOptions: {
+    type: 'file',
+    group: 'templates',
+    label: 'Offer calculator template',
+    meta: {
+      file: {
+        fs: 'fs-excel-templates', // @spinajs/fs provider name, required
+        extensions: ['xlsx'], // lowercase, without the dot
+        mimeTypes: [FileTypeEnum.xlsx], // checked against the type detected from content
+        maxSize: 10 * 1024 * 1024, // bytes, default CONFIG_FILE_DEFAULT_MAX_SIZE ( 10 MB )
+        validator: OfferTemplateValidator, // optional, class or name
+      },
+    },
+  },
+})
+protected Template: string;
+```
+
+- A `type: 'file'` entry without `meta.file.fs` throws when it is registered, with the slug in the message.
+- `validator` is stored as a name ( the class name for a class ). A validator extends
+  `ConfigFileValidator`, is registered with `@Injectable(ConfigFileValidator)` and rejects a
+  file by throwing `ValidationFailed`; its message is returned to the client. It is looked up
+  by instance `ServiceName` or class name ( `resolveConfigFileValidator` ).
+- A class `validator` must be declared before the class holding the decorated property in module
+  load order - otherwise the decorator reads it in its temporal dead zone ( ESM ) and throws.
+  Use the string form ( `validator: 'OfferTemplateValidator'` ) when that order cannot be guaranteed.
+
+```ts
+@Injectable(ConfigFileValidator)
+export class OfferTemplateValidator extends ConfigFileValidator {
+  public async validate(file: IConfigFileCandidate, entry: DbConfig): Promise<void> {
+    // file.localPath, file.originalName, file.size, file.mimeType
+    throw new ValidationFailed('Template is missing the Offer sheet', []);
+  }
+}
+```
+
 ## Key concepts
 
 - **`Slug` is the config path** — exactly what you read with
