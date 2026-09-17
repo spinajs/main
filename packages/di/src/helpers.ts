@@ -80,8 +80,29 @@ export function uniqBy<T>(arr: T[], comparator: (a: T, b: T) => boolean) {
   return uniques;
 }
 
+const anonymousNames = new WeakMap<Function, string>();
+let anonymousSeq = 0;
+
+/**
+ * A class expression passed straight as an argument (`Middleware(class { ... })`) gets no name
+ * inference, so `name` is `''` for every such class and they would all share one registry and
+ * cache key. Such a class keys by identity instead - a generated name pinned to the constructor.
+ */
+function nameOf(ctor: Function): string {
+  if (ctor.name) {
+    return ctor.name;
+  }
+
+  let name = anonymousNames.get(ctor);
+  if (!name) {
+    name = `AnonymousClass#${++anonymousSeq}`;
+    anonymousNames.set(ctor, name);
+  }
+  return name;
+}
+
 export function getTypeName(type: TypedArray<any> | Class<any> | string | object): string {
-  return typeof type === 'string' ? type : isTypedArray(type) ? getTypeName(type.Type) : isConstructor(type) ? type.name : type.constructor.name;
+  return typeof type === 'string' ? type : isTypedArray(type) ? getTypeName(type.Type) : isConstructor(type) ? nameOf(type) : nameOf(type.constructor);
 }
 
 /**
