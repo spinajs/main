@@ -177,6 +177,14 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     }
 
     await db();
+
+    // exposed options are written one at a time in the background - the load below reads them
+    for (const b of bootstrappers) {
+      if (b instanceof DbConfigSourceBotstrapper) {
+        await b.persisted();
+      }
+    }
+
     await (await cfg()).load();
   });
 
@@ -332,6 +340,87 @@ describe('Sqlite driver migration, updates, deletions & inserts', function () {
     await wait(3000);
 
     expect(c.get('isolated-late-watch')).to.equal('b');
+  });
+
+  describe('persisting exposed options', () => {
+    type Entry = { path: string; options: Record<string, unknown> };
+    type Internals = {
+      Converter: DbConfigValueConverter;
+      enqueue(task: () => Promise<void>): Promise<void>;
+      persistConfigOption(v: Entry): Promise<void>;
+    };
+
+    const entry = (path: string): Entry => ({
+      path,
+      options: { expose: true, defaultValue: 'a', exposeOptions: { type: 'string', group: 'db-config' } },
+    });
+
+    // taken in beforeEach: the orm swaps the static query methods in when it resolves
+    let originalInsert: typeof DbConfig.insert;
+    let internals: Internals;
+
+    beforeEach(async () => {
+      DI.register({ value: 10 }).asValue('__config_persist_retry_delay__', true);
+      originalInsert = DbConfig.insert;
+
+      internals = new DbConfigSourceBotstrapper() as unknown as Internals;
+      internals.Converter = await DI.resolve(DbConfigValueConverter);
+    });
+
+    afterEach(() => {
+      (DbConfig as any).insert = originalInsert;
+    });
+
+    it('Should retry a failed insert', async () => {
+      let calls = 0;
+      (DbConfig as any).insert = function (...args: unknown[]) {
+        calls++;
+        if (calls <= 2) {
+          return Promise.reject(new Error('Deadlock found when trying to get lock; try restarting transaction'));
+        }
+        return (originalInsert as any).apply(this, args);
+      };
+
+      await internals.persistConfigOption(entry('retried-insert'));
+
+      expect(calls).to.equal(3);
+      expect(await DbConfig.where('Slug', 'retried-insert').first()).to.exist;
+    });
+
+    it('Should give up on one option without losing the next ones', async () => {
+      (DbConfig as any).insert = function (...args: unknown[]) {
+        if ((args[0] as { Slug: string }).Slug === 'always-failing') {
+          return Promise.reject(new Error('nope'));
+        }
+        return (originalInsert as any).apply(this, args);
+      };
+
+      void internals.enqueue(() => internals.persistConfigOption(entry('always-failing')));
+      await internals.enqueue(() => internals.persistConfigOption(entry('after-failing')));
+
+      expect(await DbConfig.where('Slug', 'always-failing').first()).to.not.exist;
+      expect(await DbConfig.where('Slug', 'after-failing').first()).to.exist;
+    });
+
+    it('Should write options one at a time', async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      (DbConfig as any).insert = async function (...args: unknown[]) {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await wait(20);
+        try {
+          return await (originalInsert as any).apply(this, args);
+        } finally {
+          inFlight--;
+        }
+      };
+
+      await Promise.all(['serial-1', 'serial-2', 'serial-3'].map((p) => internals.enqueue(() => internals.persistConfigOption(entry(p)))));
+
+      expect(maxInFlight).to.equal(1);
+      expect(await DbConfig.select().whereIn('Slug', ['serial-1', 'serial-2', 'serial-3'])).to.have.lengthOf(3);
+    });
   });
 
   it('Should refresh metadata of an existing row and keep its Value', async () => {

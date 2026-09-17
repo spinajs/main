@@ -19,6 +19,14 @@ const CONFIG_WATCH_TIMER_INTERVAL = 3 * 60 * 1000;
 
 const LOG_CHANNEL = 'configuration-db-source';
 
+const PERSIST_ATTEMPTS = 5;
+
+/**
+ * base delay between persist attempts, doubled on every retry. Override with the
+ * `__config_persist_retry_delay__` DI value.
+ */
+const PERSIST_RETRY_DELAY = 1000;
+
 type __dbCOnfigOptions = { path: string; options: IConfigEntryOptions & IConfigEntryOptionsCommon };
 
 @Injectable(Bootstrapper)
@@ -30,6 +38,10 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   private watchedSlugs = new Set<string>();
 
   private armWatchTimer: (() => void) | null = null;
+
+  // Every write goes through this chain, one at a time. Concurrent InsertOrIgnore into an empty
+  // table can deadlock on the unique Slug index ( InnoDB gap locks ), and the losing rows are dropped.
+  private persistQueue: Promise<void> = Promise.resolve();
 
   public async bootstrap(): Promise<void> {
     DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
@@ -49,7 +61,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
         return;
       }
 
-      void this.syncConfigOption(v);
+      void this.enqueue(() => this.syncConfigOption(v));
     });
 
     // register vals added before orm is resolved eg. at bootstrap phase
@@ -62,8 +74,8 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       vars.forEach((v) => normalizeFileEntryOptions(v.path, v.options.exposeOptions));
 
       // insert all exposed config options (InsertOrIgnore - safe to repeat)
-      void Promise.all(vars.map((v) => this.saveConfigOptions(v))).catch((err) => {
-        InternalLogger.error(`Failed to persist exposed config options to db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+      vars.forEach((v) => {
+        void this.enqueue(() => this.persistConfigOption(v));
       });
 
       vars.filter((x) => x.options.exposeOptions?.watch).forEach((x) => this.watchedSlugs.add(x.path));
@@ -71,6 +83,49 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     });
 
     return;
+  }
+
+  /**
+   * Settles once every exposed option registered so far has been written to the db, or given up on.
+   */
+  public persisted(): Promise<void> {
+    return this.persistQueue;
+  }
+
+  private enqueue(task: () => Promise<void>): Promise<void> {
+    // tasks never reject - both of them catch and log - so one failure cannot break the chain
+    this.persistQueue = this.persistQueue.then(task);
+    return this.persistQueue;
+  }
+
+  private async persistConfigOption(v: __dbCOnfigOptions): Promise<void> {
+    try {
+      await this.saveWithRetry(v);
+    } catch (err) {
+      InternalLogger.error(`Failed to persist exposed config option '${v.path}' to db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+    }
+  }
+
+  /**
+   * Another process sharing the database ( a worker, a second instance ) can still deadlock with
+   * this one, or be mid-migration so the table does not exist yet. Both pass on their own, and
+   * the write is idempotent, so any failure is simply retried.
+   */
+  private async saveWithRetry(v: __dbCOnfigOptions): Promise<void> {
+    const delay = DI.get<{ value: number }>('__config_persist_retry_delay__')?.value ?? PERSIST_RETRY_DELAY;
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.saveConfigOptions(v);
+      } catch (err) {
+        if (attempt >= PERSIST_ATTEMPTS) {
+          throw err;
+        }
+
+        InternalLogger.warn(`Persisting exposed config option '${v.path}' failed ( attempt ${attempt}/${PERSIST_ATTEMPTS} ), retrying: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+        await new Promise((resolve) => setTimeout(resolve, delay * 2 ** (attempt - 1)));
+      }
+    }
   }
 
   /**
@@ -156,7 +211,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
    */
   private async syncConfigOption(v: __dbCOnfigOptions): Promise<void> {
     try {
-      await this.saveConfigOptions(v);
+      await this.saveWithRetry(v);
 
       const stored = await DbConfig.where('Slug', v.path).first();
       DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);

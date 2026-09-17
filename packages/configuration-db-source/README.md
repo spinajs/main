@@ -98,6 +98,12 @@ The watch poll interval defaults to **3 minutes**. Override it by registering th
 DI.register({ value: 30_000 }).asValue('__config_watch_interval__');
 ```
 
+Exposed options are written one at a time, and a failed write is retried up to 5 times
+with a doubling delay (1 s base) - another process sharing the database may hold a lock
+or still be running the migration. Override the base delay with the
+`__config_persist_retry_delay__` DI value (milliseconds). To wait for the writes, eg. before
+reloading the configuration, await `DbConfigSourceBotstrapper.persisted()`.
+
 > The `connection` / `table` options affect the **load** path only. Exposing and
 > watching use the `DbConfig` model, which is bound to the `configuration` table
 > on the `default` connection — see
