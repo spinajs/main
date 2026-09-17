@@ -81,7 +81,7 @@ over `maxSize`, an extension outside `extensions`, a content-detected mime type 
 value schema of the slug; an unregistered validator name or fs provider throws an `Error`. The
 file is stored as `<original base name>-<yyyyMMdd-HHmmss UTC>.<ext>` ( characters outside
 `[\w.-]` replaced with `_`, the base cut to 100 characters, `file` when empty ); a name that
-already exists on the provider is refused. The multipart temp file is always removed.
+already exists on the provider is refused.
 
 `commit` is the only way a file entry's `Value` should change outside a `PATCH`; a project's
 "restore an earlier version" goes through it too. `PATCH` never moves or removes files.
