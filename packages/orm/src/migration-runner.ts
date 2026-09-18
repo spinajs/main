@@ -16,6 +16,15 @@ import { DefaultMigrationService, IMigrationStatusEntry, IMigrationUnit, Migrati
 export { MIGRATION_FILE_REGEXP } from './symbols.js';
 
 /**
+ * Timestamp first, then name: two migrations generated in the same second are otherwise ordered
+ * by whatever the registry happened to hold, which differs between a file-scan boot and a
+ * programmatic registration. Equal on both = 0, so a sort stays stable.
+ */
+function compareUnits(a: IMigrationUnit, b: IMigrationUnit): number {
+  return a.created < b.created ? -1 : a.created > b.created ? 1 : a.name.localeCompare(b.name);
+}
+
+/**
  * The slice of `Orm` this facade consumes. Narrow on purpose: the runner is constructible from
  * anything holding a migration registry and a connection map, which is what makes it testable
  * without booting an Orm.
@@ -71,7 +80,15 @@ export class MigrationRunner {
 
   /**
    * Applies every pending migration on every configured connection, or only `name` when one is
-   * given, in `(created, name)` order.
+   * given, in `(created, name)` order ACROSS connections.
+   *
+   * Across, not connection by connection: migrations on different connections often target the
+   * same server, and one of them may read what another created - a view in one schema over a
+   * table a migration on another connection adds. Running each connection's whole backlog in
+   * turn applies such a pair in the wrong order whenever both are pending at once, which is
+   * exactly the case of a deployment catching up on several releases. So the pending set is
+   * walked in global order and handed to each connection's service in consecutive stretches;
+   * returning to a connection continues the batch it already opened.
    *
    * A `name` that matches nothing in the registry throws rather than returning `[]`: an empty
    * result from a typo is indistinguishable from "already up to date", so the CLI would exit 0
@@ -79,13 +96,59 @@ export class MigrationRunner {
    */
   public async up(name?: string, options?: IMigrationUpOptions): Promise<OrmMigration[]> {
     const executed: OrmMigration[] = [];
+    const opened = new Set<OrmDriver>();
 
-    for (const [driver, units] of this.plan(name, options?.force ?? true, options?.connection)) {
+    for (const [driver, units] of await this.stretches(this.plan(name, options?.force ?? true, options?.connection))) {
       const service = await this.service(driver);
-      executed.push(...(await service.up(units, { fake: options?.fake })));
+      executed.push(...(await service.up(units, { fake: options?.fake, continueBatch: opened.has(driver) })));
+      opened.add(driver);
     }
 
     return executed;
+  }
+
+  /**
+   * The planned groups re-cut into runs of consecutive same-connection migrations, in global
+   * `(created, name)` order.
+   *
+   * Only what still has to run takes part in the cut - applied migrations would split the
+   * pending ones into many needless stretches, each one lock and one table read. A FAILED
+   * migration does take part: its service refuses the run at that point, as it always has.
+   *
+   * A connection with nothing left to run still gets an empty stretch, at the end: the service's
+   * refusal to run over a FAILED row covers every row of the connection, registered or not, and
+   * skipping the call would quietly drop that guard for it.
+   */
+  protected async stretches(groups: Array<[OrmDriver, IMigrationUnit[]]>): Promise<Array<[OrmDriver, IMigrationUnit[]]>> {
+    const queue: Array<{ driver: OrmDriver; unit: IMigrationUnit }> = [];
+    const idle: OrmDriver[] = [];
+
+    for (const [driver, units] of groups) {
+      const status = await (await this.service(driver)).status(units);
+      const open = new Set(status.filter((s) => s.pending || s.failed).map((s) => s.name));
+
+      if (open.size === 0) {
+        idle.push(driver);
+      }
+
+      queue.push(...units.filter((u) => open.has(u.name)).map((unit) => ({ driver, unit })));
+    }
+
+    queue.sort((a, b) => compareUnits(a.unit, b.unit));
+
+    const result: Array<[OrmDriver, IMigrationUnit[]]> = [];
+
+    for (const { driver, unit } of queue) {
+      const last = result[result.length - 1];
+
+      if (last && last[0] === driver) {
+        last[1].push(unit);
+      } else {
+        result.push([driver, [unit]]);
+      }
+    }
+
+    return [...result, ...idle.map((driver): [OrmDriver, IMigrationUnit[]] => [driver, []])];
   }
 
   /**
@@ -198,10 +261,7 @@ export class MigrationRunner {
 
         return { name: m.name, created, type: m.type } as IMigrationUnit;
       })
-      // timestamp first, then name: two migrations generated in the same second are otherwise
-      // ordered by whatever the registry happened to hold, which differs between a file-scan
-      // boot and a programmatic registration. Equal on both = 0, so the sort stays stable
-      .sort((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.name.localeCompare(b.name)));
+      .sort(compareUnits);
 
     // Resolved to a DRIVER rather than compared as a string, because that is what the groups
     // below are keyed by: `db.Aliases` binds several names to one `OrmDriver`, so

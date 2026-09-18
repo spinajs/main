@@ -243,7 +243,7 @@ that touches a database is execution.
 
 | Module | Owns |
 | --- | --- |
-| `migration-runner.ts` | `MigrationRunner` — the `orm.Migration` facade. Validates and orders the migration registry, groups it by the connection each migration declared, and dispatches each group to that connection's `OrmMigrationService`. Touches no database itself. |
+| `migration-runner.ts` | `MigrationRunner` — the `orm.Migration` facade. Validates and orders the migration registry, groups it by the connection each migration declared, and dispatches the pending migrations to each connection's `OrmMigrationService` in global `(timestamp, name)` order, one consecutive same-connection stretch at a time. Touches no database itself. |
 | `migration-service.ts` | `OrmMigrationService` (abstract) and `DefaultMigrationService` — the per-connection contract: tracking-table storage and upgrade, the lock, batches, checksums, transaction wrapping, failure rows and `resolve`. |
 
 `MigrationRunner` is constructed from an `IMigrationRunnerHost` — just `{ Migrations, Connections }`

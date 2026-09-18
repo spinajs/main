@@ -50,6 +50,13 @@ export interface IMigrationRunOptions {
    * Record the migration as applied without running its `up()`.
    */
   fake?: boolean;
+
+  /**
+   * Record into the connection's latest batch instead of opening a new one. `MigrationRunner.up`
+   * passes it when one run returns to a connection it already migrated, so a run stays one batch
+   * per connection - which is what `down()` rolls back.
+   */
+  continueBatch?: boolean;
 }
 
 export interface IMigrationDownOptions extends IMigrationRunOptions {
@@ -625,7 +632,8 @@ export class DefaultMigrationService extends OrmMigrationService {
       const instanceOf = (u: IMigrationUnit) => instances.get(u.name) as OrmMigration;
       const optedOut = (u: IMigrationUnit) => this.optedOutOfTransaction(u, instances.get(u.name));
 
-      const batch = Math.max(0, ...records.filter((r) => r.FinishedAt && !r.RolledBackAt).map((r) => r.Batch ?? 0)) + 1;
+      const latest = Math.max(0, ...records.filter((r) => r.FinishedAt && !r.RolledBackAt).map((r) => r.Batch ?? 0));
+      const batch = options?.continueBatch && latest > 0 ? latest : latest + 1;
       const executed: OrmMigration[] = [];
 
       if (options?.fake) {

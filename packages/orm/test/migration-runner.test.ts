@@ -186,6 +186,79 @@ describe('MigrationRunner', () => {
     expect(executed.map((e) => e.constructor.name)).to.eql(['MigrationRunnerTest_GroupA_2021_03_01_00_00_00', 'MigrationRunnerTest_GroupB_2021_03_02_00_00_00']);
   });
 
+  it('runs pending migrations in timestamp order across connections, one batch per connection', async () => {
+    // B reads what A1 created and A2 reads what B created - the shape of a view on one connection
+    // over a table another connection's migration adds. Connection by connection, A2 runs before B.
+    @Migration('sqlite')
+    class MigrationRunnerTest_CrossA1_2021_03_10_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    @Migration('SampleConnection1')
+    class MigrationRunnerTest_CrossB_2021_03_11_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    @Migration('sqlite')
+    class MigrationRunnerTest_CrossA2_2021_03_12_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const sqlite = await makeDriver('sqlite');
+    const sample = await makeSecondDriver('SampleConnection1');
+    stubDb([]);
+
+    const calls: string[] = [];
+    for (const [type, tag] of [
+      [MigrationRunnerTest_CrossA1_2021_03_10_00_00_00, 'A1'],
+      [MigrationRunnerTest_CrossB_2021_03_11_00_00_00, 'B'],
+      [MigrationRunnerTest_CrossA2_2021_03_12_00_00_00, 'A2'],
+    ] as const) {
+      sinon.stub(type.prototype, 'up').callsFake(async () => {
+        calls.push(tag);
+      });
+    }
+
+    const serviceUp = sinon.spy(DefaultMigrationService.prototype, 'up');
+
+    await new MigrationRunner(
+      ormLike(
+        [ci(MigrationRunnerTest_CrossA2_2021_03_12_00_00_00), ci(MigrationRunnerTest_CrossB_2021_03_11_00_00_00), ci(MigrationRunnerTest_CrossA1_2021_03_10_00_00_00)],
+        [
+          ['sqlite', sqlite],
+          ['SampleConnection1', sample],
+        ],
+      ),
+    ).up();
+
+    expect(calls).to.eql(['A1', 'B', 'A2']);
+    expect(serviceUp.getCalls().map((c) => [(c.thisValue as any).driver.Options.Name, c.args[1]?.continueBatch])).to.eql([
+      ['sqlite', false],
+      ['SampleConnection1', false],
+      ['sqlite', true],
+    ]);
+  });
+
+  it('continueBatch records into the latest batch instead of opening the next one', async () => {
+    @Migration('sqlite')
+    class MigrationRunnerTest_Continue_2021_03_13_00_00_00 extends OrmMigration {
+      public async up(_c: OrmDriver) {}
+      public async down(_c: OrmDriver) {}
+    }
+
+    const driver = await makeDriver('sqlite');
+    stubDb([row({ Migration: 'MigrationRunnerTest_Earlier_2021_03_01_00_00_00', Batch: 4 })]);
+    const finished = sinon.spy(DefaultMigrationService.prototype as any, 'markFinished');
+    const unit: IMigrationUnit = { name: MigrationRunnerTest_Continue_2021_03_13_00_00_00.name, created: undefined as any, type: MigrationRunnerTest_Continue_2021_03_13_00_00_00 };
+
+    await (await DI.resolve(DefaultMigrationService, [driver])).up([unit], { continueBatch: true });
+
+    expect(finished.firstCall.args[1]).to.eq(4);
+  });
+
   it('up({ connection }) hands only that connection a run', async () => {
     @Migration('sqlite')
     class MigrationRunnerTest_OnlyA_2021_03_03_00_00_00 extends OrmMigration {
