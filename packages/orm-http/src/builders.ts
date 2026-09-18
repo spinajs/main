@@ -35,6 +35,16 @@ const ValidationHelpers = {
 };
 
 /**
+ * ORs one grouped condition onto `qb`. `orWhere(fn)` hands the group builder over as `this`, never
+ * as an argument, so an arrow function cannot reach it.
+ */
+function orGroup(qb: SelectQueryBuilder<any>, apply: (group: any) => void) {
+  return qb.orWhere(function (this: any) {
+    apply(this);
+  });
+}
+
+/**
  * Operator mapping with validation, AND and OR application functions
  */
 const OPERATOR_MAP: Record<FilterableOperators, {
@@ -99,33 +109,34 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   },
   'isnull': {
     validate: ValidationHelpers.noValidation,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NULL),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NULL)
+    // Not `andWhere(column, SqlOperator.NULL)`: the two-argument form means `column = value`.
+    applyAnd: (qb, filter) => qb.whereNull(filter.Column),
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereNull(filter.Column))
   },
   'notnull': {
     validate: ValidationHelpers.noValidation,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NOT_NULL),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NOT_NULL)
+    applyAnd: (qb, filter) => qb.whereNotNull(filter.Column),
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereNotNull(filter.Column))
   },
   'in': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereIn(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereIn(filter.Column, filter.Value))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereIn(filter.Column, filter.Value))
   },
   'nin': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereNotIn(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotIn(filter.Column, filter.Value))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereNotIn(filter.Column, filter.Value))
   },
   'exists': {
     validate: ValidationHelpers.noValidation,
     applyAnd: (qb, filter) => qb.whereExist(filter.Column),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereExist(filter.Column))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereExist(filter.Column))
   },
   'n-exists': {
     validate: ValidationHelpers.noValidation,
     applyAnd: (qb, filter) => qb.whereNotExists(filter.Column),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotExists(filter.Column))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereNotExists(filter.Column))
   },
   'regexp': {
     validate: ValidationHelpers.requireString,
@@ -135,12 +146,12 @@ const OPERATOR_MAP: Record<FilterableOperators, {
   'in-set': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereInSet(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereInSet(filter.Column, filter.Value))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereInSet(filter.Column, filter.Value))
   },
   'nin-set': {
     validate: ValidationHelpers.requireArray,
     applyAnd: (qb, filter) => qb.whereNotInSet(filter.Column, filter.Value),
-    applyOr: (qb, filter) => qb.orWhere((query: any) => query.whereNotInSet(filter.Column, filter.Value))
+    applyOr: (qb, filter) => orGroup(qb, (group) => group.whereNotInSet(filter.Column, filter.Value))
   }
 };
 

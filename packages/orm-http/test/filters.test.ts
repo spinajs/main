@@ -45,8 +45,11 @@ class FilterRegressionModel extends ModelBase {
   @Filterable(['eq'])
   public Active: boolean;
 
-  @Filterable(['eq'])
+  @Filterable(['eq', 'in', 'nin'])
   public Role: string;
+
+  @Filterable(['isnull', 'notnull'])
+  public DeletedAt: string;
 }
 
 export class FilterTestConfiguration extends FrameworkConfiguration {
@@ -298,6 +301,71 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
 
     expect(out.expression).to.contain('`Age` = ? OR ( `Role` = ? AND `Active` = ? )');
     expect(out.bindings).to.deep.equal([18, 'admin', 1]);
+  });
+});
+
+/**
+ * `isnull` / `notnull` carry no value. They used to call the two-argument `andWhere(column,
+ * SqlOperator.NULL)`, which the ORM reads as `column = <value>`: the filter compiled to
+ * `DeletedAt = 'is null'` and silently matched nothing.
+ */
+describe('orm-http valueless null filters', () => {
+  before(async () => {
+    DI.register(FilterTestConfiguration).as(Configuration);
+    await DI.resolve(Orm);
+
+    for (const mixin in MODEL_STATIC_MIXINS) {
+      (FilterRegressionModel as any)[mixin] = (MODEL_STATIC_MIXINS as any)[mixin].bind(FilterRegressionModel);
+    }
+  });
+
+  after(() => {
+    DI.clearCache();
+  });
+
+  it('isnull compiles to IS NULL and binds nothing', () => {
+    const out = (q() as any).filter([f('DeletedAt', 'isnull')], FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('`DeletedAt` IS NULL');
+    expect(out.bindings).to.deep.equal([]);
+  });
+
+  it('notnull compiles to IS NOT NULL and binds nothing', () => {
+    const out = (q() as any).filter([f('DeletedAt', 'notnull')], FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('`DeletedAt` IS NOT NULL');
+    expect(out.bindings).to.deep.equal([]);
+  });
+
+  it('a null filter ANDs with its siblings', () => {
+    const out = (q() as any).filter([f('Age', 'gt', 18), f('DeletedAt', 'notnull')], FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.contain('( `Age` > ? AND `DeletedAt` IS NOT NULL )');
+    expect(out.bindings).to.deep.equal([18]);
+  });
+
+  it('a null filter ORs with its siblings in OR mode', () => {
+    const out = (q() as any).filter([f('Age', 'gt', 18), f('DeletedAt', 'isnull')], FilterableLogicalOperators.Or).toDB();
+
+    expect(out.expression).to.match(/`Age` > \? OR \(? ?`DeletedAt` IS NULL/);
+    expect(out.bindings).to.deep.equal([18]);
+  });
+
+  // `orWhere(fn)` hands the group builder over as `this`; the OR appliers used to read it from an
+  // argument that is never passed, so every callback-style operator threw in OR mode.
+  it('in / nin work in OR mode', () => {
+    const out = (q() as any).filter([f('Age', 'gt', 18), f('Role', 'in', ['a', 'b']), f('Role', 'nin', ['c'])], FilterableLogicalOperators.Or).toDB();
+
+    expect(out.expression).to.match(/`Age` > \? OR .*`Role` IN \(\?,\s?\?\).* OR .*`Role` NOT IN \(\?\)/);
+    expect(out.bindings).to.deep.equal([18, 'a', 'b', 'c']);
+  });
+
+  it('a null filter works inside a nested group', () => {
+    const filters = [f('Role', 'eq', 'admin'), { op: FilterableLogicalOperators.Or, filters: [f('Age', 'lt', 5), f('DeletedAt', 'notnull')] }];
+    const out = (q() as any).filter(filters, FilterableLogicalOperators.And).toDB();
+
+    expect(out.expression).to.match(/`Role` = \? AND \( `Age` < \? OR \(? ?`DeletedAt` IS NOT NULL/);
+    expect(out.bindings).to.deep.equal(['admin', 5]);
   });
 });
 
