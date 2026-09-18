@@ -41,7 +41,7 @@ export class SqliteOrderByCompiler extends OrderByQueryCompiler {
     const bindings = [] as unknown[];
 
     if (sort) {
-      stmt = ` ORDER BY \`${sort.column}\` ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
+      stmt = ` ORDER BY ${sort.tableAlias ? `\`${sort.tableAlias}\`.` : ''}\`${sort.column}\` ${sort.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC'}`;
     }
 
     return {
