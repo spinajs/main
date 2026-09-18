@@ -1293,6 +1293,76 @@ describe('Select query builder', () => {
     expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');
   });
 
+  it('takes one sort object, or a list of them', () => {
+    const one = sqb().select('*').from('users').order({ column: 'name', order: SortOrder.DESC }).toDB();
+    expect(one.expression).to.equal('SELECT * FROM `users` ORDER BY `name` DESC');
+
+    const many = sqb()
+      .select('*')
+      .from('users')
+      .order([
+        { column: 'name', order: SortOrder.ASC },
+        { column: 'id', order: SortOrder.DESC },
+      ])
+      .toDB();
+    expect(many.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `id` DESC');
+  });
+
+  it('drops a list entry that names no column, so the next one decides the order', () => {
+    // how a caller expresses "what the request asked for, then the fallback"
+    const requested = { column: '  ', order: SortOrder.ASC };
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .order([undefined, requested, { column: 'id', order: SortOrder.DESC }])
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `id` DESC');
+  });
+
+  it('does not repeat a column already ordered on', () => {
+    const result = sqb()
+      .select('*')
+      .from('users')
+      .order([
+        { column: 'id', order: SortOrder.ASC },
+        { column: 'id', order: SortOrder.DESC },
+      ])
+      .toDB();
+
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `id` ASC');
+  });
+
+  it('takes the direction in any case, and refuses one that is neither', () => {
+    const result = sqb().select('*').from('users').order({ column: 'name', order: 'asc' as SortOrder }).toDB();
+    expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC');
+
+    expect(() => sqb().select('*').from('users').order('name', 'sideways' as SortOrder)).to.throw(InvalidArgument, /expected ASC or DESC/);
+  });
+
+  it('orders by an alias a raw select produced once the query declares it', () => {
+    // RawQuery hides its aliases, so a query holding one is not validated - `orderable()` is how
+    // the scope that selects them says which identifiers the query really yields.
+    const declared = RelationModel.query()
+      .select(new RawQuery('SUM(`value`) as `total`'))
+      .orderable('total')
+      .order({ column: 'total', order: SortOrder.DESC })
+      .toDB() as ICompilerOutput;
+    expect(declared.expression).to.match(/ORDER BY `total` DESC$/);
+
+    expect(() =>
+      RelationModel.query()
+        .select(new RawQuery('SUM(`value`) as `total`'))
+        .orderable('total')
+        .order('nope', SortOrder.ASC)
+        .toDB(),
+    ).to.throw(InvalidArgument, /Cannot order by nope/);
+  });
+
+  it('order by a column of a to-many relation is refused - it would leave the page as it was', () => {
+    expect(() => RelationModel3.all().order('Models.RelationProperty', SortOrder.ASC)).to.throw(InvalidArgument, /not a to-one relation/);
+  });
+
   it('order() appends instead of overwriting', () => {
     const result = sqb().select('*').from('users').order('name', SortOrder.ASC).order('age', SortOrder.DESC).toDB();
     expect(result.expression).to.equal('SELECT * FROM `users` ORDER BY `name` ASC, `age` DESC');

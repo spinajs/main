@@ -1176,7 +1176,10 @@ export interface ILimitBuilder<T> {
 export interface IOrderByBuilder {
   orderBy(column: string): this;
   orderByDescending(column: string): this;
-  order(column: string, direction: SortOrder): this;
+  order(column: string, direction?: SortOrder): this;
+  order(sort: Partial<ISort> | Array<Partial<ISort> | null | undefined> | null | undefined): this;
+  orderable(...columns: string[]): this;
+  getOrderable(): string[];
   getSort(): ISort | null;
   getSorts(): ISort[];
 }
