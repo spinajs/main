@@ -427,7 +427,15 @@ Note it is not a `force` variation. `force` chooses whether the `OnStartup` gate
 both of its values run migrations — `force: false` runs every connection whose gate is on, which
 is exactly the set a migration tool must not touch on its way in.
 
-Within one run, per connection, in `(timestamp, name)` order:
+`up()` orders the pending migrations of **all** connections together by `(timestamp, name)` and
+hands them to each connection's service in consecutive stretches: `A1 (conn a), B (conn b),
+A2 (conn a)` runs as three stretches, in that order. A migration may therefore rely on anything an
+earlier-stamped migration on another connection created — a view in one schema over a table
+another connection's migration adds. When a run returns to a connection it already migrated, the
+stretch joins the batch that run opened (`continueBatch`), so one run is still one batch per
+connection. `PerRun` transaction mode wraps each stretch, not the connection's whole run.
+
+Within one stretch, in `(timestamp, name)` order:
 
 1. `ensureStorage()` — create the tracking table and its `_lock` companion, or upgrade a legacy
    one. This happens *before* the lock is taken, because the lock table is one of the tables it
@@ -437,7 +445,8 @@ Within one run, per connection, in `(timestamp, name)` order:
 3. Read every tracking row. **`up()` refuses the whole run if any row is in the failed state.**
 4. `up()` runs for every registered migration with no *applied* row. `down()` runs for every
    applied row in scope.
-5. Compute the batch number: `max(Batch across applied rows) + 1`.
+5. Compute the batch number: `max(Batch across applied rows) + 1`, or that max itself when the
+   run continues a batch it opened earlier on this connection.
 6. Wrap according to `Migration.Transaction.Mode`.
 7. On `up`: open the row (`StartedAt` set; `FinishedAt`, `RolledBackAt` and `Logs` cleared), run
    `up(driver)`, then stamp `FinishedAt`, `Batch` and `Checksum`.
