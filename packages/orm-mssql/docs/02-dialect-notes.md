@@ -10,7 +10,7 @@ public supportedFeatures(): ISupportedFeature {
 
 | Feature | Value | Consequence |
 | --- | --- | --- |
-| `events` | `false` | This driver registers no event compiler; `createEvent` / `dropEvent` throw `MethodNotImplemented`. Only MySQL has database events. |
+| `events` | `false` | This driver registers `UnsupportedEventQueryCompiler` / `UnsupportedDropEventQueryCompiler`; `createEvent` / `dropEvent` throw `MethodNotImplemented`. Only MySQL has database events. |
 | `insertReturning` | `false` | `returning()` throws `NotSupported`. |
 | `insertIdIsFirstOfBatch` | `false` | `SCOPE_IDENTITY()` reports the **last** identity generated in the scope, so a multi-row insert cannot be walked forwards from it. MSSQL opts out of the positional batch backfill. |
 

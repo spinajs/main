@@ -307,9 +307,11 @@ conversion; the two dumps must be identical.
 
 ## Known limits
 
-- The postgres and mssql drivers rewrite every `?` in a statement into a positional / named
-  parameter inside `executeOnDb`, including one inside a string literal. A raw view body that
-  contains a literal `?` therefore still breaks on those two engines. Pre-existing, affects
-  `schema().raw()` equally, out of scope here.
+- The postgres and mssql drivers no longer rewrite a statement that carries no bindings, so every
+  compiled view and event is safe: their values are inlined and `bindings` is always empty, and
+  `schema().raw()` without bindings is covered the same way. A statement that DOES carry
+  bindings is still rewritten blind to string literals on those two drivers - pre-existing,
+  out of scope here. The mssql driver also still strips every backtick from every statement, so
+  `MsSqlLiteralQuoter` refuses to write a value containing one as a literal.
 - MSSQL rejects `ORDER BY` in a view body without `TOP`. That is the engine's rule about the
   body, not a clause of the builder, so the compiler does not police it.

@@ -159,7 +159,7 @@ Everything else comes from [`@spinajs/orm-sql`](../../orm-sql/docs/), including 
 `events: true`, so the schema builder's event API works.
 
 ```ts sample
-import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver, RawQuery } from '@spinajs/orm';
 
 @Migration('mysql')
 export class ScheduleCleanup_2026_07_27_21_00_00 extends OrmMigration {
@@ -172,7 +172,7 @@ export class ScheduleCleanup_2026_07_27_21_00_00 extends OrmMigration {
       event
         .every(1, 'HOUR')
         .comment('Delete sessions older than a day')
-        .do(connection.del().from('sessions').where('CreatedAt', '<', '2026-01-01'));
+        .do(new RawQuery('DELETE FROM sessions WHERE CreatedAt < NOW() - INTERVAL 1 DAY'));
     });
   }
 

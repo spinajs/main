@@ -1136,6 +1136,16 @@ Optional clauses exist only where the engine has them. Anything else throws
 
 MSSQL also refuses `database()` on a view: T-SQL does not allow a database prefix there.
 
+### Limits
+
+Values are inlined when the view is created, not bound at query time - the same rule as
+`RawQuery` bodies everywhere in this builder. In a raw body that carries its own bindings, write
+an embedded quote as `''`; the placeholder scanner does not treat a backslash as an escape, so
+`\'` does not close a quoted region the way it would in MySQL string literals. PostgreSQL ignores
+`database()` on a view exactly like it does for every other table reference, because a connection
+is bound to one database and there is nothing else to name. `CREATE OR ALTER VIEW` needs SQL
+Server 2016 SP1 or newer; on an older instance, drop and recreate instead.
+
 ## Database events
 
 Scheduled jobs inside the database engine. **Only MySQL has them.** On SQLite, PostgreSQL and
@@ -1143,7 +1153,7 @@ MSSQL the builders throw `MethodNotImplemented` when compiled; guard with
 `supportedFeatures().events` when a migration must run everywhere.
 
 ```ts sample
-import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver, RawQuery } from '@spinajs/orm';
 
 @Migration('default')
 export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
@@ -1156,7 +1166,7 @@ export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
       event
         .every(1, 'HOUR')
         .comment('Delete sessions older than a day')
-        .do(connection.del().from('sessions').where('CreatedAt', '<', '2026-01-01'));
+        .do(new RawQuery('DELETE FROM sessions WHERE CreatedAt < NOW() - INTERVAL 1 DAY'));
     });
   }
 
@@ -1188,6 +1198,11 @@ export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
 `DO` - a single statement, or a `RawQuery` that carries its own `BEGIN ... END` block. Several
 actions are wrapped in `BEGIN ... END`, one statement per line. Values are inlined as literals,
 as in views. `dropEvent(name)` emits `IF EXISTS` only after `.ifExists()`.
+
+Values are written into the event once, when it is created - an expression that must be
+evaluated on every run (`NOW()`, a relative date) has to be SQL text in a `RawQuery`, not a bound
+JavaScript value, which would freeze in whatever it evaluated to at creation time. And `do()`
+replaces the actions of a previous `do()` call, it does not add to them.
 
 ## Raw DDL
 
