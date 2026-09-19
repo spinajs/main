@@ -2,8 +2,8 @@
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import { NotSupported } from '@spinajs/exceptions';
 import { Logger, Log } from '@spinajs/log';
-import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler } from '@spinajs/orm';
-import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName } from '@spinajs/orm-sql';
+import { ICompilerOutput, RawQuery, OnDuplicateQueryBuilder, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, LimitQueryCompiler, LimitBuilder, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, IdentifierQuoter, ColumnQueryCompiler, TableAliasCompiler, CreateViewQueryBuilder } from '@spinajs/orm';
+import { SqlInsertQueryCompiler, SqlColumnQueryCompiler, SqlAlterColumnQueryCompiler, SqlOnDuplicateQueryCompiler, SqlDefaultValueBuilder, escapeStringLiteral, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 @NewInstance()
@@ -410,5 +410,36 @@ export class PostgresTableAliasCompiler implements TableAliasCompiler {
     }
 
     return table;
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class PostgresCreateViewCompiler extends SqlCreateViewQueryCompiler {
+  protected Engine = 'postgres';
+
+  constructor(container: Container, builder: CreateViewQueryBuilder) {
+    super(container, builder);
+  }
+
+  protected _replace(): string {
+    return this.builder.Replace ? 'OR REPLACE' : '';
+  }
+
+  protected _temporary(): string {
+    return this.builder.Temporary ? 'TEMPORARY' : '';
+  }
+
+  protected _prefixOptions(): string {
+    return this.builder.Algorithm ? this.unsupported('ALGORITHM') : '';
+  }
+
+  // security_invoker exists since PostgreSQL 15
+  protected _withOptions(): string {
+    return this.builder.Security ? `WITH (security_invoker = ${this.builder.Security === 'INVOKER'})` : '';
+  }
+
+  protected _checkOption(): string {
+    return this.checkOptionSql();
   }
 }

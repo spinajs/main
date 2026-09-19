@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter } from '@spinajs/orm';
 import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier } from './statements.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresLiteralQuoter } from './statements.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
 export * from './compilers.js';
@@ -207,6 +207,8 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresDefaultValueBuilder).as(DefaultValueBuilder);
     // Table references carry no database prefix in postgres — see PostgresTableAliasCompiler.
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
+    this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
