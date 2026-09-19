@@ -671,18 +671,23 @@ describe('MySql views and events', () => {
     await connection.schema().createEvent('ev_orm_test', (event) =>
       event
         .every(1, 'DAY')
+        .starts(DateTime.fromSQL('2030-01-02 03:04:05'))
         .disabled()
         .comment(`orm's test`)
         .do([connection.del().from('user_test').where('Name', 'never'), new RawQuery('DELETE FROM user_test WHERE Name = ?', ['never either'])]),
     );
 
-    const rows = (await connection.executeOnDb("SELECT STATUS, INTERVAL_VALUE, INTERVAL_FIELD, EVENT_COMMENT FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() AND EVENT_NAME = 'ev_orm_test'", [], QueryContext.Select)) as any[];
+    const rows = (await connection.executeOnDb("SELECT STATUS, INTERVAL_VALUE, INTERVAL_FIELD, EVENT_COMMENT, STARTS FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() AND EVENT_NAME = 'ev_orm_test'", [], QueryContext.Select)) as any[];
 
     expect(rows).to.have.lengthOf(1);
     expect(rows[0].STATUS).to.eq('DISABLED');
     expect(String(rows[0].INTERVAL_VALUE)).to.eq('1');
     expect(rows[0].INTERVAL_FIELD).to.eq('DAY');
     expect(rows[0].EVENT_COMMENT).to.eq(`orm's test`);
+
+    // the driver may return STARTS as a JS Date or as a string, depending on the column type mapping
+    const starts = rows[0].STARTS instanceof Date ? DateTime.fromJSDate(rows[0].STARTS) : DateTime.fromSQL(String(rows[0].STARTS));
+    expect(starts.toFormat('yyyy-MM-dd HH:mm:ss')).to.eq('2030-01-02 03:04:05');
 
     await connection.schema().dropEvent('ev_orm_test');
   });
