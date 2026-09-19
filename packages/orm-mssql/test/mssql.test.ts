@@ -4,7 +4,7 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { MsSqlOrmDriver } from './../src/index.js';
 import { mergeArrays } from './util.js';
-import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException } from '@spinajs/orm';
+import { InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, OrmException, QueryContext } from '@spinajs/orm';
 import { DI } from '@spinajs/di';
 // Registers the logging implementation the framework's `@Logger` decorator resolves. Without
 // it every `this.Log.*` call is a TypeError — Orm.createConnections died on `Log.trace` before
@@ -297,5 +297,41 @@ describe('MsSql queries', () => {
     expect(user.CreatedAt).instanceof(DateTime);
     expect(user.Name).to.eq('test not duplicated');
     expect(user.Password).to.eq('test_password_duplicated');
+  });
+});
+
+describe('MsSql views', () => {
+  beforeEach(async () => {
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(MsSqlOrmDriver).as('orm-driver-mssql');
+    await DI.resolve(Orm);
+
+    await db().Connections.get('mssql')!.truncate('user_test');
+    await db().Migration.up();
+    await db().reloadTableInfo();
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('creates or alters a view with an inlined binding, reads through it and drops it', async () => {
+    // Connections.get() is typed as the base OrmDriver; executeOnDb is a SqlDriver member,
+    // so the concrete driver type is needed to reach it.
+    const connection = db().Connections.get('mssql')! as MsSqlOrmDriver;
+
+    await connection.insert().into('user_test').values({ Name: 'a', Password: 'p', CreatedAt: '2019-10-18' });
+    await connection.insert().into('user_test').values({ Name: 'b', Password: 'p', CreatedAt: '2019-10-18' });
+
+    const create = () => connection.schema().createView('v_user_a', (view) => view.orReplace().as((select) => select.from('user_test').where('Name', 'a')));
+
+    await create();
+    // a second run must ALTER, not fail
+    await create();
+
+    const rows = (await connection.executeOnDb('SELECT Name FROM v_user_a', [], QueryContext.Select)) as any[];
+    expect(rows.map((row) => row.Name)).to.deep.eq(['a']);
+
+    await connection.schema().dropView('v_user_a').ifExists();
   });
 });

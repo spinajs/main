@@ -3,7 +3,7 @@ import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
-import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm } from '@spinajs/orm';
+import { ICompilerOutput, InsertBehaviour, IWhereBuilder, MigrationTransactionMode, Orm, QueryContext, RawQuery } from '@spinajs/orm';
 // Registers the concrete Log implementation. `Orm` types its logger as the ABSTRACT `Log`
 // from @spinajs/log-common, so without this nothing satisfies it and `Orm.createConnections`
 // dies on `this.Log.trace is not a function`. orm-sqlite's suites already do this.
@@ -630,5 +630,60 @@ describe('MySql cross-schema whereExists', () => {
     expect(compiled.expression).to.include('NOT EXISTS');
     expect(compiled.expression).to.include('`test-2`.`user_metadata`');
     expect(compiled.expression).to.include('`Key`');
+  });
+});
+
+describe('MySql views and events', () => {
+  beforeEach(async () => {
+    DI.clearCache();
+
+    DI.register(ConnectionConf).as(Configuration);
+    DI.register(MySqlOrmDriver).as('orm-driver-mysql');
+    await DI.resolve(Orm);
+    await db().Connections.get('mysql')!.truncate('user_test');
+  });
+
+  afterEach(async () => {
+    await (DI.get(Orm) as any)?.dispose();
+    DI.clearCache();
+  });
+
+  it('creates a view with an inlined binding, reads through it and drops it', async () => {
+    // Connections.get() is typed as the base OrmDriver; executeOnDb is a SqlDriver member,
+    // so the concrete driver type is needed to reach it.
+    const connection = db().Connections.get('mysql')! as MySqlOrmDriver;
+
+    await connection.insert().into('user_test').values({ Name: 'a', Password: 'p', CreatedAt: '2019-10-18' });
+    await connection.insert().into('user_test').values({ Name: `b'c`, Password: 'p', CreatedAt: '2019-10-18' });
+
+    await connection.schema().createView('v_user_quoted', (view) => view.orReplace().security('INVOKER').as((select) => select.from('user_test').where('Name', `b'c`)));
+
+    const rows = (await connection.executeOnDb('SELECT Name FROM v_user_quoted', [], QueryContext.Select)) as any[];
+    expect(rows.map((row) => row.Name)).to.deep.eq([`b'c`]);
+
+    await connection.schema().dropView('v_user_quoted').ifExists();
+  });
+
+  it('creates an event the scheduler accepts and drops it', async () => {
+    const connection = db().Connections.get('mysql')! as MySqlOrmDriver;
+
+    await connection.schema().dropEvent('ev_orm_test').ifExists();
+    await connection.schema().createEvent('ev_orm_test', (event) =>
+      event
+        .every(1, 'DAY')
+        .disabled()
+        .comment(`orm's test`)
+        .do([connection.del().from('user_test').where('Name', 'never'), new RawQuery('DELETE FROM user_test WHERE Name = ?', ['never either'])]),
+    );
+
+    const rows = (await connection.executeOnDb("SELECT STATUS, INTERVAL_VALUE, INTERVAL_FIELD, EVENT_COMMENT FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() AND EVENT_NAME = 'ev_orm_test'", [], QueryContext.Select)) as any[];
+
+    expect(rows).to.have.lengthOf(1);
+    expect(rows[0].STATUS).to.eq('DISABLED');
+    expect(String(rows[0].INTERVAL_VALUE)).to.eq('1');
+    expect(rows[0].INTERVAL_FIELD).to.eq('DAY');
+    expect(rows[0].EVENT_COMMENT).to.eq(`orm's test`);
+
+    await connection.schema().dropEvent('ev_orm_test');
   });
 });
