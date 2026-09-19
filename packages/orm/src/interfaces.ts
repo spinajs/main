@@ -1572,6 +1572,11 @@ export abstract class DropViewCompiler implements IQueryCompiler {
 }
 
 @NewInstance()
+export abstract class CreateViewCompiler implements IQueryCompiler {
+  public abstract compile(): ICompilerOutput;
+}
+
+@NewInstance()
 export abstract class CreateDatabaseCompiler implements IQueryCompiler {
   public abstract compile(): ICompilerOutput;
 }

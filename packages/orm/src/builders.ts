@@ -5,7 +5,7 @@ import { OrmException, OrmNotFoundException } from './exceptions.js';
 import _ from 'lodash';
 import { use } from 'typescript-mix';
 import { ColumnMethods, ColumnType, QueryMethod, SortOrder, WhereBoolean, SqlOperator, JoinMethod } from './enums.js';
-import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
+import { DeleteQueryCompiler, IColumnsBuilder, ICompilerOutput, ILimitBuilder, InsertQueryCompiler, IOrderByBuilder, IQueryBuilder, IQueryLimit, ISort, IWhereBuilder, SelectQueryCompiler, TruncateTableQueryCompiler, TableQueryCompiler, AlterTableQueryCompiler, UpdateQueryCompiler, QueryContext, IJoinBuilder, IndexQueryCompiler, RelationType, IBuilderMiddleware, IWithRecursiveBuilder, ReferentialAction, IGroupByBuilder, IUpdateResult, DefaultValueBuilder, ColumnAlterationType, TableExistsCompiler, DropViewCompiler, CreateViewCompiler, DropTableCompiler, TableCloneQueryCompiler, QueryMiddleware, DropEventQueryCompiler, EventQueryCompiler, IBuilder, IDeleteQueryBuilder, IUpdateQueryBuilder, ISelectQueryBuilder, IRelationDescriptor, IJoinStatementOptions, QueryScope, RawSchemaQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from './interfaces.js';
 import { BetweenStatement, ColumnMethodStatement, ColumnStatement, ExistsQueryStatement, InQueryStatement, InSetStatement, InStatement, IQueryStatement, RawQueryStatement, WhereQueryStatement, WhereStatement, ColumnRawStatement, JoinStatement, WithRecursiveStatement, GroupByStatement, Wrap, LazyQueryStatement } from './statements.js';
 import { ModelDataWithRelationDataSearchable, PickRelations, Unbox, WhereFunction } from './types.js';
 import type { OrmDriver } from './driver.js';
@@ -2325,6 +2325,108 @@ export class DropViewQueryBuilder extends QueryBuilder {
   }
 }
 
+export type ViewAlgorithm = 'UNDEFINED' | 'MERGE' | 'TEMPTABLE';
+export type ViewSecurity = 'DEFINER' | 'INVOKER';
+export type ViewCheckOption = 'CASCADED' | 'LOCAL';
+
+const VIEW_ALGORITHMS: readonly string[] = ['UNDEFINED', 'MERGE', 'TEMPTABLE'];
+const VIEW_SECURITY: readonly string[] = ['DEFINER', 'INVOKER'];
+const VIEW_CHECK_OPTIONS: readonly string[] = ['CASCADED', 'LOCAL'];
+
+// These reach the SQL text unquoted, so a value outside the list is refused, not interpolated.
+function assertOneOf<T extends string>(value: T, allowed: readonly string[], clause: string): T {
+  if (!allowed.includes(value)) {
+    throw new InvalidArgument(`invalid ${clause} "${value}", expected one of: ${allowed.join(', ')}`);
+  }
+
+  return value;
+}
+
+/**
+ * CREATE VIEW. Which optional clauses exist is the dialect's business: a driver's compiler
+ * throws MethodNotImplemented for a clause its engine does not have.
+ */
+@NewInstance()
+export class CreateViewQueryBuilder extends QueryBuilder {
+  public Replace = false;
+  public IfNotExists = false;
+  public Temporary = false;
+  public Columns: string[] = [];
+  public Algorithm?: ViewAlgorithm;
+  public Security?: ViewSecurity;
+
+  /** `true` is the plain `WITH CHECK OPTION` */
+  public CheckOption?: ViewCheckOption | true;
+
+  public Body?: SelectQueryBuilder | RawQuery;
+
+  constructor(container: Container, driver: OrmDriver, name: string, database?: string) {
+    super(container, driver, undefined);
+
+    this.setTable(name);
+
+    if (database) {
+      this.database(database);
+    }
+
+    this.QueryContext = QueryContext.Schema;
+  }
+
+  public orReplace() {
+    this.Replace = true;
+    return this;
+  }
+
+  public ifNotExists() {
+    this.IfNotExists = true;
+    return this;
+  }
+
+  public temporary() {
+    this.Temporary = true;
+    return this;
+  }
+
+  public columns(names: string[]) {
+    this.Columns = names;
+    return this;
+  }
+
+  public algorithm(algorithm: ViewAlgorithm) {
+    this.Algorithm = assertOneOf(algorithm, VIEW_ALGORITHMS, 'view algorithm');
+    return this;
+  }
+
+  public security(security: ViewSecurity) {
+    this.Security = assertOneOf(security, VIEW_SECURITY, 'view security');
+    return this;
+  }
+
+  public checkOption(option?: ViewCheckOption) {
+    this.CheckOption = option ? assertOneOf(option, VIEW_CHECK_OPTIONS, 'view check option') : true;
+    return this;
+  }
+
+  /**
+   * @param body - callback receiving a fresh select builder, a ready select builder, or raw SQL
+   */
+  public as(body: ((select: SelectQueryBuilder) => void) | SelectQueryBuilder | RawQuery) {
+    if (typeof body === 'function') {
+      const select = new SelectQueryBuilder(this._container, this._driver);
+      body(select);
+      this.Body = select;
+    } else {
+      this.Body = body;
+    }
+
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
+    return this._container.resolve<CreateViewCompiler>(CreateViewCompiler, [this]).compile();
+  }
+}
+
 /**
  * Creates a whole database ( schema in some engines ), eg.
  *
@@ -2871,6 +2973,13 @@ export class SchemaQueryBuilder {
 
   public dropTable(name: string, schema?: string) {
     return new DropTableQueryBuilder(this.container, this.driver, name, schema);
+  }
+
+  public createView(name: string, callback: (view: CreateViewQueryBuilder) => void) {
+    const builder = new CreateViewQueryBuilder(this.container, this.driver, name);
+    callback.call(this, builder);
+
+    return builder;
   }
 
   public dropView(name: string, schema?: string) {
