@@ -2,8 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement } from '@spinajs/orm';
+import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
 import { MsSqlOrmDriver } from '../src/index.js';
 import { MsSqlInSetStatement } from '../src/statements.js';
@@ -51,6 +51,14 @@ describe('mssql dialect', function () {
     for (const abstraction of ['AlterColumnQueryCompiler', 'AlterTableQueryCompiler', 'TableCloneQueryCompiler', 'RecursiveQueryCompiler', 'DefaultValueBuilder']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must not be inherited from the MySQL-flavoured base`).to.eq(false);
     }
+  });
+
+  it('refuses scheduled events, SQL Server Agent is not implemented', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(driver.supportedFeatures().events).to.eq(false);
+    expect(() => schema.createEvent('e', (event) => event.every(1, 'DAY').do(new RawQuery('SELECT 1'))).toDB()).to.throw(MethodNotImplemented, 'orm-driver-mssql has no native scheduled events');
+    expect(() => schema.dropEvent('e').toDB()).to.throw(MethodNotImplemented, 'orm-driver-mssql has no native scheduled events');
   });
 
   describe('set membership', () => {

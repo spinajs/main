@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NewInstance } from '@spinajs/di';
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler } from '@spinajs/orm';
-import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler } from '@spinajs/orm-sql';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, InsertQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, TableAliasCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
+import { SqlDriver, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, SqlAlterTableQueryCompiler, SqlDropDatabaseQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import pg from 'pg';
-import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler } from './compilers.js';
-import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier } from './statements.js';
+import { PostgresTableExistsCompiler, PostgresLimitQueryCompiler, PostgresOnDuplicateQueryCompiler, PostgresInsertQueryCompiler, PostgresColumnQueryCompiler, PostgresAlterColumnQueryCompiler, PostgresCreateDatabaseQueryCompiler, PostgresDefaultValueBuilder, PostgresTableAliasCompiler, PostgresCreateViewCompiler } from './compilers.js';
+import { DoubleQuoteIdentifierQuoter, pgEscapeIdentifier, PostgresLiteralQuoter } from './statements.js';
 import { ITableColumnInfo, IConstraintInfo } from './types.js';
 
 export * from './compilers.js';
@@ -22,14 +22,25 @@ export interface IPostgresTransactionContext extends ITransactionContext {
 const PG_RETRYABLE_CODES = new Set(['08000', '08001', '08003', '08004', '08006', '08007', '57P01', '57P02', '57P03']);
 
 /**
- * Rewrites the `?` placeholders every compiler emits into the `$1..$n` positional
- * parameters the pg protocol requires. Same brute-force walk the MSSQL driver does for
- * its `@p` parameters — the compilers bind every user value, so a literal `?` does not
- * appear in generated SQL outside of a placeholder position.
+ * Rewrites every `?` in a statement into `$1..$n` positional parameters, unbounded — it does
+ * not know how many bindings actually exist. `executeOnDb` never calls this directly; it goes
+ * through `toDriverStatement`, which stops at the number of bindings instead.
  */
 export function toPositionalParameters(stmt: string): string {
   let i = 0;
   return stmt.replace(/\?/g, () => `$${++i}`);
+}
+
+/**
+ * A statement without bindings cannot hold a placeholder: any `?` in it is text ( an inlined
+ * literal ). With bindings, only the first `params.length` `?` occurrences are rewritten — a
+ * `?` past that count is text too ( an inlined literal in the untouched remainder of the
+ * statement ), same bound `toNamedParameters` applies on the MSSQL driver.
+ */
+export function toDriverStatement(stmt: string, params?: unknown[]): string {
+  const count = params?.length ?? 0;
+  let i = 0;
+  return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {
@@ -111,7 +122,7 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const finalQuery = toPositionalParameters(stmt);
+    const finalQuery = toDriverStatement(stmt, params);
 
     // The context comes from the base driver; only this driver's `_begin` ever populates
     // it, and it always puts a PoolClient in.
@@ -207,17 +218,23 @@ export class PostgresOrmDriver extends SqlDriver {
     this.Container.register(PostgresDefaultValueBuilder).as(DefaultValueBuilder);
     // Table references carry no database prefix in postgres — see PostgresTableAliasCompiler.
     this.Container.register(PostgresTableAliasCompiler).as(TableAliasCompiler);
+    this.Container.register(PostgresCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(PostgresLiteralQuoter).as(LiteralQuoter);
 
     // Shared implementations that happen to be valid postgres, claimed explicitly.
     // DROP DATABASE IF EXISTS is among them: with this driver's quoter injected the
     // shared compiler already emits exactly the postgres statement.
-    // `CREATE TABLE ... LIKE`, `CREATE EVENT`, MySQL trigger syntax and `CHANGE COLUMN`
+    // `CREATE TABLE ... LIKE`, MySQL trigger syntax and `CHANGE COLUMN`
     // are NOT among them and stay unregistered: those features fail with a DI error
     // naming the abstraction instead of reaching postgres as MySQL syntax.
     this.Container.register(SqlDropDatabaseQueryCompiler).as(DropDatabaseCompiler);
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
     this.Container.register(SqlWithRecursiveCompiler).as(RecursiveQueryCompiler);
     this.Container.register(SqlAlterTableQueryCompiler).as(AlterTableQueryCompiler);
+
+    // No native scheduler in this engine, and nothing is simulated in its place.
+    this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
+    this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
   }
 
   /** pg.Pool publishes its bookkeeping — no private-field spelunking needed here. */

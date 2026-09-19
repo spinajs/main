@@ -820,12 +820,13 @@ gets its `data()` hook.
 | `createTable(name, cb)` | `TableQueryBuilder` |
 | `alterTable(name, cb)` | `AlterTableQueryBuilder` |
 | `dropTable(name, schema?)` | `DropTableQueryBuilder` |
+| `createView(name, cb)` | `CreateViewQueryBuilder` |
 | `dropView(name, schema?)` | `DropViewQueryBuilder` |
 | `cloneTable(cb)` | `CloneTableQueryBuilder` |
 | `tableExists(name, schema?)` | `Promise<boolean>` |
 | `createDatabase(name, cb?)` | `CreateDatabaseQueryBuilder` |
 | `dropDatabase(name)` | `DropDatabaseQueryBuilder` |
-| `event(name)` / `dropEvent(name)` | `EventQueryBuilder` / `DropEventQueryBuilder` |
+| `createEvent(name, cb)` / `dropEvent(name)` | `EventQueryBuilder` / `DropEventQueryBuilder` |
 | `raw(query, bindings?)` | `RawSchemaQueryBuilder` |
 
 Every builder is thenable — `await` it to run it.
@@ -1096,13 +1097,63 @@ callback, as above, is the usual shape.
 Truncation lives on the driver and on the model, not on the schema builder:
 `connection.truncate('table')` or `Model.truncate()`.
 
-## Database events
-
-Scheduled jobs inside the database engine. Only dialects whose `supportedFeatures().events` is
-true support them — **MySQL and MSSQL do; SQLite does not.**
+## Views
 
 ```ts sample
-import { Migration, OrmMigration, OrmDriver, RawQueryStatement } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+
+@Migration('default')
+export class ActiveOrdersView_2026_09_19_10_00_00 extends OrmMigration {
+  public async up(connection: OrmDriver): Promise<void> {
+    await connection.schema().createView('v_active_orders', (view) => {
+      view.columns(['Id', 'Total']).as((select) => select.select('Id').select('Total').from('orders').where('Status', 'open'));
+    });
+  }
+
+  public async down(connection: OrmDriver): Promise<void> {
+    await connection.schema().dropView('v_active_orders').ifExists();
+  }
+}
+```
+
+`as()` takes a callback that receives a fresh select builder, a ready `SelectQueryBuilder`, or a
+`RawQuery`. No engine accepts parameters inside a view definition, so the values of the body are
+written into the SQL as literals by the driver's `LiteralQuoter`; the compiled statement never
+carries bindings.
+
+Optional clauses exist only where the engine has them. Anything else throws
+`MethodNotImplemented` - nothing is simulated.
+
+| Method | MySQL | SQLite | PostgreSQL | MSSQL |
+| --- | --- | --- | --- | --- |
+| `columns([...])` | yes | yes | yes | yes |
+| `orReplace()` | `OR REPLACE` | throws | `OR REPLACE` | `CREATE OR ALTER` |
+| `ifNotExists()` | throws | yes | throws | throws |
+| `algorithm('UNDEFINED' \| 'MERGE' \| 'TEMPTABLE')` | yes | throws | throws | throws |
+| `security('DEFINER' \| 'INVOKER')` | `SQL SECURITY` | throws | `security_invoker` ( 15+ ) | throws |
+| `checkOption('CASCADED' \| 'LOCAL'?)` | yes | throws | yes | plain form only |
+| `temporary()` | throws | `TEMP` | `TEMPORARY` | throws |
+
+MSSQL also refuses `database()` on a view: T-SQL does not allow a database prefix there.
+
+### Limits
+
+Values are inlined when the view is created, not bound at query time - the same rule as
+`RawQuery` bodies everywhere in this builder. The placeholder scanner does not treat a backslash
+as an escape, so in a raw body that carries bindings a `\'` ends the quoted region right there,
+unlike in a MySQL string literal - write an embedded quote as `''` instead. PostgreSQL ignores
+`database()` on a view exactly like it does for every other table reference, because a connection
+is bound to one database and there is nothing else to name. `CREATE OR ALTER VIEW` needs SQL
+Server 2016 SP1 or newer; on an older instance, drop and recreate instead.
+
+## Database events
+
+Scheduled jobs inside the database engine. **Only MySQL has them.** On SQLite, PostgreSQL and
+MSSQL the builders throw `MethodNotImplemented` when compiled; guard with
+`supportedFeatures().events` when a migration must run everywhere.
+
+```ts sample
+import { Migration, OrmMigration, OrmDriver, RawQuery } from '@spinajs/orm';
 
 @Migration('default')
 export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
@@ -1111,13 +1162,12 @@ export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
       return;
     }
 
-    const event = connection.schema().event('purge_old_sessions');
-
-    event.every().hour(1);
-    event.comment('Delete sessions older than a day');
-    event.do(connection.del().from('sessions').where('CreatedAt', '<', '2026-01-01'));
-
-    await event;
+    await connection.schema().createEvent('purge_old_sessions', (event) => {
+      event
+        .every(1, 'HOUR')
+        .comment('Delete sessions older than a day')
+        .do(new RawQuery('DELETE FROM sessions WHERE CreatedAt < NOW() - INTERVAL 1 DAY'));
+    });
   }
 
   public async down(connection: OrmDriver): Promise<void> {
@@ -1125,22 +1175,34 @@ export class ScheduleCleanup_2026_07_27_17_00_00 extends OrmMigration {
       return;
     }
 
-    await connection.schema().dropEvent('purge_old_sessions');
+    await connection.schema().dropEvent('purge_old_sessions').ifExists();
   }
 }
 ```
 
-`EventQueryBuilder`:
+`EventQueryBuilder` - every method chains:
 
 | Method | Effect |
 | --- | --- |
-| `every()` | Returns an `EventIntervalDesc` — `second`, `minute`, `hour`, `month`, `year`. Repeats. |
-| `fromNow()` | Same shape, but runs once at `now + interval`. |
-| `at(dateTime)` | Run once at a specific luxon `DateTime`. |
-| `do(sql)` | A `RawQueryStatement`, one `QueryBuilder`, or an array of them. |
-| `comment(text)` | Documentation, passed to the engine. |
+| `every(n, unit)` | Repeat. `unit` is `YEAR`, `QUARTER`, `MONTH`, `WEEK`, `DAY`, `HOUR`, `MINUTE` or `SECOND`. |
+| `at(dateTime)` | Run once at a luxon `DateTime`. |
+| `fromNow(n, unit)` | Run once at `now + interval`. |
+| `starts(dateTime)` / `ends(dateTime)` | Window of a recurring event. Only valid with `every()`. |
+| `preserve()` | `ON COMPLETION PRESERVE`. Default is `NOT PRESERVE`. |
+| `disabled()` | Create the event disabled. Default is enabled. |
+| `ifNotExists()` | `CREATE EVENT IF NOT EXISTS`. |
+| `comment(text)` | Stored with the event. |
+| `do(sql)` | A `RawQuery`, a query builder, or an array of them. |
 
-`ScheduleQueryBuilder` wraps the same thing with `create(name, cb)` and `drop(name)`.
+`every()`, `at()` and `fromNow()` are mutually exclusive. One action is emitted as given after
+`DO` - a single statement, or a `RawQuery` that carries its own `BEGIN ... END` block. Several
+actions are wrapped in `BEGIN ... END`, one statement per line. Values are inlined as literals,
+as in views. `dropEvent(name)` emits `IF EXISTS` only after `.ifExists()`.
+
+Values are written into the event once, when it is created - an expression that must be
+evaluated on every run (`NOW()`, a relative date) has to be SQL text in a `RawQuery`, not a bound
+JavaScript value, which would freeze in whatever it evaluated to at creation time. And `do()`
+replaces the actions of a previous `do()` call, it does not add to them.
 
 ## Raw DDL
 
@@ -1152,13 +1214,13 @@ import { Migration, OrmMigration, OrmDriver, RawQuery } from '@spinajs/orm';
 @Migration('default')
 export class RawDdl_2026_07_27_18_00_00 extends OrmMigration {
   public async up(connection: OrmDriver): Promise<void> {
-    await connection.schema().raw('CREATE VIEW v_active_orders AS SELECT * FROM orders WHERE Status = ?', ['open']);
+    await connection.schema().raw('ALTER TABLE orders ADD CONSTRAINT chk_total CHECK (Total >= 0)');
 
     await connection.schema().raw(RawQuery.create('CREATE INDEX idx_orders_status ON orders (Status)'));
   }
 
   public async down(connection: OrmDriver): Promise<void> {
-    await connection.schema().dropView('v_active_orders').ifExists();
+    await connection.schema().raw('ALTER TABLE orders DROP CONSTRAINT chk_total');
   }
 }
 ```

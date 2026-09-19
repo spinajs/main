@@ -159,7 +159,7 @@ Everything else comes from [`@spinajs/orm-sql`](../../orm-sql/docs/), including 
 `events: true`, so the schema builder's event API works.
 
 ```ts sample
-import { Migration, OrmMigration, OrmDriver } from '@spinajs/orm';
+import { Migration, OrmMigration, OrmDriver, RawQuery } from '@spinajs/orm';
 
 @Migration('mysql')
 export class ScheduleCleanup_2026_07_27_21_00_00 extends OrmMigration {
@@ -168,12 +168,12 @@ export class ScheduleCleanup_2026_07_27_21_00_00 extends OrmMigration {
       return;
     }
 
-    const event = connection.schema().event('purge_old_sessions');
-    event.every().hour(1);
-    event.comment('Delete sessions older than a day');
-    event.do(connection.del().from('sessions').where('CreatedAt', '<', '2026-01-01'));
-
-    await event;
+    await connection.schema().createEvent('purge_old_sessions', (event) => {
+      event
+        .every(1, 'HOUR')
+        .comment('Delete sessions older than a day')
+        .do(new RawQuery('DELETE FROM sessions WHERE CreatedAt < NOW() - INTERVAL 1 DAY'));
+    });
   }
 
   public async down(connection: OrmDriver): Promise<void> {
@@ -181,7 +181,7 @@ export class ScheduleCleanup_2026_07_27_21_00_00 extends OrmMigration {
       return;
     }
 
-    await connection.schema().dropEvent('purge_old_sessions');
+    await connection.schema().dropEvent('purge_old_sessions').ifExists();
   }
 }
 ```

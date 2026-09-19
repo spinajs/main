@@ -1,13 +1,13 @@
-import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { DatetimeValueConverter, DeleteQueryCompiler, ModelDehydrator, TableAliasCompiler, OnDuplicateQueryCompiler, OrderByQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, InsertQueryCompiler, QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, LimitQueryCompiler, IDriverOptions, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, InSetStatement, IdentifierQuoter, TruncateTableQueryCompiler, CreateDatabaseCompiler, DropDatabaseCompiler, CreateViewCompiler, LiteralQuoter, EventQueryCompiler, DropEventQueryCompiler } from '@spinajs/orm';
 /* eslint-disable security/detect-object-injection */
 import { Injectable, NewInstance } from '@spinajs/di';
 
-import { SqlDriver, SqlTruncateTableQueryCompiler } from '@spinajs/orm-sql';
+import { SqlDriver, SqlTruncateTableQueryCompiler, UnsupportedEventQueryCompiler, UnsupportedDropEventQueryCompiler } from '@spinajs/orm-sql';
 import mssql from 'mssql';
 import { IIndexInfo, ITableColumnInfo } from './types.js';
-import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler } from './compilers.js';
+import { MsSqlTableExistsCompiler, MsSqlLimitCompiler, MsSqlOrderByCompiler, MsSqlTableQueryCompiler, MsSqlColumnQueryCompiler, MsSqlInsertQueryCompiler, MsSqlDeleteQueryCompiler, MsSqlTableAliasCompiler, MsSqlOnDuplicateQueryCompiler, MsSqlCreateDatabaseQueryCompiler, MsSqlDropDatabaseQueryCompiler, MsSqlCreateViewCompiler } from './compilers.js';
 import { MssqlModelDehydrator } from './dehydrator.js';
-import { BracketIdentifierQuoter, MsSqlInSetStatement } from './statements.js';
+import { BracketIdentifierQuoter, MsSqlInSetStatement, MsSqlLiteralQuoter } from './statements.js';
 import { MsSqlDatetimeValueConverter } from './converters.js';
 
 export interface IMsSqlTransactionContext extends ITransactionContext {
@@ -28,6 +28,19 @@ const MSSQL_ISOLATION_LEVELS: Record<IsolationLevel, mssql.IIsolationLevel> = {
  */
 function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
+}
+
+/** Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text. */
+export function toNamedParameters(stmt: string, count: number): string {
+  let out = stmt;
+  for (let i = 0; i < count; i++) {
+    const idx = out.indexOf('?');
+    if (idx === -1) {
+      break;
+    }
+    out = out.substring(0, idx) + `@p${i}` + out.substring(idx + 1);
+  }
+  return out;
 }
 
 @Injectable('orm-driver-mssql')
@@ -52,20 +65,11 @@ export class MsSqlOrmDriver extends SqlDriver {
     // it must be narrowed from ITransactionContext to read `request`.
     const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
     const req = txContext?.request ?? this._connectionPool.request();
-    let idx = 0;
-    let i = 0;
 
     // No try/finally here any more: it only ever existed to bracket this driver's own
     // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
-    /**
-     * Brute force replacement ? for @parameters
-     * MSSQL driver requires named parameters in query string
-     */
-    while ((idx = finalQuery.indexOf('?')) !== -1) {
-      finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
-      req.input(`p${i}`, params[i]);
-      i++;
-    }
+    finalQuery = toNamedParameters(finalQuery, params?.length ?? 0);
+    params?.forEach((value, index) => req.input(`p${index}`, value));
 
     const result = await req.query(finalQuery);
 
@@ -90,13 +94,13 @@ export class MsSqlOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     return {
       /**
-       * FALSE, and it always was in practice. This driver registers no event or
-       * table-history compiler, so both fell through to the shared ones — which
-       * emit MySQL's `CREATE EVENT` and MySQL trigger syntax, and every one of
-       * them would have been rejected by SQL Server. Scheduling on this platform
-       * is SQL Server Agent, and history is a temporal table; until this driver
-       * implements them, claiming support only means the failure happens later
-       * and further from its cause.
+       * FALSE. This driver registers `UnsupportedEventQueryCompiler` /
+       * `UnsupportedDropEventQueryCompiler`, which throw `MethodNotImplemented` rather than
+       * falling through to the shared ones; it registers no table-history compiler either, and
+       * that abstraction has no shared registration to fall through to (only mysql registers
+       * one), so resolving it here fails in the container instead. Scheduling on this platform
+       * is SQL Server Agent, and history is a temporal table; until this driver implements
+       * them, claiming support only means the failure happens later and further from its cause.
        *
        * The dialect contract check is what surfaced this — it saw the shared
        * MySQL event compiler answering for a driver whose dialect is `mssql`.
@@ -174,6 +178,9 @@ export class MsSqlOrmDriver extends SqlDriver {
     this.Container.register(MsSqlCreateDatabaseQueryCompiler).as(CreateDatabaseCompiler);
     this.Container.register(MsSqlDropDatabaseQueryCompiler).as(DropDatabaseCompiler);
 
+    this.Container.register(MsSqlCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(MsSqlLiteralQuoter).as(LiteralQuoter);
+
     // Brackets, not the backticks this driver used to inherit from the shared layer.
     this.Container.register(BracketIdentifierQuoter).as(IdentifierQuoter);
 
@@ -183,6 +190,10 @@ export class MsSqlOrmDriver extends SqlDriver {
     // those features now fail with a DI error naming the abstraction instead of
     // reaching SQL Server as MySQL syntax.
     this.Container.register(SqlTruncateTableQueryCompiler).as(TruncateTableQueryCompiler);
+
+    // No native scheduler in this engine, and nothing is simulated in its place.
+    this.Container.register(UnsupportedEventQueryCompiler).as(EventQueryCompiler);
+    this.Container.register(UnsupportedDropEventQueryCompiler).as(DropEventQueryCompiler);
   }
 
   public async disconnect(): Promise<OrmDriver> {

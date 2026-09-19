@@ -4,8 +4,8 @@ import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
-import { IdentifierQuoter, InSetStatement, Orm, QueryContext, SelectQueryBuilder } from '@spinajs/orm';
+import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { IdentifierQuoter, InSetStatement, Orm, QueryContext, RawQuery, SelectQueryBuilder } from '@spinajs/orm';
 
 import { SqliteOrmDriver } from '../src/index.js';
 import { SqliteInSetStatement } from '../src/statements.js';
@@ -71,6 +71,12 @@ describe('sqlite dialect', function () {
      */
     it('leaves an unsupported feature unregistered rather than inheriting MySQL SQL', () => {
       expect(connection.Container.hasRegistered('TableCloneQueryCompiler')).to.eq(false);
+    });
+
+    it('refuses scheduled events, which sqlite does not have', () => {
+      expect(connection.supportedFeatures().events).to.eq(false);
+      expect(() => connection.schema().createEvent('e', (event) => event.every(1, 'DAY').do(new RawQuery('SELECT 1'))).toDB()).to.throw(MethodNotImplemented, 'orm-driver-sqlite has no native scheduled events');
+      expect(() => connection.schema().dropEvent('e').toDB()).to.throw(MethodNotImplemented, 'orm-driver-sqlite has no native scheduled events');
     });
   });
 

@@ -5,12 +5,12 @@ import { Injectable, NewInstance } from '@spinajs/di';
 // emit the same query twice. QueryBuilder / TransactionCallback / ITransaction are gone with
 // the old `{ commit, rollback }` transaction shape this branch replaced. ConnectionState /
 // IPoolMetrics are orm-infra's connection-resilience + pool-telemetry work.
-import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler } from '@spinajs/orm';
+import { QueryContext, OrmDriver, IColumnDescriptor, TableExistsCompiler, OrmException, ServerResponseMapper, ISupportedFeature, IsolationLevel, ITransactionContext, ITransactionOptions, ConnectionState, IPoolMetrics, InSetStatement, IdentifierQuoter, OnDuplicateQueryCompiler, ColumnQueryCompiler, AlterColumnQueryCompiler, AlterTableQueryCompiler, TableCloneQueryCompiler, LimitQueryCompiler, TruncateTableQueryCompiler, RecursiveQueryCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, CreateViewCompiler, LiteralQuoter } from '@spinajs/orm';
 import { BacktickIdentifierQuoter, SqlAlterColumnQueryCompiler, SqlAlterTableQueryCompiler, SqlColumnQueryCompiler, SqlDefaultValueBuilder, SqlDropEventQueryCompiler, SqlEventQueryCompiler, SqlLimitQueryCompiler, SqlOnDuplicateQueryCompiler, SqlTableCloneQueryCompiler, SqlTableHistoryQueryCompiler, SqlTruncateTableQueryCompiler, SqlWithRecursiveCompiler, escapeIdentifier, SqlDriver } from '@spinajs/orm-sql';
 import * as mysql from 'mysql2';
 import { OkPacket, PoolConnection, PoolOptions } from 'mysql2';
-import { MySqlTableExistsCompiler } from './compilers.js';
-import { MySqlInSetStatement } from './statements.js';
+import { MySqlCreateViewCompiler, MySqlTableExistsCompiler } from './compilers.js';
+import { MySqlInSetStatement, MySqlLiteralQuoter } from './statements.js';
 import { IIndexInfo, ITableColumnInfo, ITableTypeInfo } from './types.js';
 import { Client as SSHClient } from 'ssh2';
 import fs from 'fs';
@@ -270,6 +270,9 @@ export class MySqlOrmDriver extends SqlDriver {
     this.Container.register(SqlDropEventQueryCompiler).as(DropEventQueryCompiler);
     this.Container.register(SqlEventQueryCompiler).as(EventQueryCompiler);
     this.Container.register(SqlTableHistoryQueryCompiler).as(TableHistoryQueryCompiler);
+
+    this.Container.register(MySqlCreateViewCompiler).as(CreateViewCompiler);
+    this.Container.register(MySqlLiteralQuoter).as(LiteralQuoter);
   }
 
   /**

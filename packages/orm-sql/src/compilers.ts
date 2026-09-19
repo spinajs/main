@@ -2,11 +2,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
-import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
-import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventIntervalDesc, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
+import { InvalidOperation, InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
+import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
 import _ from 'lodash';
+import { inlineBindings } from './literals.js';
 
 /**
  * Central identifier escaping for the MySQL-flavoured dialect.
@@ -1328,98 +1329,131 @@ export class SqlAlterColumnQueryCompiler extends AlterColumnQueryCompiler {
 
 @NewInstance()
 @Inject(Container)
-export class SqlEventQueryCompiler extends SqlQueryCompiler<EventQueryBuilder> {
+export class SqlEventQueryCompiler extends EventQueryCompiler {
+  @Autoinject(LiteralQuoter)
+  public Literals: LiteralQuoter;
 
-  constructor(container: IContainer, builder: EventQueryBuilder) {
-    super(builder, container);
+  constructor(protected container: Container, protected builder: EventQueryBuilder) {
+    super();
   }
 
   public compile(): ICompilerOutput {
-    const schedule = this._createSchedule();
-    const action = this._action();
+    const builder = this.builder;
+    const lines = [
+      `CREATE EVENT${builder.IfNotExists ? ' IF NOT EXISTS' : ''} ${this.container.resolve(TableAliasCompiler).compile(builder)}`,
+      `ON SCHEDULE ${this._schedule()}`,
+      `ON COMPLETION ${builder.Preserve ? 'PRESERVE' : 'NOT PRESERVE'}`,
+      builder.Enabled ? 'ENABLE' : 'DISABLE',
+    ];
+
+    if (builder.Comment) {
+      lines.push(`COMMENT ${this.Literals.quote(builder.Comment)}`);
+    }
+
+    lines.push(`DO ${this._body()}`);
 
     return {
-      bindings: action.bindings,
-      expression: `CREATE EVENT ${this._builder.Name} ON SCHEDULE ${schedule} DO BEGIN ${action.expression} END`,
+      bindings: [],
+      expression: lines.join('\n'),
     };
   }
 
-  _createSchedule() {
-    if (this._builder.FromNowInverval) {
-      return `AT CURRENT_TIMESTAMP + INTERVAL ${this._getInterval(this._builder.FromNowInverval)}`;
+  protected _schedule(): string {
+    const builder = this.builder;
+
+    if ((builder.Starts || builder.Ends) && !builder.Every) {
+      throw new InvalidOperation(`event ${builder.Table}: starts() and ends() are only valid with every()`);
     }
 
-    if (this._builder.At) {
-      return `AT ${this._builder.At.toFormat(`yyyy-mm-dd HH:mm:ss`)}`;
+    if (builder.Every) {
+      const starts = builder.Starts ? ` STARTS ${this.Literals.quote(builder.Starts)}` : '';
+      const ends = builder.Ends ? ` ENDS ${this.Literals.quote(builder.Ends)}` : '';
+
+      return `EVERY ${builder.Every.Value} ${builder.Every.Unit}${starts}${ends}`;
     }
 
-    if (this._builder.EveryInterval) {
-      return `EVERY ${this._getInterval(this._builder.EveryInterval)}`;
+    if (builder.At) {
+      return `AT ${this.Literals.quote(builder.At)}`;
     }
+
+    if (builder.FromNow) {
+      return `AT CURRENT_TIMESTAMP + INTERVAL ${builder.FromNow.Value} ${builder.FromNow.Unit}`;
+    }
+
+    throw new InvalidOperation(`event ${builder.Table} has no schedule, call every(), at() or fromNow()`);
   }
 
-  _getInterval(desc: EventIntervalDesc) {
-    return Object.getOwnPropertyNames(desc)
-      .map((x) => {
-        if ((desc as any)[`${x}`] > 0) {
-          return `${(desc as any)[`${x}`]} ${x.toUpperCase()}`;
-        }
+  protected _body(): string {
+    const statements = this.builder.Actions.flatMap((action) => this._statements(action));
 
-        return null;
-      })
-      .find((x) => x !== null);
+    if (statements.length === 0) {
+      throw new InvalidOperation(`event ${this.builder.Table} has no body, call do() first`);
+    }
+
+    if (statements.length === 1) {
+      return statements[0];
+    }
+
+    const terminated = statements.map((statement) => {
+      const text = statement.trimEnd();
+      return text.endsWith(';') ? text : `${text};`;
+    });
+
+    return ['BEGIN', ...terminated, 'END'].join('\n');
   }
 
-  _action(): { expression: string; bindings: any[] } {
-    if (this._builder.RawSql) {
-      const res = this._builder.RawSql.build();
-      return {
-        expression: res.Statements.join(';'),
-        bindings: res.Bindings,
-      };
-    } else {
-      const qResult = this._builder.Queries.reduce(
-        (prev, curr) => {
-          const res = curr.toDB();
-
-          if (Array.isArray(res)) {
-            res.forEach((x) => {
-              prev.bindings = prev.bindings.concat(x.bindings);
-              prev.expression.push(x.expression!);
-            });
-          } else {
-            prev.bindings = prev.bindings.concat(res.bindings);
-            prev.expression.push(res.expression!);
-          }
-
-          return prev;
-        },
-        {
-          expression: [] as string[],
-          bindings: [] as any[],
-        },
-      );
-
-      return {
-        expression: qResult.expression.join(';'),
-        bindings: qResult.bindings,
-      };
+  protected _statements(action: RawQuery | QueryBuilder): string[] {
+    if (action instanceof RawQuery) {
+      return [inlineBindings(action.Query, action.Bindings, this.Literals)];
     }
+
+    const compiled = action.toDB();
+    return (Array.isArray(compiled) ? compiled : [compiled]).map((output) => inlineBindings(output.expression!, output.bindings!, this.Literals));
   }
 }
 
 @NewInstance()
 @Inject(Container)
-export class SqlDropEventQueryCompiler extends SqlQueryCompiler<DropEventQueryBuilder> {
-  constructor(container: IContainer, builder: DropEventQueryBuilder) {
-    super(builder, container);
+export class SqlDropEventQueryCompiler extends DropEventQueryCompiler {
+  constructor(protected container: Container, protected builder: DropEventQueryBuilder) {
+    super();
   }
 
   public compile(): ICompilerOutput {
+    const exists = this.builder.Exists ? ' IF EXISTS' : '';
+
     return {
       bindings: [],
-      expression: `DROP EVENT IF EXISTS ${this._builder.Name}`,
+      expression: `DROP EVENT${exists} ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`,
     };
+  }
+}
+
+/**
+ * For engines with no native scheduler. Registered explicitly by those drivers, so asking for
+ * an event says what is missing instead of failing inside the container.
+ */
+@NewInstance()
+@Inject(Container)
+export class UnsupportedEventQueryCompiler extends EventQueryCompiler {
+  constructor(protected container: Container, protected builder: EventQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new MethodNotImplemented(`${this.builder.Driver.Options.Driver} has no native scheduled events`);
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class UnsupportedDropEventQueryCompiler extends DropEventQueryCompiler {
+  constructor(protected container: Container, protected builder: DropEventQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new MethodNotImplemented(`${this.builder.Driver.Options.Driver} has no native scheduled events`);
   }
 }
 
