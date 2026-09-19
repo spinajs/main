@@ -3,7 +3,7 @@
 /* eslint-disable prettier/prettier */
 
 import { SqlDropEventQueryCompiler, SqlDropTableQueryCompiler, SqlEventQueryCompiler, SqlTableHistoryQueryCompiler, SqlOnDuplicateQueryCompiler, SqlIndexQueryCompiler, SqlWithRecursiveCompiler, SqlForeignKeyQueryCompiler, SqlGroupByCompiler, SqlSelectQueryCompiler, SqlUpdateQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlTableQueryCompiler, SqlColumnQueryCompiler, SqlOrderByQueryCompiler, SqlAlterColumnQueryCompiler, SqlTableCloneQueryCompiler, SqlAlterTableQueryCompiler, SqlLimitQueryCompiler, SqlTableAliasCompiler, SqlTruncateTableQueryCompiler, SqlRawSchemaQueryCompiler, SqlCreateDatabaseQueryCompiler, SqlDropDatabaseQueryCompiler } from './../src/compilers.js';
-import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler, ServerResponseMapper, IdentifierQuoter, InSetStatement, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
+import { OrmDriver, IColumnDescriptor, InStatement, RawQueryStatement, BetweenStatement, WhereStatement, ColumnStatement, ColumnMethodStatement, ExistsQueryStatement, ColumnRawStatement, WhereQueryStatement, SelectQueryCompiler, UpdateQueryCompiler, DeleteQueryCompiler, InsertQueryCompiler, TableQueryCompiler, ColumnQueryCompiler, OrderByQueryCompiler, OnDuplicateQueryCompiler, JoinStatement, IndexQueryCompiler, RecursiveQueryCompiler, WithRecursiveStatement, ForeignKeyQueryCompiler, GroupByStatement, GroupByQueryCompiler, DateTimeWrapper, DateWrapper, ITransactionContext, ITransactionOptions, AlterColumnQueryCompiler, TableCloneQueryCompiler, AlterTableQueryCompiler, LimitQueryCompiler, TableAliasCompiler, TruncateTableQueryCompiler, DatetimeValueConverter, DropTableCompiler, DefaultValueBuilder, DropEventQueryCompiler, EventQueryCompiler, TableHistoryQueryCompiler, TimeValueConverter, RawSchemaQueryCompiler, ServerResponseMapper, IdentifierQuoter, LiteralQuoter, InSetStatement, CreateDatabaseCompiler, DropDatabaseCompiler } from '@spinajs/orm';
 import { SqlInSetStatement, SqlInStatement, SqlRawStatement, SqlBetweenStatement, SqlWhereStatement, SqlColumnStatement, SqlColumnMethodStatement, SqlExistsQueryStatement, SqlColumnRawStatement, SqlWhereQueryStatement, SqlJoinStatement, SqlWithRecursiveStatement, SqlGroupByStatement, SqlDateTimeWrapper, SqlDateWrapper } from '../src/statements.js';
 import { FrameworkConfiguration } from '@spinajs/configuration';
 import _ from 'lodash';
@@ -11,6 +11,7 @@ import { join, normalize, resolve } from 'path';
 import { SqlDatetimeValueConverter, SqlTimeValueConverter } from '../src/converters.js';
 import { SqlDefaultValueBuilder } from './../src/builders.js';
 import { BacktickIdentifierQuoter, SqlDriver } from '../src/index.js';
+import { SqlLiteralQuoter } from '../src/literals.js';
 
 export function mergeArrays(target: any, source: any) {
   if (_.isArray(target)) {
@@ -155,6 +156,7 @@ export class FakeSqliteDriver extends SqlDriver {
     // Registered explicitly, like a real driver: the shared SqlDriver no longer
     // registers anything dialect-specific, and these suites assert MySQL-shaped SQL.
     this.Container.register(BacktickIdentifierQuoter).as(IdentifierQuoter);
+    this.Container.register(SqlLiteralQuoter).as(LiteralQuoter);
     this.Container.register(SqlInSetStatement).as(InSetStatement);
   }
 }

@@ -8,6 +8,7 @@ import { Perf } from '@spinajs/log-common';
 export * from './compilers.js';
 export * from './builders.js';
 export * from './statements.js';
+export * from './literals.js';
 
 export abstract class SqlDriver extends OrmDriver {
   public abstract executeOnDb(stmt: string | object, params: any[], context: QueryContext): Promise<any[] | any>;
