@@ -4,13 +4,13 @@
 
 ```ts
 public supportedFeatures(): ISupportedFeature {
-  return { events: true, insertReturning: false, insertIdIsFirstOfBatch: false };
+  return { events: false, insertReturning: false, insertIdIsFirstOfBatch: false };
 }
 ```
 
 | Feature | Value | Consequence |
 | --- | --- | --- |
-| `events` | `true` | Scheduled jobs are declared supported. |
+| `events` | `false` | This driver registers no event compiler; `createEvent` / `dropEvent` throw `MethodNotImplemented`. Only MySQL has database events. |
 | `insertReturning` | `false` | `returning()` throws `NotSupported`. |
 | `insertIdIsFirstOfBatch` | `false` | `SCOPE_IDENTITY()` reports the **last** identity generated in the scope, so a multi-row insert cannot be walked forwards from it. MSSQL opts out of the positional batch backfill. |
 
