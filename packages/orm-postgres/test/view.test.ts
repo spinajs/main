@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 import { CreateViewQueryBuilder, LiteralQuoter, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
-import { PostgresOrmDriver } from '../src/index.js';
+import { PostgresOrmDriver, toDriverStatement } from '../src/index.js';
 import { PostgresLiteralQuoter } from '../src/statements.js';
 
 describe('postgres views', function () {
@@ -62,5 +62,26 @@ describe('postgres views', function () {
 
   it('drops a view', () => {
     expect(schema().dropView('active_users').ifExists().toDB().expression).to.eq('DROP VIEW IF EXISTS "active_users"');
+  });
+
+  it('leaves a literal `?` inlined into a compiled view untouched, since it carries no bindings', () => {
+    const result = view((v) => v.as((select) => select.from('users').where('name', 'what?'))).toDB();
+
+    const sent = toDriverStatement(result.expression as string, result.bindings as unknown[]);
+
+    expect(sent).to.eq(result.expression);
+    expect(sent).to.include(`'what?'`);
+  });
+
+  it('toDriverStatement rewrites placeholders only when there are bindings', () => {
+    expect(toDriverStatement('a = ?', [1])).to.eq('a = $1');
+    expect(toDriverStatement("a = 'x?'", [])).to.eq("a = 'x?'");
+  });
+
+  it('escapes an injection attempt and a backslash the same way pg.escapeLiteral does', () => {
+    const quoter = driver.Container.resolve<LiteralQuoter>(LiteralQuoter);
+
+    expect(quoter.quote("'; DROP TABLE x; --")).to.eq(`'''; DROP TABLE x; --'`);
+    expect(quoter.quote('a\\b')).to.eq(` E'a\\\\b'`);
   });
 });

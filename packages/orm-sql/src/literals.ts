@@ -50,7 +50,15 @@ export class SqlLiteralQuoter extends LiteralQuoter {
 
   protected quoteDate(value: Date | DateTime): string {
     const converter = this.container.resolve<DatetimeValueConverter>(DatetimeValueConverter);
-    return this.quoteString(String(converter.toDB(value, null as any, null as any)));
+    const converted = converter.toDB(value, null as any, null as any);
+
+    // An invalid luxon DateTime converts to `null` (its own toSQL() is null); without this
+    // check that becomes the literal string 'null' instead of a loud failure.
+    if (converted === null || converted === undefined) {
+      throw new InvalidArgument('cannot write an invalid date as an SQL literal');
+    }
+
+    return this.quoteString(String(converted));
   }
 }
 

@@ -2,10 +2,10 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
 import { CreateViewQueryBuilder, ICompilerOutput, LiteralQuoter, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
-import { MsSqlOrmDriver } from '../src/index.js';
+import { MsSqlOrmDriver, toNamedParameters } from '../src/index.js';
 import { MsSqlLiteralQuoter } from '../src/statements.js';
 
 /** What actually reaches SQL Server: the driver strips backticks in executeOnDb. */
@@ -69,5 +69,29 @@ describe('mssql views', function () {
 
   it('drops a view', () => {
     expect(sent(schema().dropView('active_users').ifExists().toDB())).to.eq('DROP VIEW IF EXISTS active_users');
+  });
+
+  it('leaves a literal `?` inlined into a compiled view untouched, since it carries no bindings', () => {
+    const result = view((v) => v.as((select) => select.from('users').where('name', 'what?'))).toDB();
+
+    expect(toNamedParameters(sent(result), 0)).to.eq(sent(result));
+    expect(sent(result)).to.include(`'what?'`);
+  });
+
+  it('toNamedParameters rewrites only as many placeholders as it is given', () => {
+    expect(toNamedParameters('a = ? AND b = ?', 2)).to.eq('a = @p0 AND b = @p1');
+    expect(toNamedParameters("a = ? AND b = 'x?'", 1)).to.eq("a = @p0 AND b = 'x?'");
+  });
+
+  it('refuses a value with a backtick, which executeOnDb would strip from the statement', () => {
+    const quoter = driver.Container.resolve<LiteralQuoter>(LiteralQuoter);
+
+    expect(() => quoter.quote('a`b')).to.throw(InvalidArgument);
+  });
+
+  it('escapes an injection attempt', () => {
+    const quoter = driver.Container.resolve<LiteralQuoter>(LiteralQuoter);
+
+    expect(quoter.quote("'; DROP TABLE x; --")).to.eq(`N'''; DROP TABLE x; --'`);
   });
 });

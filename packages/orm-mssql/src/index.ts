@@ -30,6 +30,19 @@ function msSqlEscapeIdentifier(name: string): string {
   return '[' + String(name).replace(/]/g, ']]') + ']';
 }
 
+/** Rewrites the first `count` `?` placeholders into `@p0..`; a statement without bindings is left alone, any `?` in it is text. */
+export function toNamedParameters(stmt: string, count: number): string {
+  let out = stmt;
+  for (let i = 0; i < count; i++) {
+    const idx = out.indexOf('?');
+    if (idx === -1) {
+      break;
+    }
+    out = out.substring(0, idx) + `@p${i}` + out.substring(idx + 1);
+  }
+  return out;
+}
+
 @Injectable('orm-driver-mssql')
 @NewInstance()
 export class MsSqlOrmDriver extends SqlDriver {
@@ -52,20 +65,11 @@ export class MsSqlOrmDriver extends SqlDriver {
     // it must be narrowed from ITransactionContext to read `request`.
     const txContext = this.TransactionStorage.getStore() as IMsSqlTransactionContext | undefined;
     const req = txContext?.request ?? this._connectionPool.request();
-    let idx = 0;
-    let i = 0;
 
     // No try/finally here any more: it only ever existed to bracket this driver's own
     // timeStart/timeEnd logging, which master centralised into `Perf.measure('orm.query')`.
-    /**
-     * Brute force replacement ? for @parameters
-     * MSSQL driver requires named parameters in query string
-     */
-    while ((idx = finalQuery.indexOf('?')) !== -1) {
-      finalQuery = finalQuery.substring(0, idx) + `@p${i}` + finalQuery.substring(idx + 1, finalQuery.length);
-      req.input(`p${i}`, params[i]);
-      i++;
-    }
+    finalQuery = toNamedParameters(finalQuery, params?.length ?? 0);
+    params?.forEach((value, index) => req.input(`p${index}`, value));
 
     const result = await req.query(finalQuery);
 
@@ -90,13 +94,13 @@ export class MsSqlOrmDriver extends SqlDriver {
   public supportedFeatures(): ISupportedFeature {
     return {
       /**
-       * FALSE, and it always was in practice. This driver registers no event or
-       * table-history compiler, so both fell through to the shared ones — which
-       * emit MySQL's `CREATE EVENT` and MySQL trigger syntax, and every one of
-       * them would have been rejected by SQL Server. Scheduling on this platform
-       * is SQL Server Agent, and history is a temporal table; until this driver
-       * implements them, claiming support only means the failure happens later
-       * and further from its cause.
+       * FALSE. This driver registers `UnsupportedEventQueryCompiler` /
+       * `UnsupportedDropEventQueryCompiler`, which throw `MethodNotImplemented` rather than
+       * falling through to the shared ones; it registers no table-history compiler, though,
+       * so that one still falls through to the shared MySQL trigger syntax, which SQL Server
+       * would reject. Scheduling on this platform is SQL Server Agent, and history is a
+       * temporal table; until this driver implements them, claiming support only means the
+       * failure happens later and further from its cause.
        *
        * The dialect contract check is what surfaced this — it saw the shared
        * MySQL event compiler answering for a driver whose dialect is `mssql`.

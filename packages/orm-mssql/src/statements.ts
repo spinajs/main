@@ -1,4 +1,5 @@
 import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, SET_DELIMITER } from '@spinajs/orm';
 import { _columnWrap, SqlLiteralQuoter } from '@spinajs/orm-sql';
 
@@ -65,6 +66,12 @@ export class MsSqlLiteralQuoter extends SqlLiteralQuoter {
 
   // N'' keeps non-latin text intact whatever the database collation is
   protected quoteString(value: string): string {
+    // executeOnDb strips every backtick from every statement, so one in an inlined literal
+    // would silently vanish rather than reach the server.
+    if (value.includes('`')) {
+      throw new InvalidArgument('mssql driver strips backticks from every statement, a value containing one cannot be written as a literal');
+    }
+
     return `N'${value.replace(/'/g, "''")}'`;
   }
 }

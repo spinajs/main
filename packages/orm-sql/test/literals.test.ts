@@ -66,6 +66,10 @@ describe('literal quoting', () => {
     expect(() => quoter().quote([1])).to.throw(InvalidArgument);
     expect(() => quoter().quote(Buffer.from('x'))).to.throw(InvalidArgument);
   });
+
+  it('refuses an invalid date rather than writing the string "null"', () => {
+    expect(() => quoter().quote(DateTime.fromSQL('garbage'))).to.throw(InvalidArgument);
+  });
 });
 
 describe('inlineBindings', () => {
@@ -97,5 +101,13 @@ describe('inlineBindings', () => {
 
   it('throws when bindings outnumber placeholders', () => {
     expect(() => inlineBindings('a = ?', [1, 2], marker)).to.throw(InvalidOperation);
+  });
+
+  it('an unterminated quote swallows the rest of the expression', () => {
+    expect(() => inlineBindings("a = 'oops ? AND b = ?", [1, 2], marker)).to.throw(InvalidOperation);
+  });
+
+  it('does not treat a backslash as an escape', () => {
+    expect(inlineBindings("a = 'it\\' AND b = ?", [7], marker)).to.eq("a = 'it\\' AND b = <7>");
   });
 });

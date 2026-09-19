@@ -32,6 +32,11 @@ export function toPositionalParameters(stmt: string): string {
   return stmt.replace(/\?/g, () => `$${++i}`);
 }
 
+/** A statement without bindings cannot hold a placeholder: any `?` in it is text ( an inlined literal ). */
+export function toDriverStatement(stmt: string, params?: unknown[]): string {
+  return params && params.length > 0 ? toPositionalParameters(stmt) : stmt;
+}
+
 export class PostgresServerResponseMapper extends ServerResponseMapper {
   public read(data: any, pkNames?: string[]) {
     // Upserts resolve with their RETURNING rows directly.
@@ -111,7 +116,7 @@ export class PostgresOrmDriver extends SqlDriver {
   }
 
   protected async _executeOnDbOnce(stmt: string, params: any[], context: QueryContext): Promise<any> {
-    const finalQuery = toPositionalParameters(stmt);
+    const finalQuery = toDriverStatement(stmt, params);
 
     // The context comes from the base driver; only this driver's `_begin` ever populates
     // it, and it always puts a PoolClient in.
