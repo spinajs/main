@@ -1,6 +1,7 @@
-import { Autoinject, NewInstance } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult } from '@spinajs/orm';
-import { _columnWrap } from '@spinajs/orm-sql';
+import { _columnWrap, SqlLiteralQuoter } from '@spinajs/orm-sql';
+import * as mysql from 'mysql2';
 
 /**
  * Membership test against a delimited `@Set()` column, MySQL dialect.
@@ -37,5 +38,18 @@ export class MySqlInSetStatement extends InSetStatement {
     clone.Quoter = this.Quoter;
 
     return clone;
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class MySqlLiteralQuoter extends SqlLiteralQuoter {
+  constructor(container: IContainer) {
+    super(container);
+  }
+
+  // mysql reads a backslash inside a literal as an escape, so doubling quotes alone is not enough
+  protected quoteString(value: string): string {
+    return mysql.escape(value);
   }
 }
