@@ -22,19 +22,25 @@ export interface IPostgresTransactionContext extends ITransactionContext {
 const PG_RETRYABLE_CODES = new Set(['08000', '08001', '08003', '08004', '08006', '08007', '57P01', '57P02', '57P03']);
 
 /**
- * Rewrites the `?` placeholders every compiler emits into the `$1..$n` positional
- * parameters the pg protocol requires. Same brute-force walk the MSSQL driver does for
- * its `@p` parameters — the compilers bind every user value, so a literal `?` does not
- * appear in generated SQL outside of a placeholder position.
+ * Rewrites every `?` in a statement into `$1..$n` positional parameters, unbounded — it does
+ * not know how many bindings actually exist. `executeOnDb` never calls this directly; it goes
+ * through `toDriverStatement`, which stops at the number of bindings instead.
  */
 export function toPositionalParameters(stmt: string): string {
   let i = 0;
   return stmt.replace(/\?/g, () => `$${++i}`);
 }
 
-/** A statement without bindings cannot hold a placeholder: any `?` in it is text ( an inlined literal ). */
+/**
+ * A statement without bindings cannot hold a placeholder: any `?` in it is text ( an inlined
+ * literal ). With bindings, only the first `params.length` `?` occurrences are rewritten — a
+ * `?` past that count is text too ( an inlined literal in the untouched remainder of the
+ * statement ), same bound `toNamedParameters` applies on the MSSQL driver.
+ */
 export function toDriverStatement(stmt: string, params?: unknown[]): string {
-  return params && params.length > 0 ? toPositionalParameters(stmt) : stmt;
+  const count = params?.length ?? 0;
+  let i = 0;
+  return stmt.replace(/\?/g, (match) => (i < count ? `$${++i}` : match));
 }
 
 export class PostgresServerResponseMapper extends ServerResponseMapper {

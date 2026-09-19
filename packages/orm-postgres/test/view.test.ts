@@ -78,6 +78,10 @@ describe('postgres views', function () {
     expect(toDriverStatement("a = 'x?'", [])).to.eq("a = 'x?'");
   });
 
+  it('toDriverStatement never rewrites more placeholders than there are bindings', () => {
+    expect(toDriverStatement("a = ? AND b = 'x?'", [1])).to.eq("a = $1 AND b = 'x?'");
+  });
+
   it('escapes an injection attempt and a backslash the same way pg.escapeLiteral does', () => {
     const quoter = driver.Container.resolve<LiteralQuoter>(LiteralQuoter);
 

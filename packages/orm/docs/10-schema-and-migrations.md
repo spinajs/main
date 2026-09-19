@@ -1139,9 +1139,9 @@ MSSQL also refuses `database()` on a view: T-SQL does not allow a database prefi
 ### Limits
 
 Values are inlined when the view is created, not bound at query time - the same rule as
-`RawQuery` bodies everywhere in this builder. In a raw body that carries its own bindings, write
-an embedded quote as `''`; the placeholder scanner does not treat a backslash as an escape, so
-`\'` does not close a quoted region the way it would in MySQL string literals. PostgreSQL ignores
+`RawQuery` bodies everywhere in this builder. The placeholder scanner does not treat a backslash
+as an escape, so in a raw body that carries bindings a `\'` ends the quoted region right there,
+unlike in a MySQL string literal - write an embedded quote as `''` instead. PostgreSQL ignores
 `database()` on a view exactly like it does for every other table reference, because a connection
 is bound to one database and there is nothing else to name. `CREATE OR ALTER VIEW` needs SQL
 Server 2016 SP1 or newer; on an older instance, drop and recreate instead.
