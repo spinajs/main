@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 /* eslint-disable prettier/prettier */
-import { InvalidOperation, InvalidArgument } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidArgument, MethodNotImplemented } from '@spinajs/exceptions';
 import { LimitBuilder, DropTableQueryBuilder, AlterColumnQueryBuilder, TableCloneQueryCompiler, ColumnStatement, OnDuplicateQueryBuilder, IJoinCompiler, DeleteQueryBuilder, IColumnsBuilder, IColumnsCompiler, ICompilerOutput, ILimitBuilder, LimitQueryCompiler, IGroupByCompiler, InsertQueryBuilder, IOrderByBuilder, IWhereBuilder, IWhereCompiler, OrderByBuilder, QueryBuilder, SelectQueryBuilder, UpdateQueryBuilder, SelectQueryCompiler, TableQueryCompiler, TableQueryBuilder, ColumnQueryBuilder, ColumnQueryCompiler, RawQuery, IQueryBuilder, OrderByQueryCompiler, OnDuplicateQueryCompiler, IJoinBuilder, IndexQueryCompiler, IndexQueryBuilder, IRecursiveCompiler, IWithRecursiveBuilder, ForeignKeyBuilder, ForeignKeyQueryCompiler, IGroupByBuilder, AlterTableQueryBuilder, CloneTableQueryBuilder, AlterTableQueryCompiler, ColumnAlterationType, AlterColumnQueryCompiler, TableAliasCompiler, DropTableCompiler, ValueConverter, DropEventQueryBuilder, TableHistoryQueryCompiler, EventQueryBuilder, EventQueryCompiler, DropEventQueryCompiler, LiteralQuoter, WhereStatement, IHavingCompiler, LazyQueryStatement, IQueryStatement, IQueryStatementResult, WhereBoolean, RawSchemaQueryCompiler, RawSchemaQueryBuilder, DropViewQueryBuilder, DropViewCompiler, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
 import { use } from 'typescript-mix';
 import { NewInstance, Inject, Container, IContainer, Autoinject } from '@spinajs/di';
@@ -1426,6 +1426,34 @@ export class SqlDropEventQueryCompiler extends DropEventQueryCompiler {
       bindings: [],
       expression: `DROP EVENT${exists} ${this.container.resolve(TableAliasCompiler).compile(this.builder)}`,
     };
+  }
+}
+
+/**
+ * For engines with no native scheduler. Registered explicitly by those drivers, so asking for
+ * an event says what is missing instead of failing inside the container.
+ */
+@NewInstance()
+@Inject(Container)
+export class UnsupportedEventQueryCompiler extends EventQueryCompiler {
+  constructor(protected container: Container, protected builder: EventQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new MethodNotImplemented(`${this.builder.Driver.Options.Driver} has no native scheduled events`);
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class UnsupportedDropEventQueryCompiler extends DropEventQueryCompiler {
+  constructor(protected container: Container, protected builder: DropEventQueryBuilder) {
+    super();
+  }
+
+  public compile(): ICompilerOutput {
+    throw new MethodNotImplemented(`${this.builder.Driver.Options.Driver} has no native scheduled events`);
   }
 }
 
