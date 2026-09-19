@@ -1543,12 +1543,12 @@ export abstract class TableCloneQueryCompiler implements IQueryCompiler {
 
 @NewInstance()
 export abstract class EventQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
+  public abstract compile(): ICompilerOutput;
 }
 
 @NewInstance()
 export abstract class DropEventQueryCompiler implements IQueryCompiler {
-  public abstract compile(): ICompilerOutput[];
+  public abstract compile(): ICompilerOutput;
 }
 
 @NewInstance()

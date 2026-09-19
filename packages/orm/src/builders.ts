@@ -2816,134 +2816,139 @@ export class CloneTableQueryBuilder extends QueryBuilder {
   }
 }
 
-export class EventIntervalDesc {
-  public Year: number;
-  public Month: number;
-  public Minute: number;
-  public Hour: number;
-  public Second: number;
+export type EventIntervalUnit = 'YEAR' | 'QUARTER' | 'MONTH' | 'WEEK' | 'DAY' | 'HOUR' | 'MINUTE' | 'SECOND';
 
-  public second(s: number) {
-    this.Second = s;
-  }
+const EVENT_INTERVAL_UNITS: readonly string[] = ['YEAR', 'QUARTER', 'MONTH', 'WEEK', 'DAY', 'HOUR', 'MINUTE', 'SECOND'];
 
-  public minute(m: number) {
-    this.Minute = m;
-  }
-
-  public hour(h: number) {
-    this.Hour = h;
-  }
-
-  public month(m: number) {
-    this.Month = m;
-  }
-
-  public year(y: number) {
-    this.Year = y;
-  }
+export interface IEventInterval {
+  Value: number;
+  Unit: EventIntervalUnit;
 }
 
+function eventInterval(value: number, unit: EventIntervalUnit): IEventInterval {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new InvalidArgument(`event interval must be a positive integer, got ${value}`);
+  }
+
+  return { Value: value, Unit: assertOneOf(unit, EVENT_INTERVAL_UNITS, 'event interval unit') };
+}
+
+/**
+ * A job scheduled inside the database engine. Engines without native events throw
+ * MethodNotImplemented at compile time - check `supportedFeatures().events` first.
+ */
 @NewInstance()
 @Inject(Container)
 export class EventQueryBuilder extends QueryBuilder {
-  public EveryInterval: EventIntervalDesc;
-  public FromNowInverval: EventIntervalDesc;
-  public Comment: string;
-  public At: DateTime;
-  public RawSql: RawQueryStatement;
-  public Queries: QueryBuilder[];
+  public Every?: IEventInterval;
+  public FromNow?: IEventInterval;
+  public At?: DateTime;
+  public Starts?: DateTime;
+  public Ends?: DateTime;
+  public Preserve = false;
+  public Enabled = true;
+  public IfNotExists = false;
+  public Comment?: string;
+  public Actions: (RawQuery | QueryBuilder)[] = [];
 
-  constructor(protected container: Container, protected driver: OrmDriver, public Name: string) {
+  constructor(container: Container, driver: OrmDriver, name: string) {
     super(container, driver);
+
+    this.setTable(name);
+    this.QueryContext = QueryContext.Schema;
   }
 
-  /**
-   * execute every time with specified interval ( days, hours, seconds, minutes etc)
-   */
-  public every() {
-    this.EveryInterval = new EventIntervalDesc();
-    return this.EveryInterval;
+  /** Repeat with the given interval */
+  public every(value: number, unit: EventIntervalUnit) {
+    this.assertNoSchedule();
+    this.Every = eventInterval(value, unit);
+    return this;
   }
 
-  /**
-   *
-   * Execute at specific time
-   *
-   * @param dateTime - specific time
-   */
+  /** Run once at a point in time */
   public at(dateTime: DateTime) {
+    this.assertNoSchedule();
     this.At = dateTime;
+    return this;
   }
 
-  /**
-   * execute once at specific interfal from now eg. now + 1 day
-   */
-  public fromNow() {
-    this.FromNowInverval = new EventIntervalDesc();
-    return this.FromNowInverval;
+  /** Run once, the given interval from now */
+  public fromNow(value: number, unit: EventIntervalUnit) {
+    this.assertNoSchedule();
+    this.FromNow = eventInterval(value, unit);
+    return this;
   }
 
-  /**
-   *
-   * @param sql - code to execute,  could be raw sql query, single builder, or multiple builders that will be executed on by one
-   */
-  public do(sql: RawQueryStatement | QueryBuilder[] | QueryBuilder) {
-    if (sql instanceof RawQueryStatement) {
-      this.RawSql = sql;
-    } else if (Array.isArray(sql)) {
-      this.Queries = sql;
-    } else {
-      this.Queries = [sql];
-    }
+  public starts(dateTime: DateTime) {
+    this.Starts = dateTime;
+    return this;
   }
 
-  /**
-   *
-   * Add comment to schedule for documentation. It is passed to sql engine
-   *
-   * @param comment - comment text
-   */
+  public ends(dateTime: DateTime) {
+    this.Ends = dateTime;
+    return this;
+  }
+
+  /** Keep the event after its last run ( ON COMPLETION PRESERVE ) */
+  public preserve() {
+    this.Preserve = true;
+    return this;
+  }
+
+  public disabled() {
+    this.Enabled = false;
+    return this;
+  }
+
+  public ifNotExists() {
+    this.IfNotExists = true;
+    return this;
+  }
+
   public comment(comment: string) {
     this.Comment = comment;
+    return this;
   }
 
-  public toDB(): ICompilerOutput[] {
+  /**
+   * One action is emitted as given - a statement, or raw SQL carrying its own BEGIN ... END.
+   * Several actions are wrapped in BEGIN ... END.
+   */
+  public do(sql: RawQuery | QueryBuilder | (RawQuery | QueryBuilder)[]) {
+    this.Actions = Array.isArray(sql) ? sql : [sql];
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
     return this._container.resolve<EventQueryCompiler>(EventQueryCompiler, [this]).compile();
+  }
+
+  private assertNoSchedule() {
+    if (this.Every || this.At || this.FromNow) {
+      throw new InvalidOperation(`event ${this.Table} already has a schedule, every(), at() and fromNow() are mutually exclusive`);
+    }
   }
 }
 
 @NewInstance()
 @Inject(Container)
 export class DropEventQueryBuilder extends QueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver, public Name: string) {
+  public Exists = false;
+
+  constructor(container: Container, driver: OrmDriver, name: string) {
     super(container, driver);
+
+    this.setTable(name);
+    this.QueryContext = QueryContext.Schema;
   }
 
-  public toDB(): ICompilerOutput[] {
+  public ifExists() {
+    this.Exists = true;
+    return this;
+  }
+
+  public toDB(): ICompilerOutput {
     return this._container.resolve<DropEventQueryCompiler>(DropEventQueryCompiler, [this]).compile();
-  }
-}
-
-/**
- * Creates schedule job in database engine.
- * Note, some engines does not support this, so it will implemented
- * as nodejs interval
- */
-@NewInstance()
-@Inject(Container)
-export class ScheduleQueryBuilder {
-  constructor(protected container: Container, protected driver: OrmDriver) { }
-
-  public create(name: string, callback: (event: EventQueryBuilder) => void) {
-    const builder = new EventQueryBuilder(this.container, this.driver, name);
-    callback.call(this, builder);
-
-    return builder;
-  }
-
-  public drop(name: string) {
-    return new DropEventQueryBuilder(this.container, this.driver, name);
   }
 }
 
@@ -3024,8 +3029,11 @@ export class SchemaQueryBuilder {
     return exists !== null && exists.length === 1;
   }
 
-  public event(name: string) {
-    return new EventQueryBuilder(this.container, this.driver, name);
+  public createEvent(name: string, callback: (event: EventQueryBuilder) => void) {
+    const builder = new EventQueryBuilder(this.container, this.driver, name);
+    callback.call(this, builder);
+
+    return builder;
   }
 
   public dropEvent(name: string) {
