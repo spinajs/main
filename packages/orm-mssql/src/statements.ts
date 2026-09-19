@@ -1,6 +1,6 @@
-import { Autoinject, NewInstance } from '@spinajs/di';
+import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter, InSetStatement, IQueryStatement, IQueryStatementResult, SET_DELIMITER } from '@spinajs/orm';
-import { _columnWrap } from '@spinajs/orm-sql';
+import { _columnWrap, SqlLiteralQuoter } from '@spinajs/orm-sql';
 
 /**
  * Membership test against a delimited `@Set()` column, MSSQL dialect.
@@ -53,5 +53,18 @@ export class MsSqlInSetStatement extends InSetStatement {
 export class BracketIdentifierQuoter extends IdentifierQuoter {
   public quote(name: string): string {
     return '[' + String(name).replace(/]/g, ']]') + ']';
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class MsSqlLiteralQuoter extends SqlLiteralQuoter {
+  constructor(container: IContainer) {
+    super(container);
+  }
+
+  // N'' keeps non-latin text intact whatever the database collation is
+  protected quoteString(value: string): string {
+    return `N'${value.replace(/'/g, "''")}'`;
   }
 }
