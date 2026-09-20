@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 
 import { DI } from '@spinajs/di';
-import { IdentifierQuoter } from '@spinajs/orm';
+import { MethodNotImplemented } from '@spinajs/exceptions';
+import { IdentifierQuoter, RawQuery, SchemaQueryBuilder } from '@spinajs/orm';
 
 import { PostgresOrmDriver, PostgresServerResponseMapper, toPositionalParameters } from '../src/index.js';
 
@@ -33,14 +34,22 @@ describe('postgres dialect', function () {
   });
 
   /**
-   * MySQL's `CREATE EVENT`, trigger-based table history and `CREATE TABLE ... LIKE` have
-   * no postgres implementation here. They must stay UNREGISTERED so the failure is a DI
-   * error naming the abstraction — not MySQL syntax reaching the server.
+   * Trigger-based table history and `CREATE TABLE ... LIKE` have no postgres implementation
+   * here. They must stay UNREGISTERED so the failure is a DI error naming the abstraction —
+   * not MySQL syntax reaching the server.
    */
   it('leaves unsupported dialect features unregistered', () => {
-    for (const abstraction of ['EventQueryCompiler', 'DropEventQueryCompiler', 'TableHistoryQueryCompiler', 'TableCloneQueryCompiler']) {
+    for (const abstraction of ['TableHistoryQueryCompiler', 'TableCloneQueryCompiler']) {
       expect(driver.Container.hasRegistered(abstraction), `${abstraction} must NOT be registered - postgres has no implementation for it`).to.eq(false);
     }
+  });
+
+  it('refuses scheduled events, which postgres does not have natively', () => {
+    const schema = driver.Container.resolve(SchemaQueryBuilder, [driver]);
+
+    expect(driver.supportedFeatures().events).to.eq(false);
+    expect(() => schema.createEvent('e', (event) => event.every(1, 'DAY').do(new RawQuery('SELECT 1'))).toDB()).to.throw(MethodNotImplemented, 'orm-driver-postgres has no native scheduled events');
+    expect(() => schema.dropEvent('e').toDB()).to.throw(MethodNotImplemented, 'orm-driver-postgres has no native scheduled events');
   });
 
   it('quotes with double quotes, doubling embedded quotes', () => {

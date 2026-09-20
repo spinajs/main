@@ -1,8 +1,7 @@
-import { Configuration } from '@spinajs/configuration';
-import { Autoinject, IContainer, Inject, NewInstance } from '@spinajs/di';
-import { NotSupported } from '@spinajs/exceptions';
-import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
-import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier, assertCharsetName } from '@spinajs/orm-sql';
+import { Autoinject, Container, IContainer, Inject, NewInstance } from '@spinajs/di';
+import { MethodNotImplemented, NotSupported } from '@spinajs/exceptions';
+import { TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, ColumnQueryCompiler, ForeignKeyQueryCompiler, ColumnQueryBuilder, TableAliasCompiler, IQueryBuilder, ColumnStatement, RawQuery, extractModelDescriptor, InsertQueryBuilder, OrmException, IdentifierQuoter, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlDeleteQueryCompiler, SqlInsertQueryCompiler, SqlLimitQueryCompiler, SqlOrderByQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, escapeIdentifier, assertCharsetName, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
 import _ from 'lodash';
 
 /**
@@ -289,7 +288,6 @@ export class MsSqlDeleteQueryCompiler extends SqlDeleteQueryCompiler {
   }
 }
 
-@Inject(Configuration)
 @NewInstance()
 export class MsSqlTableAliasCompiler implements TableAliasCompiler {
   public compile(builder: IQueryBuilder, tbl?: string) {
@@ -310,5 +308,37 @@ export class MsSqlTableAliasCompiler implements TableAliasCompiler {
     }
 
     return table;
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class MsSqlCreateViewCompiler extends SqlCreateViewQueryCompiler {
+  protected Engine = 'mssql';
+
+  constructor(container: Container, builder: CreateViewQueryBuilder) {
+    super(container, builder);
+  }
+
+  protected _replace(): string {
+    return this.builder.Replace ? 'OR ALTER' : '';
+  }
+
+  protected _name(): string {
+    if (this.builder.Database) {
+      throw new MethodNotImplemented('mssql does not allow a database prefix on CREATE VIEW, connect to that database instead');
+    }
+
+    return super._name();
+  }
+
+  protected _checkOption(): string {
+    const option = this.builder.CheckOption;
+
+    if (!option) {
+      return '';
+    }
+
+    return option === true ? 'WITH CHECK OPTION' : this.unsupported(`WITH ${option} CHECK OPTION`);
   }
 }

@@ -194,6 +194,14 @@ Emits the history table and the triggers that populate it, giving each row `__ac
 
 `DROP TABLE|VIEW [IF EXISTS] <name>`, schema-qualified when `database()` was set.
 
+## `SqlCreateViewQueryCompiler`
+
+`CREATE VIEW <name> [(columns)] AS <body>` - the portable core only. Every optional clause
+( `OR REPLACE`, `IF NOT EXISTS`, `TEMPORARY`, `ALGORITHM`, `SQL SECURITY`, `CHECK OPTION` )
+throws `MethodNotImplemented` here; a driver subclasses it and overrides the hook of each clause
+its engine has. It is NOT registered by `SqlDriver` - every driver registers its own subclass.
+The body's bindings are inlined through `inlineBindings()` and the driver's `LiteralQuoter`.
+
 ## `SqlCreateDatabaseQueryCompiler` / `SqlDropDatabaseQueryCompiler`
 
 `CREATE DATABASE [IF NOT EXISTS] <name> [CHARACTER SET <cs>] [COLLATE <col>]` and
@@ -206,8 +214,10 @@ no server-side database at all.
 
 ## `SqlEventQueryCompiler` / `SqlDropEventQueryCompiler`
 
-Database scheduled events, from `EventQueryBuilder`. Both return arrays. Only meaningful where
-`supportedFeatures().events` is true.
+MySQL's `CREATE EVENT` / `DROP EVENT`, from `EventQueryBuilder`. Both return a single output
+with no bindings. Registered by the MySQL driver only; sqlite, postgres and mssql register
+`UnsupportedEventQueryCompiler` / `UnsupportedDropEventQueryCompiler`, which throw
+`MethodNotImplemented`.
 
 ## `SqlRawSchemaQueryCompiler`
 

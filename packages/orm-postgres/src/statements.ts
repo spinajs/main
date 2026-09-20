@@ -1,5 +1,7 @@
-import { NewInstance } from '@spinajs/di';
+import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
 import { IdentifierQuoter } from '@spinajs/orm';
+import { SqlLiteralQuoter } from '@spinajs/orm-sql';
+import pg from 'pg';
 
 /**
  * PostgreSQL quotes identifiers with the ANSI double quote and escapes an embedded `"` by
@@ -20,5 +22,21 @@ export function pgEscapeIdentifier(name: string): string {
 export class DoubleQuoteIdentifierQuoter extends IdentifierQuoter {
   public quote(name: string): string {
     return pgEscapeIdentifier(name);
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class PostgresLiteralQuoter extends SqlLiteralQuoter {
+  constructor(container: IContainer) {
+    super(container);
+  }
+
+  protected quoteString(value: string): string {
+    return pg.escapeLiteral(value);
+  }
+
+  protected quoteBoolean(value: boolean): string {
+    return value ? 'TRUE' : 'FALSE';
   }
 }

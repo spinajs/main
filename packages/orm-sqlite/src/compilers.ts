@@ -1,8 +1,8 @@
 /* eslint-disable security/detect-object-injection */
 /* eslint-disable prettier/prettier */
 
-import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler } from '@spinajs/orm-sql';
-import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder } from '@spinajs/orm';
+import { SqlColumnQueryCompiler, SqlTableQueryCompiler, SqlOnDuplicateQueryCompiler, SqlInsertQueryCompiler, SqlAlterColumnQueryCompiler, SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { ICompilerOutput, OrderByBuilder, OrderByQueryCompiler, RawQuery, OnDuplicateQueryBuilder, ColumnStatement, InsertQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, OrmException, TableQueryCompiler, TableQueryBuilder, TableAliasCompiler, ColumnAlterationType, CreateDatabaseCompiler, CreateDatabaseQueryBuilder, DropDatabaseCompiler, DropDatabaseQueryBuilder, CreateViewQueryBuilder } from '@spinajs/orm';
 import { NotSupported } from '@spinajs/exceptions';
 import { NewInstance, Inject, Container, IContainer } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
@@ -377,5 +377,23 @@ export class SqliteAlterColumnQueryCompiler extends SqlAlterColumnQueryCompiler 
   protected _add(definition: string): string | null {
     // AFTER is mysql-only; sqlite rejects it
     return `ADD ${definition}`;
+  }
+}
+
+@NewInstance()
+@Inject(Container)
+export class SqliteCreateViewCompiler extends SqlCreateViewQueryCompiler {
+  protected Engine = 'sqlite';
+
+  constructor(container: Container, builder: CreateViewQueryBuilder) {
+    super(container, builder);
+  }
+
+  protected _temporary(): string {
+    return this.builder.Temporary ? 'TEMP' : '';
+  }
+
+  protected _ifNotExists(): string {
+    return this.builder.IfNotExists ? 'IF NOT EXISTS' : '';
   }
 }

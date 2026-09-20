@@ -39,3 +39,15 @@ export abstract class IdentifierQuoter {
       .join('.');
   }
 }
+
+/**
+ * Writes a VALUE into SQL text the way one dialect spells literals.
+ *
+ * Only for statements the engine stores as text and therefore cannot bind into -
+ * CREATE VIEW and CREATE EVENT. Every other statement keeps binding its values.
+ * No default registration, for the same reason {@link IdentifierQuoter} has none.
+ */
+@NewInstance()
+export abstract class LiteralQuoter {
+  public abstract quote(value: unknown): string;
+}
