@@ -11,6 +11,7 @@ export * from './middlewares.js';
 export * from './policies/RbacPolicy.js';
 export * from './transformers.js';
 export * from './route-args.js';
+export * from './session-context.js';
 
 export * from "./policies/AllowGuest.js";
 export * from "./policies/BlockGuest.js";

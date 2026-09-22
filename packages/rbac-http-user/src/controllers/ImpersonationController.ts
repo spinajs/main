@@ -21,6 +21,7 @@ import {
   IImpersonationResponse,
   IImpersonationState,
   IUserWithGrants,
+  resolveSessionContext,
 } from '@spinajs/rbac-http';
 import { ImpersonationService } from '../services/ImpersonationService.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
@@ -180,7 +181,7 @@ export class ImpersonationController extends BaseController {
 
     // The session id changed with the identity — hand the client the new one or
     // its next request arrives with a session that no longer exists.
-    return new Ok(this.buildResponse(target, caller, targetActiveRole, startedAt), {
+    return new Ok(await this.buildResponse(target, caller, targetActiveRole, startedAt), {
       Coockies: [this.SessionCookies.issue(regenerated)],
       Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
     });
@@ -216,7 +217,7 @@ export class ImpersonationController extends BaseController {
       });
     }
 
-    return new Ok(buildUserWithGrants(result.Original, result.ActiveRole, this.AC), {
+    return new Ok(await buildUserWithGrants(result.Original, result.ActiveRole, this.AC), {
       Coockies: [this.SessionCookies.issue(result.Session)],
       Headers: [{ Name: 'Cache-Control', Value: 'no-store' }],
     });
@@ -238,13 +239,14 @@ export class ImpersonationController extends BaseController {
     return userModel().query().whereUuid(uuid).populate('Metadata').notDeleted().first() as Promise<User | undefined>;
   }
 
-  protected buildResponse(
+  protected async buildResponse(
     target: User,
     impersonator: User,
     activeRole: string | undefined,
     startedAt: string,
-  ): IImpersonationResponse {
+  ): Promise<IImpersonationResponse> {
     return {
+      ...(await resolveSessionContext(target, activeRole)),
       User: target.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       Impersonator: impersonator.dehydrateWithRelations({ dateTimeFormat: 'iso' }) as any,
       ActiveRole: activeRole,

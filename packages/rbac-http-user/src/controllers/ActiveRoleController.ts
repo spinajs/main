@@ -4,7 +4,7 @@ import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regener
 import type { ISession, User } from '@spinajs/rbac';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse, resolveSessionContext } from '@spinajs/rbac-http';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { grantsFor } from '../services/grants.js';
 
@@ -46,7 +46,7 @@ export class ActiveRoleController extends BaseController {
   @Get('active-role')
   @Policy(LoggedPolicy)
   public async getActiveRole(@UserRouteArg() user: User, @FromSession() ActiveRole: string): Promise<Ok<IActiveRoleResponse>> {
-    return new Ok(this.buildResponse(ActiveRole ?? user.Role?.[0]));
+    return new Ok(await this.buildResponse(user, ActiveRole ?? user.Role?.[0]));
   }
 
   /**
@@ -102,13 +102,14 @@ export class ActiveRoleController extends BaseController {
     // fixation, and reset the ssid cookie to the new id.
     const regenerated = await regenerateSession(this.SessionProvider, session);
 
-    return new Ok(this.buildResponse(payload.Role), {
+    return new Ok(await this.buildResponse(user, payload.Role), {
       Coockies: [this.SessionCookies.issue(regenerated)],
     });
   }
 
-  protected buildResponse(activeRole: string): IActiveRoleResponse {
+  protected async buildResponse(user: User, activeRole: string): Promise<IActiveRoleResponse> {
     return {
+      ...(await resolveSessionContext(user, activeRole)),
       ActiveRole: activeRole,
       Grants: grantsFor(this.AC, activeRole),
     };

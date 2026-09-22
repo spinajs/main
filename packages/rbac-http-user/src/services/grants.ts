@@ -1,5 +1,6 @@
 import { AccessControl, User, _unwindGrants } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
+import { resolveSessionContext } from '@spinajs/rbac-http';
 import type { IGrantsMap, IUserWithGrants } from '@spinajs/rbac-http';
 
 /**
@@ -24,16 +25,17 @@ export function grantsFor(ac: AccessControl, activeRole: string | undefined): IG
 }
 
 /**
- * The login-style user payload: the dehydrated user plus their active role and
- * the grants that role resolves to.
+ * The login-style user payload: the dehydrated user plus their active role, the
+ * grants that role resolves to and whatever the registered SessionContextProviders add.
  *
  * Login, 2FA verification and ending an impersonation all hand the client the
  * same shape, and all three previously assembled it by hand. `Role` is restored
  * explicitly because `dehydrateWithRelations` flattens the relation to a string
  * while clients expect the array they can switch between.
  */
-export function buildUserWithGrants(user: User, activeRole: string | undefined, ac: AccessControl): IUserWithGrants {
+export async function buildUserWithGrants(user: User, activeRole: string | undefined, ac: AccessControl): Promise<IUserWithGrants> {
   return {
+    ...(await resolveSessionContext(user, activeRole)),
     ...user.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
     Role: user.Role,
     ActiveRole: activeRole,

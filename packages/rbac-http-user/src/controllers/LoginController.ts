@@ -5,7 +5,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission, resolveSessionContext } from '@spinajs/rbac-http';
 import { User } from '@spinajs/rbac';
 import type { ISession } from '@spinajs/rbac';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
@@ -129,7 +129,7 @@ export class LoginController extends BaseController {
           Uuid: user.Uuid
         });
 
-        result = buildUserWithGrants(user, activeRole, this.AC);
+        result = await buildUserWithGrants(user, activeRole, this.AC);
       }
 
       // save() schedules the session's initial expiration via the configured
@@ -240,7 +240,10 @@ export class LoginController extends BaseController {
   @Policy(LoggedPolicy)
   public async whoami(@UserRouteArg() User: User, @FromSession() ActiveRole: string, @SessionRouteArg() session: ISession): Promise<Ok<IWhoamiResponse>> {
 
+    const activeRole = ActiveRole ?? User.Role?.[0];
+
     return new Ok({
+      ...(await resolveSessionContext(User, activeRole)),
       ...User.dehydrateWithRelations({ dateTimeFormat: 'iso' }),
 
       // `dehydrateWithRelations` flattens the relation to a single string, and
@@ -249,7 +252,7 @@ export class LoginController extends BaseController {
       // only after a fresh login, even though the doc above promises the list.
       // `buildUserWithGrants` restores it for the same reason.
       Role: User.Role,
-      ActiveRole: ActiveRole ?? User.Role?.[0],
+      ActiveRole: activeRole,
       Authorized: (session.Data.get('Authorized') as boolean | undefined) ?? true,
 
       // Same cast, and for the same reason, as `buildUserWithGrants`:
