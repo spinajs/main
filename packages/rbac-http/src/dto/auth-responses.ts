@@ -1,5 +1,7 @@
 import { DI } from '@spinajs/di';
 
+import { sessionContextProperties } from '../session-context.js';
+
 /**
  * JSON schemas for the auth endpoints' RESPONSE bodies.
  *
@@ -135,9 +137,7 @@ const USER_REQUIRED = ['Uuid'];
  */
 const grantsMap = {
   type: 'object',
-  description:
-    "Resolved grants for the active role, in accesscontrol's own format: " +
-    "resource → 'action:possession' → attributes. Feed it back into new AccessControl().",
+  description: "Resolved grants for the active role, in accesscontrol's own format: " + "resource → 'action:possession' → attributes. Feed it back into new AccessControl().",
   properties: {
     $extend: {
       type: 'array',
@@ -157,13 +157,18 @@ export const UserWithGrantsSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'User with grants',
   type: 'object',
-  properties: {
-    ...userProperties,
-    ActiveRole: {
-      type: 'string',
-      description: 'Role whose grants are in effect; defaults to Role[0] at login',
-    },
-    Grants: grantsMap,
+  // A getter, like the two below: SessionContextProviders register after this module loads,
+  // so their properties are read when the spec is built, not now.
+  get properties() {
+    return {
+      ...userProperties,
+      ActiveRole: {
+        type: 'string',
+        description: 'Role whose grants are in effect; defaults to Role[0] at login',
+      },
+      Grants: grantsMap,
+      ...sessionContextProperties(),
+    };
   },
   required: USER_REQUIRED,
 };
@@ -224,9 +229,12 @@ export const ActiveRoleResponseSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'Active role',
   type: 'object',
-  properties: {
-    ActiveRole: { type: 'string', description: 'Role whose grants are now in effect' },
-    Grants: grantsMap,
+  get properties() {
+    return {
+      ActiveRole: { type: 'string', description: 'Role whose grants are now in effect' },
+      Grants: grantsMap,
+      ...sessionContextProperties(),
+    };
   },
 };
 
@@ -242,18 +250,19 @@ export const WhoamiResponseSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   title: 'Current session user',
   type: 'object',
-  properties: {
-    ...userProperties,
-    ActiveRole: {
-      type: 'string',
-      description: 'Role whose grants are in effect for this session',
-    },
-    Authorized: {
-      type: 'boolean',
-      description:
-        'False while the session has passed the password step but still owes 2FA. ' +
-        'Absent on sessions minted before this field existed, which were fully authorized.',
-    },
+  get properties() {
+    return {
+      ...userProperties,
+      ActiveRole: {
+        type: 'string',
+        description: 'Role whose grants are in effect for this session',
+      },
+      Authorized: {
+        type: 'boolean',
+        description: 'False while the session has passed the password step but still owes 2FA. ' + 'Absent on sessions minted before this field existed, which were fully authorized.',
+      },
+      ...sessionContextProperties(),
+    };
   },
   required: USER_REQUIRED,
 };

@@ -116,7 +116,7 @@ export class TwoFactorAuthController extends BaseController {
       // instead of flattening every role with no ActiveRole reported.
       const activeRole = activeRoleOf(logged, session);
 
-      return new Ok(buildUserWithGrants(logged, activeRole, this.AC), {
+      return new Ok(await buildUserWithGrants(logged, activeRole, this.AC), {
         Coockies: [this.SessionCookies.issue(regenerated)],
       });
     } catch (err) {
