@@ -400,6 +400,15 @@ export function sortOrderOf(order?: string | SortOrder | null): SortOrder {
   return normalized as SortOrder;
 }
 
+/**
+ * A `Relation.column` sort is compiled on the relation query, so the owner keeps an empty-column
+ * slot (`awaits`) where it was requested; the relation's sort answers it (`fills`) when merged.
+ */
+interface IRelationSort extends ISort {
+  awaits?: symbol;
+  fills?: symbol;
+}
+
 @NewInstance()
 export class OrderByBuilder implements IOrderByBuilder {
   protected _sorts: ISort[];
@@ -466,11 +475,13 @@ export class OrderByBuilder implements IOrderByBuilder {
       this._assertOrderableRelation(relation, column);
 
       // One hop at a time: the nested call resolves the rest against the relation's own model,
-      // and the relation query's sorts are folded back into this one (qualified with its alias)
-      // when the relation compiles.
+      // and its sort lands in this slot (qualified with the relation alias) when the relation
+      // compiles - appended instead, it would come after any fallback ordered here meanwhile.
+      const slot = Symbol(column);
       (this as any as SelectQueryBuilder).populate(relation, function (this: SelectQueryBuilder) {
-        this.order(rest, order);
+        this.order({ column: rest, order, fills: slot } as Partial<ISort>);
       });
+      this._sorts.push({ column: '', order, awaits: slot, fills: (sort as IRelationSort).fills } as IRelationSort);
 
       return this;
     }
@@ -1499,8 +1510,16 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     // ORDER BY). If the merged builder has no sorts, this keeps our own.
     // Stamped with the merged builder's alias: a belongsTo relation rides in the parent FROM as a
     // LEFT JOIN, so its bare column name would resolve against the parent table ( or be ambiguous ).
+    // A sort answering a `Relation.column` slot of ours replaces that slot, the rest is appended.
     builder.validateSorts();
-    this._sorts = this._sorts.concat(builder._sorts.map((s) => ({ ...s, tableAlias: s.tableAlias ?? builder._tableAlias })));
+    const merged: IRelationSort[] = builder._sorts.map((s) => ({ ...s, tableAlias: s.tableAlias ?? builder._tableAlias }));
+    const slots = new Set((this._sorts as IRelationSort[]).map((s) => s.awaits).filter(Boolean));
+    this._sorts = (this._sorts as IRelationSort[])
+      .flatMap((s) => {
+        const answers = s.awaits ? merged.filter((m) => m.fills === s.awaits) : [];
+        return answers.length ? answers.map((m) => ({ ...m, fills: s.fills })) : [s];
+      })
+      .concat(merged.filter((m) => !m.fills || !slots.has(m.fills)));
     // `includeStatements: false` is used by JoinStatement so that a join
     // callback's WHERE conditions are NOT folded into the main query's WHERE
     // (which silently turns a LEFT JOIN into an inner filter). The join emits
