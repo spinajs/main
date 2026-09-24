@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { AsyncLocalStorage } from 'async_hooks';
+import { DateTime } from 'luxon';
 
 import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
@@ -288,6 +289,48 @@ describe('Admin user controllers', function () {
 
       const total = headers(result).find((h) => h.Name === 'X-Total-Count');
       expect(total!.Value).to.eq(3);
+    });
+
+    it('filters by holding any of several roles', async () => {
+      await new User({
+        Email: 'multi@spinajs.pl',
+        Login: 'multi',
+        Password: 'x',
+        Role: ['guest', 'editor'],
+        IsActive: true,
+      }).insert();
+
+      const admins = await body<any[]>(await usersController.list(undefined, undefined, undefined, filterReq('Role', 'in-set', ['admin'])));
+      expect(admins.map((u: any) => u.Login).sort()).to.deep.eq(['admin', 'admin2']);
+
+      const either = await usersController.list(undefined, undefined, undefined, filterReq('Role', 'in-set', ['editor', 'user']));
+      expect((await body<any[]>(either)).map((u: any) => u.Login).sort()).to.deep.eq(['inactive', 'multi', 'user']);
+      expect(headers(either).find((h) => h.Name === 'X-Total-Count')!.Value).to.eq(3);
+    });
+
+    it('filters accounts that never logged in', async () => {
+      const user = await byUuid(USER_UUID);
+      user.LastLoginAt = DateTime.now();
+      await user.update();
+
+      const never = await body<any[]>(await usersController.list(undefined, undefined, undefined, filterReq('LastLoginAt', 'isnull', null)));
+      expect(never.map((u: any) => u.Login).sort()).to.deep.eq(['admin', 'admin2', 'inactive']);
+
+      const ever = await body<any[]>(await usersController.list(undefined, undefined, undefined, filterReq('LastLoginAt', 'notnull', null)));
+      expect(ever.map((u: any) => u.Login)).to.deep.eq(['user']);
+    });
+
+    it('lists soft-deleted accounts when the request filters on DeletedAt', async () => {
+      await usersController.removeUser(await admin(), await byUuid(USER_UUID));
+
+      const live = await usersController.list();
+      expect((await body<any[]>(live)).map((u: any) => u.Login)).to.not.include('user');
+
+      const deleted = await usersController.list(undefined, undefined, undefined, filterReq('DeletedAt', 'notnull', null));
+      const data = await body<any[]>(deleted);
+      expect(data.map((u: any) => u.Login)).to.deep.eq(['user']);
+      expect(data[0].DeletedAt).to.be.a('string');
+      expect(headers(deleted).find((h) => h.Name === 'X-Total-Count')!.Value).to.eq(1);
     });
   });
 
