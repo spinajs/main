@@ -995,6 +995,73 @@ describe('Relations query builder', () => {
     expect(result.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` DESC$/);
   });
 
+  it('order by a relation column keeps its place ahead of the fallback', () => {
+    const result = RelationModel.where('Id', 1)
+      .order([
+        { column: 'Relation.RelationProperty', order: SortOrder.ASC },
+        { column: 'Id', order: SortOrder.DESC },
+      ])
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` ASC, `Id` DESC$/);
+  });
+
+  it('order by a column two relations away keeps its place ahead of the fallback', () => {
+    const result = RelationModel.where('Id', 1)
+      .order([
+        { column: 'Relation.Relation3.RelationProperty', order: SortOrder.ASC },
+        { column: 'Id', order: SortOrder.DESC },
+      ])
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/ORDER BY `\$Relation\$\.\$Relation3\$`\.`RelationProperty` ASC, `Id` DESC$/);
+  });
+
+  it('order keeps the requested sequence when own and relation columns interleave', () => {
+    const plainFirst = RelationModel.where('Id', 1)
+      .order([
+        { column: 'Id', order: SortOrder.DESC },
+        { column: 'Relation.RelationProperty', order: SortOrder.ASC },
+      ])
+      .toDB() as ICompilerOutput;
+    expect(plainFirst.expression).to.match(/ORDER BY `Id` DESC, `\$Relation\$`\.`RelationProperty` ASC$/);
+
+    const interleaved = RelationModel.where('Id', 1)
+      .order([
+        { column: 'Relation.RelationProperty', order: SortOrder.ASC },
+        { column: 'Id', order: SortOrder.DESC },
+        { column: 'Relation.Relation3.RelationProperty', order: SortOrder.DESC },
+        { column: 'Relation.Id', order: SortOrder.ASC },
+      ])
+      .toDB() as ICompilerOutput;
+    expect(interleaved.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` ASC, `Id` DESC, `\$Relation\$\.\$Relation3\$`\.`RelationProperty` DESC, `\$Relation\$`\.`Id` ASC$/);
+  });
+
+  it('order by a relation column still follows sorts set on the relation in populate()', () => {
+    const result = RelationModel.where('Id', 1)
+      .populate('Relation', function () {
+        this.order('Id', SortOrder.DESC);
+      })
+      .order([
+        { column: 'Relation.RelationProperty', order: SortOrder.ASC },
+        { column: 'Id', order: SortOrder.DESC },
+      ])
+      .toDB() as ICompilerOutput;
+
+    expect(result.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` ASC, `Id` DESC, `\$Relation\$`\.`Id` DESC$/);
+  });
+
+  it('a clone taken after compiling keeps the relation sort in its place', () => {
+    const query = RelationModel.where('Id', 1).order([
+      { column: 'Relation.RelationProperty', order: SortOrder.ASC },
+      { column: 'Id', order: SortOrder.DESC },
+    ]);
+    query.toDB();
+
+    const result = query.clone().toDB() as ICompilerOutput;
+    expect(result.expression).to.match(/ORDER BY `\$Relation\$`\.`RelationProperty` ASC, `Id` DESC$/);
+  });
+
   it('order by a column the model does not have is a bad argument, not a driver error', () => {
     expect(() => RelationModel.where('Id', 1).order('nope', SortOrder.ASC).toDB()).to.throw(InvalidArgument, /Cannot order by nope/);
     expect(() => RelationModel.where('Id', 1).order('Relation.nope', SortOrder.ASC).toDB()).to.throw(InvalidArgument, /Cannot order by nope/);
