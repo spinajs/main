@@ -3,7 +3,8 @@ import { IRoute, IRouteCall, IRouteParameter, ParameterType, RouteArgs } from '@
 import { ModelBase } from '@spinajs/orm';
 import { InvalidArgument } from '@spinajs/exceptions';
 import express from 'express';
-import { FilterableLogicalOperators, IColumnFilter } from './interfaces.js';
+import { IColumnFilter } from './interfaces.js';
+import { filterSchemaFor } from './model.js';
 
 @Injectable()
 @Inject(Container)
@@ -38,36 +39,7 @@ export class FilterModelRouteArg extends RouteArgs {
       // get orm model schema
       rParam.Schema = (param.Options as any).filterSchema();
     } else {
-      // manually build custom schema
-      rParam.Schema = {
-        type: 'object',
-        properties: {
-          op: {
-            type: 'string',
-            enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
-          },
-          filters: {
-            type: 'array',
-            items: {
-              type: 'object',
-              anyOf: (param.Options as IColumnFilter<unknown>[]).map((x) => {
-                return {
-                  type: 'object',
-                  // Value is intentionally NOT required: valueless operators
-                  // (isnull/notnull/exists/n-exists) carry no value. Mirror the
-                  // model-derived schema in model.ts (filterSchema()).
-                  required: ['Column', 'Operator'],
-                  properties: {
-                    Column: { const: x.column },
-                    Value: { type: ['string', 'integer', 'array', 'boolean'] },
-                    Operator: { type: 'string', enum: x.operators },
-                  },
-                };
-              }),
-            },
-          },
-        },
-      };
+      rParam.Schema = filterSchemaFor(param.Options as IColumnFilter<unknown>[]);
     }
 
     let parsed: unknown = filter;

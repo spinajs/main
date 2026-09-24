@@ -2,7 +2,7 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
-import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/rbac';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
@@ -163,6 +163,10 @@ export class UpdateUserDto {
   }
 }
 
+function filtersOn(entries: IFilterEntry[], column: string): boolean {
+  return entries.some((entry) => (isFilterGroup(entry) ? filtersOn(entry.filters, column) : entry.Column === column));
+}
+
 /**
  * User model filter
  * We declare it here to not include orm-http in rbac module
@@ -187,7 +191,7 @@ const USER_FILTER: IColumnFilter<User>[] = [
   },
   {
     column: 'LastLoginAt',
-    operators: ['eq', 'gte', 'lte', 'lt', 'gt'],
+    operators: ['eq', 'gte', 'lte', 'lt', 'gt', 'isnull', 'notnull'],
   },
   {
     column: 'DeletedAt',
@@ -199,7 +203,7 @@ const USER_FILTER: IColumnFilter<User>[] = [
   },
   {
     column: 'Role',
-    operators: ['eq', 'neq'],
+    operators: ['eq', 'neq', 'in-set', 'nin-set'],
   },
   {
     column: 'user:niceName',
@@ -254,9 +258,11 @@ export class Users extends BaseController {
    * Returns a paginated, sortable, filterable list of all users. Supports optional inclusion
    * of related Metadata. The total user count (matching current filters) is returned in the
    * X-Total-Count response header.
-   * Filterable fields: Uuid (eq), Email (eq, like), Login (eq, like), CreatedAt, LastLoginAt,
-   * DeletedAt (eq, gte, lte, lt, gt, isnull, notnull), IsActive (eq), Role (eq, neq),
-   * user:niceName metadata (eq, neq, like).
+   * Filterable fields: Uuid (eq), Email (eq, like), Login (eq, like), CreatedAt (eq, gte, lte, lt, gt),
+   * LastLoginAt and DeletedAt (eq, gte, lte, lt, gt, isnull, notnull), IsActive (eq),
+   * Role (eq, neq, in-set: holds any of the listed roles, nin-set: holds none of them),
+   * user:niceName metadata (eq, neq, like). Soft-deleted accounts are listed only when the
+   * filter has a DeletedAt condition.
    * @security cookieAuth
    * @param pagination.page Page number (zero-based)
    * @param pagination.limit Number of users per page (default: 10, max: 100)
@@ -290,7 +296,11 @@ export class Users extends BaseController {
     const limit = Math.min(pagination?.limit || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const column = this.sortColumn(order);
 
-    const result = await userModel()
+    // Soft-deleted accounts are hidden by every model query, so a DeletedAt
+    // condition could otherwise only ever match nothing.
+    const withDeleted = filtersOn(filter?.filters ?? [], 'DeletedAt');
+
+    const query = userModel()
       .select()
       .leftJoin(
         'Metadata',
@@ -310,10 +320,17 @@ export class Users extends BaseController {
       .order(column, order?.order ?? SortOrder.DESC)
       .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
 
-    const count = await userModel()
+    const countQuery = userModel()
       .query()
-      .filter(filter?.filters ?? [], filter?.op, USER_FILTER)
-      .selectCount();
+      .filter(filter?.filters ?? [], filter?.op, USER_FILTER);
+
+    if (withDeleted) {
+      query.withDeleted();
+      countQuery.withDeleted();
+    }
+
+    const result = await query;
+    const count = await countQuery.selectCount();
 
     return new Ok(
       result.map((x) =>

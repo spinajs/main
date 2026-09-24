@@ -97,15 +97,17 @@ const OPERATOR_MAP: Record<FilterableOperators, {
     applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value),
     applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NOT_BETWEEN, filter.Value)
   },
+  // `where(col, op)` reads a two-argument call as `col = op`; only `=` / `!=` with a null value
+  // compile to IS NULL / IS NOT NULL.
   'isnull': {
     validate: ValidationHelpers.noValidation,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NULL),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NULL)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.EQ, null),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.EQ, null)
   },
   'notnull': {
     validate: ValidationHelpers.noValidation,
-    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NOT_NULL),
-    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NOT_NULL)
+    applyAnd: (qb, filter) => qb.andWhere(filter.Column, SqlOperator.NOT, null),
+    applyOr: (qb, filter) => qb.orWhere(filter.Column, SqlOperator.NOT, null)
   },
   'in': {
     validate: ValidationHelpers.requireArray,

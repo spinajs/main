@@ -31,7 +31,7 @@ import { FilterableLogicalOperators, IFilter } from '../src/interfaces.js';
 
 // Installs the `filter()` extension onto SelectQueryBuilder.prototype.
 import '../src/builders.js';
-import { MODEL_STATIC_MIXINS } from '../src/model.js';
+import { filterSchemaFor, MODEL_STATIC_MIXINS } from '../src/model.js';
 
 @Connection('sqlite')
 @Model('filter_regression')
@@ -47,6 +47,9 @@ class FilterRegressionModel extends ModelBase {
 
   @Filterable(['eq'])
   public Role: string;
+
+  @Filterable(['isnull', 'notnull'])
+  public ClosedAt: string;
 }
 
 export class FilterTestConfiguration extends FrameworkConfiguration {
@@ -133,6 +136,16 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
     expect(out.expression).to.contain('( `Age` > ? OR `Active` = ? OR `Role` = ? )');
     // `true` binds as 1: the SQLite driver's boolean converter runs before binding.
     expect(out.bindings).to.deep.equal([18, 1, 'admin']);
+  });
+
+  it('isnull and notnull compile to IS NULL / IS NOT NULL, not a comparison with a bound null', () => {
+    const and = (q() as any).filter([f('ClosedAt', 'isnull'), f('Role', 'eq', 'admin')], FilterableLogicalOperators.And).toDB();
+    expect(and.expression).to.contain('( `ClosedAt` IS NULL AND `Role` = ? )');
+    expect(and.bindings).to.deep.equal(['admin']);
+
+    const or = (q() as any).filter([f('Role', 'eq', 'admin'), f('ClosedAt', 'notnull')], FilterableLogicalOperators.Or).toDB();
+    expect(or.expression).to.contain('( `Role` = ? OR `ClosedAt` IS NOT NULL )');
+    expect(or.bindings).to.deep.equal(['admin']);
   });
 
   it('a filter group stays AND-joined to a where outside it', () => {
@@ -363,6 +376,18 @@ describe('orm-http filter schema accepts what the builder executes', () => {
         ],
       }),
     ).to.equal(false);
+  });
+
+  it('accepts a nested group for a column list given to @Filter, not only for a model', () => {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const schema = filterSchemaFor([
+      { column: 'Login', operators: ['like'] },
+      { column: 'Email', operators: ['like'] },
+    ]);
+    const search = { op: 'or', filters: [{ Column: 'Login', Operator: 'like', Value: 'kow' }, { Column: 'Email', Operator: 'like', Value: 'kow' }] };
+
+    expect(ajv.validate(schema, { op: 'and', filters: [search] })).to.equal(true);
+    expect(ajv.validate(schema, { op: 'and', filters: [{ op: 'or', filters: [{ Column: 'Login', Operator: 'eq', Value: 'x' }] }] })).to.equal(false);
   });
 
   it('rejects a column that is not filterable, inside a group', () => {
