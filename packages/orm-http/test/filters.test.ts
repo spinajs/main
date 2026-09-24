@@ -47,6 +47,9 @@ class FilterRegressionModel extends ModelBase {
 
   @Filterable(['eq'])
   public Role: string;
+
+  @Filterable(['isnull', 'notnull'])
+  public ClosedAt: string;
 }
 
 export class FilterTestConfiguration extends FrameworkConfiguration {
@@ -133,6 +136,16 @@ describe('orm-http filter translation vs the per-statement connector (I1/B2)', (
     expect(out.expression).to.contain('( `Age` > ? OR `Active` = ? OR `Role` = ? )');
     // `true` binds as 1: the SQLite driver's boolean converter runs before binding.
     expect(out.bindings).to.deep.equal([18, 1, 'admin']);
+  });
+
+  it('isnull and notnull compile to IS NULL / IS NOT NULL, not a comparison with a bound null', () => {
+    const and = (q() as any).filter([f('ClosedAt', 'isnull'), f('Role', 'eq', 'admin')], FilterableLogicalOperators.And).toDB();
+    expect(and.expression).to.contain('( `ClosedAt` IS NULL AND `Role` = ? )');
+    expect(and.bindings).to.deep.equal(['admin']);
+
+    const or = (q() as any).filter([f('Role', 'eq', 'admin'), f('ClosedAt', 'notnull')], FilterableLogicalOperators.Or).toDB();
+    expect(or.expression).to.contain('( `Role` = ? OR `ClosedAt` IS NOT NULL )');
+    expect(or.bindings).to.deep.equal(['admin']);
   });
 
   it('a filter group stays AND-joined to a where outside it', () => {
