@@ -39,57 +39,63 @@ export const MODEL_STATIC_MIXINS = {
       return {};
     }
 
-    const logicalOperator = {
-      type: 'string',
-      enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
-    };
-
-    /** One condition on one filterable column - `{ Column, Operator, Value }`. */
-    const leaf = [...modelDescriptor.FilterableColumns.entries()].map(([key, val]: [string, IColumnFilter<unknown>]) => {
-      return {
-        type: 'object',
-        required: ['Column', 'Operator'],
-        properties: {
-          Column: { const: key },
-          Value: { type: ['string', 'integer', 'array', 'boolean'] },
-          Operator: { type: 'string', enum: val.operators },
-        },
-      };
-    });
-
-    /**
-     * A nested group - `{ op, filters }` holding leaves of its own.
-     *
-     * Needed by any search that spans columns: "find this text in the name OR in the id" has to
-     * OR those two while the filters around it keep ANDing, and a flat list cannot express that.
-     * One level deep is deliberate. It covers the case, and an unbounded schema would let a
-     * client nest arbitrarily far - the builder walks whatever arrives, so the depth is a cost
-     * someone else pays.
-     */
-    const group = {
-      type: 'object',
-      required: ['filters'],
-      properties: {
-        op: logicalOperator,
-        filters: {
-          type: 'array',
-          items: { type: 'object', anyOf: leaf },
-        },
-      },
-    };
-
-    return {
-      type: 'object',
-      properties: {
-        op: logicalOperator,
-        filters: {
-          type: 'array',
-          items: {
-            type: 'object',
-            anyOf: [...leaf, group],
-          },
-        },
-      },
-    };
+    return filterSchemaFor(
+      [...modelDescriptor.FilterableColumns.entries()].map(([column, val]: [string, IColumnFilter<unknown>]) => ({ column, operators: val.operators })),
+    );
   },
 };
+
+/**
+ * JSON schema of a filter request over the given columns: a flat list of conditions, each of
+ * which may instead be a nested group - `{ op, filters }` holding conditions of its own.
+ *
+ * The group is needed by any search that spans columns: "find this text in the name OR in the
+ * id" has to OR those two while the filters around it keep ANDing, and a flat list cannot
+ * express that. One level deep is deliberate. It covers the case, and an unbounded schema would
+ * let a client nest arbitrarily far - the builder walks whatever arrives, so the depth is a cost
+ * someone else pays.
+ */
+export function filterSchemaFor(columns: Pick<IColumnFilter<unknown>, 'column' | 'operators'>[]) {
+  const logicalOperator = {
+    type: 'string',
+    enum: [FilterableLogicalOperators.And, FilterableLogicalOperators.Or],
+  };
+
+  // Value is intentionally NOT required: valueless operators (isnull/notnull/exists/n-exists)
+  // carry no value.
+  const leaf = columns.map(({ column, operators }) => ({
+    type: 'object',
+    required: ['Column', 'Operator'],
+    properties: {
+      Column: { const: column },
+      Value: { type: ['string', 'integer', 'array', 'boolean'] },
+      Operator: { type: 'string', enum: operators },
+    },
+  }));
+
+  const group = {
+    type: 'object',
+    required: ['filters'],
+    properties: {
+      op: logicalOperator,
+      filters: {
+        type: 'array',
+        items: { type: 'object', anyOf: leaf },
+      },
+    },
+  };
+
+  return {
+    type: 'object',
+    properties: {
+      op: logicalOperator,
+      filters: {
+        type: 'array',
+        items: {
+          type: 'object',
+          anyOf: [...leaf, group],
+        },
+      },
+    },
+  };
+}

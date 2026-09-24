@@ -31,7 +31,7 @@ import { FilterableLogicalOperators, IFilter } from '../src/interfaces.js';
 
 // Installs the `filter()` extension onto SelectQueryBuilder.prototype.
 import '../src/builders.js';
-import { MODEL_STATIC_MIXINS } from '../src/model.js';
+import { filterSchemaFor, MODEL_STATIC_MIXINS } from '../src/model.js';
 
 @Connection('sqlite')
 @Model('filter_regression')
@@ -376,6 +376,18 @@ describe('orm-http filter schema accepts what the builder executes', () => {
         ],
       }),
     ).to.equal(false);
+  });
+
+  it('accepts a nested group for a column list given to @Filter, not only for a model', () => {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const schema = filterSchemaFor([
+      { column: 'Login', operators: ['like'] },
+      { column: 'Email', operators: ['like'] },
+    ]);
+    const search = { op: 'or', filters: [{ Column: 'Login', Operator: 'like', Value: 'kow' }, { Column: 'Email', Operator: 'like', Value: 'kow' }] };
+
+    expect(ajv.validate(schema, { op: 'and', filters: [search] })).to.equal(true);
+    expect(ajv.validate(schema, { op: 'and', filters: [{ op: 'or', filters: [{ Column: 'Login', Operator: 'eq', Value: 'x' }] }] })).to.equal(false);
   });
 
   it('rejects a column that is not filterable, inside a group', () => {
