@@ -1,6 +1,6 @@
-import { Container, Inject, NewInstance } from '@spinajs/di';
-import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput } from '@spinajs/orm';
-import { SqlCreateViewQueryCompiler } from '@spinajs/orm-sql';
+import { Container, IContainer, Inject, NewInstance } from '@spinajs/di';
+import { CreateViewQueryBuilder, TableExistsCompiler, TableExistsQueryBuilder, ICompilerOutput, InsertQueryBuilder, TableAliasCompiler } from '@spinajs/orm';
+import { SqlCreateViewQueryCompiler, SqlInsertQueryCompiler } from '@spinajs/orm-sql';
 
 @NewInstance()
 export class MySqlTableExistsCompiler implements TableExistsCompiler {
@@ -60,5 +60,24 @@ export class MySqlCreateViewCompiler extends SqlCreateViewQueryCompiler {
 
   protected _checkOption(): string {
     return this.checkOptionSql();
+  }
+}
+
+/** MySQL spells an insert-or-replace as its own statement, not as a modifier of INSERT. */
+@NewInstance()
+@Inject(Container)
+export class MySqlInsertQueryCompiler extends SqlInsertQueryCompiler {
+  constructor(container: IContainer, builder: InsertQueryBuilder) {
+    super(container, builder);
+  }
+
+  protected into() {
+    const table = this._container.resolve(TableAliasCompiler).compile(this._builder);
+
+    if (this._builder.Replace) {
+      return `REPLACE INTO ${table}`;
+    }
+
+    return `INSERT${this._builder.Ignore ? ' IGNORE' : ''} INTO ${table}`;
   }
 }
