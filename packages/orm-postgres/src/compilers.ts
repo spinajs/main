@@ -195,6 +195,8 @@ export class PostgresInsertQueryCompiler extends SqlInsertQueryCompiler {
  *   COLLATE is kept ( postgres collations are identifiers, so it is quoted ).
  * - MySQL type names map to their postgres equivalents ( DATETIME → TIMESTAMP,
  *   DOUBLE → DOUBLE PRECISION, BLOB → BYTEA, JSON → JSONB ).
+ * - BOOLEAN takes no integer default: a numeric default on a boolean column ( MySQL's
+ *   0/1 ) renders as FALSE/TRUE.
  */
 @NewInstance()
 export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
@@ -240,6 +242,14 @@ export class PostgresColumnQueryCompiler extends SqlColumnQueryCompiler {
    */
   public defaultExpression(): string {
     return this._defaultCompiler();
+  }
+
+  protected _defaultCompiler(): string {
+    if (this.builder.Type === 'boolean' && _.isNumber(this.builder.Default?.Value)) {
+      return `DEFAULT ${this.builder.Default.Value ? 'TRUE' : 'FALSE'}`;
+    }
+
+    return super._defaultCompiler();
   }
 
   /**
