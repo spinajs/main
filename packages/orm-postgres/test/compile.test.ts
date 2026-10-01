@@ -162,6 +162,24 @@ describe('postgres SQL compilation', function () {
       expect(stmt).to.not.contain('CHARACTER SET');
     });
 
+    it('renders a numeric boolean default as FALSE or TRUE', () => {
+      const stmt = createTable((table) => {
+        table.boolean('IsActive').notNull().default().value(0);
+        table.boolean('IsVisible').default().value(1);
+      });
+
+      expect(stmt).to.contain('"IsActive" BOOLEAN NOT NULL DEFAULT FALSE');
+      expect(stmt).to.contain('"IsVisible" BOOLEAN DEFAULT TRUE');
+    });
+
+    it('keeps a numeric default on a non-boolean column', () => {
+      const stmt = createTable((table) => {
+        table.int('Count').default().value(0);
+      });
+
+      expect(stmt).to.contain('"Count" INTEGER DEFAULT 0');
+    });
+
     it('refuses an identity on a non-integer column', () => {
       expect(() =>
         createTable((table) => {
@@ -190,6 +208,16 @@ describe('postgres SQL compilation', function () {
         .toDB() as unknown as ICompilerOutput[];
 
       expect(result[0].expression).to.equal('ALTER TABLE "test" ALTER COLUMN "Id2" TYPE VARCHAR(128), ALTER COLUMN "Id2" SET NOT NULL, ALTER COLUMN "Id2" DROP DEFAULT');
+    });
+
+    it('sets a numeric boolean default as FALSE or TRUE', () => {
+      const result = schqb()
+        .alterTable('test', (table) => {
+          table.boolean('IsActive').modify().notNull().default().value(1);
+        })
+        .toDB() as unknown as ICompilerOutput[];
+
+      expect(result[0].expression).to.contain('ALTER COLUMN "IsActive" SET DEFAULT TRUE');
     });
 
     it('renames a column with the standard RENAME COLUMN', () => {
