@@ -143,12 +143,16 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
     assertPushName(name);
 
     if (!this.closing) {
-      this.notify(name, payload);
+      this.send(name, payload);
     }
   }
 
-  /** @internal server notices ( `sys.*` ) bypass the name rule and the closing check */
-  public notify<P>(name: string, payload: P): void {
+  /** @internal server notices bypass the name rule and the closing check */
+  public notify<P>(name: (typeof SYSTEM_EVENTS)[keyof typeof SYSTEM_EVENTS], payload: P): void {
+    this.send(name, payload);
+  }
+
+  protected send<P>(name: string, payload: P): void {
     const frame: EventFrame<P> = { name, payload };
     this.socket.emit(WIRE_EVENTS.event, frame);
   }

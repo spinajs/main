@@ -245,7 +245,8 @@ export class SocketPrincipalGuard {
 
   /** setImmediate: a command reply refused by the same check is written first ( it goes out in a microtask ). */
   protected close(connection: SocketConnection, why: string): void {
-    if (this.closing.has(connection)) {
+    // the socket may have dropped while a revalidation was awaited; its id must not outlive the connection (recovery reuses ids)
+    if (this.closing.has(connection) || connection.signal.aborted) {
       return;
     }
 

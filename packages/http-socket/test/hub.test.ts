@@ -132,7 +132,7 @@ describe('SocketHub', function () {
     await expect(missedDirect).to.be.rejectedWith(/no hub.direct event/);
   });
 
-  it('refuses an empty room set instead of broadcasting to everyone', async () => {
+  it('refuses an empty room set instead of broadcasting to everyone', () => {
     expect(() => hub.to([])).to.throw(InvalidArgument, /room/);
     expect(() => hub.to('')).to.throw(InvalidArgument, /room/);
     expect(() => hub.to(['r1', ''])).to.throw(InvalidArgument, /room/);
@@ -189,6 +189,28 @@ describe('SocketHub', function () {
 
     await closed;
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(guard.ClosingIds.size).to.equal(0);
+  });
+
+  it('does not leave a closing entry behind when the socket drops during a revalidation', async () => {
+    const connection = hub.connection(a.id!)!;
+    const guard = DI.resolve(SocketPrincipalGuard);
+    const internals = guard as unknown as { Options: { revalidateMs: number }; ask(): Promise<{ status: string }> };
+    internals.Options.revalidateMs = 50;
+    connection.auth.checkedAt = 0;
+
+    let answer!: (verdict: { status: string }) => void;
+    sinon.stub(internals, 'ask').returns(new Promise((resolve) => (answer = resolve)));
+    const sweep = guard.sweep();
+
+    const closed = new Promise<void>((resolve) => a.once('disconnect', () => resolve()));
+    a.close();
+    await closed;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(hub.connection(a.id!)).to.be.undefined;
+
+    answer({ status: 'invalid' });
+    await sweep;
     expect(guard.ClosingIds.size).to.equal(0);
   });
 
