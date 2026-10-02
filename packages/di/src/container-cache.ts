@@ -101,7 +101,8 @@ export class ContainerCache {
     factory: () => Promise<T> | T,
     isSingleton: boolean = true,
     descriptor: IInjectDescriptor<unknown>,
-    options?: unknown[]
+    options?: unknown[],
+    lookupParents = true
   ): Promise<T> | T {
     const keyName = getTypeName(targetType);
     const sourceTypeKey = getTypeName(sourceType);
@@ -120,8 +121,9 @@ export class ContainerCache {
     };
 
     // Fast path: return cached instance if it exists
-    if (this.has(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true)) {
-      const cached = this.get(targetType, descriptor.resolver === ResolveType.PerChildContainer ? false : true);
+    const parent = lookupParents && descriptor.resolver !== ResolveType.PerChildContainer;
+    if (this.has(targetType, parent)) {
+      const cached = this.get(targetType, parent);
 
       if (descriptor.resolver === ResolveType.PerInstanceCheck) {
 

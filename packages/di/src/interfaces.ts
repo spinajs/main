@@ -74,6 +74,21 @@ export interface IBind {
   singleInstance(): this;
 }
 
+/**
+ * One registration of a service found while walking a container and its ancestors,
+ * with the container that registered it.
+ */
+export interface IChainRegistration {
+  type: Class<unknown> | Factory<unknown>;
+  container: IContainer;
+}
+
+/**
+ * A chain mixes implementations: an AsyncService base always yields a promise, any other
+ * base yields one whenever an element is async.
+ */
+export type ResolveChainResult<T> = T extends AsyncService ? Promise<T[]> : T[] | Promise<T[]>;
+
 export interface ResolvableObject {
   [key: string]: any;
 }
@@ -97,6 +112,13 @@ export interface IContainer extends EventEmitter {
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
   getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
+  /**
+   * Registrations of `service` merged across this container and all its ancestors:
+   * ancestors first, a class registered under the same name lower in the chain
+   * replaces the ancestor's one in place, factories are always kept.
+   */
+  getRegisteredTypesChain<T>(service: string | Class<T> | TypedArray<T>): Array<Class<unknown> | Factory<unknown>>;
+
   isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
   hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
   hasRegisteredType<T>(source: Class<any> | string | TypedArray<any>, type: Class<T> | string | TypedArray<T> | object, parent?: boolean): boolean;
@@ -112,6 +134,15 @@ export interface IContainer extends EventEmitter {
   resolve<T extends Class<any> | Factory<any>>(type: T, check?: boolean): ResolveResult<InferClassOrFactory<T>>;
   resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
   resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown;
+
+  /**
+   * Resolves every registration of `getRegisteredTypesChain(type)`, each in the container
+   * that registered it, except `PerChildContainer` types, which are resolved in this
+   * container ( one instance per container ). Unlike `resolve(Array.ofType(type))`, a child
+   * registration does not hide the parent's ones. Returns a promise when the base type or
+   * any element is an AsyncService, or when a resolution is pending; otherwise an array.
+   */
+  resolveChain<T>(type: Class<T>): ResolveChainResult<T>;
 
   dispose(): Promise<void>;
 
