@@ -29,6 +29,8 @@ Token middleware adapt rows target `authn-http/test/ (src/token/)`, N8b's folder
 | drop | 7 |
 | **total** | 188 |
 
+Not ledgered: `authn-api-contract.test.ts` (23 its) is a 3.0 contract test that F6 added; it is not a 2.x test.
+
 ## test/active-role.test.ts
 
 Active-role routes (`GET`/`POST /auth/active-role`) of the 2.x account controllers: role list, switch, password gate. Dominant class: rewrite (active-role switching semantics, B24/D14, A26); lane C3, replacement by T2. Rows 1 and 2 are split between `users/test/` and `authn-http/test/v3/` (D26); the others use fakes.
