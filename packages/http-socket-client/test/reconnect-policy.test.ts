@@ -30,6 +30,22 @@ describe('ReconnectPolicy', () => {
     expect(new ReconnectPolicy({}, fixed(0)).delay(3, 100)).to.equal(4000);
   });
 
+  it('ignores a non-finite or non-positive hint', () => {
+    const policy = new ReconnectPolicy({}, fixed(0));
+    for (const hint of [NaN, Infinity, -Infinity, 0, -5]) expect(policy.delay(0, hint), String(hint)).to.equal(500);
+  });
+
+  it('caps a finite hint at ten times maxMs', () => {
+    expect(new ReconnectPolicy({}, fixed(0)).delay(0, 1e12)).to.equal(300_000);
+    expect(new ReconnectPolicy({}, fixed(1)).delay(0, 1e12)).to.equal(300_000);
+  });
+
+  it('never yields NaN for minMs 0 and a huge attempt', () => {
+    const policy = new ReconnectPolicy({ minMs: 0, maxMs: 100 }, fixed(0.5));
+    for (const attempt of [0, 1, 1023, 1024, 5000, 1e9]) expect(policy.delay(attempt), String(attempt)).to.equal(0);
+    expect(new ReconnectPolicy({ minMs: 10, maxMs: 100 }, fixed(0)).delay(1e9)).to.equal(100);
+  });
+
   it('rejects invalid options', () => {
     expect(() => new ReconnectPolicy({ minMs: -1 })).to.throw(RangeError);
     expect(() => new ReconnectPolicy({ minMs: 100, maxMs: 50 })).to.throw(RangeError);

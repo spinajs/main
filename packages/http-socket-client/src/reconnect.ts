@@ -25,9 +25,12 @@ export class ReconnectPolicy {
    */
   public delay(attempt: number, retryAfterMs?: number): number {
     const { minMs, maxMs, jitter } = this.options;
-    const exponential = Math.min(maxMs, minMs * 2 ** attempt);
+    // clamped: 2 ** 1024 is Infinity, and 0 * Infinity is NaN
+    const exponential = Math.min(maxMs, minMs * 2 ** Math.min(attempt, 64));
     const backoff = Math.round(exponential * (1 - jitter * this.random()));
-    if (retryAfterMs === undefined || retryAfterMs <= 0) return backoff;
-    return Math.max(backoff, Math.round(retryAfterMs * (1 + jitter * this.random())));
+    if (retryAfterMs === undefined || !Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return backoff;
+    // a hostile or buggy server must not park the client for days
+    const hinted = Math.min(Math.round(retryAfterMs * (1 + jitter * this.random())), maxMs * 10);
+    return Math.max(backoff, hinted);
   }
 }
