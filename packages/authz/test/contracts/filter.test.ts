@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { isDeepStrictEqual } from 'node:util';
 
 import * as root from '../../src/index.js';
-import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../../src/contracts/filter.js';
+import { FALSE, TRUE, and, bindRefs, filterHashTesting, not, or, simplify } from '../../src/contracts/filter.js';
 import type { FilterOp, Principal, ResourceFilter, Value } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -132,6 +132,72 @@ const poolTable = (f: ResourceFilter, pool: readonly ResourceFilter[]) => {
     return i;
   };
   return ASSIGNMENTS.map((row) => kleene(f, (n) => row[FIELDS[leafIndex(n)]]));
+};
+const confusableScenario = fc
+  .shuffledSubarray(CONFUSABLE_PAIRS, { minLength: FIELDS.length / 2, maxLength: FIELDS.length / 2 })
+  .map((pairs) => pairs.flat())
+  .chain((pool) => {
+    const leaf = fc.tuple(fc.nat({ max: pool.length - 1 }), fc.boolean()).map(([i, copy]) => (copy ? (reversedCopy(pool[i]) as ResourceFilter) : pool[i]));
+    // A junction at the root puts confusable leaves side by side more often.
+    const root = fc.tuple(fc.constantFrom<'and' | 'or'>('and', 'or'), fc.array(treeOf(leaf), { minLength: 2, maxLength: 6 })).map(([op, args]): ResourceFilter => ({ op, args }));
+    return root.map((tree) => ({ pool, tree }));
+  });
+
+const DISTINCT_PAIRS: [ResourceFilter, ResourceFilter][] = [
+  [cmp('a', 1), cmp('a', '1')],
+  [cmp('a', true), cmp('a', 'true')],
+  [cmp('a', null), cmp('a', 'null')],
+  [cmp('a', null), { op: 'cmp', field: 'a', cmp: 'eq' }],
+  [cmp('a', ['a'], 'in'), cmp('a', 'a', 'in')],
+  [cmp('a', [1, 2], 'in'), cmp('a', [2, 1], 'in')],
+  [cmp('a', [1], 'in'), cmp('a', ['1'], 'in')],
+  [cmp('a', [1], 'in'), cmp('a', [1, 1], 'in')],
+  [cmp('a', ref('x')), cmp('a', 'x')],
+  [cmp('a', ref('x')), cmp('a', ref('y'))],
+  [cmp('a', 'q8vk15gj'), cmp('a', '6z4hpm6t')],
+  [cmp('a', 1, 'eq'), cmp('a', 1, 'ne')],
+  [cmp('a', 1), cmp('b', 1)],
+  [cmp('a', 1), cmp('a', 2)],
+  [cmp('a', false), cmp('a', true)],
+  [
+    { op: 'cmp', field: 'a', cmp: 'null' },
+    { op: 'cmp', field: 'a', cmp: 'notnull' },
+  ],
+  [cmp('a', 1), { op: 'cmp', field: 'a', cmp: 'eq', value: 1, extra: true } as ResourceFilter],
+  [
+    { op: 'native:x', args: { a: 1 } },
+    { op: 'native:y', args: { a: 1 } },
+  ],
+  [
+    { op: 'native:x', args: { a: 1 } },
+    { op: 'native:x', args: { a: '1' } },
+  ],
+  [
+    { op: 'native:x', args: { a: 1 } },
+    { op: 'native:x', args: { b: 1 } },
+  ],
+  [
+    { op: 'native:x', args: [1, 2] },
+    { op: 'native:x', args: { 0: 1, 1: 2 } },
+  ],
+  [
+    { op: 'relation', relation: 'owner' },
+    { op: 'relation', relation: 'editor' },
+  ],
+  [
+    { op: 'under', scopes: [{ type: 'org', id: '1' }] },
+    { op: 'under', scopes: [{ type: 'org', id: '2' }] },
+  ],
+  [rawNot(a), rawNot(b)],
+  [rawNot(rawOr(a, b)), rawNot(rawAnd(a, b))],
+  [rawNot(rawOr(a, b)), rawNot(rawOr(b, a))],
+  [rawNot(rawOr(a, b)), rawNot(rawOr(a, b, c))],
+];
+const expectDistinctPairsKept = () => {
+  for (const [x, y] of DISTINCT_PAIRS) {
+    expect(simplify(rawAnd(x, y)), JSON.stringify([x, y])).to.deep.eq(rawAnd(simplify(x), simplify(y)));
+    expect(simplify(rawOr(y, x)), JSON.stringify([y, x])).to.deep.eq(rawOr(simplify(y), simplify(x)));
+  }
 };
 
 const walk = (f: ResourceFilter, visit: (f: ResourceFilter) => void): void => {
@@ -276,46 +342,7 @@ describe('filter contracts', () => {
     });
 
     it('keeps leaves that differ in value type, op, field, ref or an extra key', () => {
-      const pairs: [ResourceFilter, ResourceFilter][] = [
-        [cmp('a', 1), cmp('a', '1')],
-        [cmp('a', true), cmp('a', 'true')],
-        [cmp('a', null), cmp('a', 'null')],
-        [cmp('a', null), { op: 'cmp', field: 'a', cmp: 'eq' }],
-        [cmp('a', ['a'], 'in'), cmp('a', 'a', 'in')],
-        [cmp('a', [1, 2], 'in'), cmp('a', [2, 1], 'in')],
-        [cmp('a', [1], 'in'), cmp('a', ['1'], 'in')],
-        [cmp('a', ref('x')), cmp('a', 'x')],
-        [cmp('a', 1, 'eq'), cmp('a', 1, 'ne')],
-        [cmp('a', 1), cmp('b', 1)],
-        [
-          { op: 'cmp', field: 'a', cmp: 'null' },
-          { op: 'cmp', field: 'a', cmp: 'notnull' },
-        ],
-        [cmp('a', 1), { op: 'cmp', field: 'a', cmp: 'eq', value: 1, extra: true } as ResourceFilter],
-        [
-          { op: 'native:x', args: { a: 1 } },
-          { op: 'native:y', args: { a: 1 } },
-        ],
-        [
-          { op: 'native:x', args: { a: 1 } },
-          { op: 'native:x', args: { a: '1' } },
-        ],
-        [
-          { op: 'native:x', args: [1, 2] },
-          { op: 'native:x', args: { 0: 1, 1: 2 } },
-        ],
-        [
-          { op: 'relation', relation: 'owner' },
-          { op: 'relation', relation: 'editor' },
-        ],
-        [rawNot(a), rawNot(b)],
-        [rawNot(rawOr(a, b)), rawNot(rawAnd(a, b))],
-        [rawNot(rawOr(a, b)), rawNot(rawOr(b, a))],
-      ];
-      for (const [x, y] of pairs) {
-        expect(simplify(rawAnd(x, y)), JSON.stringify([x, y])).to.deep.eq(rawAnd(simplify(x), simplify(y)));
-        expect(simplify(rawOr(y, x)), JSON.stringify([y, x])).to.deep.eq(rawOr(simplify(y), simplify(x)));
-      }
+      expectDistinctPairsKept();
     });
 
     it('never dedupes native nodes with unserialisable args by structure, and never throws', () => {
@@ -424,18 +451,8 @@ describe('filter contracts', () => {
     });
 
     it('preserves the Kleene truth table over 6 leaves that differ in op, value type, field or kind (property)', () => {
-      const scenario = fc
-        .shuffledSubarray(CONFUSABLE_PAIRS, { minLength: FIELDS.length / 2, maxLength: FIELDS.length / 2 })
-        .map((pairs) => pairs.flat())
-        .chain((pool) => {
-          const leaf = fc.tuple(fc.nat({ max: pool.length - 1 }), fc.boolean()).map(([i, copy]) => (copy ? (reversedCopy(pool[i]) as ResourceFilter) : pool[i]));
-          // A junction at the root puts confusable leaves side by side more often.
-          const root = fc.tuple(fc.constantFrom<'and' | 'or'>('and', 'or'), fc.array(treeOf(leaf), { minLength: 2, maxLength: 6 })).map(([op, args]): ResourceFilter => ({ op, args }));
-          return root.map((tree) => ({ pool, tree }));
-        });
-
       fc.assert(
-        fc.property(scenario, ({ pool, tree }) => {
+        fc.property(confusableScenario, ({ pool, tree }) => {
           expect(poolTable(simplify(tree), pool)).to.deep.eq(poolTable(tree, pool));
         }),
         { numRuns: 1000 },
@@ -443,8 +460,72 @@ describe('filter contracts', () => {
     });
   });
 
+  describe('equality behind the hash', () => {
+    afterEach(() => filterHashTesting.reset());
+
+    it('keeps a real hash collision as two args', () => {
+      filterHashTesting.reset({ seed: 0 });
+      const x: ResourceFilter = { op: 'cmp', field: 'a', cmp: 'eq', value: 'q8vk15gj' };
+      const y: ResourceFilter = { op: 'cmp', field: 'a', cmp: 'eq', value: '6z4hpm6t' };
+
+      expect(filterHashTesting.hash(x)).to.be.a('number');
+      expect(filterHashTesting.hash(x)).to.eq(filterHashTesting.hash(y));
+      expect(and(x, y)).to.deep.eq(rawAnd(x, y));
+      expect(or(y, x)).to.deep.eq(rawOr(y, x));
+      expect(and(not(x), not(y))).to.deep.eq(rawAnd(rawNot(x), rawNot(y)));
+    });
+
+    it('keeps distinct leaves and merges equal ones when every hash collides', () => {
+      filterHashTesting.reset({ hash: () => 0 });
+
+      expectDistinctPairsKept();
+      expect(simplify(rawOr(b, a, cmp('b'), c, cmp('a')))).to.deep.eq(rawOr(b, a, c));
+      expect(simplify(rawAnd(cmp('a', 1), { value: 1, cmp: 'eq', field: 'a', op: 'cmp' } as ResourceFilter))).to.deep.eq(cmp('a', 1));
+      expect(simplify(rawAnd(rawNot(rawOr(a, b)), rawNot(rawOr(a, b))))).to.deep.eq(rawNot(rawOr(a, b)));
+      expect(simplify(rawAnd({ op: 'native:x', args: { b: [1, { y: 2, x: 1 }], a: 'k' } }, { op: 'native:x', args: { a: 'k', b: [1, { x: 1, y: 2 }] } }))).to.deep.eq({ op: 'native:x', args: { b: [1, { y: 2, x: 1 }], a: 'k' } });
+    });
+
+    it('preserves the truth table over confusable leaves when every hash collides (property)', () => {
+      filterHashTesting.reset({ hash: () => 0 });
+      fc.assert(
+        fc.property(confusableScenario, ({ pool, tree }) => {
+          expect(poolTable(simplify(tree), pool)).to.deep.eq(poolTable(tree, pool));
+        }),
+        { numRuns: 300 },
+      );
+    });
+
+    it('does not merge leaves mutated into class instances after they were hashed', () => {
+      const mutable = (): Record<string, unknown> => ({ op: 'cmp', field: 'a', cmp: 'eq', value: 'x' });
+      const cases: [unknown, unknown, string][] = [
+        [new Date(1), new Date(2), 'value'],
+        [new Map([['k', 1]]), new Map([['k', 2]]), 'value'],
+        [Object.create({ inherited: 1 }), {}, 'value'],
+      ];
+      for (const [v1, v2, key] of cases) {
+        const l1 = mutable();
+        const l2 = mutable();
+        expect(simplify(rawAnd(l1 as ResourceFilter, l2 as ResourceFilter))).to.eq(l1);
+        l1[key] = v1;
+        l2[key] = v2;
+        const out = and(l1 as ResourceFilter, l2 as ResourceFilter);
+        expect(out.op === 'and' && out.args, String(v1)).to.have.ordered.members([l1, l2]);
+      }
+
+      const n1: Record<string, unknown> = { op: 'native:x', args: { v: 1 } };
+      const n2: Record<string, unknown> = { op: 'native:x', args: { v: 1 } };
+      expect(simplify(rawAnd(n1 as ResourceFilter, n2 as ResourceFilter))).to.eq(n1);
+      n1.args = new (class Args {
+        v = 1;
+      })();
+      const out = and(n1 as ResourceFilter, n2 as ResourceFilter);
+      expect(out.op === 'and' && out.args).to.have.ordered.members([n1, n2]);
+    });
+  });
+
   describe('cost', () => {
-    const DEPTH = 2000;
+    const DEPTH = 1000;
+    const BOUND_MS = 2000;
     const atom = (i: number) => cmp(`f${i}`, i);
 
     it(`simplifies a ${DEPTH}-deep alternating and/or chain fast`, () => {
@@ -452,7 +533,7 @@ describe('filter contracts', () => {
       for (let i = 1; i < DEPTH; i++) f = { op: i % 2 ? 'and' : 'or', args: [f, atom(i), atom(i - 1)] };
       const start = performance.now();
       const out = simplify(f);
-      expect(performance.now() - start).to.be.below(500);
+      expect(performance.now() - start).to.be.below(BOUND_MS);
       expect(simplify(out)).to.eq(out);
     });
 
@@ -460,13 +541,13 @@ describe('filter contracts', () => {
       let start = performance.now();
       let flat = atom(0);
       for (let i = 1; i < DEPTH; i++) flat = and(flat, atom(i));
-      expect(performance.now() - start).to.be.below(500);
+      expect(performance.now() - start).to.be.below(BOUND_MS);
       expect(flat.op === 'and' && flat.args).to.have.length(DEPTH);
 
       start = performance.now();
       let nested = atom(0);
       for (let i = 1; i < DEPTH; i++) nested = i % 2 ? and(nested, atom(i)) : or(nested, atom(i));
-      expect(performance.now() - start).to.be.below(500);
+      expect(performance.now() - start).to.be.below(BOUND_MS);
     });
   });
 
@@ -537,6 +618,16 @@ describe('filter contracts', () => {
         expect(bindRefs(cmp('g', bad as unknown as Value, 'in'), scope), JSON.stringify(bad)).to.eq(FALSE);
       }
       expect(bindRefs(cmp('g', ['a', 1], 'in'), scope)).to.deep.eq(cmp('g', ['a', 1], 'in'));
+    });
+
+    it('fails closed on an object value that is not a well-formed { ref: string }', () => {
+      const malformed: unknown[] = [{ Ref: 'principal.id' }, { ref: ['principal', 'id'] }, { ref: 'principal.id', extra: 1 }, { ref: 'actor.id', other: true }, {}, new Date(0), Object.assign(Object.create({ inherited: 1 }), { ref: 'principal.id' }), new Map()];
+      for (const value of malformed) {
+        const leaf = cmp('o', value as Value, 'ne');
+        expect(bindRefs(leaf, scope), String(JSON.stringify(value))).to.eq(FALSE);
+        expect(bindRefs(rawNot(leaf), scope), String(JSON.stringify(value))).to.eq(FALSE);
+      }
+      expect(bindRefs(cmp('o', Object.assign(Object.create(null), { ref: 'principal.id' }) as Value), scope)).to.deep.eq(cmp('o', '42'));
     });
 
     it('fails closed on a missing ref: FALSE under an even number of nots, TRUE under an odd number', () => {

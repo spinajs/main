@@ -86,7 +86,7 @@ function simplifyJunction(f: Junction): ResourceFilter {
     if (arg === unit) continue;
 
     for (const part of arg.op === f.op ? (arg as Junction).args : [arg]) {
-      const hash = nodeHash(part);
+      const hash = hashOverride ? hashOverride(part) : nodeHash(part);
       if (hash === null) {
         if (unkeyed.has(part)) continue;
         unkeyed.add(part);
@@ -109,9 +109,14 @@ function simplifyJunction(f: Junction): ResourceFilter {
 // out. A value with no faithful JSON form (cycle, BigInt, function,
 // non-finite number, class instance, throwing getter or proxy) gets a null
 // hash and dedupes by identity only. Hashes are computed once per node,
-// bottom-up; equal hashes are confirmed by sameNode.
-const HASHES = new WeakMap<object, number | null>();
+// bottom-up; equal hashes are confirmed by sameNode. The per-process seed
+// keeps collisions from being planned offline.
+let HASHES = new WeakMap<object, number | null>();
+const randomSeed = (): number => (globalThis.crypto?.getRandomValues ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0] : Math.floor(Math.random() * 2 ** 32)) >>> 0;
+let seed = randomSeed();
+let hashOverride: ((f: ResourceFilter) => number | null) | undefined;
 
+const basis = (): number => (0x811c9dc5 ^ seed) >>> 0;
 const mix = (h: number, x: number): number => Math.imul(h ^ x, 0x01000193) >>> 0;
 
 function mixString(h: number, s: string): number {
@@ -126,7 +131,7 @@ function nodeHash(f: ResourceFilter): number | null {
 
   try {
     if (f.op === 'and' || f.op === 'or') {
-      hash = mixString(0x811c9dc5, f.op);
+      hash = mixString(basis(), f.op);
       for (const arg of (f as Junction).args) {
         const h = nodeHash(arg);
         if (h === null) {
@@ -137,9 +142,9 @@ function nodeHash(f: ResourceFilter): number | null {
       }
     } else if (f.op === 'not') {
       const h = nodeHash((f as Negation).arg);
-      hash = h === null ? null : mix(mixString(0x811c9dc5, 'not'), h);
+      hash = h === null ? null : mix(mixString(basis(), 'not'), h);
     } else {
-      hash = valueHash(f, 0x811c9dc5, new Set());
+      hash = valueHash(f, basis(), new Set());
     }
   } catch {
     hash = null;
@@ -167,8 +172,7 @@ function valueHash(v: unknown, h: number, path: Set<object>): number | null {
           for (let i = 0; i < v.length && out !== null; i++) out = v[i] === undefined ? null : valueHash(v[i], out, path);
           return out;
         }
-        const proto = Object.getPrototypeOf(v);
-        if (proto !== Object.prototype && proto !== null) return null;
+        if (!isPlain(v)) return null;
         let out: number | null = mix(h, 7);
         for (const k of Object.keys(v).sort()) {
           const item = (v as Record<string, unknown>)[k];
@@ -217,6 +221,7 @@ function sameValue(x: unknown, y: unknown): boolean {
         for (let i = 0; i < x.length; i++) if (x[i] === undefined || !sameValue(x[i], y[i])) return false;
         return true;
       }
+      if (!isPlain(x as object) || !isPlain(y as object)) return false;
       const xk = definedKeys(x as object);
       const yk = definedKeys(y as object);
       return xk.length === yk.length && xk.every((k, i) => k === yk[i] && sameValue((x as Record<string, unknown>)[k], (y as Record<string, unknown>)[k]));
@@ -225,6 +230,11 @@ function sameValue(x: unknown, y: unknown): boolean {
       return false;
   }
 }
+
+const isPlain = (o: object): boolean => {
+  const proto = Object.getPrototypeOf(o);
+  return proto === Object.prototype || proto === null;
+};
 
 function definedKeys(o: object): string[] {
   return Object.keys(o)
@@ -252,6 +262,8 @@ export function bindRefs(f: ResourceFilter, scope: { principal: Principal; env: 
 const MISSING = Symbol('missing');
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
+const isRef = (v: object): v is { ref: string } => isPlain(v) && Object.keys(v).length === 1 && typeof (v as { ref?: unknown }).ref === 'string';
+
 function bind(f: ResourceFilter, scope: { principal: Principal; env: Readonly<Record<string, unknown>> }, negated: boolean): ResourceFilter {
   switch (f.op) {
     case 'and':
@@ -264,7 +276,8 @@ function bind(f: ResourceFilter, scope: { principal: Principal; env: Readonly<Re
       const missing = negated ? TRUE : FALSE;
       const value = (f as Comparison).value;
       if (Array.isArray(value)) return isLiteralList(value) ? f : missing;
-      if (value === null || typeof value !== 'object' || typeof (value as { ref: unknown }).ref !== 'string') return f;
+      if (value === null || typeof value !== 'object') return f;
+      if (!isRef(value)) return missing;
 
       const [root, ...path] = (value as { ref: string }).ref.split('.');
       if (root !== 'principal' && root !== 'env') return f;
@@ -293,3 +306,14 @@ function resolve(from: unknown, path: readonly string[]): Value | typeof MISSING
   if (Array.isArray(v)) return isLiteralList(v) ? [...v] : MISSING;
   return MISSING;
 }
+
+// Test seam, not part of the contract: fixes the hash seed or replaces the
+// hash, so tests can drive distinct nodes into the equality check.
+export const filterHashTesting = {
+  hash: (f: ResourceFilter): number | null => nodeHash(f),
+  reset(options: { seed?: number; hash?: (f: ResourceFilter) => number | null } = {}): void {
+    seed = options.seed ?? randomSeed();
+    hashOverride = options.hash;
+    HASHES = new WeakMap();
+  },
+};
