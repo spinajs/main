@@ -4,3 +4,5 @@ export * from './session.js';
 export * from './throttle.js';
 export * from './strategy.js';
 export * from './service.js';
+export * from './identity.js';
+export * from './link.js';
