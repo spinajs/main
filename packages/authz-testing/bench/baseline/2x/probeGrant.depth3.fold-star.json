@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.depth3.fold-star",
+  "description": "depth 3, every level holds read:own ['*'] (four identical lists unioned)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 1500,
+  "p95": 2700,
+  "p99": 3700,
+  "mean": 1795.0975,
+  "opsPerSec": 557072.8052375985,
+  "perRepeat": [
+    {
+      "p50": 1500,
+      "p95": 3000,
+      "p99": 4300,
+      "mean": 1926.8235,
+      "opsPerSec": 518988.8954540984
+    },
+    {
+      "p50": 1300,
+      "p95": 2100,
+      "p99": 3000,
+      "mean": 1546.279,
+      "opsPerSec": 646713.8207270486
+    },
+    {
+      "p50": 1500,
+      "p95": 2700,
+      "p99": 3700,
+      "mean": 1795.0975,
+      "opsPerSec": 557072.8052375985
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.warm",
+  "description": "one role, hit through a 3-level $extend chain (admin -> manager -> editor -> viewer), same args every call",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 13500,
+  "p95": 27800,
+  "p99": 56700,
+  "mean": 16904.605,
+  "opsPerSec": 59155.47864028766,
+  "perRepeat": [
+    {
+      "p50": 14000,
+      "p95": 29900,
+      "p99": 57900,
+      "mean": 18716.6215,
+      "opsPerSec": 53428.44594041718
+    },
+    {
+      "p50": 13500,
+      "p95": 27600,
+      "p99": 46400,
+      "mean": 16904.605,
+      "opsPerSec": 59155.47864028766
+    },
+    {
+      "p50": 13400,
+      "p95": 27800,
+      "p99": 56700,
+      "mean": 16776.6295,
+      "opsPerSec": 59606.72851480687
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

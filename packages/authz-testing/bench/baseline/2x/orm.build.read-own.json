@@ -1,0 +1,44 @@
+{
+  "name": "orm.build.read-own",
+  "description": "build a 50-row list select; read:own user (two grant probes + owner WHERE)",
+  "compare": "orm.build.nouser",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 131900,
+  "p95": 300800,
+  "p99": 454400,
+  "mean": 160107.83,
+  "opsPerSec": 6245.790727411645,
+  "perRepeat": [
+    {
+      "p50": 131900,
+      "p95": 300800,
+      "p99": 454400,
+      "mean": 160107.83,
+      "opsPerSec": 6245.790727411645
+    },
+    {
+      "p50": 140500,
+      "p95": 342800,
+      "p99": 498300,
+      "mean": 177100.44,
+      "opsPerSec": 5646.513357053206
+    },
+    {
+      "p50": 128000,
+      "p95": 289100,
+      "p99": 444200,
+      "mean": 154801.416,
+      "opsPerSec": 6459.889229953814
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

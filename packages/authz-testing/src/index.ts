@@ -1,1 +1,11 @@
 export * from './rebac.js';
+export * from './principals.js';
+export * from './filter-eval.js';
+export * from './registry.js';
+export * from './context.js';
+export * from './recording.js';
+export * from './fakes/index.js';
+export * from './di.js';
+export * as arb from './arbitraries/index.js';
+export * from './conformance/index.js';
+export * from './behaviour/index.js';

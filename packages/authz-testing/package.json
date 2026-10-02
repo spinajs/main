@@ -24,6 +24,7 @@
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
     "rimraf": "./node_modules/rimraf/bin.js",
+    "bench": "node --no-warnings --loader ts-node/esm --experimental-specifier-resolution=node bench/run.ts",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
@@ -52,6 +53,8 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/authz": "3.0.0-alpha.0"
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/di": "2.0.548",
+    "fast-check": "^4.10.2"
   }
 }

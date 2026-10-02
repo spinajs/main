@@ -1,0 +1,44 @@
+{
+  "name": "orm.point.read-any",
+  "description": "select one row by Id (row 11, owned by the read:own user); read:any user (two grant probes, no WHERE added)",
+  "compare": "orm.point.nouser",
+  "unit": "ns",
+  "iterations": 10000,
+  "warmup": 1000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 331500,
+  "p95": 524100,
+  "p99": 753000,
+  "mean": 354677.75,
+  "opsPerSec": 2819.4607640315753,
+  "perRepeat": [
+    {
+      "p50": 326400,
+      "p95": 524100,
+      "p99": 709000,
+      "mean": 351314.87,
+      "opsPerSec": 2846.4493973739286
+    },
+    {
+      "p50": 342800,
+      "p95": 916800,
+      "p99": 2212800,
+      "mean": 450704.13,
+      "opsPerSec": 2218.750469404396
+    },
+    {
+      "p50": 331500,
+      "p95": 519000,
+      "p99": 753000,
+      "mean": 354677.75,
+      "opsPerSec": 2819.4607640315753
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

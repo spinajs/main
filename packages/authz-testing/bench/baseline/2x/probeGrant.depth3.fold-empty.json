@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.depth3.fold-empty",
+  "description": "depth 3, root holds ['*', '!secret'], the three levels above hold [] (as admin -> manager -> editor does in probeGrant.warm)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 6000,
+  "p95": 11400,
+  "p99": 21100,
+  "mean": 7249.488,
+  "opsPerSec": 137940.77595548815,
+  "perRepeat": [
+    {
+      "p50": 6300,
+      "p95": 13000,
+      "p99": 22000,
+      "mean": 7956.7555,
+      "opsPerSec": 125679.36767693817
+    },
+    {
+      "p50": 6000,
+      "p95": 11300,
+      "p99": 17600,
+      "mean": 7205.314,
+      "opsPerSec": 138786.4567734314
+    },
+    {
+      "p50": 6000,
+      "p95": 11400,
+      "p99": 21100,
+      "mean": 7249.488,
+      "opsPerSec": 137940.77595548815
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}
