@@ -25,7 +25,8 @@ export abstract class PermissionRegistry {
 // The functions use private copies so that nothing done to the exported
 // RegExp objects (compile(), lastIndex) can change how names are checked.
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$/;
-const GLOB = /^(?:\*|[A-Za-z0-9_.*-]+:[A-Za-z0-9_.*-]+)$/;
+// No adjacent stars: '**' stays free for a later meaning.
+const GLOB = /^(?:\*|(?:[A-Za-z0-9_.-]|\*(?!\*))+:(?:[A-Za-z0-9_.-]|\*(?!\*))+)$/;
 
 export const PERMISSION_PATTERN: RegExp = Object.freeze(new RegExp(NAME.source));
 export const PERMISSION_GLOB_PATTERN: RegExp = Object.freeze(new RegExp(GLOB.source));
@@ -33,10 +34,7 @@ export const PERMISSION_GLOB_PATTERN: RegExp = Object.freeze(new RegExp(GLOB.sou
 export const isPermission = (name: unknown): name is Permission => typeof name === 'string' && NAME.test(name);
 
 export const parsePermission = (name: string): { readonly resource: string; readonly action: string } => {
-  if (!isPermission(name)) {
-    throw new AuthzConfigError(`Invalid permission name ${quote(name)}: expected <resource>:<action>, each [A-Za-z][A-Za-z0-9_.-]*`);
-  }
-
+  assertPermission(name);
   const at = name.indexOf(':');
   return Object.freeze({ resource: name.slice(0, at), action: name.slice(at + 1) });
 };
@@ -45,23 +43,64 @@ export const isPermissionGlob = (glob: unknown): glob is string => typeof glob =
 
 export const compilePermissionGlob = (glob: string): ((name: Permission) => boolean) => {
   if (!isPermissionGlob(glob)) {
-    throw new AuthzConfigError(`Invalid permission glob ${quote(glob)}: expected '*' or <resource-glob>:<action-glob>, each [A-Za-z0-9_.*-]+`);
+    throw new AuthzConfigError(`Invalid permission glob ${quote(glob)}: expected '*' or <resource-glob>:<action-glob>, each a run of [A-Za-z0-9_.*-] without '**'`);
   }
 
   if (glob === '*') {
-    return () => true;
+    return (name) => {
+      assertPermission(name);
+      return true;
+    };
   }
 
-  if (!glob.includes('*')) {
-    return (name) => name === glob;
-  }
+  const split = glob.indexOf(':');
+  const resource = glob.slice(0, split);
+  const action = glob.slice(split + 1);
 
-  const pattern = new RegExp(`^${glob.split('*').map(escapeRegExp).join('[^:]*')}$`);
-  return (name) => pattern.test(name);
+  return (name) => {
+    assertPermission(name);
+    const at = name.indexOf(':');
+    return matchPart(resource, name, 0, at) && matchPart(action, name, at + 1, name.length);
+  };
 };
 
 export const matchesPermission = (glob: string, name: Permission): boolean => compilePermissionGlob(glob)(name);
 
-const escapeRegExp = (literal: string) => literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const assertPermission = (name: Permission): void => {
+  if (!isPermission(name)) {
+    throw new AuthzConfigError(`Invalid permission name ${quote(name)}: expected <resource>:<action>, each [A-Za-z][A-Za-z0-9_.-]*`);
+  }
+};
+
+// Linear wildcard match of glob against text[from, to): on a mismatch, retry
+// from the last '*' one character later. A regex built from the glob would
+// backtrack exponentially on globs such as 'a*a*a*...c'.
+const matchPart = (glob: string, text: string, from: number, to: number): boolean => {
+  let g = 0;
+  let i = from;
+  let star = -1;
+  let mark = from;
+
+  while (i < to) {
+    if (glob[g] === '*') {
+      star = g++;
+      mark = i;
+    } else if (g < glob.length && glob[g] === text[i]) {
+      g++;
+      i++;
+    } else if (star >= 0) {
+      g = star + 1;
+      i = ++mark;
+    } else {
+      return false;
+    }
+  }
+
+  while (glob[g] === '*') {
+    g++;
+  }
+
+  return g === glob.length;
+};
 
 const quote = (value: unknown) => (typeof value === 'string' ? JSON.stringify(value) : String(value));

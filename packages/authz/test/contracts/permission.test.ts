@@ -123,7 +123,12 @@ describe('permission contracts', () => {
       ['fs:write', 'fs:writeX', false],
       ['fs:write', 'fs:wri', false],
       ['f-s:w_r.i', 'f-s:w_r.i', true],
-      ['**:read', 'user:read', true],
+      ['*.*:read', 'user.metadata:read', true],
+      ['*.*:read', 'user:read', false],
+      ['*a*b*:c', 'xaybz:c', true],
+      ['*a*b*:c', 'xbyaz:c', false],
+      ['a*a:b', 'a:b', false],
+      ['a*a:b', 'aa:b', true],
     ];
 
     it('matches as specified', () => {
@@ -135,22 +140,71 @@ describe('permission contracts', () => {
       }
     });
 
-    it('never lets * cross the colon', () => {
-      expect(() => matchesPermission('user*', 'user:read')).to.throw(AuthzConfigError);
-      expect(matchesPermission('*:*', 'a:b:c')).to.eq(false);
-      expect(matchesPermission('a:*c', 'a:b:c')).to.eq(false);
-      expect(matchesPermission('a*:c', 'a:b:c')).to.eq(false);
-      expect(matchesPermission('a:*', 'a:b:c')).to.eq(false);
+    it('throws for a name that is not a valid permission, also under *', () => {
+      for (const glob of ['*', '*:*', 'a:*', 'a:b', 'a*:c']) {
+        const matches = compilePermissionGlob(glob);
+        for (const name of ['garbage', 'a:b:c', ':', 'a:', '1a:b', 'a:b\n', '']) {
+          expect(() => matchesPermission(glob, name), `${glob} ~ ${JSON.stringify(name)}`).to.throw(AuthzConfigError);
+          expect(() => matches(name), `compiled ${glob} ~ ${JSON.stringify(name)}`).to.throw(AuthzConfigError);
+        }
+        expect(() => matches(undefined as unknown as Permission)).to.throw(AuthzConfigError);
+      }
+      expect(() => matchesPermission('*', 'garbage')).to.throw(AuthzConfigError, 'garbage');
     });
 
     it('rejects invalid globs by throwing, never by a silent false', () => {
-      for (const glob of ['user:', 'us er:*', '**:', ':*', 'a:b:c', '', 'user', 'user:re ad', 'ąę:*', 'user:*\n', ' *', '* ', 'a:b?', 'a:(b)', 'a:[b]']) {
+      for (const glob of ['user:', 'us er:*', '**:', ':*', 'a:b:c', '', 'user', 'user*', 'user:re ad', 'ąę:*', 'user:*\n', ' *', '* ', 'a:b?', 'a:(b)', 'a:[b]']) {
         expect(isPermissionGlob(glob), JSON.stringify(glob)).to.eq(false);
         expect(PERMISSION_GLOB_PATTERN.test(glob), JSON.stringify(glob)).to.eq(false);
         expect(() => matchesPermission(glob, 'user:read'), JSON.stringify(glob)).to.throw(AuthzConfigError);
         expect(() => compilePermissionGlob(glob), JSON.stringify(glob)).to.throw(AuthzConfigError);
       }
       expect(() => matchesPermission('us er:*', 'user:read')).to.throw(AuthzConfigError, 'us er:*');
+    });
+
+    it('rejects runs of adjacent stars', () => {
+      for (const glob of ['**', '***', '**:read', 'user:**', 'a**b:c', 'a:b**', '*:**', '**:*', 'a***:b']) {
+        expect(isPermissionGlob(glob), glob).to.eq(false);
+        expect(PERMISSION_GLOB_PATTERN.test(glob), glob).to.eq(false);
+        expect(() => matchesPermission(glob, 'user:read'), glob).to.throw(AuthzConfigError);
+        expect(() => compilePermissionGlob(glob), glob).to.throw(AuthzConfigError);
+      }
+    });
+
+    it('matches in linear time, whatever the glob', function () {
+      this.timeout(1000);
+      const name = `${'a'.repeat(200)}:${'a'.repeat(200)}`;
+      const spaced = `${'a*'.repeat(30)}c`;
+      const hostile = [`${spaced}:x`, `*:${spaced}`, `${spaced}:${spaced}`, `${'*a'.repeat(60)}b:*`];
+
+      for (const glob of hostile) {
+        const start = performance.now();
+        expect(matchesPermission(glob, name), glob).to.eq(false);
+        expect(performance.now() - start, glob).to.be.below(50);
+      }
+
+      const start = performance.now();
+      expect(() => matchesPermission(`${'*'.repeat(64)}:write`, 'organization.members:read')).to.throw(AuthzConfigError);
+      expect(isPermissionGlob(`${'*'.repeat(10000)}:write`)).to.eq(false);
+      expect(isPermissionGlob(`${'a*'.repeat(10000)}:${'*a'.repeat(10000)}`)).to.eq(true);
+      expect(performance.now() - start).to.be.below(50);
+    });
+
+    it('agrees with a regex reference on small inputs', () => {
+      const globPart = fc
+        .array(fc.constantFrom('a', 'B', '.', '*'), { minLength: 1, maxLength: 6 })
+        .map((units) => units.join(''))
+        .filter((part) => !part.includes('**'));
+      const glob = fc.oneof(
+        fc.constant('*'),
+        fc.tuple(globPart, globPart).map(([r, a]) => `${r}:${a}`),
+      );
+      const reference = (g: string, n: string) => g === '*' || new RegExp(`^${g.replace(/\./g, '\\.').replace(/\*/g, '[^:]*')}$`).test(n);
+
+      fc.assert(
+        fc.property(glob, smallName, (g, n) => matchesPermission(g, n) === reference(g, n)),
+        { numRuns: 5000 },
+      );
     });
 
     it('isPermissionGlob is false for non-strings', () => {
