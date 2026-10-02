@@ -9,13 +9,15 @@ export interface JwksServer {
   close(): Promise<void>;
 }
 
-/** GET /jwks.json on 127.0.0.1, ephemeral port; counts every GET. */
+/** GET /jwks.json on 127.0.0.1, ephemeral port; counts every GET, whatever its path. */
 export async function startJwksServer(keys: readonly KitKeyPair[]): Promise<JwksServer> {
   let current = keys;
   let hits = 0;
   const server = createServer((req, res) => {
-    if (req.method === 'GET' && req.url === '/jwks.json') {
+    if (req.method === 'GET') {
       hits += 1;
+    }
+    if (req.method === 'GET' && new URL(req.url ?? '/', 'http://x').pathname === '/jwks.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ keys: current.map((k) => ({ ...k.publicJwk, kid: k.kid, alg: k.alg, use: 'sig' })) }));
     } else {

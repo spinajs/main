@@ -21,6 +21,13 @@ describe('encoding helpers', () => {
     assert.deepEqual(b64urlDecode('-_8'), Buffer.from([251, 255]));
   });
 
+  it('b64urlDecode refuses non-base64url input', () => {
+    for (const bad of ['a!b', 'a+b', 'a/b', 'ab==', 'abcde']) {
+      assert.throws(() => b64urlDecode(bad), RangeError, bad);
+    }
+    assert.equal(b64urlDecode('').length, 0);
+  });
+
   it('hashes', () => {
     assert.equal(sha256hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     assert.equal(sha256b64(Buffer.from('abc')), 'ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=');
@@ -100,6 +107,12 @@ describe('TOTP', () => {
   it('defaults to 6 digits and 30 s', () => {
     assert.equal(totp(secret, new Date(59000)), '287082');
     assert.equal(totp(secret, new Date(30000)), totp(secret, new Date(59999)));
+  });
+
+  it('refuses odd otpauth parameters', () => {
+    for (const q of ['algorithm=MD5', 'digits=x', 'digits=0', 'period=0', 'period=1.5']) {
+      assert.throws(() => parseOtpauth(`otpauth://totp/x?secret=${secret}&${q}`), RangeError, q);
+    }
   });
 
   it('parses otpauth URIs', () => {

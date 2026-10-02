@@ -50,7 +50,7 @@ export function signatureBase(req: { method: string; targetUri: string; headers:
   return lines.join('\n');
 }
 
-/** Adds content-digest (with a body), signature-input and signature. Ed25519 or ecdsa-p256-sha256 (ieee-p1363); no alg parameter. */
+/** Adds content-digest (with a body), signature-input and signature. Ed25519 or ecdsa-p256-sha256 (ieee-p1363); no alg parameter. nonce and keyid are written unescaped, so they must not hold quotes or backslashes. */
 export function signHttpRequest(req: { method: string; targetUri: string; headers?: Record<string, string>; body?: Uint8Array }, key: KitKeyPair, kid: string | null, p: HttpSigParams): SignedRequest {
   const headers: Record<string, string> = Object.fromEntries(Object.entries(req.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   if (req.body) {

@@ -75,7 +75,10 @@ describe('HTTP signatures', () => {
     assert.equal(signed.headers['signature-input'], 'b=("@method" "@target-uri")');
     const m = /^b=:([A-Za-z0-9+/=]+):$/.exec(signed.headers.signature);
     assert.ok(m);
-    assert.equal(Buffer.from(m[1], 'base64').length, 64);
+    const sig = Buffer.from(m[1], 'base64');
+    assert.equal(sig.length, 64);
+    const base = ['"@method": GET', '"@target-uri": https://example.com/x', '"@signature-params": ("@method" "@target-uri")'].join('\n');
+    assert.equal(verify('sha256', Buffer.from(base), { key: createPublicKey(k.privateKey), dsaEncoding: 'ieee-p1363' }, sig), true);
   });
 
   it('keyid null in params omits it; a string overrides the kid argument', () => {

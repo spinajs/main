@@ -30,12 +30,18 @@ export function parseOtpauth(uri: string): { secret: string; algorithm: OtpAlgor
   if (!secret) {
     throw new Error('otpauth URI has no secret');
   }
-  return {
-    secret,
-    algorithm: (q.get('algorithm')?.toUpperCase() as OtpAlgorithm | undefined) ?? 'SHA1',
-    digits: Number(q.get('digits') ?? 6),
-    period: Number(q.get('period') ?? 30),
+  const algorithm = (q.get('algorithm') ?? 'SHA1').toUpperCase();
+  if (algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') {
+    throw new RangeError(`unsupported otpauth algorithm ${algorithm}`);
+  }
+  const positive = (name: string, fallback: number): number => {
+    const n = Number(q.get(name) ?? fallback);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new RangeError(`invalid otpauth ${name}`);
+    }
+    return n;
   };
+  return { secret, algorithm, digits: positive('digits', 6), period: positive('period', 30) };
 }
 
 /** RFC 6238 over RFC 4226 dynamic truncation. */

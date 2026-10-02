@@ -7,6 +7,9 @@ export function b64url(data: Uint8Array | string): string {
 }
 
 export function b64urlDecode(s: string): Buffer {
+  if (!/^[A-Za-z0-9_-]*$/.test(s) || s.length % 4 === 1) {
+    throw new RangeError('not unpadded base64url');
+  }
   return Buffer.from(s, 'base64url');
 }
 

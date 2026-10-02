@@ -32,7 +32,7 @@ export function isCleared(c: SetCookie, now: Date): boolean {
   return typeof expires === 'string' && new Date(expires).getTime() <= now.getTime();
 }
 
-/** Ignores domain, path and secure: one app, one origin. */
+/** Ignores domain, path and secure: one app, one origin. Expiry compares with `new Date()`, which follows FakeClock only while it is installed. */
 export class CookieJar {
   private readonly cookies = new Map<string, string>();
 

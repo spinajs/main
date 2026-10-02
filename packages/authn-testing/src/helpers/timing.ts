@@ -27,9 +27,9 @@ export function repeat(fn: () => Promise<unknown>): TimedSource {
   return { prepare: async (count) => Array.from({ length: count }, () => fn) };
 }
 
-function envNumber(v: string | undefined): number | undefined {
+function envNumber(v: string | undefined, integer: boolean): number | undefined {
   const n = v === undefined || v.trim() === '' ? NaN : Number(v);
-  return Number.isFinite(n) && n >= 0 ? n : undefined;
+  return Number.isFinite(n) && n >= 0 && (!integer || Number.isInteger(n)) ? n : undefined;
 }
 
 export function timingDefaults(env: NodeJS.ProcessEnv = process.env): Required<TimingOptions> {
@@ -38,8 +38,8 @@ export function timingDefaults(env: NodeJS.ProcessEnv = process.env): Required<T
     runs: 200,
     warmup: 20,
     tolerance: 0.1,
-    noiseFloorMs: envNumber(env.AUTHN_TESTING_TIMING_FLOOR_MS) ?? (ci ? 2 : 0.5),
-    retries: envNumber(env.AUTHN_TESTING_TIMING_RETRIES) ?? (ci ? 4 : 2),
+    noiseFloorMs: envNumber(env.AUTHN_TESTING_TIMING_FLOOR_MS, false) ?? (ci ? 2 : 0.5),
+    retries: envNumber(env.AUTHN_TESTING_TIMING_RETRIES, true) ?? (ci ? 4 : 2),
   };
 }
 
@@ -90,6 +90,11 @@ async function measure(a: TimedSource, b: TimedSource, o: Required<TimingOptions
 async function attempts(a: TimedSource, b: TimedSource, opts?: TimingOptions): Promise<readonly TimingReport[]> {
   const defined = Object.fromEntries(Object.entries(opts ?? {}).filter(([, v]) => v !== undefined));
   const o: Required<TimingOptions> = { ...timingDefaults(), ...defined };
+  for (const k of ['runs', 'warmup', 'retries'] as const) {
+    if (!Number.isInteger(o[k]) || o[k] < 0) {
+      throw new RangeError(`timing option ${k} must be a non-negative integer`);
+    }
+  }
   const all: TimingReport[] = [];
   for (let n = 1; n <= o.retries + 1; n++) {
     const r = { ...(await measure(a, b, o)), attempts: n };

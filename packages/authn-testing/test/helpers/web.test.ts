@@ -7,6 +7,8 @@ describe('idBits', () => {
     assert.equal(idBits('3b241101-e2bb-4255-8caf-4136c566a962'), 122);
     assert.equal(idBits(Buffer.alloc(16, 7).toString('base64url')), 132);
     assert.equal(idBits('0123456789abcdef0123456789abcdef'), 128);
+    assert.equal(idBits('6ba7b810-9dad-11d1-80b4-00c04fd430c8'), 0);
+    assert.equal(idBits('018f3b5e-7c1a-7d2b-8e3f-4a5b6c7d8e9f'), 0);
     assert.equal(idBits('has space'), 0);
     assert.equal(idBits(''), 0);
   });
@@ -57,6 +59,8 @@ describe('JWKS server', () => {
       assert.equal(second.keys[1].alg, 'ES256');
       assert.equal(server.hits(), 2);
       assert.equal((await fetch(new URL('/other', server.url))).status, 404);
+      assert.equal((await fetch(`${server.url}?x=1`)).status, 200);
+      assert.equal(server.hits(), 4);
     } finally {
       await server.close();
     }

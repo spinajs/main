@@ -48,6 +48,12 @@ describe('timing helpers', () => {
     assert.equal(o.retries, 4);
   });
 
+  it('timingDefaults ignores fractional env values and compareTiming refuses bad options', async () => {
+    assert.equal(timingDefaults({ AUTHN_TESTING_TIMING_RETRIES: '2.5' }).retries, 2);
+    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { retries: -1 }), RangeError);
+    await assert.rejects(compareTiming(repeat(spin(1)), repeat(spin(1)), { runs: 1.5 }), RangeError);
+  });
+
   it('timingTimeoutMs has a 60 s floor and scales with the call cost', () => {
     const d = timingDefaults({});
     assert.equal(timingTimeoutMs(d, 0.1), 60000);
