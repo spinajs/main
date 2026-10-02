@@ -94,8 +94,8 @@ const ladderCases: Case[] = [
     name: 'ceiling.roles without the implying role drops what it implies (bypass included)',
     world: base,
     steps: [
-      { check: { as: 'aliceAsViewer', permission: 'project:settings', resource: P1 }, expect: { allowed: false } },
-      { check: { as: 'aliceAsViewer', permission: 'code:view', resource: P1 }, expect: { allowed: false } },
+      { check: { as: 'aliceAsViewer', permission: 'project:settings', resource: P1 }, expect: { allowed: false, reason: 'no_access' } },
+      { check: { as: 'aliceAsViewer', permission: 'code:view', resource: P1 }, expect: { allowed: false, reason: 'no_access' } },
     ],
   },
 ];

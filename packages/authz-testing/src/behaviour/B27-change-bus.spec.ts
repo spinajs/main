@@ -77,6 +77,6 @@ export const B27 = fixture('B27', [
     ],
   },
   { name: 'store', facets: ['store', 'bus'], lanes: ['L2'], note: 'Every store write bumps authz_version(domain) and publishes after commit; L2 proposes the cases with its stores.', cases: [] },
-  { name: 'events', facets: ['admin', 'bus'], lanes: ['L9', 'C1', 'C4'], note: 'AuthzAdmin writes publish changes and RoleAssigned/RoleRevoked with actor and scope: with the admin fixtures (F5 task 4b).', cases: [] },
+  { name: 'events', facets: ['admin', 'bus'], lanes: ['L9', 'C1', 'C4'], note: 'AuthzAdmin writes publish changes and RoleAssigned/RoleRevoked with actor and scope: with the admin fixtures of B43.', cases: [] },
   { name: 'queue', facets: ['queue', 'bus'], lanes: ['L6'], note: 'QueueChangeBus across two in-memory transports; L6 proposes the case.', cases: [] },
 ]);

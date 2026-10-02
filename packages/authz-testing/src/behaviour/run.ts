@@ -215,7 +215,7 @@ function assertHandles(session: HarnessSession, facets: readonly Facet[], title:
 class Runner implements StepContext {
   private localKit?: KitWorld;
 
-  constructor(readonly session: HarnessSession, readonly world: World, private readonly domain: string) {}
+  constructor(readonly session: HarnessSession, readonly world: World, readonly domain: string) {}
 
   expected<T>(e: T): T {
     return inDomain(e, this.domain);

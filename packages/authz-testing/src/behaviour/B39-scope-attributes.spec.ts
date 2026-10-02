@@ -133,5 +133,5 @@ export const B39 = fixture('B39', [
     ],
   },
   { name: 'orm', facets: ['orm'], lanes: ['L4'], note: 'Scope attributes from @AccessResource(type, { attributes }); L4 proposes the cases.', cases: [] },
-  { name: 'store', facets: ['admin', 'scopeAttributes', 'bus'], lanes: ['L9'], note: 'Stored attributes win over resolver values, and a change publishes scope:<t>:<id>: with the admin fixtures (F5 task 4b).', cases: [] },
+  { name: 'store', facets: ['admin', 'scopeAttributes', 'bus'], lanes: ['L9'], note: 'Stored attributes win over resolver values, and a change publishes scope:<t>:<id>: with the admin fixtures of B43.', cases: [] },
 ]);

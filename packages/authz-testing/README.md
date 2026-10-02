@@ -170,7 +170,7 @@ fails and names it.
 - ORM queries, fs calls, `queue.emit` and `email.send` run in the current ALS (cases wrap them in
   `runAs`); `queue.handle` runs outside any ALS, as a consumer does.
 - `OrmModelSpec.json` names the JSON columns; their row values are JSON text.
-- `store.version` steps read the domain of `session.domain` (else 'root') unless they name one.
+- `store.version` steps read the runner's root domain (the one `$domain` stands for) unless they name one.
 
 ### DI rules for harness writers
 

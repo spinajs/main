@@ -134,5 +134,5 @@ export const B36 = fixture('B36', [
       { name: 'the deny policy with the lowest priority is reported in any policy order', world: abacWorld(true), steps: [{ check: { as: 'alice', permission: 'file:read', resource: f1 }, expect: { allowed: false, reason: 'agents_disabled' } }] },
     ],
   },
-  { name: 'rbac', facets: ['engine', 'rbac', 'ladders', 'rules'], lanes: ['L1b'], note: 'Failing RBAC rules and their priorities: with the rule fixtures (F5 task 4b, B35), or from L1b by RFC.', cases: [] },
+  { name: 'rbac', facets: ['engine', 'rbac', 'ladders', 'rules'], lanes: ['L1b'], note: 'Failing RBAC rules and their priorities: with the rule fixtures of B35, or from L1b by RFC.', cases: [] },
 ]);

@@ -104,7 +104,7 @@ const abacWorld: World = {
 export const B14 = fixture('B14', [
   { name: 'core', facets: ['engine'], lanes: ['F3'], cases: core },
   { name: 'cache', facets: ['engine', 'cache', 'clock'], lanes: ['F3'], cases: cache },
-  { name: 'rbac', facets: ['engine', 'rbac'], lanes: ['L1'], note: 'Rule and link expiry: B35 and B38 (F5 task 4b).', world: rbacWorld, cases: rbacCases },
+  { name: 'rbac', facets: ['engine', 'rbac'], lanes: ['L1'], note: 'Link expiry: B38.rbac (`link_invalid` after `expiresAt`).', world: rbacWorld, cases: rbacCases },
   { name: 'store', facets: ['engine', 'rbac', 'store'], lanes: ['L2'], note: 'The rbac cases with the assignments in the DB store.', world: rbacWorld, cases: rbacCases },
   {
     name: 'abac',

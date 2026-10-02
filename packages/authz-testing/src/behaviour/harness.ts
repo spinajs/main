@@ -142,6 +142,8 @@ export interface BehaviourHarness {
 export interface StepContext {
   readonly session: HarnessSession;
   readonly world: World;
+  /** The name of the domain that plays the world's root (`session.domain ?? harness.domain ?? 'root'`), the value of `$domain`. */
+  readonly domain: string;
   /** session.authz, or the domain's service for a step with `domain`. */
   authz(domain?: string): BehaviourAuthz;
   principal(who: Who): Principal;

@@ -156,9 +156,8 @@ function checkOutcome(results: readonly AuthzCommandResult[], commands: readonly
 }
 
 /**
- * `AuthzAdmin.execute(as, commands, opts)` (or POST /authz/commands with `via: 'http'`). lane.ts's
- * `adminExecute` is the plain in-process form the lane fixtures use; this one adds the HTTP path,
- * error codes and saved results.
+ * `AuthzAdmin.execute(as, commands, opts)`, or POST /authz/commands with `via: 'http'`; checks the
+ * outcome (kinds, first failure, error code) and can keep the results for later steps.
  */
 export function exec(as: Who | undefined, commands: readonly AuthzCommand[] | ((s: Saved) => readonly AuthzCommand[]), outcome: AdminOutcome, opts: ExecOptions = {}): DoStep {
   const { via = 'admin', save, sameAs, ...options } = opts;

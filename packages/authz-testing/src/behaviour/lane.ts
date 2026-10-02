@@ -737,11 +737,11 @@ export const accessOfFlow = (key: string): DoStep => ({
 
 // --- store --------------------------------------------------------------------------------------
 
-const storeDomain = (ctx: StepContext, domain: string | undefined): string => domain ?? ctx.session.domain ?? 'root';
+const storeDomain = (ctx: StepContext, domain: string | undefined): string => domain ?? ctx.domain;
 
 /**
- * Keeps `authz_version(domain)` as `key`. The default domain is `session.domain`, else 'root' (the
- * runner's rule for `$domain`, so a harness whose root plays a test domain sets `session.domain`).
+ * Keeps `authz_version(domain)` as `key`. The default domain is the runner's root domain
+ * (`session.domain`, else `harness.domain`, else 'root').
  */
 export const versionAs = (key: string, domain?: string): DoStep => ({
   note: `authz_version(${domain ?? '$domain'})`,

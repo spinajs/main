@@ -8,7 +8,7 @@ import type { BehaviourId, BehaviourSelector, Case, DecisionExpectation, Fixture
 import { ORACLE_FACETS, oracleHarness } from './oracle.js';
 import { recorder } from './recorder.js';
 
-// Every part the reference engine can run: the core parts of the rules task 4a covers.
+// Every part the reference engine can run: the core parts of the rules the fixtures cover.
 const ORACLE_PARTS: readonly BehaviourSelector[] = ['B01.core', 'B02.core', 'B03.core', 'B04.core', 'B05.core', 'B06.core', 'B07.core', 'B08.core', 'B09.core', 'B09.runAs', 'B14.core', 'B14.cache', 'B17.core', 'B22.core', 'B27.bus', 'B27.cache', 'B27.domains', 'B29.host', 'B36.core', 'B37.core', 'B39.core'];
 
 runBehaviour(ORACLE_PARTS, () => oracleHarness());

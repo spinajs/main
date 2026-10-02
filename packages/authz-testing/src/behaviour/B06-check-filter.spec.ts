@@ -225,6 +225,6 @@ export const B06 = fixture('B06', [
       return (sqlCases ??= [{ name: 'a NULL cell is UNKNOWN in SQL too: check ⇔ filter', world: threeValued, steps: [{ agree: { as: ['alice'], permissions: ['file:read'], type: 'file' } }] }, ...agreeCases(['alice', 'bob', 'carol'])]);
     },
   },
-  { name: 'rules', facets: ['engine', 'rbac', 'rules', 'list'], lanes: ['L1b'], note: 'Worlds with RBAC rules on the type come with the rule fixtures (F5 task 4b, B35), or from L1b by RFC.', cases: [] },
-  { name: 'rulesSql', facets: ['engine', 'rbac', 'rules', 'list', 'sql'], lanes: ['L4b', 'K1'], note: 'The rule worlds in SQL; with B44 (F5 task 4b), or from L4b by RFC.', cases: [] },
+  { name: 'rules', facets: ['engine', 'rbac', 'rules', 'list'], lanes: ['L1b'], note: 'Worlds with RBAC rules on the type come with the rule fixtures of B35, or from L1b by RFC.', cases: [] },
+  { name: 'rulesSql', facets: ['engine', 'rbac', 'rules', 'list', 'sql'], lanes: ['L4b', 'K1'], note: 'The rule worlds in SQL; with B44, or from L4b by RFC.', cases: [] },
 ]);

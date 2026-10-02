@@ -120,7 +120,7 @@ export const B16 = fixture('B16', [
     name: 'fs',
     facets: ['engine', 'host', 'rbac', 'fs'],
     lanes: ['L7'],
-    note: 'Grant patterns through the fs guard (design §6.1.2 lines 1119-1121, §8.2): a pattern id without glob characters becomes under that node, so a dir pattern covers the files below it; a glob becomes cmp glob on the id, segment-aware (§5.3). The harness wires the lane RBAC model; the fs:* permissions come from authz-fs, not from the world (as in B28). The owner grant of §8.2 (fs:read with relation owner) needs FileMetadataStore owners and is left to L7.',
+    note: 'Grant patterns through the fs guard (design §6.1.2 lines 1119-1121, §8.2): a pattern id without glob characters becomes under that node, so a dir pattern covers the files below it; a glob becomes cmp glob on the id, segment-aware (§5.3). The harness wires the lane RBAC model; authz-fs gives `file`/`dir` refs their parent directories and `fs:<name>` as ancestors (study §9.2), which `under` reads; the fs:* permissions come from authz-fs, not from the world (as in B28). The owner grant of §8.2 (fs:read with relation owner) needs FileMetadataStore owners and is left to L7.',
     world: fsWorld,
     cases: fsCases,
   },

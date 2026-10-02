@@ -214,6 +214,7 @@ describe('lane fixtures', () => {
       return {
         session,
         world,
+        domain: session.domain ?? 'root',
         authz: () => session.authz!,
         principal: (who) => resolvePrincipal(world, who),
         rows: () => [],
@@ -348,7 +349,12 @@ describe('lane fixtures', () => {
       versions.test++;
       await fails(versionChanged('v', false), t, /authz_version\(test\)/);
       await run([versionAs('w', 'root'), versionChanged('w', false, 'root')], t);
-      assert.deepEqual(asked, ['root', 'root', 'root', 'test', 'test', 'test', 'root', 'root']);
+      const h = ctx({ store });
+      const hc = { ...h, domain: 'test' };
+      await run(versionAs('x'), hc);
+      versions.test++;
+      await run(versionChanged('x', true), hc);
+      assert.deepEqual(asked, ['root', 'root', 'root', 'test', 'test', 'test', 'root', 'root', 'test', 'test']);
     });
 
     it('tracesOnlyAtDebug: a trace at debug, none above', async () => {
