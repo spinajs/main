@@ -110,6 +110,11 @@ export class SocketPrincipalGuard {
     await Promise.allSettled(started);
   }
 
+  /** True once the guard decided to close the connection; it must receive no more pushes. */
+  public isClosing(connection: SocketConnection): boolean {
+    return this.closing.has(connection);
+  }
+
   public async ensure(connection: SocketConnection): Promise<void> {
     if (connection.auth.source === null) {
       return;
