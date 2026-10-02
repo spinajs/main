@@ -15,3 +15,4 @@ export * from './registry.js';
 export * from './context.js';
 export * from './stages/index.js';
 export * from './dispatcher.js';
+export * from './policies.js';
