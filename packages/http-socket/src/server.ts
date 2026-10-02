@@ -11,6 +11,7 @@ import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
 import { isAllowedOrigin } from './origin.js';
 import './host.js';
+import './authn-source.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
 function refusal(wire: SocketError): Error & { data: SocketError } {

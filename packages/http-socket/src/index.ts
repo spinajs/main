@@ -7,3 +7,4 @@ export * from './connection.js';
 export * from './hub.js';
 export * from './host.js';
 export * from './server.js';
+export * from './authn-source.js';
