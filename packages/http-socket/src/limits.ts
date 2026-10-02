@@ -91,6 +91,14 @@ export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate'>): 
   }
 }
 
+export function assertHooksConfig(options: Pick<ISocketServerConfig, 'hooks'>): void {
+  const timeout = options.hooks?.connectTimeoutMs;
+
+  if (!(typeof timeout === 'number' && timeout > 0)) {
+    throw new RangeError(`http.socket.hooks.connectTimeoutMs must be a positive number, got ${String(timeout)}`);
+  }
+}
+
 export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'ordering'>): void {
   const grace = options.ordering?.abortGraceMs;
 

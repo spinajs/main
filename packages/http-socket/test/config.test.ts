@@ -11,6 +11,7 @@ describe('http-socket default configuration', () => {
     expect(socket.recovery).to.deep.equal({ maxDisconnectionMs: 120_000 });
     expect(socket.idempotency).to.deep.equal({ service: 'MemoryIdempotencyStore', ttlMs: 600_000 });
     expect(socket.drainMs).to.equal(5_000);
+    expect(socket.hooks).to.deep.equal({ connectTimeoutMs: 10_000 });
   });
 
   it('ships transport and rate defaults', () => {

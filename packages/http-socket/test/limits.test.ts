@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { SocketException } from '@spinajs/http-socket-common';
-import { TokenBucket, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
+import { TokenBucket, assertHooksConfig, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
 
 describe('socket limit primitives', () => {
   describe('payloadSize', () => {
@@ -93,6 +93,15 @@ describe('socket limit primitives', () => {
       expect((caught as SocketException).toWire()).to.deep.equal({ code: 'resource_exhausted', message: 'rate limit exceeded', retryable: true, retryAfterMs: 250 });
       now = 250;
       expect(() => assertRate(bucket)).not.to.throw();
+    });
+  });
+
+  describe('assertHooksConfig', () => {
+    it('refuses a connect hook timeout that is not a positive number', () => {
+      for (const bad of [0, -1, Number.NaN, undefined, '5']) {
+        expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: bad as number } }), String(bad)).to.throw(RangeError);
+      }
+      expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: 1 } })).not.to.throw();
     });
   });
 });

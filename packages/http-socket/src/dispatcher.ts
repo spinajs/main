@@ -9,7 +9,7 @@ import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCall
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate } from './limits.js';
+import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
@@ -67,6 +67,7 @@ export class SocketDispatcher extends AsyncService {
     await super.resolve();
     assertLimitsConfig(this.Options);
     assertOrderingConfig(this.Options);
+    assertHooksConfig(this.Options);
     const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
     this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
   }
@@ -86,7 +87,7 @@ export class SocketDispatcher extends AsyncService {
     socket.on(WIRE_EVENTS.event, (frame: unknown) => {
       this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
     });
-    runtime.ready = this.runHooks(runtime, 'connect');
+    runtime.ready = this.connectHooks(runtime);
 
     return runtime;
   }
@@ -100,7 +101,7 @@ export class SocketDispatcher extends AsyncService {
     this.runtimes.delete(connection.id);
     this.abortRunning(runtime, new SocketException('unavailable', 'connection closed'));
     // a client that leaves while its connect hooks still run gets its disconnect hooks after them
-    void runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason));
+    void runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error(err, `Socket disconnect hooks of connection ${connection.id} failed`));
   }
 
   /** Aborts every running command on every connection ( shutdown ). */
@@ -118,8 +119,6 @@ export class SocketDispatcher extends AsyncService {
     let reply: CommandReply;
 
     try {
-      await runtime.ready;
-
       // D14: stages, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
       const chain = this.Als.run(ctx.storage, () => this.next(ctx, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
@@ -248,6 +247,23 @@ export class SocketDispatcher extends AsyncService {
 
     runtime.eventWarnedAt = now;
     this.Log.warn(line);
+  }
+
+  protected connectHooks(runtime: IConnectionRuntime): Promise<void> {
+    const id = runtime.connection.id;
+    const ms = this.Options.hooks.connectTimeoutMs;
+    const hooks = this.runHooks(runtime, 'connect').catch((err: Error) => this.Log.error(err, `Socket connect hooks of connection ${id} failed`));
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.Log.error(`Socket connect hooks of connection ${id} still running after ${ms} ms; its commands and events no longer wait for them`);
+        resolve();
+      }, ms);
+      timer.unref?.();
+    });
+
+    return Promise.race([hooks, timeout]).finally(() => clearTimeout(timer));
   }
 
   /** Hooks run in registration order and no policies ( D9 ); a throwing hook is logged and never refuses the connection. */

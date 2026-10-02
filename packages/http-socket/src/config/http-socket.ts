@@ -34,6 +34,9 @@ const config: ISocketConfigFile = {
       ordering: {
         abortGraceMs: 30_000,
       },
+      hooks: {
+        connectTimeoutMs: 10_000,
+      },
       drainMs: 5_000,
       adapter: undefined,
       transports: ['websocket', 'polling'],

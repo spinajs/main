@@ -50,6 +50,8 @@ export interface ISocketServerConfig {
   drainMs: number;
   /** `ordered` commands: how long an aborted command whose handler is still running keeps its queue place */
   ordering: { abortGraceMs: number };
+  /** a connect hook still running after `connectTimeoutMs` is logged, and the connection's commands and events stop waiting for it */
+  hooks: { connectTimeoutMs: number };
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
   /**
@@ -242,7 +244,7 @@ export interface IConnectionRuntime {
   inFlight: number;
   /** running commands by request id, for cancel / disconnect / shutdown */
   readonly running: Map<string, ISocketCommandContext>;
-  /** settles when the connect hooks are done; commands wait for it */
+  /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */
   ready: Promise<void>;
   /** ms epoch of the last warn about a dropped event */
   eventWarnedAt?: number;
@@ -272,11 +274,12 @@ export abstract class SocketCommandStage {
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 }
 
-/** Spec §5.2 order. 350 is W1's principal re-check ( Task 10A, D16 ); 500 is reserved for W3's idempotency stage. */
+/** Spec §5.2 order. 320 waits for the connect hooks; 350 is W1's principal re-check ( Task 10A, D16 ); 500 is reserved for W3's idempotency stage. */
 export const STAGE_ORDER = {
   Size: 100,
   Rate: 200,
   InFlight: 300,
+  Ready: 320,
   Authentication: 350,
   Lookup: 400,
   Idempotency: 500,

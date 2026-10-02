@@ -15,6 +15,7 @@ import { Command, Connection, OnConnect, OnDisconnect, OnEvent, Payload, Reason,
 import { SocketAccess } from '../src/access.js';
 import { SocketConnection } from '../src/connection.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
+import { SocketHandlerRegistry } from '../src/registry.js';
 import { SocketPrincipalGuard } from '../src/principal-guard.js';
 import { ISocketCallStorage, ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
 import { IConnectOptions, ITestServer, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
@@ -33,6 +34,15 @@ const holdSlow = () => {
   Object.assign(evtSlow, { active: 0, max: 0, started: 0 });
   evtSlow.gate = new Promise<void>((resolve) => {
     evtSlow.release = resolve;
+  });
+};
+
+/** the `hang` connect hook of 'evt-hang' clients holds until `release()` */
+export const evtHang = { gate: Promise.resolve(), release: () => undefined as void };
+
+const holdHang = () => {
+  evtHang.gate = new Promise<void>((resolve) => {
+    evtHang.release = resolve;
   });
 };
 
@@ -228,6 +238,13 @@ export class EventSocket extends BaseSocketController {
     evtLog.push({ name: 'connect', payload: store()?.Principal.id ?? null, connection: conn.id });
   }
 
+  @OnConnect()
+  public async hang(@Connection() conn: SocketConnection): Promise<void> {
+    if (conn.clientId === 'evt-hang') {
+      await evtHang.gate;
+    }
+  }
+
   @OnDisconnect()
   public async left(@Connection() conn: SocketConnection, @Reason() reason: string) {
     if (ours(conn)) {
@@ -283,6 +300,7 @@ describe('socket events and lifecycle hooks', function () {
   afterEach(async () => {
     Object.values(spies ?? {}).forEach((spy) => spy.restore());
     spies = null;
+    evtHang.release();
     evtAllowed.clear();
     socket.close();
     await t.close();
@@ -373,6 +391,53 @@ describe('socket events and lifecycle hooks', function () {
 
     expect(socket.connected).to.be.true;
     expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
+  });
+
+  it('answers commands on time while a connect hook hangs: deadline, cancel and the limits do not wait for the hooks', async () => {
+    holdHang();
+    await start({ http: { socket: { maxPayloadBytes: 200, maxInFlightPerConnection: 1 } } }, { auth: { clientId: 'evt-hang' } });
+
+    for (let n = 0; n < 2; n++) {
+      // the second one only gets the in-flight slot when the first gave it back on its deadline
+      const t0 = Date.now();
+      expect(errorOf(await command(socket, 'evt.rooms', null, { deadline: 100 })).code).to.equal('deadline_exceeded');
+      expect(Date.now() - t0).to.be.lessThan(1000);
+    }
+
+    const pending = command(socket, 'evt.rooms', null, { id: 'evt-hang-cancel' });
+    await delay(50);
+    expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted', message: 'more than 1 commands in flight on this connection' });
+    expect(errorOf(await command(socket, 'evt.rooms', 'x'.repeat(300))).message).to.match(/^payload of \d+ bytes exceeds the limit of 200 bytes$/);
+
+    socket.emit(WIRE_EVENTS.cancel, { id: 'evt-hang-cancel' });
+    expect(errorOf(await pending).code).to.equal('cancelled');
+  });
+
+  it('stops waiting for the connect hooks after http.socket.hooks.connectTimeoutMs, with an error log', async () => {
+    holdHang();
+    await start({ http: { socket: { hooks: { connectTimeoutMs: 200 } } } }, { auth: { clientId: 'evt-hang' } });
+
+    expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
+    expect(lines('error')).to.include(`Socket connect hooks of connection ${socket.id} still running after 200 ms; its commands and events no longer wait for them`);
+  });
+
+  it('logs a failure of the disconnect hook chain instead of leaving it unhandled', async () => {
+    await start();
+    const id = socket.id!;
+    const registry = (DI.resolve(SocketDispatcher) as unknown as { Registry: SocketHandlerRegistry }).Registry;
+    const hooks = sinon.stub(registry, 'hooks').callsFake((kind) => {
+      if (kind === 'disconnect') {
+        throw new Error('registry gone');
+      }
+      return hooks.wrappedMethod.call(registry, kind);
+    });
+
+    try {
+      socket.disconnect();
+      await logged(new RegExp(`Socket disconnect hooks of connection ${id} failed`), 'error');
+    } finally {
+      hooks.restore();
+    }
   });
 
   it('runs the disconnect hooks with the reason', async () => {
