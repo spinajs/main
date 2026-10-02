@@ -1,13 +1,16 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
 import { ISocketCommandContext, SocketCommandStage } from '../src/interfaces.js';
 import { DI } from '@spinajs/di';
+import { WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { SocketDispatcher } from '../src/dispatcher.js';
 import { SizeStage } from '../src/stages/limits.js';
 import { assertLimitsConfig } from '../src/limits.js';
-import { ITestServer, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
+import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 
 let release: () => void = () => undefined;
 let gate: Promise<void> = Promise.resolve();
@@ -78,6 +81,70 @@ describe('socket pipeline limits', function () {
     expect(resultOf(await first)).to.equal('released');
     expect(resultOf(await second)).to.equal('released');
     expect(resultOf(await command(socket, 'lim.hold'))).to.equal('released');
+  });
+
+  describe('frames refused before the pipeline', () => {
+    type Level = 'warn' | 'debug';
+    let spies: Record<Level, sinon.SinonSpy>;
+
+    const boot = async (rate: { perSecond: number; burst: number }) => {
+      t = await startServer({ http: { socket: { rate } } });
+      const log = (DI.resolve(SocketDispatcher) as unknown as { Log: Record<Level, (...a: unknown[]) => void> }).Log;
+      spies = { warn: sinon.spy(log, 'warn'), debug: sinon.spy(log, 'debug') };
+      socket = await open(t);
+    };
+
+    const lines = (level: Level, part: string) => spies[level].getCalls().filter((c) => c.args.some((a) => typeof a === 'string' && a.includes(part))).length;
+    const malformed = () => socket!.timeout(5000).emitWithAck(WIRE_EVENTS.command, { bogus: true }) as Promise<Parameters<typeof errorOf>[0]>;
+
+    afterEach(() => sinon.restore());
+
+    it('logs 1000 ack-less command frames as at most one warning line', async () => {
+      await boot({ perSecond: 1, burst: 100 });
+      for (let n = 0; n < 1000; n++) {
+        socket!.emit(WIRE_EVENTS.command, { id: `noack-${n}`, name: 'lim.echo' });
+      }
+
+      // frames within the burst reach the log; the rest are refused by the rate limit and dropped silently
+      await waitFor(() => lines('warn', 'without an ack') + lines('debug', 'without an ack') >= 100);
+      await delay(100);
+      expect(lines('warn', 'without an ack')).to.be.at.most(1);
+    });
+
+    it('takes a rate token for a malformed command frame', async () => {
+      await boot({ perSecond: 1, burst: 3 });
+      for (let n = 0; n < 3; n++) {
+        expect(errorOf(await malformed())).to.include({ code: 'invalid_argument', message: 'malformed command request' });
+      }
+
+      expect(errorOf(await command(socket!, 'lim.echo', 1))).to.include({ code: 'resource_exhausted', message: 'rate limit exceeded' });
+      expect(errorOf(await malformed())).to.include({ code: 'resource_exhausted', message: 'rate limit exceeded' });
+    });
+
+    it('takes a rate token for an ack-less command frame', async () => {
+      await boot({ perSecond: 1, burst: 3 });
+      for (let n = 0; n < 3; n++) {
+        socket!.emit(WIRE_EVENTS.command, { id: `noack-${n}`, name: 'lim.echo' });
+      }
+
+      expect(errorOf(await command(socket!, 'lim.echo', 1))).to.include({ code: 'resource_exhausted', message: 'rate limit exceeded' });
+    });
+
+    it('takes a rate token for a command frame refused as a duplicate id', async () => {
+      await boot({ perSecond: 1, burst: 3 });
+      gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      const held = command(socket!, 'lim.hold', undefined, { id: 'dup-1' });
+      await delay(50);
+      expect(errorOf(await command(socket!, 'lim.echo', 1, { id: 'dup-1' }))).to.include({ code: 'invalid_argument', message: 'request id already in flight' });
+      expect(errorOf(await command(socket!, 'lim.echo', 1, { id: 'dup-1' }))).to.include({ code: 'invalid_argument', message: 'request id already in flight' });
+      expect(errorOf(await command(socket!, 'lim.echo', 1))).to.include({ code: 'resource_exhausted', message: 'rate limit exceeded' });
+
+      release();
+      expect(resultOf(await held)).to.equal('released');
+    });
   });
 
   describe('a payload that cannot be measured', () => {

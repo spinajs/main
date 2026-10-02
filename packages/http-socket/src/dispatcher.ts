@@ -4,7 +4,7 @@ import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
-import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame } from '@spinajs/http-socket-common';
+import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
@@ -17,7 +17,7 @@ import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
 import './stages/index.js';
 
-/** At most one warn per connection in this window about refused events; the rest go to debug. */
+/** At most one warn per connection in this window about dropped events and command frames; the rest go to debug. */
 export const EVENT_WARN_WINDOW_MS = 10_000;
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -158,17 +158,27 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /** Refusals answered before `execute`. */
-  protected observeRefused(name: string | null): void {
+  protected observeRefused(name: string | null, code: ErrorCode): void {
     try {
-      observeCommand((name !== null ? this.Registry.command(name)?.fullName : undefined) ?? SOCKET_UNKNOWN_COMMAND, 'invalid_argument', 0);
+      observeCommand((name !== null ? this.Registry.command(name)?.fullName : undefined) ?? SOCKET_UNKNOWN_COMMAND, code, 0);
     } catch {
       // swallowed on purpose
     }
   }
 
   protected onCommand(runtime: IConnectionRuntime, raw: unknown, ack: unknown): void {
+    // first: every frame costs a token, so no refusal or log line below comes for free
+    let limited: unknown = null;
+    try {
+      assertRate(runtime.bucket);
+    } catch (err) {
+      limited = err;
+    }
+
     if (typeof ack !== 'function') {
-      this.Log.warn(`Socket command without an ack callback from connection ${runtime.connection.id}, ignored`);
+      if (limited === null) {
+        this.windowed(runtime, `Socket command without an ack callback from connection ${runtime.connection.id}, ignored`);
+      }
       return;
     }
 
@@ -176,18 +186,27 @@ export class SocketDispatcher extends AsyncService {
 
     if (!isCommandRequest(raw)) {
       const id = typeof (raw as { id?: unknown } | null)?.id === 'string' ? (raw as { id: string }).id : '';
-      this.observeRefused(null);
-      reply({ id, ok: false, error: new SocketException('invalid_argument', 'malformed command request').toWire() });
+      this.refuse(reply, id, null, limited ?? new SocketException('invalid_argument', 'malformed command request'));
       return;
     }
 
     if (runtime.running.has(raw.id)) {
-      this.observeRefused(raw.name);
-      reply({ id: raw.id, ok: false, error: new SocketException('invalid_argument', 'request id already in flight').toWire() });
+      this.refuse(reply, raw.id, raw.name, limited ?? new SocketException('invalid_argument', 'request id already in flight'));
       return;
     }
 
-    void this.execute(this.createContext(runtime, raw)).then((answer) => this.send(reply, answer, raw.name));
+    const ctx = this.createContext(runtime, raw);
+    if (limited !== null) {
+      // answered by the rate stage, so the size stage still comes first ( spec §5.2 )
+      ctx.rateRefusal = limited;
+    }
+    void this.execute(ctx).then((answer) => this.send(reply, answer, raw.name));
+  }
+
+  protected refuse(reply: (reply: CommandReply) => void, id: string, name: string | null, err: unknown): void {
+    const error = this.Errors.toWire(err, name === null ? 'command' : `command ${name}`);
+    this.observeRefused(name, error.code);
+    reply({ id, ok: false, error });
   }
 
   /** socket.io encodes the ack synchronously, so an unencodable result throws here; answer internal instead of leaving the client to time out. */
@@ -263,15 +282,19 @@ export class SocketDispatcher extends AsyncService {
   /** A client can make every event fail, so refusals must not turn into one warn each. */
   protected dropped(runtime: IConnectionRuntime, name: string, err: unknown): void {
     const wire = this.Errors.toWire(err, `event ${name}`);
-    const line = `Socket event ${name} from connection ${runtime.connection.id} dropped: ${wire.code} ${wire.message}`;
+    this.windowed(runtime, `Socket event ${name} from connection ${runtime.connection.id} dropped: ${wire.code} ${wire.message}`, wire.code === 'resource_exhausted' || wire.code === 'unauthenticated');
+  }
+
+  /** At most one warn per connection in EVENT_WARN_WINDOW_MS; the other lines, and every `quiet` one, go to debug. */
+  protected windowed(runtime: IConnectionRuntime, line: string, quiet = false): void {
     const now = Date.now();
 
-    if (wire.code === 'resource_exhausted' || wire.code === 'unauthenticated' || now - (runtime.eventWarnedAt ?? Number.NEGATIVE_INFINITY) < EVENT_WARN_WINDOW_MS) {
+    if (quiet || now - (runtime.warnedAt ?? Number.NEGATIVE_INFINITY) < EVENT_WARN_WINDOW_MS) {
       this.Log.debug(line);
       return;
     }
 
-    runtime.eventWarnedAt = now;
+    runtime.warnedAt = now;
     this.Log.warn(line);
   }
 

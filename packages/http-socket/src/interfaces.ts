@@ -256,8 +256,8 @@ export interface IConnectionRuntime {
   readonly running: Map<string, ISocketCommandContext>;
   /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */
   ready: Promise<void>;
-  /** ms epoch of the last warn about a dropped event */
-  eventWarnedAt?: number;
+  /** ms epoch of the last warn about a dropped event or command frame */
+  warnedAt?: number;
 }
 
 export interface ISocketCommandContext extends ISocketCallContext {
@@ -267,6 +267,8 @@ export interface ISocketCommandContext extends ISocketCallContext {
   readonly receivedAt: number;
   /** set by the arguments stage */
   args?: unknown[];
+  /** the refusal of the rate token the dispatcher took when the frame arrived; the rate stage throws it */
+  rateRefusal?: unknown;
   /** fires `signal`; the dispatcher replies with `reason` at once */
   abort(reason: SocketException): void;
   /** keeps the earliest of all armed deadlines, counted from `receivedAt` */

@@ -7,6 +7,7 @@ export class SocketCommandContext implements ISocketCommandContext {
   public readonly receivedAt = Date.now();
   public handler?: IRegisteredHandler;
   public args?: unknown[];
+  public rateRefusal?: unknown;
 
   protected readonly controller = new AbortController();
   protected timer: ReturnType<typeof setTimeout> | null = null;
