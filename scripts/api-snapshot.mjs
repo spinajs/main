@@ -6,8 +6,10 @@
  * packages/<name>/etc/<name>.api.md: the emitted declarations of each file the
  * entries reach through relative imports, with the values of its top-level
  * constants, then the declarations (and constant values) of the symbols the
- * entries re-export from other packages. Comments, formatting and function
- * bodies do not count; any change to a declaration or a constant value does.
+ * entries re-export from other packages, each with its doc comments (also on
+ * members and overloads). Other comments, formatting, the layout of a doc
+ * comment and function bodies do not count; any change to a declaration, to
+ * the text of a doc comment or to a constant value does.
  *
  * `--update` and `--check` read the referenced packages' built `.d.ts` (and
  * their declaration maps for constant values), so run them after
@@ -53,7 +55,7 @@ let printerInstance;
 
 function requireTs() {
   if (!ts) throw new Error('the typescript package is not installed; run `npm ci` first');
-  printerInstance ??= ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  printerInstance ??= ts.createPrinter({ removeComments: false, newLine: ts.NewLineKind.LineFeed });
   return ts;
 }
 
@@ -105,7 +107,7 @@ function createProgram(dir, tsconfig, entries) {
     noEmit: false,
     declaration: true,
     emitDeclarationOnly: true,
-    removeComments: true,
+    removeComments: false,
     declarationMap: false,
     sourceMap: false,
     inlineSourceMap: false,
@@ -154,10 +156,51 @@ function closureOf(program, pkgDir, entryFiles) {
 // from TypeScript 7 and keep the source quotes, this compiler's emit does not, so every
 // string literal is printed fresh. Object and array literals drop the source's line
 // breaks and trailing commas, and function bodies inside constant values are emptied.
-function canonical(ctx) {
+// With `docs`, each node also carries its doc comments, which survive only as synthetic ones.
+function canonical(docs) {
+  return (ctx) => canonicalVisitor(ctx, docs);
+}
+
+// A pure re-layout of a doc comment (indent, one or several lines, CRLF, trailing or
+// edge blank lines) gives the same lines; a change to its words, tags or line breaks does not.
+function docLines(raw) {
+  const [first, ...rest] = raw.slice(3, -2).split(/\r\n|\r|\n/);
+  const body = rest.map((l) => l.replace(/^\s*\*?/, '').trimEnd());
+  // The common indent of the body goes, the indent of a line relative to the others stays.
+  const indent = Math.min(...body.filter(Boolean).map((l) => l.length - l.trimStart().length));
+  const lines = [first.trim(), ...body.map((l) => l.slice(indent))];
+  while (lines.length > 0 && lines[0] === '') lines.shift();
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+// `jsDoc` is internal, but unlike ts.getJSDocCommentsAndTags it holds only the node's own comments.
+function docComments(node) {
+  if (!node.jsDoc?.length) return [];
+  const text = node.getSourceFile().text;
+  return node.jsDoc
+    .map((d) => docLines(text.slice(d.pos, d.end)))
+    .filter((lines) => lines.length > 0)
+    .map((lines) => ({
+      kind: ts.SyntaxKind.MultiLineCommentTrivia,
+      text: lines.length === 1 ? `* ${lines[0]} ` : `*\n${lines.map((l) => (l ? ` * ${l}` : ' *')).join('\n')}\n `,
+      hasTrailingNewLine: true,
+      pos: -1,
+      end: -1,
+    }));
+}
+
+function canonicalVisitor(ctx, docs) {
   const f = ts.factory;
   const empty = (body) => body && f.createBlock([]);
+  // The parsed .d.ts of other packages are shared across runs; the dispose() in print clears these comments again.
   const visit = (node) => {
+    const out = rewrite(node);
+    const comments = docs ? docComments(node) : [];
+    if (comments.length > 0) ts.setSyntheticLeadingComments(out, comments);
+    return out;
+  };
+  const rewrite = (node) => {
     if (ts.isStringLiteral(node)) return f.createStringLiteral(node.text);
     const n = ts.visitEachChild(node, visit, ctx);
     if (ts.isObjectLiteralExpression(n)) return f.createObjectLiteralExpression([...n.properties], true);
@@ -175,20 +218,27 @@ function canonical(ctx) {
   return (root) => ts.visitNode(root, visit);
 }
 
-// Without a source file the printer cannot copy the source's line breaks or literal text.
-function print(node) {
-  const result = ts.transform(node, [canonical]);
+// Without a source file the printer cannot copy the source's line breaks, literal text or
+// comments, so the only comments printed are the synthetic doc comments of `canonical`.
+function print(node, docs = false) {
+  const result = ts.transform(node, [canonical(docs)]);
   try {
     const out = result.transformed[0];
-    return (ts.isSourceFile(out) ? printerInstance.printFile(out) : printerInstance.printNode(ts.EmitHint.Unspecified, out, undefined)).trim();
+    const nodes = ts.isSourceFile(out) ? out.statements : [out];
+    return nodes
+      .flatMap((n) => printerInstance.printNode(ts.EmitHint.Unspecified, n, undefined).split('\n'))
+      .map((l) => l.trimEnd())
+      .join('\n')
+      .trim();
   } finally {
     result.dispose();
   }
 }
 
 function reprint(fileName, text) {
-  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
-  return print(sf);
+  // Synthetic comments on a parsed node that the transform left unchanged need parent pointers.
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return print(sf, true);
 }
 
 function declarationText(program, sf) {
@@ -348,7 +398,7 @@ function externalSection(program, pkgDir, entryFiles) {
     packages.add(from);
     const label = target.name === name || target.name === 'default' ? name : `${name} = ${target.name}`;
     const statements = [...new Set(decls.map(statementOf))];
-    const text = statements.map((s) => print(s)).join('\n');
+    const text = statements.map((s) => print(s, true)).join('\n');
     const values = decls.map((d) => externalValue(d, target.name)).join('');
     blocks.push(`// ${label} (${from})\n${text}${values}`);
     const helpers = new Map();
@@ -357,7 +407,7 @@ function externalSection(program, pkgDir, entryFiles) {
     for (const [stmt, helperName] of sorted) {
       if (printed.has(stmt)) continue;
       printed.add(stmt);
-      blocks.push(`// ${helperName} (${from}, not re-exported, used by ${name})\n${print(stmt)}`);
+      blocks.push(`// ${helperName} (${from}, not re-exported, used by ${name})\n${print(stmt, true)}`);
     }
   }
   return { text: blocks.join('\n\n'), packages };
@@ -387,7 +437,7 @@ function analyzePackage({ dir, entries, tsconfig = 'tsconfig.mjs.json' }) {
   const external = externalSection(program, pkgDir, entryFiles);
   if (external.text) sections.push(fence('Re-exported from other packages', external.text));
 
-  const header = [`# ${name} API snapshot`, '', 'Generated by `node scripts/api-snapshot.mjs` from the declarations and constant values of the frozen contract entry points (plan §1 rule 3). Do not edit: run `npm run build`, then `node scripts/api-snapshot.mjs --update`. After gate G1 a change here needs an RFC in `docs/plans/authz-v3-rfc/`.', '', `Entries: ${entries.map((e) => `\`${e}\``).join(', ')}.`, ''].join('\n');
+  const header = [`# ${name} API snapshot`, '', 'Generated by `node scripts/api-snapshot.mjs` from the declarations, doc comments and constant values of the frozen contract entry points (plan §1 rule 3). Do not edit: run `npm run build`, then `node scripts/api-snapshot.mjs --update`. After gate G1 a change here needs an RFC in `docs/plans/authz-v3-rfc/`.', '', `Entries: ${entries.map((e) => `\`${e}\``).join(', ')}.`, ''].join('\n');
   return { name, markdown: `${header}\n${sections.join('\n')}`, files: files.map((f) => f.path), externalPackages: external.packages };
 }
 

@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,10 +36,10 @@ const BASE: Record<string, string> = {
     include: ['src/**/*'],
   }),
   'src/api.ts': ["export * from './a.js';", "export type { Ext } from 'ext';", "export { extValue } from 'ext';", ''].join('\n'),
-  'src/a.ts': ["import type { Mode } from './b.js';", '', '// helper: not exported, but Shape uses it', 'type Helper = { readonly k: number };', '', 'export interface Shape {', '  readonly id: string; // the id', '  readonly mode: Mode;', '  readonly helper: Helper;', '}', '', '/** Builds a shape. */', 'export function make(name: string): Shape {', "  return { id: name, mode: 'r', helper: { k: 1 } };", '}', '', '// values count, function bodies do not', "const PREFIX = 'shape';", 'export const PATTERN: RegExp = new RegExp(`^${PREFIX}:[a-z]+$`);', 'export const LIMITS: readonly number[] = Object.freeze([1, 2]);', 'export const TABLE: Readonly<Record<string, number>> = Object.freeze({ a: 1, b: 2 });', 'export const twice = (n: number): number => n * 2;', 'export const tools = {', '  run(): number {', '    return 1;', '  },', '};', ''].join('\n'),
+  'src/a.ts': ["import type { Mode } from './b.js';", '', '// helper: not exported, but Shape uses it', 'type Helper = { readonly k: number };', '', 'export interface Shape {', '  readonly id: string; // the id', '  /** The access mode. */', '  readonly mode: Mode;', '  /* plain block */', '  readonly helper: Helper;', '}', '', '/**', ' * Builds a shape.', ' *', ' * @param name the id', ' */', 'export function make(name: string): Shape {', "  return { id: name, mode: 'r', helper: { k: 1 } };", '}', '', '/** Kinds of shape. */', 'export enum Kind {', '  /** A square. */', '  Square = 1,', '}', '', 'export class Painter {', '  /** Paints by name. */', '  paint(name: string): void;', '  /** Paints by id. */', '  paint(id: number): void;', '  paint(_x: string | number): void {}', '}', '', '// values count, function bodies do not', "const PREFIX = 'shape';", '/** The pattern of a shape id. */', 'export const PATTERN: RegExp = new RegExp(`^${PREFIX}:[a-z]+$`);', 'export const LIMITS: readonly number[] = Object.freeze([1, 2]);', 'export const TABLE: Readonly<Record<string, number>> = Object.freeze({ a: 1, b: 2 });', 'export const twice = (n: number): number => n * 2;', 'export const tools = {', '  /** Runs the tool. */', '  run(): number {', '    return 1;', '  },', '};', ''].join('\n'),
   'src/b.ts': ["export type Mode = 'r' | 'w';", ''].join('\n'),
   'node_modules/ext/package.json': JSON.stringify({ name: 'ext', type: 'module', types: './index.d.ts' }),
-  'node_modules/ext/index.d.ts': ['interface Hidden {', '  readonly x: number;', '}', 'export interface Ext {', '  readonly hidden: Hidden;', '}', 'export declare const extValue: number;', 'export {};', '//# sourceMappingURL=index.d.ts.map', ''].join('\n'),
+  'node_modules/ext/index.d.ts': ['/** Not re-exported. */', 'interface Hidden {', '  readonly x: number;', '}', '/** An external type. */', 'export interface Ext {', '  /** The hidden part. */', '  readonly hidden: Hidden;', '}', 'export declare const extValue: number;', 'export {};', '//# sourceMappingURL=index.d.ts.map', ''].join('\n'),
   'node_modules/ext/index.d.ts.map': JSON.stringify({ version: 3, file: 'index.d.ts', sourceRoot: '', sources: ['src/index.ts'], names: [], mappings: '' }),
   'node_modules/ext/src/index.ts': ['const BASE_VALUE = 1;', 'export const extValue: number = BASE_VALUE + 0;', ''].join('\n'),
 };
@@ -95,9 +95,34 @@ describe('API snapshot of the frozen contracts', function () {
       expect(baseline).to.include('export interface Ext {');
       expect(baseline).to.include('interface Hidden {');
       expect(baseline).to.include('export declare const extValue: number;');
-      expect(baseline).not.to.include('the id');
-      expect(baseline).not.to.include('Builds a shape');
+    });
+
+    it('keeps the doc comments of declarations, members and overloads, but no other comments', () => {
+      expect(baseline).to.include(['/**', ' * Builds a shape.', ' *', ' * @param name the id', ' */', 'export declare function make(name: string): Shape;'].join('\n'));
+      expect(baseline).to.include(['    /** The access mode. */', '    readonly mode: Mode;'].join('\n'));
+      expect(baseline).to.include(['/** Kinds of shape. */', 'export declare enum Kind {', '    /** A square. */', '    Square = 1'].join('\n'));
+      expect(baseline).to.include(['    /** Paints by name. */', '    paint(name: string): void;', '    /** Paints by id. */', '    paint(id: number): void;'].join('\n'));
+      expect(baseline).to.include(['/** The pattern of a shape id. */', 'export declare const PATTERN: RegExp;'].join('\n'));
+      expect(baseline).to.include(['/** Not re-exported. */', 'interface Hidden {'].join('\n'));
+      expect(baseline).to.include(['/** An external type. */', 'export interface Ext {', '    /** The hidden part. */', '    readonly hidden: Hidden;'].join('\n'));
+      expect(baseline).not.to.include('// the id');
+      expect(baseline).not.to.include('helper: not exported');
+      expect(baseline).not.to.include('plain block');
+    });
+
+    it('keeps no comments in constant values', () => {
+      const start = baseline.indexOf('// values');
+      const values = baseline.slice(start, baseline.indexOf('```', start));
+      expect(values).to.include('const PATTERN = new RegExp(');
+      expect(values).not.to.include('The pattern of a shape id');
+      expect(values).not.to.include('Runs the tool');
+      expect(values).not.to.include('/*');
+    });
+
+    it('has LF line ends and no trailing whitespace', () => {
       expect(baseline).not.to.include('\r');
+      const trailing = baseline.split('\n').filter((l) => /\s$/.test(l));
+      expect(trailing).to.deep.eq([]);
     });
 
     it('holds constant values but no function bodies', () => {
@@ -140,6 +165,23 @@ describe('API snapshot of the frozen contracts', function () {
       'changing a non-exported constant an exported one uses': [['src/a.ts', "PREFIX = 'shape'", "PREFIX = 'form'"]],
       'changing an externally re-exported constant value': [['node_modules/ext/src/index.ts', 'BASE_VALUE + 0', 'BASE_VALUE + 1']],
       'changing a constant of the external source that a re-exported one uses': [['node_modules/ext/src/index.ts', 'BASE_VALUE = 1', 'BASE_VALUE = 2']],
+      'editing the doc comment of a function': [['src/a.ts', ' * Builds a shape.', ' * Builds a shape or fails.']],
+      'editing a tag of a doc comment': [['src/a.ts', ' * @param name the id', ' * @param name the unique id']],
+      'adding a tag to a doc comment': [['src/a.ts', ' * @param name the id', ' * @param name the id\n * @deprecated']],
+      'splitting a line of a doc comment': [['src/a.ts', ' * Builds a shape.', ' * Builds\n * a shape.']],
+      'indenting one line of a doc comment against the others': [['src/a.ts', ' * @param name the id', ' *   @param name the id']],
+      'editing the doc comment of an interface member': [['src/a.ts', '/** The access mode. */', '/** The access mode, never null. */']],
+      'editing the doc comment of an enum member': [['src/a.ts', '/** A square. */', '/** A square or a rectangle. */']],
+      'editing the doc comment of an overload': [['src/a.ts', '/** Paints by id. */', '/** Paints by numeric id. */']],
+      'editing the doc comment of a constant': [['src/a.ts', '/** The pattern of a shape id. */', '/** The pattern of a shape key. */']],
+      // The declared type of `tools` keeps the method's doc comment; its value does not.
+      'editing the doc comment of a method of a constant object': [['src/a.ts', '/** Runs the tool. */', '/** Runs the tool once. */']],
+      'editing the doc comment of an externally re-exported type': [['node_modules/ext/index.d.ts', '/** The hidden part. */', '/** The secret part. */']],
+      'editing the doc comment of a non-exported helper of an external type': [['node_modules/ext/index.d.ts', '/** Not re-exported. */', '/** Never re-exported. */']],
+      'adding a doc comment': [['src/a.ts', 'export interface Shape {', '/** A shape. */\nexport interface Shape {']],
+      'adding a doc comment to an external type': [['node_modules/ext/index.d.ts', 'export declare const extValue', '/** A value. */\nexport declare const extValue']],
+      'removing a doc comment': [['src/a.ts', '/** Kinds of shape. */\n', '']],
+      'turning a doc comment into a plain comment': [['src/a.ts', '/** The access mode. */', '/* The access mode. */']],
     };
 
     for (const [name, mutations] of Object.entries(cases)) {
@@ -151,9 +193,30 @@ describe('API snapshot of the frozen contracts', function () {
 
   describe('changes that do not count', () => {
     const cases: Record<string, Mutation[]> = {
-      'editing a comment': [
+      'editing a // comment': [
         ['src/a.ts', '// the id', '// the primary key, never reused'],
-        ['src/a.ts', '/** Builds a shape. */', '/**\n * Builds a shape from a name.\n * @param name the id\n */'],
+        ['src/a.ts', '// helper: not exported', '// helper: private'],
+      ],
+      'editing a /* */ comment': [['src/a.ts', '/* plain block */', '/* another plain block */']],
+      'adding plain comments': [
+        ['src/a.ts', 'export interface Shape {', '// a shape\n/* still a shape */\nexport interface Shape {'],
+        ['node_modules/ext/index.d.ts', 'export interface Ext {', '// external\nexport interface Ext {'],
+      ],
+      'writing a one-line doc comment on several lines': [['src/a.ts', '  /** The access mode. */', '  /**\n   * The access mode.\n   */']],
+      'writing a several-line doc comment on one line': [['src/a.ts', '/** Kinds of shape. */', '/**\n * Kinds of shape.\n */']],
+      're-indenting a doc comment': [
+        ['src/a.ts', ' * Builds a shape.', '     *    Builds a shape.'],
+        ['src/a.ts', ' * @param name the id', '     *    @param name the id'],
+        ['src/a.ts', '  /** A square. */', '        /**    A square.    */'],
+      ],
+      'CRLF and trailing spaces in a doc comment': [
+        ['src/a.ts', ' * Builds a shape.\n', ' * Builds a shape.   \r\n'],
+        ['src/a.ts', ' *\n', ' *  \r\n'],
+        ['node_modules/ext/index.d.ts', '/** The hidden part. */', '/**\r\n   * The hidden part.  \r\n   */'],
+      ],
+      'blank lines at the ends of a doc comment': [
+        ['src/a.ts', '/**\n * Builds a shape.', '/**\n *\n *\n * Builds a shape.'],
+        ['src/a.ts', ' * @param name the id\n */', ' * @param name the id\n *\n */'],
       ],
       'reformatting whitespace': [
         ['src/a.ts', 'type Helper = { readonly k: number };', 'type Helper = {\n  readonly k: number;\n};'],
@@ -325,6 +388,91 @@ describe('API snapshot of the frozen contracts', function () {
         const res = spawnSync(process.execPath, [SCRIPT, ...args], { cwd: REPO_ROOT, encoding: 'utf8' });
         expect(res.status, args.join(' ')).to.eq(2);
       }
+    });
+  });
+
+  describe('doc comment drift through the command line', () => {
+    const SNAPSHOT = 'packages/authz-fx/etc/authz-fx.api.md';
+    const API = 'packages/authz-fx/src/api.ts';
+    const DOC = '  /** True when the request is allowed. */';
+    const NOTE = '// decided once per request';
+    const apiSource = ['/** The outcome of a check. */', 'export interface Decision {', DOC, '  readonly allowed: boolean;', '}', '', NOTE, 'export function decide(): Decision {', '  return { allowed: true };', '}', ''].join('\n');
+
+    let repo: string;
+
+    const run = (...args: string[]) => spawnSync(process.execPath, [join(repo, 'scripts', 'api-snapshot.mjs'), ...args], { cwd: repo, encoding: 'utf8', timeout: 60_000 });
+    const git = (...args: string[]): void => {
+      const res = spawnSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'core.autocrlf=false', ...args], { cwd: repo, encoding: 'utf8', timeout: 60_000 });
+      expect(res.status, res.stderr).to.eq(0);
+    };
+    const editApi = (from: string, to: string): void => {
+      const text = readFileSync(join(repo, API), 'utf8');
+      expect(text).to.include(from);
+      writeFileSync(join(repo, API), text.split(from).join(to));
+    };
+
+    before(() => {
+      repo = mkdtempSync(join(tmp, 'cli-'));
+      writeTree(repo, {
+        'scripts/api-snapshot.mjs': readFileSync(SCRIPT, 'utf8'),
+        'scripts/api-snapshot.json': JSON.stringify({ tsconfig: 'tsconfig.mjs.json', packages: { 'authz-fx': ['src/api.ts'] }, augmentationAllowlist: [] }),
+        'packages/authz-fx/package.json': JSON.stringify({ name: '@fx/authz-fx', type: 'module' }),
+        'packages/authz-fx/tsconfig.mjs.json': BASE['tsconfig.mjs.json'],
+        [API]: apiSource,
+        '.gitignore': 'node_modules/\n',
+      });
+      mkdirSync(join(repo, 'node_modules'));
+      symlinkSync(join(REPO_ROOT, 'node_modules', 'typescript'), join(repo, 'node_modules', 'typescript'), 'junction');
+      const update = run('--update');
+      expect(update.status, `${update.stdout}\n${update.stderr}`).to.eq(0);
+    });
+
+    it('--check fails when only a doc comment of a frozen declaration changed', () => {
+      expect(readFileSync(join(repo, SNAPSHOT), 'utf8')).to.include('/** True when the request is allowed. */');
+      const clean = run('--check');
+      expect(clean.status, `${clean.stdout}\n${clean.stderr}`).to.eq(0);
+
+      editApi(DOC, '  /** True when the request is denied. */');
+      try {
+        const stale = run('--check');
+        expect(stale.status, `${stale.stdout}\n${stale.stderr}`).to.eq(1);
+        expect(stale.stderr).to.include(`${SNAPSHOT}: stale`);
+        expect(stale.stderr).to.include('-     /** True when the request is allowed. */');
+        expect(stale.stderr).to.include('+     /** True when the request is denied. */');
+      } finally {
+        editApi('  /** True when the request is denied. */', DOC);
+      }
+    });
+
+    it('--check passes when only a // comment changed', () => {
+      editApi(NOTE, '// decided for every request, then cached');
+      try {
+        const res = run('--check');
+        expect(res.status, `${res.stdout}\n${res.stderr}`).to.eq(0);
+      } finally {
+        editApi('// decided for every request, then cached', NOTE);
+      }
+    });
+
+    it('--check-rfc after G1 needs an RFC for a doc comment change', () => {
+      expect(run('--update').status).to.eq(0);
+      git('init', '-q');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'g1');
+      git('tag', 'authz-v3-g1');
+
+      editApi('/** The outcome of a check. */', '/** The final outcome of a check. */');
+      expect(run('--update').status).to.eq(0);
+      git('commit', '-q', '-am', 'doc only');
+      const blocked = run('--check-rfc', 'HEAD~1');
+      expect(blocked.status, `${blocked.stdout}\n${blocked.stderr}`).to.eq(1);
+      expect(blocked.stderr).to.include(SNAPSHOT);
+
+      writeTree(repo, { 'docs/plans/authz-v3-rfc/D3-1.md': '# RFC D3-1\n' });
+      git('add', '-A');
+      git('commit', '-q', '--amend', '--no-edit');
+      const allowed = run('--check-rfc', 'HEAD~1');
+      expect(allowed.status, `${allowed.stdout}\n${allowed.stderr}`).to.eq(0);
     });
   });
 
