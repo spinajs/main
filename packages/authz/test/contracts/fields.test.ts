@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
+import vm from 'node:vm';
 
 import * as root from '../../src/index.js';
 import { AuthzConfigError } from '../../src/contracts/errors.js';
@@ -103,10 +104,40 @@ describe('field glob contracts', () => {
     });
 
     it('rejects non-strings', () => {
-      for (const value of [undefined, null, 1, true, {}, [], ['a'], new String('a'), Symbol('a')]) {
-        expect(isFieldGlob(value), String(value)).to.eq(false);
-        expect(() => compileFieldGlobs([value as unknown as string]), String(value)).to.throw(AuthzConfigError);
+      for (const value of [undefined, null, 1, true, {}, [], ['a'], new String('a'), Symbol('a'), Object.create(null)]) {
+        expect(isFieldGlob(value), typeof value).to.eq(false);
+        expect(() => compileFieldGlobs([value as unknown as string]), typeof value).to.throw(AuthzConfigError);
+        expect(() => normalizeFieldGlobs([value as unknown as string]), typeof value).to.throw(AuthzConfigError);
       }
+    });
+
+    it('rejects lists that are not arrays', () => {
+      for (const list of ['*', undefined, null, { 0: '*', length: 1 }, new Set(['*'])]) {
+        const bad = list as unknown as string[];
+        expect(() => compileFieldGlobs(bad), typeof list).to.throw(AuthzConfigError);
+        expect(() => normalizeFieldGlobs(bad), typeof list).to.throw(AuthzConfigError);
+        expect(() => unionFieldGlobs(['a'], bad), typeof list).to.throw(AuthzConfigError);
+        expect(() => subtractFieldGlobs(bad, ['a']), typeof list).to.throw(AuthzConfigError);
+        expect(() => filterObject(bad, { a: 1 }), typeof list).to.throw(AuthzConfigError);
+      }
+    });
+
+    it('cuts a long glob short in the error', () => {
+      const long = 'a'.repeat(100_000) + '..b';
+      try {
+        compileFieldGlobs([long]);
+        expect.fail('no throw');
+      } catch (e) {
+        expect(e).to.be.instanceOf(AuthzConfigError);
+        expect((e as Error).message.length).to.be.lessThan(400);
+      }
+    });
+
+    it('caps globs per list and segments per glob', () => {
+      expect(() => compileFieldGlobs(Array.from({ length: 1000 }, (_, i) => `f${i}`))).to.not.throw();
+      expect(() => compileFieldGlobs(Array.from({ length: 1001 }, (_, i) => `f${i}`))).to.throw(AuthzConfigError);
+      expect(() => compileFieldGlobs([Array(32).fill('a').join('.')])).to.not.throw();
+      expect(() => compileFieldGlobs([Array(33).fill('a').join('.')])).to.throw(AuthzConfigError);
     });
   });
 
@@ -330,11 +361,56 @@ describe('field glob contracts', () => {
       const u = unionFieldGlobs(globs, negs);
       const s = subtractFieldGlobs(globs, ['*.' + globs[1]]);
       const n = normalizeFieldGlobs([...globs, ...negs]);
-      expect(Date.now() - started).to.be.lessThan(5000);
+      expect(Date.now() - started).to.be.lessThan(1000);
       const path = Array.from({ length: depth }, (_, i) => (i === 3 ? 'k' : i === 1 ? 'n' : 'x'));
       expect(oracle(u, path)).to.eq(oracle(globs, path) || oracle(negs, path));
       expect(oracle(n, path)).to.eq(oracle([...globs, ...negs], path));
       expect(oracle(s, path)).to.eq(oracle(globs, path));
+    });
+
+    describe('hostile lists finish or throw AuthzConfigError within 1 s', () => {
+      const star = (n: number) => Array<string>(n).fill('*');
+      const shapes: Array<[string, string[]]> = [];
+      // 'k' at position i of a glob of length n + i: no trie node covers another
+      shapes.push(['distinct lengths', Array.from({ length: 16 }, (_, i) => [...star(i), 'k', ...star(15)].join('.'))]);
+      shapes.push(['distinct lengths, signs', ['*', ...Array.from({ length: 16 }, (_, i) => (i % 2 ? '' : '!') + [...star(i), 'k', ...star(15)].join('.'))]]);
+      shapes.push(['same length', Array.from({ length: 16 }, (_, i) => [...star(i), 'k', ...star(15 - i)].join('.'))]);
+      const grid = ['*'];
+      for (let i = 0; i < 5; i++) {
+        for (let j = 0; j < 10; j++) {
+          const len = i + 1 + ((i + j) % (5 - i));
+          grid.push(((i + j) % 2 ? '!' : '') + [...star(i), `x${j}`, ...star(len - i - 1)].join('.'));
+        }
+      }
+      shapes.push(['names at every position, depth 5', grid]);
+      shapes.push(['wide', ['*', ...Array.from({ length: 999 }, (_, i) => `!f${i}`)]]);
+      shapes.push(['wide and deep', ['*', ...Array.from({ length: 200 }, (_, i) => `!*.f${i}.*.g`)]]);
+      shapes.push(['two names at nine positions', Array.from({ length: 9 }, (_, i) => ['a', 'b'].map((nm) => ((i + nm.length) % 2 ? '!' : '') + [...star(i), nm, ...star(3)].join('.'))).flat()]);
+      shapes.push(['deep literal', ['*', '!' + Array.from({ length: 32 }, (_, i) => `s${i}`).join('.')]]);
+      shapes.push(['deep star', ['!' + star(32).join('.'), '*']]);
+
+      const bounded = (label: string, run: () => string[]) => {
+        const started = Date.now();
+        try {
+          run();
+        } catch (e) {
+          expect(e, label).to.be.instanceOf(AuthzConfigError);
+        }
+        expect(Date.now() - started, label).to.be.lessThan(1000);
+      };
+
+      for (const [name, globs] of shapes) {
+        it(name, () => {
+          bounded('normalize', () => normalizeFieldGlobs(globs));
+          bounded('union', () => unionFieldGlobs(globs, ['!*.*.x0', 'x1.*']));
+          bounded('subtract', () => subtractFieldGlobs(['*'], globs));
+        });
+      }
+
+      it('the work limit is an AuthzConfigError', () => {
+        const globs = Array.from({ length: 20 }, (_, i) => [...star(i), 'k', ...star(12)].join('.'));
+        expect(() => normalizeFieldGlobs(globs)).to.throw(AuthzConfigError, 'too complex');
+      });
     });
 
     it('handles tens of realistic globs quickly', () => {
@@ -399,17 +475,104 @@ describe('field glob contracts', () => {
       expect(filterObject(['*'], [])).to.deep.eq([]);
     });
 
-    it('treats Date and other class instances as leaves', () => {
+    it('keeps Date, ArrayBuffer and views as leaves', () => {
       const created = new Date(0);
-      class Point {
-        x = 1;
-      }
-      const at = new Point();
-      const out = filterObject(['created', 'at'], { created, at, other: 1 });
-      expect(out).to.deep.eq({ created, at });
+      const buf = Buffer.from('ab');
+      const bytes = new Uint8Array([1]);
+      const raw = new ArrayBuffer(2);
+      const out = filterObject(['*', '!*.Password'], { created, buf, bytes, raw });
       expect(out.created).to.eq(created);
-      expect(out.at).to.eq(at);
-      expect(filterObject(['created.time', 'at.x'], { created, at })).to.deep.eq({});
+      expect(out.buf).to.eq(buf);
+      expect(out.bytes).to.eq(bytes);
+      expect(out.raw).to.eq(raw);
+      expect(filterObject(['created.time'], { created })).to.deep.eq({});
+    });
+
+    describe('reads every other object as a record (fails closed)', () => {
+      const F = ['*', '!Password', '!*.Password'];
+      class User {
+        Id = 1;
+        Password = 'h';
+        get Secret() {
+          return 's';
+        }
+        toJSON() {
+          return { Id: this.Id, Password: this.Password };
+        }
+      }
+
+      it('class instances, at the top, nested and in arrays', () => {
+        expect(filterObject(F, new User())).to.deep.eq({ Id: 1 });
+        expect(Object.getPrototypeOf(filterObject(F, new User()))).to.eq(Object.prototype);
+        expect(JSON.stringify(filterObject(F, { Owner: new User() }))).to.eq('{"Owner":{"Id":1}}');
+        expect(JSON.stringify(filterObject(F, { users: [new User()] }))).to.eq('{"users":[{"Id":1}]}');
+        expect(JSON.stringify(filterObject(F, [new User()]))).to.eq('[{"Id":1}]');
+        class Point {
+          x = 1;
+        }
+        expect(filterObject(['at'], { at: new Point() })).to.deep.eq({ at: { x: 1 } });
+        expect(filterObject(['at.x'], { at: new Point() })).to.deep.eq({ at: { x: 1 } });
+        expect(filterObject(['at', '!at.*'], { at: new Point() })).to.deep.eq({ at: {} });
+      });
+
+      it('objects from another realm', () => {
+        const row = vm.runInNewContext('({ Id: 1, Password: "h", Owner: { Password: "h", Name: "n" }, created: new Date(0) })') as object;
+        expect(JSON.stringify(filterObject(F, row))).to.eq('{"Id":1,"Owner":{"Name":"n"},"created":{}}');
+      });
+
+      it('Map and Set have no own keys', () => {
+        expect(filterObject(F, { m: new Map([['Password', 'h']]), s: new Set(['h']) })).to.deep.eq({ m: {}, s: {} });
+      });
+
+      it('drops functions and symbols', () => {
+        const raw = { Password: 'h', Id: 1 };
+        const out = filterObject(F, { Id: 1, Password: 'h', toJSON: () => raw, f: function named() {}, s: Symbol('x'), list: [1, () => 2, Symbol('y')] });
+        expect(out).to.deep.eq({ Id: 1, list: [1] });
+        expect(JSON.stringify(out)).to.eq('{"Id":1,"list":[1]}');
+        expect(filterObject(['*'], () => 1)).to.eq(undefined);
+        expect(filterObject(['*'], [() => 1, 2])).to.deep.eq([2]);
+      });
+
+      it('returns plain arrays for array subclasses', () => {
+        class Coll<T> extends Array<T> {
+          toJSON() {
+            return 'leak';
+          }
+        }
+        const top = Coll.from([{ Id: 1, Password: 'h' }]);
+        const outTop = filterObject(F, top);
+        expect(Object.getPrototypeOf(outTop)).to.eq(Array.prototype);
+        expect(JSON.stringify(outTop)).to.eq('[{"Id":1}]');
+        const nested = filterObject(F, { list: Coll.from([1, 2]) });
+        expect(Object.getPrototypeOf(nested.list)).to.eq(Array.prototype);
+        expect(JSON.stringify(nested)).to.eq('{"list":[1,2]}');
+      });
+    });
+
+    describe('keys that contain a dot', () => {
+      const F = ['*', '!Password', '!*.Password'];
+
+      it('need both readings to allow them', () => {
+        expect(filterObject(F, { 'Owner.Password': 'h', Id: 1 })).to.deep.eq({ Id: 1 });
+        expect(filterObject(F, { 'Owner.Name': 'n' })).to.deep.eq({ 'Owner.Name': 'n' });
+        // only the one-segment reading is allowed
+        expect(filterObject(['Owner', 'a.b'], { 'Owner.Name': 'n', 'a.b': 1 })).to.deep.eq({});
+        // only the dotted reading is allowed
+        expect(filterObject(['a.b'], { 'a.b': 1 })).to.deep.eq({});
+        expect(filterObject(['*', '!a.b'], { 'a.b': 1, a: { b: 2, c: 3 } })).to.deep.eq({ a: { c: 3 } });
+      });
+
+      it('carry both readings to the keys below them', () => {
+        expect(filterObject(F, { 'a.Owner': { Password: 'h', Name: 'n' } })).to.deep.eq({ 'a.Owner': { Name: 'n' } });
+        expect(filterObject(['*', '!x.*.Password'], { 'x.y': { Password: 'h', Name: 'n' } })).to.deep.eq({ 'x.y': { Name: 'n' } });
+        expect(filterObject(['*', '!*.Password'], { 'x.y': { Password: 'h' } })).to.deep.eq({ 'x.y': {} });
+      });
+
+      it('in write style: a client cannot slip a denied field through a dotted key', () => {
+        const write = ['Name', 'Profile.*', '!Profile.Role'];
+        const body = { Name: 'n', 'Profile.Role': 'admin', Profile: { Bio: 'b', Role: 'admin' } };
+        expect(filterObject(write, body)).to.deep.eq({ Name: 'n', Profile: { Bio: 'b' } });
+      });
     });
 
     it("applies ['*', '!Password'] to a user row", () => {
@@ -436,31 +599,29 @@ describe('field glob contracts', () => {
       data.own = 1;
       data[Symbol('s')] = 2;
       Object.defineProperty(data, 'hidden', { value: 3, enumerable: false });
-      // a non-plain prototype makes this a leaf; check the plain case too
-      expect(filterObject(['*'], { x: data })).to.deep.eq({ x: data });
+      const out = filterObject(['*'], { x: data }) as { x: object };
+      expect(Reflect.ownKeys(out.x)).to.deep.eq(['own']);
+      expect(Object.getPrototypeOf(out.x)).to.eq(Object.prototype);
       const plain: Record<string | symbol, unknown> = { own: 1, [Symbol('s')]: 2 };
       Object.defineProperty(plain, 'hidden', { value: 3, enumerable: false });
-      const out = filterObject(['*'], plain);
-      expect(Reflect.ownKeys(out)).to.deep.eq(['own']);
+      expect(Reflect.ownKeys(filterObject(['*'], plain))).to.deep.eq(['own']);
     });
 
-    it('treats null-prototype objects as plain objects', () => {
+    it('reads null-prototype objects as records', () => {
       const data = Object.assign(Object.create(null) as Record<string, unknown>, { a: 1, b: 2 });
       expect(filterObject(['a'], data)).to.deep.eq({ a: 1 });
     });
 
-    it('a __proto__ own key does not pollute', () => {
-      const data = JSON.parse('{"__proto__": {"polluted": true}, "a": 1, "n": {"__proto__": {"polluted": true}}}') as Record<string, unknown>;
-      const out = filterObject(['*'], data) as Record<string, unknown>;
-      expect(Object.getPrototypeOf(out)).to.eq(Object.prototype);
-      expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).to.eq(true);
-      expect(Object.getOwnPropertyDescriptor(out, '__proto__')?.value).to.deep.eq({ polluted: true });
-      expect(out.polluted).to.eq(undefined);
-      const n = out.n as Record<string, unknown>;
-      expect(Object.getPrototypeOf(n)).to.eq(Object.prototype);
-      expect(n.polluted).to.eq(undefined);
+    it('drops __proto__ own keys', () => {
+      const data = JSON.parse('{"__proto__": {"polluted": true}, "a": 1, "n": {"__proto__": {"polluted": true}, "b": 2}}') as Record<string, unknown>;
+      for (const fields of [['*'], ['__proto__', 'a', 'n.*'], ['*', '__proto__.*']]) {
+        const out = filterObject(fields, data) as Record<string, unknown>;
+        expect(Object.getPrototypeOf(out)).to.eq(Object.prototype);
+        expect(Object.prototype.hasOwnProperty.call(out, '__proto__')).to.eq(false);
+        expect(out).to.deep.eq({ a: 1, n: { b: 2 } });
+        expect(out.polluted).to.eq(undefined);
+      }
       expect(({} as Record<string, unknown>).polluted).to.eq(undefined);
-      expect(filterObject(['*', '!__proto__'], data)).to.deep.eq({ a: 1, n: JSON.parse('{"__proto__": {"polluted": true}}') });
     });
 
     it('returns a top-level leaf unchanged', () => {
