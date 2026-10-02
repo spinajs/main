@@ -5,15 +5,20 @@ import type { Harness, HttpRequest, HttpResponse } from '../src/harness/index.js
 import { RecordingEventSink } from '../src/fakes/index.js';
 import { defineCase, defineRule, planCases, runAuthnBehaviour, send, sendRaw, settleCase } from '../src/behaviour/index.js';
 import type { AuthnCase, AuthnRule, BddApi, HarnessFactory, RuleId, RunOptions, TestThis } from '../src/behaviour/index.js';
-import { planCasesIn, runBehaviourIn } from '../src/behaviour/runner.js';
+import { MOCHA_SLACK_MS, planCasesIn, runBehaviourIn } from '../src/behaviour/runner.js';
+import type { FakeClock } from '../src/fakes/index.js';
+import { pending, withSubject } from '../src/conformance/run.js';
 
 const SKIP = Symbol('skip');
+const RealDate = Date;
 
 interface Ran {
   readonly title: string;
   readonly status: 'passed' | 'pending' | 'failed';
   readonly error?: unknown;
   readonly timeouts: number[];
+  /** Date was the real one right after the case settled. */
+  readonly dateReal: boolean;
 }
 
 /** A BddApi that records the tree, runs every it in order, then the after hooks. */
@@ -33,12 +38,14 @@ async function collect(register: (bdd: BddApi) => void): Promise<{ describes: st
         throw SKIP;
       },
     };
+    let outcome: Pick<Ran, 'status' | 'error'>;
     try {
       await c.fn.call(self);
-      ran.push({ title: test.title, status: 'passed', timeouts });
+      outcome = { status: 'passed' };
     } catch (error) {
-      ran.push(error === SKIP ? { title: test.title, status: 'pending', timeouts } : { title: test.title, status: 'failed', error, timeouts });
+      outcome = error === SKIP ? { status: 'pending' } : { status: 'failed', error };
     }
+    ran.push({ title: test.title, ...outcome, timeouts, dateReal: Date === RealDate });
   }
   const logs: string[] = [];
   const log = console.log;
@@ -58,7 +65,6 @@ class Probe {
   close = 0;
   prepare = 0;
   installedInRun: boolean[] = [];
-  installedAfter: boolean[] = [];
 }
 
 const ok = async () => undefined;
@@ -242,14 +248,18 @@ describe('runAuthnBehaviour: execution', () => {
     );
     assert.match((ran[3].error as Error).message, /factory broke/);
     for (const name of ['A01 passes', 'A01 fails', 'A01 pending']) {
-      assert.deepStrictEqual({ ...probes[name], installedInRun: [], installedAfter: [] }, { factory: 1, dispose: 1, close: 1, prepare: 1, installedInRun: [], installedAfter: [] }, name);
+      assert.deepStrictEqual({ ...probes[name], installedInRun: [] }, { factory: 1, dispose: 1, close: 1, prepare: 1, installedInRun: [] }, name);
     }
     assert.deepStrictEqual([probes['A01 factory throws'].factory, probes['A01 factory throws'].dispose, probes['A01 factory throws'].close], [1, 0, 1]);
     assert.deepStrictEqual(probes['A01 passes'].installedInRun, [true, true]);
-    assert.ok(Math.abs(Date.now() - (performance.timeOrigin + performance.now())) < 1000, 'Date is real again after the cases');
+    assert.deepStrictEqual(
+      ran.map((x) => x.dateReal),
+      [true, true, true, true],
+      'the clock is uninstalled after every case',
+    );
   });
 
-  it('a dispose error after a failed case reports both errors; after a passing case it fails the case', async () => {
+  it('a dispose error after a failed case keeps the case error and reports both; after a passing case it fails the case', async () => {
     const r = rules({
       A01: [defineCase({ name: 'A01 fails', facet: 'A01/core', needs: [], run: async () => assert.fail('the case error') }), defineCase({ name: 'A01 passes', facet: 'A01/core', needs: [], run: ok })],
     });
@@ -260,10 +270,13 @@ describe('runAuthnBehaviour: execution', () => {
     });
     const { ran } = await collect((bdd) => runBehaviourIn(r, ['A01'], f, { bdd }));
     assert.strictEqual(ran[0].status, 'failed');
-    const both = ran[0].error as AggregateError;
-    assert.ok(both instanceof AggregateError);
-    assert.match(both.message, /the case error.*the dispose error/);
-    assert.strictEqual((both.errors[0] as Error).message, 'the case error');
+    const caseError = ran[0].error as assert.AssertionError & { cleanupErrors?: unknown[] };
+    assert.ok(caseError instanceof assert.AssertionError, 'the assertion error itself, so mocha shows its diff');
+    assert.strictEqual(caseError.message, 'the case error');
+    assert.deepStrictEqual(
+      caseError.cleanupErrors?.map((e) => (e as Error).message),
+      ['the dispose error'],
+    );
     assert.strictEqual(ran[1].status, 'failed');
     assert.match((ran[1].error as Error).message, /the dispose error/);
   });
@@ -275,12 +288,69 @@ describe('runAuthnBehaviour: execution', () => {
     const plain = await collect((bdd) => runBehaviourIn(r, ['A02'], factory(), { bdd }));
     assert.deepStrictEqual(
       plain.ran.map((x) => x.timeouts),
-      [[600_000], [10_000]],
+      [[600_000 + MOCHA_SLACK_MS], [10_000 + MOCHA_SLACK_MS]],
     );
     const raised = await collect((bdd) => runBehaviourIn(r, ['A02'], factory(), { bdd, timeoutMs: 1_200_000 }));
     assert.deepStrictEqual(
       raised.ran.map((x) => x.timeouts),
-      [[1_200_000], [1_200_000]],
+      [[1_200_000 + MOCHA_SLACK_MS], [1_200_000 + MOCHA_SLACK_MS]],
+    );
+  });
+
+  it('a case that hangs past its timeout fails on its own deadline, is disposed and leaves Date real for the next case', async () => {
+    let disposed = 0;
+    const r = rules({
+      A01: [defineCase({ name: 'A01 hangs', facet: 'A01/core', needs: [], timeoutMs: 200, run: () => new Promise<void>(() => undefined) }), defineCase({ name: 'A01 next', facet: 'A01/core', needs: [], run: async (_h, k) => assert.strictEqual(Date.now(), k.clock.now().getTime()) })],
+    });
+    const f: HarnessFactory = () => ({ dispose: async () => void disposed++ });
+    const { ran } = await collect((bdd) => runBehaviourIn(r, ['A01'], f, { bdd }));
+    assert.strictEqual(ran[0].status, 'failed');
+    assert.match((ran[0].error as Error).message, /A01 hangs exceeded 200 ms/);
+    assert.deepStrictEqual(ran[0].timeouts, [200 + MOCHA_SLACK_MS], 'mocha waits longer than the kit deadline');
+    assert.strictEqual(ran[1].status, 'passed', String(ran[1].error));
+    assert.deepStrictEqual(
+      ran.map((x) => x.dateReal),
+      [true, true],
+    );
+    assert.strictEqual(disposed, 2);
+  });
+
+  it('a kit clock left installed is uninstalled when the next case starts', async () => {
+    let leaked: FakeClock | undefined;
+    const r = rules({
+      A01: [defineCase({ name: 'A01 first', facet: 'A01/core', needs: [], run: async (_h, k) => void (leaked = k.clock) }), defineCase({ name: 'A01 second', facet: 'A01/core', needs: ['fakeDate'], run: async (_h, k) => assert.strictEqual(Date.now(), k.clock.now().getTime()) })],
+    });
+    const first = await collect((bdd) => runBehaviourIn(rules({ A01: [r.get('A01')!.cases[0]] }), ['A01'], factory(), { bdd }));
+    assert.strictEqual(first.ran[0].status, 'passed');
+    leaked!.install();
+    assert.notStrictEqual(Date, RealDate);
+    const second = await collect((bdd) => runBehaviourIn(rules({ A01: [r.get('A01')!.cases[1]] }), ['A01'], factory(), { bdd }));
+    assert.strictEqual(second.ran[0].status, 'passed', String(second.ran[0].error));
+    assert.strictEqual(Date, RealDate);
+  });
+
+  it('a requested rule without cases registers one visible pending case and a summary line', async () => {
+    const { describes, ran, logs } = await collect((bdd) => runBehaviourIn(RULES, ['A03', 'A04'], factory({ events: new RecordingEventSink() }), { bdd }));
+    assert.deepStrictEqual(describes, ['authn behaviour', 'A03 rule A03', 'A04 rule A04']);
+    assert.deepStrictEqual(
+      ran.map((x) => [x.title, x.status]),
+      [
+        ['A03 store case', 'passed'],
+        ['A04 [pending: not transcribed yet (PENDING_TRANSCRIPTION)]', 'pending'],
+      ],
+    );
+    assert.deepStrictEqual(logs, ['authn-testing pending: A04 → not transcribed yet (PENDING_TRANSCRIPTION)']);
+    const claimed = await collect((bdd) => runBehaviourIn(RULES, ['A04'], factory(), { bdd, claim: ['A04/local'], facets: ['A04/local'] }));
+    assert.deepStrictEqual(
+      claimed.ran.map((x) => x.status),
+      ['pending'],
+      'a claim cannot make an untranscribed rule pass or fail',
+    );
+    const elsewhere = await collect((bdd) => runBehaviourIn(RULES, ['A03', 'A04'], factory(), { bdd, facets: ['A03/argon2'] }));
+    assert.deepStrictEqual(
+      elsewhere.ran.map((x) => x.title),
+      ['A03 store case [pending: missing events]'],
+      'facets of other rules only: nothing registered for it',
     );
   });
 
@@ -361,5 +431,66 @@ describe('steps.send and steps.sendRaw', () => {
     await send(jarred, { method: 'GET', path: '/a' }, jar);
     await send(jarred, { method: 'GET', path: '/b' }, jar);
     assert.deepStrictEqual(last().cookies, { ssid: 'v1' });
+  });
+});
+
+describe('conformance withSubject', () => {
+  it('a body that hangs past the deadline fails, disposes and leaves Date real', async () => {
+    let disposed = 0;
+    await assert.rejects(
+      withSubject(
+        () => ({ dispose: async () => void disposed++ }),
+        true,
+        () => new Promise<void>(() => undefined),
+        { timeoutMs: 100, name: 'hanging case' },
+      ),
+      /hanging case exceeded 100 ms/,
+    );
+    assert.strictEqual(disposed, 1);
+    assert.strictEqual(Date, RealDate);
+  });
+
+  it('a skip followed by a dispose error fails with the dispose error alone', async () => {
+    const t: TestThis = {
+      test: { title: 'skipped case' },
+      timeout: () => undefined,
+      skip: () => {
+        throw SKIP;
+      },
+    };
+    const err = await withSubject(
+      () => ({
+        dispose: async () => {
+          throw new Error('dispose broke');
+        },
+      }),
+      true,
+      async () => pending(t, 'n/a'),
+    ).then(
+      () => assert.fail('expected a rejection'),
+      (e: unknown) => e as Error,
+    );
+    assert.match(err.message, /dispose broke/);
+    assert.ok(!err.message.includes('Symbol(skip)'), err.message);
+  });
+
+  it('a body error stays the error; a dispose error rides along', async () => {
+    const err = await withSubject(
+      () => ({
+        dispose: async () => {
+          throw new Error('dispose broke');
+        },
+      }),
+      true,
+      async () => assert.fail('body broke'),
+    ).then(
+      () => assert.fail('expected a rejection'),
+      (e: unknown) => e as Error & { cleanupErrors?: Error[] },
+    );
+    assert.strictEqual(err.message, 'body broke');
+    assert.deepStrictEqual(
+      err.cleanupErrors?.map((e) => e.message),
+      ['dispose broke'],
+    );
   });
 });

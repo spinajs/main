@@ -33,7 +33,11 @@ const SR_TITLES: readonly [string, string][] = [
   ['SR-11 login and impersonation are audited by default', 'A21/core'],
   ['SR-12 empty CORS list sends no CORS headers', 'A31/http'],
   ['SR-12 cross-origin cookie POST refused', 'A22/http'],
+  ['SR-15', 'A10/totp'],
+  ['SR-17', 'A11/local'],
   ['SR-18', 'A07/store'],
+  ['SR-19', 'A21/core'],
+  ['SR-20', 'A13/core'],
 ];
 
 const ruleOf = (facet: string) => facet.split('/')[0] as RuleId;

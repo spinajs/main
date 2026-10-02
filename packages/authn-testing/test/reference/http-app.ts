@@ -1,7 +1,7 @@
 import type { AuthenticationResult, AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import type { HarnessContext } from '../../src/behaviour/index.js';
 import type { Harness, HttpPort, HttpRequest, HttpResponse, HttpRoutes } from '../../src/harness/index.js';
-import { buildReference } from './harness.js';
+import { HTTP_SUPPORTED, buildReference } from './harness.js';
 import type { ReferenceExtras, ReferenceOverrides, ReferenceParts } from './harness.js';
 
 export const REFERENCE_ORIGIN = 'https://app.example.test';
@@ -149,7 +149,7 @@ class ReferenceHttpApp {
 
 /** The reference harness plus an HttpPort over the in-process app (design §10.3). */
 export function referenceHttpHarness(ctx: HarnessContext, extras?: ReferenceExtras, over?: ReferenceOverrides): Harness {
-  const parts = buildReference(ctx, over);
+  const parts = buildReference(ctx, over, HTTP_SUPPORTED);
   const base: Harness = { ...parts.harness, http: new ReferenceHttpApp(parts).port() };
   return { ...base, ...extras?.(base, parts) };
 }

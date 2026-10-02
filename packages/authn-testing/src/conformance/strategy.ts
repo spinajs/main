@@ -6,7 +6,7 @@ import { assertSameTiming } from '../helpers/timing.js';
 import type { TimedSource, TimingOptions } from '../helpers/timing.js';
 import { PendingLog } from '../behaviour/runner.js';
 import type { BddApi, TestThis } from '../behaviour/types.js';
-import { bddOf, pending, withSubject } from './run.js';
+import { bddOf, caseTimeout, pending, withSubject } from './run.js';
 
 export interface StrategySubject {
   readonly strategy: AuthenticationStrategy;
@@ -53,10 +53,8 @@ export function runStrategyConformance(factory: StrategySubjectFactory, opts: St
   const log = new PendingLog();
   const kase = (title: string, body: (s: StrategySubject, ctx: AuthnContext, t: TestThis) => Promise<void>, timeoutMs?: number) =>
     bdd.it(`conformance: ${title}`, async function (this: TestThis) {
-      if (timeoutMs) {
-        this.timeout(timeoutMs);
-      }
-      await withSubject(factory, opts.fakeDate, (s, clock) => body(s, clock.ctx({ purpose: purposeOf(s) }), this));
+      const deadline = caseTimeout(this, timeoutMs);
+      await withSubject(factory, opts.fakeDate, (s, clock) => body(s, clock.ctx({ purpose: purposeOf(s) }), this), { timeoutMs: deadline, name: `conformance: ${title}` });
     });
 
   bdd.describe(opts.title ?? 'strategy conformance', () => {
@@ -149,7 +147,11 @@ export function runStrategyConformance(factory: StrategySubjectFactory, opts: St
             return cs.map((c) => () => s.strategy.verify(c, ctx));
           },
         });
-        await assertSameTiming(source(() => s.invalid()), source(unknown), opts.timing || undefined);
+        await assertSameTiming(
+          source(() => s.invalid()),
+          source(unknown),
+          opts.timing || undefined,
+        );
       },
       opts.timeoutMs ?? TIMING_CASE_TIMEOUT_MS,
     );

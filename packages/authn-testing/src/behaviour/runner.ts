@@ -6,6 +6,11 @@ import { FACET_KINDS } from './types.js';
 import type { AuthnCase, AuthnRule, BddApi, CaseKit, Facet, HarnessFactory, Prepared, RuleId, RunOptions, TestThis } from './types.js';
 
 export const DEFAULT_CASE_TIMEOUT_MS = 10_000;
+/** Bound on each cleanup step (dispose, close) once a case is over. */
+export const CLEANUP_TIMEOUT_MS = 5_000;
+/** Mocha's timeout exceeds the kit's own deadline by this much, so the kit's error and cleanup come first. */
+export const MOCHA_SLACK_MS = 2 * CLEANUP_TIMEOUT_MS + 2_000;
+export const UNTRANSCRIBED_REASON = 'not transcribed yet (PENDING_TRANSCRIPTION)';
 
 export interface PlannedCase {
   readonly rule: AuthnRule;
@@ -61,14 +66,67 @@ export function markPending(t: TestThis, reason: string, log?: PendingLog, summa
 
 const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** A failure of the case body stays first; cleanup errors join it instead of hiding it. */
-export function withCleanupErrors(primary: unknown, cleanup: readonly unknown[]): unknown {
+/**
+ * The error a case ends with. A failure of the body is rethrown unchanged (mocha keeps its diff), with the cleanup
+ * errors attached as `cleanupErrors` and printed; without one, the cleanup errors fail the case.
+ */
+export function withCleanupErrors(primary: unknown, cleanup: readonly unknown[], name = 'case'): unknown {
   if (cleanup.length === 0) {
+    return primary;
+  }
+  if (primary instanceof Error && Object.isExtensible(primary)) {
+    (primary as Error & { cleanupErrors?: readonly unknown[] }).cleanupErrors = cleanup;
+    console.error(`authn-testing: cleanup after the failed ${name} also failed:`, ...cleanup);
     return primary;
   }
   const all = primary === undefined ? cleanup : [primary, ...cleanup];
   const head = primary === undefined ? 'cleanup failed' : `${errorMessage(primary)} (and cleanup failed)`;
   return new AggregateError(all, `${head}: ${cleanup.map(errorMessage).join('; ')}`);
+}
+
+/** Rejects with `<what> exceeded <ms> ms` when `p` takes longer; the timer is real (FakeClock fakes Date only). */
+export async function withDeadline<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} exceeded ${ms} ms`)), ms);
+  });
+  p.catch(() => undefined);
+  try {
+    return await Promise.race([p, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let activeClock: FakeClock | null = null;
+
+/**
+ * A fresh clock for one case. A kit clock still installed (a case abandoned by mocha) is uninstalled first, so
+ * one hang cannot fake Date for the rest of the process.
+ */
+export function startCaseClock(start: Date | undefined, fakeDate: boolean | undefined): FakeClock {
+  activeClock?.uninstall();
+  const clock = new FakeClock(start);
+  if (fakeDate !== false) {
+    clock.install();
+  }
+  activeClock = clock;
+  return clock;
+}
+
+/** Runs each cleanup step once, bounded, collecting its error. */
+export async function cleanUp(steps: readonly [string, (() => Promise<void>) | undefined][]): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  for (const [what, step] of steps) {
+    if (step) {
+      try {
+        await withDeadline(step(), CLEANUP_TIMEOUT_MS, what);
+      } catch (e) {
+        errors.push(e);
+      }
+    }
+  }
+  return errors;
 }
 
 /** Validation (synchronous, before any registration) and facet filtering. */
@@ -131,17 +189,15 @@ function resolves(h: Harness, need: Need, clock: FakeClock): boolean {
  */
 export async function executeCase(p: PlannedCase, factory: HarnessFactory, opts: RunOptions, t: TestThis, log?: PendingLog): Promise<CaseStatus> {
   const kase = p.kase;
-  t.timeout(Math.max(kase.timeoutMs ?? 0, opts.timeoutMs ?? 0) || DEFAULT_CASE_TIMEOUT_MS);
-  const clock = new FakeClock(opts.clockStart);
-  if (opts.fakeDate !== false) {
-    clock.install();
-  }
+  const timeoutMs = Math.max(kase.timeoutMs ?? 0, opts.timeoutMs ?? 0) || DEFAULT_CASE_TIMEOUT_MS;
+  t.timeout(timeoutMs + MOCHA_SLACK_MS);
+  const clock = startCaseClock(opts.clockStart, opts.fakeDate);
   let prepared: Prepared | undefined;
   let h: Harness | undefined;
   let failed = false;
   let skipped = false;
   let primary: unknown;
-  try {
+  const body = async (): Promise<CaseStatus> => {
     prepared = await kase.prepare?.({ clock });
     const config = typeof kase.config === 'function' ? kase.config(prepared) : kase.config ?? {};
     let missing: string[];
@@ -166,27 +222,23 @@ export async function executeCase(p: PlannedCase, factory: HarnessFactory, opts:
     const kit: CaseKit = { clock, ctx: (over) => clock.ctx(over), config, prepared, jar: () => new CookieJar() };
     await kase.run(h as never, kit);
     return 'passed';
+  };
+  try {
+    return await withDeadline(body(), timeoutMs, kase.name);
   } catch (e) {
     failed = true;
     primary = e;
     throw e;
   } finally {
-    const cleanup: unknown[] = [];
-    try {
-      await h?.dispose?.();
-    } catch (e) {
-      cleanup.push(e);
-    }
-    try {
-      await prepared?.close?.();
-    } catch (e) {
-      cleanup.push(e);
-    }
+    const cleanup = await cleanUp([
+      ['dispose', h?.dispose ? () => h!.dispose!() : undefined],
+      ['prepared.close', prepared?.close ? () => prepared!.close!() : undefined],
+    ]);
     clock.uninstall();
     if (cleanup.length > 0) {
       // A skip is not a failure: the cleanup error alone fails the case.
       // eslint-disable-next-line no-unsafe-finally
-      throw withCleanupErrors(failed && !skipped ? primary : undefined, cleanup);
+      throw withCleanupErrors(failed && !skipped ? primary : undefined, cleanup, kase.name);
     }
   }
 }
@@ -218,11 +270,18 @@ export function runBehaviourIn(rules: ReadonlyMap<RuleId, AuthnRule>, ids: reado
   const log = new PendingLog();
   bdd.describe(opts.title ?? 'authn behaviour', () => {
     for (const id of ids) {
+      const rule = rules.get(id)!;
       const mine = planned.filter((p) => p.rule.id === id);
-      if (mine.length === 0) {
+      const untranscribed = rule.cases.length === 0 && (!opts.facets || opts.facets.some((f) => f.startsWith(`${id}/`)));
+      if (mine.length === 0 && !untranscribed) {
         continue;
       }
-      bdd.describe(`${id} ${mine[0].rule.title}`, () => {
+      bdd.describe(`${id} ${rule.title}`, () => {
+        if (untranscribed) {
+          bdd.it(id, async function (this: TestThis) {
+            markPending(this, UNTRANSCRIBED_REASON, log);
+          });
+        }
         for (const p of mine) {
           bdd.it(p.kase.name, async function (this: TestThis) {
             await executeCase(p, factory, opts, this, log);

@@ -12,7 +12,9 @@ import type { ReferenceDeps } from './service.js';
 import { ReferenceBackoffThrottle } from './throttle.js';
 
 /** Config the reference applies; any other key makes the factory throw UnsupportedConfig. */
-const SUPPORTED = ['env', 'authn.throttle', 'authn.session', 'authn.linking', 'authn.mfa.policy.force', 'authn.freshAuth.maxAgeSeconds', 'authn.http.trustProxy', 'authn.http.csrf'];
+const SUPPORTED = ['authn.throttle', 'authn.session', 'authn.linking', 'authn.mfa.policy.force'];
+/** The http app also applies these. */
+export const HTTP_SUPPORTED = [...SUPPORTED, 'env', 'authn.http.trustProxy', 'authn.http.csrf'];
 const STORE_SUPPORTED = ['authn.session'];
 
 function leafKeys(o: unknown, prefix = ''): string[] {
@@ -93,8 +95,8 @@ export interface ReferenceOverrides {
 /** Lets a batch add ports (and sinks through parts.sinks) without editing this file. */
 export type ReferenceExtras = (base: Harness, parts: ReferenceParts) => Partial<Harness>;
 
-export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {}): ReferenceParts & { readonly harness: Harness } {
-  checkConfig(ctx.config, SUPPORTED);
+export function buildReference(ctx: HarnessContext, over: ReferenceOverrides = {}, supported: readonly string[] = SUPPORTED): ReferenceParts & { readonly harness: Harness } {
+  checkConfig(ctx.config, supported);
   const config = ctx.config;
   const linking = { jit: config.authn?.linking?.jit ?? false, byVerifiedEmail: config.authn?.linking?.byVerifiedEmail ?? false };
   const identities = new FakeIdentityStore({ jit: linking.jit });

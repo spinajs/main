@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import type { IdentityStatus, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { FakeClock } from '../fakes/clock.js';
 import type { SeedPort } from '../harness/ports.js';
-import type { BddApi } from '../behaviour/types.js';
-import { bddOf, withSubject } from './run.js';
+import type { BddApi, TestThis } from '../behaviour/types.js';
+import { bddOf, caseTimeout, withSubject } from './run.js';
 
 export interface IdentitySubject {
   readonly store: IdentityStore;
@@ -23,8 +23,8 @@ const STATUS_FLAGS: readonly { flag: 'active' | 'banned' | 'deleted' | 'invitePe
 export function runIdentityStoreConformance(factory: (k: { clock: FakeClock }) => IdentitySubject | Promise<IdentitySubject>, opts: { title?: string; bdd?: BddApi } = {}): void {
   const bdd = bddOf(opts.bdd);
   const kase = (title: string, body: (s: IdentitySubject) => Promise<void>) =>
-    bdd.it(`identity store: ${title}`, async () => {
-      await withSubject(factory, true, body);
+    bdd.it(`identity store: ${title}`, async function (this: TestThis) {
+      await withSubject(factory, true, body, { timeoutMs: caseTimeout(this), name: `identity store: ${title}` });
     });
 
   bdd.describe(opts.title ?? 'identity store conformance', () => {

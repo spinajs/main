@@ -172,7 +172,7 @@ export const A07: AuthnRule = defineRule('A07', 'session ids are strong, hashed,
         assert.ok(c, 'the login sets a session cookie');
         assert.ok(c.value !== P, 'the planted value is not kept');
         const w = await send(h, R.whoami(), sessionJar(h, P));
-        const pendingOnly = w.status === 200 && JSON.stringify(Object.keys((w.body ?? {}) as object)) === JSON.stringify(['MfaRequired']);
+        const pendingOnly = planted === 'the cookie of a live pending session' && w.status === 200 && JSON.stringify(Object.keys((w.body ?? {}) as object)) === JSON.stringify(['MfaRequired']);
         assert.ok(in4xx(w.status) || pendingOnly, `whoami with the planted value answered ${w.status} ${JSON.stringify(w.body)}`);
       },
     }),

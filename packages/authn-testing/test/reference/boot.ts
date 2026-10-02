@@ -20,7 +20,7 @@ export function referenceBoot(ctx: HarnessContext, known: Readonly<Record<string
         listed.push(strategy);
       }
       try {
-        const { service } = buildReference({ ...ctx, config: { ...spec.config, ...(spec.env ? { env: spec.env } : {}) } }, { strategies: listed });
+        const { service } = buildReference({ ...ctx, config: spec.config ?? {} }, { strategies: listed });
         return { ok: true, service, dispose: async () => undefined };
       } catch (error) {
         return { ok: false, error };
