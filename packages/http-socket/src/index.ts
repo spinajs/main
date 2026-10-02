@@ -17,3 +17,4 @@ export * from './stages/index.js';
 export * from './dispatcher.js';
 export * from './policies.js';
 export * from './access.js';
+export * from './principal-guard.js';
