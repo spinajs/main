@@ -1,0 +1,13 @@
+{
+  "warning": "Test keys: RFC 8037 A.1 and RFC 8032 section 7.1 TEST 2. Never use them outside tests.",
+  "signing": [
+    { "kty": "OKP", "crv": "Ed25519", "kid": "test-2026-09", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", "d": "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A" },
+    { "kty": "OKP", "crv": "Ed25519", "kid": "test-2026-10", "x": "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw", "d": "TM0Imyj_ltqdtsNG7BFOD1uKMZ81q6Yk2oz27U-4pvs" }
+  ],
+  "jwks": {
+    "keys": [
+      { "kty": "OKP", "crv": "Ed25519", "kid": "test-2026-09", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" },
+      { "kty": "OKP", "crv": "Ed25519", "kid": "test-2026-10", "x": "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw" }
+    ]
+  }
+}

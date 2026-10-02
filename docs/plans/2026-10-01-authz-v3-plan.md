@@ -1,6 +1,6 @@
 # SpinaJS 3.0 authorization and authentication: execution plan
 
-Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
+Date: 2026-10-01 (revision r2 the same day; revisions r3, r4 and r6
 2026-10-02). Plan only; no source file was edited.
 
 - **Design:** `2026-10-01-authz-v3-design.md` (cited as *design §n*).
@@ -10,6 +10,75 @@ Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
   ("contracts frozen") passes, lanes run in parallel. A lane section plus
   the design doc is enough for one agent to execute that lane. §0a says
   where to start.
+
+## Changes in this revision (r6, as built after F3–F7)
+
+F3 (engine), F5 (authz test kit), F6 (authn contracts), F7 and F7b (authn
+test kit, rules A01–A32, C8 tickets) are built. Their reports and the
+lane notes in `.authz-sdd/` are authoritative over this plan. The task
+lists below stay as planned; this section and the lane edits it names record
+what changed. The design (r6) holds the decisions behind them.
+
+1. **Rule assignments F7 asked for.**
+   - A20 (core part) goes to N1 (task 9).
+   - A05, A08 and A15 go to N8a (task 8).
+   - A08 (lifecycle part) goes to C1 (acceptance).
+   - A13 (local part) goes to N3 (task 8).
+2. **Fixture parts no lane named (F5).** Each part below now sits in the lane
+   that owns the behaviour. A lane runs it from its own package tests.
+
+   | Part | Lane | Why |
+   |---|---|---|
+   | B02.core, B22.core, B26.core | F3 | The engine builds the check, `filterNow` and `covers`; F3 ran all three green. |
+   | B05.rbac | L1 | Boot rule 8 (a grant's relation needs a resolver) fires when the RBAC model compiles its grants. |
+   | B06.rbac | L1 | The type-level `native:rbac.assignment` residual is L1 task 10. |
+   | B02.rules, B05.rules, B06.rules | L1b | Rules, their boot rules 9 and 10 and the type-level rule residual are L1b tasks 6 and 8. |
+   | B05.ladders | L1b | Boot rule 9 for ladders is L1b task 1. |
+   | B12.implies | L1b | Implied roles are L1b task 3. |
+   | B02.abac, B05.abac, B14.abac, B26.abac | L3 | Policies name permissions (task 4, 6), carry `scope.*` conditions that rule 10 checks (task 2), expire (task 6) and count in `covers` through `summarize` (task 7). |
+   | B05.orm | L4 | Rule 6 needs `@AccessResource` models with `relationScope: 'join'`; L4 proposes the case by RFC (D-F5-9). |
+   | B05.sql | L4b | Rule 11 is L4b task 7. |
+   | B02.http, B09.http | L5 | `@Access` and `@Unscoped(reason)` are L5 task 4. |
+   | B39.store, B46.store, B46.cache | L9 | Scope attributes are written through `scope.setAttributes` and stored by `DbScopeAttributeStore` (task 5). |
+   | B27.policyEvents | L9 | `policy.put` and `policy.delete` run through L9's ABAC handler (task 4). |
+   | B12.http | C4 | The write cases go through `POST /authz/commands`. |
+   | B16.fs | L7 | The part needs the RBAC model; L7 now depends on L1. |
+3. **F3 hand-offs.** L4 gets the relation and SQL hand-offs (see its section).
+   F4, L1, L1b, L3 and L5 read the "Hand-offs" of `F3-report.md` before
+   they start (one `Authorizer` and one `DecisionCache` per domain, the
+   model guide: a model throws or times out on missing data and never
+   votes no, memoises a load's promise, keys its caches on everything its
+   answer depends on). F3's acceptance now also runs B02, B22 and B26
+   (core).
+4. **F7 hand-offs.**
+   - N2 and N4 compute "now" in Node (`ctx.now` or `Date`), never SQL `now()`.
+   - N7 fixes the challenge signing input and the assertion `iss` format,
+     accepts the kit's RFC 9421 label `sig1` with no `alg`, and takes the
+     C8 tickets from `loadC8Fixtures()`.
+   - N8a and N8b settle the 401 body (where `E_AUTH_FAILED` sits) and who
+     enforces `users:credentials` on the A25 routes.
+   - Other open points are in the "Known gaps for lanes" table of the
+     `authn-testing` README (two `bearer` strategies, `pepper.previous`,
+     the meaning of `impersonation.requireMfa`, the boot signal for a
+     secret-storing MFA step, the JWT JIT switch, the OIDC JIT default, the
+     A12 prefix list, route builders for B5 http paths). The owning lane
+     decides each one.
+5. **Open items from F5, with proposed owners** (the integrator confirms;
+   none is decided here, except the token roles: r6, D3).
+   - The `C2 → C2` rewrites (`users-controller`, `z-controller-refresh`)
+     have no T lane. Proposed owner: T2, which already writes
+     `users-http/test/v3` and depends on C2; the effort needs a re-check.
+   - The 3.0 home of the token roles and profiles read routes
+     (`GET /user/tokens/roles`, `/profiles`) is open. They answer from
+     `authz.token.rolePolicy`, which authn-http cannot load. Proposed owner:
+     C2 (users-http may depend on both families), reading C5's policy API
+     (dotted edge C5 to C2).
+   - (r6, D3) Decided by the human, no longer open: token roles against
+     design §18.3(g). B24 and B07 hold: a role the owner lacks grants
+     nothing. §18.3(g) follows them; the grant-subset check is not ported.
+     C5 task 5 carries it.
+   - Also open (F5): a last-privileged-holder check on `deactivateUser`
+     (B26 covers `AuthzAdmin` commands only). Proposed owner: C2.
 
 ## Changes in this revision (2026-10-02 r4)
 
@@ -184,7 +253,14 @@ the r3 change list above.
    (r3) `packages/authn/src/contracts/**`, `packages/authn-*/src/contracts.ts`
    or `packages/authn-http/src/api.ts` writes `docs/plans/authz-v3-rfc/<lane>-<n>.md`
    (problem, change, affected lanes) and stops that task until the integrator
-   approves and merges the change on `feat/authz-v3`.
+   approves and merges the change on `feat/authz-v3`. (r6, D3) The doc
+   comments of the declarations in those files are part of the frozen
+   contract: `scripts/api-snapshot.mjs` keeps them in
+   `packages/*/etc/*.api.md`, so changing one needs an RFC like a signature
+   change. This covers every declaration the snapshot holds, also those of
+   files the entries import and of re-exported declarations; it does not
+   cover a doc on the same line as the token before it, docs inside a
+   constant's value, or a constant whose declared type drops them.
 4. **Behaviour fixtures** live in `@spinajs/authz-testing` (F5). A lane runs
    the B-rules it owns from its own package tests:
    `runBehaviour(['B11', 'B12'], () => harness)`. A lane never edits
@@ -370,8 +446,8 @@ F0a first, alone (§0a).
      `JobOptions`), authz-fs (`FsDecorator` mirror, `FileMetadataStore`,
      `FsPathResolver`, `fromFsPath`).
   10. `api-extractor`-style snapshot: `packages/authz*/etc/*.api.md` generated
-      from `tsc --declaration` output and committed; CI fails when it changes
-      without an RFC file.
+      from `tsc --declaration` output and committed; (r6, D3) it keeps doc
+      comments; CI fails when it changes without an RFC file.
   11. (r3, D20; r4, H29; done first, about half a day, because F6 imports
       it) Principal contracts in `packages/authn/src/contracts/principal.ts`:
       `PrincipalType`, `PrincipalRef`, `Principal` with `AuthnFacts`,
@@ -452,8 +528,9 @@ F0a first, alone (§0a).
   10. L1 (request map passed in), L2 LRU with tags and TTL from `validUntil`
       (B14 cache part); `invalidate(tags)`.
   11. Boot validator: the ten rules of design §6.5 (B05).
-- **Acceptance:** B01, B03, B04, B05, B06 (in-memory), B07, B08, B09 (core),
-  B14 (cache), B17 (core), B36 (core), B37 (core), B39 (core) — run against
+- **Acceptance:** B01, B02 (core), B03, B04, B05, B06 (in-memory), B07, B08,
+  B09 (core), B14 (cache), B17 (core), B22 (core), B26 (core), B36 (core),
+  B37 (core), B39 (core) — run against
   fake models from F5 (F3 and F5 meet at the end; until then F3 uses local
   fakes).
 
@@ -553,7 +630,8 @@ F0a first, alone (§0a).
   8. Config schema skeleton for `authn.*` (AJV, design §22.5, r4: with the
      backoff keys and `authn.oidc.providers`) and the old-key table for the
      detector (shipped off, like authz's).
-  9. API snapshot for `authn*` packages; CI rule as F1 task 10.
+  9. API snapshot for `authn*` packages, with doc comments (r6, D3); CI rule
+     as F1 task 10.
   10. (r4, D26) Hand-off and hooks: `IAuthnPrincipalStorage`,
       `AuthnResponseExtension`, `RoleSource`, `ExternalLoginHook`; OIDC
       contracts in `authn-oidc/src/contracts.ts` (`OidcProviderConfig`,
@@ -593,7 +671,7 @@ All must hold on `feat/authz-v3`:
 1. F0a–F7 merged; `tsc -b` green; all `authz*` packages export the design
    §5 and §6.6.1 names, (r4) `@spinajs/authn/contracts` the §5.1 and §22.3
    names and loads no service module, all `authn*` packages the §22.3 and
-   §22.11 names; API snapshots committed.
+   §22.11 names; API snapshots (r6, D3: with doc comments) committed.
 2. F0b merged: no `rbac*` package left; every suite that passed on
    `master` passes.
 3. Engine tests green with fake models; B01, B03–B09, B14, B17, B36, B37,
@@ -645,8 +723,9 @@ After G1 the rule in §1.3 applies.
       `invalidate`.
   12. `covers`, `rolesOf`, `grantsOf`, `summarize`.
   13. `runModelConformance(() => new RbacModel(...))` and
-      `runBehaviour(['B01','B02','B07','B11','B12','B13','B14','B15','B16','B17','B22'], rbacHarness)`
-      with an in-memory `AssignmentStore` test double.
+      `runBehaviour(['B01','B02','B05','B06','B07','B11','B12','B13','B14','B15','B16','B17','B22'], rbacHarness)`
+      with an in-memory `AssignmentStore` test double. (r6) Parts B05.rbac
+      (boot rule 8) and B06.rbac (task 10) are new in the list.
 - **Acceptance:** the suites in task 13 green.
 - **Merge order:** task 3 merges early (it unblocks L1b); the lane merges
   before L2.
@@ -686,7 +765,8 @@ After G1 the rule in §1.3 applies.
   10. Properties: adding a `cap` or `restrict` never widens; ladder max =
       union of the grants of the held roles; reason independent of rule
       order.
-  11. `runModelConformance` + `runBehaviour(['B31','B32','B33','B34','B35','B36','B38','B42','B46'], rbacHarness)`;
+  11. `runModelConformance` + `runBehaviour(['B02','B05','B06','B12','B31','B32','B33','B34','B35','B36','B38','B42','B46'], rbacHarness)`
+      (r6: parts B02.rules, B05.ladders, B05.rules, B06.rules, B12.implies);
       (r3) the `external-sharing-off` cap of design §8.5 as a fixture (B46).
 - **Acceptance:** task 11 green; the K1 in-memory run (when K1 is ready)
   green.
@@ -766,8 +846,9 @@ After G1 the rule in §1.3 applies.
   6. `ConfigPolicyStore`; `DbPolicyStore` + migration `AuthzAbac_2026_10_01_00_00_00`;
      version bump + `AuthzChange`.
   7. (r2, H18) `summarize(principal, at)` for `AuthzService.covers`.
-  8. Conformance + `runBehaviour(['B03','B04','B17','B18','B19','B36','B39'], abacHarness)`
-     combined with `FakeRbacModel` under all three algorithms.
+  8. Conformance + `runBehaviour(['B02','B03','B04','B05','B14','B17','B18','B19','B26','B36','B39'], abacHarness)`
+     combined with `FakeRbacModel` under all three algorithms (r6: parts
+     B02.abac, B05.abac, B14.abac, B26.abac).
 - **Acceptance:** suites in task 8; migration test on sqlite.
 - **Merge order:** task 2 early (unblocks L1b); the lane any time in wave 1.
 
@@ -806,7 +887,24 @@ After G1 the rule in §1.3 applies.
   10. B06 property (check ⇔ filter) on SQLite and Postgres with `FakeRbacModel`,
       `FakeTupleModel` (its native op compiled by a test compiler) and an
       ABAC-like `StaticModel` (r3: the rule-bearing type moves to L4b).
-  11. `runAdapterConformance` + `runBehaviour(['B06','B09','B20','B21','B22','B39'], ormHarness)`.
+  11. `runAdapterConformance` + `runBehaviour(['B05','B06','B09','B20','B21','B22','B39'], ormHarness)`
+      (r6: part B05.orm, case by RFC; `runAdapterConformance` needs a
+      `query` hook that runs a compiled filter).
+- **Hand-offs from F3 (r6).**
+  - `relation` and `native:*` ops in a residual refer to `Decision.principal`,
+    which is the delegate under `inherit`. Compile them for that principal
+    and check its type. Get it with the exported
+    `resolveDelegation(principal, actor, maxDelegation).principal`, or read
+    `Decision.principal` from `check()`.
+  - Decide whose id the middleware stamps on insert (principal or actor).
+  - Make SQL match the in-memory evaluator (the reference semantics):
+    Kleene logic; never compile `eq null` to `IS NULL`; `in` and `nin` as an
+    OR of equalities, with `in []` false and `nin []` true folded before
+    the column is read; coercion of canonical numeric strings and of
+    booleans against 0 and 1; `LIKE` case-sensitive with `\` as escape
+    (`LIKE … ESCAPE '\'`, binary collation); `under` with a type-level scope
+    matches any node of that type.
+  - Feed `joinTypes` to `validateBoot`.
 - **Acceptance:** task 11 on sqlite and postgres (docker-compose services
   already in the repo root).
 - **Merge order:** any time; IC1 needs it.
@@ -842,7 +940,9 @@ After G1 the rule in §1.3 applies.
      `wildcard` → `LIKE` with escaping, prefix `glob`, `when` with one
      scope-attribute comparison (DB rules) or any bound condition (config).
   7. Boot rule §6.5.11 (patterns and `resource.*` conditions SQL cannot
-     express) with messages naming domain, type and rule.
+     express) with messages naming domain, type and rule (r6: fixture part
+     B05.sql; the SQL follows the in-memory semantics listed in L4's F3
+     hand-offs).
   8. B06/B44 property: random states with every rule kind on SQLite and
      Postgres, 2,000 runs; `check(subject = row)` ⇔ row in `filter`;
      MySQL and MSSQL in the nightly job.
@@ -889,8 +989,8 @@ After G1 the rule in §1.3 applies.
   10. Swagger metadata helper reading `ACCESS_DESCRIPTOR` (consumed by C7).
   11. (r2) `LinkPrincipalSource` (order 110; query, header, cookie per
       `authz.http.links`; session principal as companion) (B38 HTTP part).
-  12. `runBehaviour(['B10','B17','B23','B25','B38','B41'], httpHarness)` with
-      `FakeRbacModel` and a fake session source.
+  12. `runBehaviour(['B02','B09','B10','B17','B23','B25','B38','B41'], httpHarness)` with
+      `FakeRbacModel` and a fake session source (r6: parts B02.http, B09.http).
 - **Merge order:** any time; IC1 needs it; before C2–C9.
 
 ### L6 — queue, unattended entry points (3–4 d)
@@ -918,7 +1018,8 @@ After G1 the rule in §1.3 applies.
 
 - **Owns:** `packages/fs/src/{index.ts,interfaces.ts}` (hook + `signedUrl`),
   `packages/fs-s3/src/index.ts` (TTL), `packages/authz-fs/**` (except api/index).
-- **Depends on:** G1; L4 (task 5), L3 (task 7), L5 (task 9).
+- **Depends on:** G1; L4 (task 5), L3 (task 7), L5 (task 9); (r6) L1 for
+  B16.fs.
 - **Inputs:** design §13; study §9.
 - **Tasks:**
   1. `FsDecorator` applied in `fsService.resolve()` before
@@ -993,8 +1094,9 @@ After G1 the rule in §1.3 applies.
      part); `authz.admin.permissions` mapping per kind and scope type.
   8. After commit: version bump, `ChangeBus.publish`, `AuthzEventSink`s,
      `DecisionAudit` kind `admin` with secrets removed (B27, B43).
-  9. `runBehaviour(['B26','B27','B43'], adminHarness)` on memory stores and
-     on SQLite (after L2).
+  9. `runBehaviour(['B26','B27','B39','B43','B46'], adminHarness)` on memory
+     stores and on SQLite (after L2) (r6: parts B27.policyEvents,
+     B39.store, B46.store, B46.cache).
 - **Acceptance:** B43, B26 (guard part), B27 (events) on memory and SQLite;
   a canvas-shaped scenario (every row of design §6.6.4) as one test.
 - **Merge order:** any time after L2; before C4, K1's final run and IC1.
@@ -1130,7 +1232,10 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      `authn.impersonator` fact (A20 core part).
   8. Config schema for `authn.*` (AJV), secret checks per env (A24),
      old-key detector (off until R1).
-  9. `runAuthnBehaviour(['A01','A02','A05','A06','A09','A13','A19','A21','A23','A24'], coreHarness)`.
+  9. `runAuthnBehaviour(['A01','A02','A05','A06','A09','A13','A19','A20','A21','A23','A24'], coreHarness)`
+     (r6: A20 core part is new; the kit pins `impersonation.requireMfa`
+     true with an aal2 admin session, so N1 and N8a define what that key
+     means).
 - **Merge order:** any time; before N8a, C1 and IC1.
 
 ### N2 — authn-session and session providers (4–5 d)
@@ -1145,7 +1250,9 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      `authn-session`; class names kept.
   2. `SessionIssuer` over `SessionProvider`: issue (pending/active), restore,
      rotate, elevate, set, revoke, revokeAll (incl. impersonations), list
-     (A07, A08).
+     (A07, A08). (r6, F7) Take "now" in Node (`Date`), never SQL `now()`:
+     these methods take no `ctx`, and the kit controls time through
+     `Date`.
   3. 128-bit ids, hashed storage, lazy migration of raw 2.x ids (test with a
      2.x-shaped row in each provider) (A07).
   4. Pending state with `pendingTtlSeconds` (A09 store part).
@@ -1188,7 +1295,10 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      pending invite (A32).
   6. Password expiry (`authn.local.expiration`) moved from `rbac`'s cron.
   7. CLI `authn:password <login>` (was `rbac:user-password`).
-  8. `runStrategyConformance` + `runAuthnBehaviour(['A02','A03','A04','A11','A30'], localHarness)`.
+  8. `runStrategyConformance` + `runAuthnBehaviour(['A02','A03','A04','A11','A13','A30'], localHarness)`
+     (r6: A13 local part is new; "rehash under an older pepper version"
+     needs a `pepper.previous` key or the clause dropped, N1 and N3
+     decide).
 - **Merge order:** after N1; before C1 and N8b.
 
 ### N4 — authn-orm (3.5–4.5 d; r4 +0.5)
@@ -1204,7 +1314,8 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      missing with a bounded retry; success resets the account row and
      subtracts the `account-ip` count from the IP row in one transaction;
      50 parallel attempts on a fresh key verify exactly `free` on sqlite and
-     postgres (A05, A06 store part).
+     postgres (A05, A06 store part). (r6, F7) Take "now" in Node in every
+     store (`succeed` and `DbSecretStore` take no `ctx`), never SQL `now()`.
   3. `DbIdentityLinkStore`, `DbSecretStore` (SHA-256 only), `DbNonceStore`,
      `DbMfaStore` (cipher text only; encryption is N5's), `DbAuthnAuditSink`.
   4. Data migration `AuthnFromUserMetadata_2026_10_02_00_01_00` (§22.18):
@@ -1218,7 +1329,9 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      and the one without a start date are dropped, no `user:pwd_reset:*`
      key remains, `user:invite:pending` stays, the count check fails on a
      planted mismatch, `down()` removes the carried rows and prints the
-     users (A32; `SR-09 no clear secret in users_metadata`).
+     users (A32; `SR-09 no clear secret in users_metadata`). (r6, F7b) The
+     secret store keys carried rows as `user:<uuid>`: the kit redeems
+     `{ type: 'user', id: uuid }`.
   5. Store conformance tests from `authn-testing`.
 - **Merge order:** any time; before N8b's DB integration, (r4) N10's
   linking test and IC2.
@@ -1271,13 +1384,21 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      P-256 JWKs, RFC 7638 thumbprints, pinned algorithm, expiry, revoke).
   2. `JwsVerifier` with C8's order and codes; `JwsSigner`; the C8 golden
      tickets reproduced byte for byte and every invalid one rejected with
-     its code (A17).
+     its code (A17). (r6, F7b) Load them with `loadC8Fixtures()` from
+     `authn-testing`: 3 valid tickets reproduced byte for byte, 23 invalid
+     ones rejected with their `JwsErrorCode`.
   3. `JwsAssertionStrategy` (`typ`, `aud`, lifetime ≤ 300 s, `jti` single
      use in `authn_nonce` or memory) (A17).
   4. `HttpSignatureStrategy` (RFC 9421 subset, RFC 9530 `Content-Digest`,
-     nonce) (A18).
+     nonce) (A18). (r6, F7) Fix the signature label and the `alg`
+     parameter; the kit signs with label `sig1` and no `alg`, and N7 must
+     accept that.
   5. Challenge-response: challenge issue (via `SecretStore` purpose
      `key-challenge`) and verify; proof of possession at registration.
+     (r6, F7) Fix the proof and challenge signing input and the assertion
+     `iss` format (A17: not frozen; the kit's `KeyProofPort` and
+     `AssertionPort` take them from this lane) and document both for CLI
+     clients.
   6. CLI `authn:key-add|list|revoke`.
   7. `runStrategyConformance` ×2 + `runAuthnBehaviour(['A17','A18'], keysHarness)`.
 - **Merge order:** any time; before N8b and IC2.
@@ -1322,9 +1443,19 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
      C3 supplies the authz-backed ones in `users`).
   7. One failure shape for every login error (A02 HTTP part); every
      re-authentication through the throttled fresh-auth path (SR-20).
-  8. `runAuthnBehaviour(['A02','A07','A09','A20','A22','A23','A26','A31'], httpHarness)`
+  8. `runAuthnBehaviour(['A02','A05','A07','A08','A09','A15','A20','A22','A23','A26','A31'], httpHarness)`
      with fakes for strategies, `RoleSource` and `ImpersonationGuard`
-     (r4: no authz in this lane).
+     (r4: no authz in this lane). (r6, F7) A05, A08 and A15 are new in the
+     list. Settle where `E_AUTH_FAILED` sits in the 401 body and list the
+     per-request keys in the harness's `volatileBodyFields`; supply a
+     test-only probe route that answers `ProbeBody` (`principal`,
+     `clientIp`, `hits`) after all middlewares. A31 first runs its config
+     part here (a `checkConfig` with topic `cors`, level `warning`). With
+     N8b, settle who enforces `users:credentials` and the target rule on
+     the A25 routes. (r6, F6) The five 2.x exports F0b moved are swapped
+     for `api.ts`'s; `MfaStep` routes check `handle.state`; impersonation
+     enforces `requireMfa`; the retired `RbacMiddleware` and
+     `TokenAuthMiddleware` go.
 - **Merge order:** after N1 and N2; before N8b, C2, C3, C5 and IC1.
 
 ### N8b — authn-http: strategy routes and credential admin (3.5–4.5 d)
@@ -1352,7 +1483,14 @@ neighbours when those merge (dotted edges in §8). Rule numbers are design
   6. Each group registered only when its service is (boot test with and
      without each strategy package).
   7. `runAuthnBehaviour(['A10','A11','A13','A14','A17','A25','A30','A32'], httpHarness)`
-     against the real strategy packages on SQLite.
+     against the real strategy packages on SQLite. (r6, F7) Settle the
+     inline re-authentication field of `POST /user/tokens`, the body shape
+     of `GET /user/tokens`, and who enforces `users:credentials` and the
+     target rule on the A25 routes without an authz dependency (C3 supplies
+     the guard; the kit has `ActorsPort.admin({ credentialsRight })` and a
+     `targetGuard` port). Provide the route builders `passwordChange`,
+     `passwordReset` and `login` that the A27, A30 and A32 http rows need.
+     (r6, F6) Add the route that issues `register` key challenges.
 - **Merge order:** after N8a; before C5, T2 and IC2.
 
 ### N10 — authn-oidc (6–8 d; r4, H36: in 3.0, off the critical path)
@@ -1500,15 +1638,16 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
   12. Mark `User.can*`, `probeGrant`, `effectiveRoles`, `PermissionService`,
       `ResourceRules`, `OrmPermission*`, `AccessControl` export `@deprecated`.
   13. Move/adapt tests per `LEDGER.md`; rewrite-class files to `test/legacy-v2/`.
-- **Acceptance:** B10 (anonymous roles), B12, B27 (events); A12 (identity
-  part); authn's identity-store conformance tests from `authn-testing`;
+- **Acceptance:** B10 (anonymous roles), B12, B27 (events); A08 (lifecycle
+  part, r6), A12 (identity part); authn's identity-store conformance tests
+  from `authn-testing`;
   users move/adapt tests green.
 - **Merge order:** first in wave 2.
 
 ### C2 — users-http (2.5–3 d, r3)
 
 - **Owns:** `packages/users-http/src/**`, `packages/users-http/test/**`.
-- **Depends on:** C1; L5; N8a.
+- **Depends on:** C1; L5; N8a; (r6, proposal) C5, dotted, for task 5.
 - **Tasks:**
   1. `/user` profile routes (from `UserController`, without password and
      grants routes) on `@Access('user:read|update')` with relation `self`;
@@ -1521,6 +1660,12 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
      `Security`: activate, deactivate, ban, unban) on `@Access('users:*')`
      variants; `FilterableUserMetadata` on `@AccessResource('user.metadata')`.
   4. Adapt tests; `test/legacy-v2/` for rewrite-class files.
+  5. (r6, proposal; the integrator confirms) `GET /user/tokens/roles` and
+     `/profiles` answer from C5's token role policy (F5 open item: the
+     routes have no home yet).
+  6. (r6, proposal) Decide the last-privileged-holder and self-lockout
+     checks on `deactivateUser` (B26 covers `AuthzAdmin` commands only);
+     the design gets a line for the outcome.
 - **Acceptance:** B17 (user fields), B23, A12 (HTTP part).
 - **Merge order:** after C1; before T2.
 
@@ -1565,8 +1710,8 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
      by F0b) after porting their tests to the new routes.
   3. Swagger descriptions for the command shapes.
   4. Adapt tests.
-- **Acceptance:** B13 (via API), B26 (guard via HTTP), B27, B38 (admin),
-  B43 (HTTP path equals in-process path).
+- **Acceptance:** B12 (http part, r6), B13 (via API), B26 (guard via HTTP),
+  B27, B38 (admin), B43 (HTTP path equals in-process path).
 
 ### C5 — token principals on authz (1.5–2 d, r3)
 
@@ -1585,6 +1730,9 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
   3. Remove `TokenPolicy` uses from moved token controllers; keep
      `NoTokenAuthPolicy`, `NoImpersonationPolicy`.
   4. Adapt tests.
+  5. (r6, D3) The human decided: B24 and B07 hold, and design §18.3(g)
+     follows them. Implement and test "never above the owner" as task 1
+     says, with no grant-subset path.
 - **Acceptance:** B07, B08, B24 (token), B37 (agent token), A15.
 
 ### C6 — configuration-http, configuration-db-source (1–1.5 d)
@@ -1648,7 +1796,7 @@ ledger line names the rule (e.g. `active-role` → B24/D14).
 | Lane | Packages and rewrite-class suites | Depends on | Effort |
 |---|---|---|---|
 | **T1** | users (2.x rbac): `permission-service` 32, `orm-permission-policy` 31, `orm-permission-registry` 10, `orm-rbac` 9, `active-role` 4, `clone-rbac` 5, `m2m-rbac` 5, `create/write-ownership-idor` 6, `impersonation` 9, `system-user-factory` 4, `user` 44 → `authz-orm/test/ported`, `authz-rbac/test/ported`, `users/test/v3`; drop `unwind-grants`, `collect-permissions` with ledger lines | C1 | 2.5–3 d |
-| **T2** | (r3) 2.x rbac-http → authz-http/test/ported (`descriptor-inheritance` 16, `rbac-policy-unknown-role` 4, `rbac-middleware` 6) and authn-http/test/v3 (`session-context` 2); 2.x rbac-http-user → authn-http/test/v3 (`active-role` 10, `impersonation` 16, `session-context` 4, `controller-override` 3) and users-http/test/v3 (`user-controller-db` 12) | C2, C3, N8a | 2–2.5 d |
+| **T2** | (r3) 2.x rbac-http → authz-http/test/ported (`descriptor-inheritance` 16, `rbac-policy-unknown-role` 4, `rbac-middleware` 6) and authn-http/test/v3 (`session-context` 2); 2.x rbac-http-user → authn-http/test/v3 (`active-role` 10, `impersonation` 16, `session-context` 4, `controller-override` 3) and users-http/test/v3 (`user-controller-db` 12; r6, proposal: also the `C2 → C2` rewrites of `users-controller` and `z-controller-refresh`) | C2, C3, N8a | 2–2.5 d |
 | **T3** | (r3) 2.x rbac-http-admin `route-contract` 12 → users-http and authz-http-admin; 2.x rbac-http-token `controller-roles` 16, `controller` 11, `middleware` 15, `policies` 10, `role-policy-actions` 8, `token-policy-e2e` 7 → authn-token, authn-http and authz-rbac (token ceiling) | C4, C5, N8b | 2–2.5 d |
 | **T4** | configuration-http `configuration` (37, 11 grant refs), http-swagger `swagger-rbac` (7), telemetry policy tests, queue-http-progress | C6, C7, C8 | 1 d |
 

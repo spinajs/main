@@ -67,7 +67,7 @@ export interface AuthzAdminOptions {
 }
 
 /**
- * Root singleton; per-domain variants via AuthzDomains.service(name).admin().
+ * Root singleton; per-domain variants via (await AuthzDomains.service(name)).admin().
  * The typed sugar methods throw AuthzAdminFailure with the failed result's error code (and field) instead of returning it.
  */
 export abstract class AuthzAdmin {
