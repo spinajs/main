@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { SYSTEM_EVENTS, type DisconnectNotice, type SocketError } from '@spinajs/http-socket-common';
+import { LIFECYCLE_EVENTS, type LifecycleEventName } from '../src/client.js';
 import type { ConnectionState } from '../src/connection.js';
 import { closeAll } from './support/cleanup.js';
 import { makeClient, statefulClient } from './support/client.js';
@@ -24,11 +25,15 @@ describe('SocketClient', () => {
 
   it('connects on construction and reports state changes with the previous state', async () => {
     const client = makeClient(server);
-    expect(client.state).to.equal('connecting');
+    const seen: Array<[ConnectionState, ConnectionState]> = [];
+    client.on('state', (state, previous) => seen.push([state, previous]));
 
-    const [state, previous] = await nextEmit<[ConnectionState, ConnectionState]>((listener) => client.on('state', listener));
+    await until(() => seen.length === 2);
 
-    expect([state, previous]).to.deep.equal(['online', 'connecting']);
+    expect(seen).to.deep.equal([
+      ['connecting', 'offline'],
+      ['online', 'connecting'],
+    ]);
     expect(await client.command('ping')).to.equal('pong');
   });
 
@@ -77,16 +82,31 @@ describe('SocketClient', () => {
     expect(viaOnce).to.deep.equal([1]);
   });
 
-  it('never routes a server event named like a lifecycle event to lifecycle listeners', async () => {
+  for (const name of LIFECYCLE_EVENTS) {
+    it(`never routes a server event named '${name}' to lifecycle listeners`, async () => {
+      const client = makeClient(server);
+      await waitForState(statefulClient(client), 'online');
+      const lifecycleCalls: unknown[][] = [];
+      client.on(name as LifecycleEventName, ((...args: unknown[]) => lifecycleCalls.push(args)) as never);
+      const sentinel = nextEmit<[unknown]>((listener) => client.on('sentinel', listener));
+
+      server.emitEvent(name, 'hijack');
+      server.emitEvent('sentinel', 1);
+      await sentinel;
+
+      expect(lifecycleCalls).to.deep.equal([]);
+    });
+  }
+
+  it('forwards refused from the connection to client listeners', async () => {
+    server.refuse = () => ({ code: 'forbidden', message: 'no', retryable: false });
     const client = makeClient(server);
-    await waitForState(statefulClient(client), 'online');
-    const states: unknown[] = [];
-    client.on('state', (state) => states.push(state));
+    const refused = nextEmit<[SocketError]>((listener) => client.on('refused', listener));
 
-    server.emitEvent('state', 'hijack');
-    await sleep(50);
+    const [error] = await refused;
 
-    expect(states).to.deep.equal([]);
+    expect(error.code).to.equal('forbidden');
+    expect(client.state).to.equal('offline');
   });
 
   it('delivers the sys.disconnect notice before a kick, so a listener can stop the reconnect', async () => {
