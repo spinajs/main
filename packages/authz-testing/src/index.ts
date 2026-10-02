@@ -6,3 +6,4 @@ export * from './context.js';
 export * from './recording.js';
 export * from './fakes/index.js';
 export * from './di.js';
+export * from './arbitraries/index.js';
