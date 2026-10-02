@@ -65,6 +65,7 @@ export class SocketPrincipalGuard {
 
   protected connections: () => Iterable<SocketConnection> = () => [];
 
+  /** @internal called by SocketServer */
   public start(connections: () => Iterable<SocketConnection>): void {
     this.stop();
     this.connections = connections;
@@ -77,6 +78,7 @@ export class SocketPrincipalGuard {
     this.timer.unref?.();
   }
 
+  /** @internal called by SocketServer */
   public stop(): void {
     if (this.timer) {
       clearInterval(this.timer);
@@ -89,7 +91,7 @@ export class SocketPrincipalGuard {
     this.pending = new WeakMap();
   }
 
-  /** One sweep tick; resolves when the revalidations it started have settled. */
+  /** @internal One sweep tick; resolves when the revalidations it started have settled. */
   public async sweep(): Promise<void> {
     const now = Date.now();
     const started: Array<Promise<boolean>> = [];
@@ -118,7 +120,7 @@ export class SocketPrincipalGuard {
     return this.closingIds;
   }
 
-  /** Called once a connection is gone. */
+  /** @internal Called by SocketHub once a connection is gone. */
   public release(connectionId: string): void {
     this.closingIds.delete(connectionId);
   }

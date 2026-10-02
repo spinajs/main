@@ -73,6 +73,7 @@ export class SocketDispatcher extends AsyncService {
     this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
   }
 
+  /** @internal called by SocketServer */
   public attach(connection: SocketConnection, socket: Socket): IConnectionRuntime {
     const runtime: IConnectionRuntime = {
       connection,
@@ -94,6 +95,7 @@ export class SocketDispatcher extends AsyncService {
     return runtime;
   }
 
+  /** @internal called by SocketServer */
   public detach(connection: SocketConnection, reason: string): void {
     const runtime = this.runtimes.get(connection.id);
     if (!runtime) {
@@ -106,7 +108,7 @@ export class SocketDispatcher extends AsyncService {
     void runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error(err, `Socket disconnect hooks of connection ${connection.id} failed`));
   }
 
-  /** Aborts every running command on every connection ( shutdown ). */
+  /** @internal Aborts every running command on every connection ( shutdown ). */
   public abortAll(reason: SocketException): void {
     for (const runtime of this.runtimes.values()) {
       this.abortRunning(runtime, reason);

@@ -29,19 +29,23 @@ export class SocketHub {
   protected io: Server | null = null;
   protected connections = new Map<string, SocketConnection>();
 
+  /** @internal called by SocketServer */
   public attach(io: Server): void {
     this.io = io;
   }
 
+  /** @internal called by SocketServer */
   public detach(): void {
     this.io = null;
     this.connections.clear();
   }
 
+  /** @internal called by SocketServer */
   public register(connection: SocketConnection): void {
     this.connections.set(connection.id, connection);
   }
 
+  /** @internal called by SocketServer */
   public unregister(connectionId: string): void {
     this.connections.delete(connectionId);
     this.Guard.release(connectionId);
