@@ -31,6 +31,9 @@ const config: ISocketConfigFile = {
         service: 'MemoryIdempotencyStore',
         ttlMs: 600_000,
       },
+      ordering: {
+        abortGraceMs: 30_000,
+      },
       drainMs: 5_000,
       adapter: undefined,
       transports: ['websocket', 'polling'],

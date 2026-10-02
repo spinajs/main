@@ -9,7 +9,7 @@ import { IConnectionRuntime, ISocketCallStorage, ISocketServerConfig, SocketComm
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertLimitsConfig } from './limits.js';
+import { TokenBucket, assertLimitsConfig, assertOrderingConfig } from './limits.js';
 import './stages/index.js';
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -47,6 +47,7 @@ export class SocketDispatcher extends AsyncService {
   public async resolve(): Promise<void> {
     await super.resolve();
     assertLimitsConfig(this.Options);
+    assertOrderingConfig(this.Options);
     const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
     this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
   }

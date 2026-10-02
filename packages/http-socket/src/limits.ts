@@ -90,3 +90,11 @@ export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate'>): 
     throw new RangeError(`http.socket.rate.perSecond and burst must be positive numbers, got perSecond ${perSecond}, burst ${burst}`);
   }
 }
+
+export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'ordering'>): void {
+  const grace = options.ordering?.abortGraceMs;
+
+  if (!(typeof grace === 'number' && grace > 0)) {
+    throw new RangeError(`http.socket.ordering.abortGraceMs must be a positive number, got ${String(grace)}`);
+  }
+}

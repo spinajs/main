@@ -48,6 +48,8 @@ export interface ISocketServerConfig {
   rate: ISocketRateConfig;
   idempotency: ISocketIdempotencyConfig;
   drainMs: number;
+  /** `ordered` commands: how long an aborted command whose handler is still running keeps its queue place */
+  ordering: { abortGraceMs: number };
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
   /**

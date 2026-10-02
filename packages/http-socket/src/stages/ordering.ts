@@ -1,5 +1,7 @@
 import { Injectable } from '@spinajs/di';
-import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { Config } from '@spinajs/configuration';
+import { Log, Logger } from '@spinajs/log';
 import { SerialQueue } from '../queue.js';
 
 /**
@@ -8,6 +10,12 @@ import { SerialQueue } from '../queue.js';
  */
 @Injectable(SocketCommandStage)
 export class OrderingStage extends SocketCommandStage {
+  @Logger('http-socket')
+  protected Log: Log;
+
+  @Config('http.socket')
+  protected Options: ISocketServerConfig;
+
   protected Queue = new SerialQueue();
 
   public get Order(): number {
@@ -30,13 +38,34 @@ export class OrderingStage extends SocketCommandStage {
         throw ctx.signal.reason;
       }
 
-      // An aborted command frees its place at once, even if its handler never settles.
-      const abort = new Promise<never>((_resolve, reject) => ctx.signal.addEventListener('abort', () => reject(ctx.signal.reason), { once: true }));
-      abort.catch(() => undefined);
+      // The place is held until the handler settles: releasing on abort would let a resent command
+      // run while the aborted one still applies. A handler that never settles is cut loose after the grace.
       const running = next();
-      running.catch(() => undefined);
+      const settled = new Promise<boolean>((resolve) => {
+        let timer: NodeJS.Timeout | undefined;
+        const onAbort = () => {
+          timer = setTimeout(() => {
+            this.Log.error(`Ordered command ${ctx.request.name} on ${key} still running ${this.Options.ordering.abortGraceMs} ms after abort, releasing its queue place`);
+            resolve(false);
+          }, this.Options.ordering.abortGraceMs);
+          timer.unref();
+        };
+        const done = () => {
+          clearTimeout(timer);
+          ctx.signal.removeEventListener('abort', onAbort);
+          resolve(true);
+        };
 
-      return Promise.race([running, abort]);
+        ctx.signal.addEventListener('abort', onAbort, { once: true });
+        running.then(done, done);
+      });
+
+      // cut loose: the dispatcher has answered the abort already, a late handler result is dropped there
+      if (!(await settled)) {
+        throw ctx.signal.reason;
+      }
+
+      return running;
     });
   }
 }

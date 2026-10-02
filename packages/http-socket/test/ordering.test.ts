@@ -6,6 +6,8 @@ import { Command, Payload, SocketController } from '../src/decorators.js';
 import { SerialQueue } from '../src/queue.js';
 import { DI } from '@spinajs/di';
 import { SocketCommandStage } from '../src/interfaces.js';
+import { SocketDispatcher } from '../src/dispatcher.js';
+import { assertOrderingConfig } from '../src/limits.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
 
 export const ordDone: string[] = [];
@@ -13,6 +15,25 @@ export const ordDone: string[] = [];
 interface IOrdStep {
   tag: string;
   ms: number;
+}
+
+let gate: { promise: Promise<void>; open: () => void };
+const gated: Promise<void>[] = [];
+
+function newGate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => (open = resolve));
+  gate = { promise, open };
+}
+
+function gatedHandler(tag: string): Promise<string> {
+  const run = (async () => {
+    await gate.promise;
+    ordDone.push(tag);
+    return tag;
+  })();
+  gated.push(run.then(() => undefined));
+  return run;
 }
 
 async function step(p: IOrdStep): Promise<string> {
@@ -35,9 +56,12 @@ export class OrderingSocket extends BaseSocketController {
 
   @Command('hang', { ordered: 'connection', timeoutMs: 50 })
   public async hang() {
-    await delay(300);
-    ordDone.push('hang');
-    return 'hang';
+    return gatedHandler('hang');
+  }
+
+  @Command('gate', { ordered: 'client' })
+  public async gateCmd() {
+    return gatedHandler('gate');
   }
 
   @Command('free')
@@ -100,10 +124,14 @@ describe('socket ordered commands', function () {
 
   beforeEach(async () => {
     ordDone.length = 0;
+    gated.length = 0;
+    newGate();
     t = await startServer();
   });
 
   afterEach(async () => {
+    gate.open();
+    await Promise.all(gated);
     sockets.forEach((s) => s.close());
     sockets = [];
     await t.close();
@@ -152,23 +180,83 @@ describe('socket ordered commands', function () {
     expect(ordDone).to.deep.equal(['A']);
   });
 
-  it('releases the queue when a running command is aborted by its deadline', async () => {
+  const orderingStage = async () => {
+    const dispatcher = (await DI.resolve(SocketDispatcher)) as unknown as { Stages: SocketCommandStage[] };
+    return dispatcher.Stages.find((x) => x.constructor.name === 'OrderingStage') as unknown as { Queue: SerialQueue; Log: { error: (...args: unknown[]) => void } };
+  };
+
+  it('keeps the place of an aborted command until its handler settles', async () => {
     const s = await connectAs('ord-abort');
     const a = command(s, 'ord.hang');
     const b = command(s, 'ord.conn', { tag: 'B', ms: 0 });
 
     expect(errorOf(await a).code).to.equal('deadline_exceeded');
+    await delay(150);
+    expect(ordDone).to.deep.equal([]);
+
+    gate.open();
     expect(resultOf(await b)).to.equal('B');
-    expect(ordDone).to.deep.equal(['B']);
+    expect(ordDone).to.deep.equal(['hang', 'B']);
+  });
+
+  it('releases the place after the abort grace and logs the key and command', async () => {
+    await t.close();
+    t = await startServer({ http: { socket: { ordering: { abortGraceMs: 200 } } } });
+    const stage = await orderingStage();
+    const logged: unknown[][] = [];
+    const original = stage.Log.error;
+    stage.Log.error = (...args: unknown[]) => void logged.push(args);
+
+    try {
+      const s = await connectAs('ord-grace');
+      const a = command(s, 'ord.hang');
+      const b = command(s, 'ord.conn', { tag: 'B', ms: 0 });
+
+      expect(errorOf(await a).code).to.equal('deadline_exceeded');
+      expect(resultOf(await b)).to.equal('B');
+      expect(ordDone).to.deep.equal(['B']);
+      expect(logged).to.have.length(1);
+      const text = logged[0].map(String).join(' ');
+      expect(text).to.contain('connection:').and.to.contain('ord.hang');
+    } finally {
+      stage.Log.error = original;
+    }
+  });
+
+  it("keeps ordered: 'client' order across a reconnect after a disconnect abort", async () => {
+    const first = await connectAs('ord-rc');
+    void command(first, 'ord.gate').catch(() => undefined);
+    await delay(100);
+    first.close();
+    await delay(100);
+
+    const second = await connectAs('ord-rc');
+    const b = command(second, 'ord.client', { tag: 'B', ms: 0 });
+    await delay(200);
+    expect(ordDone).to.deep.equal([]);
+
+    gate.open();
+    expect(resultOf(await b)).to.equal('B');
+    expect(ordDone).to.deep.equal(['gate', 'B']);
   });
 
   it('drops the queue of a client once its commands are done', async () => {
+    const stage = await orderingStage();
     const s = await connectAs('ord-clean');
-    await command(s, 'ord.client', { tag: 'A', ms: 0 });
-    s.close();
+    const a = command(s, 'ord.gate');
+    await delay(100);
+    expect(stage.Queue.Size).to.be.greaterThan(0);
+
+    gate.open();
+    await a;
     await delay(50);
-    const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
-    const stage = stages.find((x) => x.constructor.name === 'OrderingStage') as unknown as { Queue: SerialQueue };
     expect(stage.Queue.Size).to.equal(0);
+  });
+
+  it('refuses a non-positive abort grace at startup', () => {
+    for (const bad of [0, -1, Number.NaN]) {
+      expect(() => assertOrderingConfig({ ordering: { abortGraceMs: bad } })).to.throw(RangeError);
+    }
+    expect(() => assertOrderingConfig({ ordering: { abortGraceMs: 1 } })).not.to.throw();
   });
 });
