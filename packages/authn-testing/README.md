@@ -94,6 +94,15 @@ the lane's own strategy. `throttleParams(ctx.config)` gives the params to
 build the throttle with and to report in the `throttle` port. These are
 fakes, not N1's implementation.
 
+### C8 golden tickets
+
+`loadC8Fixtures(dir?)` returns the canvas C8 test keys and golden JWS tickets
+(`{ keys, tickets }`: 3 valid, 23 invalid with their `error` code). It
+checks each file against the sha256 in `C8_SOURCE` and throws on a mismatch.
+The files are `fixtures/c8/keys.json` and `tickets.json` (also importable as
+`@spinajs/authn-testing/fixtures/c8/*`); `fixtures/c8/SOURCE.md` records the
+canvas commit, hashes and how to refresh. The keys are public test keys.
+
 ### Lane → facets
 
 | Lane | Facets it claims |
@@ -134,7 +143,11 @@ Open hand-offs (no frozen contract changes; the owning lane decides):
 | Two `bearer` strategies | token and JWT strategies share kind `bearer`; A14/A15 configs list only the token strategy, A16 only the JWT one | N1, N6: first-listed-wins or unique kinds |
 | `impersonation.requireMfa` | no defined meaning; every A20 case pins it true and uses an aal2 admin session | N1, N8a |
 | A24 secret-storing step | how boot learns that an MFA step stores secrets (A24 `mfaStep: 'secret-storing'`) | N1 |
-| C8 golden tickets | not in the kit yet | N7 waits |
+| A25 ports | needs `actors.admin`, `targetGuard`, `tokens` and `outbox` in the harness; who enforces the target rule is design §12 #5 | N8b |
+| B5 http paths | A27, A30, A32 http rows need route builders `passwordChange`, `passwordReset`, `login`, and an `/auth/oidc/:provider[/callback]` pair at those exact paths | N8b, N10 |
+| A27 JIT default | "unlinked subject fails with JIT off" sets no config (§22.5 default is off); a lane whose default is on fails it | N10 |
+| A31/config | `checkConfig` topic `cors`, level `warning`; the reference boot has no `checkConfig`, so A31/config first runs in N8a | N8a |
+| A32 carried rows | row 4 redeems `{ type: 'user', id: uuid }`: the secret store must key carried rows by `user:<uuid>` | N4 |
 
 Per lane, today:
 
@@ -142,14 +155,14 @@ Per lane, today:
 |---|---|---|
 | N1 | A01, A02, A05, A06, A09, A13, A19, A21, A23, A24 | add A20; `BootPort` needs `start` and `checkConfig` |
 | N2 | A07/A08/A09 store via `runSessionIssuerConformance` | none |
-| N3 | A02/local, A03, A04, A11/local (service from the fakes above) | A30 untranscribed; A13/local not in its list |
-| N4 | A05/A06 store, A11/store, A19/store wrappers; `a32Fixtures` | A32/migration untranscribed |
+| N3 | A02/local, A03, A04, A11/local, A30/local (service from the fakes above) | A13/local not in its list |
+| N4 | A05/A06 store, A11/store, A19/store wrappers; `a32Fixtures`, A32/migration | none |
 | N5 | A10/step, A10/totp | none |
 | N6 | A14/token, A15/token, A16/jwt (service from the fakes above), strategy conformance | two `bearer` strategies; JWT JIT switch |
-| N7 | A17/keys, A17/jws, A17/core, A18/core (service and throttle from the fakes above), strategy conformance | C8 golden tickets; proof and `iss` formats; `sig1` |
-| N8a | A02, A07, A09 (the force row needs `routes.mfaEnrol`), A20/http, A23 | A22, A26, A31 untranscribed; add A05, A08, A15; a test-only probe route answering `ProbeBody` (`principal`, `clientIp`, `hits`) after all middlewares |
-| N8b | A10, A11, A13, A14, A17 http/core facets | A25, A30, A32 untranscribed; A25 enforcement |
-| N10 | A02/external (service from the fakes above), A19/oidc | A27 untranscribed |
+| N7 | A17/keys, A17/jws, A17/core, A18/core (service and throttle from the fakes above), strategy conformance, `loadC8Fixtures` (C8 golden tickets) | proof and `iss` formats; `sig1` |
+| N8a | A02, A07, A09 (the force row needs `routes.mfaEnrol`), A20/http, A22, A23, A26, A31 | add A05, A08, A15; a test-only probe route answering `ProbeBody` (`principal`, `clientIp`, `hits`) after all middlewares |
+| N8b | A10, A11, A13, A14, A17 http/core facets, A25, A30/http, A32/http | A25 enforcement |
+| N10 | A02/external (service from the fakes above), A19/oidc, A27 | none |
 | SEC1 | A12/api | the "red on the 2.x code" run stays in the lane; prefix list to confirm |
 
 All lanes: follow the time rules above; never `DI.clearCache()`; list

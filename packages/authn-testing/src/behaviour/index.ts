@@ -42,7 +42,7 @@ const ALL: readonly AuthnRule[] = [A01, A02, A03, A04, A05, A06, A07, A08, A09, 
 export const AUTHN_RULES: ReadonlyMap<RuleId, AuthnRule> = new Map(ALL.map((r) => [r.id, r]));
 
 /** Rules whose cases are not transcribed yet; each batch removes its own ids from this one line. */
-export const PENDING_TRANSCRIPTION: ReadonlySet<RuleId> = new Set<RuleId>(['A22', 'A25', 'A26', 'A27', 'A30', 'A31', 'A32']);
+export const PENDING_TRANSCRIPTION: ReadonlySet<RuleId> = new Set<RuleId>();
 
 /** Validates ids, claim and facets (throws synchronously) and returns the cases to run. */
 export function planCases(ids: readonly RuleId[], opts: RunOptions = {}): PlannedCase[] {
