@@ -1,7 +1,9 @@
 # SpinaJS 3.0 authorization (`@spinajs/authz`) and authentication (`@spinajs/authn`): design
 
 Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
-2026-10-02). Design only; no source file was edited.
+2026-10-02; r5 syncs the text with the code merged by F0b, F1a, F1 and
+F2). The r1 to r4 text was design only; r5 changes no decision, only
+names, shapes and locations that the merged code fixed.
 
 - **Source of truth for code facts:** this checkout (`packages/*/package.json` say
   2.0.546; head `f1604f4`; canvas pins 2.0.548 with the same RBAC code paths).
@@ -21,7 +23,56 @@ Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
   `docs/plans/F06-c8-plane-api.md` (*C8 plan*: Ed25519 JWS realtime
   tickets, D1–D5).
 
-## Changes in this revision (2026-10-02 r4)
+## Changes in this revision (r5, as built after F1)
+
+The code on `feat/authz-v3` and the lane reports F0b, F1a, F1 and F2 are
+authoritative for everything below. Each item names the section it
+changed.
+
+1. **Principal contracts (§4.1, §5.1, D20).** `ResourceType` and
+   `ResourceRef` are declared in authn's `principal.ts` (`Ceiling.resources`
+   needs them); authz re-exports them by name and adds only `GLOBAL` and
+   `resourceKey` (`resource.ts`). `ceilingHash(c: Ceiling | undefined):
+   string` returns `''` or a canonical collision-free string, not a short
+   hash. `SYSTEM` and `UNATTENDED` are deep-frozen singletons with
+   `attributes: {}`; `UNATTENDED.source` is `'unattended'`. `authn`'s
+   `typesVersions` points the `contracts` subpath at the CJS typings.
+2. **RBAC/ABAC data shapes live in core `data.ts` (§5.8, §6.6.1).**
+   `AssignmentSubject`, `Assignment`, `SubjectSelector`, `RuleDef`,
+   `LinkDef` and `Policy` are declared in `@spinajs/authz`
+   (`AuthzCommand` carries them); authz-rbac and authz-abac re-export them
+   as types. `RuleDef.reason` is `DenyReason & { readonly model?: never }`
+   (`Omit<DenyReason, 'model'>` erased `code` and `priority`).
+3. **Host contracts (§5.5, §5.7).** `AuthzService` and `AuthzDomains` are
+   abstract DI tokens in `contracts/service.ts`; F4 implements them.
+   `AuthzService.admin(): AuthzAdmin` is new. `export const authz` is left
+   to F4. `EvaluationContext.conditions` is `readonly`.
+4. **Errors (§5.7, §6.6.1).** `Unauthenticated` extends
+   `AuthenticationFailed` (`@spinajs/exceptions` has no `Unauthorized`;
+   http maps it to 401). `AccessDenied.decision` is non-enumerable.
+   `AuthzAdminFailure(code, message?, field?, options?)` is declared.
+5. **Grammar and algebra (§5.2, §5.3, §5.4).** Permission glob rules, the
+   linear matcher, field-glob semantics and budgets, Kleene-sound
+   `simplify`, fail-closed `bindRefs`, `eq null` never matches, and the
+   deny-priority helpers are now stated.
+6. **Packages and deps (§4.1, §4.2, §11, §12, §13, §14).** `authz-http`
+   depends on `orm` and `di`; `authz-orm` on `di`. Adapter stubs, and the
+   queue and fs hook mirrors that L6 and L7 replace, are described.
+7. **DI (§15).** `resolveChain` order and its `@PerChildInstance` rule, and
+   the owner-container rules for singletons (DI-2), are as built; F2's
+   behaviour changes A to H are listed. Facts F2, F4, F5 and F6 describe
+   the code before F2.
+8. **F0b moves (§4.1.1, §18.1, §22.5).** Three deviations in the package
+   moves (token HTTP parts, the 2FA events and `TwoFactorAuthProvider`, the
+   `RoleGuard`), the config key split, and the interim package edges that
+   break §4.2 until the N and C lanes remove them.
+9. **Open items the reports raised (§5.7, §10.3).** `AuthzDomains.create`
+   and `service` are synchronous while `AuthzService` resolves
+   asynchronously; §15.3 calls `AuthzDomains.create` as a static; the L2
+   key omits delegation and authn facts; `DefaultAdminGuard` needs RBAC
+   data that its dependency list lacks. None is decided here.
+
+## Changes in revision r4 (2026-10-02)
 
 The human answered the eight r3 open questions (H29–H36, §3.1). What
 changed:
@@ -307,7 +358,7 @@ The human answered the nine open questions (H12–H20, §3.1). What changed:
 | D17 | (r2) Deny reasons carry a priority; the decision reports the lowest. `deny-overrides` evaluates every routed model (m ≤ 3) instead of stopping at the first deny | Deterministic reasons in a fixed order, as C6 needs (`unknown_resource` before `agents_disabled` before `out_of_scope` …) |
 | D18 | (r2) Agents use `delegation: 'inherit'`: the delegate's decision, narrowed by the agent's ceiling; the agent is the `actor` | An agent holds no roles of its own; `intersect` would always deny it |
 | D19 | (r2) Ceilings are never bypassed, not even by `bypass` roles | Ceilings carry token, agent and link limits; a bypass would widen a bearer credential |
-| D20 | (r3; r4, H29) `Principal`, `PrincipalRef`, `AuthnFacts`, `Ceiling`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash` live in `@spinajs/authn` (`src/contracts/principal.ts`) and are exported through the subpath `@spinajs/authn/contracts`, which loads no service module and registers nothing in DI; `@spinajs/authz` re-exports them, and it is the only `authz*` package that lists `@spinajs/authn` | One package fewer than r3's `@spinajs/principal`; authz pulls in no strategy or session code (authn core's runtime deps are the four authz already has); authn still never imports authz |
+| D20 | (r3; r4, H29; r5 adds `ResourceType`, `ResourceRef`) `ResourceType`, `ResourceRef`, `PrincipalType`, `Principal`, `PrincipalRef`, `AuthnFacts`, `Ceiling`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash` live in `@spinajs/authn` (`src/contracts/principal.ts`) and are exported through the subpath `@spinajs/authn/contracts`, which loads no service module and registers nothing in DI; `@spinajs/authz` re-exports them, and it is the only `authz*` package that lists `@spinajs/authn` | One package fewer than r3's `@spinajs/principal`; authz pulls in no strategy or session code (authn core's runtime deps are the four authz already has); authn still never imports authz |
 | D26 | (r4) `authn-http` hands its principal to authz-http through `req.storage.AuthnPrincipal`; authz-http's `AuthnPrincipalSource` reads it. The authz-backed authn hooks (`ImpersonationGuard`, `AuthnResponseExtension` for `Access`, `RoleSource`) are implemented in `users` | H29 forbids `authn-http` → `authz-http`; `users` already imports both families |
 | D21 | (r3) Authentication config root is `authn.*`, not `users.*` | §22.5: credentials and sessions are not identity data; apps without the users package (machine clients) still configure authn |
 | D22 | (r3) `AuthzAdmin` lives in the core with per-kind `AuthzWriteHandler`s registered by the models; stores keep their write methods internal | One entry point for guard, validation, transaction, version bump, events and audit; the core still knows no model (H22) |
@@ -332,11 +383,14 @@ publishes two entries:
 
 | Entry | Built from | Contents | Loads |
 |---|---|---|---|
-| `@spinajs/authn/contracts` | `src/contracts/index.ts` | principal contracts (§5.1: `PrincipalType`, `PrincipalRef`, `Principal`, `AuthnFacts`, `Ceiling`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`), `IAuthnPrincipalStorage`, and the authn contracts of §22.3 | `@spinajs/di` (for `AsyncService`) only; no `@Injectable`, no config, no service module |
+| `@spinajs/authn/contracts` | `src/contracts/index.ts` | principal contracts (§5.1: `ResourceType`, `ResourceRef`, `PrincipalType`, `PrincipalRef`, `Principal`, `AuthnFacts`, `Ceiling`, `SYSTEM`, `UNATTENDED`, `principalKey`, `ceilingHash`), `IAuthnPrincipalStorage` (F6 adds it; authz then re-exports it by name, because authz-http may not import authn), and the authn contracts of §22.3 | `@spinajs/di` (for `AsyncService`) only; no `@Injectable`, no config, no service module |
 | `@spinajs/authn` | `src/index.ts` | everything, incl. the contracts | the services below |
 
 `package.json` of `authn` maps `"./contracts"` to `lib/{mjs,cjs}/contracts/index.js`
-with its own `types`, next to `"."`. Authz imports only the subpath, so a
+with its own `types`, next to `"."`; `typesVersions` points the subpath at
+`lib/cjs/contracts/index.d.ts` so node10 resolution finds it (r5). Authz
+re-exports the subpath by name (values and `export type`), never with
+`export *`, so authn's service contracts do not leak through authz. Authz imports only the subpath, so a
 headless authz user (`new Authorizer(...)`) loads no authentication code;
 the install adds no package that authz does not already pull in.
 
@@ -367,14 +421,14 @@ the install adds no package that authz does not already pull in.
 
 | Package | New? | Contents | Runtime deps |
 |---|---|---|---|
-| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (DI host, per child container), `AuthzDomains`, ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
+| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per child container, F4, r5), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
 | `@spinajs/authz-testing` | new (dev) | fake models (incl. `FakeTupleModel`), fake adapters and scope resolvers with attributes, model and adapter conformance suites, behaviour fixtures B01–B46, fast-check properties, bench harness, the canvas C6 conformance suite (vendored fixtures plus the two r3 cases, lane K1) | authz |
 | `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
 | `@spinajs/authz-abac` | new | ABAC model (uses the core condition compiler), `actorTypes`, `ConfigPolicyStore`, `DbPolicyStore`, policy write handler, migration `authz_policy`, `summarize` for the impersonation rule | authz, orm |
 | `@spinajs/authz-convert` | new (dev tool) | `spinajs-authz-convert` bin: 2.x `rbac.*` config → `authz.*`, `users.*` and (r3) `authn.*` | configuration |
-| `@spinajs/authz-orm` | new | ORM adapter: `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` + `OrmScopePolicy`, scope attributes from scope rows, query middleware, filter compiler, field filtering helpers, `DbDecisionAudit` + `authz_audit`, (r3) `DbScopeAttributeStore` + `authz_scope_attribute` | authz, orm |
-| `@spinajs/authz-http` | new | `PrincipalSource`, principal middleware, `ServicePrincipalSource`, (r4) `AuthnPrincipalSource`, `LinkPrincipalSource`, `@Access`, `AccessPolicy`, `@AllowAnonymous`, `@Unscoped`, resource extractors, `@CurrentPrincipal`, `AccessController` (`/user/access`, `/user/access/check`), explain route (dev/test only, H19), `ACCESS_DESCRIPTOR`, input/output field filters | authz, http |
-| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); `DefaultAdminGuard` (was `RoleGuard`) | authz-http, authz |
+| `@spinajs/authz-orm` | new | ORM adapter: `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` + `OrmScopePolicy`, scope attributes from scope rows, query middleware, filter compiler, field filtering helpers, `DbDecisionAudit` + `authz_audit`, (r3) `DbScopeAttributeStore` + `authz_scope_attribute` | authz, orm, di (r5) |
+| `@spinajs/authz-http` | new | `PrincipalSource`, principal middleware, `ServicePrincipalSource`, (r4) `AuthnPrincipalSource`, `LinkPrincipalSource`, `@Access`, `AccessPolicy`, `@AllowAnonymous`, `@Unscoped`, resource extractors, `@CurrentPrincipal`, `AccessController` (`/user/access`, `/user/access/check`), explain route (dev/test only, H19), `ACCESS_DESCRIPTOR`, input/output field filters | authz, http, orm (r5: `fromModel`), di (r5) |
+| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); `DefaultAdminGuard` (was `RoleGuard`); (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz (r5: `DefaultAdminGuard` reads holders and ladders from RBAC data, which this list lacks; open) |
 | `@spinajs/authz-queue` | new | `Initiator` stamping, handler `runAs`, `job` adapter with `initiator` relation, queue-backed `ChangeBus`, (r3) `QueueAuthzEventSink` (`RoleAssigned`, `RoleRevoked`, `AuthzDataChanged`) | authz, queue |
 | `@spinajs/authz-fs` | new, in the 3.0 gate (H20) | fs adapter, guarded-fs proxy, `FsDecorator` impl, `FileMetadataStore`, `fs-inherit` model, upload middleware, `fromFsPath` | authz, fs |
 | `@spinajs/authz-rebac` | reserved, not in 3.0 | §6.3 | — |
@@ -403,10 +457,10 @@ dropped.
 | 2.x package | 3.0 packages | What moves where |
 |---|---|---|
 | `@spinajs/rbac` | `@spinajs/users` (identity), `@spinajs/authn-local`, `@spinajs/authn-session`, `@spinajs/authz-rbac` | **users:** `User`, `UserMetadata`, lifecycle actions, mails, templates, profile, user CLI (create, ban, activate, delete, find), cron, migrations. **authn-local:** `auth.ts` (`SimpleDbAuthProvider` → `LocalPasswordStrategy`), `password.ts` (hasher, generator, policy), `login`, `confirmPasswordReset`, `issuePasswordResetToken`, `changeUserPassword`, lockout helpers, CLI `user:password`. **authn-session:** `session.ts`, `session-codec.ts`, `session-expiration.ts`, `regenerateSession`, `revokeUserSessions`. **authz-rbac:** `grant`/`revoke` → `AuthzAdmin.assign/revoke`, CLI `rbac:user-grant/revoke` → `authz:assign/revoke`, default grants → `authz.rbac.roles` fragment. **Deleted (R1):** `permission-service.ts`, `orm-permission.ts`, `middleware.ts`, `ownership.ts`, `util.ts`, `impersonation.ts` (rule now `AuthzService.covers`), the `AccessControl` bootstrap, `User.can*`, `User.Role` (H13) |
-| `@spinajs/rbac-http` | `@spinajs/authn-http` (+ `authz-http` replacements) | **authn-http:** session middleware (`RbacMiddleware` → `AuthnMiddleware` + the session principal resolver; r4: handed to authz-http through `req.storage.AuthnPrincipal`), session policies (`AuthorizedPolicy` → `Authenticated`, `LoggedPolicy`, `NotLoggedPolicy`, `NoSessionPolicy`, `AllowGuest`, `BlockGuest`), route args, session context, `TwoFactorAuthProvider` contract (→ `MfaStep`). **Replaced by authz-http:** `RbacPolicy`, `@Permission`, `@Resource`, `GrantsController`, `AttributeFilter`, `UserDataTransformer` (deleted in R1) |
-| `@spinajs/rbac-http-user` | `@spinajs/authn-http`, `@spinajs/authn-totp`, `@spinajs/users-http` | **authn-http:** `LoginController`, `PasswordResetController`, `SessionsController`, `TwoFactorAuth*Controller`s, `ActiveRoleController`, `ImpersonationController` + `ImpersonationService` (→ authn core), logout handlers, `SessionCookies`. (r4) **users:** `services/grants.ts` → `AccessResponseExtension`, the impersonation rule → `AuthzImpersonationGuard`, the role list for the switch → `RbacRoleSource` (D26; F0b parks them in `authn-http`, plan C3 moves them). **authn-totp:** `2fa/Default2FaToken.ts`, `2fa/otpUrl.ts`, `actions/2fa.ts`, 2FA CLI. **users-http:** `UserController` (profile part), `UserMetadataController`, `UserMetadataService`, `FilterableUserMetadata` |
-| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard`/`DefaultAdminGuard` |
-| `@spinajs/rbac-http-token` | `@spinajs/authn-token`, `@spinajs/authn-http` | **authn-token:** model, generator, validation, role policy (→ ceiling builder), CLI, migrations (class names kept). **authn-http:** `AccessTokenController` (`/user/tokens`), `TokenAuthMiddleware` → the token principal resolver (r4: handed over through `req.storage.AuthnPrincipal`), `NoTokenAuthPolicy`, `NoImpersonationPolicy`. **Deleted:** `TokenPolicy` |
+| `@spinajs/rbac-http` | `@spinajs/authn-http` (+ `authz-http` replacements) | **authn-http:** session middleware (`RbacMiddleware` → `AuthnMiddleware` + the session principal resolver; r4: handed to authz-http through `req.storage.AuthnPrincipal`), session policies (`AuthorizedPolicy` → `Authenticated`, `LoggedPolicy`, `NotLoggedPolicy`, `NoSessionPolicy`, `AllowGuest`, `BlockGuest`), route args, session context. (r5, F0b) The `TwoFactorAuthProvider` abstract class (→ `MfaStep`) went to `authn-totp`, not `authn-http`, to avoid an `authn-totp` ↔ `authn-http` cycle. **Replaced by authz-http:** `RbacPolicy`, `@Permission`, `@Resource`, `GrantsController`, `AttributeFilter`, `UserDataTransformer` (deleted in R1) |
+| `@spinajs/rbac-http-user` | `@spinajs/authn-http`, `@spinajs/authn-totp`, `@spinajs/users-http` | **authn-http:** `LoginController`, `PasswordResetController`, `SessionsController`, `TwoFactorAuth*Controller`s, `ActiveRoleController`, `ImpersonationController` + `ImpersonationService` (→ authn core), logout handlers, `SessionCookies`. (r4) **users:** `services/grants.ts` → `AccessResponseExtension`, the impersonation rule → `AuthzImpersonationGuard`, the role list for the switch → `RbacRoleSource` (D26; F0b parks them in `authn-http`, plan C3 moves them). **authn-totp:** `2fa/Default2FaToken.ts`, `2fa/otpUrl.ts`, `actions/2fa.ts`, 2FA CLI, (r5, F0b) the `User2Fa*` events (not `authn-http/account`, to avoid a cycle). **users-http:** `UserController` (profile part), `UserMetadataController`, `UserMetadataService`, `FilterableUserMetadata` |
+| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard`/`DefaultAdminGuard`. (r5, F0b) Until C4, the 2.x `Roles` controller, the abstract `RoleGuard` (`interfaces.ts`) and `DefaultRoleGuard` sit in `authz-http-admin/src/legacy/`, not in `users-http`, to avoid a cycle; `users-http` imports `RoleGuard` from there |
+| `@spinajs/rbac-http-token` | `@spinajs/authn-token`, `@spinajs/authn-http` | **authn-token:** model, generator, validation, role policy (→ ceiling builder), CLI, migrations (class names kept). **authn-http** (r5, F0b: the whole token HTTP layer, i.e. controllers, `middlewares.ts`, `policies/**` and `dto/**`, sits in `authn-http/src/token/`; leaving policies and middleware in `authn-token` made an `authn-token` ↔ `authn-http` cycle)**:** `AccessTokenController` (`/user/tokens`), `TokenAuthMiddleware` → the token principal resolver (r4: handed over through `req.storage.AuthnPrincipal`), `NoTokenAuthPolicy`, `NoImpersonationPolicy`. **Deleted:** `TokenPolicy` |
 | `@spinajs/session-provider-*` | same names | now implement the `authn-session` contract |
 | `@spinajs/orm-api` | — | removed (H5) |
 
@@ -423,6 +477,18 @@ Rules for the move:
   generator and header keys, `rbac.impersonation.requirePassword`; table in
   §22.5); authorization keys move to `authz.*` (§18.1). Any key left under
   `rbac.*` fails boot.
+- (r5, F0b) As built, config files stay in `<pkg>/src/config/` (the loader
+  scans only `lib/*/config`), split by reader. Identity keys moved with the
+  same sub-path (`rbac.user.profile` → `users.user.profile`). Authn keys
+  moved only where §22.5's target keeps the shape and meaning:
+  `authn.session.*`, `authn.local.{hasher,policy,generator,reset,invite,expiration}`,
+  `authn.mfa.totp.*`, `authn.token.*`, `authn.impersonation.requirePassword`.
+  Still under `rbac.*` until the N lanes rewrite their readers: `rbac.auth`
+  (→ `authn.strategies`), `rbac.twoFactorAuth` (→ `authn.mfa`),
+  `rbac.password.blockAfterAttempts|lockoutTime` (→ `authn.throttle`, H31).
+  The interim `authn.*` values keep their 2.x shapes (for example
+  `authn.local.hasher.service` is the 2.x provider name). So "any `rbac.*`
+  key fails boot" can only be switched on after the C lanes.
 - (H25) The old npm names get `npm deprecate` pointing at the new ones
   (plan X1); no re-export shims.
 - DI class names stay where the class keeps its job (`SessionProvider`,
@@ -433,6 +499,13 @@ Rules for the move:
   `AuthnMiddleware`).
 
 ### 4.2 Dependency graph
+
+(r5) The graph and the direction rules are the target. After F0b some
+package edges break them until the lane named in
+`authz-v3-rfc/F0b-interim-deps.md` removes each (for example `authn-http`
+→ `users`, `authn-token` → `users`, `authz-http-admin` → `users`); R1 greps
+for any that remain. `authz-http` also depends on `orm`, and `authz-http`
+and `authz-orm` on `di`.
 
 ```mermaid
 graph TD
@@ -452,6 +525,7 @@ graph TD
   aorm --> aqueue
   aorm --> afs
   http --> ahttp
+  orm --> ahttp
   queue --> aqueue
   fs --> afs
   ahttp --> aadmin[authz-http-admin]
@@ -537,13 +611,18 @@ re-exports them; the authentication contracts are in §22.3.
 
 ### 5.1 Principals and resources
 
+(r5) `ResourceType` and `ResourceRef` are declared in authn's `principal.ts`,
+next to the rest of this block, because `Ceiling.resources` needs them and
+authn must not import authz. `@spinajs/authz` re-exports them and declares
+only `GLOBAL` and `resourceKey` (`contracts/resource.ts`).
+
 ```ts
-export type ResourceType = string;                 // 'users', 'file', 'ArrowCampaign', 'job', 'dir'
-export interface ResourceRef {
+export type ResourceType = string;                 // 'users', 'file', 'ArrowCampaign', 'job', 'dir'  (authn principal.ts)
+export interface ResourceRef {                     // (authn principal.ts)
   readonly type: ResourceType;
   readonly id?: string;                            // absent = type-level (collections, "some row")
 }
-export const GLOBAL: ResourceRef;                  // { type: '$global' }
+export const GLOBAL: ResourceRef;                  // { type: '$global' }; authz resource.ts
 
 export type PrincipalType = 'user' | 'anonymous' | 'unattended' | 'system' | 'service' | 'link' | 'agent' | 'group' | (string & {});
 export interface PrincipalRef { readonly type: PrincipalType; readonly id: string }
@@ -578,11 +657,27 @@ export interface Ceiling {
   readonly reason?: string;                        // (r2) deny code when the ceiling fails; default 'ceiling' ('out_of_scope', 'link_invalid')
 }
 
-export const SYSTEM: Principal;                    // { type: 'system', id: 'system', authenticated: true, source: 'runAs' }
-export const UNATTENDED: Principal;                // { type: 'unattended', id: 'unattended', authenticated: false }
+export const SYSTEM: Principal;                    // { type: 'system', id: 'system', authenticated: true, source: 'runAs', attributes: {} }
+export const UNATTENDED: Principal;                // { type: 'unattended', id: 'unattended', authenticated: false, source: 'unattended', attributes: {} }
 export const principalKey: (p: PrincipalRef) => string;   // 'user:42'
-export const resourceKey: (r: ResourceRef) => string;     // 'file:uploads:a/b.pdf'
+export const resourceKey: (r: ResourceRef) => string;     // 'file:uploads:a/b.pdf'; authz resource.ts
+export const ceilingHash: (c: Ceiling | undefined) => string;   // (r5) '' for none; else a canonical string (L2 cache key part)
 ```
+
+Decisions as built (F1a, F1):
+- `SYSTEM` and `UNATTENDED` are deep-frozen singletons; §10.1 compares them
+  by identity.
+- `principalKey` escapes `%` and `:` in the type part only (`'user:42'`
+  stays readable) and is injective. `resourceKey` escapes `%`, `:` and `/`
+  in the type part, leaves the id raw, and treats an absent or `null` id as
+  type-level (`'file'` against `'file:'`); it is injective too.
+- `ceilingHash` is a canonical collision-free JSON tuple, not a short hash:
+  sets sorted and de-duplicated, an absent field differs from `[]`, an
+  invalid `Date` differs from absent, `reason` is included. A hash would
+  need `node:crypto`, and the contracts entry may import only
+  `@spinajs/di`; a collision would serve one principal another's cached
+  decision. `null` read back from JSON counts as absent, in `ceilingHash`
+  and `resourceKey`; F3's ceiling evaluator must use the same `== null` rule.
 
 ### 5.2 Permissions
 
@@ -593,6 +688,13 @@ ceilings: `user:*`, `user.*:read`, `*`. Case is kept and compared exactly
 (H17; yourscreen uses `ArrowCampaign`); the converter copies names verbatim
 and warns when two names differ only in case. Canvas maps its capability
 `file.edit` to `file:edit` (§8.5).
+
+(r5, F1) A glob is `*`, or `<res>:<act>` where a `*` in either part stands
+for any run of characters except `:`. `**` is invalid. The matcher is
+linear (no regular expression, so no ReDoS). Invalid names and globs throw
+`AuthzConfigError`. The helpers are `isPermission`, `parsePermission`,
+`isPermissionGlob`, `compilePermissionGlob`, `matchesPermission`, and the
+frozen `PERMISSION_PATTERN` and `PERMISSION_GLOB_PATTERN`.
 
 ```ts
 export type Permission = string;
@@ -645,12 +747,28 @@ export function or(...f: ResourceFilter[]): ResourceFilter;
 export function not(f: ResourceFilter): ResourceFilter;
 export function simplify(f: ResourceFilter): ResourceFilter;      // constant folding, flattening, dedupe
 export function bindRefs(f: ResourceFilter, scope: { principal: Principal; env: Readonly<Record<string, unknown>> }): ResourceFilter;
+export const CORE_FILTER_OPS: readonly FilterOp[];                 // (r5) the non-native ops every model may use
 
-export abstract class NativeFilter {                               // escape hatch for SQL a model owns
+export abstract class NativeFilter {                               // escape hatch for SQL a model owns; declared in model.ts
   abstract readonly op: `native:${string}`;
   abstract matches(args: unknown, subject: unknown, ref: ResourceRef, ctx: EvaluationContext): boolean | Promise<boolean>;
 }
 ```
+
+Residual semantics as built (F1):
+- `simplify` uses only rewrites that hold in Kleene three-valued logic (SQL
+  `NULL` semantics): no complement elimination, absorption, De Morgan or
+  reordering. It returns the `TRUE` and `FALSE` singletons.
+- `bindRefs` fails closed by polarity: a missing, `null` or malformed ref
+  makes the leaf `FALSE` at an even `not` depth and `TRUE` at an odd one.
+  Its input must be the final combined allow residual. `actor.*` and
+  `scope.*` refs stay for the engine.
+- `eq`, `ne`, `in` and `nin` with a literal `null` never match. Null tests
+  are `cmp: 'null'` and `'notnull'`; a compiler must never emit `IS NULL`
+  for `eq null`.
+- Wide junctions: build them with one `and(...parts)` call. Condition depth
+  and size need a cap in L3/L1b; a tree too deep to process throws and the
+  caller fails closed.
 
 ### 5.4 Requests, votes, decisions, trace
 
@@ -731,6 +849,25 @@ canvas's values are in §8.5.
 | 600 | RBAC `threshold` rules (default) |
 | 900 | `model_error`, `residual_false` |
 
+As built (r5, F1): `DEFAULT_DENY_PRIORITY` holds the per-code defaults
+(`role_too_low` 410, `tag_missing` 420, `provenance` 430, and so on);
+rows that depend on the source (ABAC 100 and 500, `threshold` 300 and 600,
+`role_too_low` on the provenance rank 440, a ceiling with its own reason)
+come from `DenyReason.priority`. `UNKNOWN_DENY_PRIORITY` is 500, the value
+of an unlisted code. `denyPriority(reason)` resolves it.
+`compareDenyReasons` orders by priority, `sortKey`, `code`, `model`, then
+the payload (keys sorted), all strings in code-point order, so equal
+priorities still sort the same in any input order (B36).
+`AccessDenied.decision` is non-enumerable, so it never reaches the 403
+body; the body is built from the decision explicitly.
+
+Field globs (r5, F1): most specific wins; `unionFieldGlobs` and
+`subtractFieldGlobs` are exact. A work budget (1.5M steps, 1000 globs, 32
+segments) throws `AuthzConfigError`; the engine treats that as deny and
+caches `Decision.fields` per decision. `filterObject` follows
+`JSON.stringify` semantics: `toJSON` first, cycles throw, denied subtrees
+are not read, and values come back JSON-shaped.
+
 ### 5.5 Models and combinators
 
 ```ts
@@ -759,7 +896,7 @@ export interface EvaluationContext {
   readonly permissions: PermissionRegistry;
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>;   // memoised per request
   attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;  // (r2) scope attributes, memoised per request
-  conditions: ConditionCompiler;                   // (r2) core compiler (§5.9)
+  readonly conditions: ConditionCompiler;          // (r2) core compiler (§5.9); (r5) readonly
   relation(type: ResourceType, name: string): RelationResolver | undefined;
   check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>;      // for models that delegate (fs-inherit)
   readonly cache: Map<string, unknown>;            // per-request scratch, per model namespace
@@ -846,10 +983,15 @@ export abstract class RelationResolver {           // ownership and every other 
 
 ### 5.7 Host, stores, cache, bus, audit, errors
 
+(r5, F1) `AuthzService` and `AuthzDomains` are abstract DI tokens in
+`contracts/service.ts`; F4 implements them as `@Injectable` subclasses
+(`@PerChildInstance()` for the service) and adds `export const authz`,
+which sits outside the API snapshot unless added to its config.
+
 ```ts
-@PerChildInstance()
-export class AuthzService extends AsyncService {
-  readonly domain: string;                         // 'root' or a child domain name
+export abstract class AuthzService extends AsyncService {   // the implementation is @PerChildInstance()
+  abstract readonly domain: string;                // 'root' or a child domain name
+  // every member below is abstract in the contract; `abstract` is dropped for reading
   current(): Principal;                            // ALS principal, else UNATTENDED
   runAs<T>(principal: Principal, reason: string, fn: () => Promise<T>): Promise<T>;
   check(req: CheckInput): Promise<Decision>;
@@ -865,15 +1007,16 @@ export class AuthzService extends AsyncService {
   preload(principal: Principal): Promise<void>;
   invalidate(tags: readonly string[]): void;
   models(): readonly AuthorizationModel[];
+  admin(): AuthzAdmin;                             // (r5) this domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1)
 }
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
-export const authz: (domain?: string) => AuthzService;
+export const authz: (domain?: string) => AuthzService;   // F4, not in the F1 contracts
 
-export class AuthzDomains {                        // root singleton
-  create(name: string, parent?: string): IContainer;   // child of 'root' by default
-  container(name: string): IContainer;
-  service(name: string): AuthzService;
-  names(): readonly string[];
+export abstract class AuthzDomains {               // root singleton; abstract token (r5)
+  abstract create(name: string, parent?: string): IContainer;   // child of 'root' by default
+  abstract container(name: string): IContainer;
+  abstract service(name: string): AuthzService;
+  abstract names(): readonly string[];
 }
 
 export interface AccessSummary {                   // GET /user/access
@@ -899,15 +1042,33 @@ export abstract class DecisionAudit {              // log default; DbDecisionAud
 
 export class AuthzConfigError extends Error {}     // boot/programming errors
 export class UnknownPermission extends AuthzConfigError {}
-export class AccessDenied extends Forbidden { readonly decision: Decision }   // 403
-export class Unauthenticated extends Unauthorized {}                          // 401
+export class AccessDenied extends Forbidden { readonly decision: Decision }   // 403; (r5) `decision` is non-enumerable
+export class Unauthenticated extends AuthenticationFailed {}                  // 401; (r5) @spinajs/exceptions has no Unauthorized; http maps AuthenticationFailed to 401
 export class NeedsAsync extends Error {}           // filterNow could not answer synchronously
 ```
 
+Open for F4 or before G1 (F1 report): `AuthzDomains.service()` and
+`create()` are synchronous, while `AuthzService` resolves asynchronously.
+F4 must resolve the child service in `create()` and read it child-only, or
+the signatures turn async. §15.3 calls `AuthzDomains.create` as a static
+function, while this block declares an instance method.
+
 ### 5.8 Model-package store contracts (frozen with the core)
 
+(r5, F1) The data shapes `AssignmentSubject`, `Assignment`,
+`SubjectSelector`, `RuleDef`, `LinkDef` and `Policy` are declared once, in
+`@spinajs/authz` `contracts/data.ts`, because `AuthzCommand` (§6.6.1)
+carries them and the core cannot import a model package. `authz-rbac` and
+`authz-abac` re-export them with `export type`. `Condition` sits in
+`conditions/contracts.ts` of the core (§5.9). The block below keeps the
+original grouping for reading. The ReBAC `Tuple` and `TupleStore` shapes
+are declared in `authz-testing/src/rebac.ts` for the fakes; the reserved
+`authz-rebac` package does not exist yet. The native op names are
+constants in authz-rbac: `RBAC_ASSIGNMENT_OP`, `RBAC_THRESHOLD_OP` and
+`RBAC_RESIDUALS` (the core ops, then the two native ops, in §6.1.4 order).
+
 ```ts
-// @spinajs/authz-rbac
+// @spinajs/authz-rbac (r5: AssignmentSubject, Assignment, SubjectSelector, RuleDef and LinkDef are declared in @spinajs/authz and re-exported)
 export interface GrantDef {
   readonly permission: string; readonly relation?: string | readonly string[];
   readonly on?: readonly ResourcePattern[]; readonly fields?: FieldSet;
@@ -962,7 +1123,7 @@ export interface RuleDef {                          // (r2) RBAC rules (D15)
   // threshold: matching permissions need rank ≥ minRole (deciding rank of the permission, or `ladder` at `at`)
   readonly permissions?: readonly string[]; readonly resource?: Condition;   // e.g. { attr: 'resource.name', wildcard: 'release/*' }
   readonly minRole?: string | { readonly ref: string }; readonly at?: ResourceType;
-  readonly reason?: Omit<DenyReason, 'model'>;      // code, payload, priority, sortKey
+  readonly reason?: DenyReason & { readonly model?: never };   // code, payload, priority, sortKey; (r5) Omit<DenyReason,'model'> erased code and priority (index signature)
 }
 export interface LinkDef {                          // (r2) share link: bearer secret + scope + expiry; its grant is an assignment to link:<id>
   readonly id: string; readonly scope: ResourceRef; readonly expiresAt?: Date | null;
@@ -989,7 +1150,7 @@ export abstract class SubjectResolver {            // default: principal + compa
   abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
 
-// @spinajs/authz-abac
+// @spinajs/authz-abac (r5: Policy is declared in @spinajs/authz and re-exported)
 export interface Policy {
   readonly id: string; readonly effect: 'permit' | 'deny';
   readonly permissions: readonly string[];         // globs
@@ -1002,7 +1163,7 @@ export interface Policy {
 }
 export abstract class PolicyStore { abstract readonly name: string; abstract load(): Promise<readonly Policy[]>; abstract version(): Promise<string> }
 
-// @spinajs/authz-rebac (reserved; shape fixed now)
+// @spinajs/authz-rebac (reserved; shape fixed now; r5: declared in authz-testing/src/rebac.ts)
 export interface Tuple { readonly object: ResourceRef; readonly relation: string; readonly subject: PrincipalRef | { readonly object: ResourceRef; readonly relation: string } }
 export abstract class TupleStore {
   abstract read(object: ResourceRef, relation: string): Promise<readonly Tuple[]>;
@@ -1349,6 +1510,10 @@ export type AuthzCommandResult =
 export interface AuthzAdminError { readonly code: string; readonly message: string; readonly field?: string }
 // codes: unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable,
 //        invalid_attributes, not_found, forbidden, escalation, last_holder, self_lockout, protected_role, conflict
+
+/** (r5) Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError.
+ *  The typed sugar methods of AuthzAdmin throw it when their command fails. */
+export class AuthzAdminFailure extends Error { constructor(code: string, message?: string, field?: string, options?: ErrorOptions) }
 
 export interface AuthzAdminOptions {
   readonly reason?: string;                        // goes to audit
@@ -1977,6 +2142,14 @@ policies matching (permission, type), *h* = ReBAC hops.
 | L2 | decisions with all votes `cacheable` | domain LRU; TTL = min(config, `validUntil`) | tags `subject:<t>:<id>`, `scope:<t>:<id>`, `role:<name>`, `policy:<id>`, `rule:<id>`, `link:<id>`, `model:<name>`; scope attribute changes publish `scope:<t>:<id>` (canvas org policy edits) |
 | Model | RBAC assignments per subject; ReBAC check memo | model-owned | `invalidate(tags)` |
 
+(r5, F1a; open for F3 and F4) The L2 key of §10.1 omits `onBehalfOf`,
+`delegation`, `companions` and the `authn` facts (assurance, for example).
+Either add a delegate and assurance part to the key, or mark votes that
+read them non-cacheable. Also, F3 compares `SYSTEM` and `UNATTENDED` by
+identity and denies any principal of type `system` or `unattended` that is
+not the singleton: a second copy of authn, or dual ESM and CJS loading,
+would otherwise let a foreign `UNATTENDED` skip the B09 short-circuit.
+
 Stores publish `AuthzChange { domain?, tags }` on the `ChangeBus` after
 commit. Every `AuthzService` in every domain subscribes (via `AuthzDomains`)
 and calls `invalidate(tags)` on its L2 and its models (B27). The
@@ -2043,7 +2216,7 @@ export function Unscoped(reason: string): MethodDecorator;        // ORM residua
 export function fromParam(param: string, type: ResourceType, opts?: { by?: string }): ResourceExtractor;
 export function fromBody(path: string, type: ResourceType): ResourceExtractor;
 export function fromQuery(param: string, type: ResourceType): ResourceExtractor;
-export function fromModel(model: Class<ModelBase>, param: string): ResourceExtractor;   // ref from @AccessResource
+export function fromModel(model: Class<ModelBase>, param: string): ResourceExtractor;   // ref from @AccessResource; (r5) the reason authz-http depends on orm
 export const ACCESS_DESCRIPTOR: unique symbol;    // Symbol.for('authz:access'); read by http-swagger
 ```
 
@@ -2273,6 +2446,10 @@ these changes:
 - Operation table, `FileMetadataStore` (owner relation), signed URL TTL
   `min(asked, signedUrl.maxTtlSeconds, decision.validUntil)`, upload
   middleware, `fromFsPath`: study §9.3–9.5 unchanged except names.
+  (r5, F1) `fromFsPath` returns a structural extractor, because authz-fs has
+  no `authz-http` dependency. Until lane L7 adds `FsDecorator` to
+  `@spinajs/fs`, authz-fs holds a mirror of it; L7 replaces the mirror
+  with a re-export (a contract change: integrator approval at G1, or an RFC).
 
 ```ts
 authz: { fs: {
@@ -2323,6 +2500,12 @@ export abstract class QueueMessageHook {
 export interface JobOptions { runAs?: 'initiator' | 'system' }               // @Job(opts?); today @Job() takes none (queue/src/decorators.ts:14)
 ```
 
+(r5, F1) Until lane L6 adds these types to `@spinajs/queue`, authz-queue
+declares mirrors of `QueueMessageHook` and `JobOptions`, plus an
+`Initiator` interface (`{ type, id, ceiling? }`); L6 replaces the mirrors
+with re-exports (integrator approval at G1, or an RFC). After a JSON
+broker, `Initiator.ceiling.expiresAt` must be revived to a `Date`.
+
 - `beforeEmit`: stamps `message.Initiator = { type, id, ceiling? }` from
   `current()` (skips `UNATTENDED`; `SYSTEM` stamps `system`).
 - `aroundHandle`: `runAs: 'initiator'` ⇒ rebuild the principal (user principal
@@ -2342,6 +2525,9 @@ export interface JobOptions { runAs?: 'initiator' | 'system' }               // 
 ## 15. Child-container composition
 
 ### 15.1 DI facts (`packages/di/src`, checked by experiment on `lib/mjs`)
+
+(r5) The table describes the code before F2 (DI-1, DI-2). Facts F2, F4, F5
+and F6 changed as §15.2 says; the others hold.
 
 | # | Fact | Code |
 |---|---|---|
@@ -2374,25 +2560,59 @@ registered as arrow functions with `register(fn).as(name)` (e.g.
 - **Singletons** shared by root and children are fragile: resolution order
   decides whether a child gets the shared instance or a private one (F4, F5).
 - Hence two DI changes (plan foundation F2, 2–2.5 days):
-  - **DI-1 `resolveChain`.** `IContainer.resolveChain<T>(type: Class<T>): T[] | Promise<T[]>`
-    and `getRegisteredTypesChain(type)`: walk own → parents, merge type lists
-    (a child entry whose class has the same name as a parent's replaces it),
-    resolve each type in the container that registered it. `Array.ofType`
-    behaviour is unchanged. 1 day.
-  - **DI-2 owner-container singletons.** A `Singleton`/`PerInstance` type
-    whose registration was found in an ancestor is created and cached in that
-    ancestor, and `resolveType` stops writing child registry entries for
-    parent-owned registrations (`container.ts:398`). `PerChildContainer`
-    keeps its behaviour. Regression tests = the experiment cases. Only
+  - **DI-1 `resolveChain`** (built in F2).
+    `IContainer.resolveChain<T>(type: Class<T>): ResolveChainResult<T>`
+    (also `DI.resolveChain`), `IContainer.getRegisteredTypesChain(type)`
+    (the merged types) and `Registry.getTypesChain(type)` (entries of
+    `IChainRegistration { type, container }`). Order: ancestors first, each
+    in registration order; a descendant entry with the same type name
+    replaces the ancestor entry in place; child-only entries come last;
+    factories are never deduplicated; an empty chain gives `[]`. Each entry
+    resolves in its owner container, with no registry write;
+    `@PerChildInstance` entries resolve in the calling container. The
+    result is a `Promise` when the base or any element is an
+    `AsyncService`, and a plain array or a `Promise` otherwise, so authz
+    callers `await` it. Unlike `Array.ofType`, it returns factory and
+    `NewInstance` results. `Array.ofType` behaviour is unchanged, except
+    that `get(Array.ofType(X))` now honours `parent` (walks parents by
+    default; a public API change).
+  - **DI-2 owner-container singletons** (built in F2).
+    The owner is the nearest container, from the resolving one upward,
+    with an explicit registry entry for the key; with none, the resolving
+    container owns it (needed by the `@Inject(Container)` test, F8).
+    `Singleton`, `PerInstance` and `PerInstanceCheck` are created and
+    cached in the owner, with the owner's dependencies, `Container` and
+    events. `PerChildContainer`, `NewInstance` and factories are unchanged.
+    A non-owner never writes its registry (F5 fixed). The registry tracks
+    implicit keys (the self entry a resolve writes for an unregistered
+    type); only explicit registrations make an owner. A container that owns
+    a key reads only its own cache, so "same name: child replaces" works
+    even when root cached that name. A child's `Array.ofType` over an
+    ancestor list is delegated to the owner when no element is
+    `PerChildInstance`, so the owner's collection cache serves it. Only
     `orm/src/driver.ts:119` uses `child()` in the repo, with child-owned
-    converters, so nothing in-repo depends on the old behaviour. 1–1.5 days.
+    converters.
+  - **Behaviour changes later lanes must know (F2).** (A) A root-registered
+    singleton first resolved through a child lives in root with root's
+    dependencies and survives `child.dispose()`; test kits must clear root's
+    cache, not use `DI.child()`, to get fresh singletons. (B) A child cannot
+    change the dependencies of a root-owned singleton: register the class
+    and its consumers in the child; `@AutoinjectService` inside a root
+    singleton does not see child-only implementations. (C) `get(Array.ofType(X))`
+    honours `parent`. (D) `di.resolved.*` for delegated singletons fires on
+    the owner (root). (E) `child.uncache(Svc)` is a no-op for delegated
+    singletons. (F) `resolveChain` returns factory and `NewInstance`
+    results. (G) The result type is `T[] | Promise<T[]>` for a non-async
+    base. (H) Child-only models must not use
+    `@Injectable(AuthorizationModel)`; root models may.
   - No decorator for child registration (F9): a domain's owner registers
     imperatively (`container.register(FsAbacModel).as(AuthorizationModel)`).
     Child-only models must not carry `@Injectable(AuthorizationModel)`.
 
 ### 15.3 How authz uses it
 
-- `AuthzService` is `@PerChildInstance()`; it injects `Container` (F8) and
+- The `AuthzService` implementation is `@PerChildInstance()` (the contract
+  is an abstract token, §5.7); it injects `Container` (F8) and
   takes models from `container.resolveChain(AuthorizationModel)`, adapters
   from `resolveChain(ResourceAdapter)`, relations, native filters and
   combinators likewise. A model listed in `authz.domains.<name>.disable` is
@@ -2625,6 +2845,11 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 ## 18. Migration guide (2.x → 3.0)
 
 ### 18.1 Config
+
+(r5, F0b) The `rbac.*` to `users.*` and `authn.*` moves are partly done
+in the packages; §4.1.1 lists which keys moved and which stay under
+`rbac.*` until the N lanes (`rbac.auth`, `rbac.twoFactorAuth`,
+`rbac.password.blockAfterAttempts|lockoutTime`). The table is the target.
 
 | 2.x | 3.0 |
 |---|---|
@@ -3210,7 +3435,13 @@ export default {
 };
 ```
 
-Old keys (converter `spinajs-authz-convert` writes `authn.generated.ts`):
+Old keys (converter `spinajs-authz-convert` writes `authn.generated.ts`).
+(r5, F0b) The packages already read the moved keys with their 2.x value
+shapes (for example `authn.local.hasher.service` is the 2.x provider name,
+`authn.local.expiration.passwordExpirationTime`); N1 to N3 change the
+shapes to the block above. Package defaults still ship `rbac.*` keys for
+the unmoved ones, and `users.user.profile` is the identity key M1 and C1
+use.
 
 | 2.x key | 3.0 key |
 |---|---|
