@@ -4,7 +4,7 @@ import sinon from 'sinon';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { SYSTEM_EVENTS } from '@spinajs/http-socket-common';
+import { SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, Payload, SocketController } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
@@ -115,7 +115,8 @@ describe('SocketHub', function () {
     const connection = hub.connection(a.id!)!;
     sinon.stub(connection, 'disconnect');
     const guard = DI.resolve(SocketPrincipalGuard);
-    (guard as unknown as { close(c: SocketConnection, why: string): void }).close(connection, 'revoked');
+    expire(connection);
+    await guard.sweep();
     expect(guard.isClosing(connection)).to.be.true;
 
     hub.join(a.id!, 'r3');
@@ -130,4 +131,74 @@ describe('SocketHub', function () {
     await expect(missedRoom).to.be.rejectedWith(/no hub.room event/);
     await expect(missedDirect).to.be.rejectedWith(/no hub.direct event/);
   });
+
+  it('refuses an empty room set instead of broadcasting to everyone', async () => {
+    expect(() => hub.to([])).to.throw(InvalidArgument, /room/);
+    expect(() => hub.to('')).to.throw(InvalidArgument, /room/);
+    expect(() => hub.to(['r1', ''])).to.throw(InvalidArgument, /room/);
+  });
+
+  it('delivers once to a member of several targeted rooms', async () => {
+    hub.join(a.id!, ['r1', 'r2']);
+    let count = 0;
+    a.on(WIRE_EVENTS.event, (frame: { name: string }) => {
+      if (frame.name === 'hub.multi') {
+        count++;
+      }
+    });
+    hub.to(['r1', 'r2']).emit('hub.multi', 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(count).to.equal(1);
+  });
+
+  it('keeps the reserved sys. namespace for server notices', async () => {
+    const forged = nextEvent(a, SYSTEM_EVENTS.disconnect, 300);
+    expect(() => hub.toConnection(a.id!).emit(SYSTEM_EVENTS.disconnect, { reason: 'forged' })).to.throw(InvalidArgument, /sys./);
+    expect(() => hub.to('r1').emit('sys.anything', {})).to.throw(InvalidArgument);
+    expect(() => hub.connection(a.id!)!.emit(SYSTEM_EVENTS.shutdown, {})).to.throw(InvalidArgument, /sys./);
+    await expect(forged).to.be.rejectedWith(/no sys.disconnect event/);
+  });
+
+  it('validates the event name of a connection push', () => {
+    const connection = hub.connection(a.id!)!;
+    for (const name of ['', 'has space', 'x'.repeat(129), 'bad/name']) {
+      expect(() => connection.emit(name, {}), name).to.throw(InvalidArgument, /Pushed event name/);
+    }
+  });
+
+  it('does not let a closing connection emit, yet the guard notice still arrives', async () => {
+    const connection = hub.connection(a.id!)!;
+    const guard = DI.resolve(SocketPrincipalGuard);
+    const notice = nextEvent(a, SYSTEM_EVENTS.disconnect);
+    const missed = nextEvent(a, 'hub.late', 300);
+    expire(connection);
+    await guard.sweep();
+
+    connection.emit('hub.late', 1);
+    expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    await expect(missed).to.be.rejectedWith(/no hub.late event/);
+  });
+
+  it('forgets a closing connection once it is gone', async () => {
+    const connection = hub.connection(a.id!)!;
+    const guard = DI.resolve(SocketPrincipalGuard);
+    const closed = new Promise<void>((resolve) => a.once('disconnect', () => resolve()));
+    expire(connection);
+    await guard.sweep();
+    expect([...guard.ClosingIds]).to.deep.equal([a.id]);
+
+    await closed;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(guard.ClosingIds.size).to.equal(0);
+  });
+
+  it('ignores a push to a connection id this instance does not hold when no adapter is set', async () => {
+    const missed = nextEvent(a, 'hub.none', 300);
+    hub.toConnection('nobody').emit('hub.none', 1);
+    await expect(missed).to.be.rejectedWith(/no hub.none event/);
+  });
 });
+
+function expire(connection: SocketConnection): void {
+  connection.auth.principal = { ...connection.auth.principal, ceiling: { expiresAt: new Date(Date.now() - 1000) } };
+}

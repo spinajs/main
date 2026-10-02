@@ -1,6 +1,7 @@
 import { Socket } from 'socket.io';
 import type { Principal } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { assertPushName } from './push-name.js';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake } from './interfaces.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -73,6 +74,8 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
 
   protected readonly lifetime = new AbortController();
 
+  protected closing = false;
+
   constructor(
     protected readonly socket: Socket,
     handshake: ISocketHandshake,
@@ -135,9 +138,24 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
     return this.lifetime.signal;
   }
 
+  /** Pushes an event; a no-op once the principal guard is closing this connection. */
   public emit<P>(name: string, payload: P): void {
+    assertPushName(name);
+
+    if (!this.closing) {
+      this.notify(name, payload);
+    }
+  }
+
+  /** @internal server notices ( `sys.*` ) bypass the name rule and the closing check */
+  public notify<P>(name: string, payload: P): void {
     const frame: EventFrame<P> = { name, payload };
     this.socket.emit(WIRE_EVENTS.event, frame);
+  }
+
+  /** @internal set by the principal guard; the connection then emits nothing but its own disconnect notice */
+  public markClosing(): void {
+    this.closing = true;
   }
 
   public join(room: string | string[]): void {
@@ -151,7 +169,7 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
   /** Tells the client why, then closes. A server-side disconnect stops socket.io's auto-reconnect. */
   public disconnect(reason: string): void {
     const notice: DisconnectNotice = { reason };
-    this.emit(SYSTEM_EVENTS.disconnect, notice);
+    this.notify(SYSTEM_EVENTS.disconnect, notice);
     this.socket.disconnect(false);
   }
 

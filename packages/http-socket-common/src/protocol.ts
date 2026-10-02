@@ -129,7 +129,7 @@ function isId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
-function isName(value: unknown): value is string {
+export function isName(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_NAME_LENGTH && NAME_PATTERN.test(value);
 }
 

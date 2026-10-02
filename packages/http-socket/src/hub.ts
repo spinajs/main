@@ -1,9 +1,12 @@
 import { Server } from 'socket.io';
 import { Autoinject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
-import { DisconnectNotice, EventFrame, MAX_NAME_LENGTH, NAME_PATTERN, SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { SocketConnection } from './connection.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
+import { assertPushName } from './push-name.js';
+import { ISocketServerConfig } from './interfaces.js';
 
 export interface ISocketEmitter {
   emit<P>(name: string, payload: P): void;
@@ -19,6 +22,9 @@ export interface ISocketEmitter {
 export class SocketHub {
   @Autoinject(SocketPrincipalGuard)
   protected Guard: SocketPrincipalGuard;
+
+  @Config('http.socket')
+  protected Options: ISocketServerConfig;
 
   protected io: Server | null = null;
   protected connections = new Map<string, SocketConnection>();
@@ -38,6 +44,7 @@ export class SocketHub {
 
   public unregister(connectionId: string): void {
     this.connections.delete(connectionId);
+    this.Guard.release(connectionId);
   }
 
   /** A connection held by THIS instance; undefined for unknown ids or connections on other instances. */
@@ -49,25 +56,35 @@ export class SocketHub {
     return this.connections;
   }
 
+  /** Rooms must be non-empty: socket.io treats an empty room set as every socket. */
   public to(room: string | string[]): ISocketEmitter {
-    const io = this.server();
+    this.server();
+
+    const rooms = Array.isArray(room) ? room : [room];
+    if (rooms.length === 0 || rooms.some((r) => typeof r !== 'string' || r.length === 0)) {
+      throw new InvalidArgument('Push target must be a non-empty room name or a non-empty list of them');
+    }
 
     return {
       emit: <P>(name: string, payload: P) => {
-        if (typeof name !== 'string' || name.length > MAX_NAME_LENGTH || !NAME_PATTERN.test(name)) {
-          throw new InvalidArgument(`Pushed event name must match ${NAME_PATTERN} and be at most ${MAX_NAME_LENGTH} characters`);
-        }
-
-        const frame: EventFrame<P> = { name, payload };
-        const closing = this.closingIds();
-        (closing.length > 0 ? io.to(room).except(closing) : io.to(room)).emit(WIRE_EVENTS.event, frame);
+        assertPushName(name);
+        this.push(rooms, name, payload);
       },
     };
   }
 
-  /** Every socket.io connection is in a room named after its id. */
+  /**
+   * `connectionId` is a socket id, which socket.io also uses as a room name. Without an adapter an id this
+   * instance does not hold is dropped instead of being sent to a room that cannot exist.
+   */
   public toConnection(connectionId: string): ISocketEmitter {
-    return this.to(connectionId);
+    const emitter = this.to(connectionId);
+
+    if (!this.Options.adapter && !this.connections.has(connectionId)) {
+      return { emit: (name: string) => assertPushName(name) };
+    }
+
+    return emitter;
   }
 
   public join(connectionId: string, room: string | string[]): void {
@@ -83,7 +100,7 @@ export class SocketHub {
     return sockets.map((s) => s.id);
   }
 
-  /** Tells the client why, then closes. A server-side disconnect stops socket.io's auto-reconnect. */
+  /** Tells the client why, then closes; `connectionId` is a socket id. A server-side disconnect stops socket.io's auto-reconnect. */
   public disconnect(connectionId: string, reason: string): void {
     const io = this.server();
     const frame: EventFrame<DisconnectNotice> = { name: SYSTEM_EVENTS.disconnect, payload: { reason } };
@@ -92,14 +109,12 @@ export class SocketHub {
     io.in(connectionId).disconnectSockets(false);
   }
 
-  protected closingIds(): string[] {
-    const ids: string[] = [];
-    for (const connection of this.connections.values()) {
-      if (this.Guard.isClosing(connection)) {
-        ids.push(connection.id);
-      }
-    }
-    return ids;
+  protected push<P>(rooms: string[], name: string, payload: P): void {
+    const frame: EventFrame<P> = { name, payload };
+    const target = this.server().to(rooms);
+    const closing = this.Guard.ClosingIds;
+
+    (closing.size > 0 ? target.except([...closing]) : target).emit(WIRE_EVENTS.event, frame);
   }
 
   protected server(): Server {

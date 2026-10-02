@@ -59,6 +59,8 @@ export class SocketPrincipalGuard {
 
   protected closing = new WeakSet<SocketConnection>();
 
+  protected closingIds = new Set<string>();
+
   protected timer: ReturnType<typeof setInterval> | null = null;
 
   protected connections: () => Iterable<SocketConnection> = () => [];
@@ -82,6 +84,7 @@ export class SocketPrincipalGuard {
     }
 
     this.generation++;
+    this.closingIds.clear();
     this.running = 0;
     this.pending = new WeakMap();
   }
@@ -108,6 +111,16 @@ export class SocketPrincipalGuard {
     }
 
     await Promise.allSettled(started);
+  }
+
+  /** Ids of connections being closed; the hub excludes them from pushes. */
+  public get ClosingIds(): ReadonlySet<string> {
+    return this.closingIds;
+  }
+
+  /** Called once a connection is gone. */
+  public release(connectionId: string): void {
+    this.closingIds.delete(connectionId);
   }
 
   /** True once the guard decided to close the connection; it must receive no more pushes. */
@@ -237,6 +250,8 @@ export class SocketPrincipalGuard {
     }
 
     this.closing.add(connection);
+    this.closingIds.add(connection.id);
+    connection.markClosing();
     this.Log.info(`Socket ${connection.id} closed: ${why}`);
 
     setImmediate(() => {
