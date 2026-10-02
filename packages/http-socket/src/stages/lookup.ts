@@ -20,6 +20,7 @@ export class LookupStage extends SocketCommandStage {
     }
 
     ctx.handler = handler;
+    ctx.armDeadline(handler.descriptor.Options.timeoutMs);
     return next();
   }
 }

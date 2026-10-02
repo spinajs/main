@@ -121,6 +121,7 @@ export class SocketServer extends AsyncService {
     }
 
     this._io = null;
+    this.Dispatcher.abortAll(new SocketException('unavailable', 'server is shutting down'));
     io.disconnectSockets(true);
     // not io.close(): that also closes the http server, which the host owns
     await Promise.allSettled([...io._nsps.values()].map((nsp) => nsp.adapter.close()));

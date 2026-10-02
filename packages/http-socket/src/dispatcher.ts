@@ -4,7 +4,7 @@ import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
-import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCommandRequest } from '@spinajs/http-socket-common';
+import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
@@ -62,12 +62,26 @@ export class SocketDispatcher extends AsyncService {
 
     this.runtimes.set(connection.id, runtime);
     socket.on(WIRE_EVENTS.command, (request: unknown, ack: unknown) => this.onCommand(runtime, request, ack));
+    socket.on(WIRE_EVENTS.cancel, (frame: unknown) => this.onCancel(runtime, frame));
 
     return runtime;
   }
 
   public detach(connection: SocketConnection, _reason: string): void {
+    const runtime = this.runtimes.get(connection.id);
+    if (!runtime) {
+      return;
+    }
+
     this.runtimes.delete(connection.id);
+    this.abortRunning(runtime, new SocketException('unavailable', 'connection closed'));
+  }
+
+  /** Aborts every running command on every connection ( shutdown ). */
+  public abortAll(reason: SocketException): void {
+    for (const runtime of this.runtimes.values()) {
+      this.abortRunning(runtime, reason);
+    }
   }
 
   /** Runs one command through the stages and the handler; never rejects. */
@@ -137,7 +151,23 @@ export class SocketDispatcher extends AsyncService {
   }
 
   protected createContext(runtime: IConnectionRuntime, request: CommandRequest): SocketCommandContext {
-    return new SocketCommandContext(runtime, request, this.callStorage(runtime.connection, request.name, request.id, request.traceparent));
+    const ctx = new SocketCommandContext(runtime, request, this.callStorage(runtime.connection, request.name, request.id, request.traceparent));
+    ctx.armDeadline(request.deadline);
+    return ctx;
+  }
+
+  protected onCancel(runtime: IConnectionRuntime, frame: unknown): void {
+    if (!isCancelFrame(frame)) {
+      return;
+    }
+
+    runtime.running.get(frame.id)?.abort(new SocketException('cancelled', `command ${frame.id} cancelled by the client`));
+  }
+
+  protected abortRunning(runtime: IConnectionRuntime, reason: SocketException): void {
+    for (const ctx of runtime.running.values()) {
+      ctx.abort(reason);
+    }
   }
 
   /** The ambient AsyncLocalStorage store of one call; log lines and policies read it. */
