@@ -9,7 +9,8 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
-    }
+    },
+    "./fixtures/c8/*": "./fixtures/c8/*"
   },
   "type": "module",
   "private": false,
@@ -35,7 +36,9 @@
     "version": "npm run format && git add -A src"
   },
   "files": [
-    "lib/**/*"
+    "lib/**/*",
+    "fixtures/c8/*.json",
+    "fixtures/c8/SOURCE.md"
   ],
   "repository": {
     "type": "git",
