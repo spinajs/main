@@ -22,9 +22,10 @@ export const A12: AuthnRule = defineRule('A12', 'authentication state never trav
     async run(h) {
       const a = await seedUser(h, ALICE);
       await h.metadata.seedRaw(a, '2fa:enabled', true);
+      const planted = await h.metadata.rawValue(a, '2fa:enabled');
       assert.strictEqual((await h.metadata.write('owner', a, '2fa:enabled', false)).ok, false);
       assert.ok((await h.metadata.rawKeys(a)).includes('2fa:enabled'), 'the planted row is still there');
-      assert.strictEqual(await h.metadata.rawValue(a, '2fa:enabled'), true, 'the planted value is unchanged');
+      assert.deepStrictEqual(await h.metadata.rawValue(a, '2fa:enabled'), planted, 'the planted value is unchanged');
       assert.strictEqual((await h.metadata.read('owner', a, '2fa:enabled')).found, false);
     },
   }),
@@ -81,8 +82,9 @@ export const A12: AuthnRule = defineRule('A12', 'authentication state never trav
     async run(h) {
       const a = await seedUser(h, ALICE);
       const id = await h.metadata.seedRaw(a, 'user:ban:is_banned', false);
+      const planted = await h.metadata.rawValue(a, 'user:ban:is_banned');
       assert.strictEqual((await h.metadata.updateById('admin', a, id, true)).ok, false);
-      assert.strictEqual(await h.metadata.rawValue(a, 'user:ban:is_banned'), false, 'the planted value is unchanged');
+      assert.deepStrictEqual(await h.metadata.rawValue(a, 'user:ban:is_banned'), planted, 'the planted value is unchanged');
     },
   }),
   defineCase({
