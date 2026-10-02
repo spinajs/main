@@ -272,12 +272,15 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       expect((await a.check(read(), scope)).allowed).to.equal(true);
       expect(s.cache.sets).to.have.length(0);
       during = false;
-      // The L1 entry of the overlapped check is dead too.
+      // The L1 entry of the overlapped check is dead too, and the scope that saw the invalidate stores nothing more.
       await a.check(read(), scope);
       expect(m.calls).to.have.length(2);
+      expect(s.cache.sets).to.have.length(0);
+      await a.check(read(), fresh());
+      expect(m.calls).to.have.length(3);
       expect(s.cache.sets).to.have.length(1);
       await a.check(read(), fresh());
-      expect(m.calls).to.have.length(2);
+      expect(m.calls).to.have.length(3);
     });
 
     it('B14: two principals that differ only in onBehalfOf, companions, attributes, authn or actor get different entries', async () => {
@@ -415,7 +418,7 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       expect(m.calls.filter((c) => c.req.principal.id === 'alice')).to.have.length(2);
     });
 
-    it('B14: a nested decision served from the L2 tags the outer entry with scope:*, as its scope nodes are unknown', async () => {
+    it('B14: a decision resting on a nested decision served from the L2 stays out of the L2, as the nested tags are unknown (review P2)', async () => {
       const m = new StaticModel('m', {
         vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (req.principal.id === 'bob') return pass('m', TRUE);
@@ -423,11 +426,46 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
         },
       });
       const { a, cache } = setup([m]);
+      const aliceCalls = () => m.calls.filter((c) => c.req.principal.id === 'alice').length;
       await a.check(read(bob, D1), fresh());
-      expect(cache.sets[0].tags).to.not.include('scope:*');
+      const scope = fresh();
+      expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+      expect(cache.sets.map((s) => s.decision.principal.id)).to.deep.equal(['bob']);
+      // It still answers again inside its request.
+      await a.check(read(alice, D1), scope);
+      expect(aliceCalls()).to.equal(1);
       await a.check(read(alice, D1), fresh());
-      const outer = cache.sets.find((s) => s.decision.principal.id === 'alice');
-      expect(outer?.tags).to.include.members(['scope:*', 'subject:user:bob', 'subject:user:alice']);
+      expect(aliceCalls()).to.equal(2);
+    });
+
+    it('B14: a decision whose intersect delegate is served from the L2 stays out of the L2', async () => {
+      const m = new StaticModel('m', { vote: permit() });
+      const { a, cache } = setup([m]);
+      await a.check(read(bob, D1), fresh());
+      const token = principal('token', 't1', { onBehalfOf: bob, delegation: 'intersect' });
+      expect((await a.check(read(token, D1), fresh())).allowed).to.equal(true);
+      await a.check(read(token, D1), fresh());
+      expect(cache.sets.map((s) => s.decision.principal.id)).to.deep.equal(['bob']);
+      expect(m.calls.map((c) => c.req.principal.id)).to.deep.equal(['bob', 't1', 't1']);
+    });
+
+    it('B14: a grandchild principal invalidated drops the decision that rests on a nested L2 hit (review P2)', async () => {
+      const db = { bobOk: true };
+      const m = new StaticModel('m', {
+        vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+          if (req.principal.id === 'bob') return pass('m', db.bobOk ? TRUE : FALSE);
+          const asks = req.permission === 'doc:write' ? { principal: bob, permission: 'doc:write' } : { principal: alice, permission: 'doc:write' };
+          return pass('m', (await ctx.check({ ...asks, resource: req.resource, env: {} })).allowed ? TRUE : FALSE);
+        },
+      });
+      const { a } = setup([m]);
+      const write: CheckInput = { principal: alice, permission: 'doc:write', resource: D1 };
+      expect((await a.check(write, fresh())).allowed).to.equal(true);
+      expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(true);
+      db.bobOk = false;
+      a.invalidate(['subject:user:bob']);
+      expect((await a.check(write, fresh())).allowed).to.equal(false);
+      expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
     });
 
     it('B14: a cached decision that does not match the check, or a cache that throws, never answers', async () => {
@@ -470,6 +508,184 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       const r = await pipelineOf(a, read());
       expect(r.decision.reason).to.deep.equal({ code: 'model_error' });
       expect(r.uncacheable).to.equal(true);
+    });
+  });
+
+  describe('request scope generation and review fixes (wiring step 10 review)', () => {
+    /** Like RBAC: the principal's grant is read once per request into ctx.cache. */
+    class PerRequest extends StaticModel {
+      constructor(private readonly db: { granted: boolean }) {
+        super('m', {
+          vote: (_req: DecisionRequest, ctx: EvaluationContext) => {
+            if (!ctx.cache.has('granted')) ctx.cache.set('granted', db.granted);
+            return pass('m', ctx.cache.get('granted') === true ? TRUE : FALSE);
+          },
+        });
+      }
+
+      version(): string {
+        return this.db.granted ? 'v1' : 'v2';
+      }
+
+      async preload(_p: Principal, ctx?: EvaluationContext): Promise<void> {
+        ctx?.cache.set('granted', this.db.granted);
+      }
+    }
+
+    it('B14: request-scoped data read before an invalidate never reaches the L2 through a later check of that request (review P1)', async () => {
+      const db = { granted: true };
+      const m = new PerRequest(db);
+      // Keep the version fixed: only invalidate() tells the engine.
+      m.version = () => 'v1';
+      const { a, cache } = setup([m]);
+      const scope = fresh();
+      expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+      db.granted = false;
+      a.invalidate(['subject:user:alice']);
+      // The request keeps what it read; that answer stays in the request.
+      await a.check(read(alice, D2), scope);
+      expect(cache.sets.map((s) => s.decision.resource.id)).to.deep.equal(['d1']);
+      expect((await a.check(read(alice, D2), fresh())).allowed).to.equal(false);
+    });
+
+    it('B14: data a preload put in the request scope before an invalidate never reaches the L2', async () => {
+      const db = { granted: true };
+      const m = new PerRequest(db);
+      m.version = () => 'v1';
+      const { a, cache } = setup([m]);
+      const scope = fresh();
+      await a.preload(alice, scope);
+      db.granted = false;
+      a.invalidate(['subject:user:alice']);
+      await a.check(read(alice, D1), scope);
+      expect(cache.sets).to.have.length(0);
+      expect((await a.check(read(alice, D1), fresh())).allowed).to.equal(false);
+    });
+
+    it('B14: request-scoped data read before a version change never reaches the L2', async () => {
+      const db = { granted: true };
+      const { a, cache } = setup([new PerRequest(db)]);
+      const scope = fresh();
+      expect((await a.check(read(alice, D1), scope)).allowed).to.equal(true);
+      // The model's version moves with its data; no invalidate() call.
+      db.granted = false;
+      await a.check(read(alice, D2), scope);
+      expect(cache.sets.map((s) => s.decision.resource.id)).to.deep.equal(['d1']);
+      expect((await a.check(read(alice, D2), fresh())).allowed).to.equal(false);
+    });
+
+    it('B14: a request scope that spans an Authorizer rebuild after an invalidate stores nothing in the new L2 (re-review R1)', async () => {
+      const db = { granted: true };
+      const build = () => {
+        const m = new PerRequest(db);
+        m.version = () => 'v1';
+        return setup([m]);
+      };
+      const { a: a1 } = build();
+      const scope = fresh();
+      expect((await a1.check(read(alice, D1), scope)).allowed).to.equal(true);
+      db.granted = false;
+      a1.invalidate(['subject:user:alice']);
+      // Decision 20: the host rebuilds the domain with a fresh cache; the request goes on with the new instance.
+      const { a: a2, cache: cache2 } = build();
+      await a2.check(read(alice, D2), scope);
+      expect(cache2.sets).to.have.length(0);
+      expect((await a2.check(read(alice, D2), fresh())).allowed).to.equal(false);
+    });
+
+    it('B14: a rebuilt Authorizer never serves the old instance L1 decisions of a shared request scope (re-review R1)', async () => {
+      const m2 = new StaticModel('m', { vote: deny() });
+      const scope = fresh();
+      expect((await setup([new StaticModel('m', { vote: permit() })]).a.check(read(alice, D1), scope)).allowed).to.equal(true);
+      expect((await setup([m2]).a.check(read(alice, D1), scope)).allowed).to.equal(false);
+      expect(m2.calls).to.have.length(1);
+    });
+
+    it('B14: explain() evaluates an intersect delegate live, never from the caches (review P3)', async () => {
+      const db = { bobOk: true };
+      const m = new StaticModel('m', { vote: (req: DecisionRequest) => pass('m', req.principal.id !== 'bob' || db.bobOk ? TRUE : FALSE) });
+      const { a, cache } = setup([m]);
+      await a.check(read(bob, D1), fresh());
+      const bobCalls = () => m.calls.filter((c) => c.req.principal.id === 'bob').length;
+      const gets = cache.gets.length;
+      db.bobOk = false;
+      const agent = principal('token', 't1', { onBehalfOf: bob, delegation: 'intersect' });
+      const d = await a.explain(read(agent, D1), fresh());
+      expect(bobCalls()).to.equal(2);
+      expect(d.allowed).to.equal(false);
+      expect(cache.gets).to.have.length(gets);
+      expect(cache.sets).to.have.length(1);
+    });
+
+    it('B14: explain() runs a nested ctx.check live too', async () => {
+      const m = new StaticModel('m', {
+        vote: async (req: DecisionRequest, ctx: EvaluationContext) => {
+          if (req.principal.id === 'bob') return pass('m', TRUE);
+          return pass('m', (await ctx.check({ principal: bob, permission: 'doc:read', resource: req.resource, env: {} })).allowed ? TRUE : FALSE);
+        },
+      });
+      const { a, cache } = setup([m]);
+      await a.check(read(bob, D1), fresh());
+      const gets = cache.gets.length;
+      await a.explain(read(alice, D1), fresh());
+      expect(m.calls.map((c) => c.req.principal.id)).to.deep.equal(['bob', 'alice', 'bob']);
+      expect(cache.gets).to.have.length(gets);
+    });
+
+    it('B14: the key is the delegation the check resolved, even when onBehalfOf changes while a step waits (review M4)', async () => {
+      const carol = principal('user', 'carol');
+      const m = new StaticModel('m', { vote: (req: DecisionRequest) => pass('m', req.principal.id === 'carol' ? FALSE : TRUE) });
+      const token = principal('token', 't1', { onBehalfOf: bob, delegation: 'intersect' });
+      let swap = true;
+      class Swapping extends FakeAdapter {
+        ancestors(r: ResourceRef): Promise<readonly ResourceRef[] | null> {
+          if (swap) {
+            swap = false;
+            (token as { onBehalfOf?: Principal }).onBehalfOf = carol;
+          }
+          return super.ancestors(r);
+        }
+      }
+      const clock = fakeClock();
+      const cache = new RecordingCache({ clock: clock.clock });
+      const a = new Authorizer({ domain: 'root', registry, models: [m], adapters: [new Swapping(['doc', 'folder'], { rows: rows() })], clock: clock.clock, cache });
+      expect((await a.check(read(token, D1), fresh())).allowed).to.equal(true);
+      const viaCarol = principal('token', 't1', { onBehalfOf: carol, delegation: 'intersect' });
+      expect((await a.check(read(viaCarol, D1), fresh())).allowed).to.equal(false);
+    });
+
+    it('B14: after a failed cache invalidate the L2 is not used until a full invalidation succeeds (review M5)', async () => {
+      let down = false;
+      class Flaky extends RecordingCache {
+        invalidate(tags: readonly string[]): void {
+          if (down) throw new Error('cache down');
+          super.invalidate(tags);
+        }
+      }
+      const m = new StaticModel('m', { vote: permit() });
+      const clock = fakeClock();
+      const log = new RecordingLog();
+      const cache = new Flaky({ clock: clock.clock });
+      const a = new Authorizer({ domain: 'root', registry, models: [m], clock: clock.clock, log, cache });
+      await a.check(read(), fresh());
+      down = true;
+      a.invalidate(['subject:user:alice']);
+      expect(log.at('error').filter((e) => /decision cache failed to invalidate/.test(e.message))).to.have.length(1);
+      const gets = cache.gets.length;
+      await a.check(read(), fresh());
+      await a.check(read(), fresh());
+      // The stale allow is still in the cache; it is never read, and nothing new is stored.
+      expect(m.calls).to.have.length(3);
+      expect(cache.gets).to.have.length(gets);
+      expect(cache.sets).to.have.length(1);
+      down = false;
+      // The engine retries invalidate(['*']) at the next call; once it succeeds, the L2 is back.
+      await a.check(read(), fresh());
+      expect(cache.invalidations.at(-1)).to.deep.equal(['*']);
+      expect(m.calls).to.have.length(4);
+      expect(cache.sets).to.have.length(2);
+      await a.check(read(), fresh());
+      expect(m.calls).to.have.length(4);
     });
   });
 
@@ -550,6 +766,21 @@ describe('B14: decision caches (L1 per request, L2 across requests)', () => {
       await a.check(read(principal('token', 't1', { onBehalfOf: bob })), scope);
       await a.check(read(bob), scope);
       expect(m.calls.map((c) => c.req.principal.id)).to.deep.equal(['bob', 't1']);
+    });
+
+    it("B14: an intersect delegate's denial, never audited as bob's, is audited once when a direct check of bob reuses it", async () => {
+      const m = new StaticModel('m', { vote: (req: DecisionRequest) => (req.principal.id === 't1' ? pass('m', TRUE) : pass('m', FALSE)) });
+      const { a, audit } = setup([m], { l2: false });
+      const scope = fresh();
+      await a.check(read(principal('token', 't1', { onBehalfOf: bob })), scope);
+      expect(audit.entries.map((e) => [e.principal.id, e.reason])).to.deep.equal([['t1', 'delegate']]);
+      await a.check(read(bob), scope);
+      await a.check(read(bob), scope);
+      expect(m.calls).to.have.length(2);
+      expect(audit.entries.map((e) => [e.principal.id, e.reason])).to.deep.equal([
+        ['t1', 'delegate'],
+        ['bob', 'no_access'],
+      ]);
     });
   });
 });

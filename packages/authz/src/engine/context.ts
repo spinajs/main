@@ -26,7 +26,7 @@ export interface ContextHost {
 }
 
 // Reserved L1 keys: NUL never appears in a permission, type or model name a caller would use as a key.
-export const l1Key = (kind: 'ancestors' | 'attributes' | 'nodes' | 'model' | 'decision', domain: string, key: string): string => `\u0000authz\u0000${kind}\u0000${domain}\u0000${key}`;
+export const l1Key = (kind: 'ancestors' | 'attributes' | 'nodes' | 'model' | 'decision' | 'generation' | 'fault', domain: string, key: string): string => `\u0000authz\u0000${kind}\u0000${domain}\u0000${key}`;
 
 /** Memoises `compute` in the request map; a stored promise never goes unhandled. */
 export function memo<T>(scope: Map<string, unknown>, key: string, compute: () => T): T {
@@ -49,6 +49,7 @@ export class ModelContext implements EvaluationContext {
   readonly conditions: ConditionCompiler;
   readonly now: Date;
   readonly cache: Map<string, unknown>;
+  readonly #memoKey: string;
   // Private, so the model cannot clear it: set when the model broke a rule its vote cannot show (nested depth).
   #fault: string | undefined;
   // One trace budget per model per check: repeated steps sharing one object must not multiply the copy.
@@ -61,13 +62,19 @@ export class ModelContext implements EvaluationContext {
     this.conditions = host.conditions;
     // Own copy: a Date stays mutable when frozen, and models must not move each other's clock.
     this.now = new Date(instant.getTime());
-    this.cache = memo(scope, l1Key('model', host.domain, cacheKey), () => new Map<string, unknown>());
+    this.#memoKey = l1Key('model', host.domain, cacheKey);
+    this.cache = memo(scope, this.#memoKey, () => new Map<string, unknown>());
     Object.freeze(this);
   }
 
   /** When set, the model's vote is indeterminate whatever it returns. */
   get fault(): string | undefined {
     return this.#fault;
+  }
+
+  /** Later contexts of this owner start with an empty memo; late writes of this one land in the detached map. */
+  detachMemo(): void {
+    if (this.scope.get(this.#memoKey) === this.cache) this.scope.delete(this.#memoKey);
   }
 
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
@@ -93,6 +100,8 @@ export class ModelContext implements EvaluationContext {
   check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision> {
     if (this.depth + 1 > MAX_CHECK_DEPTH) {
       this.#fault = `nested check deeper than ${MAX_CHECK_DEPTH} levels`;
+      // The model may memoise the refusal; later checks of the request must not trust that memo.
+      this.scope.set(l1Key('fault', this.host.domain, ''), true);
       const refused = Promise.reject(new AuthzConfigError(`authz domain ${JSON.stringify(this.domain)}: model ${JSON.stringify(this.owner)} nested checks deeper than ${MAX_CHECK_DEPTH} levels`));
       // A model that does not await it must not crash the process; one that awaits still sees the rejection.
       swallow(refused);

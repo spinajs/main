@@ -1,11 +1,11 @@
 import { AuthzConfigError } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
-import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, Trace, TraceStep, Vote } from '../contracts/decision.js';
-import type { AuthorizationModel, Combinator, NativeFilter } from '../contracts/model.js';
+import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
+import type { AuthorizationModel, Combinator, ModelSummary, NativeFilter } from '../contracts/model.js';
 import type { Permission, PermissionDef, PermissionRegistry } from '../contracts/permission.js';
 import { SYSTEM, UNATTENDED, principalKey } from '../contracts/principal.js';
-import type { Principal, PrincipalRef, ResourceRef, ResourceType } from '../contracts/principal.js';
+import type { Ceiling, Principal, PrincipalRef, ResourceRef, ResourceType } from '../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { AccessSummary, CheckInput, DecisionAudit, DecisionCache } from '../contracts/service.js';
@@ -17,7 +17,7 @@ import type { CombineConfig, RouteTable } from './routes.js';
 import { defaultAttribute, evaluateResidual } from './evaluate.js';
 import type { SubjectEnv, Truth } from './evaluate.js';
 import { selectDenyReason, staticTruths } from './reasons.js';
-import { ceilingOutcome, mergeCeilings } from './ceiling.js';
+import { ceilingOutcome, mergeCeilings, readCeiling } from './ceiling.js';
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
@@ -30,7 +30,25 @@ import { ModelContext, NoConditionCompiler, l1Key, memo } from './context.js';
 import type { ContextHost, MaybePromise } from './context.js';
 import { NEEDS_ASYNC, isThenable, runAsync, runSync, settleWithin, swallow } from './run.js';
 import type { Pipeline, Settled } from './run.js';
-import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, validDate } from './vote.js';
+import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreeze, describeError, faultVote, sanitizeFilter, sanitizeVote, validDate } from './vote.js';
+
+/**
+ * summary() and covers() check at most this many permissions (one check per
+ * permission and principal; each check keeps its own budgets and time limits).
+ * Past it, a summary lists the first ones by name and covers is false.
+ */
+export const MAX_SUMMARY_PERMISSIONS = 1000;
+/** Permissions checked at once by summary() and covers(). */
+const SUMMARY_BATCH = 8;
+/** A whole summary() or covers() call gets this many modelTimeoutMs (M2). */
+const DEADLINE_FACTOR = 4;
+
+/**
+ * Generations come from one counter for every Authorizer of this module, so a
+ * request scope born under one instance never matches a rebuilt one.
+ */
+let generations = 0;
+const nextGeneration = (): number => ++generations;
 
 export interface EngineLog {
   error(message: string, ...args: unknown[]): void;
@@ -53,7 +71,7 @@ export interface AuthorizerOptions {
   readonly scopeAttributes?: { readonly schemas?: readonly ScopeAttributeSchema[]; readonly store?: ScopeAttributeStore };
   /** Absent: compile() rejects, so a model that needs conditions is indeterminate. */
   readonly conditions?: ConditionCompiler;
-  /** L2; absent = no L2. */
+  /** L2; absent = no L2. One cache per Authorizer: never share it with another Authorizer of the same domain (decision 20). */
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
   readonly clock?: () => Date;
@@ -93,15 +111,28 @@ interface Run {
   readonly delegationBudget: number;
   /** The version vector of the top-level call; undefined: nothing is cached. */
   readonly versions: string | undefined;
-  /** The invalidation generation when the top-level call started; an L2 store needs it unchanged. */
+  /**
+   * The invalidation generation when this Authorizer first touched the request
+   * scope (`bornOf`): the scope's data (ctx.cache, ancestors, attributes) may
+   * date from then, so L1 hits and L2 stores need it still current.
+   */
   readonly generation: number;
   /** Shared by the whole call tree (intersect delegates, ctx.check). */
   readonly nested: Nested;
+  /** explain(): the whole call tree runs live, without the caches. */
+  readonly bypass: boolean;
+  /** summary() and covers(): not an access attempt, so nothing is audited. */
+  readonly quiet?: boolean;
 }
 
 /** What nested decisions add to every decision above them: a vote may rest on a nested check. */
 interface Nested {
+  /** No level may keep the decisions above. */
   uncacheable: boolean;
+  /** Some nested tags are unknown (an L2 hit): the decisions above stay out of the L2. */
+  untagged: boolean;
+  /** Some decision or data load of the call tree failed: every decision of the tree may rest on it. */
+  faulted: boolean;
   readonly tags: Set<string>;
 }
 
@@ -134,7 +165,7 @@ interface NodeLoad {
   degraded: boolean;
 }
 
-/** What a binder load gives: `failed` (a rejection) is an engine fault, `degraded` (a rejection or a timeout) only stops caching. */
+/** What a binder load gives: `failed` (a rejection) is an engine fault in the deny reason, `degraded` (a rejection or a timeout) stops caching and marks the decision faulted. */
 interface BoundAttributes {
   readonly attributes: Attributes;
   readonly failed: boolean;
@@ -153,16 +184,26 @@ interface Checked {
    * ctx.check's decision.
    */
   readonly uncacheable: boolean;
+  /**
+   * Rests on an engine fault whatever the reason says (an indeterminate vote,
+   * a combine/bind/fields/subject failure, a failed or timed-out load, a
+   * faulted nested decision), or the request saw one a model may have
+   * memoised (a degraded scope load, a rejected host call). Never cached, so
+   * cache hits are not faulted.
+   */
+  readonly faulted: boolean;
 }
 
 /** An L1 decision entry; `generation` makes an invalidate drop it too. */
 class CachedDecision {
   constructor(
     readonly decision: Decision,
-    /** undefined: no tags could be built, so a decision above it is not cached. */
+    /** undefined: unknown (from the L2, or not buildable), so no decision above it goes to the L2. */
     readonly tags: readonly string[] | undefined,
     readonly expiresAt: number,
     readonly generation: number,
+    /** A denial no audit has recorded yet (decided nested or by summary/covers): the first audited hit records it. */
+    public unaudited: boolean,
   ) {}
 }
 
@@ -237,8 +278,10 @@ export class Authorizer {
   /** The last version vector seen as a string. */
   private versions: string | undefined;
   private versionsWarned = false;
-  /** Bumped by invalidate() and by a version change: a check that overlapped one does not store into the L2. */
-  private generation = 0;
+  /** Moved by invalidate() and by a version change: a request scope born before it does not store into the L2. */
+  private generation = nextGeneration();
+  /** cache.invalidate threw, so dropped entries may still be there: the L2 is unused until an invalidate(['*']) succeeds (retried at each call). */
+  private l2Stale = false;
   private readonly adapterList: readonly ResourceAdapter[];
   private readonly adapterByType = new Map<ResourceType, ResourceAdapter>();
   private readonly resolverByType = new Map<ResourceType, ScopeResolver>();
@@ -331,11 +374,19 @@ export class Authorizer {
       domain: this.domain,
       permissions: this.registry,
       conditions: this.conditions,
-      ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => this.ancestorsOf(this.requireRef(ref), scope),
+      ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => this.marking(scope, () => this.ancestorsOf(this.requireRef(ref), scope)),
       attributes: (ref: ResourceRef, scope: Map<string, unknown>) => this.attributesOf(this.requireRef(ref), scope),
       relation: (type: ResourceType, name: string) => this.relation(type, name),
       // Contexts outside a check (preload); a check's own contexts use hostFor(run).
-      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { sync: false, scope, instant, depth, delegationBudget: this.config.maxDelegation, ...this.epoch(), nested: newNested() })).then((r) => r.decision),
+      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number): Promise<Decision> =>
+        Promise.resolve(
+          this.marking(scope, () =>
+            runAsync(this.pipeline(req, this.topRun(false, scope, instant, depth))).then((r) => {
+              if (r.faulted) this.markFault(scope);
+              return r.decision;
+            }),
+          ),
+        ),
     });
   }
 
@@ -375,16 +426,92 @@ export class Authorizer {
     return runSync(this.pipeline({ principal, permission, resource: { type } }, this.newRun(true, scope)))?.value.decision.residual;
   }
 
-  // Task 4b.
-  async summary(principal: Principal, at?: ResourceRef, scope?: RequestScope): Promise<AccessSummary> {
-    void [principal, at, scope];
-    throw new Error('Authorizer.summary is not implemented yet');
+  /**
+   * B25: a quiet check per candidate permission at `at`, sharing one scope.
+   * Candidates: the registered names the routed models' summaries list, or
+   * every permission checkable at `at` when some routed model gives no
+   * summary (none, a failure or a timeout). A check that throws or rests on
+   * an engine fault leaves its permission out, and so does every check left
+   * when the call's deadline (DEADLINE_FACTOR × modelTimeoutMs) passes.
+   */
+  async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
+    const ref = this.requireRef(at);
+    const gate = this.principalGate(principal);
+    if (gate.kind === 'deny') return deepFreeze({ principal: gate.principal, models: [], permissions: [] });
+    const { defs } = this.checkable(ref, 'summary');
+    if (gate.kind === 'system') return deepFreeze({ principal: SYSTEM_REF, models: [], permissions: defs.map((def) => summaryEntry(def, false, this.allFields)) });
+
+    const run = this.quietRun(scope);
+    const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
+    try {
+      const out: { -readonly [K in keyof AccessSummary]: AccessSummary[K] } = { principal: gate.ref, models: [], permissions: [] };
+      const ceiling = summaryCeiling(gate.principal);
+      if (ceiling) out.ceiling = ceiling;
+      const summaries = await this.modelSummaries(gate.principal, ref, defs, { ...run, nested: newNested() });
+      out.models = summaries.list;
+      const candidates = summaries.names === undefined ? defs : defs.filter((d) => summaries.names!.has(d.name));
+      const checked = await this.checkEach(gate.principal, candidates, ref, run, limit);
+      const faulted = candidates
+        .filter((_, i) => {
+          const c = checked[i];
+          return c !== undefined && c !== THREW && c.faulted;
+        })
+        .map((d) => d.name);
+      if (faulted.length > 0) this.logAt('error', `${this.where}: summary left out ${faulted.length} permission(s) whose decision rests on an engine fault: ${faulted.slice(0, 10).join(', ')}${faulted.length > 10 ? ', …' : ''}`);
+      out.permissions = candidates.flatMap((def, i) => {
+        const c = checked[i];
+        return c === undefined || c === THREW || c.faulted || !c.decision.allowed ? [] : [summaryEntry(def, c.decision.residual.op !== 'true', c.decision.fields)];
+      });
+      return deepFreeze(out);
+    } finally {
+      limit.clear();
+    }
   }
 
-  // Task 4b.
-  async covers(holder: Principal, target: Principal, at?: ResourceRef, scope?: RequestScope): Promise<boolean> {
-    void [holder, target, at, scope];
-    throw new Error('Authorizer.covers is not implemented yet');
+  /**
+   * B26: the holder's combined set at `at` strictly contains the target's,
+   * over every permission checkable at `at`. False for a target (or a holder
+   * other than SYSTEM) that the principal gate or the onBehalfOf resolution
+   * refuses, when any check throws or rests on an engine fault, when a field
+   * comparison throws, and past the call's deadline.
+   */
+  async covers(holder: Principal, target: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<boolean> {
+    const ref = this.requireRef(at);
+    // A refused principal's checks all deny, yet it may hold anything elsewhere (SYSTEM of a second authn copy).
+    if (!this.admitted(target)) return false;
+    if (holder === SYSTEM) return true;
+    if (!this.admitted(holder)) return false;
+    const { defs, truncated } = this.checkable(ref, 'covers');
+    if (truncated) return false;
+    const run = this.quietRun(scope);
+    const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
+    let strict = false;
+    try {
+      for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
+        const batch = defs.slice(i, i + SUMMARY_BATCH);
+        const pairs = await limit.race(Promise.all(batch.map((def) => Promise.all([this.quietCheck(holder, def, ref, run), this.quietCheck(target, def, ref, run)]))));
+        if (pairs === EXPIRED) {
+          this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+          return false;
+        }
+        for (const [k, [h, t]] of pairs.entries()) {
+          // A denial on missing data is no proof that the target lacks the permission; a holder fault is refused too, to stay simple.
+          if (h.faulted || t.faulted) {
+            this.logAt('error', `${this.where}: covers is false: the ${h.faulted ? 'holder' : 'target'} check of ${batch[k].name} rests on an engine fault`);
+            return false;
+          }
+          // Only the gate denies `unattended`: the target read as another type than when it was admitted.
+          if (t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision)) return false;
+          if (h.decision.allowed && !entryCovers(t.decision, h.decision)) strict = true;
+        }
+      }
+    } catch (e) {
+      this.logAt('error', `${this.where}: covers is false: a check or a field comparison failed: ${describeError(e)}`);
+      return false;
+    } finally {
+      limit.clear();
+    }
+    return strict;
   }
 
   /** Preloads every principal the models of a check would run with: the run-as principal and each intersect delegate's, never an inherit agent. */
@@ -410,6 +537,9 @@ export class Authorizer {
     }
     const map = scopeMap(scope);
     const instant = this.now();
+    // A version change first, so the scope is born with the generation its data belongs to.
+    this.epoch();
+    this.bornOf(map);
     await Promise.all(
       this.modelList.flatMap((model) =>
         typeof model.preload !== 'function'
@@ -418,6 +548,8 @@ export class Authorizer {
               try {
                 await model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)));
               } catch (e) {
+                // The model may now vote from missing per-request state.
+                this.markFault(map);
                 this.logAt('error', `${this.where}: model ${quote(model.name)} failed to preload: ${describeError(e)}`);
               }
             }),
@@ -426,7 +558,7 @@ export class Authorizer {
   }
 
   invalidate(tags: readonly string[]): void {
-    this.generation++;
+    this.generation = nextGeneration();
     this.invalidateL2(invalidationTags(tags));
     const copy = Object.freeze(Array.isArray(tags) ? [...tags] : []);
     for (const model of this.modelList) {
@@ -446,6 +578,121 @@ export class Authorizer {
     return this.table;
   }
 
+  // ---- summary and covers ----
+
+  /** The principal gate lets `p` run models and its onBehalfOf chain resolves without a denial or a throw. */
+  private admitted(p: unknown): boolean {
+    const gate = this.principalGate(p);
+    if (gate.kind !== 'run') return false;
+    try {
+      return this.delegation(gate.principal, undefined, this.config.maxDelegation).denial === undefined;
+    } catch (e) {
+      this.logAt('debug', `${this.where}: covers is false: the onBehalfOf chain of ${principalKey(gate.ref)} does not resolve: ${describeError(e)}`);
+      return false;
+    }
+  }
+
+  /** The base run of one summary or covers call: one instant, version vector and generation for every check; never audited. */
+  private quietRun(scope: RequestScope | undefined): Run {
+    return { ...this.newRun(false, scope), quiet: true };
+  }
+
+  /** Registered permissions checkable at `ref` (its type in `types`, or `$global`), sorted by name, at most MAX_SUMMARY_PERMISSIONS. */
+  private checkable(ref: ResourceRef, what: string): { readonly defs: readonly PermissionDef[]; readonly truncated: boolean } {
+    const defs = this.registry
+      .all()
+      .filter((d) => ref.type === GLOBAL_TYPE || d.types.includes(ref.type))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    if (defs.length <= MAX_SUMMARY_PERMISSIONS) return { defs, truncated: false };
+    this.logAt('warn', `${this.where}: ${what} at ${resourceKey(ref)} has ${defs.length} permissions to check, more than the limit of ${MAX_SUMMARY_PERMISSIONS}`);
+    return { defs: defs.slice(0, MAX_SUMMARY_PERMISSIONS), truncated: true };
+  }
+
+  /**
+   * The summaries of the models routed for `defs` at `ref` that serve the
+   * principal the models run with. `names` is undefined when one of them gave
+   * no usable summary: then every checkable permission is a candidate.
+   */
+  private async modelSummaries(principal: Principal, ref: ResourceRef, defs: readonly PermissionDef[], run: Run): Promise<{ readonly list: readonly ModelSummary[]; readonly names: ReadonlySet<string> | undefined }> {
+    let runAs: Principal;
+    try {
+      const d = this.delegation(principal, undefined, this.config.maxDelegation);
+      // Every check denies `delegate` then.
+      if (d.denial) return { list: [], names: undefined };
+      runAs = d.principal;
+    } catch (e) {
+      this.logAt('error', `${this.where}: summary could not resolve the onBehalfOf chain: ${describeError(e)}`);
+      return { list: [], names: undefined };
+    }
+    const routed = new Set<AuthorizationModel>();
+    for (const def of defs) for (const m of this.table.get(def.name, ref.type)?.models ?? []) routed.add(m);
+    const host = this.hostFor(run);
+    const cacheId = principalCacheId(runAs);
+    let complete = true;
+    const results = await Promise.all(
+      this.modelList
+        .filter((m) => routed.has(m) && admits(m, runAs))
+        .map(async (model): Promise<ModelSummary | undefined> => {
+          try {
+            if (typeof model.summarize !== 'function') {
+              complete = false;
+              return undefined;
+            }
+            // Its own memo: a summarize that fails half-way must not leave state the votes read.
+            const ctx = new ModelContext(host, model.name, run.scope, run.instant, 0, undefined, contextCacheKey(model.name, cacheId, 'summarize'));
+            const settled = await settleWithin(
+              Promise.resolve().then(() => model.summarize!(runAs, ref, ctx)),
+              this.config.modelTimeoutMs,
+              describeError,
+            );
+            if (!settled.ok) throw new Error(settled.error);
+            return copySummary(settled.value, model.name);
+          } catch (e) {
+            complete = false;
+            this.logAt('error', `${this.where}: model ${quote(model.name)} failed to summarize, left out: ${describeError(e)}`);
+            return undefined;
+          }
+        }),
+    );
+    const list = results.filter((s): s is ModelSummary => s !== undefined);
+    return { list, names: complete ? new Set(list.flatMap((s) => s.permissions.map((p) => p.name))) : undefined };
+  }
+
+  /**
+   * One quiet check per permission, SUMMARY_BATCH at a time, until `limit`
+   * passes: THREW where the check threw, undefined where it had not settled
+   * by then (checks still running are left to finish unread).
+   */
+  private async checkEach(principal: Principal, defs: readonly PermissionDef[], ref: ResourceRef, run: Run, limit: Deadline): Promise<(Checked | typeof THREW | undefined)[]> {
+    const out: (Checked | typeof THREW | undefined)[] = defs.map(() => undefined);
+    let failed = 0;
+    let first: unknown;
+    for (let i = 0; i < defs.length && !limit.expired; i += SUMMARY_BATCH) {
+      const batch = defs.slice(i, i + SUMMARY_BATCH).map((def, j) =>
+        this.quietCheck(principal, def, ref, run).then(
+          (c) => {
+            if (!limit.expired) out[i + j] = c;
+          },
+          (e: unknown) => {
+            if (limit.expired) return;
+            out[i + j] = THREW;
+            if (failed++ === 0) first = e;
+          },
+        ),
+      );
+      await limit.race(Promise.all(batch));
+    }
+    if (failed > 0) this.logAt('error', `${this.where}: summary left out ${failed} permission(s) whose check threw, the first: ${describeError(first)}`);
+    const unchecked = out.filter((c) => c === undefined).length;
+    if (unchecked > 0) this.logAt('error', `${this.where}: summary left out ${unchecked} permission(s) not checked within its deadline of ${limit.ms} ms`);
+    return out;
+  }
+
+  /** `run`: the call's quietRun; each check is its own call tree, so it gets its own nested record. */
+  private quietCheck(principal: Principal, def: PermissionDef, ref: ResourceRef, run: Run): Promise<Checked> {
+    return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested() }, { ref, subject: undefined }));
+  }
+
   // ---- the check pipeline (conventions, "check" steps 1-15) ----
 
   /** `resolved`: a ref (and subject) the caller already resolved, so no adapter sees it again. */
@@ -453,6 +700,7 @@ export class Authorizer {
     const started = performance.now();
     if (!isObject(input)) throw new AuthzConfigError(`${this.where}: check input must be an object`);
     const explain = run.depth === 0 && input.explain === true;
+    if (explain) run = { ...run, bypass: true };
     const steps: TraceStep[] | undefined = explain || this.config.explain ? [] : undefined;
     // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.
     const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
@@ -469,17 +717,22 @@ export class Authorizer {
     const gate = this.principalGate(input.principal);
     if (gate.kind === 'system') {
       core('principal', 'SYSTEM: allowed without models');
-      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.allFields, models: [], votes: [] }), uncacheable: true };
+      return { decision: this.finish({ ...base, requester: SYSTEM_REF, system: true }, { principal: SYSTEM_REF, residual: TRUE, roles: NO_ROLES, fields: this.allFields, models: [], votes: [] }), uncacheable: true, faulted: false };
     }
     if (gate.kind === 'deny') {
       core('principal', `denied before the models: ${gate.reason.code}`);
-      return { decision: this.finish({ ...base, requester: gate.principal }, this.coreDenial(gate.principal, gate.reason)), uncacheable: false };
+      return { decision: this.finish({ ...base, requester: gate.principal }, this.coreDenial(gate.principal, gate.reason)), uncacheable: false, faulted: false };
     }
     const requester = gate.ref;
+    const actor = input.actor as Principal | undefined;
     // Before the resource step, so a chain deeper than maxDelegation throws whatever the resource.
-    const delegation = this.delegation(gate.principal, input.actor, run.delegationBudget);
+    const delegation = this.delegation(gate.principal, actor, run.delegationBudget);
     // Undefined for a forbidden or unreadable delegate: no model runs, so the denial names the requester.
     const parties = delegation.denial ? undefined : this.parties(delegation, gate.principal, requester);
+    // Step 6's key, in the same synchronous stretch as the delegation: the caller may change the principal while a step waits (10b wiring note 10).
+    const keyed = parties !== undefined && subject === undefined && !run.bypass && run.versions !== undefined;
+    const key = keyed ? decisionKey({ domain: this.domain, principal: gate.principal, actor, permission: def.name, ref, versions: run.versions! }) : undefined;
+    if (keyed && key === undefined) this.logAt('debug', `${this.where}: ${def.name} for ${principalKey(requester)} is not cached: the principal or actor has no canonical state`);
 
     let ancestors: readonly ResourceRef[] | undefined;
     if (ref.id !== undefined) {
@@ -488,25 +741,23 @@ export class Authorizer {
         core('resource', 'unknown resource: ancestors answered null');
         // No revocation tag reaches a resource that does not exist yet: a decision resting on this one is not cached.
         if (run.depth > 0) run.nested.uncacheable = true;
-        return { decision: this.finish({ ...base, requester }, parties ? this.partiesDenial(parties, { code: 'unknown_resource' }) : this.coreDenial(requester, { code: 'unknown_resource' })), uncacheable: false };
+        return { decision: this.finish({ ...base, requester }, parties ? this.partiesDenial(parties, { code: 'unknown_resource' }) : this.coreDenial(requester, { code: 'unknown_resource' })), uncacheable: false, faulted: false };
       }
       ancestors = list;
     }
 
     if (!parties) {
       core('delegation', 'denied before the models: a forbidden or unreadable delegate');
-      return { decision: this.finish({ ...base, requester }, this.coreDenial(requester, delegation.denial!)), uncacheable: false };
+      return { decision: this.finish({ ...base, requester }, this.coreDenial(requester, delegation.denial!)), uncacheable: false, faulted: false };
     }
 
-    // Step 6. The key is computed once, before any model reads the principal (10b wiring note 10).
-    const key = subject === undefined && !explain && run.versions !== undefined ? decisionKey({ domain: this.domain, principal: gate.principal, actor: input.actor as Principal | undefined, permission: def.name, ref, versions: run.versions }) : undefined;
-    if (key === undefined && subject === undefined && !explain && run.versions !== undefined) this.logAt('debug', `${this.where}: ${def.name} for ${principalKey(requester)} is not cached: the principal or actor has no canonical state`);
+    // Step 6.
     const principals: Principal[] = [gate.principal, ...delegation.chain];
-    if (input.actor !== undefined) principals.push(input.actor as Principal);
+    if (actor !== undefined) principals.push(actor);
     if (delegation.actor !== undefined) principals.push(delegation.actor);
     const tags = once(() => this.tagsOf(plan.models, principals, ref, ancestors, run));
     if (key !== undefined) {
-      const hit = this.cached(key, run, def, ref, requester, parties.ref, tags);
+      const hit = this.cached(key, run, def, ref, requester, parties.ref);
       if (hit) return hit;
     }
 
@@ -544,10 +795,12 @@ export class Authorizer {
     }
     core('combine', `allow ${residual.op === 'true' ? 'TRUE' : residual.op === 'false' ? 'FALSE' : 'residual'}`, { residual });
 
+    // Core contexts handed to native filters during the subject steps.
+    const cores: ModelContext[] = [];
     let subjectDenied = false;
     let subjectFault = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
-      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps)), this.config.modelTimeoutMs, describeError)) as Settled;
+      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError)) as Settled;
       const truth = settled.ok ? settled.value : undefined;
       if (!settled.ok) {
         subjectFault = true;
@@ -562,9 +815,11 @@ export class Authorizer {
     let fields: Fields = NO_FIELDS;
     let fieldsFailed = false;
     let fieldsUncacheable = false;
+    let fieldsFaulted = false;
     if (allowed) {
       const f = yield* this.fieldsOf(plan.algorithm, votes, binder, delegate?.fields, label);
       fieldsUncacheable = f.uncacheable;
+      fieldsFaulted = f.faulted;
       if (f.failed) {
         core('fields', 'combining the field sets failed: denied');
         residual = FALSE;
@@ -578,7 +833,7 @@ export class Authorizer {
     if (fieldsFailed) reason = ENGINE_FAULT;
     else if (!allowed) {
       // Also when the allow was FALSE before the subject step: a row-level deny entry may still beat a ceiling.
-      const pass = subject !== undefined && !subjectFault ? yield* this.subjectTruths(votes, combined.deciding, plan.algorithm, subject, binder, parties, ref, run, label, core) : { truths: votes.map(staticTruths), uncacheable: false };
+      const pass = subject !== undefined && !subjectFault ? yield* this.subjectTruths(votes, combined.deciding, plan.algorithm, subject, binder, parties, ref, run, label, core, cores) : { truths: votes.map(staticTruths), uncacheable: false };
       reasonsUncacheable = pass.uncacheable;
       reason = this.denyReason(coreDenials, votes, pass.truths, combined.deciding, plan.algorithm, subjectDenied && !subjectFault, combined.failed || bound.failed || subjectFault);
     }
@@ -594,22 +849,34 @@ export class Authorizer {
     if (reason) outcome.reason = reason;
     const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil]);
     if (validUntil) outcome.validUntil = validUntil;
-    const uncacheable = bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable || this.loads(run.scope).some((l) => l.degraded);
-    return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable }, key, run, tags);
+    const faulted = votes.some((v) => v.error !== undefined) || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
+    if (faulted) {
+      run.nested.faulted = true;
+      // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
+      if (run.depth > 0) this.markFault(run.scope);
+      // A marker here would fail every later summary/covers of the request; dropping the memos this decision wrote is enough.
+      else for (const ctx of [...contexts.slice(0, votes.length), ...cores]) ctx.detachMemo();
+    }
+    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
+    return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted }, key, run, tags);
   }
 
   // ---- step 6 and the store (task 10) ----
 
-  /** L1, then L2. An L1 hit is not audited again; an L2 hit is audited like a fresh decision. */
-  private cached(key: string, run: Run, def: PermissionDef, ref: ResourceRef, requester: PrincipalRef, runAs: PrincipalRef, tags: () => readonly string[] | undefined): Checked | undefined {
+  /** L1, then L2. An L1 hit is not audited again, unless no audit recorded its denial yet; an L2 hit is audited like a fresh decision. */
+  private cached(key: string, run: Run, def: PermissionDef, ref: ResourceRef, requester: PrincipalRef, runAs: PrincipalRef): Checked | undefined {
     const now = run.instant.getTime();
     const l1 = l1Key('decision', this.domain, key);
     const entry = run.scope.get(l1);
     if (entry instanceof CachedDecision && entry.generation === this.generation && now < entry.expiresAt) {
       if (run.depth > 0) nest(run, entry.tags);
-      return { decision: entry.decision, uncacheable: false };
+      if (entry.unaudited && audits(run)) {
+        entry.unaudited = false;
+        this.auditDenial(requester, def, ref, entry.decision);
+      }
+      return { decision: entry.decision, uncacheable: false, faulted: false };
     }
-    if (!this.cache) return undefined;
+    if (!this.cache || this.l2Stale) return undefined;
     let found: unknown;
     try {
       found = this.cache.get(key);
@@ -623,14 +890,16 @@ export class Authorizer {
       if (found !== undefined) this.logAt('warn', `${this.where}: ignored a cached decision that does not match ${def.name} on ${resourceKey(ref)} or has expired`);
       return undefined;
     }
-    // Which scope nodes the stored decision's binder read is not known here: any scope change drops what rests on it.
-    const own = tags();
-    const withScope = own && Object.freeze([...new Set([...own, 'scope:*'])].sort());
-    if (run.depth > 0) nest(run, withScope);
+    // The L2 returns no tags, so what the stored decision rested on (nested checks, scope nodes) is unknown here.
+    if (run.depth > 0) nest(run, undefined);
     const ttl = this.ttlOf(decision);
-    if (ttl) run.scope.set(l1, new CachedDecision(decision, withScope, ttl.now + ttl.ms, run.generation));
-    if (run.depth === 0 && !decision.allowed && this.config.auditDenials) this.record({ kind: 'deny', principal: requester, permission: def.name, resource: ref, reason: decision.reason?.code ?? 'no_access' });
-    return { decision, uncacheable: false };
+    if (ttl) run.scope.set(l1, new CachedDecision(decision, undefined, ttl.now + ttl.ms, run.generation, !decision.allowed && !audits(run)));
+    if (audits(run) && !decision.allowed) this.auditDenial(requester, def, ref, decision);
+    return { decision, uncacheable: false, faulted: false };
+  }
+
+  private auditDenial(requester: PrincipalRef, def: PermissionDef, ref: ResourceRef, decision: Decision): void {
+    if (this.config.auditDenials) this.record({ kind: 'deny', principal: requester, permission: def.name, resource: ref, reason: decision.reason?.code ?? 'no_access' });
   }
 
   /** A decision from the L2 is used only when it is what this check asks for and still valid. */
@@ -644,15 +913,18 @@ export class Authorizer {
     return Object.isFrozen(v) ? (v as unknown as Decision) : deepFreeze(v as unknown as Decision);
   }
 
-  /** Stores a cacheable decision (L1 always, L2 when tags exist and no invalidate overlapped) and hands its tags to the decisions above. */
+  /** Stores a cacheable decision (L1 always, L2 when its tags are known and no invalidate came since the scope was born) and hands its tags to the decisions above. */
   private remember(checked: Checked, key: string | undefined, run: Run, tags: () => readonly string[] | undefined): Checked {
-    if (run.depth > 0) nest(run, checked.uncacheable ? undefined : tags());
+    if (run.depth > 0) {
+      if (checked.uncacheable) run.nested.uncacheable = true;
+      else nest(run, tags());
+    }
     if (key === undefined || checked.uncacheable) return checked;
     const ttl = this.ttlOf(checked.decision);
     if (!ttl) return checked;
     const t = tags();
-    run.scope.set(l1Key('decision', this.domain, key), new CachedDecision(checked.decision, t, ttl.now + ttl.ms, run.generation));
-    if (this.cache && t !== undefined && this.generation === run.generation) {
+    run.scope.set(l1Key('decision', this.domain, key), new CachedDecision(checked.decision, t, ttl.now + ttl.ms, run.generation, !checked.decision.allowed && !audits(run)));
+    if (this.cache && !this.l2Stale && t !== undefined && this.generation === run.generation) {
       try {
         this.cache.set(key, checked.decision, t, ttl.ms);
       } catch (e) {
@@ -677,7 +949,7 @@ export class Authorizer {
     return Number.isFinite(ms) && ms > 0 ? { ms, now } : undefined;
   }
 
-  /** entryTags plus every scope node the request loaded (binder or ctx.attributes) and the nested decisions' tags. */
+  /** entryTags plus every scope node the request loaded (binder or ctx.attributes) and the nested decisions' tags; undefined when some nested tags are unknown. */
   private tagsOf(models: readonly AuthorizationModel[], principals: readonly Principal[], ref: ResourceRef, ancestors: readonly ResourceRef[] | undefined, run: Run): readonly string[] | undefined {
     let base: readonly string[] | undefined;
     try {
@@ -685,7 +957,7 @@ export class Authorizer {
     } catch {
       return undefined;
     }
-    if (base === undefined) return undefined;
+    if (base === undefined || run.nested.untagged) return undefined;
     const out = new Set(base);
     for (const load of this.loads(run.scope)) out.add(`scope:${resourceKey(load.ref)}`);
     for (const t of run.nested.tags) out.add(t);
@@ -697,49 +969,110 @@ export class Authorizer {
     return memo(scope, l1Key('nodes', this.domain, ''), () => [] as NodeLoad[]);
   }
 
+  /** A model may memoise in ctx.cache what a degraded load or a rejected host call gave it, so every later decision of the request may rest on it. */
+  private scopeFaulted(scope: Map<string, unknown>): boolean {
+    return scope.get(l1Key('fault', this.domain, '')) === true || this.loads(scope).some((l) => l.degraded);
+  }
+
+  private markFault(scope: Map<string, unknown>): void {
+    scope.set(l1Key('fault', this.domain, ''), true);
+  }
+
+  /** Marks the request scope when the call throws or rejects, then lets the failure through. */
+  private marking<T>(scope: Map<string, unknown>, call: () => MaybePromise<T>): MaybePromise<T> {
+    let r: MaybePromise<T>;
+    try {
+      r = call();
+    } catch (e) {
+      this.markFault(scope);
+      throw e;
+    }
+    if (!isThenable(r)) return r;
+    return Promise.resolve(r).catch((e: unknown) => {
+      this.markFault(scope);
+      throw e;
+    });
+  }
+
   /** Wiring note 1: the version vector of a top-level call. A change recompiles the routes and drops the L2; undefined turns caching off for the call. */
-  private epoch(): { readonly versions: string | undefined; readonly generation: number } {
+  private epoch(): string | undefined {
+    // The first failure was logged at error; a cache that stays down would log every call.
+    if (this.l2Stale) this.invalidateL2(['*'], 'debug');
     const versions = versionVector(this.modelList);
     if (versions === undefined) {
       if (!this.versionsWarned) {
         this.versionsWarned = true;
         this.logAt('warn', `${this.where}: a model's version() threw or returned a non-string; decisions are not cached while it does`);
       }
-      return { versions: undefined, generation: this.generation };
+      return undefined;
     }
     if (versions !== this.versions) {
-      this.generation++;
+      this.generation = nextGeneration();
       this.invalidateL2(['*']);
       try {
         this.table = this.compileTable();
       } catch (e) {
         // The old routes stay; the next call tries again.
         this.logAt('error', `${this.where}: recompiling the routes after a model version change failed; decisions are not cached: ${describeError(e)}`);
-        return { versions: undefined, generation: this.generation };
+        return undefined;
       }
       this.versions = versions;
     }
-    return { versions, generation: this.generation };
+    return versions;
+  }
+
+  /** The generation when this Authorizer first touched the request scope (its first run or preload). */
+  private bornOf(scope: Map<string, unknown>): number {
+    return memo(scope, l1Key('generation', this.domain, ''), () => this.generation);
   }
 
   private compileTable(): RouteTable {
     return compileRoutes({ domain: this.domain, models: this.modelList, registry: this.registry, combine: this.combineConfig, algorithms: [...this.combinators.keys()] });
   }
 
-  private invalidateL2(tags: readonly string[]): void {
+  private invalidateL2(tags: readonly string[], level: 'error' | 'debug' = 'error'): void {
     if (!this.cache) return;
     try {
       this.cache.invalidate(tags);
+      if (tags.includes('*')) this.l2Stale = false;
     } catch (e) {
-      this.logAt('error', `${this.where}: the decision cache failed to invalidate ${tags.join(', ')}: ${describeError(e)}`);
+      this.l2Stale = true;
+      this.logAt(level, `${this.where}: the decision cache failed to invalidate ${tags.join(', ')}; it is not used until a full invalidation succeeds: ${describeError(e)}`);
     }
   }
 
-  /** The context host of one call tree: a model's ctx.check shares its versions, generation and nested record. */
+  /**
+   * The context host of one call tree: a model's ctx.check shares its versions,
+   * generation, nested record and cache bypass. A failed (or, for attributes,
+   * timed-out) call marks the tree faulted even when the model catches it; a
+   * rejection also marks the request, as nothing else records it.
+   */
   private hostFor(run: Run): ContextHost {
+    const fault = (e: unknown): never => {
+      run.nested.faulted = true;
+      this.markFault(run.scope);
+      throw e;
+    };
+    const watched = <T>(call: () => MaybePromise<T>): MaybePromise<T> => {
+      let r: MaybePromise<T>;
+      try {
+        r = call();
+      } catch (e) {
+        return fault(e);
+      }
+      return isThenable(r) ? Promise.resolve(r).then(undefined, fault) : r;
+    };
     return Object.freeze({
       ...this.host,
-      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { ...run, sync: false, scope, instant, depth, delegationBudget: this.config.maxDelegation })).then((r) => r.decision),
+      ancestors: (ref: ResourceRef, scope: Map<string, unknown>) => watched(() => this.ancestorsOf(this.requireRef(ref), scope)),
+      attributes: (ref: ResourceRef, scope: Map<string, unknown>) =>
+        watched(() =>
+          this.nodeLoad(this.requireRef(ref), scope).result.then((l) => {
+            if (l.degraded) run.nested.faulted = true;
+            return l.attributes;
+          }),
+        ) as Promise<Attributes>,
+      nestedCheck: (req: Omit<DecisionRequest, 'explain'>, scope: Map<string, unknown>, instant: Date, depth: number) => runAsync(this.pipeline(req, { ...run, sync: false, scope, instant, depth, delegationBudget: this.config.maxDelegation })).then((r) => r.decision, fault),
     });
   }
 
@@ -835,13 +1168,13 @@ export class Authorizer {
   }
 
   /** Step 11. A malformed node or a binder error gives FALSE (fail closed). */
-  private *bind(allow: ResourceFilter, binder: RefBinder): Pipeline<{ readonly residual: ResourceFilter; readonly failed: boolean; readonly uncacheable: boolean }> {
+  private *bind(allow: ResourceFilter, binder: RefBinder): Pipeline<{ readonly residual: ResourceFilter; readonly failed: boolean; readonly degraded: boolean; readonly uncacheable: boolean }> {
     try {
       const covered = yield* binder.cover([allow]);
-      return { residual: binder.bind(allow), failed: covered.failed, uncacheable: covered.uncacheable };
+      return { residual: binder.bind(allow), failed: covered.failed, degraded: covered.degraded, uncacheable: covered.uncacheable };
     } catch (e) {
       this.logAt('error', `${this.where}: binding refs failed: ${describeError(e)}`);
-      return { residual: FALSE, failed: true, uncacheable: true };
+      return { residual: FALSE, failed: true, degraded: true, uncacheable: true };
     }
   }
 
@@ -902,24 +1235,29 @@ export class Authorizer {
    * The votes' terms are bound like the allow; their refs may be gone from the
    * simplified allow, so their scope nodes are loaded first. `failed`: an
    * AuthzConfigError (glob budget, binder), which denies with model_error.
-   * A degraded or failed load leaves its refs missing and only stops caching.
+   * A degraded or failed load leaves its refs missing: the decision stands
+   * but is faulted and not cached.
    */
-  private *fieldsOf(algorithm: string, votes: readonly Vote[], binder: RefBinder, delegate: Fields | undefined, label: string): Pipeline<{ readonly fields: Fields; readonly failed: boolean; readonly uncacheable: boolean }> {
+  private *fieldsOf(algorithm: string, votes: readonly Vote[], binder: RefBinder, delegate: Fields | undefined, label: string): Pipeline<{ readonly fields: Fields; readonly failed: boolean; readonly faulted: boolean; readonly uncacheable: boolean }> {
     let uncacheable: boolean;
+    let faulted: boolean;
     try {
-      uncacheable = (yield* binder.cover(votes.filter((v) => v.error === undefined).flatMap((v) => [v.permitWhen, v.denyWhen]))).uncacheable;
+      const covered = yield* binder.cover(votes.filter((v) => v.error === undefined).flatMap((v) => [v.permitWhen, v.denyWhen]));
+      uncacheable = covered.uncacheable;
+      faulted = covered.degraded;
     } catch (e) {
       // Refs of nodes left unloaded bind as missing: fewer fields, more hidden.
       this.logAt('error', `${this.where}: loading the scope attributes of the field sets of ${label} failed: ${describeError(e)}`);
       uncacheable = true;
+      faulted = true;
     }
     try {
       const own = this.fieldCombiner.combine(algorithm, votes, (f) => binder.bind(f));
-      return { fields: delegate ? this.fieldCombiner.intersect(own, delegate) : own, failed: false, uncacheable };
+      return { fields: delegate ? this.fieldCombiner.intersect(own, delegate) : own, failed: false, faulted, uncacheable };
     } catch (e) {
       if (!(e instanceof AuthzConfigError)) throw e;
       this.logAt('error', `${this.where}: combining the field sets of ${label} failed: ${describeError(e)}`);
-      return { fields: NO_FIELDS, failed: true, uncacheable: true };
+      return { fields: NO_FIELDS, failed: true, faulted: true, uncacheable: true };
     }
   }
 
@@ -933,10 +1271,10 @@ export class Authorizer {
    * under one time limit; static truths for the others and on timeout. Not
    * traced as subject checks: one core 'reason' step holds the result.
    */
-  private *subjectTruths(votes: readonly Vote[], deciding: Vote | undefined, algorithm: string, subject: unknown, binder: RefBinder, parties: Parties, ref: ResourceRef, run: Run, label: string, core: (step: string, note: string, data?: unknown) => void): Pipeline<{ readonly truths: readonly VoteTruths[]; readonly uncacheable: boolean }> {
+  private *subjectTruths(votes: readonly Vote[], deciding: Vote | undefined, algorithm: string, subject: unknown, binder: RefBinder, parties: Parties, ref: ResourceRef, run: Run, label: string, core: (step: string, note: string, data?: unknown) => void, cores: ModelContext[]): Pipeline<{ readonly truths: readonly VoteTruths[]; readonly uncacheable: boolean }> {
     const started = performance.now();
     const counted: readonly Vote[] = algorithm === 'first-applicable' && deciding !== undefined ? [deciding] : votes;
-    const subjectEnv = this.subjectEnv(parties, ref, run, undefined);
+    const subjectEnv = this.subjectEnv(parties, ref, run, undefined, cores);
     let uncacheable: boolean;
     try {
       // Deny entries may read scope nodes the allow did not.
@@ -1027,7 +1365,7 @@ export class Authorizer {
     }
     deepFreeze(decision);
 
-    if (f.run.depth === 0) {
+    if (audits(f.run)) {
       const base = { principal: f.requester, permission: f.def.name, resource: f.ref };
       if (f.system) this.record({ kind: 'system', ...base });
       if (!allowed && this.config.auditDenials) this.record({ kind: 'deny', ...base, reason: decision.reason!.code });
@@ -1062,17 +1400,23 @@ export class Authorizer {
     return Object.freeze({ ...env, now: new Date(instant.getTime()) });
   }
 
-  private subjectEnv(parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined): SubjectEnv {
+  /** `cores` gets the env's context. */
+  private subjectEnv(parties: Parties, ref: ResourceRef, run: Run, steps: TraceStep[] | undefined, cores: ModelContext[]): SubjectEnv {
     const adapter = this.adapterByType.get(ref.type);
     const attribute = adapter && typeof adapter.attribute === 'function' ? (subject: unknown, field: string) => adapter.attribute!(subject, field) : defaultAttribute;
+    const ctx = new ModelContext(this.hostFor(run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId));
+    cores.push(ctx);
     return {
       principal: parties.principal,
       ref,
       attribute,
       relation: (type, name) => this.relation(type, name),
       ancestors: (r) => Promise.resolve(this.ancestorsOf(this.requireRef(r), run.scope)),
-      native: (op) => this.natives.get(op),
-      ctx: new ModelContext(this.hostFor(run), CORE, run.scope, run.instant, run.depth, steps, contextCacheKey('\u0000core', parties.cacheId)),
+      native: (op) => {
+        const filter = this.natives.get(op);
+        return filter && detachingOnThrow(filter, ctx);
+      },
+      ctx,
     };
   }
 
@@ -1170,7 +1514,13 @@ export class Authorizer {
   // ---- plumbing ----
 
   private newRun(sync: boolean, scope: RequestScope | undefined): Run {
-    return { sync, scope: scopeMap(scope), instant: this.now(), depth: 0, delegationBudget: this.config.maxDelegation, ...this.epoch(), nested: newNested() };
+    return this.topRun(sync, scopeMap(scope), this.now(), 0);
+  }
+
+  /** A run that starts a call tree; epoch() first, so a fresh scope is born with the generation after a version change. */
+  private topRun(sync: boolean, scope: Map<string, unknown>, instant: Date, depth: number): Run {
+    const versions = this.epoch();
+    return { sync, scope, instant, depth, delegationBudget: this.config.maxDelegation, versions, generation: this.bornOf(scope), nested: newNested(), bypass: false };
   }
 
   private now(): Date {
@@ -1215,11 +1565,44 @@ export class Authorizer {
 
 const scopeMap = (scope: RequestScope | undefined): Map<string, unknown> => (scope?.cache instanceof Map ? scope.cache : new Map());
 
-const newNested = (): Nested => ({ uncacheable: false, tags: new Set() });
+const newNested = (): Nested => ({ uncacheable: false, untagged: false, faulted: false, tags: new Set() });
 
-/** undefined tags: a decision above this one cannot be invalidated reliably, so it is not cached. */
+const THREW: unique symbol = Symbol('threw');
+const EXPIRED: unique symbol = Symbol('expired');
+
+/** One time limit for a whole summary() or covers() call; clear() it when the call ends. */
+class Deadline {
+  expired = false;
+  private readonly reached: Promise<typeof EXPIRED>;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(readonly ms: number) {
+    this.reached = new Promise((resolve) => {
+      this.timer = setTimeout(() => {
+        this.expired = true;
+        resolve(EXPIRED);
+      }, ms);
+    });
+  }
+
+  /** EXPIRED when the limit comes first; `work` is left running. */
+  race<T>(work: Promise<T>): Promise<T | typeof EXPIRED> {
+    if (!this.expired) return Promise.race([work, this.reached]);
+    swallow(work);
+    return Promise.resolve(EXPIRED);
+  }
+
+  clear(): void {
+    clearTimeout(this.timer);
+  }
+}
+
+/** Only a top-level check outside summary/covers is an access attempt. */
+const audits = (run: Run): boolean => run.depth === 0 && run.quiet !== true;
+
+/** undefined tags: no invalidate can reach a decision above this one in the L2, so it stays in the L1 (which the generation guards). */
 function nest(run: Run, tags: readonly string[] | undefined): void {
-  if (tags === undefined) run.nested.uncacheable = true;
+  if (tags === undefined) run.nested.untagged = true;
   else for (const t of tags) run.nested.tags.add(t);
 }
 
@@ -1257,7 +1640,28 @@ function principalCacheId(p: Principal): string {
   return `object:${n}`;
 }
 
-const contextCacheKey = (owner: string, cacheId: string): string => JSON.stringify([cacheId, owner]);
+/** The subject evaluator reads a native filter's throw as UNKNOWN, not a fault, so nothing else drops what it memoised before throwing. */
+function detachingOnThrow(filter: NativeFilter, ctx: ModelContext): NativeFilter {
+  const detach = (e: unknown): never => {
+    ctx.detachMemo();
+    throw e;
+  };
+  return {
+    op: filter.op,
+    matches: (args, subject, ref, c) => {
+      let out: boolean | Promise<boolean>;
+      try {
+        out = filter.matches(args, subject, ref, c);
+      } catch (e) {
+        return detach(e);
+      }
+      return Promise.resolve(out).catch(detach);
+    },
+  };
+}
+
+/** `hook`: a model hook with a memo of its own (summarize), apart from the votes' one. */
+const contextCacheKey = (owner: string, cacheId: string, hook?: string): string => JSON.stringify(hook === undefined ? [cacheId, owner] : [cacheId, owner, hook]);
 
 /** Exactly `{ type, id? }` as own data properties; `id: null` = no id. */
 function refShaped(v: object): ResourceRef | undefined {
@@ -1355,7 +1759,7 @@ class RefBinder {
   ) {}
 
   /** `uncacheable`: a filter read a ref the L2 key does not hold (refs read before `bindRefs`, which replaces principal.* and env.*), or a load it needed was degraded. */
-  *cover(filters: readonly ResourceFilter[]): Pipeline<{ readonly failed: boolean; readonly uncacheable: boolean }> {
+  *cover(filters: readonly ResourceFilter[]): Pipeline<{ readonly failed: boolean; readonly degraded: boolean; readonly uncacheable: boolean }> {
     let uncacheable = false;
     const refs = new Set<string>();
     for (const f of filters) {
@@ -1363,11 +1767,12 @@ class RefBinder {
       for (const r of collectRefs(bindRefs(f, this.scope))) refs.add(r);
     }
     const nodes = [...scopeNodes([...refs], { ancestors: this.ancestors })].filter(([type]) => !this.attributes.has(type));
-    if (nodes.length === 0) return { failed: false, uncacheable };
+    if (nodes.length === 0) return { failed: false, degraded: false, uncacheable };
     if (this.sync) yield NEEDS_ASYNC;
     const loaded = (yield Promise.all(nodes.map(([, node]) => this.load(node)))) as readonly BoundAttributes[];
     nodes.forEach(([type], i) => this.attributes.set(type, loaded[i].attributes));
-    return { failed: loaded.some((l) => l.failed), uncacheable: uncacheable || loaded.some((l) => l.degraded) };
+    const degraded = loaded.some((l) => l.degraded);
+    return { failed: loaded.some((l) => l.failed), degraded, uncacheable: uncacheable || degraded };
   }
 
   bind(f: ResourceFilter): ResourceFilter {
@@ -1393,4 +1798,88 @@ function earliest(dates: readonly (Date | undefined)[]): Date | undefined {
     if (valid && (best === undefined || valid.getTime() < best.getTime())) best = valid;
   }
   return best;
+}
+
+function summaryEntry(def: PermissionDef, conditional: boolean, fields: Fields): AccessSummary['permissions'][number] {
+  return def.fields === true ? { name: def.name, conditional, fields: { read: [...fields.read], write: [...fields.write] } } : { name: def.name, conditional };
+}
+
+/** A validated copy; a malformed ceiling (every check denies then) is left out. */
+function summaryCeiling(p: Principal): Ceiling | undefined {
+  let raw: unknown;
+  try {
+    raw = p.ceiling;
+  } catch {
+    return undefined;
+  }
+  const read = readCeiling(raw);
+  return read.ok ? read.ceiling : undefined;
+}
+
+/** A frozen engine copy of a model's summary, stamped with the model's name; throws when malformed or over the data budget. */
+function copySummary(raw: unknown, model: string): ModelSummary {
+  const data = copyData(raw, true);
+  if (!isObject(data) || !Array.isArray(data.permissions)) throw new Error('the summary has no permissions list');
+  const permissions = data.permissions.map((p: unknown, i): ModelSummary['permissions'][number] => {
+    if (!isObject(p) || typeof p.name !== 'string' || typeof p.conditional !== 'boolean') throw new Error(`permissions[${i}] is not { name, conditional }`);
+    if (p.fields === undefined) return { name: p.name, conditional: p.conditional };
+    const given = p.fields;
+    if (!isObject(given)) throw new Error(`permissions[${i}].fields is not a field set`);
+    // Rebuilt: anything else a model puts there would reach the access summary (B25).
+    const fields: { -readonly [K in keyof FieldSet]: FieldSet[K] } = {};
+    for (const k of ['read', 'write', 'hide'] as const) {
+      const globs = given[k];
+      if (globs === undefined) continue;
+      if (!isStrings(globs)) throw new Error(`permissions[${i}].fields is not a field set`);
+      fields[k] = globs as string[];
+    }
+    return { name: p.name, conditional: p.conditional, fields };
+  });
+  const out: { -readonly [K in keyof ModelSummary]: ModelSummary[K] } = { model, permissions };
+  if (data.roles !== undefined) {
+    if (!Array.isArray(data.roles)) throw new Error('roles is not a list');
+    out.roles = data.roles.map((r: unknown, i) => {
+      const scope = isObject(r) ? copyRef(r.scope) : undefined;
+      if (!isObject(r) || typeof r.role !== 'string' || !scope || (r.expiresAt !== undefined && typeof r.expiresAt !== 'string')) throw new Error(`roles[${i}] is not { role, scope, expiresAt? }`);
+      return r.expiresAt === undefined ? { role: r.role, scope } : { role: r.role, scope, expiresAt: r.expiresAt };
+    });
+  }
+  return deepFreeze(out);
+}
+
+const isStrings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+// Residuals are engine copies within the vote budgets; past this a walk fails closed (no cover).
+const COMPARE_NODES = 100_000;
+const COMPARE_DEPTH = 256;
+
+/**
+ * `big` covers `small`: nothing to cover, or `big` is unconditional or the
+ * same tree without a relation or native node (those mean the current
+ * principal, so equal trees still differ), and `small`'s fields are inside
+ * `big`'s. Throws AuthzConfigError when the field budget runs out.
+ */
+function entryCovers(big: Decision, small: Decision): boolean {
+  if (!small.allowed) return true;
+  if (!big.allowed) return false;
+  if (big.residual.op !== 'true' && (readsPrincipal(big.residual, 0, { left: COMPARE_NODES }) || !sameTree(big.residual, small.residual, 0, { left: COMPARE_NODES }))) return false;
+  return subtractFieldGlobs(small.fields.read, big.fields.read).length === 0 && subtractFieldGlobs(small.fields.write, big.fields.write).length === 0;
+}
+
+function readsPrincipal(f: unknown, depth: number, nodes: { left: number }): boolean {
+  if (--nodes.left < 0 || depth > COMPARE_DEPTH || !isObject(f)) return true;
+  const op = f.op;
+  if (op === 'relation' || (typeof op === 'string' && op.startsWith('native:'))) return true;
+  if (op === 'and' || op === 'or') return !Array.isArray(f.args) || f.args.some((x) => readsPrincipal(x, depth + 1, nodes));
+  if (op === 'not') return readsPrincipal(f.arg, depth + 1, nodes);
+  return false;
+}
+
+function sameTree(a: unknown, b: unknown, depth: number, nodes: { left: number }): boolean {
+  if (--nodes.left < 0 || depth > COMPARE_DEPTH) return false;
+  if (a === b) return true;
+  if (!isObject(a) || !isObject(b) || Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((k) => Object.hasOwn(b, k) && sameTree(a[k], b[k], depth + 1, nodes));
 }

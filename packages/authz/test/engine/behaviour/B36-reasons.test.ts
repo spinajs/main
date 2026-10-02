@@ -196,8 +196,8 @@ describe('B36: deny reasons through the Authorizer', () => {
     });
 
     it('B36: one time limit covers the whole reason pass: two deny entries each under it, together over it, fall back once', async () => {
-      const limitMs = 100;
-      const workMs = 60;
+      const limitMs = 500;
+      const workMs = 300;
       const rows = [new FakeRow('doc', 'd1', { owner: 'bob' })];
       // One connection: each call waits for the previous one, then works workMs.
       let queue: Promise<unknown> = Promise.resolve();
