@@ -72,8 +72,9 @@ const assertPermission = (name: Permission): void => {
   }
 };
 
-// Linear wildcard match of glob against text[from, to): on a mismatch, retry
-// from the last '*' one character later. A regex built from the glob would
+// Greedy wildcard match of glob against text[from, to): on a mismatch, retry
+// from the last '*' one character later. Worst case O(|glob| * |text|); the
+// text is a valid (registered, short) name. A regex built from the glob would
 // backtrack exponentially on globs such as 'a*a*a*...c'.
 const matchPart = (glob: string, text: string, from: number, to: number): boolean => {
   let g = 0;
