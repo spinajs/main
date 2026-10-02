@@ -45,6 +45,12 @@ export const unionFieldGlobs = (...lists: readonly (readonly string[])[]): strin
 
 export const subtractFieldGlobs = (from: readonly string[], remove: readonly string[]): string[] => combine([parseList(from), parseList(remove)], ([a, b]) => a && !b);
 
+/**
+ * Keeps the fields of `data` that `fields` allows. Values come back as
+ * JSON.stringify would see them: toJSON is applied first, so a Date becomes
+ * its ISO string and a model the record its toJSON() returns. `Partial<T>`
+ * therefore describes which keys may remain, not the types of their values.
+ */
 export function filterObject<T>(fields: readonly string[], data: readonly T[]): Partial<T>[];
 export function filterObject<T>(fields: readonly string[], data: T): Partial<T>;
 export function filterObject(fields: readonly string[], data: unknown): unknown {
@@ -79,6 +85,7 @@ interface Node {
   star?: Node;
   sign?: boolean;
   live: boolean; // some glob ends in this subtree
+  allowsBelow: boolean; // some positive glob ends strictly below this node
 }
 
 // The trie nodes at the current depth that match the path so far, most
@@ -123,7 +130,7 @@ const parse = (glob: unknown): Glob => {
 
 const compile = (globs: readonly Glob[], budget: Budget): Node => {
   let ids = 0;
-  const node = (): Node => ({ id: ids++, lit: new Map(), live: false });
+  const node = (): Node => ({ id: ids++, lit: new Map(), live: false, allowsBelow: false });
   const root = node();
 
   for (const { segs, allow } of globs) {
@@ -145,6 +152,7 @@ const compile = (globs: readonly Glob[], budget: Budget): Node => {
     let live = n.sign !== undefined;
     for (const c of n.lit.values()) live = mark(c) || live;
     if (n.star) live = mark(n.star) || live;
+    n.allowsBelow = [...n.lit.values(), ...(n.star ? [n.star] : [])].some((c) => c.sign === true || c.allowsBelow);
     return (n.live = live);
   };
   mark(root);
@@ -455,7 +463,11 @@ const enter = (stack: Set<object>, v: object): void => {
 
 const allowed = (cs: Cursors): boolean => cs.every((c) => c.value);
 
-// undefined when some reading denies the key and everything below it.
+// Denied here, and no positive glob below can allow anything deeper.
+const deadEnd = (c: Cursor): boolean => !c.value && c.nodes.every((n) => !n.allowsBelow);
+
+// undefined when some reading denies the key and everything below it, so the
+// caller can drop the key without reading its value (no getter, no toJSON).
 const stepKey = (cs: Cursors, key: string): Cursors | undefined => {
   const next = new Map<string, Cursor>();
   const add = (c: Cursor) => next.set(`${+c.value}:${c.nodes.map((n) => n.id).join(',')}`, c);
@@ -466,8 +478,8 @@ const stepKey = (cs: Cursors, key: string): Cursors | undefined => {
 
   const out: Cursor[] = [];
   for (const c of next.values()) {
+    if (deadEnd(c)) return undefined;
     if (c.nodes.length > 0) out.push(c);
-    else if (!c.value) return undefined;
   }
   return out.length > 0 ? out : [...next.values()].slice(0, 1);
 };

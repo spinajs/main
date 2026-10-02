@@ -565,6 +565,38 @@ describe('field glob contracts', () => {
         expect(filterObject(['*'], { a: shared, b: [shared, shared] })).to.deep.eq({ a: { x: 1 }, b: [{ x: 1 }, { x: 1 }] });
       });
 
+      it('never reads a key that nothing at or below it can allow', () => {
+        let reads = 0;
+        const spy = {
+          toJSON: () => {
+            reads++;
+            return 'h';
+          },
+        };
+        const row = {
+          Id: 1,
+          get Password(): string {
+            throw new Error('read Password');
+          },
+          Owner: {
+            Name: 'n',
+            get Password(): string {
+              throw new Error('read Owner.Password');
+            },
+          },
+          get 'Owner.Password'(): string {
+            throw new Error('read the dotted key');
+          },
+          Profile: { Password: spy },
+        };
+        expect(filterObject(F, row)).to.deep.eq({ Id: 1, Owner: { Name: 'n' }, Profile: {} });
+        expect(filterObject(F, { Password: spy, list: [{ Password: spy }] })).to.deep.eq({ list: [{}] });
+        expect(reads).to.eq(0);
+        // a positive glob below a denied key still makes it read
+        expect(filterObject(['*', '!Password', 'Password.hint'], { Password: { hint: spy, hash: 'x' } })).to.deep.eq({ Password: { hint: 'h' } });
+        expect(reads).to.eq(1);
+      });
+
       it('a fake Date fails closed', () => {
         const fake = Object.create(Date.prototype) as Record<string, unknown>;
         fake.Password = 'h';
