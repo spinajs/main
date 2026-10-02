@@ -64,7 +64,7 @@ what changed. The design (r6) holds the decisions behind them.
      A12 prefix list, route builders for B5 http paths). The owning lane
      decides each one.
 5. **Open items from F5, with proposed owners** (the integrator confirms;
-   none is decided here).
+   none is decided here, except the token roles: r6, D3).
    - The `C2 → C2` rewrites (`users-controller`, `z-controller-refresh`)
      have no T lane. Proposed owner: T2, which already writes
      `users-http/test/v3` and depends on C2; the effort needs a re-check.
@@ -257,7 +257,10 @@ the r3 change list above.
    comments of the declarations in those files are part of the frozen
    contract: `scripts/api-snapshot.mjs` keeps them in
    `packages/*/etc/*.api.md`, so changing one needs an RFC like a signature
-   change.
+   change. This covers every declaration the snapshot holds, also those of
+   files the entries import and of re-exported declarations; it does not
+   cover a doc on the same line as the token before it, docs inside a
+   constant's value, or a constant whose declared type drops them.
 4. **Behaviour fixtures** live in `@spinajs/authz-testing` (F5). A lane runs
    the B-rules it owns from its own package tests:
    `runBehaviour(['B11', 'B12'], () => harness)`. A lane never edits
