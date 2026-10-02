@@ -72,4 +72,20 @@ describe('authz contract files boundary', () => {
     }
     expect(bad).to.deep.eq([]);
   });
+
+  it('imports only AsyncService as a value from @spinajs/di', () => {
+    const bad: string[] = [];
+    for (const f of files()) {
+      const sf = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true);
+      for (const st of sf.statements) {
+        if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== '@spinajs/di') continue;
+        const c = st.importClause;
+        if (c?.isTypeOnly) continue;
+        const nb = c?.namedBindings;
+        const values = !c ? ['<side effect>'] : [...(c.name ? [c.name.text] : []), ...(nb && ts.isNamespaceImport(nb) ? ['* as ' + nb.name.text] : []), ...(nb && ts.isNamedImports(nb) ? nb.elements.filter((e) => !e.isTypeOnly).map((e) => (e.propertyName ?? e.name).text) : [])];
+        for (const v of values) if (v !== 'AsyncService') bad.push(`${relative(PKG_ROOT, f)}: ${v}`);
+      }
+    }
+    expect(bad).to.deep.eq([]);
+  });
 });
