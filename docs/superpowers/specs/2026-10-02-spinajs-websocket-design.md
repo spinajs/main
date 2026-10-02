@@ -41,7 +41,7 @@ No package in the repo depends on it, so a breaking v3 costs nothing.
 | `@spinajs/http-socket-common` (new) | isomorphic, no dependencies | Wire envelopes, error codes, `PROTOCOL_VERSION`, contract typing helpers |
 | `@spinajs/http-socket` (v3 rewrite) | Node | Server: controllers and decorators, the command pipeline, `SocketHub` (rooms and push), error mapping, limits, idempotency store, graceful shutdown |
 | `@spinajs/http-socket-client` (new) | isomorphic: `socket.io-client` only, no DI | Client: connection state machine, reconnect, commands, durable outbox, events, streams, typed contracts. Subpath `/browser` adds `IndexedDbOutboxStore` |
-| `@spinajs/rbac-http-socket` (new) | Node | Handshake authentication from rbac sessions or Bearer tokens (`rbac-http-token`), the `@User()` argument, rbac policies on commands |
+| (no separate package) | Node | Authentication and access use authz-v3 (the base branch): the handshake principal, the token source, `@SocketAccess` and revalidation are in `http-socket` v3 (W1). The session-cookie source is a `/socket` subpath of `@spinajs/authn-http` (owner ruling 2026-10-02) |
 
 **Transport: socket.io 4.8**, as today. It brings reconnection, heartbeats, rooms, binary attachments, acks, adapters
 for several server instances, and connection state recovery. The layer's protocol sits on socket.io acks and events.
@@ -110,7 +110,7 @@ export class DocsSocket extends BaseSocketController {
 ```
 
 The argument decorators are `@Payload()` (validated against the command `schema` or the DTO's `@Schema`, and
-hydrated as http args are), `@Connection()`, `@User()` (rbac-http-socket), `@Signal()`, `@Reason()` and `@FromDI()`.
+hydrated as http args are), `@Connection()`, `@User()` (the authz-v3 principal), `@Signal()`, `@Reason()` and `@FromDI()`.
 
 ### 5.2 The command pipeline
 
@@ -259,7 +259,7 @@ kit can:
 | **W1 Server core** | `http-socket-common`; `http-socket` v3: controllers, decorators, command pipeline steps 1–4 and 6–10 (all but idempotency), error mapping, `SocketHub`, handshake auth hook, limits, config |
 | **W2 Client core** | `http-socket-client`: state machine, reconnect, plain commands, events, typed contracts |
 | **W3 Resilience** | `IdempotencyStore`, ordered commands, durable commands with the memory, IndexedDB and file stores, graceful shutdown, recovery settings, the fault kit |
-| **W4 Streams, rbac, docs** | Stream replies with credits; `rbac-http-socket`; README and an example app |
+| **W4 Streams, session source, docs** | Stream replies with credits; the `@spinajs/authn-http/socket` session-cookie source; README and an example app |
 
 W1 and W2 can run in parallel once `http-socket-common` exists. W3 needs both. W4 needs W1 and W2.
 
@@ -267,4 +267,5 @@ W1 and W2 can run in parallel once `http-socket-common` exists. W3 needs both. W
 
 1. **socket.io stays** as the transport.
 2. **The breaking `http-socket` v3 is approved.**
-3. **Package names approved:** `http-socket-common`, `http-socket-client`, `rbac-http-socket`.
+3. **Package names approved:** `http-socket-common` and `http-socket-client`. `rbac-http-socket` was later dropped for the authz-v3 base: the session source becomes `@spinajs/authn-http/socket`.
+4. **Base branch:** `feat/authz-v3`, and the layer ships with 3.0. Cross-origin connections are refused unless listed, and connections revalidate every 60 s.

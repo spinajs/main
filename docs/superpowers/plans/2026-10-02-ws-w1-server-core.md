@@ -8152,6 +8152,11 @@ Owner decision 2026-10-02: W1 builds `@spinajs/http-socket` v3 on `feat/authz-v3
 
 ### Owner questions
 
+- **Owner answers (2026-10-02):**
+  - **Q1:** drop `rbac-http-socket`. The session-cookie source goes into `@spinajs/authn-http` as a `/socket` subpath (G6).
+  - **Q2:** cross-origin connections are refused unless listed (`cors.origins: []`).
+  - **Q3:** W1 ships with 3.0 and merges into `feat/authz-v3`; the owner chose to build W1 on that branch.
+  - **Q4:** the revalidation interval is 60 s.
 - **Q1. What becomes of `@spinajs/rbac-http-socket` (spec §3, W4)?** authz-v3 has no `rbac*` packages any more. Its authentication glue is `authn-*` and its authorization glue is `authz-*` (design §4.1.1). Most of the planned package now lives in W1: handshake principal, authn token source, `@SocketAccess`, revalidation. What is left is the session-cookie source and a `@User()` argument. Options:
   - (a) **Recommended.** Drop the package. Put the session-cookie `SocketPrincipalSource` in `@spinajs/authn-http` under a subpath `@spinajs/authn-http/socket`, since authn-http owns the cookie name, secret and session restore. `authn-http` then gains an optional peer dependency on `@spinajs/http-socket`; the authz-v3 direction rule forbids only `authz*`/`users*` edges from `authn*`. `@User()` becomes unnecessary: use `SocketConnection.user` (`Principal.identity`), or add `@CurrentPrincipal()`-style args to W1.
   - (b) Rename it **`@spinajs/authn-http-socket`**: a small authn-family package holding the session source and the identity arguments, depending on `authn`, `authn-http` and `http-socket`.
