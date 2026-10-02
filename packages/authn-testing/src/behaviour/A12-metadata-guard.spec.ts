@@ -24,12 +24,13 @@ export const A12: AuthnRule = defineRule('A12', 'authentication state never trav
       await h.metadata.seedRaw(a, '2fa:enabled', true);
       assert.strictEqual((await h.metadata.write('owner', a, '2fa:enabled', false)).ok, false);
       assert.ok((await h.metadata.rawKeys(a)).includes('2fa:enabled'), 'the planted row is still there');
+      assert.strictEqual(await h.metadata.rawValue(a, '2fa:enabled'), true, 'the planted value is unchanged');
       assert.strictEqual((await h.metadata.read('owner', a, '2fa:enabled')).found, false);
     },
   }),
   table(WRITE_ROWS, (row) =>
     defineCase({
-      name: `A12 a reserved key write is refused: ${row.key} by ${row.actor}`,
+      name: `A12 a reserved key write is refused: ${row.key} × ${row.actor}`,
       facet: 'A12/api',
       needs: ['metadata', 'seed'],
       async run(h) {
@@ -81,6 +82,7 @@ export const A12: AuthnRule = defineRule('A12', 'authentication state never trav
       const a = await seedUser(h, ALICE);
       const id = await h.metadata.seedRaw(a, 'user:ban:is_banned', false);
       assert.strictEqual((await h.metadata.updateById('admin', a, id, true)).ok, false);
+      assert.strictEqual(await h.metadata.rawValue(a, 'user:ban:is_banned'), false, 'the planted value is unchanged');
     },
   }),
   defineCase({
@@ -105,6 +107,15 @@ export const A12: AuthnRule = defineRule('A12', 'authentication state never trav
       },
     }),
   ),
+  defineCase({
+    name: 'A12 the identity layer accepts a plain key',
+    facet: 'A12/identity',
+    needs: ['identityMeta', 'seed'],
+    async run(h) {
+      const a = await seedUser(h, ALICE);
+      assert.strictEqual((await h.identityMeta.set(a, 'user:avatar', 'kit.png')).ok, true);
+    },
+  }),
   defineCase({
     name: 'A12 authentication flows write no state into identity metadata',
     facet: 'A12/flow',

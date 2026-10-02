@@ -102,19 +102,26 @@ export const A19: AuthnRule = defineRule('A19', 'one identity, many links, uniqu
     defineCase({
       name: `A19 linking needs the identity's own fresh session: ${row.label}`,
       facet: 'A19/core',
-      needs: ['accountLinks', 'service', 'seed', 'sessions', 'fakeDate'],
+      needs: ['accountLinks', 'links', 'service', 'seed', 'sessions', 'fakeDate'],
       config: FRESH_300,
       async run(h, k) {
+        let a;
         let session;
         if (row.pending) {
-          const a = await seedUser(h, ALICE);
+          a = await seedUser(h, ALICE);
           session = await h.sessions.issue(a, factsAal1(k), { pending: { steps: ['totp'] } });
         } else {
-          session = (await aliceSession(h, k)).session;
+          ({ a, session } = await aliceSession(h, k));
         }
         k.clock.tick(row.staleSeconds * 1000);
         const r = await h.accountLinks.link(session, { provider: 'kit-g', subject: 'g-new' }, k.ctx({ purpose: 'link', session }));
         assert.strictEqual(r.ok, row.ok);
+        const stored = await h.links.find('kit-g', 'g-new');
+        if (row.ok) {
+          assert.deepStrictEqual(stored?.identity, a);
+        } else {
+          assert.strictEqual(stored, null, 'a refused link writes nothing');
+        }
       },
     }),
   ),
@@ -128,6 +135,7 @@ export const A19: AuthnRule = defineRule('A19', 'one identity, many links, uniqu
       const { session } = await aliceSession(h, k);
       const r = await h.accountLinks.link(session, { provider: 'kit-g', subject: 'taken' }, k.ctx({ purpose: 'link', session }));
       assert.strictEqual(r.ok, false);
+      assert.deepStrictEqual((await h.links.find('kit-g', 'taken'))?.identity, b, 'the subject stays with its owner');
     },
   }),
   table(LAST_CREDENTIAL_ROWS, (row) =>
@@ -147,6 +155,12 @@ export const A19: AuthnRule = defineRule('A19', 'one identity, many links, uniqu
         assert.ok(r.session, 'an interactive login issues a session');
         const out = await h.accountLinks.unlink(r.session, links[0].id, k.ctx({ purpose: 'link', session: r.session }));
         assert.strictEqual(out.ok, row.ok);
+        const left = await h.links.find(subjects[0].provider, subjects[0].subject);
+        if (row.ok) {
+          assert.strictEqual(left, null, 'the link is gone');
+        } else {
+          assert.deepStrictEqual(left?.identity, a, 'the link stays');
+        }
       },
     }),
   ),

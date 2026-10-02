@@ -120,7 +120,7 @@ export const A20: AuthnRule = defineRule('A20', 'impersonation is guarded, rotat
     needs: ['impersonation', 'service', 'seed', 'mfa', 'guard', 'events', 'fakeDate'],
     config: MAX_60,
     async run(h, k) {
-      const { b, session } = await adminSession(h, k);
+      const { a, b, session } = await adminSession(h, k);
       const r = await h.impersonation.start(session, b, k.ctx());
       assert.ok(r.ok, 'impersonation starts');
       for (const minutes of [20, 20, 19]) {
@@ -129,7 +129,7 @@ export const A20: AuthnRule = defineRule('A20', 'impersonation is guarded, rotat
       }
       k.clock.tick(2 * 60_000);
       const p = await h.impersonation.principalOf(r.session, k.ctx());
-      assert.ok(p === null || p.authn?.impersonator === undefined, 'no impersonation after 61 min');
+      assert.ok(p === null || (p.id === a.id && p.authn?.impersonator === undefined), 'after 61 min the session is gone or back to the impersonator');
       assert.ok(hasEvent(h.events, 'impersonation.expire'), 'an impersonation.expire event');
     },
   }),

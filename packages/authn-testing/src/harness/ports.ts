@@ -1,32 +1,5 @@
 import type { KeyObject } from 'node:crypto';
-import type {
-  AuthnContext,
-  AuthnEvent,
-  AuthnService,
-  AuthnThrottle,
-  AuthenticationStrategy,
-  Credentials,
-  ExternalSubject,
-  IdentityLink,
-  IdentityLinkStore,
-  IdentityRef,
-  IdentityStatus,
-  JwsSigner,
-  JwsVerifier,
-  KeyAlgorithm,
-  KeyChallenge,
-  KeyOwner,
-  KeyRegistry,
-  MfaStep,
-  PasswordCredentialStore,
-  PasswordService,
-  Principal,
-  PublicJwk,
-  SecretStore,
-  SessionHandle,
-  SessionIssuer,
-  TokenService,
-} from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnService, AuthnThrottle, AuthenticationStrategy, Credentials, ExternalSubject, IdentityLink, IdentityLinkStore, IdentityRef, IdentityStatus, JwsSigner, JwsVerifier, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRegistry, MfaStep, PasswordCredentialStore, PasswordService, Principal, PublicJwk, SecretStore, SessionHandle, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { PrincipalOfCall } from '../fakes/principals.js';
 import type { ConfigOverrides, AppEnv } from './config.js';
 import type { HttpPort, HttpRoutes } from './http.js';
@@ -257,6 +230,8 @@ export interface MetadataPort {
   /** Writes through the lane's guard-free internal path (the 2.x writer); returns the row id. */
   seedRaw(id: IdentityRef, key: string, value: unknown): Promise<string>;
   rawKeys(id: IdentityRef): Promise<readonly string[]>;
+  /** The stored value of the raw row with that key (the one seedRaw wrote). */
+  rawValue(id: IdentityRef, key: string): Promise<unknown>;
   write(as: MetadataActor, id: IdentityRef, key: string, value: unknown): Promise<{ ok: boolean }>;
   read(as: MetadataActor, id: IdentityRef, key: string): Promise<{ found: boolean; value?: unknown }>;
   list(as: MetadataActor, id: IdentityRef): Promise<readonly string[]>;

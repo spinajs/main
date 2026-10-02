@@ -13,7 +13,7 @@ type Secrets = NonNullable<BootSpec['secrets']>;
  */
 const baseSpec = (env: AppEnv, secrets: Secrets = {}, extra: Partial<BootSpec> = {}): BootSpec => ({
   env,
-  secrets: { cookie: 'strong', pepper: 'off', mfaKey: 'strong', ...secrets },
+  secrets: { cookie: 'strong', pepper: 'strong', mfaKey: 'strong', ...secrets },
   mfaStep: 'secret-storing',
   ...extra,
 });
