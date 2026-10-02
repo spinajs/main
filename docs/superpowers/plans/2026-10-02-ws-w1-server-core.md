@@ -6354,11 +6354,12 @@ W2 imports only from `@spinajs/http-socket-common`. Copy the full source verbati
    - A handler that returns nothing answers `result: null`, never a missing field.
    - A malformed request is answered with `id: ''`.
    - A request without an ack callback is ignored.
-3. **`deadline` is relative milliseconds** (D2). Send the remaining `timeoutMs`; the server aborts at the earlier of that and its own `timeoutMs`, and answers `deadline_exceeded` (retryable).
+3. **`deadline` is relative milliseconds** (D2). Send the remaining `timeoutMs`; the server aborts at the earlier of that and its own `timeoutMs`, and answers `deadline_exceeded` (retryable). A missing, non-finite or `<= 0` deadline is ignored (`SocketCommandContext.armDeadline`), so the client never sends less than `1`.
 4. **Cancel.** `emit('cancel', { id })` aborts a running command. The reply is then `cancelled` (not retryable). Cancelling a finished or unknown id does nothing.
 5. **Server events** arrive as `'evt'` with an `EventFrame { name, payload }`. There are two system events:
-   - `sys.disconnect { reason }`. It is sent just before a server-initiated disconnect, whose socket.io reason is `io server disconnect` (socket.io does not auto-reconnect after it).
+   - `sys.disconnect { reason }`. It is sent just before a server-initiated disconnect, whose socket.io reason is `io server disconnect` (socket.io does not auto-reconnect after it). The W2 client runs its own reconnect policy and does reconnect after it, unless an app listener on `sys.disconnect` calls `client.disconnect()`. To keep a client out, refuse its next handshake.
    - `sys.shutdown { retryAfterMs }`. It is emitted by W3.
+   - The client delivers system events to `client.on(name)` listeners like any other event. Its lifecycle names `state`, `auth_required`, `incompatible` and `failed` shadow server events of the same name, so name server events with a dotted prefix (as `@SocketController` prefixes do).
 6. **Client events.** `emit('evt', { name, payload })` is fire-and-forget. Type it with the contract's `clientEvents`.
 7. **Retries.** Trust `error.retryable` and `error.retryAfterMs`. The values the server sends are:
    - size `resource_exhausted`: `retryable: false` (D1)

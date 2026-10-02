@@ -4,7 +4,7 @@
 
 **Goal:** Build `@spinajs/http-socket-client`, an isomorphic (browser + Node) socket.io client with a connection state machine, its own reconnect policy, handshake auth, plain commands with timeouts and cancellation, server events and typed contracts. W3 adds durable commands and W4 adds streams on top of it without rewrites.
 
-**Architecture:** One `Connection` owns the socket.io `Socket` (state machine, handshake, reconnect, stop conditions). A `CommandDispatcher` sits on the `Connection` and implements plain commands. `SocketClient` composes them, routes server events, and is the only public class. W3's durable queue and W4's stream registry become two more consumers of the same `Connection` seams (`events.on('state')`, `connected`, `request`, `send`, `listen`). The wire types come from `@spinajs/http-socket-common`, which W1 also produces (see Task 1).
+**Architecture:** One `Connection` owns the socket.io `Socket` (state machine, handshake, reconnect, stop conditions). A `CommandDispatcher` sits on the `Connection` and implements plain commands. `SocketClient` composes them, routes server events, and is the only public class. W3's durable queue and W4's stream registry become two more consumers of the same `Connection` seams (`events.on('state')`, `connected`, `request`, `send`, `listen`). The wire types, `SocketException` and the contract marker come from `@spinajs/http-socket-common`, which W1 owns; Task 1 copies W1's Task 1 verbatim, so this plan runs before, after or alongside W1.
 
 **Tech Stack:** TypeScript (ESM, `node16` resolution, dual mjs/cjs build), socket.io-client 4.8, socket.io 4.8 (tests only), mocha + chai + chai-as-promised + sinon through `ts-mocha`.
 
@@ -14,7 +14,7 @@
 
 - Work only in `C:\Users\grzch\SourceCodes\Spinajs\websocket-layer` (branch `feat/websocket-layer`). Never touch another Spinajs checkout or worktree (`main`, `authz-v3*`, … have in-flight work).
 - The W1 executor works in this same worktree at the same time. Stage only the paths a step names (`git add <paths>`, never `git add -A` or `git add .`). Never `git stash`, `git reset`, `git checkout -- …` or `git clean`. Verify the branch in the same command as every commit: `git branch --show-current | grep -qx feat/websocket-layer && git commit …`.
-- Never commit `package-lock.json`. `npm install` rewrites it; leave it modified. The branch integrator commits it once after W1 and W2 (CI runs `npm ci`, which fails on lock drift until then).
+- Never commit `package-lock.json`. `npm install` rewrites it; leave it modified. W1's Task 16 commits it once (CI runs `npm ci`, which fails on lock drift until then).
 - Runtime dependencies of `@spinajs/http-socket-client`: `socket.io-client` (`^4.8.1`) and `@spinajs/http-socket-common` (`2.0.549`) **only**. No `@spinajs/di`, no other `@spinajs/*`. `socket.io` (`^4.8.1`) is a devDependency for the test stub server.
 - The main entry runs in browsers: no Node built-in imports and no Node globals (`process`, `Buffer`, `require`, `__dirname`, `setImmediate`, `global`) anywhere in `src/`. Test `test/isomorphic.test.ts` (Task 2) enforces it.
 - Binding defaults, verbatim from the spec: reconnect `{ minMs: 500, maxMs: 30_000, jitter: 0.3 }`; `defaultTimeoutMs: 15_000`; `whenOffline` default `'fail'`.
@@ -22,40 +22,45 @@
 - Error codes, verbatim: `'invalid_argument' | 'unauthenticated' | 'forbidden' | 'not_found' | 'conflict' | 'failed_precondition' | 'unimplemented' | 'deadline_exceeded' | 'cancelled' | 'resource_exhausted' | 'unavailable' | 'version_mismatch' | 'internal'`.
 - Spec §6 behaviour, verbatim: auth is asked again on each attempt; `unauthenticated` stops the retries and emits `auth_required`; `version_mismatch` stops and emits `incompatible`; `sys.shutdown` waits `retryAfterMs` before the next attempt; offline + `whenOffline: 'fail'` rejects at once with `unavailable`; `'wait'` holds the command until online or the timeout; a drop in the middle of a command rejects it with `unavailable`, which is retryable.
 - Reserved names (W3/W4 fill them, nothing else may use them): methods `durable()` and `stream()`, lifecycle event `failed`, option `outbox`, subpath export `./browser`.
-- Handshake: `{ ...authCallbackResult, protocol: PROTOCOL_VERSION, clientId }` — `protocol` and `clientId` always win. Auth payload keys `pid` and `offset` are reserved by socket.io connection state recovery (it merges them into the CONNECT packet).
-- Wire assumptions W2 makes where the spec is silent (Task 1 reconciles them with W1):
-  - socket.io event names: commands `'cmd'` (ack carries the `CommandReply`), events `'evt'` (an `EventFrame`, both directions), plain-command cancel `'cancel'` with payload `{ id }`.
-  - `CommandRequest.deadline` is the **remaining budget in milliseconds at send time** (relative, immune to clock skew), not an epoch timestamp.
-  - `sys.shutdown` arrives as an `'evt'` frame `{ name: 'sys.shutdown', payload: { retryAfterMs } }`.
-  - A refused handshake rejects with `connect_error` whose `data` is a `SocketError` (spec §4).
+- Handshake: `{ ...authCallbackResult, protocol: PROTOCOL_VERSION, clientId }` — `protocol` and `clientId` always win. Auth payload keys `pid` and `offset` are reserved by socket.io connection state recovery (it merges them into the CONNECT packet). `clientId` must be 1–`MAX_ID_LENGTH` (128) characters; the W1 server refuses anything else with `invalid_argument`, so the client throws a `RangeError` at construction instead (Task 6).
+- Wire behaviour of the W1 server (W1 plan, "Coordination with W2"). All names come from common's `WIRE_EVENTS` / `SYSTEM_EVENTS`; no string literal for a wire event appears in `src/`. The test stub server (Task 5) reproduces exactly this:
+  - Commands: `emit(WIRE_EVENTS.command /* 'cmd' */, CommandRequest, ack)`; the ack carries a `CommandReply` with the same `id`. A handler that returns nothing answers `result: null` (never a missing field), so a void command resolves with `null`.
+  - `CommandRequest.deadline` is **relative milliseconds**: the remaining budget at send time (W1 decision D2). The server aborts at the earlier of it and its own `timeoutMs` with retryable `deadline_exceeded`. The server ignores a deadline `<= 0`, so the client never sends less than `1`.
+  - Cancel: `emit(WIRE_EVENTS.cancel, CancelFrame /* { id } */)`. The server aborts the handler and answers the ack with `cancelled`; the client has already rejected and ignores that late reply.
+  - Events: `WIRE_EVENTS.event` (`'evt'`) carries an `EventFrame { name, payload }` in both directions.
+  - System events arrive as `evt` frames: `SYSTEM_EVENTS.shutdown` with a `ShutdownNotice { retryAfterMs }` (sent by W3's graceful shutdown) and `SYSTEM_EVENTS.disconnect` with a `DisconnectNotice { reason }`, sent just before a server-initiated disconnect (`SocketHub.disconnect`, socket.io reason `io server disconnect`). Both are also delivered to `client.on(name)` listeners like any server event.
+  - A kick is treated like any drop: the client reconnects with backoff (the server can refuse the new handshake). An app that must stay away calls `client.disconnect()` from its `SYSTEM_EVENTS.disconnect` listener, which runs before the drop.
+  - A refused handshake rejects with `connect_error` whose `data` is a `SocketError`: `version_mismatch` (also for a missing `protocol`; `details: { server }`), `invalid_argument` (bad `clientId`), `unauthenticated`, or `internal` (an authenticator threw; the client retries it with backoff).
+  - Stream commands: a W1 server answers them with `unimplemented`; a `CommandStreamReply` (W4) makes a plain command reject with `failed_precondition`.
+  - Server event names `state`, `auth_required`, `incompatible` and `failed` are client lifecycle names; a server event with one of them never reaches client listeners.
+- Errors: every command rejection is common's `SocketException` (built with `SocketException.fromWire`, so `toWire()` returns the wire error unchanged). The client defines no error class of its own and uses common's `isSocketError`.
 - Repo conventions: every package is `"type": "module"`, version `2.0.549` in lockstep with exact internal pins, dual build `tsconfig.mjs.json` → `lib/mjs` and `tsconfig.cjs.json` → `lib/cjs`, `tsconfig.json` (rootDir `./`, includes `test/`) for tests; relative imports end in `.js`.
 - Packages consume each other through built `lib/mjs`, not `src`. After changing `packages/http-socket-common/src`, run `npm run compile` in `packages/http-socket-common` before running client tests.
-- Run one test file from inside its package: `npx ts-mocha -p tsconfig.json test/<file>.test.ts`. The new packages' `.mocharc.json` has no `spec` entry on purpose: a `spec` there is concatenated with the CLI file and runs the whole suite. Type-level assertions are checked by `npm run typecheck` in the package (the test runner may transpile without type checking).
+- Run one test file from inside its package: `npx ts-mocha -p tsconfig.json test/<file>.test.ts`. The client package's `.mocharc.json` has no `spec` entry on purpose: a `spec` there is concatenated with the CLI file and runs the whole suite. (`http-socket-common`'s, copied from `log-common` by Task 1, has one whose pattern matches nothing inside that package; mocha only warns.) Type-level assertions are checked by `npm run typecheck` in the package (the test runner may transpile without type checking).
 - On Windows a TCP connect to a closed localhost port takes about 2 s before it is refused, so timing assertions use handshake refusals, never a stopped server.
 - Comments, identifiers and commit messages in English. Comment only what the code cannot say. Commits follow `feat(http-socket-client): …`, `feat(http-socket-common): …`, `test(…)`, `chore(…)`.
 
 ## File map
 
-`packages/http-socket-common/` (Task 1; skipped if W1 already created it)
+`packages/http-socket-common/` (Task 1 = W1 Task 1; only verified if W1 already created it)
 
 | File | Responsibility |
 |---|---|
-| `package.json`, `tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`, `.mocharc.json` | Package scaffold, no dependencies |
-| `src/protocol.ts` | `PROTOCOL_VERSION`, `Handshake`, `CommandRequest`, `CommandReply`, `SocketError`, `ErrorCode`, `EventFrame`, `Chunk` (spec §4 verbatim) |
-| `src/contract.ts` | `SocketContract`, `Contract`, `defineContract`, `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload` |
+| `package.json`, `tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`, dotfiles copied from `packages/log-common` | Package scaffold, no dependencies |
+| `src/errors.ts` | `ErrorCode`, `ERROR_CODES`, `DEFAULT_RETRYABLE`, `SocketError`, `SocketException`, `isErrorCode`, `isSocketError` |
+| `src/protocol.ts` | `PROTOCOL_VERSION`, `MAX_ID_LENGTH`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, envelopes (`Handshake`, `CommandRequest`, `CommandReply`, `CommandStreamReply`, `EventFrame`, `CancelFrame`, `ShutdownNotice`, `DisconnectNotice`, stream frames), guards |
+| `src/contract.ts` | `ContractShape`, `SocketContract<C>` (the marker), `defineContract`, `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload`, `ClientEventName`, `ClientEventPayload`, `ContractOf` |
 | `src/index.ts` | Re-exports |
-| `test/common.test.ts` | Runtime + type-level checks |
+| `test/common.test.ts` | Protocol, errors, guards, contract typing |
 
 `packages/http-socket-client/`
 
 | File | Responsibility |
 |---|---|
 | `package.json`, `tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`, `.mocharc.json` | Package scaffold |
-| `src/errors.ts` | `SocketCommandError`, `isSocketError` |
 | `src/ids.ts` | `randomId()` for generated client ids |
 | `src/emitter.ts` | Minimal typed `Emitter`, `rethrowAsync` |
 | `src/reconnect.ts` | `ReconnectPolicy`, `DEFAULT_RECONNECT` |
-| `src/wire.ts` | socket.io event names, `SYS_SHUTDOWN`, `ShutdownNotice` |
 | `src/connection.ts` | `Connection`: socket ownership, state machine, handshake, reconnect, stop conditions |
 | `src/commands.ts` | `CommandDispatcher`: plain commands, timeouts, cancellation, offline policy |
 | `src/client.ts` | `SocketClient` facade, lifecycle and server events, reserved `durable()`/`stream()` |
@@ -73,38 +78,48 @@ Root: `tsconfig.build.json`, `tsconfig.build.cjs.json` (references).
 - `Connection` clears socket.io's `sendBuffer` on every drop and disables socket.io packet retries, so nothing is re-sent behind the layer's back. W3's resend-after-drop (with `idempotencyKey = clientId:seq`) is therefore the only resend path.
 - `CommandDispatcher.nextId()` is the single request-id space; W3 and W4 take ids from it.
 - W3: add `outbox?: OutboxStore` to `SocketClientOptions`, replace the body of `SocketClient.durable()`, emit lifecycle `failed` (already typed as `{ entry: unknown; error: SocketError }`; W3 narrows `entry`), add the `./browser` export like `packages/configuration-common/package.json` does.
-- W4: replace the body of `SocketClient.stream()`; route `{ ok: true, stream: true }` replies (today a plain command rejects them with `failed_precondition`) to the stream registry; frames via `connection.listen(WIRE.chunk | WIRE.end | WIRE.fail)`, flow control via `connection.send(WIRE.credit | WIRE.cancel, …)`. `TypedSocketClient.stream()` already types items through `StreamItem`.
+- W4: replace the body of `SocketClient.stream()`; route `CommandStreamReply` replies (today a plain command rejects them with `failed_precondition`) to the stream registry; frames via `connection.listen(WIRE_EVENTS.chunk | WIRE_EVENTS.end | WIRE_EVENTS.fail)` (`Chunk`, `StreamEnd`, `StreamFail`), flow control via `connection.send(WIRE_EVENTS.credit | WIRE_EVENTS.cancel, …)` (`StreamCredit`, `CancelFrame`). `TypedSocketClient.stream()` already types items through `StreamItem`.
 
 ---
 
-### Task 1: `@spinajs/http-socket-common` (or reconcile with W1's)
+### Task 1: `@spinajs/http-socket-common` (W1 Task 1, copied verbatim)
+
+W1 (`docs/superpowers/plans/2026-10-02-ws-w1-server-core.md`, "Task 1: `@spinajs/http-socket-common`") owns this package. Everything from **Files:** to the end of Step 8 below is a verbatim copy of that task, so this plan never needs W1's file; the "Tasks 2–16" it mentions are W1's tasks.
+
+**Step 0 (W2 only): decide whether W1 got here first.** Run (worktree root): `ls packages/http-socket-common/src`.
+
+- If it does not exist, do Steps 1–8 below exactly as written.
+- If it exists, diff every file W1 created (`package.json`, the three `tsconfig*.json`, `src/errors.ts`, `src/protocol.ts`, `src/contract.ts`, `src/index.ts`, `test/common.test.ts`) against the code below. If they are identical, run `npm install` (worktree root), then Step 6, then the two build commands of Step 7 (the root build lines are already there), and skip Step 8. If any file differs, stop and report: never edit W1's package from this plan.
 
 **Files:**
-- Create: `packages/http-socket-common/package.json`, `tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`, `.mocharc.json`
-- Create: `packages/http-socket-common/src/protocol.ts`, `src/contract.ts`, `src/index.ts`
+- Create: `packages/http-socket-common/package.json`
+- Create: `packages/http-socket-common/tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`
+- Create (copied): `packages/http-socket-common/.eslintignore`, `.eslintrc.cjs`, `.gitignore`, `.npmignore`, `.prettierrc`, `.mocharc.json`
+- Create: `packages/http-socket-common/src/errors.ts`, `src/protocol.ts`, `src/contract.ts`, `src/index.ts`
 - Test: `packages/http-socket-common/test/common.test.ts`
-- Modify: `tsconfig.build.json:66`, `tsconfig.build.cjs.json:66`
+- Modify: `tsconfig.build.json:12`, `tsconfig.build.cjs.json:12` (insert one line after each, in Step 7)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces (exact names every later task imports from `@spinajs/http-socket-common`): `PROTOCOL_VERSION: number` (= 1); types `Handshake`, `CommandRequest`, `CommandReply`, `SocketError`, `ErrorCode`, `EventFrame`, `Chunk`, `SocketContract`, `Contract<C>`, `CommandName<C>`, `CommandPayload<C, N>`, `CommandResult<C, N>`, `EventName<C>`, `EventPayload<C, N>`; function `defineContract<C>(): Contract<C>`.
-
-- [ ] **Step 0: Decide whether W1 got here first**
-
-Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowers/plans/`
-
-- If `packages/http-socket-common/package.json` exists, W1 owns the package: skip Steps 1–8 and do Step 9 (reconcile) instead.
-- Otherwise do Steps 1–8. W1 then adapts to this package (whichever lands first wins).
+- Produces (exact exports, used by Tasks 2–16 and by W2):
+  - `PROTOCOL_VERSION = 1`
+  - `MAX_ID_LENGTH = 128`
+  - `WIRE_EVENTS { command:'cmd', event:'evt', chunk:'chunk', end:'end', fail:'fail', credit:'credit', cancel:'cancel' }`, `WireEventName`
+  - `SYSTEM_EVENTS { shutdown:'sys.shutdown', disconnect:'sys.disconnect' }`, `SystemEventName`
+  - `Handshake`, `CommandRequest<P>`, `CommandResultReply<R>`, `CommandStreamReply`, `CommandErrorReply`, `CommandReply<R>`, `EventFrame<P>`, `Chunk<D>`, `StreamEnd`, `StreamFail`, `StreamCredit`, `CancelFrame`, `ShutdownNotice`, `DisconnectNotice`
+  - `isCommandRequest(v): v is CommandRequest`, `isEventFrame(v): v is EventFrame`, `isCancelFrame(v): v is CancelFrame`
+  - `ErrorCode`, `ERROR_CODES`, `DEFAULT_RETRYABLE`, `SocketError`, `isErrorCode`, `isSocketError`, `SocketExceptionOptions`, `class SocketException extends Error implements SocketError { code; retryable; details?; retryAfterMs?; errorId?; toWire(): SocketError; static fromWire(e): SocketException }`
+  - `ContractShape`, `SocketContract<C>`, `defineContract<C>(): SocketContract<C>`, `CommandName<C>`, `CommandPayload<C,N>`, `CommandResult<C,N>`, `EventName<C>`, `EventPayload<C,N>`, `ClientEventName<C>`, `ClientEventPayload<C,N>`, `ContractOf<T>`
 
 - [ ] **Step 1: Scaffold the package**
 
-`packages/http-socket-common/package.json`:
+Create `packages/http-socket-common/package.json`:
 
 ```json
 {
   "name": "@spinajs/http-socket-common",
   "version": "2.0.549",
-  "description": "Wire protocol types and contract helpers shared by the spinajs socket server and client",
+  "description": "Wire protocol shared by the spinajs WebSocket server and client: envelopes, error codes, protocol version and contract typing helpers",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
   "exports": {
@@ -127,10 +142,15 @@ Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowe
     "build": "npm run clean && npm run compile",
     "compile": "tsc -b tsconfig.mjs.json",
     "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit --composite false --incremental false",
-    "coverage": "nyc npm run test"
+    "coverage": "nyc npm run test",
+    "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint -c .eslintrc.cjs --ext .ts src --fix",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src"
   },
   "files": [
     "lib/**/*"
@@ -149,11 +169,12 @@ Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowe
   "bugs": {
     "url": "https://github.com/spinajs/main/issues"
   },
-  "homepage": "https://github.com/spinajs/main#readme"
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {}
 }
 ```
 
-`packages/http-socket-common/tsconfig.json`:
+Create `packages/http-socket-common/tsconfig.json`:
 
 ```json
 {
@@ -168,7 +189,7 @@ Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowe
 }
 ```
 
-`packages/http-socket-common/tsconfig.mjs.json`:
+Create `packages/http-socket-common/tsconfig.mjs.json`:
 
 ```json
 {
@@ -183,7 +204,7 @@ Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowe
 }
 ```
 
-`packages/http-socket-common/tsconfig.cjs.json`:
+Create `packages/http-socket-common/tsconfig.cjs.json`:
 
 ```json
 {
@@ -197,122 +218,180 @@ Run (worktree root): `ls packages/http-socket-common/package.json docs/superpowe
 }
 ```
 
-`packages/http-socket-common/.mocharc.json`:
+Copy the dotfiles:
 
-```json
-{
-  "extensions": ["ts"],
-  "timeout": 10000,
-  "node-option": [
-    "experimental-specifier-resolution=node",
-    "loader=ts-node/esm"
-  ]
-}
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+for f in .eslintignore .eslintrc.cjs .gitignore .npmignore .prettierrc .mocharc.json; do cp packages/log-common/$f packages/http-socket-common/$f; done
 ```
 
-- [ ] **Step 2: Install so the workspace is linked**
+- [ ] **Step 2: Install the workspace and build everything once**
 
-Run (worktree root): `npm install`
-Expected: ends with `added … packages` / `up to date`, no `ERR!`. `ls node_modules/@spinajs/http-socket-common` lists `package.json`.
+The worktree has no `node_modules` yet. A fresh install also links the new workspace package.
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && npm install`
+Expected: exits 0. `ls node_modules/@spinajs/http-socket-common` shows `package.json`, because it is a symlink to the workspace folder.
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json`
+Expected: exits 0. This builds `lib/` of every package, and tests import the dependencies from there. If it fails, stop and report: master must build before this plan can go on.
 
 - [ ] **Step 3: Write the failing test**
 
-`packages/http-socket-common/test/common.test.ts`:
+Create `packages/http-socket-common/test/common.test.ts`:
 
 ```ts
 import 'mocha';
 import { expect } from 'chai';
 import {
+  ClientEventName,
+  ClientEventPayload,
+  CommandName,
+  CommandPayload,
+  CommandResult,
+  ContractOf,
+  DEFAULT_RETRYABLE,
+  ERROR_CODES,
+  ErrorCode,
+  EventName,
+  EventPayload,
+  MAX_ID_LENGTH,
   PROTOCOL_VERSION,
+  SYSTEM_EVENTS,
+  SocketException,
+  WIRE_EVENTS,
   defineContract,
-  type CommandName,
-  type CommandPayload,
-  type CommandReply,
-  type CommandResult,
-  type EventName,
-  type EventPayload,
-  type SocketError,
+  isCancelFrame,
+  isCommandRequest,
+  isErrorCode,
+  isEventFrame,
+  isSocketError,
 } from '../src/index.js';
 
-type Sample = {
-  commands: { 'a.run': [{ n: number }, string]; 'a.void': [{ n: number }, void] };
-  events: { 'a.changed': boolean };
+type DocsContract = {
+  commands: { 'docs.open': [{ id: string }, { title: string }] };
+  events: { 'docs.committed': { rev: number } };
+  clientEvents: { 'docs.cursor': { x: number } };
 };
 
 describe('http-socket-common', () => {
-  it('speaks protocol 1', () => {
-    expect(PROTOCOL_VERSION).to.equal(1);
+  describe('protocol constants', () => {
+    it('speaks protocol version 1', () => {
+      expect(PROTOCOL_VERSION).to.equal(1);
+    });
+
+    it('names the wire and system events', () => {
+      expect(WIRE_EVENTS).to.deep.equal({ command: 'cmd', event: 'evt', chunk: 'chunk', end: 'end', fail: 'fail', credit: 'credit', cancel: 'cancel' });
+      expect(SYSTEM_EVENTS).to.deep.equal({ shutdown: 'sys.shutdown', disconnect: 'sys.disconnect' });
+    });
   });
 
-  it('defineContract() returns a frozen marker with no runtime data', () => {
-    const contract = defineContract<Sample>();
-    expect(Object.keys(contract)).to.deep.equal([]);
-    expect(Object.isFrozen(contract)).to.equal(true);
+  describe('error codes', () => {
+    it('lists the 13 codes of the spec', () => {
+      expect(ERROR_CODES).to.deep.equal(['invalid_argument', 'unauthenticated', 'forbidden', 'not_found', 'conflict', 'failed_precondition', 'unimplemented', 'deadline_exceeded', 'cancelled', 'resource_exhausted', 'unavailable', 'version_mismatch', 'internal']);
+    });
+
+    it('marks only deadline, limit and shutdown codes retryable by default', () => {
+      expect(ERROR_CODES.filter((c) => DEFAULT_RETRYABLE[c])).to.deep.equal(['deadline_exceeded', 'resource_exhausted', 'unavailable']);
+    });
+
+    it('recognises error codes and wire errors', () => {
+      expect(isErrorCode('forbidden')).to.be.true;
+      expect(isErrorCode('teapot')).to.be.false;
+      expect(isSocketError({ code: 'forbidden', message: 'no', retryable: false })).to.be.true;
+      expect(isSocketError({ code: 'forbidden', message: 'no' })).to.be.false;
+      expect(isSocketError(null)).to.be.false;
+    });
+  });
+
+  describe('SocketException', () => {
+    it('is an Error whose retryable flag defaults from its code', () => {
+      const err = new SocketException('resource_exhausted', 'slow down', { retryAfterMs: 250 });
+      expect(err).to.be.instanceOf(Error);
+      expect(err.name).to.equal('SocketException');
+      expect(err.retryable).to.be.true;
+      expect(new SocketException('forbidden', 'no').retryable).to.be.false;
+      expect(new SocketException('forbidden', 'no', { retryable: true }).retryable).to.be.true;
+    });
+
+    it('serialises to a wire error without undefined fields', () => {
+      expect(new SocketException('forbidden', 'no').toWire()).to.deep.equal({ code: 'forbidden', message: 'no', retryable: false });
+      expect(new SocketException('resource_exhausted', 'slow down', { retryAfterMs: 250, details: { limit: 1 }, errorId: 'e1' }).toWire()).to.deep.equal({
+        code: 'resource_exhausted',
+        message: 'slow down',
+        retryable: true,
+        retryAfterMs: 250,
+        details: { limit: 1 },
+        errorId: 'e1',
+      });
+    });
+
+    it('round-trips through fromWire', () => {
+      const wire = { code: 'unavailable' as ErrorCode, message: 'restarting', retryable: true, retryAfterMs: 1000 };
+      const err = SocketException.fromWire(wire);
+      expect(err).to.be.instanceOf(SocketException);
+      expect(err.toWire()).to.deep.equal(wire);
+    });
+  });
+
+  describe('envelope guards', () => {
+    it('accepts well-formed command requests', () => {
+      expect(isCommandRequest({ id: 'r1', name: 'docs.open', payload: { id: 'a' } })).to.be.true;
+      expect(isCommandRequest({ id: 'r1', name: 'docs.open' })).to.be.true;
+      expect(isCommandRequest({ id: 'r1', name: 'docs.open', deadline: 500, idempotencyKey: 'c:1', traceparent: '00-abc' })).to.be.true;
+    });
+
+    it('rejects malformed command requests', () => {
+      expect(isCommandRequest(null)).to.be.false;
+      expect(isCommandRequest({ name: 'x' })).to.be.false;
+      expect(isCommandRequest({ id: '', name: 'x' })).to.be.false;
+      expect(isCommandRequest({ id: 'x'.repeat(MAX_ID_LENGTH + 1), name: 'x' })).to.be.false;
+      expect(isCommandRequest({ id: 'r1', name: '' })).to.be.false;
+      expect(isCommandRequest({ id: 'r1', name: 'x', deadline: '5' })).to.be.false;
+      expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 5 })).to.be.false;
+    });
+
+    it('checks event and cancel frames', () => {
+      expect(isEventFrame({ name: 'docs.cursor', payload: { x: 1 } })).to.be.true;
+      expect(isEventFrame({ payload: 1 })).to.be.false;
+      expect(isCancelFrame({ id: 'r1' })).to.be.true;
+      expect(isCancelFrame({ id: 1 })).to.be.false;
+    });
+  });
+
+  describe('contracts', () => {
+    const contract = defineContract<DocsContract>();
+
+    it('returns a runtime marker that carries no data', () => {
+      expect(contract).to.deep.equal({ kind: 'socket-contract' });
+    });
+
+    it('derives checked names and payload types', () => {
+      const command: CommandName<DocsContract> = 'docs.open';
+      const payload: CommandPayload<DocsContract, 'docs.open'> = { id: 'a' };
+      const result: CommandResult<DocsContract, 'docs.open'> = { title: 't' };
+      const event: EventName<DocsContract> = 'docs.committed';
+      const eventPayload: EventPayload<DocsContract, 'docs.committed'> = { rev: 1 };
+      const clientEvent: ClientEventName<DocsContract> = 'docs.cursor';
+      const clientPayload: ClientEventPayload<DocsContract, 'docs.cursor'> = { x: 1 };
+      const inferred: ContractOf<typeof contract> = { commands: { 'docs.open': [{ id: 'a' }, { title: 't' }] }, events: { 'docs.committed': { rev: 1 } }, clientEvents: { 'docs.cursor': { x: 1 } } };
+      // @ts-expect-error unknown command names must not type-check
+      const unknown: CommandName<DocsContract> = 'docs.nope';
+      expect([command, payload, result, event, eventPayload, clientEvent, clientPayload, inferred, unknown]).to.have.length(9);
+    });
   });
 });
-
-// Compile-time only; `npm run typecheck` fails if an expectation below stops holding.
-function typeChecks(): void {
-  const name: CommandName<Sample> = 'a.run';
-  // @ts-expect-error not a command of Sample
-  const unknownName: CommandName<Sample> = 'a.nope';
-  const payload: CommandPayload<Sample, 'a.run'> = { n: 1 };
-  const result: CommandResult<Sample, 'a.run'> = 'done';
-  const nothing: CommandResult<Sample, 'a.void'> = undefined;
-  const event: EventName<Sample> = 'a.changed';
-  const eventPayload: EventPayload<Sample, 'a.changed'> = true;
-  const reply: CommandReply = { id: '1', ok: false, error: { code: 'not_found', message: 'x', retryable: false } };
-  // @ts-expect-error not an ErrorCode
-  const wrongCode: SocketError = { code: 'nope', message: 'x', retryable: false };
-  void [name, unknownName, payload, result, nothing, event, eventPayload, reply, wrongCode];
-}
-void typeChecks;
 ```
 
-- [ ] **Step 4: Run it to verify it fails**
+- [ ] **Step 4: Run the test to verify it fails**
 
-Run (in `packages/http-socket-common`): `npx ts-mocha -p tsconfig.json test/common.test.ts`
-Expected: FAIL — `ERR_MODULE_NOT_FOUND` (or TS2307) for `../src/index.js`.
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket-common && npx ts-mocha -p tsconfig.json test/common.test.ts`
+Expected: FAIL with `Cannot find module '../src/index.js'` (or the ts-node `TS2307` equivalent).
 
-- [ ] **Step 5: Implement**
+- [ ] **Step 5: Write the implementation**
 
-`packages/http-socket-common/src/protocol.ts`:
+Create `packages/http-socket-common/src/errors.ts`:
 
 ```ts
-export const PROTOCOL_VERSION = 1;
-
-// handshake: io(url, { auth })
-export interface Handshake {
-  protocol: number;
-  clientId: string;
-  token?: string;
-  [key: string]: unknown;
-}
-
-// command: client → server event 'cmd', answered through the socket.io ack
-export interface CommandRequest {
-  id: string;
-  name: string;
-  payload: unknown;
-  idempotencyKey?: string;
-  deadline?: number;
-  traceparent?: string;
-}
-
-export type CommandReply =
-  | { id: string; ok: true; result: unknown }
-  | { id: string; ok: true; stream: true }
-  | { id: string; ok: false; error: SocketError };
-
-export interface SocketError {
-  code: ErrorCode;
-  message: string;
-  details?: unknown;
-  retryable: boolean;
-  retryAfterMs?: number;
-  errorId?: string;
-}
-
 export type ErrorCode =
   | 'invalid_argument'
   | 'unauthenticated'
@@ -328,110 +407,378 @@ export type ErrorCode =
   | 'version_mismatch'
   | 'internal';
 
-// event: either direction, 'evt'
-export interface EventFrame {
-  name: string;
-  payload: unknown;
+export const ERROR_CODES: readonly ErrorCode[] = [
+  'invalid_argument',
+  'unauthenticated',
+  'forbidden',
+  'not_found',
+  'conflict',
+  'failed_precondition',
+  'unimplemented',
+  'deadline_exceeded',
+  'cancelled',
+  'resource_exhausted',
+  'unavailable',
+  'version_mismatch',
+  'internal',
+];
+
+/**
+ * Retryability a code has unless the thrower says otherwise. A size-limit refusal is the one
+ * `resource_exhausted` that is sent as not retryable: resending the same payload cannot succeed.
+ */
+export const DEFAULT_RETRYABLE: Readonly<Record<ErrorCode, boolean>> = {
+  invalid_argument: false,
+  unauthenticated: false,
+  forbidden: false,
+  not_found: false,
+  conflict: false,
+  failed_precondition: false,
+  unimplemented: false,
+  deadline_exceeded: true,
+  cancelled: false,
+  resource_exhausted: true,
+  unavailable: true,
+  version_mismatch: false,
+  internal: false,
+};
+
+export interface SocketError {
+  code: ErrorCode;
+  message: string;
+  /** Validation errors, conflicting keys, limits … */
+  details?: unknown;
+  retryable: boolean;
+  retryAfterMs?: number;
+  /** Matches the server log line of an `internal` error. */
+  errorId?: string;
 }
 
-// stream reply: server → client 'chunk' | 'end' | 'fail'; client → server 'credit' | 'cancel'
-export interface Chunk {
-  id: string;
-  seq: number;
-  data: unknown;
+export function isErrorCode(value: unknown): value is ErrorCode {
+  return typeof value === 'string' && (ERROR_CODES as readonly string[]).includes(value);
+}
+
+export function isSocketError(value: unknown): value is SocketError {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+
+  const v = value as Record<string, unknown>;
+  return isErrorCode(v.code) && typeof v.message === 'string' && typeof v.retryable === 'boolean';
+}
+
+export interface SocketExceptionOptions {
+  details?: unknown;
+  retryable?: boolean;
+  retryAfterMs?: number;
+  errorId?: string;
+  cause?: unknown;
+}
+
+/**
+ * A throwable `SocketError`. Server handlers throw it to answer with a specific code; the client
+ * rejects command promises with it.
+ */
+export class SocketException extends Error implements SocketError {
+  public readonly code: ErrorCode;
+  public readonly retryable: boolean;
+  public readonly details?: unknown;
+  public readonly retryAfterMs?: number;
+  public readonly errorId?: string;
+
+  constructor(code: ErrorCode, message: string, options: SocketExceptionOptions = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = 'SocketException';
+    this.code = code;
+    this.retryable = options.retryable ?? DEFAULT_RETRYABLE[code];
+
+    if (options.details !== undefined) {
+      this.details = options.details;
+    }
+
+    if (options.retryAfterMs !== undefined) {
+      this.retryAfterMs = options.retryAfterMs;
+    }
+
+    if (options.errorId !== undefined) {
+      this.errorId = options.errorId;
+    }
+  }
+
+  public toWire(): SocketError {
+    const wire: SocketError = { code: this.code, message: this.message, retryable: this.retryable };
+
+    if (this.details !== undefined) {
+      wire.details = this.details;
+    }
+
+    if (this.retryAfterMs !== undefined) {
+      wire.retryAfterMs = this.retryAfterMs;
+    }
+
+    if (this.errorId !== undefined) {
+      wire.errorId = this.errorId;
+    }
+
+    return wire;
+  }
+
+  public static fromWire(error: SocketError): SocketException {
+    return new SocketException(error.code, error.message, {
+      details: error.details,
+      retryable: error.retryable,
+      retryAfterMs: error.retryAfterMs,
+      errorId: error.errorId,
+    });
+  }
 }
 ```
 
-`packages/http-socket-common/src/contract.ts`:
+Create `packages/http-socket-common/src/protocol.ts`:
 
 ```ts
-/** `commands` maps a name to `[payload, result]`; `events` maps a name to its payload. */
-export interface SocketContract {
-  commands: object;
-  events: object;
+import { SocketError } from './errors.js';
+
+export const PROTOCOL_VERSION = 1;
+
+/** Longest accepted command / cancel id. */
+export const MAX_ID_LENGTH = 128;
+
+export const WIRE_EVENTS = {
+  /** client → server, answered through the socket.io ack */
+  command: 'cmd',
+  /** either direction, fire-and-forget */
+  event: 'evt',
+  /** server → client stream frames (W4) */
+  chunk: 'chunk',
+  end: 'end',
+  fail: 'fail',
+  /** client → server */
+  credit: 'credit',
+  cancel: 'cancel',
+} as const;
+
+export type WireEventName = (typeof WIRE_EVENTS)[keyof typeof WIRE_EVENTS];
+
+/** Names of server events sent as `evt` frames. */
+export const SYSTEM_EVENTS = {
+  shutdown: 'sys.shutdown',
+  disconnect: 'sys.disconnect',
+} as const;
+
+export type SystemEventName = (typeof SYSTEM_EVENTS)[keyof typeof SYSTEM_EVENTS];
+
+/**
+ * `io(url, { auth })`. A refused handshake rejects with a `connect_error` whose `data` is a
+ * `SocketError` (`version_mismatch`, `invalid_argument`, `unauthenticated`).
+ */
+export interface Handshake {
+  protocol: number;
+  clientId: string;
+  token?: string;
+  [key: string]: unknown;
 }
 
-/** Typing-only marker shared by the server and the client; it carries no runtime data. */
-export interface Contract<C extends SocketContract> {
+export interface CommandRequest<P = unknown> {
+  id: string;
+  name: string;
+  payload: P;
+  idempotencyKey?: string;
+  /**
+   * Milliseconds the caller is still willing to wait, measured from when the request was sent.
+   * Relative on purpose: client and server clocks never have to agree.
+   */
+  deadline?: number;
+  traceparent?: string;
+}
+
+export interface CommandResultReply<R = unknown> {
+  id: string;
+  ok: true;
+  /** `null` when the handler returned nothing. */
+  result: R;
+}
+
+/** The result follows as `chunk` frames (W4). */
+export interface CommandStreamReply {
+  id: string;
+  ok: true;
+  stream: true;
+}
+
+export interface CommandErrorReply {
+  id: string;
+  ok: false;
+  error: SocketError;
+}
+
+export type CommandReply<R = unknown> = CommandResultReply<R> | CommandStreamReply | CommandErrorReply;
+
+export interface EventFrame<P = unknown> {
+  name: string;
+  payload: P;
+}
+
+export interface Chunk<D = unknown> {
+  id: string;
+  seq: number;
+  data: D;
+}
+
+/** `seq` is the number of chunks sent. */
+export interface StreamEnd {
+  id: string;
+  seq: number;
+}
+
+export interface StreamFail {
+  id: string;
+  error: SocketError;
+}
+
+export interface StreamCredit {
+  id: string;
+  credits: number;
+}
+
+/** Cancels a running command or stream with this request id. */
+export interface CancelFrame {
+  id: string;
+}
+
+export interface ShutdownNotice {
+  retryAfterMs: number;
+}
+
+export interface DisconnectNotice {
+  reason: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
+}
+
+export function isCommandRequest(value: unknown): value is CommandRequest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isId(value.id) &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    (value.idempotencyKey === undefined || typeof value.idempotencyKey === 'string') &&
+    (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) &&
+    (value.traceparent === undefined || typeof value.traceparent === 'string')
+  );
+}
+
+export function isEventFrame(value: unknown): value is EventFrame {
+  return isRecord(value) && typeof value.name === 'string' && value.name.length > 0;
+}
+
+export function isCancelFrame(value: unknown): value is CancelFrame {
+  return isRecord(value) && isId(value.id);
+}
+```
+
+Create `packages/http-socket-common/src/contract.ts`:
+
+```ts
+/**
+ * One contract module is shared by the server and the client. Declare contracts with `type`,
+ * not `interface`: only type aliases get the implicit index signature `Record<string, …>` needs.
+ */
+export interface ContractShape {
+  /** command name → [payload, result] */
+  commands: Record<string, readonly [unknown, unknown]>;
+  /** server → client events: name → payload */
+  events: Record<string, unknown>;
+  /** client → server events: name → payload */
+  clientEvents?: Record<string, unknown>;
+}
+
+export interface SocketContract<C extends ContractShape> {
+  readonly kind: 'socket-contract';
+  /** Type carrier only, never set at runtime. */
   readonly __contract?: C;
 }
 
-export function defineContract<C extends SocketContract>(): Contract<C> {
-  return Object.freeze({}) as Contract<C>;
+export function defineContract<C extends ContractShape>(): SocketContract<C> {
+  return { kind: 'socket-contract' };
 }
 
-export type CommandName<C extends SocketContract> = Extract<keyof C['commands'], string>;
-
-export type CommandPayload<C extends SocketContract, N extends CommandName<C>> = C['commands'][N] extends readonly [infer P, unknown] ? P : never;
-
-export type CommandResult<C extends SocketContract, N extends CommandName<C>> = C['commands'][N] extends readonly [unknown, infer R] ? R : never;
-
-export type EventName<C extends SocketContract> = Extract<keyof C['events'], string>;
-
-export type EventPayload<C extends SocketContract, N extends EventName<C>> = C['events'][N];
+export type CommandName<C extends ContractShape> = Extract<keyof C['commands'], string>;
+export type CommandPayload<C extends ContractShape, N extends CommandName<C>> = C['commands'][N][0];
+export type CommandResult<C extends ContractShape, N extends CommandName<C>> = C['commands'][N][1];
+export type EventName<C extends ContractShape> = Extract<keyof C['events'], string>;
+export type EventPayload<C extends ContractShape, N extends EventName<C>> = C['events'][N];
+export type ClientEventName<C extends ContractShape> = Extract<keyof NonNullable<C['clientEvents']>, string>;
+export type ClientEventPayload<C extends ContractShape, N extends ClientEventName<C>> = NonNullable<C['clientEvents']>[N];
+export type ContractOf<T> = T extends SocketContract<infer C> ? C : never;
 ```
 
-`packages/http-socket-common/src/index.ts`:
+Create `packages/http-socket-common/src/index.ts`:
 
 ```ts
+export * from './errors.js';
 export * from './protocol.js';
 export * from './contract.js';
 ```
 
-- [ ] **Step 6: Run the tests and the type check**
+- [ ] **Step 6: Run the test to verify it passes**
 
-Run (in `packages/http-socket-common`): `npx ts-mocha -p tsconfig.json test/common.test.ts`
-Expected: `2 passing`.
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket-common && npx ts-mocha -p tsconfig.json test/common.test.ts`
+Expected: `13 passing`, 0 failing.
 
-Run (in `packages/http-socket-common`): `npm run typecheck`
-Expected: exits 0, no diagnostics.
+- [ ] **Step 7: Register the package in the root build and build both module flavours (consumers import `lib/`)**
 
-- [ ] **Step 7: Wire the root build and compile**
-
-In `tsconfig.build.json`, after line 66 (`    { "path": "packages/http-socket/tsconfig.mjs.json"},`) add, unless W1 already added it:
+In `tsconfig.build.json`, insert after line 12 (`    { "path": "packages/telemetry-common/tsconfig.mjs.json" },`):
 
 ```json
     { "path": "packages/http-socket-common/tsconfig.mjs.json" },
 ```
 
-In `tsconfig.build.cjs.json`, after line 66 (`    { "path": "packages/http-socket/tsconfig.cjs.json"},`) add, unless already present:
+In `tsconfig.build.cjs.json`, insert after line 12 (`    { "path": "./packages/telemetry-common/tsconfig.cjs.json" },`):
 
 ```json
-    { "path": "packages/http-socket-common/tsconfig.cjs.json" },
+    { "path": "./packages/http-socket-common/tsconfig.cjs.json" },
 ```
 
-Run (in `packages/http-socket-common`): `npm run compile`
-Expected: exits 0; `lib/mjs/index.js` and `lib/mjs/index.d.ts` exist.
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b packages/http-socket-common/tsconfig.mjs.json packages/http-socket-common/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs`
+Expected: exits 0. `packages/http-socket-common/lib/mjs/index.js`, `lib/mjs/index.d.ts`, `lib/cjs/index.js` and `lib/cjs/package.json` (`{"type":"commonjs"}`) exist.
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b tsconfig.build.json`
+Expected: exits 0 (the whole repo now builds, including the new package).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/http-socket-common/package.json packages/http-socket-common/tsconfig.json packages/http-socket-common/tsconfig.mjs.json packages/http-socket-common/tsconfig.cjs.json packages/http-socket-common/.mocharc.json packages/http-socket-common/src packages/http-socket-common/test tsconfig.build.json tsconfig.build.cjs.json docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md docs/superpowers/plans/2026-10-02-ws-w2-client-core.md
-git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat(http-socket-common): wire protocol types and contract helpers"
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add packages/http-socket-common/package.json packages/http-socket-common/tsconfig.json packages/http-socket-common/tsconfig.mjs.json packages/http-socket-common/tsconfig.cjs.json \
+  packages/http-socket-common/.eslintignore packages/http-socket-common/.eslintrc.cjs packages/http-socket-common/.gitignore packages/http-socket-common/.npmignore packages/http-socket-common/.prettierrc packages/http-socket-common/.mocharc.json \
+  packages/http-socket-common/src packages/http-socket-common/test tsconfig.build.json tsconfig.build.cjs.json && \
+git commit -m "feat(http-socket-common): wire protocol, error codes and contract typing for the WebSocket layer"
 ```
-
-- [ ] **Step 9 (only if W1 created the package): Reconcile**
-
-1. Run (worktree root) `npm install`, then (in `packages/http-socket-common`) `npm run compile`.
-2. Compare W1's exports with the **Produces** list above. For each missing or differently named item:
-   - wire types (`Handshake`, `CommandRequest`, `CommandReply`, `SocketError`, `ErrorCode`, `EventFrame`, `Chunk`, `PROTOCOL_VERSION`): W1's names and shapes win. Change the imports in every later task of this plan to W1's names before executing it.
-   - contract helpers (`SocketContract`, `Contract`, `defineContract`, `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload`): if W1 has equivalents, use them and adjust Tasks 10–11. If not, add the missing ones to `packages/http-socket-common/src/contract.ts` exactly as in Step 5 (additive only, never rename W1's), plus the `typeChecks` block of Step 3 into W1's test file.
-3. Compare W1's plan (`docs/superpowers/plans/2026-10-02-ws-w1-server-core.md`) with the **Wire assumptions** in Global Constraints (`'cmd'`, `'evt'`, `'cancel'` + `{ id }`, relative `deadline`, `sys.shutdown` as an `'evt'` frame, `connect_error.data`). Where W1 differs, W1 wins: change `src/wire.ts` (Task 5) and the deadline line in `src/commands.ts` (Task 8) accordingly and note it in the commit message.
-4. Commit only what you changed in `packages/http-socket-common`, with message `feat(http-socket-common): contract helpers for the client` (skip if nothing changed). Also commit this plan file if it is untracked.
 
 ---
 
-### Task 2: Client package scaffold, `SocketCommandError`, ids, isomorphic guard
+### Task 2: Client package scaffold, ids, isomorphic guard
 
 **Files:**
 - Create: `packages/http-socket-client/package.json`, `tsconfig.json`, `tsconfig.mjs.json`, `tsconfig.cjs.json`, `.mocharc.json`
-- Create: `packages/http-socket-client/src/errors.ts`, `src/ids.ts`
-- Test: `packages/http-socket-client/test/errors.test.ts`, `test/ids.test.ts`, `test/isomorphic.test.ts`
+- Create: `packages/http-socket-client/src/ids.ts`
+- Test: `packages/http-socket-client/test/ids.test.ts`, `test/isomorphic.test.ts`
 - Modify: `tsconfig.build.json`, `tsconfig.build.cjs.json`
 
 **Interfaces:**
-- Consumes: `SocketError`, `ErrorCode` (Task 1).
-- Produces: `class SocketCommandError extends Error { readonly error: SocketError; readonly command: string | undefined; get code(): ErrorCode; get retryable(): boolean; get retryAfterMs(): number | undefined; get details(): unknown; get errorId(): string | undefined }` with `constructor(error: SocketError, command?: string)`; `isSocketError(value: unknown): value is SocketError`; `randomId(source?: { randomUUID?: () => string }): string`.
+- Consumes: the `@spinajs/http-socket-common` workspace package (Task 1) as a dependency.
+- Produces: `randomId(source?: { randomUUID?: () => string }): string`. The client has no error class of its own: commands reject with common's `SocketException` (Tasks 7–9), and common's `isSocketError` checks wire errors.
 
 - [ ] **Step 1: Scaffold the package**
 
@@ -574,50 +921,6 @@ Expected: no `ERR!`; `ls node_modules/socket.io-client/package.json node_modules
 
 - [ ] **Step 2: Write the failing tests**
 
-`packages/http-socket-client/test/errors.test.ts`:
-
-```ts
-import 'mocha';
-import { expect } from 'chai';
-import type { SocketError } from '@spinajs/http-socket-common';
-import { SocketCommandError, isSocketError } from '../src/errors.js';
-
-describe('SocketCommandError', () => {
-  it('carries the wire error and the command name', () => {
-    const wire: SocketError = { code: 'resource_exhausted', message: 'slow down', retryable: true, retryAfterMs: 250, details: { limit: 10 }, errorId: 'e-1' };
-    const error = new SocketCommandError(wire, 'docs.open');
-
-    expect(error).to.be.instanceOf(Error);
-    expect(error).to.be.instanceOf(SocketCommandError);
-    expect(error.name).to.equal('SocketCommandError');
-    expect(error.message).to.equal('docs.open: slow down');
-    expect(error.command).to.equal('docs.open');
-    expect(error.error).to.equal(wire);
-    expect([error.code, error.retryable, error.retryAfterMs, error.errorId]).to.deep.equal(['resource_exhausted', true, 250, 'e-1']);
-    expect(error.details).to.deep.equal({ limit: 10 });
-  });
-
-  it('uses the bare message when there is no command name', () => {
-    const error = new SocketCommandError({ code: 'internal', message: 'boom', retryable: false });
-    expect(error.message).to.equal('boom');
-    expect(error.command).to.equal(undefined);
-  });
-});
-
-describe('isSocketError', () => {
-  it('accepts the wire shape, including codes this client does not know', () => {
-    expect(isSocketError({ code: 'not_found', message: 'x', retryable: false })).to.equal(true);
-    expect(isSocketError({ code: 'from_a_newer_server', message: 'x', retryable: true })).to.equal(true);
-  });
-
-  it('rejects anything else', () => {
-    for (const value of [null, undefined, 'x', 42, {}, { code: 'x', message: 'y' }, { code: 1, message: 'y', retryable: false }]) {
-      expect(isSocketError(value), JSON.stringify(value)).to.equal(false);
-    }
-  });
-});
-```
-
 `packages/http-socket-client/test/ids.test.ts`:
 
 ```ts
@@ -694,56 +997,10 @@ describe('isomorphic main entry', () => {
 
 - [ ] **Step 3: Run them to verify they fail**
 
-Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/errors.test.ts test/ids.test.ts test/isomorphic.test.ts`
-Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../src/errors.js` / `../src/ids.js` (and `ENOENT` for `src` in the isomorphic test).
+Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/ids.test.ts test/isomorphic.test.ts`
+Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../src/ids.js` (and `ENOENT` for `src` in the isomorphic test).
 
 - [ ] **Step 4: Implement**
-
-`packages/http-socket-client/src/errors.ts`:
-
-```ts
-import type { ErrorCode, SocketError } from '@spinajs/http-socket-common';
-
-/** Rejection of a command; `error` is the wire `SocketError` unchanged. */
-export class SocketCommandError extends Error {
-  public readonly error: SocketError;
-  public readonly command: string | undefined;
-
-  constructor(error: SocketError, command?: string) {
-    super(command === undefined ? error.message : `${command}: ${error.message}`);
-    this.name = 'SocketCommandError';
-    this.error = error;
-    this.command = command;
-  }
-
-  public get code(): ErrorCode {
-    return this.error.code;
-  }
-
-  public get retryable(): boolean {
-    return this.error.retryable;
-  }
-
-  public get retryAfterMs(): number | undefined {
-    return this.error.retryAfterMs;
-  }
-
-  public get details(): unknown {
-    return this.error.details;
-  }
-
-  public get errorId(): string | undefined {
-    return this.error.errorId;
-  }
-}
-
-/** Shape check only, so codes from a newer server still pass. */
-export function isSocketError(value: unknown): value is SocketError {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.code === 'string' && typeof candidate.message === 'string' && typeof candidate.retryable === 'boolean';
-}
-```
 
 `packages/http-socket-client/src/ids.ts`:
 
@@ -762,8 +1019,8 @@ export function randomId(source: UuidSource | undefined = (globalThis as { crypt
 
 - [ ] **Step 5: Run the tests and the type check**
 
-Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/errors.test.ts test/ids.test.ts test/isomorphic.test.ts`
-Expected: `8 passing`.
+Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/ids.test.ts test/isomorphic.test.ts`
+Expected: `4 passing`.
 
 Run (in `packages/http-socket-client`): `npm run typecheck`
 Expected: exits 0.
@@ -771,8 +1028,8 @@ Expected: exits 0.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/http-socket-client/package.json packages/http-socket-client/tsconfig.json packages/http-socket-client/tsconfig.mjs.json packages/http-socket-client/tsconfig.cjs.json packages/http-socket-client/.mocharc.json packages/http-socket-client/src/errors.ts packages/http-socket-client/src/ids.ts packages/http-socket-client/test/errors.test.ts packages/http-socket-client/test/ids.test.ts packages/http-socket-client/test/isomorphic.test.ts tsconfig.build.json tsconfig.build.cjs.json
-git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat(http-socket-client): package scaffold, SocketCommandError and the isomorphic guard"
+git add packages/http-socket-client/package.json packages/http-socket-client/tsconfig.json packages/http-socket-client/tsconfig.mjs.json packages/http-socket-client/tsconfig.cjs.json packages/http-socket-client/.mocharc.json packages/http-socket-client/src/ids.ts packages/http-socket-client/test/ids.test.ts packages/http-socket-client/test/isomorphic.test.ts tsconfig.build.json tsconfig.build.cjs.json
+git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat(http-socket-client): package scaffold, ids and the isomorphic guard"
 ```
 
 ---
@@ -1132,27 +1389,38 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 ### Task 5: Stub server and `Connection` core
 
 **Files:**
-- Create: `packages/http-socket-client/src/wire.ts`, `src/connection.ts`
+- Create: `packages/http-socket-client/src/connection.ts`
 - Create: `packages/http-socket-client/test/support/stub-server.ts`, `test/support/cleanup.ts`, `test/support/wait.ts`, `test/support/connection.ts`
 - Test: `packages/http-socket-client/test/connection.test.ts`
 
 **Interfaces:**
-- Consumes: `Emitter` (Task 3); `PROTOCOL_VERSION`, `Handshake`, `CommandRequest`, `CommandReply`, `EventFrame`, `SocketError` (Task 1); `isSocketError` (Task 2).
+- Consumes: `Emitter` (Task 3); `PROTOCOL_VERSION`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `Handshake`, `CommandRequest`, `CommandReply`, `EventFrame`, `ShutdownNotice`, `DisconnectNotice`, `SocketError`, `isSocketError`, `isCancelFrame` (Task 1).
 - Produces:
-  - `src/wire.ts`: `WIRE = { command: 'cmd', event: 'evt', cancel: 'cancel', chunk: 'chunk', end: 'end', fail: 'fail', credit: 'credit' } as const`; `SYS_SHUTDOWN = 'sys.shutdown'`; `interface ShutdownNotice { retryAfterMs: number }`.
   - `src/connection.ts`: `type ConnectionState = 'connecting' | 'online' | 'offline' | 'closed'`; `interface AuthPayload { token?: string; [key: string]: unknown }`; `type AuthProvider = () => AuthPayload | Promise<AuthPayload>`; `type IoOptions = Partial<ManagerOptions & SocketOptions>`; `interface ConnectionOptions { url; path?; clientId; auth?; io?; onListenerError? }` (Task 6 adds `reconnect?`, `connectTimeoutMs?`); `interface ConnectionEvents { state(state, previous) }` (Task 6 adds `auth_required`, `incompatible`); `class Connection { readonly events: Emitter<ConnectionEvents>; get state(): ConnectionState; get connected(): boolean; connect(): void; disconnect(): void; close(): void; send(event: string, ...args: unknown[]): boolean; request<R>(event: string, data: unknown, onReply: (reply: R) => void): boolean; listen(event: string, handler: (...args: any[]) => void): () => void }`.
-  - Test support: `StubServer` (`start(port?)`, `stop()`, `restart(downMs?)`, `killConnections()`, `emitEvent(name, payload)`, `announceShutdown(retryAfterMs)`, `url`, `port`, `connectionCount`, `handshakes`, `requests`, `cancels`, `clientEvents`, `handlers`, `rawReplies`, `refuse`, `holdHandshakes`, `ackFault`); `track()`, `closeAll()`; `sleep()`, `until()`, `nextEmit()`, `Stateful`, `waitForState()`, `recordStates()`, `retryGaps()`, `StateRecord`; `FAST_RECONNECT`, `makeConnection()`, `statefulConnection()`.
+  - Test support: `StubServer` (`start(port?)`, `stop()`, `restart(downMs?)`, `killConnections()`, `kick(reason)`, `emitEvent(name, payload)`, `announceShutdown(retryAfterMs)`, `url`, `port`, `connectionCount`, `handshakes`, `requests`, `cancels`, `clientEvents`, `handlers`, `rawReplies`, `refuse`, `holdHandshakes`, `ackFault`); `track()`, `closeAll()`; `sleep()`, `until()`, `nextEmit()`, `Stateful`, `waitForState()`, `recordStates()`, `retryGaps()`, `StateRecord`; `FAST_RECONNECT`, `makeConnection()`, `statefulConnection()`.
 
 - [ ] **Step 1: Write the test support**
 
 `packages/http-socket-client/test/support/stub-server.ts`:
 
 ```ts
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Server, type Socket } from 'socket.io';
-import { PROTOCOL_VERSION, type CommandReply, type CommandRequest, type EventFrame, type Handshake, type SocketError } from '@spinajs/http-socket-common';
-import { isSocketError } from '../../src/errors.js';
+import {
+  PROTOCOL_VERSION,
+  SYSTEM_EVENTS,
+  WIRE_EVENTS,
+  isCancelFrame,
+  isSocketError,
+  type CommandReply,
+  type CommandRequest,
+  type DisconnectNotice,
+  type EventFrame,
+  type Handshake,
+  type ShutdownNotice,
+  type SocketError,
+} from '@spinajs/http-socket-common';
 
 export type CommandHandler = (payload: any, request: CommandRequest, socket: Socket) => unknown;
 export type RawReply = (request: CommandRequest) => unknown;
@@ -1160,7 +1428,10 @@ export type AckFault = { kind: 'none' } | { kind: 'drop' } | { kind: 'delay'; ms
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A socket.io server that speaks the spec §4 wire protocol, with fault injection. Not the W1 server. */
+/**
+ * A socket.io server that answers like the W1 server (W1 plan, "Coordination with W2"), with fault
+ * injection. Not the W1 server: the client tests must not depend on W1 being built.
+ */
 export class StubServer {
   public port = 0;
   public readonly handshakes: Handshake[] = [];
@@ -1173,7 +1444,6 @@ export class StubServer {
   public holdHandshakes = false;
   public ackFault: AckFault = { kind: 'none' };
   private io: Server | undefined;
-  private http: HttpServer | undefined;
 
   public get url(): string {
     return `http://127.0.0.1:${this.port}`;
@@ -1192,7 +1462,9 @@ export class StubServer {
       this.handshakes.push(handshake);
       if (this.holdHandshakes) return;
       const refusal: SocketError | undefined =
-        handshake.protocol !== PROTOCOL_VERSION ? { code: 'version_mismatch', message: `server speaks protocol ${PROTOCOL_VERSION}`, retryable: false } : this.refuse?.(handshake);
+        handshake.protocol !== PROTOCOL_VERSION
+          ? { code: 'version_mismatch', message: `server speaks protocol ${PROTOCOL_VERSION}`, retryable: false, details: { server: PROTOCOL_VERSION } }
+          : this.refuse?.(handshake);
       if (refusal) {
         const error = new Error(refusal.message) as Error & { data?: SocketError };
         error.data = refusal;
@@ -1203,21 +1475,20 @@ export class StubServer {
     });
 
     io.on('connection', (socket) => {
-      socket.on('cmd', (request: CommandRequest, ack: (reply: unknown) => void) => {
+      socket.on(WIRE_EVENTS.command, (request: CommandRequest, ack: (reply: unknown) => void) => {
         this.requests.push(request);
         void this.reply(request, socket, ack);
       });
-      socket.on('cancel', (message: { id: string }) => {
-        this.cancels.push(message.id);
+      socket.on(WIRE_EVENTS.cancel, (frame: unknown) => {
+        if (isCancelFrame(frame)) this.cancels.push(frame.id);
       });
-      socket.on('evt', (frame: EventFrame) => {
+      socket.on(WIRE_EVENTS.event, (frame: EventFrame) => {
         this.clientEvents.push(frame);
       });
     });
 
     await new Promise<void>((resolve) => http.listen(port, '127.0.0.1', () => resolve()));
     this.port = (http.address() as AddressInfo).port;
-    this.http = http;
     this.io = io;
   }
 
@@ -1225,7 +1496,7 @@ export class StubServer {
     const io = this.io;
     if (!io) return;
     this.io = undefined;
-    this.http = undefined;
+    // io.close() also closes the attached http server
     await new Promise<void>((resolve) => {
       void io.close(() => resolve());
     });
@@ -1243,13 +1514,21 @@ export class StubServer {
     for (const socket of this.io?.sockets.sockets.values() ?? []) socket.conn.close();
   }
 
+  /** What W1's `SocketHub.disconnect` does: the notice, then a server-side disconnect. */
+  public kick(reason: string): void {
+    const notice: DisconnectNotice = { reason };
+    this.emitEvent(SYSTEM_EVENTS.disconnect, notice);
+    this.io?.disconnectSockets(false);
+  }
+
   public emitEvent(name: string, payload: unknown): void {
     const frame: EventFrame = { name, payload };
-    this.io?.emit('evt', frame);
+    this.io?.emit(WIRE_EVENTS.event, frame);
   }
 
   public announceShutdown(retryAfterMs: number): void {
-    this.emitEvent('sys.shutdown', { retryAfterMs });
+    const notice: ShutdownNotice = { retryAfterMs };
+    this.emitEvent(SYSTEM_EVENTS.shutdown, notice);
   }
 
   private async reply(request: CommandRequest, socket: Socket, ack: (reply: unknown) => void): Promise<void> {
@@ -1270,7 +1549,9 @@ export class StubServer {
       return unknown;
     }
     try {
-      const done: CommandReply = { id: request.id, ok: true, result: await handler(request.payload, request, socket) };
+      const result = await handler(request.payload, request, socket);
+      // as W1 does: a handler that returns nothing answers result: null, never a missing field
+      const done: CommandReply = { id: request.id, ok: true, result: result === undefined ? null : result };
       return done;
     } catch (error) {
       const failed: CommandReply = { id: request.id, ok: false, error: isSocketError(error) ? error : { code: 'internal', message: 'handler failed', retryable: false } };
@@ -1403,8 +1684,7 @@ The `as ConnectionOptions` cast lets the helper pass `reconnect` before Task 6 a
 ```ts
 import 'mocha';
 import { expect } from 'chai';
-import { PROTOCOL_VERSION } from '@spinajs/http-socket-common';
-import { WIRE } from '../src/wire.js';
+import { PROTOCOL_VERSION, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { closeAll } from './support/cleanup.js';
 import { makeConnection, statefulConnection } from './support/connection.js';
 import { StubServer } from './support/stub-server.js';
@@ -1488,13 +1768,13 @@ describe('Connection', () => {
 
   it('send() and listen() carry raw socket.io events; send() refuses while offline', async () => {
     const connection = makeConnection(server);
-    expect(connection.send(WIRE.event, { name: 'early', payload: 0 })).to.equal(false);
+    expect(connection.send(WIRE_EVENTS.event, { name: 'early', payload: 0 })).to.equal(false);
     const received: unknown[] = [];
-    const stopListening = connection.listen(WIRE.event, (frame) => received.push(frame));
+    const stopListening = connection.listen(WIRE_EVENTS.event, (frame) => received.push(frame));
     connection.connect();
     await waitForState(statefulConnection(connection), 'online');
 
-    expect(connection.send(WIRE.event, { name: 'hello', payload: 1 })).to.equal(true);
+    expect(connection.send(WIRE_EVENTS.event, { name: 'hello', payload: 1 })).to.equal(true);
     await until(() => server.clientEvents.length === 1);
     expect(server.clientEvents).to.deep.equal([{ name: 'hello', payload: 1 }]);
 
@@ -1513,30 +1793,9 @@ describe('Connection', () => {
 - [ ] **Step 3: Run it to verify it fails**
 
 Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/connection.test.ts`
-Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../src/wire.js` / `../../src/connection.js`.
+Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../../src/connection.js`.
 
 - [ ] **Step 4: Implement**
-
-`packages/http-socket-client/src/wire.ts`:
-
-```ts
-/** socket.io event names of the spec §4 wire protocol. */
-export const WIRE = {
-  command: 'cmd',
-  event: 'evt',
-  cancel: 'cancel',
-  chunk: 'chunk',
-  end: 'end',
-  fail: 'fail',
-  credit: 'credit',
-} as const;
-
-export const SYS_SHUTDOWN = 'sys.shutdown';
-
-export interface ShutdownNotice {
-  retryAfterMs: number;
-}
-```
 
 `packages/http-socket-client/src/connection.ts` (core; Task 6 replaces it with the resilient version):
 
@@ -1687,7 +1946,7 @@ Expected: exits 0.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/http-socket-client/src/wire.ts packages/http-socket-client/src/connection.ts packages/http-socket-client/test/support packages/http-socket-client/test/connection.test.ts
+git add packages/http-socket-client/src/connection.ts packages/http-socket-client/test/support packages/http-socket-client/test/connection.test.ts
 git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat(http-socket-client): connection state machine and handshake, with a protocol stub server for tests"
 ```
 
@@ -1700,13 +1959,14 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 - Test: `packages/http-socket-client/test/connection-resilience.test.ts`, `test/handshake-errors.test.ts`
 
 **Interfaces:**
-- Consumes: `ReconnectPolicy`, `ReconnectOptions` (Task 4); `WIRE`, `SYS_SHUTDOWN`, `ShutdownNotice` (Task 5); `isSocketError` (Task 2); test support (Task 5).
-- Produces (additions to Task 5's surface): `ConnectionOptions.reconnect?: Partial<ReconnectOptions>`, `ConnectionOptions.connectTimeoutMs?: number`; `ConnectionEvents.auth_required(error: SocketError)`, `ConnectionEvents.incompatible(error: SocketError)`; `DEFAULT_CONNECT_TIMEOUT_MS = 20_000`.
+- Consumes: `ReconnectPolicy`, `ReconnectOptions` (Task 4); `PROTOCOL_VERSION`, `MAX_ID_LENGTH`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `ShutdownNotice`, `EventFrame`, `Handshake`, `SocketError`, `isSocketError` (Task 1); test support (Task 5).
+- Produces (additions to Task 5's surface): `ConnectionOptions.reconnect?: Partial<ReconnectOptions>`, `ConnectionOptions.connectTimeoutMs?: number`; `ConnectionEvents.auth_required(error: SocketError)`, `ConnectionEvents.incompatible(error: SocketError)`; `DEFAULT_CONNECT_TIMEOUT_MS = 20_000`; the constructor throws `RangeError` for a `clientId` outside 1–`MAX_ID_LENGTH` characters.
 
 Behaviour this task adds:
-- Every failure (engine error, refused handshake, drop, unanswered handshake) schedules a retry through `ReconnectPolicy`; attempts reset after `online` and on a manual `connect()`.
+- Every failure (engine error, refused handshake, drop, server-side disconnect, unanswered handshake) schedules a retry through `ReconnectPolicy`; attempts reset after `online` and on a manual `connect()`. A server-side disconnect (W1's `SocketHub.disconnect`, socket.io reason `io server disconnect`) is a drop like any other: socket.io's own policy would give up after it, this one does not.
 - `connectTimeoutMs` (default 20 000 ms, socket.io's own connect timeout) bounds an attempt including the auth callback and the CONNECT round trip; without it a handshake the server never answers would leave the client in `connecting` forever.
-- `retryAfterMs` from a retryable refusal or from `sys.shutdown` is passed to the policy as a floor.
+- `retryAfterMs` from a retryable refusal or from `SYSTEM_EVENTS.shutdown` (`ShutdownNotice`) is passed to the policy as a floor.
+- A `clientId` the W1 server would refuse with `invalid_argument` (empty, or longer than `MAX_ID_LENGTH`) throws a `RangeError` in the constructor, so that refusal can never loop through retries.
 - `unauthenticated` → stop, `offline`, emit `auth_required`. `version_mismatch` → stop, `offline`, emit `incompatible`. A throwing auth callback → `auth_required` with code `unauthenticated`.
 - socket.io's `sendBuffer` is cleared on every drop.
 
@@ -1790,6 +2050,19 @@ describe('Connection resilience', () => {
     expect(Date.now() - droppedAt).to.be.at.least(290);
   });
 
+  it('reconnects after a server-side disconnect (a SocketHub kick)', async () => {
+    const connection = makeConnection(server);
+    const target = statefulConnection(connection);
+    connection.connect();
+    await waitForState(target, 'online');
+
+    server.kick('maintenance');
+    await waitForState(target, 'offline');
+    await waitForState(target, 'online');
+
+    expect(server.handshakes).to.have.length(2);
+  });
+
   it('honours retryAfterMs of a retryable handshake refusal', async () => {
     let refusals = 1;
     server.refuse = () => (refusals-- > 0 ? { code: 'unavailable', message: 'draining', retryable: true, retryAfterMs: 250 } : undefined);
@@ -1856,7 +2129,7 @@ describe('Connection resilience', () => {
 ```ts
 import 'mocha';
 import { expect } from 'chai';
-import type { SocketError } from '@spinajs/http-socket-common';
+import { MAX_ID_LENGTH, type SocketError } from '@spinajs/http-socket-common';
 import { closeAll } from './support/cleanup.js';
 import { makeConnection, statefulConnection } from './support/connection.js';
 import { StubServer } from './support/stub-server.js';
@@ -1921,6 +2194,13 @@ describe('Connection handshake errors', () => {
     expect(server.handshakes).to.have.length(1);
   });
 
+  it('throws at construction for a clientId the server would refuse with invalid_argument', () => {
+    expect(() => makeConnection(server, { clientId: '' })).to.throw(RangeError);
+    expect(() => makeConnection(server, { clientId: 'x'.repeat(MAX_ID_LENGTH + 1) })).to.throw(RangeError);
+    expect(() => makeConnection(server, { clientId: 'x'.repeat(MAX_ID_LENGTH) })).to.not.throw();
+    expect(server.handshakes).to.have.length(0);
+  });
+
   it('treats a throwing auth callback as auth_required without sending a handshake', async () => {
     const connection = makeConnection(server, {
       auth: () => {
@@ -1943,7 +2223,7 @@ describe('Connection handshake errors', () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/connection-resilience.test.ts test/handshake-errors.test.ts`
-Expected: FAIL — the core connection never retries and never emits `auth_required`/`incompatible`: timeouts such as `state 'online' not reached within 5000 ms`, `condition not met`, `no emit within 5000 ms` (and TS2345 on `'auth_required'` if the runner type-checks).
+Expected: FAIL — the core connection never retries and never emits `auth_required`/`incompatible`: timeouts such as `state 'online' not reached within 5000 ms`, `condition not met`, `no emit within 5000 ms` (and TS2345 on `'auth_required'` if the runner type-checks); the clientId test fails with `expected [Function] to throw RangeError`.
 
 - [ ] **Step 3: Implement — replace `src/connection.ts` entirely**
 
@@ -1951,11 +2231,9 @@ Expected: FAIL — the core connection never retries and never emits `auth_requi
 
 ```ts
 import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
-import { PROTOCOL_VERSION, type EventFrame, type Handshake, type SocketError } from '@spinajs/http-socket-common';
+import { MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isSocketError, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
 import { Emitter } from './emitter.js';
-import { isSocketError } from './errors.js';
 import { ReconnectPolicy, type ReconnectOptions } from './reconnect.js';
-import { SYS_SHUTDOWN, WIRE, type ShutdownNotice } from './wire.js';
 
 export type ConnectionState = 'connecting' | 'online' | 'offline' | 'closed';
 
@@ -2009,6 +2287,10 @@ export class Connection {
   private connectTimer: Timer | undefined;
 
   constructor(private readonly options: ConnectionOptions) {
+    // the server refuses such a handshake with invalid_argument, which no retry can fix
+    if (typeof options.clientId !== 'string' || options.clientId.length === 0 || options.clientId.length > MAX_ID_LENGTH) {
+      throw new RangeError(`clientId must be 1-${MAX_ID_LENGTH} characters`);
+    }
     this.events = new Emitter<ConnectionEvents>(options.onListenerError);
     this.policy = new ReconnectPolicy(options.reconnect);
     this.connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
@@ -2029,7 +2311,7 @@ export class Connection {
     this.socket.on('connect', () => this.onConnect());
     this.socket.on('connect_error', (error: Error) => this.onConnectError(error));
     this.socket.on('disconnect', () => this.onDisconnect());
-    this.socket.on(WIRE.event, (frame: EventFrame) => this.onEventFrame(frame));
+    this.socket.on(WIRE_EVENTS.event, (frame: EventFrame) => this.onEventFrame(frame));
   }
 
   public get state(): ConnectionState {
@@ -2136,7 +2418,7 @@ export class Connection {
   }
 
   private onEventFrame(frame: EventFrame): void {
-    if (frame?.name !== SYS_SHUTDOWN) return;
+    if (frame?.name !== SYSTEM_EVENTS.shutdown) return;
     const retryAfterMs = (frame.payload as Partial<ShutdownNotice> | undefined)?.retryAfterMs;
     if (typeof retryAfterMs === 'number') this.retryAfterMs = retryAfterMs;
   }
@@ -2200,7 +2482,7 @@ export class Connection {
 - [ ] **Step 4: Run the tests and the type check**
 
 Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/connection.test.ts test/connection-resilience.test.ts test/handshake-errors.test.ts`
-Expected: `17 passing` (6 + 7 + 4).
+Expected: `19 passing` (6 + 8 + 5).
 
 Run (in `packages/http-socket-client`): `npm run typecheck`
 Expected: exits 0.
@@ -2222,8 +2504,8 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 - Test: `packages/http-socket-client/test/commands.test.ts`
 
 **Interfaces:**
-- Consumes: `Connection`, `ConnectionState` (Task 6); `WIRE` (Task 5); `SocketCommandError`, `isSocketError` (Task 2); `CommandReply`, `CommandRequest`, `SocketError` (Task 1).
-- Produces: `type WhenOffline = 'fail' | 'wait'`; `interface CommandOptions { timeoutMs?: number; signal?: AbortSignal; whenOffline?: WhenOffline; traceparent?: string }`; `DEFAULT_TIMEOUT_MS = 15_000`; `class CommandDispatcher { constructor(connection: Connection, defaultTimeoutMs?: number); nextId(): string; execute(name: string, payload: unknown, options?: CommandOptions): Promise<unknown> }`. Test support: `onlineDispatcher(server, timeoutMs?)`, `rejectionOf(promise): Promise<SocketCommandError>`.
+- Consumes: `Connection`, `ConnectionState` (Task 6); `WIRE_EVENTS`, `SocketException`, `isSocketError`, `CommandReply`, `CommandRequest`, `SocketError` (Task 1).
+- Produces: `type WhenOffline = 'fail' | 'wait'`; `interface CommandOptions { timeoutMs?: number; signal?: AbortSignal; whenOffline?: WhenOffline; traceparent?: string }`; `DEFAULT_TIMEOUT_MS = 15_000`; `class CommandDispatcher { constructor(connection: Connection, defaultTimeoutMs?: number); nextId(): string; execute(name: string, payload: unknown, options?: CommandOptions): Promise<unknown> }`. Every rejection is a `SocketException` built with `SocketException.fromWire`. Test support: `onlineDispatcher(server, timeoutMs?)`, `rejectionOf(promise): Promise<SocketException>`.
 
 - [ ] **Step 1: Write the test support and the failing test**
 
@@ -2231,9 +2513,9 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 
 ```ts
 import { expect } from 'chai';
+import { SocketException } from '@spinajs/http-socket-common';
 import { CommandDispatcher } from '../../src/commands.js';
 import type { Connection } from '../../src/connection.js';
-import { SocketCommandError } from '../../src/errors.js';
 import { makeConnection, statefulConnection } from './connection.js';
 import type { StubServer } from './stub-server.js';
 import { waitForState } from './wait.js';
@@ -2246,12 +2528,12 @@ export async function onlineDispatcher(server: StubServer, timeoutMs = 1000): Pr
   return { connection, commands };
 }
 
-export async function rejectionOf(promise: Promise<unknown>): Promise<SocketCommandError> {
+export async function rejectionOf(promise: Promise<unknown>): Promise<SocketException> {
   try {
     await promise;
   } catch (error) {
-    expect(error).to.be.instanceOf(SocketCommandError);
-    return error as SocketCommandError;
+    expect(error).to.be.instanceOf(SocketException);
+    return error as SocketException;
   }
   throw new Error('expected the promise to reject');
 }
@@ -2301,17 +2583,17 @@ describe('CommandDispatcher replies', () => {
     expect(request).to.not.have.property('idempotencyKey');
   });
 
-  it('resolves a void command with undefined and gives every request its own id', async () => {
+  it('resolves a void command with the null the server sends, and gives every request its own id', async () => {
     server.handlers.set('docs.touch', () => undefined);
     const { commands } = await onlineDispatcher(server);
 
-    expect(await commands.execute('docs.touch', { id: 1 })).to.equal(undefined);
+    expect(await commands.execute('docs.touch', { id: 1 })).to.equal(null);
     await commands.execute('docs.touch', { id: 2 });
 
     expect(server.requests[0].id).to.not.equal(server.requests[1].id);
   });
 
-  it('rejects with a SocketCommandError carrying the server SocketError', async () => {
+  it('rejects with a SocketException carrying the server SocketError', async () => {
     server.handlers.set('docs.open', () => {
       throw { code: 'not_found', message: 'no such doc', retryable: false, errorId: 'e-9' };
     });
@@ -2319,9 +2601,9 @@ describe('CommandDispatcher replies', () => {
 
     const error = await rejectionOf(commands.execute('docs.open', { id: 'x' }));
 
-    expect(error.message).to.equal('docs.open: no such doc');
-    expect(error.command).to.equal('docs.open');
-    expect(error.error).to.deep.equal({ code: 'not_found', message: 'no such doc', retryable: false, errorId: 'e-9' });
+    expect(error.message).to.equal('no such doc');
+    expect([error.code, error.retryable, error.errorId]).to.deep.equal(['not_found', false, 'e-9']);
+    expect(error.toWire()).to.deep.equal({ code: 'not_found', message: 'no such doc', retryable: false, errorId: 'e-9' });
   });
 
   it('passes unimplemented through for an unknown command', async () => {
@@ -2348,7 +2630,7 @@ describe('CommandDispatcher replies', () => {
 
     const error = await rejectionOf(commands.execute('bad', null));
 
-    expect(error.error).to.deep.equal({ code: 'internal', message: 'malformed reply', retryable: false });
+    expect(error.toWire()).to.deep.equal({ code: 'internal', message: 'malformed reply', retryable: false });
   });
 
   it('carries binary payloads and results as socket.io attachments', async () => {
@@ -2366,7 +2648,7 @@ describe('CommandDispatcher replies', () => {
 
     const error = await rejectionOf(commands.execute('ping', null));
 
-    expect(error.error).to.deep.equal({ code: 'unavailable', message: 'the client is offline', retryable: true });
+    expect(error.toWire()).to.deep.equal({ code: 'unavailable', message: 'the client is offline', retryable: true });
     await sleep(30);
     expect(server.requests).to.have.length(0);
   });
@@ -2398,10 +2680,8 @@ Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../src/commands.js`.
 `packages/http-socket-client/src/commands.ts`:
 
 ```ts
-import type { CommandReply, CommandRequest, SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, isSocketError, type CommandReply, type CommandRequest, type SocketError } from '@spinajs/http-socket-common';
 import type { Connection, ConnectionState } from './connection.js';
-import { SocketCommandError, isSocketError } from './errors.js';
-import { WIRE } from './wire.js';
 
 export type WhenOffline = 'fail' | 'wait';
 
@@ -2426,7 +2706,7 @@ interface PendingCommand {
   readonly deadlineAt: number;
   done: boolean;
   resolve(value: unknown): void;
-  reject(error: SocketCommandError): void;
+  reject(error: SocketException): void;
 }
 
 /** Plain (non-durable) commands: one attempt each, never re-sent. */
@@ -2446,7 +2726,7 @@ export class CommandDispatcher {
   }
 
   public execute(name: string, payload: unknown, options: CommandOptions = {}): Promise<unknown> {
-    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE, name);
+    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
 
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
     const request: CommandRequest = { id: this.nextId(), name, payload };
@@ -2461,19 +2741,19 @@ export class CommandDispatcher {
 
   private transmit(command: PendingCommand): void {
     this.waiting.delete(command);
-    // a relative budget, so client/server clock skew cannot expire it
-    command.request.deadline = Math.max(0, command.deadlineAt - Date.now());
+    // relative, so client/server clock skew cannot expire it; the server ignores a deadline <= 0
+    command.request.deadline = Math.max(1, command.deadlineAt - Date.now());
     this.inFlight.add(command);
-    const sent = this.connection.request<CommandReply>(WIRE.command, command.request, (reply) => this.onReply(command, reply));
+    const sent = this.connection.request<CommandReply>(WIRE_EVENTS.command, command.request, (reply) => this.onReply(command, reply));
     if (!sent) this.fail(command, CONNECTION_LOST);
   }
 
   private onReply(command: PendingCommand, reply: CommandReply): void {
     if (typeof reply !== 'object' || reply === null || typeof reply.ok !== 'boolean') return this.fail(command, MALFORMED_REPLY);
     if (!reply.ok) return this.fail(command, isSocketError(reply.error) ? reply.error : MALFORMED_REPLY);
-    if ('stream' in reply && reply.stream === true) return this.fail(command, STREAM_REPLY);
-    // JSON drops an undefined result, so a void command replies without the key
-    this.succeed(command, 'result' in reply ? reply.result : undefined);
+    // a CommandStreamReply: the result follows as stream frames, which only stream() consumes
+    if ('stream' in reply) return this.fail(command, STREAM_REPLY);
+    this.succeed(command, reply.result);
   }
 
   private onState(state: ConnectionState): void {
@@ -2485,7 +2765,7 @@ export class CommandDispatcher {
   }
 
   private fail(command: PendingCommand, error: SocketError): void {
-    if (this.finish(command)) command.reject(new SocketCommandError({ ...error }, command.request.name));
+    if (this.finish(command)) command.reject(SocketException.fromWire(error));
   }
 
   private finish(command: PendingCommand): boolean {
@@ -2497,8 +2777,8 @@ export class CommandDispatcher {
   }
 }
 
-function rejected(error: SocketError, name: string): Promise<never> {
-  return Promise.reject(new SocketCommandError({ ...error }, name));
+function rejected(error: SocketError): Promise<never> {
+  return Promise.reject(SocketException.fromWire(error));
 }
 ```
 
@@ -2526,14 +2806,14 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 - Test: `packages/http-socket-client/test/command-failures.test.ts`
 
 **Interfaces:**
-- Consumes: everything Task 7 consumed; `connection.send(WIRE.cancel, { id })`.
-- Produces: same public surface as Task 7. Error contract (each a `SocketCommandError` whose `error` is exactly):
+- Consumes: everything Task 7 consumed; `CancelFrame` (Task 1); `connection.send(WIRE_EVENTS.cancel, CancelFrame)`.
+- Produces: same public surface as Task 7. Error contract (each a `SocketException` whose `toWire()` is exactly):
   - closed client: `{ code: 'unavailable', message: 'the client is closed', retryable: false }`
   - offline + `'fail'`: `{ code: 'unavailable', message: 'the client is offline', retryable: true }`
   - `'wait'` timed out before sending: `{ code: 'unavailable', message: 'the client stayed offline until the timeout', retryable: true }`
   - drop after sending: `{ code: 'unavailable', message: 'the connection dropped before the reply', retryable: true }`
   - sent, no reply in time: `{ code: 'deadline_exceeded', message: 'no reply before the timeout', retryable: true }`
-  - aborted signal: `{ code: 'cancelled', message: 'the command was cancelled', retryable: false }`; if already sent, `cancel` `{ id }` goes to the server.
+  - aborted signal: `{ code: 'cancelled', message: 'the command was cancelled', retryable: false }`; if already sent, a `CancelFrame { id }` goes to the server, which aborts the handler and answers `cancelled` to an ack the client no longer waits for.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2573,8 +2853,7 @@ describe('CommandDispatcher failures', () => {
 
     const error = await rejectionOf(commands.execute('ping', null, { timeoutMs: 100 }));
 
-    expect(error.error).to.deep.equal({ code: 'deadline_exceeded', message: 'no reply before the timeout', retryable: true });
-    expect(error.message).to.equal('ping: no reply before the timeout');
+    expect(error.toWire()).to.deep.equal({ code: 'deadline_exceeded', message: 'no reply before the timeout', retryable: true });
     await sleep(300);
   });
 
@@ -2593,7 +2872,7 @@ describe('CommandDispatcher failures', () => {
 
     const error = await rejectionOf(commands.execute('ping', null, { whenOffline: 'wait', timeoutMs: 100 }));
 
-    expect(error.error).to.deep.equal({ code: 'unavailable', message: 'the client stayed offline until the timeout', retryable: true });
+    expect(error.toWire()).to.deep.equal({ code: 'unavailable', message: 'the client stayed offline until the timeout', retryable: true });
   });
 
   it('rejects at once with cancelled when the signal is already aborted', async () => {
@@ -2603,7 +2882,7 @@ describe('CommandDispatcher failures', () => {
 
     const error = await rejectionOf(commands.execute('ping', null, { signal: controller.signal }));
 
-    expect(error.error).to.deep.equal({ code: 'cancelled', message: 'the command was cancelled', retryable: false });
+    expect(error.toWire()).to.deep.equal({ code: 'cancelled', message: 'the command was cancelled', retryable: false });
     await sleep(30);
     expect(server.requests).to.have.length(0);
   });
@@ -2646,7 +2925,7 @@ describe('CommandDispatcher failures', () => {
 
     server.killConnections();
 
-    expect((await lost).error).to.deep.equal({ code: 'unavailable', message: 'the connection dropped before the reply', retryable: true });
+    expect((await lost).toWire()).to.deep.equal({ code: 'unavailable', message: 'the connection dropped before the reply', retryable: true });
     server.ackFault = { kind: 'none' };
     await waitForState(target, 'online');
     await expect(commands.execute('ping', null)).to.eventually.equal('pong');
@@ -2664,9 +2943,9 @@ describe('CommandDispatcher failures', () => {
     connection.close();
 
     const closed = { code: 'unavailable', message: 'the client is closed', retryable: false };
-    expect((await waiting).error).to.deep.equal(closed);
+    expect((await waiting).toWire()).to.deep.equal(closed);
     expect((await inFlight).code).to.equal('unavailable');
-    expect((await rejectionOf(commands.execute('ping', null))).error).to.deep.equal(closed);
+    expect((await rejectionOf(commands.execute('ping', null))).toWire()).to.deep.equal(closed);
   });
 });
 ```
@@ -2683,10 +2962,8 @@ Expected: FAIL — `Timeout of 10000ms exceeded` for the deadline, wait and clos
 `packages/http-socket-client/src/commands.ts`:
 
 ```ts
-import type { CommandReply, CommandRequest, SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, isSocketError, type CancelFrame, type CommandReply, type CommandRequest, type SocketError } from '@spinajs/http-socket-common';
 import type { Connection, ConnectionState } from './connection.js';
-import { SocketCommandError, isSocketError } from './errors.js';
-import { WIRE } from './wire.js';
 
 export type WhenOffline = 'fail' | 'wait';
 
@@ -2718,7 +2995,7 @@ interface PendingCommand {
   sent: boolean;
   done: boolean;
   resolve(value: unknown): void;
-  reject(error: SocketCommandError): void;
+  reject(error: SocketException): void;
   dispose(): void;
 }
 
@@ -2739,9 +3016,9 @@ export class CommandDispatcher {
   }
 
   public execute(name: string, payload: unknown, options: CommandOptions = {}): Promise<unknown> {
-    if (this.connection.state === 'closed') return rejected(CLOSED, name);
-    if (options.signal?.aborted) return rejected(CANCELLED, name);
-    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE, name);
+    if (this.connection.state === 'closed') return rejected(CLOSED);
+    if (options.signal?.aborted) return rejected(CANCELLED);
+    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
 
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
     const request: CommandRequest = { id: this.nextId(), name, payload };
@@ -2750,7 +3027,10 @@ export class CommandDispatcher {
 
     return new Promise<unknown>((resolve, reject) => {
       const onAbort = (): void => {
-        if (command.sent) this.connection.send(WIRE.cancel, { id: request.id });
+        if (command.sent) {
+          const cancel: CancelFrame = { id: request.id };
+          this.connection.send(WIRE_EVENTS.cancel, cancel);
+        }
         this.fail(command, CANCELLED);
       };
       const timer: Timer = setTimeout(() => this.fail(command, command.sent ? NO_REPLY : STAYED_OFFLINE), timeoutMs);
@@ -2774,20 +3054,20 @@ export class CommandDispatcher {
 
   private transmit(command: PendingCommand): void {
     this.waiting.delete(command);
-    // a relative budget, so client/server clock skew cannot expire it
-    command.request.deadline = Math.max(0, command.deadlineAt - Date.now());
+    // relative, so client/server clock skew cannot expire it; the server ignores a deadline <= 0
+    command.request.deadline = Math.max(1, command.deadlineAt - Date.now());
     command.sent = true;
     this.inFlight.add(command);
-    const sent = this.connection.request<CommandReply>(WIRE.command, command.request, (reply) => this.onReply(command, reply));
+    const sent = this.connection.request<CommandReply>(WIRE_EVENTS.command, command.request, (reply) => this.onReply(command, reply));
     if (!sent) this.fail(command, CONNECTION_LOST);
   }
 
   private onReply(command: PendingCommand, reply: CommandReply): void {
     if (typeof reply !== 'object' || reply === null || typeof reply.ok !== 'boolean') return this.fail(command, MALFORMED_REPLY);
     if (!reply.ok) return this.fail(command, isSocketError(reply.error) ? reply.error : MALFORMED_REPLY);
-    if ('stream' in reply && reply.stream === true) return this.fail(command, STREAM_REPLY);
-    // JSON drops an undefined result, so a void command replies without the key
-    this.succeed(command, 'result' in reply ? reply.result : undefined);
+    // a CommandStreamReply: the result follows as stream frames, which only stream() consumes
+    if ('stream' in reply) return this.fail(command, STREAM_REPLY);
+    this.succeed(command, reply.result);
   }
 
   private onState(state: ConnectionState, previous: ConnectionState): void {
@@ -2804,7 +3084,7 @@ export class CommandDispatcher {
   }
 
   private fail(command: PendingCommand, error: SocketError): void {
-    if (this.finish(command)) command.reject(new SocketCommandError({ ...error }, command.request.name));
+    if (this.finish(command)) command.reject(SocketException.fromWire(error));
   }
 
   private finish(command: PendingCommand): boolean {
@@ -2817,8 +3097,8 @@ export class CommandDispatcher {
   }
 }
 
-function rejected(error: SocketError, name: string): Promise<never> {
-  return Promise.reject(new SocketCommandError({ ...error }, name));
+function rejected(error: SocketError): Promise<never> {
+  return Promise.reject(SocketException.fromWire(error));
 }
 ```
 
@@ -2847,7 +3127,7 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 - Test: `packages/http-socket-client/test/client.test.ts`
 
 **Interfaces:**
-- Consumes: `Connection`, `AuthProvider`, `ConnectionState`, `IoOptions` (Task 6); `CommandDispatcher`, `CommandOptions`, `DEFAULT_TIMEOUT_MS` (Task 8); `Emitter`, `rethrowAsync` (Task 3); `SocketCommandError` (Task 2); `randomId` (Task 2); `ReconnectOptions` (Task 4); `WIRE` (Task 5); `EventFrame`, `SocketError` (Task 1).
+- Consumes: `Connection`, `AuthProvider`, `ConnectionState`, `IoOptions` (Task 6); `CommandDispatcher`, `CommandOptions`, `DEFAULT_TIMEOUT_MS` (Task 8); `Emitter`, `rethrowAsync` (Task 3); `randomId` (Task 2); `ReconnectOptions` (Task 4); `SocketException`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `DisconnectNotice`, `EventFrame`, `SocketError` (Task 1).
 - Produces:
   - `interface SocketClientOptions { url: string; path?: string; auth?: AuthProvider; clientId?: string; reconnect?: Partial<ReconnectOptions>; defaultTimeoutMs?: number; connectTimeoutMs?: number; autoConnect?: boolean; io?: IoOptions; onListenerError?: (error: unknown) => void }`
   - `interface ClientLifecycleEvents { state(state, previous); auth_required(error: SocketError); incompatible(error: SocketError); failed(event: FailedCommand) }`, `interface FailedCommand { entry: unknown; error: SocketError }`, `type LifecycleEventName = keyof ClientLifecycleEvents`, `LIFECYCLE_EVENTS: ReadonlySet<string>`, `type ServerEventListener<T = unknown> = (payload: T) => void`, `type Unsubscribe = () => void`
@@ -2884,7 +3164,7 @@ export function statefulClient(client: SocketClient): Stateful {
 ```ts
 import 'mocha';
 import { expect } from 'chai';
-import type { SocketError } from '@spinajs/http-socket-common';
+import { SYSTEM_EVENTS, type DisconnectNotice, type SocketError } from '@spinajs/http-socket-common';
 import type { ConnectionState } from '../src/connection.js';
 import { closeAll } from './support/cleanup.js';
 import { makeClient, statefulClient } from './support/client.js';
@@ -2973,6 +3253,24 @@ describe('SocketClient', () => {
     expect(states).to.deep.equal([]);
   });
 
+  it('delivers the sys.disconnect notice before a kick, so a listener can stop the reconnect', async () => {
+    const client = makeClient(server);
+    await waitForState(statefulClient(client), 'online');
+    const notices: DisconnectNotice[] = [];
+    client.on<DisconnectNotice>(SYSTEM_EVENTS.disconnect, (notice) => {
+      notices.push(notice);
+      client.disconnect();
+    });
+
+    server.kick('replaced by another session');
+    await until(() => notices.length === 1);
+    await sleep(150);
+
+    expect(notices).to.deep.equal([{ reason: 'replaced by another session' }]);
+    expect(client.state).to.equal('offline');
+    expect(server.handshakes).to.have.length(1);
+  });
+
   it('emit() sends an event frame when online and drops it when offline', async () => {
     const client = makeClient(server, { autoConnect: false });
     expect(client.emit('docs.cursor', { x: 0 })).to.equal(false);
@@ -3045,7 +3343,7 @@ describe('SocketClient', () => {
     client.close();
 
     expect(client.state).to.equal('closed');
-    expect((await pending).message).to.equal('ping: the client is closed');
+    expect((await pending).toWire()).to.deep.equal({ code: 'unavailable', message: 'the client is closed', retryable: false });
     expect(() => client.connect()).to.throw('the client is closed');
   });
 });
@@ -3061,14 +3359,12 @@ Expected: FAIL — `ERR_MODULE_NOT_FOUND` for `../../src/client.js`.
 `packages/http-socket-client/src/client.ts`:
 
 ```ts
-import type { EventFrame, SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, type EventFrame, type SocketError } from '@spinajs/http-socket-common';
 import { CommandDispatcher, DEFAULT_TIMEOUT_MS, type CommandOptions } from './commands.js';
 import { Connection, type AuthProvider, type ConnectionState, type IoOptions } from './connection.js';
 import { Emitter, rethrowAsync } from './emitter.js';
-import { SocketCommandError } from './errors.js';
 import { randomId } from './ids.js';
 import type { ReconnectOptions } from './reconnect.js';
-import { WIRE } from './wire.js';
 
 export interface SocketClientOptions {
   /** Server origin; a path in it selects a socket.io namespace. */
@@ -3077,7 +3373,7 @@ export interface SocketClientOptions {
   path?: string;
   /** Asked on every (re)connect; its fields go into the handshake. */
   auth?: AuthProvider;
-  /** Stable per install, persisted by the app. Generated when omitted. */
+  /** Stable per install, persisted by the app; 1 to MAX_ID_LENGTH characters. Generated when omitted. */
   clientId?: string;
   reconnect?: Partial<ReconnectOptions>;
   defaultTimeoutMs?: number;
@@ -3143,7 +3439,7 @@ export class SocketClient {
     this.connection.events.on('state', (state, previous) => this.lifecycle.emit('state', state, previous));
     this.connection.events.on('auth_required', (error) => this.lifecycle.emit('auth_required', error));
     this.connection.events.on('incompatible', (error) => this.lifecycle.emit('incompatible', error));
-    this.connection.listen(WIRE.event, (frame: EventFrame) => {
+    this.connection.listen(WIRE_EVENTS.event, (frame: EventFrame) => {
       if (typeof frame?.name === 'string') this.serverEvents.emit(frame.name, frame.payload);
     });
 
@@ -3174,12 +3470,12 @@ export class SocketClient {
 
   /** Reserved: durable commands arrive with the outbox store. */
   public durable<R = unknown>(name: string, _payload?: unknown): Promise<R> {
-    return Promise.reject(new SocketCommandError({ code: 'unimplemented', message: 'durable() is not available yet', retryable: false }, name));
+    return Promise.reject(new SocketException('unimplemented', `durable() is not available yet (${name})`));
   }
 
   /** Reserved: stream replies arrive with credit-based flow control. */
   public stream<T = unknown>(name: string, _payload?: unknown, _options?: CommandOptions): AsyncIterable<T> {
-    const error = new SocketCommandError({ code: 'unimplemented', message: 'stream() is not available yet', retryable: false }, name);
+    const error = new SocketException('unimplemented', `stream() is not available yet (${name})`);
     return {
       [Symbol.asyncIterator]: () => ({
         next: () => Promise.reject(error),
@@ -3190,7 +3486,7 @@ export class SocketClient {
   /** Fire-and-forget event to the server; returns false and drops it when not online. */
   public emit(name: string, payload?: unknown): boolean {
     const frame: EventFrame = { name, payload };
-    return this.connection.send(WIRE.event, frame);
+    return this.connection.send(WIRE_EVENTS.event, frame);
   }
 
   public on<K extends LifecycleEventName>(event: K, listener: ClientLifecycleEvents[K]): Unsubscribe;
@@ -3217,7 +3513,7 @@ export class SocketClient {
 - [ ] **Step 4: Run the tests and the type check**
 
 Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/client.test.ts`
-Expected: `11 passing`.
+Expected: `12 passing`.
 
 Run (in `packages/http-socket-client`): `npm run typecheck`
 Expected: exits 0.
@@ -3233,7 +3529,7 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 
 ### Task 10: Typed contracts
 
-Spec §6 says `defineContract<…>()` "returns a TypedSocketClient". Taken literally that is infeasible: `defineContract` lives in the dependency-free common package and cannot know the client. The contract value is a typing-only marker; the client turns it into a typed view with `client.typed(contract)`, which returns the same instance.
+Spec §6 says `defineContract<…>()` "returns a TypedSocketClient". Taken literally that is infeasible: `defineContract` lives in the dependency-free common package and cannot know the client. Common's `defineContract<C extends ContractShape>()` returns a data-free `SocketContract<C>` marker (`{ kind: 'socket-contract' }`; W1 pins that signature); the client turns it into a typed view with `client.typed(contract)`, which returns the same instance. A contract's `events` are server → client (`on`/`once`/`off`); its optional `clientEvents` are client → server (`emit`).
 
 **Files:**
 - Create: `packages/http-socket-client/src/contract.ts`
@@ -3241,8 +3537,8 @@ Spec §6 says `defineContract<…>()` "returns a TypedSocketClient". Taken liter
 - Test: `packages/http-socket-client/test/contract.test.ts`
 
 **Interfaces:**
-- Consumes: `SocketContract`, `Contract`, `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload`, `defineContract` (Task 1); `SocketClient`, `ClientLifecycleEvents`, `LifecycleEventName`, `Unsubscribe` (Task 9); `CommandOptions` (Task 8); `ConnectionState` (Task 6).
-- Produces: `type StreamItem<C, N>`; `interface TypedSocketClient<C extends SocketContract>`; `SocketClient.typed<C extends SocketContract>(contract: Contract<C>): TypedSocketClient<C>`.
+- Consumes: `ContractShape`, `SocketContract`, `CommandName`, `CommandPayload`, `CommandResult`, `EventName`, `EventPayload`, `ClientEventName`, `ClientEventPayload`, `defineContract` (Task 1); `SocketClient`, `ClientLifecycleEvents`, `LifecycleEventName`, `Unsubscribe` (Task 9); `CommandOptions` (Task 8); `ConnectionState` (Task 6).
+- Produces: `type StreamItem<C, N>`; `interface TypedSocketClient<C extends ContractShape>`; `SocketClient.typed<C extends ContractShape>(contract: SocketContract<C>): TypedSocketClient<C>`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3266,6 +3562,8 @@ type DocsContract = {
   };
   events: {
     'docs.committed': { rev: number };
+  };
+  clientEvents: {
     'docs.cursor': { x: number };
   };
 };
@@ -3321,6 +3619,10 @@ function typeChecks(api: TypedSocketClient<DocsContract>): void {
   });
   // @ts-expect-error wrong event payload
   api.emit('docs.cursor', { x: 'left' });
+  // @ts-expect-error a server event cannot be emitted by the client
+  api.emit('docs.committed', { rev: 1 });
+  // @ts-expect-error a client event is never received
+  api.on('docs.cursor', () => undefined);
   api.on('state', (state) => {
     const known: 'connecting' | 'online' | 'offline' | 'closed' = state;
     void known;
@@ -3340,16 +3642,16 @@ Expected: FAIL — `client.typed is not a function` (or TS2339 / `ERR_MODULE_NOT
 `packages/http-socket-client/src/contract.ts`:
 
 ```ts
-import type { CommandName, CommandPayload, CommandResult, EventName, EventPayload, SocketContract } from '@spinajs/http-socket-common';
+import type { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractShape, EventName, EventPayload } from '@spinajs/http-socket-common';
 import type { ClientLifecycleEvents, LifecycleEventName, Unsubscribe } from './client.js';
 import type { CommandOptions } from './commands.js';
 import type { ConnectionState } from './connection.js';
 
 /** A stream command declares its result as AsyncIterable<Item>; stream() yields the items. */
-export type StreamItem<C extends SocketContract, N extends CommandName<C>> = CommandResult<C, N> extends AsyncIterable<infer T> ? T : CommandResult<C, N>;
+export type StreamItem<C extends ContractShape, N extends CommandName<C>> = CommandResult<C, N> extends AsyncIterable<infer T> ? T : CommandResult<C, N>;
 
 /** A SocketClient seen through a contract: names and payloads are checked at compile time. */
-export interface TypedSocketClient<C extends SocketContract> {
+export interface TypedSocketClient<C extends ContractShape> {
   readonly clientId: string;
   readonly state: ConnectionState;
   connect(): void;
@@ -3358,7 +3660,7 @@ export interface TypedSocketClient<C extends SocketContract> {
   command<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: CommandOptions): Promise<CommandResult<C, N>>;
   durable<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>): Promise<CommandResult<C, N>>;
   stream<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: CommandOptions): AsyncIterable<StreamItem<C, N>>;
-  emit<N extends EventName<C>>(name: N, payload: EventPayload<C, N>): boolean;
+  emit<N extends ClientEventName<C>>(name: N, payload: ClientEventPayload<C, N>): boolean;
   on<K extends LifecycleEventName>(event: K, listener: ClientLifecycleEvents[K]): Unsubscribe;
   on<N extends EventName<C>>(event: N, listener: (payload: EventPayload<C, N>) => void): Unsubscribe;
   once<K extends LifecycleEventName>(event: K, listener: ClientLifecycleEvents[K]): Unsubscribe;
@@ -3371,13 +3673,13 @@ export interface TypedSocketClient<C extends SocketContract> {
 In `packages/http-socket-client/src/client.ts`, replace the first import line:
 
 ```ts
-import type { EventFrame, SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, type EventFrame, type SocketError } from '@spinajs/http-socket-common';
 ```
 
 with:
 
 ```ts
-import type { Contract, EventFrame, SocketContract, SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, type ContractShape, type EventFrame, type SocketContract, type SocketError } from '@spinajs/http-socket-common';
 ```
 
 and add, after the `import { Connection, … } from './connection.js';` line:
@@ -3390,7 +3692,7 @@ Then add this method to `SocketClient`, directly after `close()`:
 
 ```ts
   /** The same client, typed by a contract shared with the server; no runtime cost. */
-  public typed<C extends SocketContract>(_contract: Contract<C>): TypedSocketClient<C> {
+  public typed<C extends ContractShape>(_contract: SocketContract<C>): TypedSocketClient<C> {
     return this as unknown as TypedSocketClient<C>;
   }
 ```
@@ -3398,7 +3700,7 @@ Then add this method to `SocketClient`, directly after `close()`:
 - [ ] **Step 4: Run the tests and the type check**
 
 Run (in `packages/http-socket-client`): `npx ts-mocha -p tsconfig.json test/contract.test.ts test/client.test.ts`
-Expected: `12 passing` (1 + 11).
+Expected: `13 passing` (1 + 12).
 
 Run (in `packages/http-socket-client`): `npm run typecheck`
 Expected: exits 0 (every `@ts-expect-error` in `test/contract.test.ts` is consumed by a real error).
@@ -3420,7 +3722,7 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: the package entry. Public: everything from `@spinajs/http-socket-common`; `SocketClient`, `LIFECYCLE_EVENTS`, `SocketCommandError`, `isSocketError`, `ReconnectPolicy`, `DEFAULT_RECONNECT`, `DEFAULT_TIMEOUT_MS`, `DEFAULT_CONNECT_TIMEOUT_MS`; types `SocketClientOptions`, `ClientLifecycleEvents`, `FailedCommand`, `LifecycleEventName`, `ServerEventListener`, `Unsubscribe`, `CommandOptions`, `WhenOffline`, `AuthPayload`, `AuthProvider`, `ConnectionState`, `IoOptions`, `ReconnectOptions`, `TypedSocketClient`, `StreamItem`. Internal (not exported): `Connection`, `CommandDispatcher`, `Emitter`, `WIRE`, `randomId`.
+- Produces: the package entry. Public: everything from `@spinajs/http-socket-common` (including `SocketException`, `isSocketError`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `defineContract`); `SocketClient`, `LIFECYCLE_EVENTS`, `ReconnectPolicy`, `DEFAULT_RECONNECT`, `DEFAULT_TIMEOUT_MS`, `DEFAULT_CONNECT_TIMEOUT_MS`; types `SocketClientOptions`, `ClientLifecycleEvents`, `FailedCommand`, `LifecycleEventName`, `ServerEventListener`, `Unsubscribe`, `CommandOptions`, `WhenOffline`, `AuthPayload`, `AuthProvider`, `ConnectionState`, `IoOptions`, `ReconnectOptions`, `TypedSocketClient`, `StreamItem`. Internal (not exported): `Connection`, `CommandDispatcher`, `Emitter`, `randomId`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3433,13 +3735,13 @@ import * as api from '../src/index.js';
 
 describe('public entry', () => {
   it('exports the client surface and the common protocol', () => {
-    for (const name of ['SocketClient', 'LIFECYCLE_EVENTS', 'SocketCommandError', 'isSocketError', 'ReconnectPolicy', 'DEFAULT_RECONNECT', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_CONNECT_TIMEOUT_MS', 'defineContract', 'PROTOCOL_VERSION']) {
+    for (const name of ['SocketClient', 'LIFECYCLE_EVENTS', 'ReconnectPolicy', 'DEFAULT_RECONNECT', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_CONNECT_TIMEOUT_MS', 'SocketException', 'isSocketError', 'WIRE_EVENTS', 'SYSTEM_EVENTS', 'defineContract', 'PROTOCOL_VERSION']) {
       expect(api, name).to.have.property(name);
     }
   });
 
   it('keeps the internals private', () => {
-    for (const name of ['Connection', 'CommandDispatcher', 'Emitter', 'WIRE', 'randomId']) {
+    for (const name of ['Connection', 'CommandDispatcher', 'Emitter', 'randomId']) {
       expect(api, name).to.not.have.property(name);
     }
   });
@@ -3469,7 +3771,6 @@ export type { CommandOptions, WhenOffline } from './commands.js';
 export { DEFAULT_CONNECT_TIMEOUT_MS } from './connection.js';
 export type { AuthPayload, AuthProvider, ConnectionState, IoOptions } from './connection.js';
 export type { StreamItem, TypedSocketClient } from './contract.js';
-export { SocketCommandError, isSocketError } from './errors.js';
 export { DEFAULT_RECONNECT, ReconnectPolicy } from './reconnect.js';
 export type { ReconnectOptions } from './reconnect.js';
 ```
@@ -3477,13 +3778,13 @@ export type { ReconnectOptions } from './reconnect.js';
 - [ ] **Step 4: Run the whole suite and the type check**
 
 Run (in `packages/http-socket-client`): `npm test`
-Expected: `70 passing`, `0 failing` (errors 4, ids 2, isomorphic 2, emitter 7, reconnect-policy 6, connection 6, connection-resilience 7, handshake-errors 4, commands 9, command-failures 8, client 11, contract 1, index 3), and the process exits on its own (a hang after the summary means a test leaked a socket or timer — fix it, do not add `--exit`).
+Expected: `69 passing`, `0 failing` (ids 2, isomorphic 2, emitter 7, reconnect-policy 6, connection 6, connection-resilience 8, handshake-errors 5, commands 9, command-failures 8, client 12, contract 1, index 3), and the process exits on its own (a hang after the summary means a test leaked a socket or timer — fix it, do not add `--exit`).
 
 Run (in `packages/http-socket-client`): `npm run typecheck`
 Expected: exits 0.
 
 Run (in `packages/http-socket-common`): `npm test`
-Expected: `2 passing`.
+Expected: `13 passing`.
 
 - [ ] **Step 5: Build both flavours and smoke-test the published entry**
 
@@ -3512,5 +3813,6 @@ git branch --show-current | grep -qx feat/websocket-layer && git commit -m "feat
 
 ## Self-review notes (for the executor's reviewer)
 
-- Spec §6/§8 W2 coverage: state machine + `'state'` (Tasks 5–6, 9), reconnect with backoff + jitter (Tasks 4, 6), auth on every (re)connect (Task 6), handshake `{protocol, clientId, token}` (Task 5), `unauthenticated` → `auth_required` and `version_mismatch` → `incompatible` (Task 6, forwarded in Task 9), `sys.shutdown` `retryAfterMs` (Task 6), plain commands with timeout, `AbortSignal` and `whenOffline` (Tasks 7–8), typed `SocketCommandError` (Task 2), events subscribe/unsubscribe (Task 9), typed contracts (Task 10), isomorphic main entry (Task 2 guard, Task 11 build). Durable commands, stores and streams are W3/W4; their names are reserved (Task 9) and their seams listed above.
+- Spec §6/§8 W2 coverage: state machine + `'state'` (Tasks 5–6, 9), reconnect with backoff + jitter (Tasks 4, 6), auth on every (re)connect (Task 6), handshake `{protocol, clientId, token}` (Task 5), `unauthenticated` → `auth_required` and `version_mismatch` → `incompatible` (Task 6, forwarded in Task 9), `sys.shutdown` `retryAfterMs` (Task 6), plain commands with timeout, `AbortSignal` and `whenOffline` (Tasks 7–8), rejections as common's `SocketException` (Tasks 7–9), events subscribe/unsubscribe (Task 9), typed contracts (Task 10), isomorphic main entry (Task 2 guard, Task 11 build). Durable commands, stores and streams are W3/W4; their names are reserved (Task 9) and their seams listed above.
+- Wire behaviour is W1's (Global Constraints, "Wire behaviour of the W1 server"); the stub server reproduces it, so the client tests never need W1. W1's handshake `clientId` rule becomes a constructor `RangeError` (Task 6); a kick reconnects unless a `SYSTEM_EVENTS.disconnect` listener calls `disconnect()` (Tasks 6, 9).
 - Additions the spec does not name, each with a reason in its task: `connectTimeoutMs` (Task 6), `disconnect()` (Task 5), `emit()` returning `false` offline (Task 9), `onListenerError` (Tasks 3, 9), `'wait'`-timeout → `unavailable` vs in-flight timeout → `deadline_exceeded` (Task 8).
