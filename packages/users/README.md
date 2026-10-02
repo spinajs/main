@@ -1,11 +1,11 @@
-# `rbac`
+# `@spinajs/users`
 
-> TODO: description
+> User identity for SpinaJS: user records, metadata, lifecycle actions, mails, profile and user CLI.
 
 ## Usage
 
 ```
-const rbac = require('rbac');
+import { User } from '@spinajs/users';
 
 // TODO: DEMONSTRATE API
 ```
