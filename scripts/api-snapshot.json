@@ -1,0 +1,13 @@
+{
+  "$comment": "Frozen contract entry points (plan §1 rule 3). Each package gets packages/<name>/etc/<name>.api.md from `node scripts/api-snapshot.mjs`.",
+  "tsconfig": "tsconfig.mjs.json",
+  "packages": {
+    "authz": ["src/contracts/index.ts", "src/conditions/contracts.ts"],
+    "authz-rbac": ["src/contracts.ts"],
+    "authz-abac": ["src/contracts.ts"],
+    "authz-orm": ["src/api.ts"],
+    "authz-http": ["src/api.ts"],
+    "authz-queue": ["src/api.ts"],
+    "authz-fs": ["src/api.ts"]
+  }
+}

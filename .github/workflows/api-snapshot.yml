@@ -1,0 +1,50 @@
+name: api-snapshot
+
+# Guards the frozen authz/authn contracts (plan §1 rule 3): the committed
+# packages/*/etc/*.api.md must match the contract declarations, and after gate
+# G1 (tag authz-v3-g1) a pull request that changes one needs an RFC file in
+# docs/plans/authz-v3-rfc/.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-snapshot:
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: api-snapshot-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      # Full history and tags: --check-rfc diffs against the base branch and
+      # looks for the G1 tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # The snapshot reads the referenced packages' built .d.ts.
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: snapshots match the contracts
+        run: node scripts/api-snapshot.mjs --check
+
+      - name: snapshot changes carry an RFC
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/api-snapshot.mjs --check-rfc "origin/$BASE_REF"
