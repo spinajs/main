@@ -10,3 +10,8 @@ export * from './mfa.js';
 export * from './secrets.js';
 export * from './audit.js';
 export * from './impersonation.js';
+export * from './password.js';
+export * from './token.js';
+export * from './keys.js';
+export * from './jws.js';
+export * from './extractor.js';
