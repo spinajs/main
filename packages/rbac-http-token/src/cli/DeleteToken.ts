@@ -1,11 +1,12 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from '@spinajs/rbac';
 
 import { deleteToken } from '../actions.js';
 
 @Command('rbac:token-delete', 'Deletes ( revokes ) an access token')
 @Argument('uuid', true, 'token uuid')
-export class DeleteToken extends CliCommand {
+export class DeleteToken extends RbacCliCommand {
   @Logger('rbac-http-token')
   protected Log: Log;
 

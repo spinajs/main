@@ -1,12 +1,13 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from '@spinajs/rbac';
 
 import { grantTokenRole } from '../actions.js';
 
 @Command('rbac:token-grant', 'Grants a role to an access token')
 @Argument('uuid', true, 'token uuid')
 @Argument('role', true, 'role to grant, must be allowed for the token owner by the configured role policy')
-export class GrantTokenRole extends CliCommand {
+export class GrantTokenRole extends RbacCliCommand {
   @Logger('rbac-http-token')
   protected Log: Log;
 

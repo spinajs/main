@@ -1,5 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
-import { CliCommand, Command, Option } from '@spinajs/cli';
+import { Command, Option } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
 import { create } from '../actions.js';
 
 interface UserCreationOptions {
@@ -14,7 +15,7 @@ interface UserCreationOptions {
 @Option('-r, --roles <roles>', true, 'user roles, comma separated')
 @Option('-l, --login <login>', true, 'user login')
 @Option('-p, --password <password>', false, 'user password, if not set will be generated and printed out to console')
-export class CreateUser extends CliCommand {
+export class CreateUser extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
 

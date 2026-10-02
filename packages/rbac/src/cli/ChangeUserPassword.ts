@@ -1,11 +1,12 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
 import { changeUserPassword, getUser } from '../actions.js';
 
-@Command('rbac:user-change-password', 'Sets active or inactive user')
+@Command('rbac:user-change-password', 'Changes user password')
 @Argument('idOrUuid', true,'numeric id or uuid')
 @Argument('newPassword', true, 'new password')
-export class ChangeUserPassword extends CliCommand {
+export class ChangeUserPassword extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
 

@@ -1,5 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command, Option } from '@spinajs/cli';
+import { Argument, Command, Option } from '@spinajs/cli';
+import { RbacCliCommand } from '@spinajs/rbac';
 import { DateTime } from 'luxon';
 
 import { createToken } from '../actions.js';
@@ -15,7 +16,7 @@ interface ICreateTokenOptions {
 @Option('-n, --name <name>', true, 'token label')
 @Option('-r, --roles <roles>', true, 'token roles, comma separated, must be allowed for the owner by the configured role policy')
 @Option('-e, --expires <expires>', false, 'ISO expiration instant; omit for a token that never expires')
-export class CreateToken extends CliCommand {
+export class CreateToken extends RbacCliCommand {
   @Logger('rbac-http-token')
   protected Log: Log;
 
