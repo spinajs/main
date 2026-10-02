@@ -167,7 +167,7 @@ class FakeDomains extends AuthzDomains {
   public container(_name: string): IContainer {
     return undefined as unknown as IContainer;
   }
-  public service(_name: string): AuthzService {
+  public async service(_name: string): Promise<AuthzService> {
     return new FakeService();
   }
   public names(): readonly string[] {

@@ -25,7 +25,7 @@ export abstract class AuthzService extends AsyncService {
   abstract preload(principal: Principal): Promise<void>;
   abstract invalidate(tags: readonly string[]): void;
   abstract models(): readonly AuthorizationModel[];
-  /** This domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1). */
+  /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
   abstract admin(): AuthzAdmin;
 }
 
@@ -35,7 +35,8 @@ export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource
 export abstract class AuthzDomains {
   abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
   abstract container(name: string): IContainer;
-  abstract service(name: string): AuthzService;
+  // Async: a domain's models are registered after create(), and AuthzService is an AsyncService.
+  abstract service(name: string): Promise<AuthzService>;
   abstract names(): readonly string[];
 }
 
