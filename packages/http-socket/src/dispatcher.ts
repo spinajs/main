@@ -16,6 +16,9 @@ import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
 import './stages/index.js';
 
+/** At most one warn per connection in this window about refused events; the rest go to debug. */
+export const EVENT_WARN_WINDOW_MS = 10_000;
+
 function aborted(signal: AbortSignal): Promise<never> {
   return new Promise((_resolve, reject) => {
     if (signal.aborted) {
@@ -196,10 +199,19 @@ export class SocketDispatcher extends AsyncService {
       return;
     }
 
+    let counted = false;
     try {
       // before waiting for the connect hooks, so a flood sent while they run is not queued
       assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
       assertRate(runtime.bucket);
+
+      const max = this.Options.maxInFlightPerConnection;
+      if (runtime.inFlight >= max) {
+        throw new SocketException('resource_exhausted', `more than ${max} calls in flight on this connection`);
+      }
+      runtime.inFlight++;
+      counted = true;
+
       await runtime.ready;
       // closes the connection itself when the principal is no longer valid
       await this.Guard.ensure(connection);
@@ -215,9 +227,27 @@ export class SocketDispatcher extends AsyncService {
       await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
       await this.call(ctx, handler);
     } catch (err) {
-      const wire = this.Errors.toWire(err, `event ${frame.name}`);
-      this.Log.warn(`Socket event ${frame.name} from connection ${connection.id} dropped: ${wire.code} ${wire.message}`);
+      this.dropped(runtime, frame.name, err);
+    } finally {
+      if (counted) {
+        runtime.inFlight--;
+      }
     }
+  }
+
+  /** A client can make every event fail, so refusals must not turn into one warn each. */
+  protected dropped(runtime: IConnectionRuntime, name: string, err: unknown): void {
+    const wire = this.Errors.toWire(err, `event ${name}`);
+    const line = `Socket event ${name} from connection ${runtime.connection.id} dropped: ${wire.code} ${wire.message}`;
+    const now = Date.now();
+
+    if (wire.code === 'resource_exhausted' || wire.code === 'unauthenticated' || now - (runtime.eventWarnedAt ?? Number.NEGATIVE_INFINITY) < EVENT_WARN_WINDOW_MS) {
+      this.Log.debug(line);
+      return;
+    }
+
+    runtime.eventWarnedAt = now;
+    this.Log.warn(line);
   }
 
   /** Hooks run in registration order and no policies ( D9 ); a throwing hook is logged and never refuses the connection. */

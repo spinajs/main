@@ -244,6 +244,8 @@ export interface IConnectionRuntime {
   readonly running: Map<string, ISocketCommandContext>;
   /** settles when the connect hooks are done; commands wait for it */
   ready: Promise<void>;
+  /** ms epoch of the last warn about a dropped event */
+  eventWarnedAt?: number;
 }
 
 export interface ISocketCommandContext extends ISocketCallContext {

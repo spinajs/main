@@ -26,6 +26,16 @@ export const evtRevoked = new Set<string>();
 /** `${principal id}|${permission}` */
 export const evtAllowed = new Set<string>();
 
+/** `evt.slow` holds until `release()` */
+export const evtSlow = { active: 0, max: 0, started: 0, gate: Promise.resolve(), release: () => undefined as void };
+
+const holdSlow = () => {
+  Object.assign(evtSlow, { active: 0, max: 0, started: 0 });
+  evtSlow.gate = new Promise<void>((resolve) => {
+    evtSlow.release = resolve;
+  });
+};
+
 const store = () => (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
 
 /** The hooks below act only on this file's connections: every registered controller's hooks run for every connection of the suite. */
@@ -167,6 +177,17 @@ export class EventSocket extends BaseSocketController {
   @OnEvent('explode')
   public async explode(): Promise<void> {
     throw new Error('event handler failure');
+  }
+
+  @OnEvent('slow')
+  public async slow(): Promise<void> {
+    evtSlow.started++;
+    evtSlow.max = Math.max(evtSlow.max, ++evtSlow.active);
+    try {
+      await evtSlow.gate;
+    } finally {
+      evtSlow.active--;
+    }
   }
 
   @OnEvent('guarded')
@@ -311,7 +332,7 @@ describe('socket events and lifecycle hooks', function () {
 
     try {
       anonymous.emit(WIRE_EVENTS.event, { name: 'evt.read', payload: null });
-      await logged(new RegExp(`evt\\.read from connection ${anonymous.id} dropped: unauthenticated`));
+      await logged(new RegExp(`evt\\.read from connection ${anonymous.id} dropped: unauthenticated`), 'debug');
       socket.emit(WIRE_EVENTS.event, { name: 'evt.read', payload: null });
       await logged(new RegExp(`evt\\.read from connection ${socket.id} dropped: forbidden`));
 
@@ -383,10 +404,54 @@ describe('socket events and lifecycle hooks', function () {
   it('drops an oversized event', async () => {
     await start({ http: { socket: { maxPayloadBytes: 200 } } });
     socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x: 1, pad: 'x'.repeat(300) } });
-    await logged(/evt\.cursor .* dropped: resource_exhausted payload of \d+ bytes exceeds the limit of 200 bytes/);
+    await logged(/evt\.cursor .* dropped: resource_exhausted payload of \d+ bytes exceeds the limit of 200 bytes/, 'debug');
 
     expect(seen('cursor', socket.id!)).to.have.length(0);
     expect(socket.connected).to.be.true;
+  });
+
+  it('logs 200 events over the rate limit at debug, not one warn each', async () => {
+    await start({ http: { socket: { rate: { perSecond: 1, burst: 2 } } } });
+    const id = socket.id!;
+    for (let x = 0; x < 200; x++) {
+      socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x } });
+    }
+
+    await waitFor(() => lines('debug').filter((l) => l.startsWith(`Socket event evt.cursor from connection ${id} dropped: resource_exhausted`)).length === 198);
+    expect(lines('warn').filter((l) => l.startsWith('Socket event') && l.includes(id))).to.have.length.at.most(1);
+  });
+
+  it('warns about other refused events at most once per connection in a window, and logs the rest at debug', async () => {
+    await start({ http: { socket: { maxInFlightPerConnection: 1000, rate: { perSecond: 1000, burst: 1000 } } } });
+    const id = socket.id!;
+    const forbidden = (l: string) => l.startsWith(`Socket event evt.guarded from connection ${id} dropped: forbidden`);
+    for (let x = 0; x < 200; x++) {
+      socket.emit(WIRE_EVENTS.event, { name: 'evt.guarded', payload: null });
+    }
+
+    await waitFor(() => lines('warn').filter(forbidden).length + lines('debug').filter(forbidden).length === 200);
+    expect(lines('warn').filter((l) => l.startsWith('Socket event') && l.includes(id))).to.have.length(1);
+  });
+
+  it('counts events against the in-flight cap shared with commands, until their handler settles', async () => {
+    holdSlow();
+    await start({ http: { socket: { maxInFlightPerConnection: 2 } } });
+    const id = socket.id!;
+    try {
+      for (let x = 0; x < 5; x++) {
+        socket.emit(WIRE_EVENTS.event, { name: 'evt.slow', payload: null });
+      }
+
+      await waitFor(() => lines('debug').filter((l) => l.startsWith(`Socket event evt.slow from connection ${id} dropped: resource_exhausted`)).length === 3);
+      await waitFor(() => evtSlow.active === 2);
+      expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted' });
+    } finally {
+      evtSlow.release();
+    }
+
+    await waitFor(() => evtSlow.active === 0);
+    expect(evtSlow).to.include({ max: 2, started: 2 });
+    expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
   });
 
   it('refuses command and event names longer than MAX_NAME_LENGTH or outside NAME_PATTERN', async () => {
@@ -408,7 +473,7 @@ describe('socket events and lifecycle hooks', function () {
     for (let x = 0; x < 5; x++) {
       socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x } });
     }
-    await logged(/evt\.cursor .* dropped: resource_exhausted rate limit exceeded/);
+    await logged(/evt\.cursor .* dropped: resource_exhausted rate limit exceeded/, 'debug');
     await delay(50);
 
     expect(seen('cursor', socket.id!).map((e) => (e.payload as { x: number }).x)).to.deep.equal([0, 1]);
