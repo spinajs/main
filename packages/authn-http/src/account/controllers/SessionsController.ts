@@ -44,7 +44,7 @@ export class SessionsController extends BaseController {
   @Logger('rbac-session')
   protected Log: Log;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   /**

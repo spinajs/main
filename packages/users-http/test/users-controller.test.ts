@@ -440,13 +440,13 @@ describe('Admin user controllers', function () {
 
     // Regression, reported from production:
     //   "Error in controller POST at path /api/users Exception:
-    //    rbac.actions.create.beforeCreate should not be null, undefined or empty"
+    //    users.actions.create.beforeCreate should not be null, undefined or empty"
     // The create action read its middleware lists through a non-nil-checked
     // config helper, so the shipped default (an empty list) — and any app that
-    // never declares `rbac.actions` — made every single user creation fail.
+    // never declares `users.actions` — made every single user creation fail.
     it('creates a user even though no create middleware is configured', async () => {
       const config = DI.get(Configuration)!;
-      config.set('rbac.actions', undefined);
+      config.set('users.actions', undefined);
 
       const result = await usersController.addUser(await admin(), { Login: 'nomiddleware', Email: 'nomiddleware@spinajs.pl', Role: 'user' } as any);
 
@@ -457,8 +457,8 @@ describe('Admin user controllers', function () {
 
     it('creates a user with an explicitly empty create middleware list', async () => {
       const config = DI.get(Configuration)!;
-      config.set('rbac.actions.create.beforeCreate', []);
-      config.set('rbac.actions.create.afterCreate', []);
+      config.set('users.actions.create.beforeCreate', []);
+      config.set('users.actions.create.afterCreate', []);
 
       const result = await usersController.addUser(await admin(), { Login: 'emptymw', Email: 'emptymw@spinajs.pl', Role: 'user' } as any);
 
@@ -468,7 +468,7 @@ describe('Admin user controllers', function () {
 
     it('runs configured beforeCreate middleware', async () => {
       const config = DI.get(Configuration)!;
-      config.set('rbac.actions.create.beforeCreate', [
+      config.set('users.actions.create.beforeCreate', [
         (u: User) => {
           u.IsActive = true;
           return u;
@@ -480,7 +480,7 @@ describe('Admin user controllers', function () {
       const created = await User.query().whereLogin('premade').firstOrFail();
       expect(created.IsActive).to.eq(true);
 
-      config.set('rbac.actions.create.beforeCreate', []);
+      config.set('users.actions.create.beforeCreate', []);
     });
 
     it('never returns the generated temporary password nor the hash', async () => {

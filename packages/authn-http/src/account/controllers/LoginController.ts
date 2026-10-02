@@ -32,7 +32,7 @@ export class LoginController extends BaseController {
   @AutoinjectService('rbac.auth')
   protected AuthProvider: AuthProvider;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   @Config('rbac.twoFactorAuth.enabled', {

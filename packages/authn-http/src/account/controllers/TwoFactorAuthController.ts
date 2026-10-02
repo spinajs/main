@@ -39,7 +39,7 @@ import { activeRoleOf, buildUserWithGrants } from '../services/grants.js';
 @BasePath('auth')
 @Policy([TwoFacRouteEnabled, NotAuthorizedPolicy])
 export class TwoFactorAuthController extends BaseController {
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   @Autoinject(SessionCookieFactory)

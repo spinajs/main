@@ -23,7 +23,7 @@ export class DbTestConfiguration extends FrameworkConfiguration {
         },
       },
 
-      rbac: {
+      users: {
         email: {
           connection: 'rbac-email-connection',
           created: { enabled: false, template: './created.pug', subject: 'Created' },
@@ -34,6 +34,9 @@ export class DbTestConfiguration extends FrameworkConfiguration {
           banned: { enabled: false, template: './banned.pug', subject: 'Banned' },
           unbanned: { enabled: false, template: './unbanned.pug', subject: 'Unbanned' },
         },
+      },
+
+      rbac: {
         roles: [
           { Name: 'admin', Description: 'Administrator' },
           { Name: 'user', Description: 'Simple account' },
@@ -50,6 +53,20 @@ export class DbTestConfiguration extends FrameworkConfiguration {
           },
         },
         defaultRole: 'guest',
+        auth: {
+          service: 'SimpleDbAuthProvider',
+        },
+        twoFactorAuth: {
+          enabled: true,
+          forceUser: false,
+          service: 'Default2FaToken',
+        },
+        password: {
+          passwordExpirationTime: 0,
+        },
+      },
+
+      authn: {
         session: {
           service: 'MemorySessionStore',
           expiration: {
@@ -59,34 +76,27 @@ export class DbTestConfiguration extends FrameworkConfiguration {
           },
           cookie: {},
         },
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
-        // mirrors the values the package ships
-        otpauth: {
-          issuer: 'Spinajs',
-          algorithm: 'SHA1',
-          digits: 6,
-          period: 30,
-          window: 1,
-          secretSize: 20,
-        },
-        twoFactorAuth: {
-          enabled: true,
-          forceUser: false,
-          service: 'Default2FaToken',
-        },
-        password: {
-          service: 'BasicPasswordProvider',
-          validation: {
+        local: {
+          hasher: { service: 'BasicPasswordProvider' },
+          policy: {
             service: 'BasicPasswordValidationProvider',
             rule: {
               pattern: '^(?=.*\\d).{8,}$',
               type: 'string',
             },
           },
-          passwordExpirationTime: 0,
-          passwordResetWaitTime: 60 * 60,
+          reset: { ttlSeconds: 60 * 60 },
+        },
+        mfa: {
+          // mirrors the values the package ships
+          totp: {
+            issuer: 'Spinajs',
+            algorithm: 'SHA1',
+            digits: 6,
+            period: 30,
+            window: 1,
+            secretSize: 20,
+          },
         },
       },
 

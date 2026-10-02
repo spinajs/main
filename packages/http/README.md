@@ -240,7 +240,7 @@ export class AdminController extends BaseController {
 Policies can also be referenced **by configuration key** — the key must resolve to a registered policy type name:
 
 ```ts
-@Policy('rbac.session.policy')      // read from configuration at startup
+@Policy('authn.session.policy')      // read from configuration at startup
 ```
 
 A config key that does not resolve to a registered `BasePolicy` throws `RouteRegistrationException` at startup — a silently dropped policy would leave the route unprotected.

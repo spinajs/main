@@ -48,7 +48,7 @@ const authnToken = {
       AccessTokenRoleRevoked: { connection: 'rbac-user-empty-queue' },
     },
   },
-  rbac: {
+  authn: {
     token: {
       /**
        * Token generation algorithm. Swap for your own implementation of
@@ -57,25 +57,6 @@ const authnToken = {
       generation: {
         service: 'SecureRandomTokenProvider',
       },
-
-      /**
-       * Decides which roles an owner may put on a token. Swap for your own
-       * implementation of AccessTokenRolePolicy registered under this name.
-       */
-      rolePolicy: {
-        service: 'OwnRolesTokenRolePolicy',
-      },
-
-      /**
-       * Role name patterns for a custom AccessTokenRolePolicy to consult - not
-       * read by anything shipped in this package, including the default
-       * `OwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
-       * matching that prefix and everything under it; matching is implemented
-       * by `_role_excluded(role, patterns)` in `src/role-policy.ts`. Empty by
-       * default: this package has no opinion about which of an application's
-       * roles are meaningful to an API caller.
-       */
-      excludedRoles: [] as string[],
 
       /**
        * Stable plaintext prefix - lets secret scanners recognise leaked tokens.
@@ -96,6 +77,28 @@ const authnToken = {
        * Seconds between LastUsedAt writes for a busy token.
        */
       lastUsedUpdateInterval: 60,
+    },
+  },
+  rbac: {
+    token: {
+      /**
+       * Decides which roles an owner may put on a token. Swap for your own
+       * implementation of AccessTokenRolePolicy registered under this name.
+       */
+      rolePolicy: {
+        service: 'OwnRolesTokenRolePolicy',
+      },
+
+      /**
+       * Role name patterns for a custom AccessTokenRolePolicy to consult - not
+       * read by anything shipped in this package, including the default
+       * `OwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
+       * matching that prefix and everything under it; matching is implemented
+       * by `_role_excluded(role, patterns)` in `src/role-policy.ts`. Empty by
+       * default: this package has no opinion about which of an application's
+       * roles are meaningful to an API caller.
+       */
+      excludedRoles: [] as string[],
     },
     grants: {
       user: {

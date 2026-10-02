@@ -58,10 +58,10 @@ export class TokenAuthMiddleware extends ServerMiddleware {
   @Logger('rbac-http-token')
   protected Log: Log;
 
-  @Config('rbac.token.headerName', { defaultValue: 'x-api-key' })
+  @Config('authn.token.headerName', { defaultValue: 'x-api-key' })
   protected HeaderName: string;
 
-  @Config('rbac.token.lastUsedUpdateInterval', { defaultValue: 60 })
+  @Config('authn.token.lastUsedUpdateInterval', { defaultValue: 60 })
   protected LastUsedUpdateInterval: number;
 
   constructor() {

@@ -24,10 +24,10 @@ export class DbSessionStore extends SessionProvider {
 
   /**
    * How often expired rows are swept, in milliseconds. Reads the correctly
-   * spelled `rbac.session.db.cleanupInterval` key (fixes B2 — the historic typo
+   * spelled `authn.session.db.cleanupInterval` key (fixes B2 — the historic typo
    * `cleanupInteval` meant the configured value was ignored).
    */
-  @Config('rbac.session.db.cleanupInterval', {
+  @Config('authn.session.db.cleanupInterval', {
     defaultValue: 100000,
   })
   protected CleanupInterval: number;

@@ -22,7 +22,7 @@ export class RbacMiddleware extends ServerMiddleware {
   @Config('http.cookie.secret')
   protected CoockieSecret: string;
 
-  @Config('rbac.session.cookie', {})
+  @Config('authn.session.cookie', {})
   protected SessionCookieConfig: ISessionCookieConfig;
 
   @Autoinject()

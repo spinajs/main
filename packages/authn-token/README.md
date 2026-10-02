@@ -83,7 +83,7 @@ case-insensitive) or the configured fallback header (`x-api-key` by default).
   owner, at creation or grant. The shipped default limits that to the owner's
   own roles - see [Token role policy](#token-role-policy).
 - `LastUsedAt` is stamped on use, throttled to one write per
-  `rbac.token.lastUsedUpdateInterval` seconds.
+  `authn.token.lastUsedUpdateInterval` seconds.
 
 ## Token role policy
 
@@ -114,7 +114,7 @@ a token to carry a role that is not on the owner's `Role` list at all -
 implement `AccessTokenRolePolicy`, decorate the class with
 `@Injectable(AccessTokenRolePolicy)`, and name it in
 `rbac.token.rolePolicy.service`, the same pattern
-`rbac.token.generation.service` uses for the token generator.
+`authn.token.generation.service` uses for the token generator.
 
 Because `validateToken` re-asks the policy on every authenticated request
 instead of trusting the roles stored on the token row, swapping in - or
@@ -184,17 +184,17 @@ is *not* found by filesystem scan (see the comment on `system.dirs` in
 that import the `rbac_access_tokens` table is never created. The auth
 middleware, policies and controller live in `@spinajs/authn-http`.
 
-See `src/config/authn-token.ts` - `rbac.token.*`:
+See `src/config/authn-token.ts` - `authn.token.*`, plus `rbac.token.rolePolicy` and `rbac.token.excludedRoles`, which stay under `rbac` with the other authorization keys:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `rbac.token.generation.service` | `SecureRandomTokenProvider` | `AccessTokenGenerationProvider` implementation used to generate/hash tokens |
+| `authn.token.generation.service` | `SecureRandomTokenProvider` | `AccessTokenGenerationProvider` implementation used to generate/hash tokens |
 | `rbac.token.rolePolicy.service` | `OwnRolesTokenRolePolicy` | `AccessTokenRolePolicy` implementation that decides which roles an owner may put on a token (see [Token role policy](#token-role-policy)) |
 | `rbac.token.excludedRoles` | `[]` | role-name patterns (exact, or `prefix.*`) for a custom policy to consult - not read by the shipped default |
-| `rbac.token.prefix` | `spt_` | stable plaintext prefix, lets secret scanners recognise leaked tokens |
-| `rbac.token.length` | `32` | random bytes per token (32 = 256 bit entropy) |
-| `rbac.token.headerName` | `x-api-key` | fallback header checked when no `Authorization: Bearer` is present |
-| `rbac.token.lastUsedUpdateInterval` | `60` | seconds between `LastUsedAt` writes for a busy token |
+| `authn.token.prefix` | `spt_` | stable plaintext prefix, lets secret scanners recognise leaked tokens |
+| `authn.token.length` | `32` | random bytes per token (32 = 256 bit entropy) |
+| `authn.token.headerName` | `x-api-key` | fallback header checked when no `Authorization: Bearer` is present |
+| `authn.token.lastUsedUpdateInterval` | `60` | seconds between `LastUsedAt` writes for a busy token |
 
 The package also ships `rbac.grants` for the `user.tokens` resource and queue
 routing that sends its events (`AccessTokenCreated`, `AccessTokenDeleted`,

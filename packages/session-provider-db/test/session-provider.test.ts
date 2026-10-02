@@ -33,7 +33,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             db: {
               cleanupInterval: 1000,
@@ -112,7 +112,7 @@ describe('db session provider', function () {
   runSessionProviderConformance(makeProvider);
 
   describe('DbSessionStore regressions', () => {
-    it('reads the correctly-spelled rbac.session.db.cleanupInterval config key (B2)', async () => {
+    it('reads the correctly-spelled authn.session.db.cleanupInterval config key (B2)', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
 
       // The fixture sets cleanupInterval = 1000. With the historic typo

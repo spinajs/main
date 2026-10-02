@@ -14,7 +14,7 @@ export enum TWO_FA_METATADATA_KEYS {
 
 @Injectable(TwoFactorAuthProvider)
 export class Default2FaToken extends TwoFactorAuthProvider {
-    @Config('rbac.otpauth')
+    @Config('authn.mfa.totp')
     protected Config: any;
 
     @Logger('2fa-token')

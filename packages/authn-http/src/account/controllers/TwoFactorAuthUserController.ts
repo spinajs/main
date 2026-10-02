@@ -63,10 +63,10 @@ export interface ITwoFactorStatus {
 @Resource('user')
 @Policy(AuthorizedPolicy)
 export class TwoFactorAuthUserController extends BaseController {
-  @AutoinjectService('rbac.password')
+  @AutoinjectService('authn.local.hasher')
   protected PasswordProvider: PasswordProvider;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   @Autoinject(SessionCookieFactory)

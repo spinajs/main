@@ -55,7 +55,7 @@ export class MetadataNotPopulated extends RbacException {}
 export class MetadataNotFound extends RbacException {}
 
 /**
- * Thrown when a rbac email template is not configured ( rbac.email in config ).
+ * Thrown when a rbac email template is not configured ( users.email in config ).
  */
 export class EmailTemplateNotConfigured extends RbacException {}
 

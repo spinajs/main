@@ -34,12 +34,14 @@ class TestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        // AutoinjectService('rbac.password') will resolve a service whose
+      authn: {
+        // AutoinjectService('authn.local.hasher') will resolve a service whose
         // constructor.name matches this string. Same for auth / session.
-        password: { service: 'TestPasswordProvider' },
-        auth: { service: 'TestAuthProvider' },
+        local: { hasher: { service: 'TestPasswordProvider' } },
         session: { service: 'TestSessionProvider' },
+      },
+      rbac: {
+        auth: { service: 'TestAuthProvider' },
         roleSwitch: { requirePassword: [] as string[] },
         grants: {
           admin: { Test: { 'read:any': ['*'] } },

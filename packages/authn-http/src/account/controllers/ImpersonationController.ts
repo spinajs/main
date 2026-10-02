@@ -40,7 +40,7 @@ export class ImpersonationController extends BaseController {
   @Autoinject(AccessControl)
   protected AC: AccessControl;
 
-  @AutoinjectService('rbac.password')
+  @AutoinjectService('authn.local.hasher')
   protected PasswordProvider: PasswordProvider;
 
   @Autoinject(ImpersonationService)
@@ -49,7 +49,7 @@ export class ImpersonationController extends BaseController {
   @Autoinject(SessionCookieFactory)
   protected SessionCookies: SessionCookieFactory;
 
-  @Config('rbac.impersonation.requirePassword', { defaultValue: true })
+  @Config('authn.impersonation.requirePassword', { defaultValue: true })
   protected RequirePassword: boolean;
 
   @Config('rbac.impersonation.protectedRoles', { defaultValue: ['system'] as string[] })
@@ -85,7 +85,7 @@ export class ImpersonationController extends BaseController {
    * Begins impersonating the target user. The caller must have `createAny` on
    * virtual resource `user:impersonate`. The target must not hold any role in
    * `rbac.impersonation.protectedRoles` and must not have effective grants
-   * exceeding the caller's. If `rbac.impersonation.requirePassword` is true,
+   * exceeding the caller's. If `authn.impersonation.requirePassword` is true,
    * the caller's password must be supplied and is verified.
    * @security cookieAuth
    * @returns {IImpersonationResponse}

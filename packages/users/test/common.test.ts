@@ -37,7 +37,7 @@ export class TestConfiguration extends FrameworkConfiguration {
 
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
+      users: {
         email: {
           connection: 'rbac-email-connection',
 
@@ -106,6 +106,8 @@ export class TestConfiguration extends FrameworkConfiguration {
             subject: 'Your password will expire soon',
           },
         },
+      },
+      rbac: {
         // default roles to manage users & guest account
         roles: [
           {
@@ -179,6 +181,18 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
         },
         defaultRole: 'guest',
+        auth: {
+          service: 'SimpleDbAuthProvider',
+        },
+        password: {
+          /**
+           * Should password expire after some time ?
+           */
+          passwordExpirationTime: 0,
+        },
+      },
+
+      authn: {
         session: {
           service: 'MemorySessionStore',
           // expiration strategy (units: minutes)
@@ -189,17 +203,14 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
           cookie: {},
         },
-        auth: {
-          service: 'SimpleDbAuthProvider',
-        },
-        password: {
-          service: 'BasicPasswordProvider',
+        local: {
+          hasher: { service: 'BasicPasswordProvider' },
 
-          // rbac.password.generator is deliberately absent: BasicPasswordProvider.generate()
+          // authn.local.generator is deliberately absent: BasicPasswordProvider.generate()
           // (src/password.ts) falls back to an in-code default that mirrors this exact
           // value, so tests that auto-generate a password (eg. create() without a
           // `password` option) still exercise a real, working generate() call.
-          validation: {
+          policy: {
             service: 'BasicPasswordValidationProvider',
             rule: {
               // UNCOMMENT ONE OF BELOW OR MODIFY
@@ -222,20 +233,17 @@ export class TestConfiguration extends FrameworkConfiguration {
           },
 
           /**
-           * Should password expire after some time ?
-           */
-          passwordExpirationTime: 0,
-
-          /**
            * How long we should wait to reset password ( after this time reset token is invalid )
            */
-          passwordResetWaitTime: 60 * 60,
+          reset: {
+            ttlSeconds: 60 * 60,
+          },
 
           /**
            * Lifetime of the link mailed to a NEW account, in seconds.
            */
           invite: {
-            waitTime: 15 * 60,
+            ttlSeconds: 15 * 60,
           },
         },
       },

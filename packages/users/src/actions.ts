@@ -146,7 +146,7 @@ interface IEmailTemplateCfg {
  * and must resolve with the User, not with an EmailSend job.
  *
  * @param u - recipient
- * @param cfgTemplate - which `rbac.email.*` entry describes the message
+ * @param cfgTemplate - which `users.email.*` entry describes the message
  * @param model - extra template variables merged over the user's own fields.
  *   Given as a FUNCTION of the user so a caller can compute them from the row it
  *   has just written ( the password-reset token is the case that needs it ).
@@ -155,13 +155,13 @@ interface IEmailTemplateCfg {
  */
 export async function sendUserEmail(u: User, cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired', model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown }): Promise<User> {
   const extra = model ? await model(u) : undefined;
-  const connection = cfg<string>('rbac.email.connection', 'default');
+  const connection = cfg<string>('users.email.connection', 'default');
 
   let template: IEmailTemplateCfg;
   try {
-    template = cfg<IEmailTemplateCfg>(`rbac.email.${cfgTemplate}`);
+    template = cfg<IEmailTemplateCfg>(`users.email.${cfgTemplate}`);
   } catch (err) {
-    throw new EmailTemplateNotConfigured(`Email template ${cfgTemplate} not configured. Check rbac.email in config`, undefined, err);
+    throw new EmailTemplateNotConfigured(`Email template ${cfgTemplate} not configured. Check users.email in config`, undefined, err);
   }
 
   _check_arg(_is_string(_non_empty(), _max_length(128)))(template.template, 'email.template');
@@ -218,7 +218,7 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
     return;
   }
 
-  const provider = await service('rbac.session', SessionProvider);
+  const provider = await service('authn.session', SessionProvider);
   await provider.deleteByUser(userId);
 }
 
@@ -588,7 +588,7 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
  * @returns an object containing the persisted {@link User} and the plain-text password
  */
 export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<{ User: User; Password: string }> {
-  const sPassword = await service<PasswordProvider>('rbac.password', PasswordProvider);
+  const sPassword = await service<PasswordProvider>('authn.local.hasher', PasswordProvider);
 
   // Whether the CALLER supplied a password decides who hands the account to its
   // owner, so it is read before `_default` fills a generated one in and the two
@@ -615,7 +615,7 @@ export async function create(email: string, login: string, roles: string[], opti
   // against the same rule inside `generate()`, and re-checking it here would
   // only re-report a configuration fault as a caller mistake.
   if (!generated) {
-    const validator = await service<PasswordValidationProvider>('rbac.password.validation', PasswordValidationProvider);
+    const validator = await service<PasswordValidationProvider>('authn.local.policy', PasswordValidationProvider);
 
     if (!validator.check(password)) {
       throw new InvalidArgument('Password does not meet requirements', 'password');
@@ -643,7 +643,7 @@ export async function create(email: string, login: string, roles: string[], opti
     Uuid: uuidv4(),
   });
 
-  u = await runCreateMiddleware(u, 'rbac.actions.create.beforeCreate');
+  u = await runCreateMiddleware(u, 'users.actions.create.beforeCreate');
 
   await insertModel(u);
 
@@ -654,7 +654,7 @@ export async function create(email: string, login: string, roles: string[], opti
     );
   }
 
-  u = await runCreateMiddleware(u, 'rbac.actions.create.afterCreate');
+  u = await runCreateMiddleware(u, 'users.actions.create.afterCreate');
 
   await ev(new UserCreated(u));
 
@@ -674,7 +674,7 @@ export async function create(email: string, login: string, roles: string[], opti
   // mail is swallowed — the account exists and the link can be re-sent through
   // `passwordChangeRequest`.
   if (generated) {
-    const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('rbac.password.invite.waitTime'));
+    const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('authn.local.invite.ttlSeconds'));
 
     // Before the mail, not after: the marker is what lets `confirmPasswordReset`
     // touch this still-inactive account, so a mail that goes out without it points
@@ -832,14 +832,14 @@ export async function unban(identifier: number | string | User): Promise<User> {
 /**
  * Builds the link a reset mail sends the user to.
  *
- * `rbac.password.resetUrl` is the application's own redemption page. The token
+ * `authn.local.reset.url` is the application's own redemption page. The token
  * and the address are appended as query parameters because that page has to send
  * both back to `POST /auth/password/reset`, and it has no other way of knowing
  * them. Returns an empty string when no url is configured — the template then
  * renders whatever it does without one, rather than a link to nowhere.
  */
 function passwordResetUrl(email: string, token: string): string {
-  const base = cfg<string>('rbac.password.resetUrl', '');
+  const base = cfg<string>('authn.local.reset.url', '');
 
   if (!base) {
     return '';
@@ -861,10 +861,10 @@ function passwordResetUrl(email: string, token: string): string {
  * whichever the user opened second pointing at an already-overwritten token.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
+ * @param waitTime - token lifetime in seconds; defaults to `authn.local.reset.ttlSeconds`
  */
 export async function issuePasswordResetToken(identifier: number | string | User, waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
-  const ttl = waitTime ?? cfg<number>('rbac.password.passwordResetWaitTime');
+  const ttl = waitTime ?? cfg<number>('authn.local.reset.ttlSeconds');
   const token = uuidv4();
 
   const u = await getUser(identifier);
@@ -885,14 +885,14 @@ export async function issuePasswordResetToken(identifier: number | string | User
  *
  * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
  * possession of the mailbox is what authorizes the reset — so an installation that does not
- * deliver it has a reset flow nobody can complete. `rbac.email.changePassword.enabled: false`
+ * deliver it has a reset flow nobody can complete. `users.email.changePassword.enabled: false`
  * still turns it off for an application that really does deliver it some other way.
  *
  * The token reaches the template through the model and is NOT logged: it is a bearer
  * credential for `POST /auth/password/reset`.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param waitTime - token lifetime in seconds; defaults to `rbac.password.passwordResetWaitTime`
+ * @param waitTime - token lifetime in seconds; defaults to `authn.local.reset.ttlSeconds`
  */
 export async function passwordChangeRequest(identifier: number | string | User, waitTime?: number): Promise<User> {
   const { user, token, waitTime: ttl } = await issuePasswordResetToken(identifier, waitTime);
@@ -1021,8 +1021,8 @@ function secureCompare(a: string, b: string): boolean {
 export async function changeUserPassword(u: User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  const pwd = await service('rbac.password', PasswordProvider);
-  const validator = await service('rbac.password.validation', PasswordValidationProvider);
+  const pwd = await service('authn.local.hasher', PasswordProvider);
+  const validator = await service('authn.local.policy', PasswordValidationProvider);
 
   if (!validator.check(password)) {
     // `InvalidArgument`, not a bare `Error`: a password the caller typed is
@@ -1082,7 +1082,7 @@ export function changePassword(password: string): (u: User) => Promise<User> {
 export async function expirePassword(identifier: number | string | User): Promise<void> {
   const u = await getUser(identifier);
 
-  const sPassword = await service('rbac.password', PasswordProvider);
+  const sPassword = await service('authn.local.hasher', PasswordProvider);
   const hPassword = await sPassword.hash(sPassword.generate());
   await updateModel(u, { Password: hPassword });
 
@@ -1116,7 +1116,7 @@ export async function notifyPasswordWillExpire(identifier: number | string | Use
 export async function verifyPassword(u: User, password: string): Promise<boolean> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  const sPwd = await service('rbac.password', PasswordProvider);
+  const sPwd = await service('authn.local.hasher', PasswordProvider);
   return sPwd.verify(u.Password, password);
 }
 

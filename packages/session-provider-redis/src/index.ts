@@ -38,7 +38,7 @@ export class RedisSessionStore extends SessionProvider {
   @Logger('redis-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.redis')
+  @Config('authn.session.redis')
   protected RedisConfig: RedisOptions;
 
   protected Client: Redis;

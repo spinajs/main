@@ -23,12 +23,12 @@ const authnHttp = {
     },
   },
   rbac: {
-    // NOTE: the session cookie ( `rbac.session.cookie` ) is configured by
+    // NOTE: the session cookie ( `authn.session.cookie` ) is configured by
     // @spinajs/users and defaults to Secure + SameSite=Strict + HttpOnly. This
     // package used to weaken it to SameSite=Lax here, which is what let a
     // cross-site GET reach the logout route.
     password: {
-      // NOTE: the password reset token's lifetime is `rbac.password.passwordResetWaitTime`
+      // NOTE: the password reset token's lifetime is `authn.local.reset.ttlSeconds`
       // ( seconds, defined by @spinajs/users ) — this package does not restate it.
 
       /**

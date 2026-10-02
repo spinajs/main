@@ -34,7 +34,7 @@ export interface IPasswordResetAck {
  */
 @BasePath('auth')
 export class PasswordResetController extends BaseController {
-  @AutoinjectService('rbac.password.validation')
+  @AutoinjectService('authn.local.policy')
   protected PasswordValidation: PasswordValidationProvider;
 
   /**
@@ -79,7 +79,7 @@ export class PasswordResetController extends BaseController {
   /**
    * Complete a password reset
    * Redeems the token issued by `POST /auth/password/reset-request` and sets the new
-   * password. The token is single-use and expires after `rbac.password.passwordResetWaitTime`.
+   * password. The token is single-use and expires after `authn.local.reset.ttlSeconds`.
    * @security []
    * @returns {IPasswordResetAck} Acknowledgement of a successful reset
    * @response 400 New passwords do not match, or the token is invalid or expired

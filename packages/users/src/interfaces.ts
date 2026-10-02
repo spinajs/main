@@ -70,7 +70,7 @@ export interface ISession {
 
 /**
  * Configurable session expiration strategy. Resolved by config service name at
- * `rbac.session.expiration.service`, mirroring the `rbac.password` pattern.
+ * `authn.session.expiration.service`, mirroring the `authn.local.hasher` pattern.
  *
  * Units for all shipped strategies are MINUTES.
  */
@@ -108,8 +108,8 @@ export abstract class PasswordProvider {
   public abstract hash(input: string): Promise<string>;
 
   /**
-   * Generates a random password drawn from `rbac.password.generator` and
-   * satisfying `rbac.password.validation.rule`.
+   * Generates a random password drawn from `authn.local.generator` and
+   * satisfying `authn.local.policy.rule`.
    */
   public abstract generate(): string;
 }
@@ -222,10 +222,10 @@ export abstract class FederatedAuthProvider<C, U = User> {
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
   /**
    * Expiration strategy, resolved by config service name at
-   * `rbac.session.expiration`. Every store shares the same strategy so
+   * `authn.session.expiration`. Every store shares the same strategy so
    * expiration semantics are uniform across providers.
    */
-  @AutoinjectService('rbac.session.expiration')
+  @AutoinjectService('authn.session.expiration')
   protected Expiration!: SessionExpirationProvider;
 
   /**
@@ -341,7 +341,7 @@ export interface IPasswordPolicy {
 
   /**
    * Human-readable statement of the rule, as configured by the application
-   * (`rbac.password.validation.description`). Copy, not a constraint: a client
+   * (`authn.local.policy.description`). Copy, not a constraint: a client
    * shows it next to the password field; it never validates against it.
    */
   description?: string;

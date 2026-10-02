@@ -37,7 +37,7 @@ export type RevertResult =
  */
 @Injectable()
 export class ImpersonationService {
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   /** True when the session is currently acting as somebody else. */

@@ -9,11 +9,11 @@ let currentExpiration: IConformanceExpiration | object = {};
 
 // Extends the common TestConfiguration (full db/logger config) so this suite
 // does not strip shared-container config from sibling db suites — it only
-// overrides rbac.session.expiration.
+// overrides authn.session.expiration.
 class ConformanceTestConfiguration extends TestConfiguration {
   protected onLoad() {
     const cfg = super.onLoad() as any;
-    cfg.rbac.session = { service: 'MemorySessionStore', expiration: currentExpiration };
+    cfg.authn.session = { service: 'MemorySessionStore', expiration: currentExpiration };
     return cfg;
   }
 }

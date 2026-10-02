@@ -32,7 +32,7 @@ export const SESSION_COOKIE_NAME = 'ssid';
  */
 @Injectable()
 export class SessionCookieFactory {
-  @Config('rbac.session.cookie', {})
+  @Config('authn.session.cookie', {})
   protected SessionCookieConfig: ISessionCookieConfig;
 
   /** Configured cookie name, `__Host-` prefix included when enabled. */

@@ -10,10 +10,10 @@ import { AccessTokenGenerationProvider, IGeneratedToken } from './interfaces.js'
  */
 @Injectable(AccessTokenGenerationProvider)
 export class SecureRandomTokenProvider extends AccessTokenGenerationProvider {
-  @Config('rbac.token.prefix', { defaultValue: 'spt_' })
+  @Config('authn.token.prefix', { defaultValue: 'spt_' })
   protected Prefix: string;
 
-  @Config('rbac.token.length', { defaultValue: 32 })
+  @Config('authn.token.length', { defaultValue: 32 })
   protected Length: number;
 
   public async generate(): Promise<IGeneratedToken> {

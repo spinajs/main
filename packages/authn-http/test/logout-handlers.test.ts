@@ -32,10 +32,12 @@ class LogoutTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        password: { service: 'LogoutTestPasswordProvider' },
-        auth: { service: 'LogoutTestAuthProvider' },
+      authn: {
+        local: { hasher: { service: 'LogoutTestPasswordProvider' } },
         session: { service: 'LogoutTestSessionProvider' },
+      },
+      rbac: {
+        auth: { service: 'LogoutTestAuthProvider' },
         session_cookie: {},
       },
       // The handlers' AutoinjectService resolves by config name. Make sure

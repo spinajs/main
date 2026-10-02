@@ -5,7 +5,7 @@ import type { ISession, SessionProvider } from '@spinajs/users';
 
 /**
  * Expiration strategy config passed to the provider factory. Mirrors the shape
- * of `rbac.session.expiration`.
+ * of `authn.session.expiration`.
  */
 export interface IConformanceExpiration {
   service: 'AbsoluteExpiration' | 'SlidingExpiration' | 'SlidingCappedExpiration';

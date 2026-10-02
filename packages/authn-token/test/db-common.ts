@@ -102,20 +102,24 @@ export class DbTestConfiguration extends FrameworkConfiguration {
             'user.tokens': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] },
           },
         },
+        auth: { service: 'SimpleDbAuthProvider' },
+        password: {
+          passwordExpirationTime: 0,
+        },
+      },
+      authn: {
         session: {
           service: 'MemorySessionStore',
           expiration: { service: 'SlidingCappedExpiration', ttl: 120, maxLifetime: 1440 },
           cookie: {},
         },
-        auth: { service: 'SimpleDbAuthProvider' },
-        password: {
-          service: 'BasicPasswordProvider',
-          validation: {
+        local: {
+          hasher: { service: 'BasicPasswordProvider' },
+          policy: {
             service: 'BasicPasswordValidationProvider',
             rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' },
           },
-          passwordExpirationTime: 0,
-          passwordResetWaitTime: 60 * 60,
+          reset: { ttlSeconds: 60 * 60 },
         },
         token: {
           generation: { service: 'SecureRandomTokenProvider' },

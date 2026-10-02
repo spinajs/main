@@ -27,10 +27,10 @@ export class ActiveRoleController extends BaseController {
   @AutoinjectService('rbac.auth')
   protected AuthProvider: AuthProvider;
 
-  @AutoinjectService('rbac.password')
+  @AutoinjectService('authn.local.hasher')
   protected PasswordProvider: PasswordProvider;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   @Config('rbac.roleSwitch.requirePassword', { defaultValue: [] as string[] })

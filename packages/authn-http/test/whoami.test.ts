@@ -21,10 +21,12 @@ class TestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        password: { service: 'TestPasswordProvider' },
-        auth: { service: 'TestAuthProvider' },
+      authn: {
+        local: { hasher: { service: 'TestPasswordProvider' } },
         session: { service: 'TestSessionProvider' },
+      },
+      rbac: {
+        auth: { service: 'TestAuthProvider' },
         twoFactorAuth: { enabled: true, forceUser: false },
         grants: { admin: { Test: { 'read:any': ['*'] } } },
       },

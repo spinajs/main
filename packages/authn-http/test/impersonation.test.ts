@@ -38,13 +38,15 @@ class TestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
-        password: { service: 'TestPasswordProvider' },
-        auth: { service: 'TestAuthProvider' },
+      authn: {
+        local: { hasher: { service: 'TestPasswordProvider' } },
         session: { service: 'TestSessionProvider' },
+        impersonation: { requirePassword: true },
+      },
+      rbac: {
+        auth: { service: 'TestAuthProvider' },
         roleSwitch: { requirePassword: [] as string[] },
         impersonation: {
-          requirePassword: true,
           protectedRoles: ['system'],
         },
         grants: {

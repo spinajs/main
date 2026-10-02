@@ -12,7 +12,7 @@ function dir(path: string) {
 
 
 
-const rbac = {
+const usersConfig = {
   system: {
     dirs: {
       cli: [...dir('cli')],
@@ -47,9 +47,7 @@ const rbac = {
       },
     ],
   },
-  rbac: {
-    enableGuestAccount: false,
-
+  users: {
     email: {
       connection: 'rbac-email-connection',
 
@@ -117,6 +115,185 @@ const rbac = {
         subject: 'Account created',
       },
     },
+
+    user: {
+      profile: "BasicProfileProvider"
+    },
+
+    /**
+         * Middleware functions for user actions.
+         * Each action can have before and after middleware arrays.
+         * Middleware functions receive the User and should return the User.
+         * eg. beforeCreate: [(u: User) => { u.Metadata['custom:key'] = 'value'; return u; }]
+         */
+    actions: {
+      create: {
+        beforeCreate: [] as Array<Function>,
+        afterCreate: [] as Array<Function>,
+      },
+    },
+  },
+  authn: {
+    session: {
+      service: 'MemorySessionStore',
+
+      /**
+       * Session expiration strategy. Selected by `service` (one of
+       * AbsoluteExpiration | SlidingExpiration | SlidingCappedExpiration).
+       * Each strategy reads only the keys it uses. Units are MINUTES.
+       */
+      expiration: {
+        service: 'SlidingCappedExpiration',
+
+        // idle timeout — OWASP puts a low-risk application at 15-30 minutes
+        ttl: 30, // minutes
+
+        // hard ceiling on a single session's life, regardless of activity
+        maxLifetime: 480, // minutes (SlidingCappedExpiration only)
+      },
+
+      /**
+       * Session cookie. Passed through to express, EXCEPT:
+       *  - `httpOnly` is forced on and cannot be configured away,
+       *  - `secure` and `sameSite` default to `true` / `'strict'`,
+       *  - `name` sets the cookie name ( default `ssid` ),
+       *  - `hostPrefix: true` emits it as `__Host-<name>`, which additionally
+       *    forces `secure`, `path: '/'` and drops `domain`.
+       *
+       * Local http development needs `secure: false`; everything else should be
+       * left alone.
+       */
+      cookie: {
+        /**
+         * Secure everywhere except local development.
+         *
+         * `NODE_ENV=production` is what a deployment sets, and there the cookie
+         * must never leave over plain http. Anywhere else ( a developer running
+         * the app on http://localhost ) the browser would simply drop a Secure
+         * cookie and nobody could log in, so it is relaxed there and only
+         * there.
+         *
+         * An application serving https outside production should set this back
+         * to `true` in its own config.
+         */
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+
+    local: {
+      hasher: {
+        service: 'BasicPasswordProvider',
+      },
+
+      /**
+       * How auto-generated passwords are built. Separate from `policy.rule`
+       * on purpose: the rule is a JSON schema describing what a HUMAN may
+       * choose, and a schema is not something you can generate from. This says
+       * which characters to draw and how many.
+       *
+       * `characters` entries are concatenated into one pool, so both
+       * `['abc', 'def']` and `['a', 'b', 'c']` mean the same thing.
+       *
+       * Keep this pool able to satisfy `policy.rule` — the default rule
+       * demands a digit, so the default pool contains digits. `generate()`
+       * asserts the result against the rule and throws if the two disagree.
+       */
+      generator: {
+        length: 16,
+        characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'],
+      },
+
+      policy: {
+        service: 'BasicPasswordValidationProvider',
+
+        /**
+         * Human-readable statement of `rule`, returned by
+         * `PasswordValidationProvider.describe()` (and by
+         * `GET /auth/password/policy` in @spinajs/authn-http) so a client
+         * can show the user what to type BEFORE the server refuses it. A regex
+         * cannot be turned back into words, so this is the application's job;
+         * keep it in step with `rule`. Unset by default: clients then fall back
+         * to the `minLength` / `maxLength` the rule itself declares.
+         */
+        // description: 'At least eight characters, including one digit',
+
+        rule: {
+          // UNCOMMENT ONE OF BELOW OR MODIFY
+          // VALIDATION RULE IS JSON SCHEMA
+
+          // Minimum eight characters, at least one letter and one number
+          pattern: '^(?=.*\\d).{8,}$',
+
+          // Minimum eight characters, at least one letter, one number and one special character:
+          // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',
+
+          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$',
+
+          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
+          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$',
+
+          type: 'string',
+        },
+      },
+
+      /**
+       * Should password expire after some time ?
+       */
+
+      expiration: {
+        enabled: true,
+
+        // in seconds
+        passwordExpirationTime: 31 * 24 * 60 * 60,
+      },
+
+      reset: {
+        /**
+         * How long we should wait to reset password ( after this time reset token is invalid )
+         */
+        ttlSeconds: 60 * 60,
+
+        /**
+         * The application page that redeems a reset token, e.g.
+         * `https://app.example.com/password-reset`.
+         *
+         * `passwordChangeRequest` appends `token` and `email` to it and hands the
+         * result to the `changePassword` template as `ResetUrl`; that page sends
+         * both back to `POST /auth/password/reset`. Empty by default because only
+         * the application knows its own address — a template then renders without
+         * a link rather than with one pointing nowhere.
+         */
+        url: '',
+      },
+
+      /**
+       * Lifetime of the link mailed to a NEW account, in seconds. Deliberately shorter
+       * than `reset.ttlSeconds`: an invite is handed out by an administrator who is
+       * expecting the account to be taken up now, not in an hour.
+       */
+      invite: {
+        ttlSeconds: 15 * 60,
+      },
+    },
+
+    /**
+     * Impersonation lets a privileged user (createAny on virtual resource
+     * 'user:impersonate') act as another user for the rest of the session.
+     * Example admin grant:
+     *   admin: { 'user:impersonate': { 'create:any': ['*'] } }
+     */
+    impersonation: {
+      /**
+       * When true, starting impersonation requires the impersonator to
+       * re-enter their password as a confirmation step.
+       */
+      requirePassword: true,
+    },
+  },
+  rbac: {
+    enableGuestAccount: false,
+
     // default roles to manage users & guest account
     roles: [
       {
@@ -189,97 +366,6 @@ const rbac = {
       service: 'SimpleDbAuthProvider',
     },
     password: {
-      service: 'BasicPasswordProvider',
-
-      /**
-       * How auto-generated passwords are built. Separate from `validation.rule`
-       * on purpose: the rule is a JSON schema describing what a HUMAN may
-       * choose, and a schema is not something you can generate from. This says
-       * which characters to draw and how many.
-       *
-       * `characters` entries are concatenated into one pool, so both
-       * `['abc', 'def']` and `['a', 'b', 'c']` mean the same thing.
-       *
-       * Keep this pool able to satisfy `validation.rule` — the default rule
-       * demands a digit, so the default pool contains digits. `generate()`
-       * asserts the result against the rule and throws if the two disagree.
-       */
-      generator: {
-        length: 16,
-        characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'],
-      },
-
-      validation: {
-        service: 'BasicPasswordValidationProvider',
-
-        /**
-         * Human-readable statement of `rule`, returned by
-         * `PasswordValidationProvider.describe()` (and by
-         * `GET /auth/password/policy` in @spinajs/authn-http) so a client
-         * can show the user what to type BEFORE the server refuses it. A regex
-         * cannot be turned back into words, so this is the application's job;
-         * keep it in step with `rule`. Unset by default: clients then fall back
-         * to the `minLength` / `maxLength` the rule itself declares.
-         */
-        // description: 'At least eight characters, including one digit',
-
-        rule: {
-          // UNCOMMENT ONE OF BELOW OR MODIFY
-          // VALIDATION RULE IS JSON SCHEMA
-
-          // Minimum eight characters, at least one letter and one number
-          pattern: '^(?=.*\\d).{8,}$',
-
-          // Minimum eight characters, at least one letter, one number and one special character:
-          // pattern: '^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$',
-
-          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
-          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$',
-
-          // Minimum eight characters, at least one uppercase letter, one lowercase letter and one number
-          // pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$',
-
-          type: 'string',
-        },
-      },
-
-      /**
-       * Should password expire after some time ?
-       */
-
-      expiration: {
-        enabled: true,
-
-        // in seconds
-        passwordExpirationTime: 31 * 24 * 60 * 60,
-      },
-
-      /**
-       * How long we should wait to reset password ( after this time reset token is invalid )
-       */
-      passwordResetWaitTime: 60 * 60,
-
-      /**
-       * Lifetime of the link mailed to a NEW account, in seconds. Deliberately shorter
-       * than `passwordResetWaitTime`: an invite is handed out by an administrator who is
-       * expecting the account to be taken up now, not in an hour.
-       */
-      invite: {
-        waitTime: 15 * 60,
-      },
-
-      /**
-       * The application page that redeems a reset token, e.g.
-       * `https://app.example.com/password-reset`.
-       *
-       * `passwordChangeRequest` appends `token` and `email` to it and hands the
-       * result to the `changePassword` template as `ResetUrl`; that page sends
-       * both back to `POST /auth/password/reset`. Empty by default because only
-       * the application knows its own address — a template then renders without
-       * a link rather than with one pointing nowhere.
-       */
-      resetUrl: '',
-
       /**
        * Consecutive failed logins that lock the account. 0 disables throttling.
        */
@@ -291,73 +377,11 @@ const rbac = {
        */
       lockoutTime: 15 * 60,
     },
-    user: {
-      profile: "BasicProfileProvider"
-    },
-    session: {
-      service: 'MemorySessionStore',
-
-      /**
-       * Session expiration strategy. Selected by `service` (one of
-       * AbsoluteExpiration | SlidingExpiration | SlidingCappedExpiration).
-       * Each strategy reads only the keys it uses. Units are MINUTES.
-       */
-      expiration: {
-        service: 'SlidingCappedExpiration',
-
-        // idle timeout — OWASP puts a low-risk application at 15-30 minutes
-        ttl: 30, // minutes
-
-        // hard ceiling on a single session's life, regardless of activity
-        maxLifetime: 480, // minutes (SlidingCappedExpiration only)
-      },
-
-      /**
-       * Session cookie. Passed through to express, EXCEPT:
-       *  - `httpOnly` is forced on and cannot be configured away,
-       *  - `secure` and `sameSite` default to `true` / `'strict'`,
-       *  - `name` sets the cookie name ( default `ssid` ),
-       *  - `hostPrefix: true` emits it as `__Host-<name>`, which additionally
-       *    forces `secure`, `path: '/'` and drops `domain`.
-       *
-       * Local http development needs `secure: false`; everything else should be
-       * left alone.
-       */
-      cookie: {
-        /**
-         * Secure everywhere except local development.
-         *
-         * `NODE_ENV=production` is what a deployment sets, and there the cookie
-         * must never leave over plain http. Anywhere else ( a developer running
-         * the app on http://localhost ) the browser would simply drop a Secure
-         * cookie and nobody could log in, so it is relaxed there and only
-         * there.
-         *
-         * An application serving https outside production should set this back
-         * to `true` in its own config.
-         */
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
 
     /**
      * System role is used to perform internal operations on users, like password reset, email change etc.
      */
     systemRole: 'system',
-    /**
-         * Middleware functions for user actions.
-         * Each action can have before and after middleware arrays.
-         * Middleware functions receive the User and should return the User.
-         * eg. beforeCreate: [(u: User) => { u.Metadata['custom:key'] = 'value'; return u; }]
-         */
-    actions: {
-      create: {
-        beforeCreate: [] as Array<Function>,
-        afterCreate: [] as Array<Function>,
-      },
-    },
-
-
 
     /**
      * Column name in database where role is stored, by default is "Role", but if your user table has different column name, you can change it here
@@ -376,19 +400,7 @@ const rbac = {
       requirePassword: [] as string[],
     },
 
-    /**
-     * Impersonation lets a privileged user (createAny on virtual resource
-     * 'user:impersonate') act as another user for the rest of the session.
-     * Example admin grant:
-     *   admin: { 'user:impersonate': { 'create:any': ['*'] } }
-     */
     impersonation: {
-      /**
-       * When true, starting impersonation requires the impersonator to
-       * re-enter their password as a confirmation step.
-       */
-      requirePassword: true,
-
       /**
        * Targets whose role list intersects this set cannot be impersonated.
        * 'system' is reserved for internal automation and is blocked by default.
@@ -398,4 +410,4 @@ const rbac = {
   },
 };
 
-export default rbac;
+export default usersConfig;

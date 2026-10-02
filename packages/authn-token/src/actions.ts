@@ -145,7 +145,7 @@ export async function createToken(user: User | number | string, name: string, ro
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
   roles = _check_arg(_non_nil(), _non_empty())(roles, 'roles');
 
-  const generator = await service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider);
+  const generator = await service<AccessTokenGenerationProvider>('authn.token.generation', AccessTokenGenerationProvider);
   const generated = await generator.generate();
 
   const owner = await getOwner(user);
@@ -288,7 +288,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
 
   plaintext = plaintext.trim();
 
-  const generator = await service<AccessTokenGenerationProvider>('rbac.token.generation', AccessTokenGenerationProvider);
+  const generator = await service<AccessTokenGenerationProvider>('authn.token.generation', AccessTokenGenerationProvider);
   const hash = generator.hash(plaintext);
 
   const token = await AccessToken.where('Token', hash).first();

@@ -30,7 +30,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             aws: {
               table: 'rbac_sessions',

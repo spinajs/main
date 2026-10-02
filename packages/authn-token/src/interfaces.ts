@@ -18,7 +18,7 @@ export interface IGeneratedToken {
 
 /**
  * Token generation algorithm. Replaceable via config
- * `rbac.token.generation.service` - same pattern as `rbac.password.service`.
+ * `authn.token.generation.service` - same pattern as `authn.local.hasher.service`.
  */
 export abstract class AccessTokenGenerationProvider {
   /**
@@ -75,7 +75,7 @@ export interface ITokenAuthInfo {
  * answering the identical question two different ways.
  *
  * Replaceable via config `rbac.token.rolePolicy.service`, the same pattern
- * `rbac.token.generation.service` uses for the token generator. The shipped
+ * `authn.token.generation.service` uses for the token generator. The shipped
  * default ( `OwnRolesTokenRolePolicy` ) answers with the owner's own roles,
  * which is the behaviour this package had before the seam existed.
  */

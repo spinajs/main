@@ -8,11 +8,11 @@ import { ISession, SessionExpirationProvider } from './interfaces.js';
  * never extended. `touch` is therefore a no-op (renew returns the current
  * Expiration unchanged).
  *
- * Settings: `rbac.session.expiration.ttl` (minutes).
+ * Settings: `authn.session.expiration.ttl` (minutes).
  */
 @Injectable(SessionExpirationProvider)
 export class AbsoluteExpiration extends SessionExpirationProvider {
-  @Config('rbac.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
   protected Ttl!: number;
 
   public initial(session: ISession): DateTime | undefined {
@@ -29,11 +29,11 @@ export class AbsoluteExpiration extends SessionExpirationProvider {
  * Sliding expiration: every renewal pushes the expiration to `now + ttl`, with
  * no upper bound. Activity keeps the session alive indefinitely.
  *
- * Settings: `rbac.session.expiration.ttl` (minutes).
+ * Settings: `authn.session.expiration.ttl` (minutes).
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingExpiration extends SessionExpirationProvider {
-  @Config('rbac.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
   protected Ttl!: number;
 
   public initial(_session: ISession): DateTime | undefined {
@@ -50,15 +50,15 @@ export class SlidingExpiration extends SessionExpirationProvider {
  * `now + ttl` but never past `Creation + maxLifetime`. Combines idle timeout
  * with a hard session lifetime ceiling.
  *
- * Settings: `rbac.session.expiration.ttl` and
- * `rbac.session.expiration.maxLifetime` (both minutes).
+ * Settings: `authn.session.expiration.ttl` and
+ * `authn.session.expiration.maxLifetime` (both minutes).
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingCappedExpiration extends SessionExpirationProvider {
-  @Config('rbac.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
   protected Ttl!: number;
 
-  @Config('rbac.session.expiration.maxLifetime', { defaultValue: 1440 })
+  @Config('authn.session.expiration.maxLifetime', { defaultValue: 1440 })
   protected MaxLifetime!: number;
 
   public initial(_session: ISession): DateTime | undefined {

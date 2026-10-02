@@ -23,10 +23,10 @@ import { randomInt } from 'crypto';
 const GENERATE_ATTEMPTS = 10;
 
 /**
- * Used when an application has not declared `rbac.password.generator`. Mirrors
+ * Used when an application has not declared `authn.local.generator`. Mirrors
  * the shipped config default, so an application that never configures a
  * generator still creates usable accounts - the same reason `_create_middleware`
- * carries a fallback for `rbac.actions`.
+ * carries a fallback for `users.actions`.
  *
  * A DECLARED but empty pool still throws: that is a misconfiguration, not an
  * omission.
@@ -38,10 +38,10 @@ const DEFAULT_GENERATOR = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz
  */
 @Injectable(PasswordProvider)
 export class BasicPasswordProvider implements PasswordProvider {
-  @Config('rbac.password.generator')
+  @Config('authn.local.generator')
   protected GeneratorOptions: { length: number; characters: string[] };
 
-  @AutoinjectService('rbac.password.validation')
+  @AutoinjectService('authn.local.policy')
   protected Validation: PasswordValidationProvider;
 
   public async hash(input: string): Promise<string> {
@@ -61,8 +61,8 @@ export class BasicPasswordProvider implements PasswordProvider {
   }
 
   /**
-   * A random password drawn from `rbac.password.generator` and guaranteed to
-   * satisfy `rbac.password.validation.rule`.
+   * A random password drawn from `authn.local.generator` and guaranteed to
+   * satisfy `authn.local.policy.rule`.
    *
    * The guarantee matters: a generated password is what a freshly created
    * account holds, and one that fails the application's own rule is a password
@@ -78,7 +78,7 @@ export class BasicPasswordProvider implements PasswordProvider {
     const pool = (options.characters ?? DEFAULT_GENERATOR.characters).join('');
 
     if (length < 1 || pool.length === 0) {
-      throw new UnexpectedServerError('rbac.password.generator must define a positive length and a non-empty character pool');
+      throw new UnexpectedServerError('authn.local.generator must define a positive length and a non-empty character pool');
     }
 
     for (let attempt = 0; attempt < GENERATE_ATTEMPTS; attempt++) {
@@ -91,7 +91,7 @@ export class BasicPasswordProvider implements PasswordProvider {
       }
     }
 
-    throw new UnexpectedServerError(`Could not generate a password satisfying rbac.password.validation.rule in ${GENERATE_ATTEMPTS} attempts. The generator character pool and the validation rule disagree - check rbac.password.generator.`);
+    throw new UnexpectedServerError(`Could not generate a password satisfying authn.local.policy.rule in ${GENERATE_ATTEMPTS} attempts. The generator character pool and the validation rule disagree - check authn.local.generator.`);
   }
 }
 
@@ -100,7 +100,7 @@ export class BasicPasswordProvider implements PasswordProvider {
  */
 @Injectable(PasswordValidationProvider)
 export class BasicPasswordValidationProvider extends PasswordValidationProvider {
-  @Config('rbac.password.validation.rule')
+  @Config('authn.local.policy.rule')
   protected ValidationSchema: object;
 
   /**
@@ -109,7 +109,7 @@ export class BasicPasswordValidationProvider extends PasswordValidationProvider 
    * SHOWN - an application whose rule is a bare regex has no other way to tell
    * the user what that regex demands.
    */
-  @Config('rbac.password.validation.description', { defaultValue: undefined as string | undefined })
+  @Config('authn.local.policy.description', { defaultValue: undefined as string | undefined })
   protected Description: string | undefined;
 
   @Autoinject()

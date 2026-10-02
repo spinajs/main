@@ -30,7 +30,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             // connection opts are irrelevant — the test injects an ioredis-mock
             // client and stubs resolve() so no real connection is opened.

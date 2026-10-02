@@ -17,7 +17,7 @@ export class DefaultLogoutHandler extends LogoutHandler {
   @Logger('rbac-session')
   protected Log!: Log;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider!: SessionProvider;
 
   @Autoinject(SessionCookieFactory)

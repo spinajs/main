@@ -206,8 +206,8 @@ describe('User model tests', function () {
     });
 
     const config = DI.get(Configuration)!;
-    config.set('rbac.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
-    config.set('rbac.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
+    config.set('users.actions.create.beforeCreate', [beforeSpy as CreateMiddleware]);
+    config.set('users.actions.create.afterCreate', [afterSpy as CreateMiddleware]);
 
     const { User: U } = await create('middleware@wp.pl', 'middlewareuser', ['admin'], { password: 'bbbb1234' });
 
@@ -227,20 +227,20 @@ describe('User model tests', function () {
     expect(U).to.be.instanceOf(User);
 
     // reset config
-    config!.set('rbac.actions.create.beforeCreate', []);
-    config!.set('rbac.actions.create.afterCreate', []);
+    config!.set('users.actions.create.beforeCreate', []);
+    config!.set('users.actions.create.afterCreate', []);
   });
 
   // Regression: reading the create-middleware lists through `_cfg(path, [])`
   // ran them through `_non_nil()`, which rejects empty arrays. Since the
   // shipped config defaults both hooks to `[]`, EVERY user creation failed with
-  // "rbac.actions.create.beforeCreate should not be null, undefined or empty".
+  // "users.actions.create.beforeCreate should not be null, undefined or empty".
   it('Should create user when create middleware lists are empty', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
-    config.set('rbac.actions.create.beforeCreate', []);
-    config.set('rbac.actions.create.afterCreate', []);
+    config.set('users.actions.create.beforeCreate', []);
+    config.set('users.actions.create.afterCreate', []);
 
     const { User: U } = await create('empty-mw@wp.pl', 'emptymw', ['admin'], { password: 'bbbb1234' });
 
@@ -249,14 +249,14 @@ describe('User model tests', function () {
     expect(user.Login).to.eq('emptymw');
   });
 
-  // Regression: same root cause, but for apps that never declare `rbac.actions`
+  // Regression: same root cause, but for apps that never declare `users.actions`
   // at all — the config lookup returns undefined and must be treated as
   // "no middleware", not as an error.
   it('Should create user when create middleware config is not declared at all', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
-    config.set('rbac.actions', undefined);
+    config.set('users.actions', undefined);
 
     const { User: U } = await create('no-mw@wp.pl', 'nomw', ['admin'], { password: 'bbbb1234' });
 
@@ -271,13 +271,13 @@ describe('User model tests', function () {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
-    config.set('rbac.actions.create.beforeCreate', 'not-a-list' as any);
+    config.set('users.actions.create.beforeCreate', 'not-a-list' as any);
 
     const { User: U } = await create('bad-mw@wp.pl', 'badmw', ['admin'], { password: 'bbbb1234' });
 
     expect(U).to.be.instanceOf(User);
 
-    config.set('rbac.actions.create.beforeCreate', []);
+    config.set('users.actions.create.beforeCreate', []);
   });
 
   it('Shouldn create user with already existing email', async () => {
@@ -330,12 +330,12 @@ describe('User model tests', function () {
 
     const config = DI.get(Configuration)!;
     const before = sinon.stub().callsFake((u: User) => u);
-    config.set('rbac.actions.create.beforeCreate', [before as unknown as CreateMiddleware]);
+    config.set('users.actions.create.beforeCreate', [before as unknown as CreateMiddleware]);
 
     await expect(create('test@spinajs.pl', 'whoever', ['admin'], { password: 'bbbb1234' })).to.be.rejected;
     expect(before.callCount, 'middleware must not run for a refused creation').to.eq(0);
 
-    config.set('rbac.actions.create.beforeCreate', []);
+    config.set('users.actions.create.beforeCreate', []);
   });
 
   /**
@@ -380,15 +380,15 @@ describe('User model tests', function () {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     const config = DI.get(Configuration)!;
-    const template = config.get('rbac.email.created');
-    config.set('rbac.email.created', undefined);
+    const template = config.get('users.email.created');
+    config.set('users.email.created', undefined);
 
     const { User: u } = await create('nolink@wp.pl', 'nolink', ['admin']);
 
     expect(u).to.be.instanceOf(User);
     expect(await User.query().whereAnything('nolink@wp.pl').first(), 'the account must survive a failed reset').to.exist;
 
-    config.set('rbac.email.created', template);
+    config.set('users.email.created', template);
   });
 
   /**
@@ -579,7 +579,7 @@ describe('User model tests', function () {
   });
 
   /**
-   * `rbac.email.banned` (common.test.ts) configures attachments so a
+   * `users.email.banned` (common.test.ts) configures attachments so a
    * consuming application's branded template can reference its inline
    * images ( cid:logo etc ) - nothing in this stack attaches them
    * automatically, so the producer must carry them into the queued job.
@@ -594,7 +594,7 @@ describe('User model tests', function () {
   });
 
   /**
-   * `rbac.email.unbanned` declares no attachments - the queued job must not
+   * `users.email.unbanned` declares no attachments - the queued job must not
    * carry an empty array where the current behaviour sends nothing.
    */
   it('Should queue a mail without an attachments field when the template declares none', async () => {
@@ -747,7 +747,7 @@ describe('User model tests', function () {
     // a reset token, start date and wait time must be stored
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]).to.be.a('string');
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE]).to.be.not.null;
-    // wait time must come from config (rbac.password.passwordResetWaitTime), not be undefined
+    // wait time must come from config (authn.local.reset.ttlSeconds), not be undefined
     expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(60 * 60);
 
     expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest)).to.be.true;
@@ -804,7 +804,7 @@ describe('User model tests', function () {
     expect((mail as any).to).to.deep.eq(['test@spinajs.pl']);
   });
 
-  // `rbac.password.resetUrl` is empty by default: only the application knows its
+  // `authn.local.reset.url` is empty by default: only the application knows its
   // own address, and a template must render without a link rather than with one
   // pointing nowhere.
   it('Password change request leaves ResetUrl empty when none is configured', async () => {
@@ -818,7 +818,7 @@ describe('User model tests', function () {
 
   it('Password change request builds the reset link from the configured page', async () => {
     const cfg = DI.get(Configuration)!;
-    cfg.set('rbac.password.resetUrl', 'https://app.example.com/password-reset');
+    cfg.set('authn.local.reset.url', 'https://app.example.com/password-reset');
 
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
@@ -837,7 +837,7 @@ describe('User model tests', function () {
       expect(url.searchParams.get('token')).to.eq(token);
       expect(url.searchParams.get('email')).to.eq('test@spinajs.pl');
     } finally {
-      cfg.set('rbac.password.resetUrl', '');
+      cfg.set('authn.local.reset.url', '');
     }
   });
 

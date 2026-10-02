@@ -40,7 +40,7 @@ describe('SecureRandomTokenProvider', () => {
 });
 
 /**
- * Configuration whose `rbac.token` block deliberately DIFFERS from the
+ * Configuration whose `authn.token` block deliberately DIFFERS from the
  * `@Config` defaults baked into `SecureRandomTokenProvider`, so a token built
  * with the defaults cannot pass the assertion below.
  */
@@ -51,7 +51,7 @@ class TokenConfigTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      rbac: {
+      authn: {
         token: {
           generation: { service: 'SecureRandomTokenProvider' },
           prefix: 'tst_',
@@ -87,7 +87,7 @@ describe('SecureRandomTokenProvider config wiring', function () {
     DI.clearCache();
   });
 
-  it('resolved through DI honours rbac.token.prefix / rbac.token.length', async () => {
+  it('resolved through DI honours authn.token.prefix / authn.token.length', async () => {
     const provider = await DI.resolve(AccessTokenGenerationProvider);
 
     expect(provider).to.be.instanceOf(SecureRandomTokenProvider);

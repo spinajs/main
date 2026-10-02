@@ -11,11 +11,11 @@ let currentExpiration: unknown = {};
 
 // Extends the common TestConfiguration (full db/logger/queue config) so this
 // suite does not strip shared-container config from sibling db suites — it only
-// overrides rbac.session.expiration.
+// overrides authn.session.expiration.
 class ExpirationTestConfiguration extends TestConfiguration {
   protected onLoad() {
     const cfg = super.onLoad() as any;
-    cfg.rbac.session = { ...(cfg.rbac.session ?? {}), expiration: currentExpiration };
+    cfg.authn.session = { ...(cfg.authn.session ?? {}), expiration: currentExpiration };
     return cfg;
   }
 }

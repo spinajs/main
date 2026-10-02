@@ -6,7 +6,7 @@ export const ImpersonateDtoSchema = {
   type: 'object',
   properties: {
     TargetUuid: { type: 'string', format: 'uuid', description: 'UUID of the user to impersonate' },
-    Password: { type: 'string', maxLength: 32, description: 'Impersonator password (required when rbac.impersonation.requirePassword is true)' },
+    Password: { type: 'string', maxLength: 32, description: 'Impersonator password (required when authn.impersonation.requirePassword is true)' },
   },
   required: ['TargetUuid'],
 };

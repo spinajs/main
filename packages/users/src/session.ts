@@ -55,7 +55,7 @@ export const SESSION_COOKIE_BASE_NAME = 'ssid';
 
 /**
  * Everything an application may tune about the session cookie, read from
- * `rbac.session.cookie`. Unknown keys are passed through to express untouched,
+ * `authn.session.cookie`. Unknown keys are passed through to express untouched,
  * so `domain`, `path`, `priority`… still work.
  *
  * `httpOnly` and `signed` are deliberately NOT tunable: a session cookie that
@@ -88,7 +88,7 @@ const COOKIE_CONTROL_KEYS = ['name', 'hostPrefix'];
 /**
  * Name the session cookie is issued and read under.
  *
- * @param config - the `rbac.session.cookie` configuration block
+ * @param config - the `authn.session.cookie` configuration block
  */
 export function sessionCookieName(config: ISessionCookieConfig = {}): string {
   const base = (config.name as string) ?? SESSION_COOKIE_BASE_NAME;
@@ -105,7 +105,7 @@ export function sessionCookieName(config: ISessionCookieConfig = {}): string {
  * needs `secure: false` ) but default to the hardened value rather than to
  * whatever the browser assumes.
  *
- * @param config - the `rbac.session.cookie` configuration block
+ * @param config - the `authn.session.cookie` configuration block
  * @param maxAge - cookie lifetime in ms; `undefined` = browser-session cookie
  */
 export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?: number): Record<string, unknown> {
@@ -150,7 +150,7 @@ export interface ISessionCookieDescriptor {
  * http `Coockies` response option accepts.
  *
  * @param session - session whose id and expiration the cookie carries
- * @param config - the `rbac.session.cookie` configuration block
+ * @param config - the `authn.session.cookie` configuration block
  */
 export function sessionCookie(session: ISession, config: ISessionCookieConfig = {}): ISessionCookieDescriptor {
   return {
@@ -167,7 +167,7 @@ export function sessionCookie(session: ISession, config: ISessionCookieConfig = 
  * Descriptor of an already-expired session cookie — clears the session client
  * side on logout.
  *
- * @param config - the `rbac.session.cookie` configuration block
+ * @param config - the `authn.session.cookie` configuration block
  */
 export function clearSessionCookie(config: ISessionCookieConfig = {}): ISessionCookieDescriptor {
   return {

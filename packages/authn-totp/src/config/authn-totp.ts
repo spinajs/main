@@ -19,21 +19,25 @@ const authnTotp = {
       User2FaReset: { connection: 'rbac-user-empty-queue' },
     },
   },
-  rbac: {
-    otpauth: {
-      /**
-       * change this to your app name, it will be used as issuer in otpauth token
-       */
-      issuer: 'Spinajs',
+  authn: {
+    mfa: {
+      totp: {
+        /**
+         * change this to your app name, it will be used as issuer in otpauth token
+         */
+        issuer: 'Spinajs',
 
-      /**
-       * recommended defaults for rest
-       */
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-      window: 1,
+        /**
+         * recommended defaults for rest
+         */
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        window: 1,
+      },
     },
+  },
+  rbac: {
     twoFactorAuth: {
       enabled: true,
 

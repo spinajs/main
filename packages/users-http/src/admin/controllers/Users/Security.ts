@@ -96,7 +96,7 @@ export class Security extends BaseController {
   @Logger('rbac-admin')
   protected Log: Log;
 
-  @AutoinjectService('rbac.session')
+  @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
   @AutoinjectService('rbac.admin.roleGuard')

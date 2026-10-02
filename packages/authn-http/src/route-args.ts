@@ -37,7 +37,7 @@ export class SessionArg extends RouteArgs {
  */
 @Injectable()
 export class SessionIdArg extends RouteArgs {
-  @Config('rbac.session.cookie', {})
+  @Config('authn.session.cookie', {})
   protected SessionCookieConfig: ISessionCookieConfig;
 
   @Config('http.cookie.secret')

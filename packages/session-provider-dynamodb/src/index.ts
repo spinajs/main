@@ -34,21 +34,21 @@ export class DynamoDbSessionProvider extends SessionProvider {
   @Logger('dynamo-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.aws.table')
+  @Config('authn.session.aws.table')
   protected Table: string;
 
-  @Config('rbac.session.aws.config')
+  @Config('authn.session.aws.config')
   protected AwsConfig: any;
 
-  @Config('rbac.session.aws.configPath')
+  @Config('authn.session.aws.configPath')
   protected ConfigPath: any;
 
-  @Config('rbac.session.aws.readCapacityUnits', {
+  @Config('authn.session.aws.readCapacityUnits', {
     defaultValue: 10,
   })
   protected ReadCapacityUnits: any;
 
-  @Config('rbac.session.aws.writeCapacityUnits', {
+  @Config('authn.session.aws.writeCapacityUnits', {
     defaultValue: 10,
   })
   protected WriteCapacityUnits: any;
