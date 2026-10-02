@@ -3,7 +3,8 @@
 Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
 2026-10-02; r5 syncs the text with the code merged by F0b, F1a, F1 and
 F2). The r1 to r4 text was design only; r5 changes no decision, only
-names, shapes and locations that the merged code fixed.
+names, shapes and locations that the merged code fixed. r6 (2026-10-02)
+does the same for what F3, F5, F6, F7 and F7b built and decided.
 
 - **Source of truth for code facts:** this checkout (`packages/*/package.json` say
   2.0.546; head `f1604f4`; canvas pins 2.0.548 with the same RBAC code paths).
@@ -22,6 +23,74 @@ names, shapes and locations that the merged code fixed.
 - **Canvas input for r3:** C8 worktree `coderush/canvas`,
   `docs/plans/F06-c8-plane-api.md` (*C8 plan*: Ed25519 JWS realtime
   tickets, D1–D5).
+
+## Changes in this revision (r6, as built after F3–F7)
+
+The code on `feat/authz-v3` and the reports of F3 (engine, decisions 1–30
+of `F3-conventions.md`), F5 (authz test kit, D-F5-1 to D-F5-11), F6 (authn
+contracts, `F6-final-review.md`), F7 and F7b (authn test kit, rules A01–A32,
+C8 tickets) are authoritative for everything below. r6 settles open
+points and fixes text; it adds no feature. Each item names the section it
+changed.
+
+1. **Combination (§7, D17; F3, D-F5-1).** A ceiling or delegate deny does
+   not stop the models. The reported reason is the lowest
+   `(priority, sortKey)` among all deny sources, core included, so
+   `agents_disabled` (100) beats `ceiling` (200). Only the principal gate
+   (`SYSTEM`, `UNATTENDED`, a forged `system` or `unattended` principal),
+   `unknown_resource` and a forbidden delegate end the check before the
+   models. The `intersect` delegate is also asked after the principal's own
+   models deny.
+2. **`Trace.votes` (§5.4).** The comment said "every routed model". That
+   holds only for `explain()`; a `check` may stop early (§7).
+3. **L2 key and uncached decisions (§10.1, §10.3).** The key of r2 would
+   serve one principal another's decision. It now holds the full principal
+   and actor state; §10.1 lists what never reaches the cache.
+4. **`sync` (§5.5, §6.3, §6.5 rule 6; F5).** `sync` governs `filterNow` on
+   type-level requests only; a `check` may be async for every model. Rule 6
+   cannot test "residual is IO-free" (no capability says so); see §6.5.
+5. **`neverRead` limits writes too (§7, B17; F3 decision 28).** It leaves
+   `read` and `write`, `SYSTEM` included. A permitting vote without `fields`
+   contributes every field before `hide` and `neverRead` apply (D-F5-2).
+6. **B39 (§5.6, §17).** A vote that holds a `scope.*` ref the engine cannot
+   resolve is indeterminate (`model_error`, B04); F3 decision 29.
+7. **B22 (§17).** `filterNow` returns `undefined` for an `after-preload`
+   model until `preload` has run for the principal the models run with;
+   F3 decision 30.
+8. **Login CSRF (§22.11, A22; F6 decision 15, F7b).** A22 exempts requests
+   without a session cookie, which include `POST /auth/login`,
+   `POST /auth/keys/login` and `POST /auth/password/reset`. The origin
+   match is exact (no prefix match); `Sec-Fetch-Site: same-site` is refused.
+9. **Token profile (§22.3, §22.9; F6 decision 22).** One generic
+   `attributes` slot on `StrategyOutcome`, `AuthenticationResult` and
+   `PrincipalFactory.principalOf`'s `extra` carries the 2.x token profile
+   as `attributes.profile`, with the precedence and source rules of §22.3.
+10. **Re-authentication (§22.3, §22.4, A13; F6 decisions 20 and 24).**
+    `reauthenticate` stays `boolean`, so a throttled re-authentication
+    sends no `Retry-After`. A success counts for its own request only; it
+    refreshes no session fact and rotates no id. The failure member of
+    `AuthenticationResult` gains `retryAfterSeconds?`, set only for
+    `'throttled'`.
+11. **Session store (§22.6; F6 decision 6).** `ISession` drops `UserId` and
+    gains typed `Subject`, `Impersonator` and `State`; the provider keeps
+    `deleteBySubject` and `listBySubject`. See §22.6 for the migration.
+12. **OIDC limits (§22.15; F6 decision 19).** Confidential clients only;
+    Entra by one tenant GUID; JIT and email linking need the global and the
+    per-provider switch; `max_age` and `acr_values` are refused.
+13. **Config boot failures (§22.5; F6 decisions 17, 25).** Deliberate
+    breaks, listed in §22.5.
+14. **Additions to §22.3 and §22.11 (F6).** All additive; listed after the
+    §22.3 block and in §22.11.
+15. **Rule amendments (§22.17; F7b).** A22, A25, A30 and A31 are tighter:
+    an admin reset never returns the secret; an old password is dead after
+    a change or an expiry; a CORS preflight never echoes an arbitrary
+    origin; the CSRF origin match has no prefix match and no `same-site`.
+16. **Open, not decided here.** Token roles above the owner: B24 and B07
+    say never, §18.3(g) says `covers(owner, grantsOf(role))` (F5; the plan
+    gives C5 the decision). A last-holder check on `deactivate`: B26 covers
+    `AuthzAdmin` commands only (plan C2). F6 review note r3: F1's snapshot
+    tool strips comments, so doc-only rule changes after G1 need no RFC (a
+    decision for the human).
 
 ## Changes in this revision (r5, as built after F1)
 
@@ -829,7 +898,7 @@ export interface Trace {
   readonly domain: string;
   readonly algorithm: CombiningAlgorithm;
   readonly models: readonly string[];              // routed, in order
-  readonly votes: readonly Vote[];                 // every routed model, even after a short-circuit
+  readonly votes: readonly Vote[];                 // (r6) every vote the run produced: all routed models in explain(), possibly fewer in a check that stopped early
   readonly steps: readonly TraceStep[];
   readonly durationMs: number;
 }
@@ -874,7 +943,7 @@ are not read, and values come back JSON-shaped.
 export interface ModelCapabilities {
   readonly effects: readonly ('permit' | 'deny')[];
   readonly residuals: readonly FilterOp[];         // ops its votes may contain
-  readonly sync: 'always' | 'after-preload' | 'never';
+  readonly sync: 'always' | 'after-preload' | 'never';   // (r6) governs filterNow on type-level requests only; a check may be async whatever it says
   readonly fields: boolean;
   readonly needsSubject: boolean;                  // some answers need the row and cannot be residualised
   readonly principalTypes?: readonly PrincipalType[];
@@ -962,6 +1031,7 @@ export abstract class ScopeResolver {              // for types without an adapt
 }
 // Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
 // A condition or rule that reads a missing scope attribute makes the vote indeterminate (B04, fail closed; B39).
+// (r6, F3) A vote whose permitWhen, denyWhen or denies hold a scope.* ref that cannot be resolved (attribute absent, node unknown, or a type-level request for a type other than $global) is indeterminate: model_error, and the error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
 
 /** (r3, D23) Scope attributes as authz data. ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
@@ -1408,7 +1478,8 @@ read at preload per path prefix and cached for single checks; lists read
   the schema has no recursive userset).
 - Capabilities: `effects: ['permit']` (exclusion is internal),
   `residuals: ['true','false','or','native:rebac.check']`, `sync: 'never'`
-  for checks (residual is IO-free), `fields: false`.
+  (r6: `sync` concerns type-level requests only, so `filterNow` refuses the
+  model; its residual is IO-free), `fields: false`.
 - Not in 3.0: no known app needs nested sharing graphs. Canvas does not
   either (r2 recheck, §16.3: one level of groups, a fixed org → project →
   file → branch tree). The test kit's `FakeTupleModel` implements this
@@ -1449,7 +1520,10 @@ the route table `(permission, type) → RoutePlan` and refuses (`AuthzConfigErro
    in-memory evaluator exists for (`native:*` without a `NativeFilter`);
 5. `first-applicable` with a model whose `effects` is empty;
 6. a type with `relationScope: 'join'` routed to a model with
-   `sync: 'never'` whose residual is not IO-free;
+   `sync: 'never'` whose residual is not IO-free (r6: `ModelCapabilities`
+   has no field that says a residual is IO-free, so F3 refuses every such
+   route and no fixture refuses a `sync: 'never'` model at boot, D-F5-9;
+   L4 raises an RFC if ReBAC needs the exception);
 7. a grant, policy, rule or `@Access` naming an unregistered permission
    (B02), or a permission checked on a type outside `PermissionDef.types`
    (D10);
@@ -1691,16 +1765,22 @@ a definite answer with reason `residual_false` or the failing relation.
 
 Short-circuit (non-explain): (r2) deny-overrides no longer stops at the
 first deny; it evaluates every routed model (m ≤ 3) so the reason is the
-lowest-priority one (D17). It still stops evaluating when the core has
-denied before any model (system, unattended, ceiling). permit-overrides stops
-when some `P_i ∧ ¬D_i = TRUE`; first-applicable at the first model with
-`P_i ∨ D_i = TRUE`. Order of evaluation never changes the answer or the
-reason.
+lowest-priority one (D17). (r6, D-F5-1) Before the models run, only the
+principal gate (`SYSTEM`, `UNATTENDED`, a forged `system` or `unattended`
+principal), `unknown_resource` and a forbidden delegate end the check. A
+ceiling deny or a delegate deny does not: the models still run, and the
+reason with the lowest `(priority, sortKey)` wins whichever source it
+comes from (B36). permit-overrides stops when some `P_i ∧ ¬D_i = TRUE`;
+first-applicable at the first model with `P_i ∨ D_i = TRUE`. Order of
+evaluation never changes the answer or the reason.
 
 Fields: `read`/`write` = union over models whose `P_i ≠ FALSE` and that
 contributed to the allow; minus every `hide` from models whose `D_i ≠ FALSE`;
-minus `authz.fields.neverRead` (default `['Password']`) (B17). Field sets do
-not vary per row within one vote (same limit as 2.x).
+minus `authz.fields.neverRead` (default `['Password']`) from `read` and
+from `write` (B17; r6, F3 decision 28: `SYSTEM` too). A permitting vote
+without `fields` contributes every field (`*`) before `hide` and
+`neverRead` apply (D-F5-2). Field sets do not vary per row within one vote
+(same limit as 2.x).
 
 Around combination the core applies, in order (the reasons enter the
 priority order above, so a model deny with a lower priority, such as
@@ -1708,14 +1788,20 @@ priority order above, so a model deny with a lower priority, such as
 
 1. **System:** `SYSTEM` skips all models; decision `TRUE`, audited (D7).
 2. **Unattended:** `UNATTENDED` ⇒ deny `unattended` without consulting models (B09).
+   (r6) A principal of type `system` or `unattended` that is not the
+   singleton gets the same denial.
 3. **Ceiling:** permission not matching `ceiling.permissions`, resource not
    under `ceiling.resources`, or `now ≥ ceiling.expiresAt` ⇒ deny with code
    `ceiling.reason ?? 'ceiling'`, priority 200. `ceiling.roles` is passed to
-   models (RBAC filters roles) (B07). Never bypassed (D19).
+   models (RBAC filters roles) (B07). Never bypassed (D19). (r6) The denial
+   is one candidate reason (priority 200); it does not skip the models.
 4. **Delegate:** with `onBehalfOf`:
    - `delegation: 'intersect'` (default; delegated tokens):
      `residual := residual ∧ residual(delegate)` for the same permission and
-     resource; delegate deny ⇒ deny `delegate`.
+     resource; delegate deny ⇒ deny `delegate`. (r6) The delegate is
+     asked even when the principal's own models denied. A delegate that
+     is `SYSTEM`, `UNATTENDED` or of type `system` or `unattended` is
+     denied `delegate` without running the models.
    - (r2) `delegation: 'inherit'` (agents, D18): the models run once with
      `principal = delegate` and `actor = the agent`; the agent's own ceiling
      still applies (step 3) and ABAC `actorTypes` policies see the agent.
@@ -2105,7 +2191,7 @@ check(input):
   assert ref.type ∈ def.types ∪ {'$global'}                    # D10
   if p is SYSTEM     → TRUE, audit                             # D7
   if p is UNATTENDED → deny unattended                         # B09
-  key = (domain, principalKey(p), ceilingHash, permission, resourceKey(ref), versionVector)
+  key = (domain, principalState(p), actorState, permission, resourceKey(ref), versionVector)   # (r6) see below
   L1 (request ALS) hit → return ; L2 hit (only if every vote cacheable) → return
   plan  = routes[(permission, ref.type)]                       # compiled at boot
   votes = evaluate plan.models with short-circuit (explain: all), each under timeout
@@ -2117,6 +2203,38 @@ check(input):
   audit denials ; return
 filter(p, perm, type) = check(p, perm, { type }).residual, refs bound, simplified
 ```
+
+(r6, F3) The L2 key of r2 held only the principal's key and `ceilingHash`,
+so it served one principal another's decision. The key joins `domain`, the
+principal state, the actor state, `permission`, `resourceKey(ref)` and the
+version vector with `\u0000`. The principal state is the canonical JSON
+(sorted keys) of `type`, `id`, `authenticated`, `source`, `ceilingHash`,
+`delegation`, the `onBehalfOf` state (recursive), the sorted `principalKey`s
+of `companions`, `attributes`, and the `authn` facts (`method`, `strategy`,
+`assurance`, sorted `mfa`, `authenticatedAt`, `impersonator`,
+`sessionHandle`). `identity` is not in it. A decision is never cached when:
+
+- it has a `subject`, or it comes from `explain()`;
+- a vote is not `cacheable`, or a delegate decision is not;
+- the principal holds a value with no canonical JSON form (function, class
+  instance other than `Date`, bigint, non-finite number, cycle);
+- the residual read a ref the key does not cover before binding: `env.*`,
+  `identity.*`, `onBehalfOf.*`, `companions.*`, a list element such as
+  `ceiling.roles.0` (the key stores lists as sorted sets; a whole list is
+  safe). Safe paths are `type`, `id`, `authenticated`, `source`,
+  `delegation`, `attributes.*`, `ceiling.*`, `authn.(method | strategy |
+  assurance | mfa | authenticatedAt | sessionHandle)` and
+  `authn.impersonator.(type | id)` of the principal or the actor;
+- it is faulted: an indeterminate vote, an engine fault, a failed or
+  timed-out load (also a scope attribute load a model asked for), a degraded
+  load, a rejected host call, or a faulted nested decision anywhere in the
+  request scope (decisions 22 to 24, 18);
+- `SYSTEM` made the request;
+- `ttl = min(cacheTtlSeconds, validUntil − now)` is not positive.
+
+A module-wide invalidation generation stops a check that overlapped an
+`invalidate()` from storing its decision. When a model's `version()`
+changes, the engine recompiles the routes and drops the whole domain L2.
 
 ### 10.2 Complexity
 
@@ -2142,13 +2260,18 @@ policies matching (permission, type), *h* = ReBAC hops.
 | L2 | decisions with all votes `cacheable` | domain LRU; TTL = min(config, `validUntil`) | tags `subject:<t>:<id>`, `scope:<t>:<id>`, `role:<name>`, `policy:<id>`, `rule:<id>`, `link:<id>`, `model:<name>`; scope attribute changes publish `scope:<t>:<id>` (canvas org policy edits) |
 | Model | RBAC assignments per subject; ReBAC check memo | model-owned | `invalidate(tags)` |
 
-(r5, F1a; open for F3 and F4) The L2 key of §10.1 omits `onBehalfOf`,
-`delegation`, `companions` and the `authn` facts (assurance, for example).
-Either add a delegate and assurance part to the key, or mark votes that
-read them non-cacheable. Also, F3 compares `SYSTEM` and `UNATTENDED` by
-identity and denies any principal of type `system` or `unattended` that is
-not the singleton: a second copy of authn, or dual ESM and CJS loading,
-would otherwise let a foreign `UNATTENDED` skip the B09 short-circuit.
+(r6, F3; settles the r5 open point of F1a) §10.1 now holds the key: it
+covers `onBehalfOf`, `delegation`, `companions` and the `authn` facts, and
+a residual that reads a ref outside the key is not cached. F3 compares
+`SYSTEM` and `UNATTENDED` by identity and denies any principal of type
+`system` or `unattended` that is not the singleton: a second copy of
+authn, or dual ESM and CJS loading, would otherwise let a foreign
+`UNATTENDED` skip the B09 short-circuit. `Authorizer.invalidate` passes
+`subject:`, `link:`, `model:` and `scope:` tags to the L2 (a `scope:` tag
+also adds `scope:*`). Any other tag (`role:`, `policy:`, `rule:`, unknown)
+flushes the whole domain L2, because votes carry no tags. Host rule (F4):
+one `Authorizer` and one `DecisionCache` per domain; a rebuilt `Authorizer`
+gets a fresh cache.
 
 Stores publish `AuthzChange { domain?, tags }` on the `ChangeBus` after
 commit. Every `AuthzService` in every domain subscribes (via `AuthzDomains`)
@@ -2809,12 +2932,12 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B14 | Expired assignments, rules, links (and expired ABAC policies) contribute nothing; `decision.validUntil` = earliest expiry among contributors; L2 TTL ≤ `validUntil`. |
 | B15 | A grant with relation R ⇒ residual `relation(R)`; several relations OR; a grant without relation ⇒ unconditional; relations resolve through the type's `RelationResolver` (owner column, `@OrmScope`, `self`, file metadata, job initiator). |
 | B16 | Resource patterns `on:` limit a grant to matching resources (fs prefixes and globs); `{principal.*}` templates substitute principal fields; a missing attribute matches nothing. |
-| B17 | `decision.fields.read/write` = union over permitting votes minus `hide` from denying votes minus `authz.fields.neverRead`; `!X` negations and `A.*` work; output filter keeps only readable fields; input outside `write` is stripped (or 400 in `reject` mode). |
+| B17 | `decision.fields.read/write` = union over permitting votes minus `hide` from denying votes minus `authz.fields.neverRead` (from read and from write, r6); `!X` negations and `A.*` work; output filter keeps only readable fields; input outside `write` is stripped (or 400 in `reject` mode). |
 | B18 | (r2) An ABAC deny policy beats an RBAC permit under deny-overrides; an ABAC permit policy grants on its own; targets match by permission glob, resource type, principal type, actor type and scope. |
 | B19 | (r2) Conditions on `resource.*` with constant or `principal.*`/`actor.*`/`env.*`/`scope.*` refs become residuals (or constants when the resource attributes are known); a deny whose condition needs the subject and none is given ⇒ deny `needs_subject`; a permit in that case ⇒ no permit; boot warns when such a policy targets a list-scoped type. |
 | B20 | (r2) ORM select/update/delete on an `@AccessResource` model: `TRUE` ⇒ no WHERE; residual ⇒ compiled WHERE (OR/AND preserved; JOIN ON with `relationScope: 'join'`); `FALSE` ⇒ `AccessDenied` (403; a list with no permit at all is 403, not an empty list, H16). Inserts: owner relation ⇒ stamp; other relation ⇒ `authorizeCreate`; none ⇒ 403. Updates under a relation ⇒ `authorizeUpdate(values)`; moving a row out of scope ⇒ 403. |
 | B21 | A model without `@AccessResource` is never checked; several models may share a type; junction and cloned builders get the target's residual. |
-| B22 | `filterNow` answers synchronously after `preload` for models with `sync: 'after-preload'`; it returns `undefined` (never a guess) when a model needs IO. |
+| B22 | `filterNow` answers synchronously after `preload` for models with `sync: 'after-preload'`; it returns `undefined` (never a guess) when a model needs IO, and (r6) when a model with `sync: 'after-preload'` has not been preloaded for the principal the models run with (the delegate under `inherit`); async checks are not gated. |
 | B23 | (r2) `@Access` and its `also` policies are one policy group (AND); several permissions in one `@Access` = any of; a separate `@Policy` stays OR; denial ⇒ 403 `{ permission, resource, reason }`; no trace in production, and elsewhere only when explain is enabled and the caller holds `authz:explain`. |
 | B24 | (r2) Token principal roles = token roles ∩ owner's roles ∩ role policy; `Scope` sets ceiling permissions/resources; agent tokens yield `agent` with `onBehalfOf` = owner, `delegation: 'inherit'` and ceiling reason `out_of_scope`; never above the owner. Session role switch sets `ceiling.roles` only. |
 | B25 | `GET /user/access` returns principal, ceiling, roles with scope and expiry (and ladder ranks), and GLOBAL permissions with `conditional` and fields; login, 2FA, role switch and impersonation responses carry the same object. |
@@ -2831,7 +2954,7 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B36 | (r2) The reported deny reason is the one with the lowest `(priority, sortKey)` among all deny sources (core, every routed model, every failing rule); it does not depend on model or rule order; `deny-overrides` evaluates every routed model. |
 | B37 | (r2) `delegation: 'inherit'`: the decision is the delegate's for the same permission and resource, inside the agent's ceiling; the agent is the `actor` (ABAC `actorTypes`, `actor.*`); the agent's own assignments are ignored; the answer never exceeds the delegate's. |
 | B38 | (r2) Links: the token resolves to a `link` principal with ceiling = link scope and expiry (reason `link_invalid`); unknown or revoked ⇒ every check denies `link_invalid`; access = the link's assignment ∪ the companion user's own, inside the ceiling; the token is stored hashed and shown once. |
-| B39 | (r2) Scope attributes: `scope.<type>.*` reads the nearest ancestor of that type through the scope resolver or the ORM adapter; a missing attribute makes the vote indeterminate (B04, fail closed); a change publishes `scope:<t>:<id>`. |
+| B39 | (r2) Scope attributes: `scope.<type>.*` reads the nearest ancestor of that type through the scope resolver or the ORM adapter; a missing attribute, or a ref the engine cannot resolve (node unknown, type-level request for another type than `$global`), makes the vote indeterminate (B04, fail closed; `model_error`, r6); a change publishes `scope:<t>:<id>`. |
 | B40 | (r3) Canvas conformance: the config of §8.5, a scope resolver over `state.json`, and the C6 facade give the expected `Decision` for all 62 cases of `fixtures/authz/cases.json` plus the two r3 cases of `extra-cases.json` (64), in memory and with the data written through `AuthzAdmin` into authz tables on SQLite; `checkMany` over the 30 permissions equals 30 single checks; for every principal in the cases, `filter` over the state's projects and files returns exactly the resources whose `check` allows. |
 | B41 | (r2, H19) In production the explain route is not registered (404) and 403 bodies carry no trace; `authz().explain()` still returns a trace; with `authz.engine.explain` traces are logged at debug level only. |
 | B42 | (r3, H21) An unknown, revoked or expired link never grants anything: every check under the link principal denies `link_invalid`, also when the companion is an org admin or owner who would be allowed without the link. |
@@ -3000,6 +3123,7 @@ their own roles in `authz.rbac.serviceRoles`, instead of borrowing `system`.
 
 **(g) Token role policy** (`services/GrantSubsetTokenRolePolicy.ts:26`):
 `getGrants()` keys and `_collectPermissions` become `rbac.covers(owner, rbac.grantsOf(role))`.
+(r6, F5) Open: B24 and B07 say a token role the owner lacks grants nothing ("never above the owner"); this item lets a role through when the owner's grants cover it. Plan C5 decides before T3 ports the token rows.
 
 **(h) Frontend** (`yourscreen-frontend/src/lib/auth/acl.ts:22-60`):
 `new AccessControl({ _user: grants })` and `HasAccess(resource, action)`
@@ -3194,9 +3318,10 @@ export type AuthenticationResult =
   | { readonly status: 'success'; readonly identity: IdentityRef; readonly facts: Omit<AuthnFacts, 'authenticatedAt'>;
       readonly ceiling?: Ceiling;                  // token scope, key scope
       readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };   // agent tokens
+      readonly attributes?: Readonly<Record<string, unknown>>;   // (r6) StrategyOutcome.attributes, same rules; the session keeps none
       readonly session?: SessionHandle }           // set when an interactive login issued one
   | { readonly status: 'mfa_required'; readonly pending: SessionHandle; readonly steps: readonly string[] }
-  | { readonly status: 'failure'; readonly reason: AuthnFailure };            // never thrown for bad credentials
+  | { readonly status: 'failure'; readonly reason: AuthnFailure; readonly retryAfterSeconds?: number };   // never thrown for bad credentials; (r6) the delay is set only for 'throttled'
 export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked';
 // The reason goes to audit only; HTTP answers one shape for all of them (A02).
 
@@ -3213,14 +3338,15 @@ export abstract class AuthenticationStrategy extends AsyncService {
 export type StrategyOutcome =
   | { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject;   // one of the two
       readonly method: string; readonly ceiling?: Ceiling;
-      readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' } }
+      readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
+      readonly attributes?: Readonly<Record<string, unknown>> }   // (r6) merged into Principal.attributes; rules below
   | { readonly ok: false; readonly reason: AuthnFailure };
 
 /** The entry point. One per app (root container). */
 export abstract class AuthnService extends AsyncService {
   abstract authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult>;
   abstract completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult>;
-  abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;   // fresh auth (A13)
+  abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;   // fresh auth (A13); (r6) counts for the current request only, no Retry-After
   abstract principalOf(result: Extract<AuthenticationResult, { status: 'success' }>): Promise<Principal>;   // via PrincipalFactory
   abstract strategies(): readonly AuthenticationStrategy[];
 }
@@ -3231,14 +3357,14 @@ export abstract class IdentityStore {
   abstract findByLogin(login: string): Promise<IdentityRef | null>;          // email or login name
   abstract status(id: IdentityRef): Promise<IdentityStatus>;
   abstract display(id: IdentityRef): Promise<{ email?: string; name?: string }>;   // for mails and audit
-  abstract provision?(external: ExternalSubject): Promise<IdentityRef>;     // JIT for OIDC/LDAP/SAML (later), off by default
+  provision?(external: ExternalSubject): Promise<IdentityRef>;              // JIT for OIDC/LDAP/SAML (later), off by default; (r6) optional, not abstract
 }
 export abstract class PasswordCredentialStore {
   abstract get(id: IdentityRef): Promise<string | null>;                    // the stored hash
   abstract set(id: IdentityRef, hash: string): Promise<void>;
 }
 export abstract class PrincipalFactory {           // users: UserPrincipalFactory; apps: service and agent principals
-  abstract principalOf(id: IdentityRef, facts: AuthnFacts, extra: { ceiling?: Ceiling; onBehalfOf?: Principal; delegation?: 'inherit' | 'intersect' }): Promise<Principal>;
+  abstract principalOf(id: IdentityRef, facts: AuthnFacts, extra: { ceiling?: Ceiling; onBehalfOf?: Principal; delegation?: 'inherit' | 'intersect'; attributes?: Readonly<Record<string, unknown>> }): Promise<Principal>;
 }
 
 // --- linking (one identity, many external subjects) ---
@@ -3260,7 +3386,8 @@ export abstract class SessionIssuer {
   abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;   // ActiveRole, impersonation block
   abstract revoke(h: SessionHandle): Promise<void>;
   abstract revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number>;
-  abstract list(subject: IdentityRef): Promise<readonly { handle: string /* hashed */; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]>;
+  abstract revokeHandle(subject: IdentityRef, handle: string): Promise<boolean>;   // (r6) owner-bound: the handle must belong to the subject
+  abstract list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string /* hashed */; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]>;
 }
 
 // --- MFA ---
@@ -3270,6 +3397,8 @@ export abstract class MfaStep {                    // TotpMfaStep in authn-totp;
   abstract beginEnrolment(id: IdentityRef): Promise<{ provisioning: string }>;   // shown to the owner only
   abstract confirmEnrolment(id: IdentityRef, response: string): Promise<{ recoveryCodes?: readonly string[] }>;
   abstract verify(id: IdentityRef, response: string): Promise<boolean>;    // counts into throttle via AuthnService
+  verifyRecovery?(id: IdentityRef, code: string): Promise<boolean>;         // (r6) optional; single use
+  regenerateRecoveryCodes?(id: IdentityRef): Promise<readonly string[]>;    // (r6) optional; fresh auth by the caller, codes shown once, old ones void
   abstract disable(id: IdentityRef): Promise<void>;
 }
 export abstract class MfaPolicy {                  // DefaultMfaPolicy: required when enrolled; 'force' makes enrolment mandatory
@@ -3330,6 +3459,47 @@ export abstract class PasswordService { /* change, requestReset, redeemReset, in
 export abstract class TokenService { /* create, list, revoke, revokeAllFor, validate */ }
 export abstract class KeyRegistry { /* register, list, revoke, byId, challenge */ }
 ```
+
+(r6, F6) As built, beyond the block above (all additive; names and
+signatures are in `packages/authn/src/contracts/`):
+
+- **Service contracts in full.** Plain abstract classes (not
+  `AsyncService`), with `ctx: AuthnContext` on every mutating method.
+  `PasswordService.change(id, oldPassword, newPassword, session, ctx)` needs
+  an active session and returns it rotated; `check`, `set` and
+  `expire(id, PasswordExpiry, ctx)` are new; no method returns a reset
+  secret. An aged password keeps tokens; an admin reset revokes them under
+  `reset.revokeTokens`. `JwsSigner.publicKeys()` is new; the verifier
+  returns codes and never throws. Key challenges stand alone and are
+  throttled with a typed refusal. `TokenScope` is narrowed to
+  `{ permissions, resources, agent }`; agent tokens take no roles and no
+  profile.
+- **Types and names.** Password, token, key and JWS types (for example
+  `PasswordRefusal`, `TokenRecord`, `KeyChallenge`, `JwsErrorCode`), root
+  exports `AUTHN_CONFIGURATION_SCHEMA`, `AUTHN_LEGACY_KEYS`,
+  `AuthnLegacyKey`; the full list is in `F6-final-review.md`.
+- **Recovery codes.** A recovery code enters as
+  `completeMfa(pending, 'recovery', code, ctx)`, so no step may be named
+  `'recovery'` (the schema refuses it). `verifyRecovery?` and
+  `regenerateRecoveryCodes?` serve `/auth/mfa/recovery` and
+  `/user/mfa/recovery-codes`.
+- **`attributes` rules.** ABAC may read them, so they count as asserted by
+  the strategy. A strategy sets only keys it owns (today `profile`), from
+  server-side records or validated claims, never from raw request input.
+  Keys that `PrincipalFactory` or a `PrincipalAttributeProvider` derives
+  win. They apply to per-request credentials; sessions do not keep them.
+- **Throttling per request (F6 decision 21).** There is no `'request'`
+  flow. A non-interactive strategy returns `account` and `account-ip` keys
+  from a stable, non-secret credential id (token id, `kid`) and counts in
+  `login`, so every API request writes the throttle store twice; N1 and N4
+  measure it. Throttle stores keep keyed hashes of key values.
+- **Events.** `AuthnEventType` keeps its 27 members. An admin MFA reset is
+  audited as `mfa.disable` with `actor`, so `QueueAuthnEventSink` derives
+  `User2FaReset` from it.
+- **Not decided in the contract:** `ok: true` with neither `identity` nor
+  `external` is a failure in N1; strategies need runtime guards because
+  `Credentials` does not narrow by `kind`; the status of agent and service
+  identities (`IdentityStore.status`) is an N1 question.
 
 ### 22.4 The flow
 
@@ -3393,11 +3563,11 @@ export default {
       expiration: { enabled: false, maxAgeDays: 31 },   // was rbac.password.expiration
     },
     session: {
-      service: 'MemorySessionStore',               // or DbSessionStore / RedisSessionStore / DynamoDbSessionStore
+      service: 'MemorySessionStore',               // or DbSessionStore / RedisSessionStore / DynamoDbSessionProvider
       expiration: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 },   // minutes
       pendingTtlSeconds: 300,                      // pre-MFA session (D25)
       cookie: { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' },   // 'auto': on unless env is development/test
-      hashIds: true,
+      hashIds: true,                               // (r6) false fails boot: ids are always hashed (SR-18)
     },
     mfa: {
       policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] },
@@ -3435,6 +3605,15 @@ export default {
 };
 ```
 
+(r6, F6) The AJV schema `AUTHN_CONFIGURATION_SCHEMA` fails boot on
+`token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
+password bounds outside 8–128, `session.hashIds: false` and an
+`mfa.steps[].name` of `'recovery'`. It adds the key `token.generation`
+(2.x `rbac.token.generation`). `trustProxy` is a hop count or a list of
+CIDRs. Throttle defaults live in the schema, and N1 keeps its config file
+equal to them. Bounds left open on purpose: `token.maxTtlDays` (SR-08 says
+at most 90), `totp.window`, `assertion.skewSeconds`, `baseDelayMs: 0`.
+
 Old keys (converter `spinajs-authz-convert` writes `authn.generated.ts`).
 (r5, F0b) The packages already read the moved keys with their 2.x value
 shapes (for example `authn.local.hasher.service` is the 2.x provider name,
@@ -3465,6 +3644,18 @@ use.
   stores keep `sha256(id)`. Lazy migration: `restore(raw)` looks up the
   hash, then the raw id; a hit on the raw id is re-saved under the hash and
   the raw row deleted, so 2.x sessions survive the upgrade (A07).
+- (r6, F6) The store contract is reshaped: `ISession` drops `UserId` and
+  gains typed `Subject`, `Impersonator` and `State`; `deleteByUser` and
+  `listByUser` become `deleteBySubject` and `listBySubject`. `SessionIssuer`
+  hashes ids, so stores never see a raw 3.0 id. Impersonation start and
+  end issue a new session; `set` refuses reserved keys. The listed handle
+  is a one-way value from the storage key; it equals
+  `AuthnFacts.sessionHandle` and `AuthnEvent.session`. `list(subject)` also
+  shows sessions in which someone impersonates the subject, with the
+  impersonator's IP and user agent, and the subject may revoke them (as in
+  2.x). A migrated 2.x session is `aal1` with `authenticatedAt` = its
+  `Creation`, so MFA users step up or log in again after the upgrade. The
+  DB migration needs more columns than the one below lists (N2).
 - States: `pending` (after the password, before MFA; TTL
   `pendingTtlSeconds`; yields no principal, D25) and `active`.
 - Rotation on login, `elevate` (MFA), role switch, impersonation start and
@@ -3551,6 +3742,10 @@ use.
   `delegation: 'inherit'`, ceiling `{ permissions, resources, reason:
   'out_of_scope' }` (B24, B37, A15). Canvas checks at creation that listed
   files lie under listed projects (§16.3 misfit 4).
+- (r6, F6) The 2.x token `Profile` stays: it travels as
+  `attributes.profile` through the `attributes` slot of §22.3, so a pinned
+  token keeps its pin (§18.3(e)). The token resolver goes through
+  `AuthnService.authenticate`, not `TokenService`.
 - `JwtBearerStrategy` (optional, `authn.jwt.issuers`): `jose` with an
   algorithm allow-list per issuer (never `none`, never HMAC with a public
   key), `aud`, `exp`/`nbf` with skew ≤ 60 s, JWKS cached and refreshed on an
@@ -3601,6 +3796,16 @@ use.
   three-part values → `bearer` for `JwtBearerStrategy`, `spt_` values →
   `bearer` for `TokenStrategy`; `x-api-key` → `bearer`. A request with a
   valid session ignores bearer credentials (as 2.x).
+- (r6, F6) Additions in `authn-http/src/api.ts`: `AuthnIdentity`,
+  `AuthnPrincipalResolver` with `KeyPrincipalResolver` (order 45),
+  `TokenPrincipalResolver` (50) and `SessionPrincipalResolver` (100), and
+  the storage keys `ClientIp` and `AuthnSession`. `FreshAuth` passes only
+  session principals. The five 2.x names F0b moved (`NotLoggedPolicy`,
+  `NoTokenAuthPolicy`, `NoImpersonationPolicy`, `FromSession`,
+  `SessionId`) stay exported from the moved code until N8a swaps them.
+  The route table has no route that issues `register` key challenges (N8b
+  adds one), and §4.1's authn-http row needs these policy names.
+  `PrincipalMiddleware` must run after Order 5 (L5).
 - **Principal hand-off** (r4, D26): `AuthnMiddleware` resolves key, then
   token, then session credentials into one `Principal` through
   `PrincipalFactory` and writes it to `req.storage.AuthnPrincipal`;
@@ -3744,6 +3949,17 @@ recipient, `NotOnOrAfter`, `InResponseTo` and a replay cache, metadata
 import, signature-wrapping defences from the library kept on (A29). Config
 `authn.saml.providers.<name>`.
 
+(r6, F6) Limits of the contract: confidential clients only (no public
+clients); Microsoft Entra ID by one tenant GUID (multi-tenant later);
+JIT provisioning and linking by verified email each need the global
+`authn.linking` switch and the per-provider switch; `max_age` and
+`acr_values` are refused; `requiredClaims` is added; a throwing
+`ExternalLoginHook` fails the login, so hooks must be idempotent. The
+package exports the runtime lists `OIDC_PRESET_IDS` and
+`OIDC_SIGNING_ALGORITHMS`. N10 keeps the state in a flow cookie (single use
+in `authn_nonce`) and checks at boot the tenant, the provider names, a
+subject mapping that is not `email`, `upn` or `login`, and the redirects.
+
 All three (OIDC in 3.0, LDAP and SAML later) implement `AuthenticationStrategy` with `interactive: true`,
 return `ExternalSubject`s, and use `authn_identity` for linking; none
 changes the core.
@@ -3803,7 +4019,7 @@ for backoff (H31); A30–A32 are new.
 | A10 | TOTP codes count into the throttle; a code (time step) is accepted once; recovery codes are single use and stored hashed; secrets are encrypted at rest; enrolment needs fresh auth; disabling needs fresh auth and a valid code or recovery code; an admin reset never returns a secret. |
 | A11 | Reset, invite and other single-use secrets have ≥ 128 bits, are stored as SHA-256, are bound to one purpose and identity, expire, and only the latest per purpose is live; a redeemed or expired secret fails with the A02-style opaque answer; redemption revokes all sessions and, with `reset.revokeTokens`, all API tokens; a reset request answers at once with the same body and timing whether or not the account exists. |
 | A12 | Authentication state (password hash, MFA secrets, single-use secrets, throttle state) is never stored in, read from or written through identity metadata; the metadata API refuses and hides any reserved key prefix. |
-| A13 | Password change, MFA enrol and disable, token and key creation, impersonation start and switching to a `requirePassword` role need `authenticatedAt` within `freshAuth.maxAgeSeconds` or an inline re-authentication; failed re-authentications count into the `reauth` throttle. |
+| A13 | Password change, MFA enrol and disable, token and key creation, impersonation start and switching to a `requirePassword` role need `authenticatedAt` within `freshAuth.maxAgeSeconds` or an inline re-authentication; failed re-authentications count into the `reauth` throttle. (r6, F6) An inline re-authentication counts for its own request only: it refreshes no session fact and rotates no id, and a throttled one sends no `Retry-After`. |
 | A14 | API tokens have ≥ 256 bits, a prefix, SHA-256 at rest, an expiry no later than `maxTtlDays`, and can be revoked; each use checks expiry, revocation and the owner's status; the plaintext is shown once and never logged. |
 | A15 | A token with `Scope.agent` yields an `agent` principal with `onBehalfOf` = owner, `delegation: 'inherit'` and a ceiling with reason `out_of_scope`; its expiry is at most `agentMaxTtlMinutes` (B24, B37). |
 | A16 | A JWT bearer is accepted only from a configured issuer, with an allowed algorithm (never `none`, never HMAC with a public key), the configured audience, and `exp`/`nbf` within the skew; an unknown `kid` refreshes the JWKS at most once a minute; `sub` maps through `authn_identity`; an unknown subject fails unless JIT is on. |
@@ -3812,16 +4028,16 @@ for backoff (H31); A30–A32 are new.
 | A19 | One identity may hold many links; `(provider, subject)` is unique; linking needs the identity's own fresh session (or a verified email with `byVerifiedEmail` on); unlinking the last usable credential is refused. |
 | A20 | Impersonation needs `Authenticated`, `MfaSatisfied`, fresh auth and the B26 guard; it ends on stop, logout, `maxMinutes`, or any revocation of the impersonator; the principal carries `authn.impersonator`; start, end and expiry are audited. |
 | A21 | Every authentication event reaches every audit sink; the DB sink is on by default; events never carry passwords, tokens, secrets or raw session ids; identifiers in logs are keyed hashes. |
-| A22 | A cookie-authenticated request with an unsafe method passes only when `Origin` (or, without it, `Sec-Fetch-Site: same-origin`) is the app's own origin or listed in `authn.http.csrf.allowedOrigins`; otherwise 403 before any controller; token-, key- and signature-authenticated requests are exempt; CORS with credentials needs an explicit origin list (r4: A31). |
+| A22 | A cookie-authenticated request with an unsafe method passes only when `Origin` (or, without it, `Sec-Fetch-Site: same-origin`) is the app's own origin or listed in `authn.http.csrf.allowedOrigins`; otherwise 403 before any controller; token-, key- and signature-authenticated requests are exempt; CORS with credentials needs an explicit origin list (r4: A31). (r6, F6, F7b) A request without a session cookie is exempt too, which includes `POST /auth/login`, `POST /auth/keys/login` and `POST /auth/password/reset`; the origin match is exact (scheme, host and port): an origin that only starts with the app's or a listed origin (`https://app.example.com.evil.example.net`) fails; `Sec-Fetch-Site: same-site` is refused. |
 | A23 | A successful result becomes a `Principal` through `PrincipalFactory` with `authn` facts (method, strategy, assurance, MFA steps, `authenticatedAt`, impersonator, session handle); authz conditions can read `principal.authn.*`. |
 | A24 | Secrets (cookie secret, pepper, MFA key) refuse public or missing values at boot unless the env is development or test; `authn:check-config` reports missing strategies, secrets, proxy and CORS settings. |
-| A25 | Credential admin routes (reset password, reset MFA, revoke sessions, revoke tokens) need `users:credentials` and pass only when the actor covers the target (B26 strict subset) and the target holds no protected role. |
+| A25 | Credential admin routes (reset password, reset MFA, revoke sessions, revoke tokens) need `users:credentials` and pass only when the actor covers the target (B26 strict subset) and the target holds no protected role. (r6, F7b) A refused call has no effect (the password still works, the MFA is still enrolled, the sessions and tokens stay live). An allowed password reset never returns the secret, in any body or header, also when no mail was sent, and leaves the old password unusable; an allowed sessions revoke ends the target's sessions, an allowed tokens revoke ends its tokens. |
 | A26 | Role switch accepts only a role the principal holds (r4: from `RoleSource`, which `users` implements over the authz summary), sets `ceiling.roles`, needs fresh auth for `requirePassword` roles and rotates the session. |
 | A27 | (r4: 3.0, OIDC) Discovery, code flow with PKCE S256, single-use `state` and `nonce`, full ID token validation (`iss`, `aud`, `azp`, `exp`, `iat`, `nonce`, algorithm allow-list, `at_hash` when present), claims mapping, linking through `authn_identity` (A19), JIT only when configured, presets; no implicit flow; a failure is the A02 answer. |
 | A28 | (later, LDAP) TLS required, escaped search filters, bind as the found DN, no empty-password or anonymous bind, group membership handed to `ExternalLoginHook`s (r4). |
 | A29 | (later, SAML) Signed assertions, audience, recipient, `NotOnOrAfter`, `InResponseTo`, replay cache. |
-| A30 | (r4, H32) A voluntary password change (`PasswordService.change`, `PATCH /user/password`) keeps every API and agent token of the identity working; it revokes every other session of the identity, including sessions where it is the impersonator, and rotates the current one; a reset (A11) and an admin credential reset (A25) still revoke tokens when `reset.revokeTokens` is on (default). |
-| A31 | (r4, H33) With `http.cors.origins` empty or absent, no cross-origin request gets CORS headers: no `Access-Control-Allow-Origin`, no reflected `Origin`, no allow headers on preflights; a listed origin matches exactly (scheme, host, port) and is echoed with `Vary: Origin`; `*` is accepted only without credentials; `authn:check-config` warns when the list is empty. |
+| A30 | (r4, H32) A voluntary password change (`PasswordService.change`, `PATCH /user/password`) keeps every API and agent token of the identity working; it revokes every other session of the identity, including sessions where it is the impersonator, and rotates the current one; a reset (A11) and an admin credential reset (A25) still revoke tokens when `reset.revokeTokens` is on (default). (r6, F7b) After a change, an admin expiry or an aged-password expiry the old password no longer logs in and the new one does. |
+| A31 | (r4, H33) With `http.cors.origins` empty or absent, no cross-origin request gets CORS headers: no `Access-Control-Allow-Origin`, no reflected `Origin`, no allow headers on preflights; a listed origin matches exactly (scheme, host, port; no prefix match) and is echoed with `Vary: Origin`; `*` is accepted only without credentials; `authn:check-config` warns when the list is empty. (r6, F7b) A preflight follows the same list: it never echoes an arbitrary origin, and an origin that is not listed gets no `Access-Control-Allow-Origin`. |
 | A32 | (r4, H35) An upgrade keeps pending password resets and invites: each unexpired 2.x reset or invite token becomes one `authn_secret` row (SHA-256 of the token, purpose `reset` or `invite`, the 2.x expiry); no clear token stays in `users_metadata`; a link mailed before the upgrade redeems once through `POST /auth/password/reset` until its old expiry, then fails like any expired secret; expired and malformed entries are dropped; the counts before and after match. |
 
 ### 22.18 Data migration from 2.x
