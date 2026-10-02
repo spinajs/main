@@ -2,8 +2,8 @@ name: api-snapshot
 
 # Guards the frozen authz/authn contracts (plan §1 rule 3): the committed
 # packages/*/etc/*.api.md must match the contract declarations, and after gate
-# G1 (tag authz-v3-g1) a pull request that changes one needs an RFC file in
-# docs/plans/authz-v3-rfc/.
+# G1 (tag authz-v3-g1) a pull request or push that changes one needs an RFC
+# file docs/plans/authz-v3-rfc/<lane>-<n>.md.
 
 on:
   push:
@@ -17,13 +17,15 @@ jobs:
   api-snapshot:
     runs-on: ubuntu-latest
 
+    # A cancelled push run would skip the RFC check of its range for good (the
+    # next push diffs from its own `before`), so only pull requests cancel.
     concurrency:
       group: api-snapshot-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
-      # Full history and tags: --check-rfc diffs against the base branch and
-      # looks for the G1 tag.
+      # Full history and tags: --check-rfc diffs against the base branch or the
+      # previous head and looks for the G1 tag.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -48,3 +50,14 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: node scripts/api-snapshot.mjs --check-rfc "origin/$BASE_REF"
+
+      - name: pushed snapshot changes carry an RFC
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "no previous head for this push (new branch or rewritten history); RFC check skipped"
+            exit 0
+          fi
+          node scripts/api-snapshot.mjs --check-rfc "$BEFORE"

@@ -4,31 +4,58 @@
  *
  * For every package in scripts/api-snapshot.json this writes
  * packages/<name>/etc/<name>.api.md: the emitted declarations of each file the
- * entries reach through relative imports, then the declarations of the symbols
- * the entries re-export from other packages. Comments and formatting do not
- * count; any change to a declaration does.
+ * entries reach through relative imports, with the values of its top-level
+ * constants, then the declarations (and constant values) of the symbols the
+ * entries re-export from other packages. Comments, formatting and function
+ * bodies do not count; any change to a declaration or a constant value does.
  *
- * Reads the referenced packages' built `.d.ts`, so run `npm run build` first.
+ * `--update` and `--check` read the referenced packages' built `.d.ts` (and
+ * their declaration maps for constant values), so run them after
+ * `npm run build`; CI does. A stale build gives a stale snapshot.
  *
  * Usage:
  *   node scripts/api-snapshot.mjs [--update]   write the snapshots
- *   node scripts/api-snapshot.mjs --check      exit 1 when a snapshot is missing, stale or extra
+ *   node scripts/api-snapshot.mjs --check      exit 1 when a snapshot is missing, stale or extra,
+ *                                              when a module augmentation targets a snapshotted
+ *                                              package or file, or when a file of a frozen
+ *                                              pattern is not configured
  *   node scripts/api-snapshot.mjs --check-rfc <base-ref>
  *                                              after gate G1, exit 1 when a snapshot changed
  *                                              in <base-ref>...HEAD without an RFC file
+ * Exit codes: 0 ok, 1 violation, 2 tool or environment error.
+ *
+ * CI runs --check-rfc on pull requests (against the base branch) and on pushes
+ * (against the previous head). The integrator, who merges lanes into
+ * feat/authz-v3 locally, runs `--check-rfc <previous feat/authz-v3 head>`
+ * before pushing a merge.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+
+// Loaded lazily so that --check-rfc, which needs only git, also runs without node_modules.
+let ts;
+try {
+  ts = (await import('typescript')).default;
+} catch {
+  ts = undefined;
+}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const RFC_DIR = 'docs/plans/authz-v3-rfc/';
+const RFC_FILE = /^docs\/plans\/authz-v3-rfc\/[A-Za-z0-9]+-\d+\.md$/;
 const G1_TAG = 'authz-v3-g1';
 const SNAPSHOT_PATH = /^packages\/[^/]+\/etc\/[^/]+\.api\.md$/;
+const FROZEN_PACKAGE = /^auth[nz](-|$)/;
+const FROZEN_FILES = ['src/contracts.ts', 'src/api.ts', 'src/contracts/index.ts'];
 
-const printer = ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+let printerInstance;
+
+function requireTs() {
+  if (!ts) throw new Error('the typescript package is not installed; run `npm ci` first');
+  printerInstance ??= ts.createPrinter({ removeComments: true, newLine: ts.NewLineKind.LineFeed });
+  return ts;
+}
 
 const toPosix = (p) => p.split(sep).join('/');
 const real = (p) => toPosix(realpathSync(p));
@@ -123,18 +150,37 @@ function closureOf(program, pkgDir, entryFiles) {
   return [...seen.entries()].sort(([a], [b]) => byCodePoint(a, b)).map(([path, sf]) => ({ path, sf }));
 }
 
-// The referenced packages' .d.ts come from TypeScript 7 and keep the source quotes; this
-// compiler's emit does not. Printing every string literal fresh makes both agree.
-function print(node, sf) {
-  const result = ts.transform(node, [
-    (ctx) => {
-      const visit = (n) => (ts.isStringLiteral(n) ? ts.factory.createStringLiteral(n.text) : ts.visitEachChild(n, visit, ctx));
-      return (root) => ts.visitNode(root, visit);
-    },
-  ]);
+// Makes the printed text depend on the code alone. The referenced packages' .d.ts come
+// from TypeScript 7 and keep the source quotes, this compiler's emit does not, so every
+// string literal is printed fresh. Object and array literals drop the source's line
+// breaks and trailing commas, and function bodies inside constant values are emptied.
+function canonical(ctx) {
+  const f = ts.factory;
+  const empty = (body) => body && f.createBlock([]);
+  const visit = (node) => {
+    if (ts.isStringLiteral(node)) return f.createStringLiteral(node.text);
+    const n = ts.visitEachChild(node, visit, ctx);
+    if (ts.isObjectLiteralExpression(n)) return f.createObjectLiteralExpression([...n.properties], true);
+    if (ts.isArrayLiteralExpression(n)) return f.createArrayLiteralExpression([...n.elements], true);
+    if (ts.isArrowFunction(n)) return f.updateArrowFunction(n, n.modifiers, n.typeParameters, n.parameters, n.type, n.equalsGreaterThanToken, f.createBlock([]));
+    if (ts.isFunctionExpression(n)) return f.updateFunctionExpression(n, n.modifiers, n.asteriskToken, n.name, n.typeParameters, n.parameters, n.type, f.createBlock([]));
+    if (ts.isFunctionDeclaration(n)) return f.updateFunctionDeclaration(n, n.modifiers, n.asteriskToken, n.name, n.typeParameters, n.parameters, n.type, empty(n.body));
+    if (ts.isMethodDeclaration(n)) return f.updateMethodDeclaration(n, n.modifiers, n.asteriskToken, n.name, n.questionToken, n.typeParameters, n.parameters, n.type, empty(n.body));
+    if (ts.isGetAccessorDeclaration(n)) return f.updateGetAccessorDeclaration(n, n.modifiers, n.name, n.parameters, n.type, empty(n.body));
+    if (ts.isSetAccessorDeclaration(n)) return f.updateSetAccessorDeclaration(n, n.modifiers, n.name, n.parameters, empty(n.body));
+    if (ts.isConstructorDeclaration(n)) return f.updateConstructorDeclaration(n, n.modifiers, n.parameters, empty(n.body));
+    if (ts.isClassStaticBlockDeclaration(n)) return f.updateClassStaticBlockDeclaration(n, f.createBlock([]));
+    return n;
+  };
+  return (root) => ts.visitNode(root, visit);
+}
+
+// Without a source file the printer cannot copy the source's line breaks or literal text.
+function print(node) {
+  const result = ts.transform(node, [canonical]);
   try {
     const out = result.transformed[0];
-    return (ts.isSourceFile(out) ? printer.printFile(out) : printer.printNode(ts.EmitHint.Unspecified, out, sf)).trim();
+    return (ts.isSourceFile(out) ? printerInstance.printFile(out) : printerInstance.printNode(ts.EmitHint.Unspecified, out, undefined)).trim();
   } finally {
     result.dispose();
   }
@@ -142,7 +188,7 @@ function print(node, sf) {
 
 function reprint(fileName, text) {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
-  return print(sf, sf);
+  return print(sf);
 }
 
 function declarationText(program, sf) {
@@ -160,6 +206,73 @@ function declarationText(program, sf) {
   if (errors.length > 0) throw new Error(formatDiagnostics(errors));
   if (out === undefined) throw new Error(`no declaration output for ${sf.fileName}`);
   return reprint(sf.fileName, out);
+}
+
+function isFunctionValue(expr) {
+  let e = expr;
+  while (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression;
+  return ts.isArrowFunction(e) || ts.isFunctionExpression(e) || ts.isClassExpression(e);
+}
+
+/** Top-level `const` declarations of a source file whose value is not a function or class, by name, in source order. */
+function constantsOf(sf) {
+  const out = new Map();
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const d of stmt.declarationList.declarations) if (d.initializer && !isFunctionValue(d.initializer)) out.set(d.name.getText(sf), d);
+  }
+  return out;
+}
+
+const valueLine = (decl, sf) => `const ${decl.name.getText(sf)} = ${print(decl.initializer)};`;
+
+function valuesSection(sf) {
+  if (sf.isDeclarationFile) return '';
+  const lines = [...constantsOf(sf).values()].map((d) => valueLine(d, sf));
+  return lines.length > 0 ? `\n\n// values\n${lines.join('\n')}` : '';
+}
+
+const sourceFiles = new Map();
+
+// The source a built .d.ts came from, through its declaration map.
+function sourceOfDeclarationFile(dtsFileName) {
+  if (sourceFiles.has(dtsFileName)) return sourceFiles.get(dtsFileName);
+  let sf;
+  const mapPath = `${dtsFileName}.map`;
+  if (existsSync(mapPath)) {
+    const map = JSON.parse(readFileSync(mapPath, 'utf8'));
+    const src = map.sources?.[0] && resolve(dirname(mapPath), map.sourceRoot ?? '', map.sources[0]);
+    if (src && existsSync(src)) sf = ts.createSourceFile(src, readFileSync(src, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  }
+  sourceFiles.set(dtsFileName, sf);
+  return sf;
+}
+
+// `name`'s value plus the values of the other top-level constants it names, transitively.
+function constantWithDependencies(sf, name) {
+  const constants = constantsOf(sf);
+  const found = new Map();
+  const add = (n) => {
+    const decl = constants.get(n);
+    if (!decl || found.has(n)) return;
+    found.set(n, decl);
+    const visit = (node) => {
+      if (ts.isIdentifier(node) && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)) add(node.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(decl.initializer);
+  };
+  add(name);
+  return [...found.values()].map((d) => valueLine(d, sf));
+}
+
+function externalValue(decl, name) {
+  if (!ts.isVariableDeclaration(decl)) return '';
+  const own = decl.getSourceFile();
+  const sf = own.isDeclarationFile ? sourceOfDeclarationFile(own.fileName) : own;
+  if (!sf) return '\n// value: unknown (no declaration map next to the .d.ts)';
+  const lines = constantWithDependencies(sf, name);
+  return lines.length > 0 ? `\n// value\n${lines.join('\n')}` : '';
 }
 
 const packageNames = new Map();
@@ -229,22 +342,25 @@ function externalSection(program, pkgDir, entryFiles) {
   const reexported = new Set(items.flatMap((i) => i.decls.map(statementOf)));
   const printed = new Set();
   const blocks = [];
+  const packages = new Set();
   for (const { name, target, decls } of items) {
     const from = packageNameOf(decls[0].getSourceFile().fileName);
+    packages.add(from);
     const label = target.name === name || target.name === 'default' ? name : `${name} = ${target.name}`;
     const statements = [...new Set(decls.map(statementOf))];
-    const text = statements.map((s) => print(s, s.getSourceFile())).join('\n');
-    blocks.push(`// ${label} (${from})\n${text}`);
+    const text = statements.map((s) => print(s)).join('\n');
+    const values = decls.map((d) => externalValue(d, target.name)).join('');
+    blocks.push(`// ${label} (${from})\n${text}${values}`);
     const helpers = new Map();
     for (const s of statements) sameFileDependencies(checker, s, reexported, helpers);
     const sorted = [...helpers.entries()].sort(([sa, a], [sb, b]) => byCodePoint(a, b) || sa.pos - sb.pos);
     for (const [stmt, helperName] of sorted) {
       if (printed.has(stmt)) continue;
       printed.add(stmt);
-      blocks.push(`// ${helperName} (${from}, not re-exported, used by ${name})\n${print(stmt, stmt.getSourceFile())}`);
+      blocks.push(`// ${helperName} (${from}, not re-exported, used by ${name})\n${print(stmt)}`);
     }
   }
-  return blocks.join('\n\n');
+  return { text: blocks.join('\n\n'), packages };
 }
 
 function checkDiagnostics(program, files) {
@@ -254,8 +370,8 @@ function checkDiagnostics(program, files) {
 
 const fence = (heading, body) => `## ${heading}\n\n\`\`\`ts\n${body}\n\`\`\`\n`;
 
-/** The snapshot markdown of one package; `entries` are relative to `dir`. */
-export function snapshotPackage({ dir, entries, tsconfig = 'tsconfig.mjs.json' }) {
+function analyzePackage({ dir, entries, tsconfig = 'tsconfig.mjs.json' }) {
+  requireTs();
   const pkgDir = real(dir);
   const program = createProgram(dir, tsconfig, entries);
   const entryFiles = entries.map((e) => {
@@ -267,12 +383,17 @@ export function snapshotPackage({ dir, entries, tsconfig = 'tsconfig.mjs.json' }
   checkDiagnostics(program, files);
 
   const name = packageNameOf(join(dir, 'package.json'));
-  const sections = files.map(({ path, sf }) => fence(path.slice(pkgDir.length + 1), declarationText(program, sf)));
+  const sections = files.map(({ path, sf }) => fence(path.slice(pkgDir.length + 1), declarationText(program, sf) + valuesSection(sf)));
   const external = externalSection(program, pkgDir, entryFiles);
-  if (external) sections.push(fence('Re-exported from other packages', external));
+  if (external.text) sections.push(fence('Re-exported from other packages', external.text));
 
-  const header = [`# ${name} API snapshot`, '', 'Generated by `node scripts/api-snapshot.mjs` from the declarations of the frozen contract entry points (plan §1 rule 3). Do not edit: run `npm run build`, then `node scripts/api-snapshot.mjs --update`. After gate G1 a change here needs an RFC in `docs/plans/authz-v3-rfc/`.', '', `Entries: ${entries.map((e) => `\`${e}\``).join(', ')}.`, ''].join('\n');
-  return `${header}\n${sections.join('\n')}`;
+  const header = [`# ${name} API snapshot`, '', 'Generated by `node scripts/api-snapshot.mjs` from the declarations and constant values of the frozen contract entry points (plan §1 rule 3). Do not edit: run `npm run build`, then `node scripts/api-snapshot.mjs --update`. After gate G1 a change here needs an RFC in `docs/plans/authz-v3-rfc/`.', '', `Entries: ${entries.map((e) => `\`${e}\``).join(', ')}.`, ''].join('\n');
+  return { name, markdown: `${header}\n${sections.join('\n')}`, files: files.map((f) => f.path), externalPackages: external.packages };
+}
+
+/** The snapshot markdown of one package; `entries` are relative to `dir`. */
+export function snapshotPackage(pkg) {
+  return analyzePackage(pkg).markdown;
 }
 
 export function loadConfig(root = ROOT) {
@@ -281,11 +402,27 @@ export function loadConfig(root = ROOT) {
 
 export const snapshotPathOf = (name) => `packages/${name}/etc/${name}.api.md`;
 
-/** Repo-relative path => generated markdown, for every configured package. */
+/**
+ * Generates every configured snapshot. Returns them by repo-relative path, plus the
+ * targets an augmentation must not reach: the snapshotted and pending packages, the
+ * packages they re-export from, and the snapshotted files (repo-relative).
+ */
 export function generateSnapshots(root = ROOT, config = loadConfig(root)) {
-  const out = new Map();
-  for (const [name, entries] of Object.entries(config.packages)) out.set(snapshotPathOf(name), snapshotPackage({ dir: join(root, 'packages', name), entries, tsconfig: config.tsconfig }));
-  return out;
+  const rootDir = real(root);
+  const snapshots = new Map();
+  const targets = { packages: new Set(), files: new Set() };
+  for (const [pkg, entries] of Object.entries(config.packages)) {
+    const res = analyzePackage({ dir: join(root, 'packages', pkg), entries, tsconfig: config.tsconfig });
+    snapshots.set(snapshotPathOf(pkg), res.markdown);
+    targets.packages.add(res.name);
+    for (const p of res.externalPackages) targets.packages.add(p);
+    for (const f of res.files) targets.files.add(f.slice(rootDir.length + 1));
+  }
+  for (const pending of config.pending ?? []) {
+    const pkgDir = join(root, ...pending.split('/').slice(0, 2));
+    targets.packages.add(packageNameOf(join(pkgDir, 'package.json')));
+  }
+  return { snapshots, targets };
 }
 
 /** Repo-relative path => content of every committed packages/<pkg>/etc/*.api.md. */
@@ -296,6 +433,72 @@ export function readCommittedSnapshots(root = ROOT) {
     const etc = join(packages, pkg, 'etc');
     if (!existsSync(etc)) continue;
     for (const f of readdirSync(etc).sort(byCodePoint)) if (f.endsWith('.api.md')) out.set(`packages/${pkg}/etc/${f}`, readFileSync(join(etc, f), 'utf8'));
+  }
+  return out;
+}
+
+function walkTs(dir, out = []) {
+  for (const entry of readdirSync(dir).sort(byCodePoint)) {
+    if (entry === 'node_modules') continue;
+    const p = join(dir, entry);
+    if (statSync(p).isDirectory()) walkTs(p, out);
+    else if (/\.[cm]?ts$/.test(entry)) out.push(p);
+  }
+  return out;
+}
+
+function resolveRelativeModule(rootDir, file, spec) {
+  const base = resolve(dirname(file), spec);
+  const stripped = base.replace(/\.([cm]?)js$/, '.$1ts');
+  for (const candidate of [stripped, base, `${base}.ts`, `${base}.d.ts`, join(base, 'index.ts')]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return real(candidate).slice(rootDir.length + 1);
+  }
+  return undefined;
+}
+
+/**
+ * `declare module` blocks in any packages/<pkg>/src/**\/*.ts whose target is a snapshotted
+ * package (or a subpath of it) or resolves to a snapshotted file. Such a block merges into
+ * a frozen declaration without touching the snapshot. `declare global` cannot reach a
+ * module's declarations, so it is not reported.
+ */
+export function findAugmentations(root, targets, allowlist = []) {
+  requireTs();
+  const rootDir = real(root);
+  const out = [];
+  const packages = join(root, 'packages');
+  for (const pkg of readdirSync(packages).sort(byCodePoint)) {
+    const src = join(packages, pkg, 'src');
+    if (!existsSync(src)) continue;
+    for (const file of walkTs(src)) {
+      const rel = real(file).slice(rootDir.length + 1);
+      if (allowlist.includes(rel)) continue;
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes('module')) continue;
+      const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+      for (const stmt of sf.statements) {
+        if (!ts.isModuleDeclaration(stmt) || !ts.isStringLiteral(stmt.name)) continue;
+        const spec = stmt.name.text;
+        const hit = spec.startsWith('.') ? targets.files.has(resolveRelativeModule(rootDir, file, spec)) : [...targets.packages].some((p) => spec === p || spec.startsWith(`${p}/`));
+        if (hit) out.push(`${rel}: declare module '${spec}'`);
+      }
+    }
+  }
+  return out.sort(byCodePoint);
+}
+
+/** Files of a rule 3 pattern in an authz* or authn* package that neither a config entry nor `pending` covers. */
+export function unconfiguredFrozenFiles(root, config) {
+  const out = [];
+  const packages = join(root, 'packages');
+  for (const pkg of readdirSync(packages).sort(byCodePoint)) {
+    if (!FROZEN_PACKAGE.test(pkg)) continue;
+    for (const file of FROZEN_FILES) {
+      const rel = `packages/${pkg}/${file}`;
+      if (!existsSync(join(root, rel))) continue;
+      if (config.packages[pkg]?.includes(file) || (config.pending ?? []).includes(rel)) continue;
+      out.push(rel);
+    }
   }
   return out;
 }
@@ -349,10 +552,10 @@ export function parseNameStatus(text) {
     });
 }
 
-/** After G1 (gateReached), a changed snapshot needs an added or modified file under docs/plans/authz-v3-rfc/. */
+/** After G1 (gateReached), a changed snapshot needs an added or modified docs/plans/authz-v3-rfc/<lane>-<n>.md. */
 export function rfcDecision(changes, gateReached) {
   const snapshots = changes.filter((c) => SNAPSHOT_PATH.test(c.path)).map((c) => c.path);
-  const rfcs = changes.filter((c) => c.path.startsWith(RFC_DIR) && (c.status === 'A' || c.status === 'M')).map((c) => c.path);
+  const rfcs = changes.filter((c) => RFC_FILE.test(c.path) && (c.status === 'A' || c.status === 'M')).map((c) => c.path);
   if (!gateReached) return { ok: true, snapshots, rfcs, message: `gate G1 not reached (tag ${G1_TAG} is not an ancestor of HEAD): the RFC rule does not apply yet` };
   if (snapshots.length === 0) return { ok: true, snapshots, rfcs, message: 'no API snapshot changed' };
   if (rfcs.length > 0) return { ok: true, snapshots, rfcs, message: `API snapshots changed with RFC ${rfcs.join(', ')}` };
@@ -366,45 +569,57 @@ export function rfcDecision(changes, gateReached) {
 
 function git(args, root) {
   const res = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
-  if (res.error) throw res.error;
+  if (res.error) throw new Error(`git ${args[0]} failed to start: ${res.error.message}`);
   return res;
 }
 
 export function g1Reached(root = ROOT) {
-  if (git(['rev-parse', '-q', '--verify', `refs/tags/${G1_TAG}^{commit}`], root).status !== 0) return false;
-  return git(['merge-base', '--is-ancestor', G1_TAG, 'HEAD'], root).status === 0;
+  if (git(['rev-parse', '-q', '--verify', `refs/tags/${G1_TAG}^{commit}`], root).status !== 0) return { reached: false, tagFound: false };
+  return { reached: git(['merge-base', '--is-ancestor', G1_TAG, 'HEAD'], root).status === 0, tagFound: true };
+}
+
+function check() {
+  const config = loadConfig();
+  const { snapshots, targets } = generateSnapshots(ROOT, config);
+  const problems = [];
+  const drift = compareSnapshots(snapshots, readCommittedSnapshots());
+  if (!drift.ok) problems.push(`API snapshots differ from the frozen contracts:\n${drift.problems.join('\n')}\nRun \`npm run build\`, then \`node scripts/api-snapshot.mjs --update\`, and commit the snapshots; after gate G1 add an RFC in docs/plans/authz-v3-rfc/.`);
+  const augmentations = findAugmentations(ROOT, targets, config.augmentationAllowlist ?? []);
+  if (augmentations.length > 0) problems.push(`module augmentations change frozen contracts without touching the snapshots (plan §1 rule 3 needs an RFC; an approved one goes in augmentationAllowlist in scripts/api-snapshot.json):\n${augmentations.map((a) => `  ${a}`).join('\n')}`);
+  const unconfigured = unconfiguredFrozenFiles(ROOT, config);
+  if (unconfigured.length > 0) problems.push(`frozen contract files with no snapshot; add them to packages (or pending) in scripts/api-snapshot.json:\n${unconfigured.map((u) => `  ${u}`).join('\n')}`);
+  if (problems.length === 0) {
+    console.log('API snapshots are up to date');
+    return 0;
+  }
+  console.error(problems.join('\n\n'));
+  return 1;
 }
 
 function main(argv) {
   const [mode = '--update', base] = argv;
   if (mode === '--update') {
-    const generated = generateSnapshots();
-    for (const [path, text] of generated) {
+    const { snapshots } = generateSnapshots();
+    for (const [path, text] of snapshots) {
       mkdirSync(dirname(join(ROOT, path)), { recursive: true });
       writeFileSync(join(ROOT, path), text);
       console.log(`wrote ${path}`);
     }
     for (const path of readCommittedSnapshots().keys()) {
-      if (generated.has(path)) continue;
+      if (snapshots.has(path)) continue;
       rmSync(join(ROOT, path));
       console.log(`removed ${path} (no package in scripts/api-snapshot.json produces it)`);
     }
     return 0;
   }
-  if (mode === '--check') {
-    const res = compareSnapshots(generateSnapshots(), readCommittedSnapshots());
-    if (res.ok) {
-      console.log('API snapshots are up to date');
-      return 0;
-    }
-    console.error(`API snapshots differ from the frozen contracts:\n${res.problems.join('\n')}\nRun \`npm run build\`, then \`node scripts/api-snapshot.mjs --update\`, and commit the snapshots; after gate G1 add an RFC in ${RFC_DIR}.`);
-    return 1;
-  }
+  if (mode === '--check') return check();
   if (mode === '--check-rfc') {
     if (!base) throw new Error('--check-rfc needs a base ref');
     const diff = git(['diff', '--name-status', '--no-renames', `${base}...HEAD`], ROOT);
     if (diff.status !== 0) throw new Error(`git diff ${base}...HEAD failed:\n${diff.stderr}`);
-    const res = rfcDecision(parseNameStatus(diff.stdout), g1Reached());
+    const gate = g1Reached();
+    if (!gate.tagFound) console.log(`notice: tag ${G1_TAG} is not in this clone; if G1 has passed, fetch the tags (git fetch --tags) and run again`);
+    const res = rfcDecision(parseNameStatus(diff.stdout), gate.reached);
     (res.ok ? console.log : console.error)(res.message);
     return res.ok ? 0 : 1;
   }

@@ -1,5 +1,5 @@
 {
-  "$comment": "Frozen contract entry points (plan §1 rule 3). Each package gets packages/<name>/etc/<name>.api.md from `node scripts/api-snapshot.mjs`.",
+  "$comment": "Frozen contract entry points (plan §1 rule 3). Each package gets packages/<name>/etc/<name>.api.md from `node scripts/api-snapshot.mjs`. `pending`: frozen files whose snapshot another lane adds (F6: authn*); --check accepts them unconfigured. `augmentationAllowlist`: repo-relative files whose `declare module` of a snapshotted package an RFC approved.",
   "tsconfig": "tsconfig.mjs.json",
   "packages": {
     "authz": ["src/contracts/index.ts", "src/conditions/contracts.ts"],
@@ -9,5 +9,7 @@
     "authz-http": ["src/api.ts"],
     "authz-queue": ["src/api.ts"],
     "authz-fs": ["src/api.ts"]
-  }
+  },
+  "pending": ["packages/authn/src/contracts/index.ts"],
+  "augmentationAllowlist": []
 }
