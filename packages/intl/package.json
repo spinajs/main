@@ -6,14 +6,17 @@
   "module": "lib/mjs/index.js",
   "exports": {
     "node": {
+      "types": "./lib/mjs/index.node.d.ts",
       "import": "./lib/mjs/index.node.js",
       "require": "./lib/cjs/index.node.js"
     },
     "browser": {
+      "types": "./lib/mjs/index.browser.d.ts",
       "import": "./lib/mjs/index.browser.js",
       "require": "./lib/cjs/index.browser.js"
     },
     "default": {
+      "types": "./lib/mjs/index.node.d.ts",
       "import": "./lib/mjs/index.node.js",
       "require": "./lib/cjs/index.node.js"
     }
