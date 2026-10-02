@@ -1,0 +1,121 @@
+import 'mocha';
+import { expect } from 'chai';
+import * as api from '../src/index.js';
+
+/** Every runtime export, sorted. A new export must be added here on purpose. */
+const PUBLIC_API = [
+  'AUTHENTICATION_FAILED',
+  'AccessDeniedMapping',
+  'ArgumentsStage',
+  'AuthenticationStage',
+  'AuthnCredentialSource',
+  'BaseSocketController',
+  'Command',
+  'ConflictMapping',
+  'Connection',
+  'ConnectionArg',
+  'DEFAULT_RETRYABLE',
+  'ERROR_CODES',
+  'FailedPreconditionMapping',
+  'ForbiddenMapping',
+  'FromDI',
+  'FromDiArg',
+  'HandleSocketException',
+  'HttpServerHost',
+  'ID_PATTERN',
+  'IN_FLIGHT_RETRY_AFTER_MS',
+  'InFlightStage',
+  'InvalidArgumentMapping',
+  'LookupStage',
+  'MAX_ID_LENGTH',
+  'MAX_NAME_LENGTH',
+  'NAME_PATTERN',
+  'NotFoundMapping',
+  'OnConnect',
+  'OnDisconnect',
+  'OnEvent',
+  'OrderingStage',
+  'PROTOCOL_VERSION',
+  'Payload',
+  'PayloadArg',
+  'PoliciesStage',
+  'RateStage',
+  'ReadyStage',
+  'Reason',
+  'ReasonArg',
+  'SOCKET_CONTROLLER_DESCRIPTOR',
+  'SOCKET_DURATION_BUCKETS_SECONDS',
+  'SOCKET_METRIC_KEY_COMMANDS',
+  'SOCKET_METRIC_KEY_CONNECTIONS',
+  'SOCKET_METRIC_KEY_DURATION',
+  'SOCKET_METRIC_PREFIX',
+  'SOCKET_UNKNOWN_COMMAND',
+  'STAGE_ORDER',
+  'SYSTEM_EVENTS',
+  'Signal',
+  'SignalArg',
+  'SizeStage',
+  'SocketAccess',
+  'SocketAccessPolicy',
+  'SocketArg',
+  'SocketArgumentResolver',
+  'SocketCommandContext',
+  'SocketCommandStage',
+  'SocketConnection',
+  'SocketController',
+  'SocketDispatcher',
+  'SocketErrorMapper',
+  'SocketErrorMapping',
+  'SocketException',
+  'SocketExceptionMapping',
+  'SocketHandlerRegistry',
+  'SocketHttpHost',
+  'SocketHub',
+  'SocketParameter',
+  'SocketPolicy',
+  'SocketPolicyGate',
+  'SocketPolicyGroup',
+  'SocketPrincipalGuard',
+  'SocketPrincipalSource',
+  'SocketServer',
+  'TokenBucket',
+  'UnauthenticatedMapping',
+  'UnimplementedMapping',
+  'ValidationFailedMapping',
+  'WIRE_EVENTS',
+  'codeMapping',
+  'credentialRequest',
+  'crossSiteRefusal',
+  'defineContract',
+  'fromPayload',
+  'isAllowedOrigin',
+  'isCancelFrame',
+  'isCommandRequest',
+  'isErrorCode',
+  'isEventFrame',
+  'isId',
+  'isName',
+  'isSocketError',
+  'observeCommand',
+  'payloadSize',
+  'socketMetrics',
+  'trackConnection',
+];
+
+describe('@spinajs/http-socket public surface', () => {
+  it('exports exactly the public API', () => {
+    expect(Object.keys(api).sort()).to.deep.equal(PUBLIC_API);
+  });
+
+  it('keeps internal helpers out of the public surface', () => {
+    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest']) {
+      expect(api, name).to.not.have.property(name);
+    }
+  });
+
+  it('exposes the hub push API', () => {
+    for (const method of ['to', 'toConnection', 'join', 'leave', 'connectionsIn', 'disconnect', 'connection']) {
+      expect(api.SocketHub.prototype, method).to.have.property(method);
+    }
+  });
+});

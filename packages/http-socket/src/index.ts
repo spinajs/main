@@ -1,60 +1,22 @@
-import { HttpServer } from '@spinajs/http';
-import { AsyncService, Autoinject } from '@spinajs/di';
-import { Log, Logger } from '@spinajs/log-common';
-
-import { Server } from 'socket.io';
-import { SocketController, SocketServerMiddleware } from './interfaces.js';
-
-import './middlewares.js';
-
-export class WebsocketServer extends AsyncService {
-  /**
-   * Logger for this module
-   */
-  @Logger('websocket')
-  protected Log: Log;
-
-  @Autoinject()
-  protected HttpServer: HttpServer;
-
-  protected Server: Server;
-
-  @Autoinject(SocketServerMiddleware)
-  protected Middlewares: SocketServerMiddleware[];
-
-  @Autoinject(SocketController)
-  protected Controllers: SocketController[];
-
-  public async resolve(): Promise<void> {
-
-    await super.resolve();
-
-    this.Server = new Server(this.HttpServer.Server);
-
-    this.Middlewares.sort((a, b) => {
-      return a.Order < b.Order ? -1 : a.Order > b.Order ? 1 : 0;
-    });
-
-    this.Middlewares.forEach((m) => {
-      this.Server.use((socket, next) => {
-        m.before(socket)
-          .then(() => next())
-          .catch((err) => next(err));
-      });
-    });
-
-    this.Server.on('connection', async (socket) => {
-      for (const m of this.Middlewares) {
-        await m.onConnect(socket);
-
-        socket.on('disconnect', async (reason) => {
-          await m.onDisconnect(socket, reason);
-        });
-      }
-
-      for (const c of this.Controllers) {
-        await c.attach(socket);
-      }
-    });
-  }
-}
+export * from '@spinajs/http-socket-common';
+export * from './interfaces.js';
+export { TokenBucket, payloadSize } from './limits.js';
+export { AccessDeniedMapping, ConflictMapping, FailedPreconditionMapping, ForbiddenMapping, HandleSocketException, InvalidArgumentMapping, NotFoundMapping, SocketErrorMapper, SocketErrorMapping, SocketExceptionMapping, UnauthenticatedMapping, UnimplementedMapping, ValidationFailedMapping, codeMapping } from './errors.js';
+export { crossSiteRefusal, isAllowedOrigin } from './origin.js';
+export { SocketConnection } from './connection.js';
+export * from './hub.js';
+export * from './host.js';
+export * from './server.js';
+export * from './authn-source.js';
+export * from './controller.js';
+export * from './args.js';
+export * from './decorators.js';
+export * from './registry.js';
+export * from './context.js';
+export * from './stages/index.js';
+export { SocketDispatcher } from './dispatcher.js';
+export { SocketPolicyGate } from './policies.js';
+export type { ISocketPolicyRequest } from './policies.js';
+export * from './access.js';
+export { SocketPrincipalGuard } from './principal-guard.js';
+export * from './metrics.js';

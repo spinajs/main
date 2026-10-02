@@ -6,5 +6,17 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../util/tsconfig.cjs.json" },{ "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log-common/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }]
+  "references": [
+    { "path": "../authn/tsconfig.cjs.json" },
+    { "path": "../authz/tsconfig.cjs.json" },
+    { "path": "../di/tsconfig.cjs.json" },
+    { "path": "../configuration/tsconfig.cjs.json" },
+    { "path": "../exceptions/tsconfig.cjs.json" },
+    { "path": "../http/tsconfig.cjs.json" },
+    { "path": "../http-socket-common/tsconfig.cjs.json" },
+    { "path": "../log/tsconfig.cjs.json" },
+    { "path": "../reflection/tsconfig.cjs.json" },
+    { "path": "../telemetry-common/tsconfig.cjs.json" },
+    { "path": "../validation/tsconfig.cjs.json" }
+  ]
 }

@@ -1,0 +1,58 @@
+{
+  "name": "@spinajs/http-socket-client",
+  "version": "3.0.0-alpha.0",
+  "description": "Isomorphic socket client for spinajs: connection state, reconnect, commands, events, typed contracts",
+  "main": "lib/cjs/index.js",
+  "module": "lib/mjs/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/mjs/index.d.ts",
+      "import": "./lib/mjs/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
+  "type": "module",
+  "sideEffects": false,
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.11"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "compile": "tsc -b tsconfig.mjs.json",
+    "compile:cjs": "tsc -b tsconfig.cjs.json",
+    "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit --composite false --incremental false",
+    "coverage": "nyc npm run test"
+  },
+  "files": [
+    "lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spinajs/main.git"
+  },
+  "keywords": [
+    "spinajs",
+    "websocket",
+    "socket.io",
+    "client"
+  ],
+  "author": "SpinaJS <spinajs@coderush.pl> (https://github.com/spinajs/main)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/spinajs/main/issues"
+  },
+  "homepage": "https://github.com/spinajs/main#readme",
+  "dependencies": {
+    "@spinajs/http-socket-common": "3.0.0-alpha.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io": "^4.8.1"
+  }
+}
