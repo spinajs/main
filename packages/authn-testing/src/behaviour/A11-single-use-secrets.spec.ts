@@ -58,7 +58,10 @@ export const A11: AuthnRule = defineRule('A11', 'single-use secrets are strong, 
       const a = await seedUser(h, ALICE);
       const x = await h.secrets.issue(a, 'reset', 60);
       const rows = await h.secretStorage.rows();
-      assert.ok(rows.some((r) => r.hash === sha256hex(x)), 'a row holds the SHA-256 hex of the secret');
+      assert.ok(
+        rows.some((r) => r.hash === sha256hex(x)),
+        'a row holds the SHA-256 hex of the secret',
+      );
       assert.ok(!JSON.stringify(rows).includes(x), 'no row holds the raw secret');
     },
   }),
@@ -232,14 +235,18 @@ export const A11: AuthnRule = defineRule('A11', 'single-use secrets are strong, 
       const si = await h.sessions.issue(c, { ...factsAal1(k), impersonator: { type: 'user', id: a.id } });
       const x = await requestAndTake(h, k, a);
       assert.strictEqual((await redeem(h, k, x)).status, 'reset');
-      for (const [label, s] of [['first session', s1], ['second session', s2], ['impersonation', si]] as const) {
+      for (const [label, s] of [
+        ['first session', s1],
+        ['second session', s2],
+        ['impersonation', si],
+      ] as const) {
         assert.strictEqual(await h.sessions.restore(s.id), null, label);
       }
     },
   }),
   table(TOKEN_ROWS, (row) =>
     defineCase({
-      name: row.revokeTokens ? `A11 SR-08 reset revokes tokens: ${row.label}` : `A11 a reset keeps tokens when revoking them is off: ${row.label}`,
+      name: row.revokeTokens ? `A11 SR-08 reset revokes tokens: ${row.label}` : `A11 reset revokes tokens: ${row.label}`,
       facet: 'A11/local',
       needs: ['password', 'seed', 'outbox', 'tokens'],
       config: { authn: { local: { reset: { revokeTokens: row.revokeTokens } } } },
@@ -281,6 +288,7 @@ export const A11: AuthnRule = defineRule('A11', 'single-use secrets are strong, 
       const R = routes(h);
       const known = await send(h, R.passwordResetRequest(ALICE.login));
       const unknown = await send(h, R.passwordResetRequest(NOBODY));
+      assert.ok(known.status >= 200 && known.status < 300, `reset request answered ${known.status}`);
       assert.strictEqual(known.status, unknown.status, 'reset request status');
       expectSameBody(h, known, unknown, 'reset request body');
       const wrongKnown = await send(h, R.passwordReset(ALICE.login, 'kit-wrong-secret', NEW_PW));

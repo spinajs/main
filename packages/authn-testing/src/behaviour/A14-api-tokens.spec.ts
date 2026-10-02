@@ -133,7 +133,10 @@ export const A14: AuthnRule = defineRule('A14', 'API tokens are strong, bounded,
       const t = await mint(h, k, a, { expiresAt: after(k, 3600 * SECOND) });
       const v = await h.tokens.validate(t.plaintext, k.ctx({ purpose: 'request', now: after(k, 3601 * SECOND) }));
       assert.strictEqual(v.ok, false);
-      assert.ok((await h.tokens.list(a)).some((r) => r.id === t.record.id), 'an expired token is still listed');
+      assert.ok(
+        (await h.tokens.list(a)).some((r) => r.id === t.record.id),
+        'an expired token is still listed',
+      );
     },
   }),
   table(STATUS_ROWS, (row) =>

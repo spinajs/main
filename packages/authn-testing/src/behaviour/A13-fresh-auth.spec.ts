@@ -10,15 +10,16 @@ const DAY = 86_400 * SECOND;
 /** The token list body is not frozen: a bare array, or an object holding one. */
 const tokenCount = (body: unknown): number => {
   const list = Array.isArray(body) ? body : Object.values((body ?? {}) as object).find(Array.isArray);
-  return Array.isArray(list) ? list.length : 0;
+  assert.ok(Array.isArray(list), 'the token list body holds an array');
+  return list.length;
 };
 
 const REAUTH_FREE = DEFAULT_THROTTLE.reauth.account!.free;
 
 const MINT_ROWS = [
-  { label: 'fresh', title: 'A13 minting a token with fresh auth', staleSeconds: 0, reauth: false, minted: true },
+  { label: 'fresh', title: 'A13 minting a token needs fresh auth', staleSeconds: 0, reauth: false, minted: true },
   { label: 'stale', title: 'A13 SR-08 minting a token needs fresh auth', staleSeconds: 301, reauth: false, minted: false },
-  { label: 'stale with reauthPassword', title: 'A13 minting a token with stale auth and an inline password', staleSeconds: 301, reauth: true, minted: true },
+  { label: 'stale with reauthPassword', title: 'A13 minting a token needs fresh auth', staleSeconds: 301, reauth: true, minted: true },
 ] as const;
 
 export const A13: AuthnRule = defineRule('A13', 'sensitive actions need fresh authentication', [
@@ -107,11 +108,7 @@ export const A13: AuthnRule = defineRule('A13', 'sensitive actions need fresh au
         const jar = k.jar();
         await send(h, routes(h).login(ALICE.login, ALICE.password), jar);
         k.clock.tick(row.staleSeconds * SECOND);
-        const created = await send(
-          h,
-          routes(h).tokenCreate({ name: 'kit', expiresAt: new Date(k.clock.now().getTime() + DAY), ...(row.reauth ? { reauthPassword: ALICE.password } : {}) }),
-          jar,
-        );
+        const created = await send(h, routes(h).tokenCreate({ name: 'kit', expiresAt: new Date(k.clock.now().getTime() + DAY), ...(row.reauth ? { reauthPassword: ALICE.password } : {}) }), jar);
         assert.ok(row.minted ? created.status >= 200 && created.status < 300 : in4xx(created.status), `token creation answered ${created.status}`);
         const listed = await send(h, routes(h).tokenList(), jar);
         assert.strictEqual(listed.status, 200, 'token list');

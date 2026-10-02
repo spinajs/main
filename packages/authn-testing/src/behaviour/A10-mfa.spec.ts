@@ -139,23 +139,24 @@ export const A10: AuthnRule = defineRule('A10', 'MFA codes are throttled, single
   defineCase({
     name: 'A10 SR-09 TOTP secret encrypted at rest',
     facet: 'A10/totp',
-    needs: ['mfa', 'mfaStorage', 'seed'],
-    async run(h) {
+    needs: ['mfa', 'mfaStorage', 'seed', 'fakeDate'],
+    async run(h, k) {
       const a = await seedUser(h, ALICE);
-      const { provisioning } = await h.mfa.step.beginEnrolment(a);
+      const { provisioning } = await enrolWithTotp(h, k, a);
       const { secret } = parseOtpauth(provisioning);
       const stored = await h.mfaStorage.storedSecret(a);
       assert.ok(stored, 'the lane stores the secret');
       const raw = base32Decode(secret);
       assert.ok(!stored.toUpperCase().includes(secret.toUpperCase()), 'no base32 secret in storage');
-      assert.ok(!stored.includes(raw.toString('hex')), 'no hex secret in storage');
+      assert.ok(!stored.toLowerCase().includes(raw.toString('hex')), 'no hex secret in storage');
+      assert.ok(!stored.includes(raw.toString('base64url')), 'no base64url secret in storage');
       assert.ok(!stored.includes(raw.toString('base64')), 'no base64 secret in storage');
     },
   }),
   defineCase({
     name: 'A10 recovery codes are stored hashed',
     facet: 'A10/totp',
-    needs: ['mfa', 'mfaStorage', 'seed'],
+    needs: ['mfa', 'mfaStorage', 'seed', 'fakeDate'],
     async run(h, k) {
       const a = await seedUser(h, ALICE);
       const { confirmed } = await enrolWithTotp(h, k, a);
