@@ -2,6 +2,9 @@ import type { Principal, ResourceRef } from './principal.js';
 
 export type FilterOp = 'true' | 'false' | 'and' | 'or' | 'not' | 'cmp' | 'relation' | 'under' | `native:${string}`;
 
+/** The non-native ops every model may use. */
+export const CORE_FILTER_OPS: readonly FilterOp[] = Object.freeze(['true', 'false', 'and', 'or', 'not', 'relation', 'under', 'cmp'] as const);
+
 // ref: 'principal.id' | 'principal.attributes.pool' | 'actor.type' | 'env.now'
 //    | 'scope.<type>.<path>': attribute of the nearest ancestor of that type, e.g. 'scope.org.policies.public_links'
 export type Value = string | number | boolean | null | readonly (string | number)[] | { readonly ref: string };

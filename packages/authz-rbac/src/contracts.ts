@@ -1,4 +1,5 @@
-import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from '@spinajs/authz';
+import { CORE_FILTER_OPS } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, AuthzTx, FieldSet, FilterOp, LinkDef, Principal, PrincipalRef, ResourceRef, ResourceType, RuleDef } from '@spinajs/authz';
 
 // Declared in the core because AuthzCommand carries them.
 export type { AssignmentSubject, Assignment, SubjectSelector, RuleDef, LinkDef } from '@spinajs/authz';
@@ -77,3 +78,8 @@ export abstract class LinkStore {
 export abstract class SubjectResolver {
   abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
+
+export const RBAC_ASSIGNMENT_OP = 'native:rbac.assignment' as const; // permit rows whose ancestors carry a live assignment
+export const RBAC_THRESHOLD_OP = 'native:rbac.threshold' as const; // deny rows where a threshold rule fails
+// authz-orm compiles both native ops to SQL (§12.4)
+export const RBAC_RESIDUALS: readonly FilterOp[] = Object.freeze([...CORE_FILTER_OPS, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP]);

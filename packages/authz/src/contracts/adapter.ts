@@ -33,3 +33,15 @@ export abstract class RelationResolver {
   abstract readonly relation: string; // 'owner' | 'self' | 'pool' | 'polsat' | 'initiator' | 'editor'
   abstract holds(principal: Principal, ref: ResourceRef, subject?: unknown): boolean | Promise<boolean>;
 }
+
+/** Scope attributes as authz data: ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
+export interface ScopeAttributeSchema {
+  readonly scopeType: ResourceType;
+  readonly schema: object; // JSON schema of the attribute object, scalars at the leaves
+  readonly defaults: Readonly<Record<string, unknown>>;
+}
+
+export abstract class ScopeAttributeStore {
+  abstract get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>>; // nested object rebuilt from flat paths
+  abstract version(): Promise<string>;
+}
