@@ -60,7 +60,7 @@
     "@spinajs/orm": "2.0.548",
     "@spinajs/validation": "2.0.548",
     "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/rbac-http": "2.0.548",
+    "@spinajs/authn-http": "3.0.0-alpha.0",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"
   },

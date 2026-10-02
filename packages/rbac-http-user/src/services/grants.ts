@@ -1,7 +1,7 @@
 import { AccessControl, User, _unwindGrants } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
-import { resolveSessionContext } from '@spinajs/rbac-http';
-import type { IGrantsMap, IUserWithGrants } from '@spinajs/rbac-http';
+import { resolveSessionContext } from '@spinajs/authn-http';
+import type { IGrantsMap, IUserWithGrants } from '@spinajs/authn-http';
 
 /**
  * Role whose grants are in effect for a session.

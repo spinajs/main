@@ -5,7 +5,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission, resolveSessionContext } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission, resolveSessionContext } from '@spinajs/authn-http';
 import { User } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
 import { LogoutHandler, ILogoutContext } from '../logout.js';

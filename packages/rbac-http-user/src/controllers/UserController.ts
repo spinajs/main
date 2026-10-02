@@ -5,7 +5,7 @@ import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';
 import _ from 'lodash';
-import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg, SessionId as SessionIdArg } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User, IGrantsMap, Session as SessionRouteArg, SessionId as SessionIdArg } from '@spinajs/authn-http';
 import { activeRoleOf, grantsFor } from '../services/grants.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 

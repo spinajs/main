@@ -4,7 +4,7 @@
 // import { Orm } from '@spinajs/orm';
 // import { TestConfiguration, FakeRbacPolicy, req } from './common.js';
 // import { Controllers, HttpServer } from '@spinajs/http';
-// import { RbacPolicy } from '@spinajs/rbac-http';
+// import { RbacPolicy } from '@spinajs/authn-http';
 // import { expect } from 'chai';
 // import sinon from 'sinon';
 // import 'mocha';

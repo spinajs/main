@@ -1,3 +1,11 @@
 # `@spinajs/authn-http`
 
-HTTP integration for SpinaJS authentication.
+> TODO: description
+
+## Usage
+
+```
+const authnHttp = require('@spinajs/authn-http');
+
+// TODO: DEMONSTRATE API
+```

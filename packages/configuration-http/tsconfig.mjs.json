@@ -17,6 +17,6 @@
     { "path": "../log/tsconfig.mjs.json" },
     { "path": "../orm/tsconfig.mjs.json" },
     { "path": "../users/tsconfig.mjs.json" },
-    { "path": "../rbac-http/tsconfig.mjs.json" },
+    { "path": "../authn-http/tsconfig.mjs.json" },
     { "path": "../validation/tsconfig.mjs.json" }, { "path": "../orm-http/tsconfig.mjs.json" }]
 }

@@ -4,7 +4,7 @@ import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regener
 import type { ISession, User } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse, resolveSessionContext } from '@spinajs/rbac-http';
+import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse, resolveSessionContext } from '@spinajs/authn-http';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { grantsFor } from '../services/grants.js';
 

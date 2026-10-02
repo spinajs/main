@@ -129,7 +129,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         // through the `AccessControl` DI singleton - not against the shipped
         // `packages/users/src/config/users.ts` defaults. This suite runs via
         // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
-        // (unlike eg. rbac-http-admin/rbac-http-token), so the configuration
+        // (unlike eg. rbac-http-admin/authn-token), so the configuration
         // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
         // and the shipped defaults never merge in here. `admin`, `guest` and
         // `admin.users` below are therefore copied verbatim from that shipped

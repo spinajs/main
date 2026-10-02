@@ -3,7 +3,7 @@ import { SessionProvider, User as UserModel, hashSessionId } from '@spinajs/user
 import type { ISession } from '@spinajs/users';
 import { AutoinjectService } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { AuthorizedPolicy, Permission, Resource, SessionId as SessionIdArg, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, SessionId as SessionIdArg, User } from '@spinajs/authn-http';
 
 /** One live session of the calling user. */
 export interface IUserSessionEntry {

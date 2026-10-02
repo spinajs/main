@@ -1,7 +1,7 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
 import { User as UserModel, UserMetadata } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
-import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';

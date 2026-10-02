@@ -1,7 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Argument, CliCommand, Command } from '@spinajs/cli';
 import { AutoinjectService } from '@spinajs/configuration';
-import { TwoFactorAuthProvider } from "@spinajs/rbac-http";
+import { TwoFactorAuthProvider } from "@spinajs/authn-http";
 import { enableUser2Fa } from "../actions/2fa.js";
 
 import "../2fa/Default2FaToken.js";

@@ -2,7 +2,7 @@ import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Ok, Patch, Policy } from '@spinajs/http';
 import { FromModel } from '@spinajs/orm-http';
 import { grant, revoke, User, userModel } from '@spinajs/users';
-import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
 import { Schema } from '@spinajs/validation';
 
 import { RoleGuard } from '../../interfaces.js';

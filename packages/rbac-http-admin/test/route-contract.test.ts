@@ -4,8 +4,8 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, RouteType } from '@spinajs/http';
-import { ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
-import type { IRbacDescriptor } from '@spinajs/rbac-http';
+import { ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
+import type { IRbacDescriptor } from '@spinajs/authn-http';
 import { DataValidator } from '@spinajs/validation';
 
 import { CreateUserDto, UpdateUserDto, Users } from '../src/controllers/Users/Users.js';

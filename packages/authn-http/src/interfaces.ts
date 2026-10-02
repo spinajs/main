@@ -1,0 +1,272 @@
+import { User, ISession, PermissionType } from '@spinajs/users';
+import { MethodNotImplemented } from '@spinajs/exceptions';
+
+// ---------------------------------------------------------------------------
+// HTTP response shape interfaces
+// Shared across rbac-http-user and rbac-http-admin — both depend on authn-http.
+// ---------------------------------------------------------------------------
+
+/** Single user metadata key-value entry */
+export interface IUserMetadataEntry {
+  Id: number;
+  Key: string;
+  Value: string;
+  Type: 'number' | 'float' | 'string' | 'json' | 'boolean' | 'datetime';
+  user_id: number;
+}
+
+/** User account data serialised by dehydrate() — model fields only, no relations */
+export interface IUserProfile {
+  Id: number;
+  Uuid: string;
+  Email: string;
+  Login: string;
+  Role: string[];
+  CreatedAt: string;
+  RegisteredAt: string;
+  DeletedAt: string | null;
+  LastLoginAt: string | null;
+  IsActive: boolean;
+}
+
+/** User account data serialised by dehydrateWithRelations() — includes optional loaded relations */
+export interface IUserData extends IUserProfile {
+  Metadata?: IUserMetadataEntry[];
+}
+
+/**
+ * Flattened RBAC grants for a user: resource → `'action:possession'` → attributes.
+ *
+ * This is `accesscontrol`'s own grants format, which is what `_unwindGrants`
+ * produces and what a client feeds straight back into `new AccessControl(...)`.
+ * The attribute list is a bare `string[]` (`['*']`), NOT a `{ attributes }`
+ * wrapper — that wrapper is what this type used to claim, and it described no
+ * payload the API has ever sent.
+ *
+ * `$extend` rides at the same level as the resources when the role inherits from
+ * others; its value is the list of inherited role names, so a consumer that
+ * treats every key as a resource has to skip it.
+ */
+export type IGrantsMap = {
+  /** Roles this one inherits from — present only on a role that extends others. */
+  $extend?: string[];
+} & Record<string, Record<string, string[]> | string[] | undefined>;
+
+/** Successful authentication response — user profile merged with RBAC grants */
+export interface IUserWithGrants extends IUserProfile {
+  /**
+   * Currently active role used for request-bound permission checks.
+   * Picked from User.Role; defaults to User.Role[0] at login.
+   */
+  ActiveRole: string;
+
+  Grants: IGrantsMap;
+}
+
+/** Response for /auth/active-role endpoints */
+export interface IActiveRoleResponse {
+  ActiveRole: string;
+  Grants: IGrantsMap;
+}
+
+/**
+ * Response for GET /auth/whoami — the session's user plus what the session
+ * itself knows about it.
+ *
+ * Not `IUserWithGrants`: whoami resolves no grants, because grants belong to the
+ * active role and /auth/active-role is what answers with them.
+ */
+export interface IWhoamiResponse extends IUserData {
+  /** Role whose grants are in effect for this session. */
+  ActiveRole: string;
+
+  /**
+   * False while the session has passed the password step but still owes 2FA.
+   *
+   * Absent on sessions minted before this field existed; those predate 2FA
+   * gating and were by definition fully authorized, which is why the endpoint
+   * defaults it to true rather than false.
+   */
+  Authorized: boolean;
+}
+
+/** Response for /auth/impersonate when an impersonation has just been started or queried */
+export interface IImpersonationResponse {
+  /** Target user (whose identity is now in effect) */
+  User: IUserProfile;
+  /** Original user who initiated the impersonation */
+  Impersonator: IUserProfile;
+  /** ActiveRole now in effect — defaults to target.Role[0] when impersonation starts */
+  ActiveRole: string;
+  /** RBAC grants resolved for ActiveRole */
+  Grants: IGrantsMap;
+  /** ISO timestamp when impersonation was started */
+  StartedAt: string;
+}
+
+/** Lightweight status reply for GET /auth/impersonate */
+export interface IImpersonationState {
+  Active: boolean;
+  ImpersonatorUuid?: string;
+  TargetUuid?: string;
+  StartedAt?: string;
+}
+
+/** Login response when TOTP verification step is still pending */
+export interface ITwoFactorAuthRequired {
+  TwoFactorAuthRequired: true;
+}
+
+/** Login response when initial TOTP device setup is required before first use */
+export interface ITwoFactorInitRequired {
+  TwoFactorInitRequired: true;
+}
+
+/** All possible shapes returned by the login endpoint */
+export type ILoginResponse = IUserWithGrants | ITwoFactorAuthRequired | ITwoFactorInitRequired;
+
+/** Response returned when TOTP is successfully enabled for a user */
+export interface IEnable2faResponse {
+  /** OTP provisioning URI — scan with an authenticator app (e.g. Google Authenticator) */
+  otp: string;
+}
+
+
+declare module '@spinajs/http' {
+  interface IActionLocalStoregeContext {
+    User: User | null;
+    Session: ISession;
+
+    /**
+     * Controller route permission context
+     * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
+     *
+     * eg. we want to read only current user data but it has admin privlidges too....
+     */
+    PermissionScope? : PermissionType;
+
+    /**
+     * Currently selected role from User.Role for the request. Defaults to the
+     * first role in User.Role at login; can be changed via /auth/active-role.
+     */
+    ActiveRole?: string;
+
+    /**
+     * Original logged-in user when an impersonation is active. `User` then
+     * holds the target user; `Impersonator` holds whoever initiated it.
+     * Null/undefined on regular requests.
+     */
+    Impersonator?: User | null;
+
+    /**
+     * When set, RbacModelPermissionMiddleware skips injecting permission
+     * constraints into query builders for this request.
+     * Set via @SkipModelPermission() decorator.
+     */
+    SkipModelPermissionCheck?: boolean;
+  }
+}
+
+
+export interface IRbacDescriptor {
+  /**
+   * Resource name
+   */
+  Resource: string;
+
+  /**
+   * Assigned permission
+   *
+   * '*' means that to acces resource we only need role with assigned resource
+   */
+  Permission: PermissionType[];
+
+  /**
+   * Per routes permissions
+   */
+  Routes: Map<string, IRbacRoutePermissionDescriptor>;
+}
+
+export interface IRbacRoutePermissionDescriptor {
+  /**
+   * controller route permission. It overrides acl descriptor options
+   */
+  Permission: PermissionType[];
+}
+
+export abstract class TwoFactorAuthProvider {
+  /**
+   * generate secret key if this provider use is needs it or null
+   */
+  public abstract initialize(user: User): Promise<any | null>;
+
+  /**
+   * Generate and store the secret WITHOUT switching 2fa on. The account is left
+   * pending: it has a device to verify against, but the login check does not
+   * demand a code yet.
+   *
+   * Providers that cannot express a pending state may leave this unimplemented;
+   * only the routes that confirm enrolment call it.
+   */
+  public beginEnrolment(_user: User): Promise<any | null> {
+    throw new MethodNotImplemented('this 2fa provider does not support pending enrolment');
+  }
+
+  /**
+   * Switch 2fa on for an account whose secret was already stored by
+   * {@link beginEnrolment}.
+   */
+  public activate(_user: User): Promise<void> {
+    throw new MethodNotImplemented('this 2fa provider does not support pending enrolment');
+  }
+
+  /**
+   * Disable for user 2fa
+   * 
+   * @param user 
+   */
+  public abstract disable(user : User) : Promise<void>;
+
+  /**
+   * Perform action eg. send sms or email. Some 2fac implementations do nothing eg. google auth or hardware keys
+   */
+  public abstract execute(user: User): Promise<void>;
+
+  /**
+   * verifies token send by user
+   */
+  public abstract verifyToken(token: string, user: User): Promise<boolean>;
+
+  /**
+   * Checks if 2fa is enabled for given user
+   */
+  public abstract isEnabled(user: User): Promise<boolean>;
+
+  /**
+   * Checks if 2fa is initialized eg. some
+   * 2fa systems requires to generate private software key and pass it
+   * to user ( like google authenticator)
+   */
+  public abstract isInitialized(user: User): Promise<boolean>;
+
+  /**
+   * 
+   * Gets the OTP Auth URL for the user. It is used to generate QR code for 2fa apps like Google Authenticator.
+   * 
+   * @param user 
+   */
+  public abstract getOtpAuthUrl(user: User): Promise<string | null>;
+}
+
+export abstract class FingerprintProvider {}
+
+export interface TwoFactorAuthConfig {
+  enabled: boolean;
+  service: string;
+}
+
+export interface FingerpringConfig {
+  enabled: boolean;
+  maxDevices: number;
+  service: string;
+}

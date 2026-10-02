@@ -59,7 +59,7 @@
     "@spinajs/orm": "2.0.548",
     "@spinajs/orm-http": "2.0.548",
     "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/rbac-http": "2.0.548",
+    "@spinajs/authn-http": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.548",
     "@spinajs/queue": "2.0.548",
     "@spinajs/util": "2.0.548",

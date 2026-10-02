@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 /**
  * Wire schema of `GET /auth/password/policy` — `IPasswordPolicy` from @spinajs/users.
  *
- * Registered under the interface's own name, the way @spinajs/rbac-http's
+ * Registered under the interface's own name, the way @spinajs/authn-http's
  * `dto/auth-responses.ts` registers `IGrantsMap` and friends: the controller's
  * `@returns {IPasswordPolicy}` resolves to nothing on its own (no schema provider
  * knows a TypeScript interface) and the published spec would describe the

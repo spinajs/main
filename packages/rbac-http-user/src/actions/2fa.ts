@@ -6,7 +6,7 @@ import { DateTime } from 'luxon';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { User2FaPassed } from '../events/User2FaPassed.js';
 import { User2FaEnabled } from '../events/User2FaEnabled.js';
-import { TwoFactorAuthProvider } from '@spinajs/rbac-http';
+import { TwoFactorAuthProvider } from '@spinajs/authn-http';
 import { User2FaReset } from '../events/User2FaReset.js';
 import { User2FaDisabled } from '../events/User2FaDisabled.js';
 

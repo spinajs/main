@@ -80,7 +80,7 @@ export const _combineGrants = (...grants: { [key: string]: any }[]) => {
  * Used by the impersonation check ( an impersonator must be strictly more
  * privileged than their target ) to compare role sets by plain set inclusion.
  * Also available to an `AccessTokenRolePolicy` implementation ( see
- * `@spinajs/rbac-http-token` ) that wants to permit a token role by comparing
+ * `@spinajs/authn-token` ) that wants to permit a token role by comparing
  * permission sets rather than role names - the shipped default policy does
  * not do this, it compares `owner.Role` directly and never touches
  * `AccessControl`, but an application's own policy is free to.

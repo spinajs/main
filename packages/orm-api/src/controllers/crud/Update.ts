@@ -1,6 +1,6 @@
 import { IModelStatic, Orm } from '@spinajs/orm';
 import { BasePath, Ok, Put, Policy, BodyField, Param } from '@spinajs/http';
-import { Permission } from '@spinajs/rbac-http';
+import { Permission } from '@spinajs/authn-http';
 import { Autoinject } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 

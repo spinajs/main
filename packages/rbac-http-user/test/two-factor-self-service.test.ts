@@ -9,7 +9,7 @@ import { DateTime } from 'luxon';
 
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok, Unauthorized } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
-import { RbacPolicy } from '@spinajs/rbac-http';
+import { RbacPolicy } from '@spinajs/authn-http';
 import { BadRequest } from '@spinajs/exceptions';
 import type { ISession } from '@spinajs/users';
 

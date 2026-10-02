@@ -278,7 +278,7 @@ export function usePermission<T extends PermissionService>(type: Class<T>): T {
 
 /**
  * THE guarded accesscontrol probe — single home for the AccessControlError semantics
- * previously copy-pasted into the ORM query middleware and rbac-http's RbacPolicy.
+ * previously copy-pasted into the ORM query middleware and authn-http's RbacPolicy.
  * Answers the Permission object (grant attributes stay reachable), or null for a role
  * unknown to accesscontrol — which throws AccessControlError for any role absent from
  * the grants map and rejects the whole role array on one unknown member. A genuine
@@ -302,7 +302,7 @@ export function probeGrant(roles: string | string[], permission: string, resourc
 
 /**
  * THE ActiveRole rule — single home for the narrowing previously inlined in the ORM
- * query middleware and rbac-http's checkRoutePermission. The session's ActiveRole
+ * query middleware and authn-http's checkRoutePermission. The session's ActiveRole
  * applies only to the user it was selected for — matched by id; any other user answers
  * their full role list.
  *

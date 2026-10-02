@@ -3,7 +3,7 @@ import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession
 import type { ISession } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
-import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/authn-http';
 import { BadRequest } from '@spinajs/exceptions';
 import { ConfirmPasswordDto } from '../dto/confirm-password-dto.js';
 import { TokenDto } from '../dto/token-dto.js';
@@ -214,7 +214,7 @@ export class TwoFactorAuthUserController extends BaseController {
    * A caller who abandons before confirming is left password-only — the same
    * gap as `enable`. The only built-in recovery is `rbac.twoFactorAuth.forceUser`
    * pushing the account back through enrolment at next login, and this package's
-   * own default for that flag is `false` (see `src/config/rbac-http.ts`), so a
+   * own default for that flag is `false` (see `src/config/authn-http.ts`), so a
    * consumer that has not set it will see the downgrade become silent and
    * permanent rather than recovered.
    * @security cookieAuth

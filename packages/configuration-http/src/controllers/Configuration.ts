@@ -1,5 +1,5 @@
 import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query, ServerError } from '@spinajs/http';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, Permission, Resource } from '@spinajs/authn-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';

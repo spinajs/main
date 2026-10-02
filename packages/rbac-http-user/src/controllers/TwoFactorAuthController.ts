@@ -1,13 +1,13 @@
 import { TokenDto } from './../dto/token-dto.js';
 import { BaseController, BasePath, Ok, Post, ForbiddenResponse } from '@spinajs/http';
 import { ISession, SessionProvider, User as UserModel, AccessControl, regenerateSession } from '@spinajs/users';
-import { Session } from '@spinajs/rbac-http';
+import { Session } from '@spinajs/authn-http';
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';
 import { TwoFacRouteEnabled } from '../policies/2FaPolicy.js';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { Autoinject } from '@spinajs/di';
-import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants, TwoFactorAuthConfig } from '@spinajs/rbac-http';
+import { User, NotAuthorizedPolicy, IEnable2faResponse, IUserWithGrants, TwoFactorAuthConfig } from '@spinajs/authn-http';
 import { auth2Fa, activateUser2Fa, beginUser2FaEnrolment } from '../actions/2fa.js';
 import { BadRequest } from '@spinajs/exceptions';
 import { TWO_FA_METATADATA_KEYS } from '../2fa/Default2FaToken.js';

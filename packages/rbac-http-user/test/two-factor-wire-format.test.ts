@@ -9,7 +9,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
-import { RbacMiddleware, RbacPolicy } from '@spinajs/rbac-http';
+import { RbacMiddleware, RbacPolicy } from '@spinajs/authn-http';
 import { UserSession } from '@spinajs/users';
 
 import { dir, req, TestConfiguration } from './common.js';

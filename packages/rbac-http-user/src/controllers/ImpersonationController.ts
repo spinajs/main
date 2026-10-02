@@ -22,7 +22,7 @@ import {
   IImpersonationState,
   IUserWithGrants,
   resolveSessionContext,
-} from '@spinajs/rbac-http';
+} from '@spinajs/authn-http';
 import { ImpersonationService } from '../services/ImpersonationService.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants, grantsFor } from '../services/grants.js';

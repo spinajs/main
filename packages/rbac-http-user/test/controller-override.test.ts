@@ -9,13 +9,13 @@ import { Configuration } from '@spinajs/configuration';
 import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { BaseController, Controllers, HttpServer, Ok, Get } from '@spinajs/http';
-import { AuthorizedPolicy, RbacMiddleware, RbacPolicy } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, RbacMiddleware, RbacPolicy } from '@spinajs/authn-http';
 
 import { dir, req, TestConfiguration } from './common.js';
 import { UserController } from '../src/controllers/UserController.js';
 
 /**
- * The TestConfiguration shared with `rbac-http.test.ts` cannot actually boot an
+ * The TestConfiguration shared with `authn-http.test.ts` cannot actually boot an
  * http server: it declares no fs provider for the controller cache and no
  * cookie secret, so `DefaultControllerCache` and rbac's `RbacMiddleware` both
  * blow up during resolve. Rather than touch the shared file ( and with it the

@@ -11,7 +11,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, IControllerDescriptor, IRoute, NotFound, Ok } from '@spinajs/http';
 import { PaginationDTO, OrderDTO, IFilterRequest, FilterableLogicalOperators } from '@spinajs/orm-http';
-import { RbacPolicy } from '@spinajs/rbac-http';
+import { RbacPolicy } from '@spinajs/authn-http';
 
 import {
   AuthProvider,

@@ -54,6 +54,24 @@
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-session": "3.0.0-alpha.0",
-    "@spinajs/http": "2.0.548"
+    "@spinajs/authn-token": "3.0.0-alpha.0",
+    "@spinajs/configuration": "2.0.548",
+    "@spinajs/di": "2.0.548",
+    "@spinajs/exceptions": "2.0.548",
+    "@spinajs/http": "2.0.548",
+    "@spinajs/log": "2.0.548",
+    "@spinajs/orm": "2.0.548",
+    "@spinajs/reflection": "2.0.548",
+    "@spinajs/users": "3.0.0-alpha.0",
+    "@spinajs/validation": "2.0.548",
+    "accesscontrol": "^2.2.1",
+    "luxon": "^3.6.1",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@spinajs/fs": "2.0.548",
+    "@spinajs/orm-sqlite": "2.0.548",
+    "@types/uuid": "^9.0.0",
+    "cookie-signature": "^1.2.2"
   }
 }

@@ -3,7 +3,7 @@ import { confirmPasswordReset, passwordChangeRequest, PasswordValidationProvider
 import type { IPasswordPolicy } from '@spinajs/users';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AutoinjectService } from '@spinajs/configuration';
-import { SkipModelPermission } from '@spinajs/rbac-http';
+import { SkipModelPermission } from '@spinajs/authn-http';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../dto/password-reset-dto.js';
 
 /** Reply shared by both reset routes — deliberately says nothing about the account. */

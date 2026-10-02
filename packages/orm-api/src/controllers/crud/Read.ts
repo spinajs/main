@@ -1,7 +1,7 @@
 import { Permission } from 'accesscontrol';
 import { Orm, SortOrder, IModelStatic } from '@spinajs/orm';
 import { Get, Ok, Query, Param, Policy, BasePath } from '@spinajs/http';
-import { User } from '@spinajs/rbac-http';
+import { User } from '@spinajs/authn-http';
 import { User as UserModel, IRbacModelDescriptor, AccessControl } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { BadRequest, Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';

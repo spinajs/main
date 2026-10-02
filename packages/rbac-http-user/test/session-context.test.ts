@@ -12,7 +12,7 @@ import {
   AccessControl,
 } from '@spinajs/users';
 import type { User } from '@spinajs/users';
-import { SessionContextProvider } from '@spinajs/rbac-http';
+import { SessionContextProvider } from '@spinajs/authn-http';
 
 import { LoginController } from '../src/controllers/LoginController.js';
 import { ActiveRoleController } from '../src/controllers/ActiveRoleController.js';

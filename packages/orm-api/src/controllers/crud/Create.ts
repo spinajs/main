@@ -2,7 +2,7 @@ import { IModelStatic, Orm } from '@spinajs/orm';
 import { BasePath, Ok, Post, Policy, BodyField, Param } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 import { Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
-import { User } from '@spinajs/rbac-http';
+import { User } from '@spinajs/authn-http';
 import _ from 'lodash';
 import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';

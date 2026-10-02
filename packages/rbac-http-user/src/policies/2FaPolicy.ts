@@ -1,6 +1,6 @@
 import { Config } from '@spinajs/configuration';
 import { BasePolicy, Request as sRequest } from '@spinajs/http';
-import { TwoFactorAuthConfig } from '@spinajs/rbac-http';
+import { TwoFactorAuthConfig } from '@spinajs/authn-http';
 import { Forbidden, InvalidOperation } from '@spinajs/exceptions';
 
 /**

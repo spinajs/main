@@ -4,7 +4,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { Controllers, HttpServer } from '@spinajs/http';
-import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
 import 'mocha';

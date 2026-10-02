@@ -8,7 +8,7 @@ import sinon from 'sinon';
 import { ISession, UserSession } from '@spinajs/users';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
-import { NotAuthorizedPolicy } from '@spinajs/rbac-http';
+import { NotAuthorizedPolicy } from '@spinajs/authn-http';
 import { TwoFactorAuthController } from '../src/controllers/TwoFactorAuthController.js';
 import { TwoFacRouteEnabled } from '../src/policies/2FaPolicy.js';
 import { SessionCookieFactory } from '../src/services/SessionCookies.js';
