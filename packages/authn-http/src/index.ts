@@ -26,3 +26,10 @@ export * from "./controllers/GrantsController.js";
 
 export * from './account/index.js';
 export * from './token/index.js';
+
+export * from './api.js';
+// api.ts declares these five names too. Until N8a replaces the moved 2.x code, the explicit exports keep the working 2.x
+// implementations in the barrel (an explicit export wins over `export *`); api.ts keeps the frozen 3.0 signatures.
+export { FromSession, SessionId } from './decorators.js';
+export { NotLoggedPolicy } from './policies/NotLoggedPolicy.js';
+export { NoTokenAuthPolicy, NoImpersonationPolicy } from './token/index.js';
