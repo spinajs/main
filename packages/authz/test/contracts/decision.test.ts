@@ -77,26 +77,30 @@ describe('decision contracts', () => {
     it('rejects wrong shapes', () => {
       // @ts-expect-error cacheable is required
       const noCacheable: Vote = { model: 'm', permitWhen: FALSE, denyWhen: FALSE };
-      // @ts-expect-error roles and domain are required
-      const noRoles: Decision = { allowed: true, permission: 'a.b', resource: { type: 'a' }, principal: { type: 'user', id: '1' }, residual: TRUE, fields: { read: [], write: [] } };
+      // @ts-expect-error roles is required
+      const noRoles: Decision = { allowed: true, permission: 'a.b', resource: { type: 'a' }, principal: { type: 'user', id: '1' }, residual: TRUE, fields: { read: [], write: [] }, domain: 'd' };
+      // @ts-expect-error domain is required
+      const noDomain: Decision = { allowed: true, permission: 'a.b', resource: { type: 'a' }, principal: { type: 'user', id: '1' }, residual: TRUE, fields: { read: [], write: [] }, roles: {} };
       // @ts-expect-error code is required
       const noCode: DenyReason = { model: 'm' };
-      expect([noCacheable, noRoles, noCode]).to.have.length(3);
+      expect([noCacheable, noRoles, noDomain, noCode]).to.have.length(4);
     });
 
     it('keeps members readonly', () => {
-      const mutable = { vote, decision, request, step };
-      expect(mutable).to.have.property('vote');
-      // @ts-expect-error readonly
-      vote.model = 'x';
-      // @ts-expect-error readonly
-      decision.allowed = false;
-      // @ts-expect-error readonly
-      decision.fields.read = [];
-      // @ts-expect-error readonly
-      request.explain = false;
-      // @ts-expect-error readonly
-      step.note = 'x';
+      // Never called: the compiler checks the assignments, the shared fixtures stay untouched.
+      const assignAll = (): void => {
+        // @ts-expect-error readonly
+        vote.model = 'x';
+        // @ts-expect-error readonly
+        decision.allowed = false;
+        // @ts-expect-error readonly
+        decision.fields.read = [];
+        // @ts-expect-error readonly
+        request.explain = false;
+        // @ts-expect-error readonly
+        step.note = 'x';
+      };
+      expect(assignAll).to.be.a('function');
     });
 
     it('allows extra keys on DenyReason', () => {
@@ -178,6 +182,41 @@ describe('decision contracts', () => {
       expect(compareDenyReasons(reason('x', { priority: 1, sortKey: 'release/*' }), reason('x', { priority: 1, sortKey: 'release/x' }))).to.be.lessThan(0);
     });
 
+    it('compares by code point, astral after U+FF5E', () => {
+      expect(compareDenyReasons(reason('x', { priority: 1, sortKey: '😀' }), reason('x', { priority: 1, sortKey: '～' }))).to.be.greaterThan(0);
+      expect(compareDenyReasons(reason('x', { priority: 1, sortKey: '～' }), reason('x', { priority: 1, sortKey: '😀' }))).to.be.lessThan(0);
+      expect(compareDenyReasons(reason('x', { priority: 1, sortKey: '𐀀' }), reason('x', { priority: 1, sortKey: '' }))).to.be.greaterThan(0);
+    });
+
+    it('picks the same winner in both input orders when only the payload differs', () => {
+      const r1 = { code: 'role_too_low', model: 'rbac', ladder: 'project', role: 'viewer', needed: 'editor' };
+      const r2 = { code: 'role_too_low', model: 'rbac', ladder: 'org', role: 'viewer', needed: 'editor' };
+      expect([r1, r2].sort(compareDenyReasons)[0]).to.eq([r2, r1].sort(compareDenyReasons)[0]);
+      expect(compareDenyReasons(r1, r2)).to.eq(-compareDenyReasons(r2, r1));
+      expect(compareDenyReasons(r1, r2)).not.to.eq(0);
+    });
+
+    it('ignores payload key order and survives unserialisable payloads', () => {
+      expect(compareDenyReasons({ code: 'x', a: 1, b: { c: 1, d: 2 } }, { code: 'x', b: { d: 2, c: 1 }, a: 1 })).to.eq(0);
+      const cyclic: Record<string, unknown> = {};
+      cyclic.self = cyclic;
+      expect(() => compareDenyReasons({ code: 'x', v: cyclic }, { code: 'x', v: 1n })).not.to.throw();
+    });
+
+    it('does not break on non-string code or sortKey', () => {
+      const list = [
+        { code: 'x', sortKey: 3 },
+        { code: 'x', sortKey: 'a' },
+        { code: 'x', sortKey: '10' },
+      ] as unknown as DenyReason[];
+      const a = [...list].sort(compareDenyReasons).map((r) => String(r.sortKey));
+      const b = [...list]
+        .reverse()
+        .sort(compareDenyReasons)
+        .map((r) => String(r.sortKey));
+      expect(a).to.deep.eq(b);
+    });
+
     it('puts an absent sortKey first', () => {
       expect(compareDenyReasons(reason('x', { priority: 1 }), reason('x', { priority: 1, sortKey: 'a' }))).to.be.lessThan(0);
       expect(compareDenyReasons(reason('x', { priority: 1, sortKey: '' }), reason('x', { priority: 1 }))).to.eq(0);
@@ -229,6 +268,14 @@ describe('decision contracts', () => {
       expect(e.message).to.contain('doc.read');
       expect(e.message).to.contain('doc:1');
       expect(e.message).to.contain('no_access');
+    });
+
+    it('keeps the decision out of enumerable and serialised state', () => {
+      const e = new AccessDenied(denied);
+      expect(Object.keys(e)).not.to.include('decision');
+      expect({ ...e }).not.to.have.property('decision');
+      expect(JSON.stringify(e)).not.to.contain('decision');
+      expect(e.decision).to.eq(denied);
     });
 
     it('AccessDenied takes an optional message', () => {

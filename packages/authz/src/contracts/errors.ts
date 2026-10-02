@@ -13,12 +13,13 @@ export class AuthzConfigError extends Error {
 export class UnknownPermission extends AuthzConfigError {}
 
 export class AccessDenied extends Forbidden {
-  public readonly decision: Decision;
+  declare readonly decision: Decision;
 
   constructor(decision: Decision, message?: string) {
     super(message ?? `Access denied: ${decision.permission} on ${resourceKey(decision.resource)}${decision.reason ? ` (${decision.reason.code})` : ''}`);
     this.name = new.target.name;
-    this.decision = decision;
+    // non-enumerable: @spinajs/http spreads an error's own enumerable props into the response body
+    Object.defineProperty(this, 'decision', { value: decision, enumerable: false });
   }
 }
 
