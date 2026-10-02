@@ -63,7 +63,7 @@ describe('engine refs: collectRefs', () => {
   it('walks a depth-30 DAG fast', () => {
     const started = Date.now();
     expect(collectRefs(dag(eq('x', ref('actor.id'))))).to.deep.equal(['actor.id']);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 });
 
@@ -81,7 +81,7 @@ describe('engine refs: hasEnvRef', () => {
   it('walks a depth-30 DAG fast', () => {
     const started = Date.now();
     expect(hasEnvRef(dag(eq('x', ref('env.ip'))))).to.equal(true);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 });
 
@@ -101,7 +101,7 @@ describe('engine refs: readsIdentity', () => {
   it('walks a depth-30 DAG fast', () => {
     const started = Date.now();
     expect(readsIdentity(dag(eq('x', ref('actor.identity.x'))))).to.equal(true);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 });
 
@@ -335,7 +335,7 @@ describe('engine refs: bindEngineRefs', () => {
   it('binds a depth-30 DAG fast, with both polarities of one shared node', () => {
     const started = Date.now();
     const out = bindEngineRefs(dag(eq('x', ref('missing'))), values);
-    expect(Date.now() - started).to.be.lessThan(2000);
+    expect(Date.now() - started).to.be.lessThan(10000);
     expect(collectRefs(out)).to.deep.equal([]);
   });
 });

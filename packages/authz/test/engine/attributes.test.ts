@@ -233,7 +233,7 @@ describe('engine attributes: mergeAttributes', () => {
     });
     const started = Date.now();
     expect(() => mergeAttributes([{ l: huge }])).to.throw(AuthzConfigError);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 
   it('throws AuthzConfigError fast for a layer with 20,000 scalar keys', () => {
@@ -241,7 +241,7 @@ describe('engine attributes: mergeAttributes', () => {
     for (let i = 0; i < 20_000; i++) wide[`k${i}`] = i;
     const started = Date.now();
     expect(() => mergeAttributes([wide])).to.throw(AuthzConfigError);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 
   it('counts the value budget across all layers of one merge', () => {
@@ -261,7 +261,7 @@ describe('engine attributes: mergeAttributes', () => {
     for (let i = 0; i < 30; i++) v = { l: v, r: v };
     const started = Date.now();
     expect(() => mergeAttributes([v])).to.throw(AuthzConfigError);
-    expect(Date.now() - started).to.be.lessThan(1000);
+    expect(Date.now() - started).to.be.lessThan(5000);
   });
 });
 

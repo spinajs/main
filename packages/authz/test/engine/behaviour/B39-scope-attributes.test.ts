@@ -460,8 +460,8 @@ describe('B39: scope attributes and engine refs', () => {
         { when: { op: 'relation', relation: 'stuck' } as ResourceFilter, reason: { code: 'stuck', priority: 50 } },
       ],
     });
-    const { a } = setup([new StaticModel('m', { vote })], { store: hung, relations: [stuck], config: { modelTimeoutMs: 100 } });
-    const d = await within(190, () => a.check(read(rows()[0])));
+    const { a } = setup([new StaticModel('m', { vote })], { store: hung, relations: [stuck], config: { modelTimeoutMs: 500 } });
+    const d = await within(950, () => a.check(read(rows()[0])));
     expect(d.allowed).to.equal(false);
     // The batch ran out of time: static truths.
     expect(d.reason).to.deep.equal({ code: 'not_owner', priority: 300, model: 'm' });

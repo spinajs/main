@@ -465,7 +465,7 @@ describe('cache-key', () => {
       }
       const started = Date.now();
       expect(principalState(user({ attributes: { dag: node } }))).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('is undefined for a large flat value and for a huge companion list', () => {

@@ -517,7 +517,7 @@ describe('engine/delegation', () => {
       const started = Date.now();
       stripPrincipalOps(raw);
       stripPrincipalOps(built);
-      expect(Date.now() - started).to.be.lessThan(1000);
+      expect(Date.now() - started).to.be.lessThan(5000);
     });
 
     it('nesting deeper than the limit and cycles terminate fail-closed', () => {

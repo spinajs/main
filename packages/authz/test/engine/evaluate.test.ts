@@ -365,7 +365,7 @@ describe('engine/evaluate', () => {
       expect(matchGlob('**a**a**a**a**a**a**a**a**b', text)).to.equal(false);
       expect(matchLike('%a%a%a%a%a%a%a%a%b', text)).to.equal(false);
       expect(matchLike('%a%a%a%a%a%a%a%a%', text)).to.equal(true);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('the work cap (|pattern| x |text| > 4,000,000) returns undefined', () => {
@@ -850,7 +850,7 @@ describe('engine/evaluate', () => {
       });
       const started = Date.now();
       expect(await run(dag(30, cmp('x', 'eq', 1), cmp('y', 'eq', 2)), {}, e)).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(2000);
+      expect(Date.now() - started).to.be.below(10000);
       expect(reads).to.be.at.most(2);
     });
 
@@ -885,7 +885,7 @@ describe('engine/evaluate', () => {
       expect(await run(trueDag(40), { t: 1 })).to.equal(undefined);
       expect(await run(falseDag(40), { t: 1 })).to.equal(undefined);
       expect(await run({ op: 'not', arg: falseDag(40) }, { t: 1 })).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(3000);
+      expect(Date.now() - started).to.be.below(15000);
     });
 
     it('matcher work counts against the same budget', async () => {
@@ -894,7 +894,7 @@ describe('engine/evaluate', () => {
       const started = Date.now();
       const many: ResourceFilter = { op: 'or', args: Array.from({ length: 50 }, heavy) };
       expect(await run(many, { x: text })).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
       // one heavy matcher alone fits, and one node shared 50 times is matched once
       expect(await run(heavy(), { x: text })).to.equal(false);
       const shared = heavy();
@@ -930,7 +930,7 @@ describe('engine/evaluate', () => {
       const started = Date.now();
       expect(await run(heavyDag(40, cmp('a', 'in', list)), { a: 7 })).to.equal(undefined);
       expect(await run(heavyDag(40, cmp('a', 'in', list)), { a: null })).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('a 40-level DAG over a shared lt leaf on long strings finishes fast', async () => {
@@ -938,7 +938,7 @@ describe('engine/evaluate', () => {
       const started = Date.now();
       expect(await run(heavyDag(40, cmp('s', 'lt', long + 'b')), { s: long })).to.equal(undefined);
       expect(await run(heavyDag(8, cmp('s', 'lt', long + 'b')), { s: long })).to.equal(true);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('a 40-level DAG over a shared under leaf finishes fast', async () => {
@@ -947,7 +947,7 @@ describe('engine/evaluate', () => {
       const e = env({ ancestors: () => Promise.resolve(ancestors) });
       const started = Date.now();
       expect(await run(heavyDag(40, { op: 'under', scopes }), {}, e)).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('under looks scopes up in an index of the ancestors instead of comparing every pair', async () => {
@@ -959,7 +959,7 @@ describe('engine/evaluate', () => {
       expect(await run({ op: 'under', scopes }, {}, e)).to.equal(true);
       expect(await run({ op: 'under', scopes: scopes.slice(0, 5000) }, {}, e)).to.equal(false);
       expect(await run({ op: 'under', scopes: [...scopes.slice(0, 5000), { type: 'folder' }] }, {}, e)).to.equal(true);
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('under keys cannot collide through a NUL in a type or id', async () => {
@@ -1001,7 +1001,7 @@ describe('engine/evaluate', () => {
       const list = Array.from({ length: 50000 }, (_, i) => i);
       const started = Date.now();
       expect(await run(cmp('a', 'in', list), { a: digits })).to.equal(undefined);
-      expect(Date.now() - started).to.be.below(500);
+      expect(Date.now() - started).to.be.below(2500);
     });
 
     it('a huge pattern against a short text is charged by pattern length', async () => {

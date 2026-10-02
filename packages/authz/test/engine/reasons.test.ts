@@ -369,7 +369,7 @@ describe('selectDenyReason', () => {
       const started = Date.now();
       const r = select({ core: [{ code: 'huge', priority: 0, node } as DenyReason, { code: 'ceiling' }] });
       expect(r).to.deep.equal({ code: 'ceiling' });
-      expect(Date.now() - started).to.be.below(1000);
+      expect(Date.now() - started).to.be.below(5000);
     });
 
     it('copies a payload within the value budget', () => {

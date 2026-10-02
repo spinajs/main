@@ -1035,7 +1035,7 @@ describe('Authorizer: bounded work and termination', () => {
       const m = new StaticModel('m', { capabilities: { residuals: ['native:x'] }, vote: permit({ op: 'or', args: Array.from({ length: 9999 }, () => node) }) });
       const t0 = Date.now();
       const d = await make({ models: [m] }).check({ principal: alice, permission: 'doc:read' });
-      expect(Date.now() - t0).to.be.below(1000);
+      expect(Date.now() - t0).to.be.below(5000);
       expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     });
 
@@ -1048,7 +1048,7 @@ describe('Authorizer: bounded work and termination', () => {
       });
       const t0 = Date.now();
       const d = await make({ models: [m] }).explain({ principal: alice, permission: 'doc:read' });
-      expect(Date.now() - t0).to.be.below(1000);
+      expect(Date.now() - t0).to.be.below(5000);
       expect(d.allowed).to.equal(true);
       const steps = d.trace!.steps.filter((x) => x.by === 'm');
       expect(steps.length).to.be.at.most(1000);

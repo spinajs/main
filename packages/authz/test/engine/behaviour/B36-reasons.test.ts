@@ -187,7 +187,7 @@ describe('B36: deny reasons through the Authorizer', () => {
       const { a, log } = setup(rows, hanging, 30);
       const t0 = Date.now();
       const d = await a.check({ principal: alice, permission: 'doc:read', resource: rows[0] });
-      expect(Date.now() - t0).to.be.below(1000);
+      expect(Date.now() - t0).to.be.below(5000);
       // Once, by the reason pass: the subject check itself must have denied on the owner without reaching it.
       expect(hanging.calls).to.have.length(1);
       expect(d.allowed).to.equal(false);

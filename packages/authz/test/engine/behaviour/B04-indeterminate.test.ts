@@ -14,13 +14,13 @@ const alice = principal('user', 'alice');
 const FAULTS: readonly [string, StaticModelOptions][] = [
   ['throws', { throws: new Error('kaput') }],
   ['sets error', { vote: { permitWhen: { op: 'true' }, error: 'store down' } }],
-  ['times out', { vote: permit(), delayMs: 60 }],
+  ['times out', { vote: permit(), delayMs: 400 }],
 ];
 
 let log: RecordingLog;
 beforeEach(() => (log = new RecordingLog()));
 
-const check = (algorithm: string, models: StaticModel[]): Promise<Decision> => new Authorizer({ domain: 'root', models, registry, log, combine: { default: { algorithm } }, config: { modelTimeoutMs: 15 } }).check({ principal: alice, permission: 'doc:read' });
+const check = (algorithm: string, models: StaticModel[]): Promise<Decision> => new Authorizer({ domain: 'root', models, registry, log, combine: { default: { algorithm } }, config: { modelTimeoutMs: 50 } }).check({ principal: alice, permission: 'doc:read' });
 
 describe('B04: indeterminate models', () => {
   for (const [fault, options] of FAULTS) {
