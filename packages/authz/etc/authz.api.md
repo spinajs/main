@@ -742,7 +742,7 @@ const PERMISSION_GLOB_PATTERN = Object.freeze(new RegExp(GLOB.source));
 
 ```ts
 export { SYSTEM, UNATTENDED, principalKey, ceilingHash } from "@spinajs/authn/contracts";
-export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef } from "@spinajs/authn/contracts";
+export type { PrincipalType, PrincipalRef, Principal, AuthnFacts, Ceiling, ResourceType, ResourceRef, IAuthnPrincipalStorage } from "@spinajs/authn/contracts";
 ```
 
 ## src/contracts/resource.ts
@@ -855,6 +855,11 @@ export interface Ceiling {
     readonly resources?: readonly ResourceRef[];
     readonly expiresAt?: Date;
     readonly reason?: string;
+}
+
+// IAuthnPrincipalStorage (@spinajs/authn)
+export interface IAuthnPrincipalStorage {
+    AuthnPrincipal?: Principal | null;
 }
 
 // Principal (@spinajs/authn)
