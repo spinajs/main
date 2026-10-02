@@ -406,7 +406,7 @@ describe('socket events and lifecycle hooks', function () {
 
     const pending = command(socket, 'evt.rooms', null, { id: 'evt-hang-cancel' });
     await delay(50);
-    expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted', message: 'more than 1 calls in flight on this connection' });
+    expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted', message: 'more than 1 commands in flight on this connection' });
     expect(errorOf(await command(socket, 'evt.rooms', 'x'.repeat(300))).message).to.match(/^payload of \d+ bytes exceeds the limit of 200 bytes$/);
 
     socket.emit(WIRE_EVENTS.cancel, { id: 'evt-hang-cancel' });
@@ -510,14 +510,18 @@ describe('socket events and lifecycle hooks', function () {
 
   it('caps running events with maxInFlightEventsPerConnection, apart from the command slots', async () => {
     holdSlow();
-    await start({ http: { socket: { maxInFlightPerConnection: 1, maxInFlightEventsPerConnection: 2, rate: { perSecond: 50, burst: 2 } } } });
+    await start({ http: { socket: { maxInFlightPerConnection: 1, maxInFlightEventsPerConnection: 2, rate: { perSecond: 1000, burst: 2 } } } });
     const id = socket.id!;
     try {
       for (let x = 0; x < 5; x++) {
         socket.emit(WIRE_EVENTS.event, { name: 'evt.slow', payload: null });
+        await delay(10);
       }
 
-      await waitFor(() => lines('debug').filter((l) => l.startsWith(`Socket event evt.slow from connection ${id} dropped: resource_exhausted`)).length === 3);
+      const dropped = () => lines('debug').filter((l) => l.startsWith(`Socket event evt.slow from connection ${id} dropped: resource_exhausted`));
+      await waitFor(() => dropped().length === 3);
+      expect(dropped().every((l) => l.includes('more than 2 events in flight on this connection'))).to.equal(true);
+      expect(dropped().some((l) => l.includes('rate limit exceeded'))).to.equal(false);
       await waitFor(() => evtSlow.active === 2);
       expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
     } finally {

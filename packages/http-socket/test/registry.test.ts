@@ -58,6 +58,12 @@ export class RegLongName extends BaseSocketController {
   public async long(): Promise<void> {}
 }
 
+@SocketController('reg-hook')
+export class RegBadHookName extends BaseSocketController {
+  @OnConnect()
+  public async ['not a valid name!'](): Promise<void> {}
+}
+
 describe('socket handler registry', function () {
   this.timeout(15000);
 
@@ -121,6 +127,16 @@ describe('socket handler registry', function () {
       } finally {
         DI.unregister(type);
       }
+    }
+  });
+
+  it('accepts lifecycle hooks whose name would fail NAME_PATTERN', async () => {
+    DI.register(RegBadHookName).as(BaseSocketController);
+    try {
+      await registry.build();
+      expect(registry.hooks('connect').map((h) => h.fullName)).to.include('reg-hook.not a valid name!');
+    } finally {
+      DI.unregister(RegBadHookName);
     }
   });
 

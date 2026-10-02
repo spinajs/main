@@ -110,9 +110,9 @@ export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'orderin
 }
 
 /** Runs `work` holding one of `max` slots of the counter, refusing when none is free; the slot is given back when `work` settles. */
-export async function withSlot<T>(runtime: IConnectionRuntime, counter: 'inFlight' | 'eventsInFlight', max: number, work: () => Promise<T>, retryAfterMs?: number): Promise<T> {
+export async function withSlot<T>(runtime: IConnectionRuntime, counter: 'inFlight' | 'eventsInFlight', noun: 'commands' | 'events', max: number, work: () => Promise<T>, retryAfterMs?: number): Promise<T> {
   if (runtime[counter] >= max) {
-    throw new SocketException('resource_exhausted', `more than ${max} calls in flight on this connection`, retryAfterMs === undefined ? undefined : { retryAfterMs });
+    throw new SocketException('resource_exhausted', `more than ${max} ${noun} in flight on this connection`, retryAfterMs === undefined ? undefined : { retryAfterMs });
   }
 
   runtime[counter]++;

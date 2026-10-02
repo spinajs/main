@@ -204,7 +204,7 @@ export class SocketDispatcher extends AsyncService {
       assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
       assertRate(runtime.bucket);
 
-      await withSlot(runtime, 'eventsInFlight', this.Options.maxInFlightEventsPerConnection, () => this.runEvent(runtime, frame.name, frame.payload));
+      await withSlot(runtime, 'eventsInFlight', 'events', this.Options.maxInFlightEventsPerConnection, () => this.runEvent(runtime, frame.name, frame.payload));
     } catch (err) {
       // a disconnect that ended the wait for the connect hooks is not a failure worth a line
       if (err !== connection.signal.reason || !connection.signal.aborted) {

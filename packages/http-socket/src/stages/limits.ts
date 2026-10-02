@@ -44,6 +44,6 @@ export class InFlightStage extends SocketCommandStage {
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     // The slot is held until the handler settles, even after an abort answered the client:
     // otherwise cancel-and-resend would run unbounded handlers.
-    return withSlot(ctx.runtime, 'inFlight', this.Options.maxInFlightPerConnection, next, IN_FLIGHT_RETRY_AFTER_MS);
+    return withSlot(ctx.runtime, 'inFlight', 'commands', this.Options.maxInFlightPerConnection, next, IN_FLIGHT_RETRY_AFTER_MS);
   }
 }

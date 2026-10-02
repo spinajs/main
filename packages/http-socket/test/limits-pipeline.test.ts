@@ -72,7 +72,7 @@ describe('socket pipeline limits', function () {
     const second = command(socket, 'lim.hold');
     await delay(50);
 
-    expect(errorOf(await command(socket, 'lim.hold'))).to.deep.equal({ code: 'resource_exhausted', message: 'more than 2 calls in flight on this connection', retryable: true, retryAfterMs: 100 });
+    expect(errorOf(await command(socket, 'lim.hold'))).to.deep.equal({ code: 'resource_exhausted', message: 'more than 2 commands in flight on this connection', retryable: true, retryAfterMs: 100 });
 
     release();
     expect(resultOf(await first)).to.equal('released');
