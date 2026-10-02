@@ -184,7 +184,7 @@ function readAt(list: readonly unknown[], i: number): unknown {
 
 const modelError = (model: string | undefined): DenyReason => Object.freeze(model === undefined ? { code: MODEL_ERROR } : { code: MODEL_ERROR, model });
 
-/** The reported deny reason: the minimum of the candidates under `compareDenyReasons` (conventions, "Reasons"). */
+/** The reported deny reason: the minimum of the candidates under `compareDenyReasons`, so model and rule order never matter (B36). */
 export function selectDenyReason(input: ReasonInput): DenyReason {
   const candidates: DenyReason[] = [];
   let fault = false;

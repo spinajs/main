@@ -65,13 +65,6 @@ function snapshot(p: unknown): Snapshot {
 
 const forbiddenType = (who: Identity): boolean => who.type === 'system' || who.type === 'unattended';
 
-/** SYSTEM, UNATTENDED, any object of type 'system'/'unattended', or anything that is not principal-shaped. */
-export function isForbiddenDelegate(p: unknown): boolean {
-  if (p === SYSTEM || p === UNATTENDED) return true;
-  const who = identity(p);
-  return who === undefined || forbiddenType(who);
-}
-
 function delegateDenial(who: Identity | undefined): DenyReason {
   return Object.freeze(who === undefined ? { code: 'delegate', priority: PRIORITY } : { code: 'delegate', priority: PRIORITY, delegate: principalKey(who) });
 }
@@ -110,19 +103,6 @@ function copyPrincipal(source: Record<string, unknown>, s: Snapshot & { ok: true
 // defineProperty: a '__proto__' key from parsed JSON stays an own data key instead of hitting the setter.
 function define(o: Record<string, unknown>, k: string, value: unknown): void {
   Object.defineProperty(o, k, { value, enumerable: true, writable: true, configurable: true });
-}
-
-/** A frozen copy of the delegate whose `ceiling.roles` is the intersection of its own and the agent's (absent = unrestricted). */
-export function narrowForInherit(delegate: Principal, agent: Principal): Principal {
-  const d = snapshot(delegate);
-  if (!d.ok) throw new AuthzConfigError('narrowForInherit: the delegate is not a readable principal');
-  const a = snapshot(agent);
-  const agentRoles = a.ok ? rolesOf(a) : Object.freeze([]);
-  try {
-    return copyPrincipal(delegate as unknown as Record<string, unknown>, d, intersectRoles(rolesOf(d), agentRoles));
-  } catch (e) {
-    throw new AuthzConfigError('narrowForInherit: the delegate could not be copied', { cause: e });
-  }
 }
 
 /** Throws AuthzConfigError when the onBehalfOf chain (a cycle counts as endless) is deeper than `maxDelegation`. */

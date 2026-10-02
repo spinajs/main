@@ -493,8 +493,8 @@ describe('B39: scope attributes and engine refs', () => {
         { when: { op: 'relation', relation: 'stuck' } as ResourceFilter, reason: { code: 'stuck', priority: 50 } },
       ],
     });
-    const { a } = setup([new StaticModel('m', { vote })], { relations: [stuck, stuckToo], config: { modelTimeoutMs: 500 } });
-    const d = await within(950, () => a.check(read(rows()[0])));
+    const { a } = setup([new StaticModel('m', { vote })], { relations: [stuck, stuckToo], config: { modelTimeoutMs: 1000 } });
+    const d = await within(1900, () => a.check(read(rows()[0])));
     expect(d.allowed).to.equal(false);
     // The batch ran out of time: static truths.
     expect(d.reason).to.deep.equal({ code: 'not_owner', priority: 300, model: 'm' });

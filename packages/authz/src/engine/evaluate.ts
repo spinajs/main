@@ -203,7 +203,7 @@ function comparison(f: Record<string, unknown>, run: Run): Truth {
   if (op === 'in' || op === 'nin') {
     const list = literalList(f.value, run);
     if (list === undefined) return undefined;
-    // Agrees with F1 simplify, which turns `in []` into FALSE and `nin []` into TRUE without reading the row.
+    // Agrees with the contract simplify(), which turns `in []` into FALSE and `nin []` into TRUE without reading the row.
     if (list.length === 0) return op === 'nin';
     const attr = readAttribute(field, run);
     if (attr === undefined || attr === null || attr === INCOMPARABLE || !charge(run, stringCost(attr))) return undefined;
@@ -383,7 +383,7 @@ function copyRefs(v: unknown, run: Run): readonly Ref[] | undefined {
 async function under(raw: unknown, run: Run): Promise<Truth> {
   const scopes = copyRefs(raw, run);
   if (scopes === undefined) return undefined;
-  // Agrees with F1 simplify, which turns an empty `under` into FALSE.
+  // Agrees with the contract simplify(), which turns an empty `under` into FALSE.
   if (scopes.length === 0) return false;
 
   const ancestors = await (run.ancestors ??= loadAncestors(run));

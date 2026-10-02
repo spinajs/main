@@ -58,8 +58,8 @@ export function swallow(v: unknown): void {
 
 export type Settled = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: string };
 
-/** Never rejects; a result after `ms` is ignored and its rejection caught. */
-export function settleWithin(p: PromiseLike<unknown>, ms: number, describe: (e: unknown) => string): Promise<Settled> {
+/** Never rejects; a result after `ms` is ignored and its rejection caught. `label` names the awaited hook in the error. */
+export function settleWithin(p: PromiseLike<unknown>, ms: number, describe: (e: unknown) => string, label: string): Promise<Settled> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (s: Settled) => {
@@ -68,14 +68,14 @@ export function settleWithin(p: PromiseLike<unknown>, ms: number, describe: (e: 
       clearTimeout(timer);
       resolve(s);
     };
-    const timer = setTimeout(() => finish({ ok: false, error: `timed out after ${ms} ms` }), ms);
+    const timer = setTimeout(() => finish({ ok: false, error: `${label} timed out after ${ms} ms` }), ms);
     try {
       p.then(
         (value) => finish({ ok: true, value }),
-        (e) => finish({ ok: false, error: `evaluate rejected: ${describe(e)}` }),
+        (e) => finish({ ok: false, error: `${label} rejected: ${describe(e)}` }),
       );
     } catch (e) {
-      finish({ ok: false, error: `evaluate returned a broken thenable: ${describe(e)}` });
+      finish({ ok: false, error: `${label} returned a broken thenable: ${describe(e)}` });
     }
   });
 }

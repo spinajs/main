@@ -3,6 +3,8 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { sanitizeVote } from '../../src/engine/vote.js';
+import { LruDecisionCache } from '../../src/engine/cache.js';
+import { l1Key } from '../../src/engine/context.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
 import { AuthzConfigError, Combinator, FALSE, GLOBAL, SYSTEM, TRUE, UNATTENDED, UnknownPermission, and, or } from '../../src/index.js';
 import type { Decision, DecisionRequest, EvaluationContext, Principal, ResourceFilter, Vote } from '../../src/index.js';
@@ -119,6 +121,29 @@ describe('Authorizer', () => {
         const d = await a.check({ principal: alice, permission: 'doc:read' });
         expect(d.allowed, name).to.equal(false);
         expect(d.reason?.code).to.equal('model_error');
+      }
+    });
+
+    it('denies with model_error when a custom combinator returns a promise, leaving no unhandled rejection', async () => {
+      const unhandled: unknown[] = [];
+      const guard = (e: unknown) => unhandled.push(e);
+      process.on('unhandledRejection', guard);
+      try {
+        class Async extends Combinator {
+          readonly name = 'async';
+          combine(): never {
+            return Promise.reject(new Error('combinator rejected')) as never;
+          }
+        }
+        const a = make({ combinators: [new Async()], combine: { default: { algorithm: 'async' } }, models: [new StaticModel('m', { vote: permit() })] });
+        const d = await a.check({ principal: alice, permission: 'doc:read' });
+        await tick();
+        expect(d.allowed).to.equal(false);
+        expect(d.reason?.code).to.equal('model_error');
+        expect(unhandled).to.deep.equal([]);
+        expect(log.at('error').some((e) => /synchronous/.test(e.message))).to.equal(true);
+      } finally {
+        process.off('unhandledRejection', guard);
       }
     });
 
@@ -760,6 +785,21 @@ describe('Authorizer', () => {
       expect(subjects).to.deep.equal([row]);
     });
 
+    it('checkMany asks the adapters about the resource once, not once per permission', async () => {
+      class Counting extends FakeAdapter {
+        accepted = 0;
+        accepts(target: unknown): target is FakeRow {
+          this.accepted++;
+          return super.accepts(target);
+        }
+      }
+      const row = new FakeRow('doc', 'd1');
+      const adapter = new Counting(['doc'], { rows: [row] });
+      const out = await make({ adapters: [adapter], models: [new StaticModel('m', { vote: permit() })] }).checkMany(alice, ['doc:read', 'doc:write'], row);
+      expect([...out.values()].map((d) => d.allowed)).to.deep.equal([true, true]);
+      expect(adapter.accepted).to.equal(1);
+    });
+
     it('filter returns the bound residual, FALSE when denied, never a ref', async () => {
       const a = make({ models: [new StaticModel('m', { vote: permit(owner()) })] });
       expect(await a.filter(alice, 'doc:read', 'doc')).to.deep.equal({ op: 'cmp', field: 'owner', cmp: 'eq', value: 'alice' });
@@ -866,6 +906,21 @@ describe('Authorizer', () => {
         expect(b.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
       });
 
+      it('a preload that never settles ends after modelTimeoutMs like a failed one: not recorded, request marked, logged', async () => {
+        const m = lazy();
+        m.preloadImpl = () => new Promise<void>(() => undefined);
+        const a = make({ models: [m], config: { modelTimeoutMs: 50 } });
+        const scope = { cache: new Map<string, unknown>() };
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const outcome = await Promise.race([a.preload(alice, scope).then(() => 'settled'), new Promise((r) => (timer = setTimeout(() => r('pending'), 2000)))]);
+        clearTimeout(timer);
+        expect(outcome).to.equal('settled');
+        expect(a.filterNow(alice, 'doc:read', 'doc', scope)).to.equal(undefined);
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+        expect(scope.cache.get(l1Key('fault', 'root', ''))).to.equal(true);
+        expect(log.at('error').some((e) => /preload/.test(e.message) && /timed out/.test(e.message))).to.equal(true);
+      });
+
       it('an intersect delegate is gated on its own preload', async () => {
         const bob = principal('user', 'bob');
         const token = principal('token', 't1', { onBehalfOf: bob });
@@ -905,6 +960,30 @@ describe('Authorizer', () => {
       expect(Object.isFrozen(input.env)).to.equal(false);
       expect(d.roles).to.deep.equal({ project: 'viewer' });
       expect(d.validUntil?.toISOString()).to.equal('2027-01-01T00:00:00.000Z');
+    });
+
+    it('every cache hit hands out its own validUntil: one caller changing its Date changes no other', async () => {
+      const until = new Date(clock.now.getTime() + 30_000);
+      const m = new StaticModel('m', { vote: permit(TRUE, { validUntil: until, cacheable: true }) });
+      const a = make({ models: [m], cache: new LruDecisionCache({ clock: clock.clock }) });
+      const input = { principal: alice, permission: 'doc:read' };
+      const scope = { cache: new Map<string, unknown>() };
+      const expected = until.toISOString();
+
+      const fresh = await a.check(input, scope);
+      fresh.validUntil!.setTime(Date.parse('2099-01-01T00:00:00Z'));
+      const l1 = await a.check(input, scope);
+      expect(l1.validUntil!.toISOString()).to.equal(expected);
+      l1.validUntil!.setTime(0);
+      const l2 = await a.check(input, { cache: new Map() });
+      expect(l2.validUntil!.toISOString()).to.equal(expected);
+      l2.validUntil!.setTime(0);
+
+      expect((await a.check(input, scope)).validUntil!.toISOString()).to.equal(expected);
+      expect((await a.check(input, { cache: new Map() })).validUntil!.toISOString()).to.equal(expected);
+      expect(m.calls).to.have.length(1);
+      expect(deepFrozen(l1)).to.equal(true);
+      expect(deepFrozen(l2)).to.equal(true);
     });
 
     it('roles merge in model-name order (first wins per ladder), also on denials; validUntil is the earliest valid one', async () => {

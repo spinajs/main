@@ -179,7 +179,7 @@ function ceilingState(v: unknown, b: Budget): Json {
   return { hash: ceilingHash(snapshot), rest: rest(fields, CEILING_FIELDS, b) };
 }
 
-const AUTHN_FIELDS = ['method', 'strategy', 'assurance', 'mfa', 'authenticatedAt', 'impersonator', 'sessionHandle'];
+export const AUTHN_FIELDS: readonly string[] = ['method', 'strategy', 'assurance', 'mfa', 'authenticatedAt', 'impersonator', 'sessionHandle'];
 
 function authnState(v: unknown, b: Budget): Json {
   if (v === undefined || v === null) return null;
@@ -204,7 +204,28 @@ function authnState(v: unknown, b: Budget): Json {
   };
 }
 
-const PRINCIPAL_FIELDS = ['type', 'id', 'authenticated', 'source', 'onBehalfOf', 'delegation', 'companions', 'ceiling', 'attributes', 'authn'];
+export const PRINCIPAL_FIELDS: readonly string[] = ['type', 'id', 'authenticated', 'source', 'onBehalfOf', 'delegation', 'companions', 'ceiling', 'attributes', 'authn'];
+
+// What state() keeps of the fields above in a form a residual ref can read. onBehalfOf
+// (nested state), companions (a key set) and identity (left out) are not readable.
+const KEYED_SCALARS = new Set(['type', 'id', 'authenticated', 'source', 'delegation']);
+const KEYED_AUTHN = new Set(['method', 'strategy', 'assurance', 'mfa', 'authenticatedAt', 'sessionHandle']);
+// The key holds these as sorted unique sets (ceilingHash): a whole list means the same in any order, an element path does not.
+const CEILING_SETS = new Set(['roles', 'permissions', 'resources']);
+
+/**
+ * A residual ref may back a cached decision only when the key holds its path.
+ * scope.* refs are safe: the L2 entry is tagged with each scope node loaded.
+ */
+export function cacheSafeRef(r: string): boolean {
+  const [root, head, ...tail] = r.split('.');
+  if (root === 'scope') return true;
+  if ((root !== 'principal' && root !== 'actor') || head === undefined) return false;
+  if (head === 'attributes') return true;
+  if (head === 'ceiling') return tail.length <= 1 || !CEILING_SETS.has(tail[0]);
+  if (head === 'authn') return tail.length === 1 ? KEYED_AUTHN.has(tail[0]) : tail.length === 2 && tail[0] === 'impersonator' && (tail[1] === 'type' || tail[1] === 'id');
+  return tail.length === 0 && KEYED_SCALARS.has(head);
+}
 
 function state(p: unknown, depth: number, chain: Set<object>, b: Budget): Json {
   if (!isObject(p) || depth > MAX_DELEGATION_DEPTH || chain.has(p)) return fail();

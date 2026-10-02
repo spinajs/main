@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
 
-import { bindEngineRefs, collectRefs, hasEnvRef, readsIdentity, refValues, scopeNodes } from '../../src/engine/refs.js';
+import { bindEngineRefs, collectRefs, refValues, scopeNodes } from '../../src/engine/refs.js';
 import { FALSE, TRUE, and, not, or } from '../../src/contracts/filter.js';
 import { GLOBAL } from '../../src/contracts/resource.js';
 import type { Principal, ResourceFilter, ResourceRef, Value } from '../../src/index.js';
@@ -63,44 +63,6 @@ describe('engine refs: collectRefs', () => {
   it('walks a depth-30 DAG fast', () => {
     const started = Date.now();
     expect(collectRefs(dag(eq('x', ref('actor.id'))))).to.deep.equal(['actor.id']);
-    expect(Date.now() - started).to.be.lessThan(5000);
-  });
-});
-
-describe('engine refs: hasEnvRef', () => {
-  it('finds env refs anywhere', () => {
-    expect(hasEnvRef(and(eq('a', 1), not(eq('b', ref('env.now')))))).to.equal(true);
-    expect(hasEnvRef(eq('a', ref('env')))).to.equal(true);
-  });
-
-  it('ignores other roots', () => {
-    expect(hasEnvRef(and(eq('a', ref('principal.id')), eq('b', ref('environment.x')), eq('c', ref('scope.env.x'))))).to.equal(false);
-    expect(hasEnvRef(TRUE)).to.equal(false);
-  });
-
-  it('walks a depth-30 DAG fast', () => {
-    const started = Date.now();
-    expect(hasEnvRef(dag(eq('x', ref('env.ip'))))).to.equal(true);
-    expect(Date.now() - started).to.be.lessThan(5000);
-  });
-});
-
-describe('engine refs: readsIdentity', () => {
-  it('finds actor and principal identity refs anywhere', () => {
-    expect(readsIdentity(and(eq('a', 1), not(eq('b', ref('actor.identity.tenant')))))).to.equal(true);
-    expect(readsIdentity(eq('a', ref('principal.identity.email')))).to.equal(true);
-    expect(readsIdentity(eq('a', ref('principal.identity')))).to.equal(true);
-    expect(readsIdentity(eq('a', ref('actor.identity')))).to.equal(true);
-  });
-
-  it('ignores other refs', () => {
-    expect(readsIdentity(and(eq('a', ref('actor.id')), eq('b', ref('principal.attributes.identity')), eq('c', ref('actor.identityX')), eq('d', ref('scope.org.identity.x')), eq('e', ref('env.identity'))))).to.equal(false);
-    expect(readsIdentity(TRUE)).to.equal(false);
-  });
-
-  it('walks a depth-30 DAG fast', () => {
-    const started = Date.now();
-    expect(readsIdentity(dag(eq('x', ref('actor.identity.x'))))).to.equal(true);
     expect(Date.now() - started).to.be.lessThan(5000);
   });
 });

@@ -2,10 +2,11 @@ import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
 
-import { isForbiddenDelegate, narrowForInherit, resolveDelegation, stripPrincipalOps } from '../../src/engine/delegation.js';
+import { resolveDelegation, stripPrincipalOps } from '../../src/engine/delegation.js';
 import { ceilingOutcome, mergeCeilings } from '../../src/engine/ceiling.js';
+import * as authz from '../../src/index.js';
 import { AuthzConfigError, FALSE, SYSTEM, TRUE, UNATTENDED, and, not, or } from '../../src/index.js';
-import type { Ceiling, Principal, ResourceFilter } from '../../src/index.js';
+import type { Ceiling, Delegation, Principal, ResourceFilter } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -20,6 +21,13 @@ function principal(type: string, id: string, extra: Partial<Mutable> = {}): Muta
 const roles = (p: Principal): readonly string[] | undefined => p.ceiling?.roles;
 
 describe('engine/delegation', () => {
+  it('the package exports resolveDelegation, stripPrincipalOps and the Delegation type', () => {
+    expect(authz.resolveDelegation).to.equal(resolveDelegation);
+    expect(authz.stripPrincipalOps).to.equal(stripPrincipalOps);
+    const d: Delegation = authz.resolveDelegation(principal('user', 'u1'), undefined, 2);
+    expect(d.denial).to.equal(undefined);
+  });
+
   describe('resolveDelegation', () => {
     it('no delegate: the principal runs as is', () => {
       const p = principal('user', 'u1');
@@ -252,6 +260,16 @@ describe('engine/delegation', () => {
         ['an object without id', { type: 'user' }, undefined],
         ['an object with a numeric id', { type: 'user', id: 1 }, undefined],
         ['an object with an empty type', { type: '', id: 'x' }, undefined],
+        [
+          'an object whose type getter throws',
+          {
+            get type(): string {
+              throw new Error('x');
+            },
+            id: 'u',
+          },
+          undefined,
+        ],
       ];
 
       for (const [name, delegate, key] of cases) {
@@ -273,31 +291,6 @@ describe('engine/delegation', () => {
         const mid = principal('agent', 'm', { onBehalfOf: UNATTENDED, delegation: 'inherit' });
         const d = resolveDelegation(principal('agent', 't', { onBehalfOf: mid, delegation: 'inherit' }), undefined, 2);
         expect(d.denial).to.deep.equal({ code: 'delegate', priority: 200, delegate: 'unattended:unattended' });
-      });
-    });
-
-    describe('isForbiddenDelegate', () => {
-      it('flags system, unattended and non-principals', () => {
-        expect(isForbiddenDelegate(SYSTEM)).to.equal(true);
-        expect(isForbiddenDelegate(UNATTENDED)).to.equal(true);
-        expect(isForbiddenDelegate({ type: 'system', id: 'x' })).to.equal(true);
-        expect(isForbiddenDelegate({ type: 'unattended', id: 'x' })).to.equal(true);
-        expect(isForbiddenDelegate(null)).to.equal(true);
-        expect(isForbiddenDelegate(undefined)).to.equal(true);
-        expect(isForbiddenDelegate('user')).to.equal(true);
-        expect(isForbiddenDelegate({ type: 'user' })).to.equal(true);
-        const throwing = {
-          get type(): string {
-            throw new Error('x');
-          },
-          id: 'u',
-        };
-        expect(isForbiddenDelegate(throwing)).to.equal(true);
-      });
-
-      it('accepts ordinary principals', () => {
-        expect(isForbiddenDelegate(principal('user', 'u1'))).to.equal(false);
-        expect(isForbiddenDelegate(principal('agent', 'a1'))).to.equal(false);
       });
     });
 
@@ -412,11 +405,12 @@ describe('engine/delegation', () => {
     });
   });
 
-  describe('narrowForInherit', () => {
+  describe('the narrowed inherit delegate', () => {
+    const narrowed = (user: Principal, agentCeiling?: Ceiling): Principal => resolveDelegation(principal('agent', 'a1', { onBehalfOf: user, delegation: 'inherit', ceiling: agentCeiling }), undefined, 2).principal;
+
     it('intersects roles in the delegate order and dedupes', () => {
       const user = principal('user', 'u1', { ceiling: { roles: ['c', 'a', 'b', 'a'], reason: 'x' } });
-      const agent = principal('agent', 'a1', { ceiling: { roles: ['a', 'c'] } });
-      const n = narrowForInherit(user, agent);
+      const n = narrowed(user, { roles: ['a', 'c'] });
       expect(n.ceiling).to.deep.equal({ roles: ['c', 'a'], reason: 'x' });
       expect(n).to.not.equal(user);
       expect(Object.isFrozen(n)).to.equal(true);
@@ -424,29 +418,22 @@ describe('engine/delegation', () => {
     });
 
     it('disjoint roles leave none', () => {
-      const n = narrowForInherit(principal('user', 'u1', { ceiling: { roles: ['a'] } }), principal('agent', 'a1', { ceiling: { roles: ['b'] } }));
-      expect(roles(n)).to.deep.equal([]);
+      expect(roles(narrowed(principal('user', 'u1', { ceiling: { roles: ['a'] } }), { roles: ['b'] }))).to.deep.equal([]);
     });
 
     it('a malformed agent ceiling leaves no roles', () => {
-      const n = narrowForInherit(principal('user', 'u1', { ceiling: { roles: ['a'] } }), principal('agent', 'a1', { ceiling: 'x' as unknown as Ceiling }));
-      expect(roles(n)).to.deep.equal([]);
+      expect(roles(narrowed(principal('user', 'u1', { ceiling: { roles: ['a'] } }), 'x' as unknown as Ceiling))).to.deep.equal([]);
     });
 
     it('null roles count as absent', () => {
-      const n = narrowForInherit(principal('user', 'u1', { ceiling: { roles: null as unknown as string[] } }), principal('agent', 'a1', { ceiling: { roles: ['a'] } }));
-      expect(roles(n)).to.deep.equal(['a']);
+      expect(roles(narrowed(principal('user', 'u1', { ceiling: { roles: null as unknown as string[] } }), { roles: ['a'] }))).to.deep.equal(['a']);
     });
 
     it('keeps own keys named __proto__ as data', () => {
       const user = JSON.parse('{"type":"user","id":"u1","authenticated":true,"source":"t","attributes":{},"__proto__":{"polluted":1}}') as Principal;
-      const n = narrowForInherit(user, principal('agent', 'a1'));
+      const n = narrowed(user);
       expect((n as unknown as Record<string, unknown>).polluted).to.equal(undefined);
       expect(Object.getPrototypeOf(n)).to.equal(Object.prototype);
-    });
-
-    it('throws on an unreadable delegate', () => {
-      expect(() => narrowForInherit(null as unknown as Principal, principal('agent', 'a1'))).to.throw(AuthzConfigError);
     });
   });
 

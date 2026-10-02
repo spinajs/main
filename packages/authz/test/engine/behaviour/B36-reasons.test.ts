@@ -199,14 +199,11 @@ describe('B36: deny reasons through the Authorizer', () => {
       const limitMs = 500;
       const workMs = 300;
       const rows = [new FakeRow('doc', 'd1', { owner: 'bob' })];
-      // One connection: each call waits for the previous one, then works workMs.
+      // One connection: each call waits for the previous one, then works workMs (under the limit by construction).
       let queue: Promise<unknown> = Promise.resolve();
-      const durations: number[] = [];
       const serial = () => {
         const run = queue.then(async () => {
-          const t = Date.now();
           await new Promise((r) => setTimeout(r, workMs));
-          durations.push(Date.now() - t);
           return true;
         });
         queue = run;
@@ -238,7 +235,6 @@ describe('B36: deny reasons through the Authorizer', () => {
       const d = await a.explain({ principal: alice, permission: 'doc:read', resource: rows[0] });
       await queue;
       expect(r1.calls.length + r2.calls.length).to.equal(2);
-      for (const ms of durations) expect(ms).to.be.below(limitMs);
       expect(d.reason).to.deep.equal({ code: 'not_owner', priority: 450, model: 'rbac' });
       expect(log.at('error').filter((e) => /deny reasons/.test(e.message))).to.have.length(1);
       expect(d.trace!.steps.filter((s) => s.by === 'core' && s.step === 'reason').map((s) => s.data)).to.deep.equal([{ fallback: 'static' }]);

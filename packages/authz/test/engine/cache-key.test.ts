@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
 
-import { decisionKey, entryTags, invalidationTags, principalState, versionVector } from '../../src/engine/cache-key.js';
+import { AUTHN_FIELDS, PRINCIPAL_FIELDS, cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from '../../src/engine/cache-key.js';
 import { GLOBAL } from '../../src/contracts/resource.js';
 import { SYSTEM, UNATTENDED } from '../../src/contracts/principal.js';
 import type { Principal, ResourceRef } from '../../src/contracts/principal.js';
@@ -647,5 +647,55 @@ describe('cache-key', () => {
         { numRuns: 500 },
       );
     });
+  });
+});
+
+describe('engine/cache-key: cacheSafeRef pinned to the key fields', () => {
+  // How the key holds each field: as a value, as a whole tree, as a ceiling (lists as sorted sets), field by field (authn), or in a form no ref reads (nested state, companion keys).
+  const PRINCIPAL: Record<string, 'value' | 'tree' | 'ceiling' | 'authn' | 'opaque'> = {
+    type: 'value',
+    id: 'value',
+    authenticated: 'value',
+    source: 'value',
+    delegation: 'value',
+    attributes: 'tree',
+    ceiling: 'ceiling',
+    authn: 'authn',
+    onBehalfOf: 'opaque',
+    companions: 'opaque',
+  };
+  const AUTHN: Record<string, 'value' | 'ref'> = { method: 'value', strategy: 'value', assurance: 'value', mfa: 'value', authenticatedAt: 'value', sessionHandle: 'value', impersonator: 'ref' };
+
+  it('every field the key covers is classified, and nothing else', () => {
+    expect(Object.keys(PRINCIPAL).sort()).to.deep.equal([...PRINCIPAL_FIELDS].sort());
+    expect(Object.keys(AUTHN).sort()).to.deep.equal([...AUTHN_FIELDS].sort());
+  });
+
+  for (const root of ['principal', 'actor']) {
+    it(`${root}.*: a ref is cache-safe exactly when the key holds its path`, () => {
+      const safe = (path: string, expected: boolean) => expect(cacheSafeRef(`${root}.${path}`), `${root}.${path}`).to.equal(expected);
+      for (const [field, how] of Object.entries(PRINCIPAL)) {
+        safe(field, how === 'value' || how === 'tree' || how === 'ceiling');
+        safe(`${field}.x`, how === 'tree' || how === 'ceiling');
+        safe(`${field}.x.y`, how === 'tree' || how === 'ceiling');
+      }
+      for (const set of ['roles', 'permissions', 'resources']) {
+        safe(`ceiling.${set}`, true);
+        safe(`ceiling.${set}.0`, false);
+      }
+      for (const [field, how] of Object.entries(AUTHN)) {
+        safe(`authn.${field}`, how === 'value');
+        safe(`authn.${field}.0`, false);
+      }
+      safe('authn.impersonator.type', true);
+      safe('authn.impersonator.id', true);
+      safe('authn.impersonator.x', false);
+      for (const other of ['identity', 'identity.sub', 'nope', 'authn.nope']) safe(other, false);
+    });
+  }
+
+  it('scope refs are safe; env, bare roots and unknown roots are not', () => {
+    expect(cacheSafeRef('scope.org.plan')).to.equal(true);
+    for (const r of ['env.now', 'env', 'principal', 'actor', 'foo.bar', '']) expect(cacheSafeRef(r), r).to.equal(false);
   });
 });

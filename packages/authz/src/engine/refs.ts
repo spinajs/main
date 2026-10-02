@@ -11,14 +11,6 @@ const MISSING = Symbol('missing');
 type Node = Record<string, unknown>;
 type Literal = Exclude<Value, null | { readonly ref: string }>;
 
-export type RefSource = {
-  readonly actor: Principal;
-  /** undefined: the ref has no id. */
-  readonly ancestors: readonly ResourceRef[] | undefined;
-  /** Value or promise of the attributes; null = unknown node. */
-  attributes(ref: ResourceRef): unknown;
-};
-
 /** Distinct ref strings left in cmp values, in depth-first order; each shared node is visited once. */
 export function collectRefs(f: ResourceFilter): readonly string[] {
   const found = new Set<string>();
@@ -43,20 +35,11 @@ export function collectRefs(f: ResourceFilter): readonly string[] {
   return Object.freeze([...found]);
 }
 
-const hasRoot = (r: string, root: string): boolean => r === root || r.startsWith(`${root}.`);
-
-/** Call before `bindRefs`, which replaces the env refs. */
-export function hasEnvRef(f: ResourceFilter): boolean {
-  return collectRefs(f).some((r) => hasRoot(r, 'env'));
-}
-
-/** Call before `bindRefs`. The L2 key leaves `identity` out, so a residual bound from it must not be cached. */
-export function readsIdentity(f: ResourceFilter): boolean {
-  return collectRefs(f).some((r) => hasRoot(r, 'actor.identity') || hasRoot(r, 'principal.identity'));
-}
-
-/** For each `scope.<type>.…` ref, the nearest ancestor of `<type>`; `$global` resolves to GLOBAL on any request. */
-export function scopeNodes(refs: readonly string[], source: Pick<RefSource, 'ancestors'>): ReadonlyMap<string, ResourceRef> {
+/**
+ * For each `scope.<type>.…` ref, the nearest ancestor of `<type>`; `$global`
+ * resolves to GLOBAL on any request. `ancestors` is undefined for a ref without id.
+ */
+export function scopeNodes(refs: readonly string[], source: { readonly ancestors: readonly ResourceRef[] | undefined }): ReadonlyMap<string, ResourceRef> {
   const nodes = new Map<string, ResourceRef>();
   const ancestors = Array.isArray(source.ancestors) ? source.ancestors : undefined;
   for (const r of refs) {

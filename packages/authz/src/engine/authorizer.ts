@@ -22,7 +22,7 @@ import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
 import type { VoteTruths } from './reasons.js';
-import { decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
+import { cacheSafeRef, decisionKey, entryTags, invalidationTags, principalState, versionVector } from './cache-key.js';
 import { mergeAttributes, schemaIndex } from './attributes.js';
 import { FieldCombiner } from './fields.js';
 import { bindEngineRefs, collectRefs, refValues, scopeNodes } from './refs.js';
@@ -40,9 +40,9 @@ import { MAX_DATA_VALUES, MAX_FILTER_NODES, budget, copyData, copyRef, deepFreez
 export const MAX_SUMMARY_PERMISSIONS = 1000;
 /** Permissions checked at once by summary() and covers(). */
 const SUMMARY_BATCH = 8;
-/** A whole summary() or covers() call gets this many modelTimeoutMs (M2). */
+/** A whole summary() or covers() call gets this many modelTimeoutMs. */
 const DEADLINE_FACTOR = 4;
-/** Principals remembered as preloaded per Authorizer (decision 30), least recently used dropped first. */
+/** Principals remembered as preloaded per Authorizer (filterNow gates sync 'after-preload' models on it, B22), least recently used dropped first. */
 const MAX_PRELOADED = 10_000;
 
 /**
@@ -73,7 +73,7 @@ export interface AuthorizerOptions {
   readonly scopeAttributes?: { readonly schemas?: readonly ScopeAttributeSchema[]; readonly store?: ScopeAttributeStore };
   /** Absent: compile() rejects, so a model that needs conditions is indeterminate. */
   readonly conditions?: ConditionCompiler;
-  /** L2; absent = no L2. One cache per Authorizer: never share it with another Authorizer of the same domain (decision 20). */
+  /** L2; absent = no L2. Each Authorizer needs its own cache, never shared with another Authorizer of the same domain; a rebuilt Authorizer gets a fresh one. */
   readonly cache?: DecisionCache;
   readonly audit?: DecisionAudit;
   readonly clock?: () => Date;
@@ -163,7 +163,7 @@ interface NodeLoad {
   readonly result: Promise<LoadedAttributes>;
   /** The layer's own limit and the binder's run out at about the same time; one of them logs. */
   timeoutLogged: boolean;
-  /** Set once the load settled degraded or rejected (decision 18). */
+  /** Set once the load settled degraded or rejected: no decision of the request is cached then. */
   degraded: boolean;
 }
 
@@ -179,10 +179,10 @@ interface Checked {
   readonly decision: Decision;
   /**
    * Never cache: SYSTEM; a vote that is not cacheable; a binder or fields
-   * fault; a ref outside the cache-safe paths (decision 17) in the allow, the
-   * field terms or the reason pass; any scope load of the request that timed
-   * out or rejected (decision 18; a load still pending when the decision is
-   * built cannot be seen); the same in an intersect delegate's or a nested
+   * fault; a ref outside the cache-safe paths (`cacheSafeRef`) in the allow,
+   * the field terms or the reason pass; any scope load of the request that
+   * timed out or rejected (a load still pending when the decision is built
+   * cannot be seen); the same in an intersect delegate's or a nested
    * ctx.check's decision.
    */
   readonly uncacheable: boolean;
@@ -299,7 +299,7 @@ export class Authorizer {
   private readonly allFields: Fields;
   private readonly fieldCombiner: FieldCombiner;
   private readonly host: ContextHost;
-  /** Decision 30: principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
+  /** Principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
   private readonly preloaded = new Map<string, number>();
 
   constructor(options: AuthorizerOptions) {
@@ -412,12 +412,7 @@ export class Authorizer {
     const out = new Map<Permission, Decision>();
     for (const permission of permissions) {
       if (out.has(permission)) continue;
-      const input: { -readonly [K in keyof CheckInput]: CheckInput[K] } = { principal, permission };
-      if (resolved) {
-        input.resource = resolved.ref;
-        if (resolved.subject !== undefined) input.subject = resolved.subject;
-      }
-      out.set(permission, await this.check(input, shared));
+      out.set(permission, (await runAsync(this.pipeline({ principal, permission }, this.newRun(false, shared), resolved))).decision);
     }
     return out;
   }
@@ -519,7 +514,12 @@ export class Authorizer {
     return strict;
   }
 
-  /** Preloads every principal the models of a check would run with: the run-as principal and each intersect delegate's, never an inherit agent. */
+  /**
+   * Preloads every principal the models of a check would run with: the run-as
+   * principal and each intersect delegate's, never an inherit agent. A model
+   * preload that fails or outlasts modelTimeoutMs leaves its principal
+   * unrecorded and marks the request scope faulted.
+   */
   async preload(principal: Principal, scope?: RequestScope): Promise<void> {
     const runAs: { readonly who: Principal; readonly cacheId: string }[] = [];
     try {
@@ -552,14 +552,17 @@ export class Authorizer {
         typeof model.preload !== 'function'
           ? []
           : runAs.map(async ({ who, cacheId }) => {
-              try {
-                await model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)));
-              } catch (e) {
-                failed.add(cacheId);
-                // The model may now vote from missing per-request state.
-                this.markFault(map);
-                this.logAt('error', `${this.where}: model ${quote(model.name)} failed to preload: ${describeError(e)}`);
-              }
+              const settled = await settleWithin(
+                Promise.resolve().then(() => model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)))),
+                this.config.modelTimeoutMs,
+                describeError,
+                'preload',
+              );
+              if (settled.ok) return;
+              failed.add(cacheId);
+              // The model may now vote from missing per-request state.
+              this.markFault(map);
+              this.logAt('error', `${this.where}: model ${quote(model.name)} failed to preload: ${settled.error}`);
             }),
       ),
     );
@@ -662,6 +665,7 @@ export class Authorizer {
               Promise.resolve().then(() => model.summarize!(runAs, ref, ctx)),
               this.config.modelTimeoutMs,
               describeError,
+              'summarize',
             );
             if (!settled.ok) throw new Error(settled.error);
             return copySummary(settled.value, model.name);
@@ -711,7 +715,7 @@ export class Authorizer {
     return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested() }, { ref, subject: undefined }));
   }
 
-  // ---- the check pipeline (conventions, "check" steps 1-15) ----
+  // ---- the check pipeline (design §10.1) ----
 
   /** `resolved`: a ref (and subject) the caller already resolved, so no adapter sees it again. */
   private *pipeline(input: CheckInput, run: Run, resolved?: { readonly ref: ResourceRef; readonly subject: unknown }): Pipeline<Checked> {
@@ -747,7 +751,7 @@ export class Authorizer {
     const delegation = this.delegation(gate.principal, actor, run.delegationBudget);
     // Undefined for a forbidden or unreadable delegate: no model runs, so the denial names the requester.
     const parties = delegation.denial ? undefined : this.parties(delegation, gate.principal, requester);
-    // Step 6's key, in the same synchronous stretch as the delegation: the caller may change the principal while a step waits (10b wiring note 10).
+    // Step 6's key, in the same synchronous stretch as the delegation: the caller may change the principal while a step waits.
     const keyed = parties !== undefined && subject === undefined && !run.bypass && run.versions !== undefined;
     const key = keyed ? decisionKey({ domain: this.domain, principal: gate.principal, actor, permission: def.name, ref, versions: run.versions! }) : undefined;
     if (keyed && key === undefined) this.logAt('debug', `${this.where}: ${def.name} for ${principalKey(requester)} is not cached: the principal or actor has no canonical state`);
@@ -820,7 +824,7 @@ export class Authorizer {
     let subjectDenied = false;
     let subjectFault = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
-      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError)) as Settled;
+      const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
       const truth = settled.ok ? settled.value : undefined;
       if (!settled.ok) {
         subjectFault = true;
@@ -881,7 +885,7 @@ export class Authorizer {
     return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted }, key, run, tags);
   }
 
-  // ---- step 6 and the store (task 10) ----
+  // ---- L1/L2 lookup and store (design §10.3) ----
 
   /** L1, then L2. An L1 hit is not audited again, unless no audit recorded its denial yet; an L2 hit is audited like a fresh decision. */
   private cached(key: string, run: Run, def: PermissionDef, ref: ResourceRef, requester: PrincipalRef, runAs: PrincipalRef): Checked | undefined {
@@ -894,7 +898,7 @@ export class Authorizer {
         entry.unaudited = false;
         this.auditDenial(requester, def, ref, entry.decision);
       }
-      return { decision: entry.decision, uncacheable: false, faulted: false };
+      return { decision: withOwnDate(entry.decision), uncacheable: false, faulted: false };
     }
     if (!this.cache || this.l2Stale) return undefined;
     let found: unknown;
@@ -915,7 +919,7 @@ export class Authorizer {
     const ttl = this.ttlOf(decision);
     if (ttl) run.scope.set(l1, new CachedDecision(decision, undefined, ttl.now + ttl.ms, run.generation, !decision.allowed && !audits(run)));
     if (audits(run) && !decision.allowed) this.auditDenial(requester, def, ref, decision);
-    return { decision, uncacheable: false, faulted: false };
+    return { decision: withOwnDate(decision), uncacheable: false, faulted: false };
   }
 
   private auditDenial(requester: PrincipalRef, def: PermissionDef, ref: ResourceRef, decision: Decision): void {
@@ -943,10 +947,11 @@ export class Authorizer {
     const ttl = this.ttlOf(checked.decision);
     if (!ttl) return checked;
     const t = tags();
-    run.scope.set(l1Key('decision', this.domain, key), new CachedDecision(checked.decision, t, ttl.now + ttl.ms, run.generation, !checked.decision.allowed && !audits(run)));
+    const stored = withOwnDate(checked.decision);
+    run.scope.set(l1Key('decision', this.domain, key), new CachedDecision(stored, t, ttl.now + ttl.ms, run.generation, !stored.allowed && !audits(run)));
     if (this.cache && !this.l2Stale && t !== undefined && this.generation === run.generation) {
       try {
-        this.cache.set(key, checked.decision, t, ttl.ms);
+        this.cache.set(key, stored, t, ttl.ms);
       } catch (e) {
         this.logAt('error', `${this.where}: the decision cache failed on set: ${describeError(e)}`);
       }
@@ -1014,7 +1019,7 @@ export class Authorizer {
     });
   }
 
-  /** Wiring note 1: the version vector of a top-level call. A change recompiles the routes and drops the L2; undefined turns caching off for the call. */
+  /** The version vector of a top-level call. A change recompiles the routes and drops the L2; undefined turns caching off for the call. */
   private epoch(): string | undefined {
     // The first failure was logged at error; a cache that stays down would log every call.
     if (this.l2Stale) this.invalidateL2(['*'], 'debug');
@@ -1117,12 +1122,12 @@ export class Authorizer {
 
   /**
    * Step 8: concurrent under deny-overrides and custom algorithms; in plan
-   * order with a stop otherwise. `resolve` (decision 29) runs on each vote
+   * order with a stop otherwise. `resolve` (resolveScopeRefs) runs on each vote
    * before the stop rule reads it, so check and explain stop at the same vote.
    */
   private *evaluate(models: readonly AuthorizationModel[], contexts: readonly ModelContext[], request: () => DecisionRequest, algorithm: string, explain: boolean, run: Run, label: string, resolve: (votes: readonly Vote[]) => Pipeline<Vote[]>, cacheId: string): Pipeline<Vote[]> {
     if (run.sync && models.some((m) => syncMode(m) === 'never')) yield NEEDS_ASYNC;
-    // Decision 30: such a model may answer sync from state only its preload loads.
+    // B22: such a model may answer sync from state only its preload loads.
     if (run.sync && models.some((m) => syncMode(m) === 'after-preload') && !this.wasPreloaded(cacheId, run.scope)) yield NEEDS_ASYNC;
 
     if (algorithm === 'permit-overrides' || algorithm === 'first-applicable') {
@@ -1154,7 +1159,7 @@ export class Authorizer {
   }
 
   /**
-   * Decision 29: a vote holding a scope.* ref that resolves missing (absent
+   * B39 (design §5.6): a vote holding a scope.* ref that resolves missing (absent
    * attribute, unknown node, a type-level ref other than $global, a failed or
    * timed-out load) is indeterminate. Loads through the check's binder, so the
    * allow, fields and reasons reuse them; sync mode yields NEEDS_ASYNC before
@@ -1200,7 +1205,7 @@ export class Authorizer {
     }
     if (!pending) return this.accept(model, ctx, { raw }, label);
     if (run.sync) return raw as PromiseLike<unknown>;
-    return settleWithin(raw as PromiseLike<unknown>, this.config.modelTimeoutMs, describeError).then((s) => this.accept(model, ctx, s.ok ? { raw: s.value } : { fault: s.error }, label));
+    return settleWithin(raw as PromiseLike<unknown>, this.config.modelTimeoutMs, describeError, 'evaluate').then((s) => this.accept(model, ctx, s.ok ? { raw: s.value } : { fault: s.error }, label));
   }
 
   /** Step 9: vote hygiene. */
@@ -1217,6 +1222,10 @@ export class Authorizer {
       const combinator = this.combinators.get(algorithm);
       if (!combinator) throw new AuthzConfigError(`unknown algorithm ${quote(algorithm)}`);
       const result = combinator.combine(votes);
+      if (isThenable(result)) {
+        swallow(result);
+        throw new AuthzConfigError('combine() must be synchronous, it returned a thenable');
+      }
       const scale = votes.length * votes.length + 1;
       // first-applicable repeats every earlier vote's not(or(P, D)), so k votes expand to about k * (sum of votes).
       const allow = simplify(sanitizeFilter(result.allow, '*', 'combinator allow', budget(MAX_FILTER_NODES * scale), budget(MAX_DATA_VALUES * scale)));
@@ -1326,7 +1335,7 @@ export class Authorizer {
     }
   }
 
-  /** `subjectEvaluated`: the subject itself denied (4a rule: only then `residual_false`). */
+  /** `subjectEvaluated`: the subject itself denied (only then `residual_false`, B36). */
   private denyReason(core: readonly DenyReason[], votes: readonly Vote[], truths: readonly VoteTruths[], deciding: Vote | undefined, algorithm: string, subjectEvaluated: boolean, engineFault: boolean): DenyReason {
     return selectDenyReason({ core: engineFault ? [...core, ENGINE_FAULT] : core, votes, truths, algorithm, deciding, subjectEvaluated });
   }
@@ -1369,7 +1378,7 @@ export class Authorizer {
       }),
     );
     const left = Math.max(0, this.config.modelTimeoutMs - (performance.now() - started));
-    const settled = (yield settleWithin(batch, left, describeError)) as Settled;
+    const settled = (yield settleWithin(batch, left, describeError, 'deny reason pass')) as Settled;
     if (!settled.ok) {
       this.logAt('error', `${this.where}: evaluating the deny reasons of ${label} against the subject failed: ${settled.error}; using static truths`);
       core('reason', 'deny reason against the subject', { fallback: 'static' });
@@ -1384,7 +1393,7 @@ export class Authorizer {
     return { truths, uncacheable };
   }
 
-  // Step 4 (task 7 owns the final form): SYSTEM and UNATTENDED are recognised by identity only.
+  // SYSTEM and UNATTENDED are recognised by identity only (B09, design §10.3).
   private principalGate(p: unknown): Gate {
     if (p === SYSTEM) return { kind: 'system' };
     const unattended = (principal: PrincipalRef): Gate => ({ kind: 'deny', principal, reason: { code: 'unattended' } });
@@ -1689,7 +1698,7 @@ const principalObjects = new WeakMap<object, number>();
 let nextPrincipalObject = 0;
 
 /**
- * Decision 9: ctx.cache is per model and per full state of the principal the
+ * ctx.cache is per model and per full state of the principal the
  * models run with, not per type:id: a narrowed inherit copy differs from its
  * delegate only in ceiling.roles. A principal with no canonical state gets a
  * key of its own object.
@@ -1782,27 +1791,7 @@ function bounded(load: () => unknown, ms: number): Promise<Bounded> {
       (value): Bounded => ({ kind: 'value', value }),
       (error): Bounded => ({ kind: 'error', error }),
     );
-  return settleWithin(outcome, ms, describeError).then((s): Bounded => (s.ok ? (s.value as Bounded) : { kind: 'timeout' }));
-}
-
-const KEYED_SCALARS = new Set(['type', 'id', 'authenticated', 'source', 'delegation']);
-const KEYED_AUTHN = new Set(['method', 'strategy', 'assurance', 'mfa', 'authenticatedAt', 'sessionHandle']);
-// The key holds these as sorted unique sets (ceilingHash): a whole list means the same in any order, an element path does not.
-const CEILING_SETS = new Set(['roles', 'permissions', 'resources']);
-
-/**
- * Decision 17: a ref is cache-safe only when the L2 key holds its path.
- * scope.* refs are safe: the entry is tagged with each loaded scope node
- * (decision 16).
- */
-function cacheSafeRef(r: string): boolean {
-  const [root, head, ...tail] = r.split('.');
-  if (root === 'scope') return true;
-  if ((root !== 'principal' && root !== 'actor') || head === undefined) return false;
-  if (head === 'attributes') return true;
-  if (head === 'ceiling') return tail.length <= 1 || !CEILING_SETS.has(tail[0]);
-  if (head === 'authn') return tail.length === 1 ? KEYED_AUTHN.has(tail[0]) : tail.length === 2 && tail[0] === 'impersonator' && (tail[1] === 'type' || tail[1] === 'id');
-  return tail.length === 0 && KEYED_SCALARS.has(head);
+  return settleWithin(outcome, ms, describeError, 'scope attribute load').then((s): Bounded => (s.ok ? (s.value as Bounded) : { kind: 'timeout' }));
 }
 
 /**
@@ -1865,6 +1854,12 @@ function mergeRoles(votes: readonly Vote[]): Readonly<Record<string, string>> {
     }
   }
   return Object.freeze(merged);
+}
+
+/** Freezing does not stop setTime: the store and every cache hit get their own validUntil, so no caller can move another's. */
+function withOwnDate(d: Decision): Decision {
+  const until = validDate(d.validUntil);
+  return until === undefined ? d : Object.freeze({ ...d, validUntil: until });
 }
 
 function earliest(dates: readonly (Date | undefined)[]): Date | undefined {
