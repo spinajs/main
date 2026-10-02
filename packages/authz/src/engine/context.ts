@@ -26,7 +26,7 @@ export interface ContextHost {
 }
 
 // Reserved L1 keys: NUL never appears in a permission, type or model name a caller would use as a key.
-export const l1Key = (kind: 'ancestors' | 'attributes' | 'model' | 'decision', domain: string, key: string): string => `\u0000authz\u0000${kind}\u0000${domain}\u0000${key}`;
+export const l1Key = (kind: 'ancestors' | 'attributes' | 'nodes' | 'model' | 'decision', domain: string, key: string): string => `\u0000authz\u0000${kind}\u0000${domain}\u0000${key}`;
 
 /** Memoises `compute` in the request map; a stored promise never goes unhandled. */
 export function memo<T>(scope: Map<string, unknown>, key: string, compute: () => T): T {

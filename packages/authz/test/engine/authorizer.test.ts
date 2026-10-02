@@ -135,6 +135,42 @@ describe('Authorizer', () => {
       expect(() => make({ config: { modelTimeoutMs: 0 } })).to.throw(AuthzConfigError);
       expect(() => make({ config: { modelTimeoutMs: Number.NaN } })).to.throw(AuthzConfigError);
     });
+
+    it('validates scopeAttributes: an object of schemas (indexed at construction) and a store with get()', () => {
+      const bad = (scopeAttributes: unknown) => () => make({ scopeAttributes: scopeAttributes as AuthorizerOptions['scopeAttributes'] });
+      expect(bad(5)).to.throw(AuthzConfigError, /root.*scopeAttributes/);
+      expect(bad(null)).to.throw(AuthzConfigError, /scopeAttributes/);
+      expect(bad({ schemas: 'org' })).to.throw(AuthzConfigError, /root.*list/);
+      expect(bad({ schemas: [{ scopeType: '', schema: {}, defaults: {} }] })).to.throw(AuthzConfigError, /scopeType/);
+      expect(bad({ schemas: [{ scopeType: 'org', schema: {}, defaults: new Date() }] })).to.throw(AuthzConfigError, /plain object/);
+      expect(
+        bad({
+          schemas: [
+            { scopeType: 'org', schema: {}, defaults: {} },
+            { scopeType: 'org', schema: {}, defaults: {} },
+          ],
+        }),
+      ).to.throw(AuthzConfigError, /two scope attribute schemas.*org/);
+      expect(bad({ store: {} })).to.throw(AuthzConfigError, /store/);
+      expect(bad({ store: { get: 'x' } })).to.throw(AuthzConfigError, /store/);
+      expect(() => make({ scopeAttributes: {} })).not.to.throw();
+      expect(() => make({ scopeAttributes: { schemas: [{ scopeType: 'org', schema: {}, defaults: { a: 1 } }], store: { get: async () => ({}), version: async () => '1' } } })).not.to.throw();
+    });
+
+    it('reads schema defaults once, at construction', async () => {
+      const defaults = { plan: 'free' };
+      let seen: unknown;
+      const m = new StaticModel('m', {
+        vote: async (_req, ctx) => {
+          seen = await ctx.attributes({ type: 'org', id: 'o1' });
+          return { model: 'm', permitWhen: TRUE, denyWhen: FALSE, cacheable: true };
+        },
+      });
+      const a = make({ models: [m], scopeAttributes: { schemas: [{ scopeType: 'org', schema: {}, defaults }] } });
+      defaults.plan = 'changed';
+      await a.check({ principal: alice, permission: 'doc:read' });
+      expect(seen).to.deep.equal({ plan: 'free' });
+    });
   });
 
   describe('check: permission and resource', () => {
@@ -1020,7 +1056,7 @@ describe('Authorizer: bounded work and termination', () => {
     });
   });
 
-  it('preload terminates on self or cyclic delegation through system/unattended principals', async () => {
+  it('preload terminates on self or cyclic delegation through system/unattended principals and preloads nothing a check would throw for', async () => {
     type Mutable = { -readonly [K in keyof Principal]: Principal[K] };
     const m = new StaticModel('m');
     const self: Mutable = principal('system', 'fake');
@@ -1034,7 +1070,7 @@ describe('Authorizer: bounded work and termination', () => {
     await within(500, () => a.preload(self));
     await within(500, () => a.preload(s2));
     await within(500, () => a.preload(user));
-    expect(m.preloads).to.deep.equal([user]);
+    expect(m.preloads).to.deep.equal([]);
   });
 
   it('a fire-and-forget ctx.check past the depth limit is not an unhandled rejection', async () => {
