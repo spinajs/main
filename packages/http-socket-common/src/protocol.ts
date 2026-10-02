@@ -5,6 +5,12 @@ export const PROTOCOL_VERSION = 1;
 /** Longest accepted command / cancel id. */
 export const MAX_ID_LENGTH = 128;
 
+/** Longest accepted command / event name. */
+export const MAX_NAME_LENGTH = 128;
+
+/** Characters a command / event name may use: names end up in log lines and metric labels. */
+export const NAME_PATTERN = /^[\w.:-]+$/;
+
 export const WIRE_EVENTS = {
   /** client → server, answered through the socket.io ack */
   command: 'cmd',
@@ -123,6 +129,10 @@ function isId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
 }
 
+function isName(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_NAME_LENGTH && NAME_PATTERN.test(value);
+}
+
 export function isCommandRequest(value: unknown): value is CommandRequest {
   if (!isRecord(value)) {
     return false;
@@ -130,8 +140,7 @@ export function isCommandRequest(value: unknown): value is CommandRequest {
 
   return (
     isId(value.id) &&
-    typeof value.name === 'string' &&
-    value.name.length > 0 &&
+    isName(value.name) &&
     (value.idempotencyKey === undefined || typeof value.idempotencyKey === 'string') &&
     (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) &&
     (value.traceparent === undefined || typeof value.traceparent === 'string')
@@ -139,7 +148,7 @@ export function isCommandRequest(value: unknown): value is CommandRequest {
 }
 
 export function isEventFrame(value: unknown): value is EventFrame {
-  return isRecord(value) && typeof value.name === 'string' && value.name.length > 0;
+  return isRecord(value) && isName(value.name);
 }
 
 export function isCancelFrame(value: unknown): value is CancelFrame {

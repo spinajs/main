@@ -9,7 +9,7 @@ import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import { AuthzDomains, AuthzService, FALSE, TRUE } from '@spinajs/authz';
 import type { AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
-import { SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { MAX_NAME_LENGTH, SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, OnConnect, OnDisconnect, OnEvent, Payload, Reason, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketAccess } from '../src/access.js';
@@ -17,7 +17,7 @@ import { SocketConnection } from '../src/connection.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SocketPrincipalGuard } from '../src/principal-guard.js';
 import { ISocketCallStorage, ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
-import { IConnectOptions, ITestServer, command, delay, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
+import { IConnectOptions, ITestServer, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
 
 export const evtLog: Array<{ name: string; payload?: unknown; connection: string }> = [];
 
@@ -227,15 +227,20 @@ describe('socket events and lifecycle hooks', function () {
 
   let t: ITestServer;
   let socket: ClientSocket;
-  let warn: sinon.SinonSpy | null = null;
+  type Level = 'warn' | 'debug' | 'error';
+  let spies: Record<Level, sinon.SinonSpy> | null = null;
 
   const boot = async (cfg: Record<string, unknown> = {}) => {
     t = await startServer(cfg);
-    warn = sinon.spy((DI.resolve(SocketDispatcher) as unknown as { Log: { warn: (...a: unknown[]) => void } }).Log, 'warn');
+    const log = (DI.resolve(SocketDispatcher) as unknown as { Log: Record<Level, (...a: unknown[]) => void> }).Log;
+    spies = { warn: sinon.spy(log, 'warn'), debug: sinon.spy(log, 'debug'), error: sinon.spy(log, 'error') };
   };
 
-  /** waits until the dispatcher logged a dropped call matching `pattern` */
-  const logged = (pattern: RegExp) => waitFor(() => warn!.getCalls().some((c) => pattern.test(String(c.args.find((a) => typeof a === 'string')))));
+  /** the message of every `level` line logged so far */
+  const lines = (level: Level) => spies![level].getCalls().map((c) => String(c.args.find((a) => typeof a === 'string')));
+
+  /** waits until the dispatcher logged a line matching `pattern` at `level` */
+  const logged = (pattern: RegExp, level: Level = 'warn') => waitFor(() => lines(level).some((l) => pattern.test(l)));
 
   const connectAs = (options: IConnectOptions = {}) => open(t, { ...options, auth: { clientId: 'evt-client', ...options.auth } });
 
@@ -255,8 +260,8 @@ describe('socket events and lifecycle hooks', function () {
   });
 
   afterEach(async () => {
-    warn?.restore();
-    warn = null;
+    Object.values(spies ?? {}).forEach((spy) => spy.restore());
+    spies = null;
     evtAllowed.clear();
     socket.close();
     await t.close();
@@ -382,6 +387,20 @@ describe('socket events and lifecycle hooks', function () {
 
     expect(seen('cursor', socket.id!)).to.have.length(0);
     expect(socket.connected).to.be.true;
+  });
+
+  it('refuses command and event names longer than MAX_NAME_LENGTH or outside NAME_PATTERN', async () => {
+    await start();
+    const names = ['evt.' + 'x'.repeat(MAX_NAME_LENGTH - 3), 'evt.rooms\n'];
+
+    for (const name of names) {
+      expect(errorOf(await command(socket, name))).to.deep.equal({ code: 'invalid_argument', message: 'malformed command request', retryable: false });
+      socket.emit(WIRE_EVENTS.event, { name, payload: null });
+    }
+
+    await waitFor(() => lines('debug').filter((l) => l === `Malformed socket event from connection ${socket.id}, dropped`).length === names.length);
+    expect(lines('debug').filter((l) => l.startsWith('Unknown socket event'))).to.deep.equal([]);
+    expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
   });
 
   it('rate-limits events with the connection bucket', async () => {

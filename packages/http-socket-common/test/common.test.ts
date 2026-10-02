@@ -13,6 +13,8 @@ import {
   EventName,
   EventPayload,
   MAX_ID_LENGTH,
+  MAX_NAME_LENGTH,
+  NAME_PATTERN,
   PROTOCOL_VERSION,
   SYSTEM_EVENTS,
   SocketException,
@@ -108,9 +110,26 @@ describe('http-socket-common', () => {
       expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 5 })).to.be.false;
     });
 
+    it('bounds command and event names to MAX_NAME_LENGTH characters of NAME_PATTERN', () => {
+      const longest = 'x'.repeat(MAX_NAME_LENGTH);
+      expect(MAX_NAME_LENGTH).to.equal(128);
+      expect(NAME_PATTERN.test('docs.open')).to.be.true;
+
+      for (const name of ['docs.open', 'a:b-c_d.E9', longest]) {
+        expect(isCommandRequest({ id: 'r1', name }), name).to.be.true;
+        expect(isEventFrame({ name, payload: null }), name).to.be.true;
+      }
+
+      for (const name of [longest + 'x', 'docs.open\n', 'docs open', 'docs/open', 'dócs', '<script>']) {
+        expect(isCommandRequest({ id: 'r1', name }), JSON.stringify(name)).to.be.false;
+        expect(isEventFrame({ name, payload: null }), JSON.stringify(name)).to.be.false;
+      }
+    });
+
     it('checks event and cancel frames', () => {
       expect(isEventFrame({ name: 'docs.cursor', payload: { x: 1 } })).to.be.true;
       expect(isEventFrame({ payload: 1 })).to.be.false;
+      expect(isEventFrame({ name: '', payload: 1 })).to.be.false;
       expect(isCancelFrame({ id: 'r1' })).to.be.true;
       expect(isCancelFrame({ id: 1 })).to.be.false;
     });
