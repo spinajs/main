@@ -114,7 +114,25 @@ export class SocketDispatcher extends AsyncService {
       return;
     }
 
-    void this.execute(this.createContext(runtime, raw)).then(reply);
+    if (runtime.running.has(raw.id)) {
+      reply({ id: raw.id, ok: false, error: new SocketException('invalid_argument', 'request id already in flight').toWire() });
+      return;
+    }
+
+    void this.execute(this.createContext(runtime, raw)).then((answer) => this.send(reply, answer, raw.name));
+  }
+
+  /** socket.io encodes the ack synchronously, so an unencodable result throws here; answer internal instead of leaving the client to time out. */
+  protected send(reply: (reply: CommandReply) => void, answer: CommandReply, name: string): void {
+    try {
+      reply(answer);
+    } catch (err) {
+      try {
+        reply({ id: answer.id, ok: false, error: this.Errors.toWire(err, `command ${name} reply encoding`) });
+      } catch (second) {
+        this.Log.error(second as Error, `Socket command ${name}: the error reply could not be sent either`);
+      }
+    }
   }
 
   protected createContext(runtime: IConnectionRuntime, request: CommandRequest): SocketCommandContext {

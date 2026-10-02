@@ -10,7 +10,9 @@ import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, Payload, SocketController } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
 import { ISocketCallStorage, SocketHttpHost } from '../src/interfaces.js';
-import { ALICE, ITestServer, TestHttpHost, command, errorOf, open, resultOf, startServer } from './harness.js';
+import { ALICE, ITestServer, TestHttpHost, command, delay, errorOf, open, resultOf, startServer } from './harness.js';
+
+const PIPE_HOLD: { release?: () => void } = {};
 
 export class PipeNote {
   public text: string;
@@ -64,6 +66,26 @@ export class PipelineSocket extends BaseSocketController {
   public async store() {
     const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>).getStore();
     return { requestId: store?.requestId ?? null, connectionId: store?.connectionId ?? null };
+  }
+
+  @Command('bigint')
+  public async bigint() {
+    return 1n;
+  }
+
+  @Command('circular')
+  public async circular() {
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    return loop;
+  }
+
+  @Command('hold')
+  public async hold() {
+    await new Promise<void>((resolve) => {
+      PIPE_HOLD.release = resolve;
+    });
+    return 'held';
   }
 
   @Command('principal')
@@ -182,6 +204,33 @@ describe('socket command pipeline', function () {
   it('answers a malformed request with invalid_argument', async () => {
     const reply = await socket.timeout(2000).emitWithAck(WIRE_EVENTS.command, { name: 'pipe.echo' });
     expect(reply).to.deep.equal({ id: '', ok: false, error: { code: 'invalid_argument', message: 'malformed command request', retryable: false } });
+  });
+
+  for (const name of ['bigint', 'circular']) {
+    it(`answers a ${name} result that cannot be encoded with internal, without an unhandled rejection`, async () => {
+      const rejections: unknown[] = [];
+      const onRejection = (reason: unknown) => rejections.push(reason);
+      process.on('unhandledRejection', onRejection);
+      try {
+        const error = errorOf(await command(socket, `pipe.${name}`));
+        expect(error.code).to.equal('internal');
+        expect(error.errorId).to.be.a('string');
+        await delay(50);
+        expect(rejections).to.deep.equal([]);
+      } finally {
+        process.off('unhandledRejection', onRejection);
+      }
+    });
+  }
+
+  it('refuses a command whose id is already in flight and keeps the first one running', async () => {
+    const first = command(socket, 'pipe.hold', undefined, { id: 'dup-1' });
+    await delay(50);
+    const second = await command(socket, 'pipe.echo', 1, { id: 'dup-1' });
+    expect(errorOf(second)).to.deep.equal({ code: 'invalid_argument', message: 'request id already in flight', retryable: false });
+    PIPE_HOLD.release?.();
+    expect(resultOf(await first)).to.equal('held');
+    expect(resultOf(await command(socket, 'pipe.echo', 2, { id: 'dup-1' }))).to.equal(2);
   });
 
   it('carries binary payload parts both ways', async () => {
