@@ -2,24 +2,27 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `@spinajs/http-socket-common` (the isomorphic wire protocol) and rewrite `@spinajs/http-socket` as a v3 socket.io server with controllers and decorators, a staged command pipeline (spec §5.2 steps 1–4 and 6–10), error mapping, `SocketHub` rooms and push, a handshake auth hook, limits and `http.socket` config.
+**Goal:** Build `@spinajs/http-socket-common` (the isomorphic wire protocol) and rewrite `@spinajs/http-socket` as a v3 socket.io server with controllers and decorators, a staged command pipeline (spec §5.2 steps 1–4 and 6–10), error mapping, `SocketHub` rooms and push, handshake authentication through the authz-v3 authn contracts, authz-v3 access checks on commands, limits and `http.socket` config.
 
-**Architecture:** A `SocketServer` attaches socket.io 4.8 to the node http server that a `SocketHttpHost` provides (by default the one inside `@spinajs/http`'s `HttpServer`). The handshake checks the protocol version and asks DI-registered `SocketAuthenticator`s for an identity. Every `cmd` goes through a `SocketDispatcher` that runs DI-registered `SocketCommandStage`s in `Order` (size → rate → in-flight → lookup → [W3 idempotency] → policies → arguments → ordering) as an onion chain. It then calls the controller method inside the shared `AsyncLocalStorage` and races the call against an `AbortSignal` (deadline, cancel, disconnect, shutdown). Errors become one `SocketError` shape through `@HandleSocketException` mappings, which are looked up along the prototype chain.
+**Architecture:** A `SocketServer` attaches socket.io 4.8 to the node http server that a `SocketHttpHost` provides (by default the one inside `@spinajs/http`'s `HttpServer`). The handshake checks the origin and the protocol version, then asks DI-registered `SocketPrincipalSource`s (the socket form of authz-http's `PrincipalSource`) for an authz-v3 `Principal`. The built-in `AuthnCredentialSource` resolves one through `@spinajs/authn/contracts` (`CredentialExtractor`, `AuthnService`). Without one, the connection runs as `UNATTENDED` (plan C9's default). Every `cmd` goes through a `SocketDispatcher` that runs DI-registered `SocketCommandStage`s in `Order` (size → rate → in-flight → authentication → lookup → [W3 idempotency] → policies → arguments → ordering) as an onion chain. The whole chain runs inside the shared DI `AsyncLocalStorage` with the principal under `Principal`, the key authz-v3's `AuthzService.current()` reads. The call then races an `AbortSignal` (deadline, cancel, disconnect, shutdown). `@SocketAccess` decides through `AuthzService.check`, as authz-http's `@Access` does for routes. Errors become one `SocketError` shape through `@HandleSocketException` mappings, which are looked up along the prototype chain.
 
-**Tech Stack:** TypeScript (repo `tsconfig.json`, decorators with `emitDecoratorMetadata`), socket.io 4.8 (`socket.io`, and `socket.io-client` in tests only), `@spinajs/di`, `@spinajs/configuration`, `@spinajs/http` (reused: `BasePolicy`, `resolveRoutePolicies`, `createPolicyGate`, `extractSchemaFromRuntimeType`, `ArgHydrator`, `HttpServer`), `@spinajs/validation` (ajv `DataValidator`), `@spinajs/log`, `@spinajs/reflection`, `@spinajs/telemetry-common` (`Metrics`), mocha + chai + chai-as-promised + sinon through `ts-mocha`.
+**Tech Stack:** TypeScript (repo `tsconfig.json`, decorators with `emitDecoratorMetadata`), socket.io 4.8 (`socket.io`, and `socket.io-client` in tests only), `@spinajs/di`, `@spinajs/configuration`, `@spinajs/http` (reused: `BasePolicy`, `resolveRoutePolicies`, `createPolicyGate`, `extractSchemaFromRuntimeType`, `ArgHydrator`, `HttpServer`), `@spinajs/authz` (contracts only: `AuthzService`, `AuthzDomains`, `Principal`, `UNATTENDED`, `principalKey`, `parsePermission`, `AccessDenied`, `Unauthenticated`, `Decision`), `@spinajs/authn/contracts` (`AuthnService`, `CredentialExtractor`, `SignedRequest`, `AuthnContext`, `IAuthnPrincipalStorage`), `@spinajs/validation` (ajv `DataValidator`), `@spinajs/log`, `@spinajs/reflection`, `@spinajs/telemetry-common` (`Metrics`), mocha + chai + chai-as-promised + sinon through `ts-mocha`.
 
 Spec: `docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md` (accepted 2026-10-02; §9 owner answers: socket.io stays, the breaking v3 is approved, the package names are approved).
+
+authz-v3: `docs/plans/2026-10-01-authz-v3-design.md` and `docs/plans/2026-10-01-authz-v3-plan.md` (on this branch, from `feat/authz-v3`). Owner decision 2026-10-02: W1 is built on top of `feat/authz-v3`, uses its contracts directly, and absorbs the http-socket parts of authz-v3 lanes L5 and C9. See "Coordination with authz-v3" at the end, and "Gated follow-up tasks" for the work that waits for unmerged authz-v3 lanes.
 
 ## Global Constraints
 
 Every task's requirements include this section.
 
-- **Repo / branch.** Worktree `C:\Users\grzch\SourceCodes\Spinajs\websocket-layer`, branch `feat/websocket-layer`. Never touch another Spinajs checkout or worktree.
+- **Repo / branch.** Worktree `C:\Users\grzch\SourceCodes\Spinajs\websocket-layer`, branch `feat/websocket-layer`, rebased onto `feat/authz-v3` (merged there: F0a, F0b, F1a, F1, F2, F5, F6, F7, D1, P1, P2; **not** merged: F3 engine, F4 host, F7b and every wave-1 lane). Never touch another Spinajs checkout or worktree.
 - **Shared worktree.** Another agent executes the W2 (client) plan in this same worktree. Stage only the exact paths a task lists (`git add <paths>`, never `git add -A` / `git add .`). Every commit command checks the branch in the same command: `test "$(git branch --show-current)" = feat/websocket-layer && git add … && git commit …`.
-- **`package-lock.json`** is committed only once, in Task 16.
+- **authz-v3 working rules apply** (authz-v3 plan §1): `package-lock.json` is never committed (the integrator commits it after the merge); `RELEASE_NOTES.md` belongs to X1, so W1 writes its notes to `packages/http-socket/RELEASE_NOTES.md` (Task 16); W1 edits the root `tsconfig.build.json` / `tsconfig.build.cjs.json` only to add the one `http-socket-common` line each (Task 1), and the integrator carries that line on merge.
+- **authz-v3 contracts only.** W1 imports `@spinajs/authz` (contracts) and `@spinajs/authn/contracts`, never `@spinajs/authn`'s root entry, `authz-http`, `authn-http` or `users*`. It resolves `AuthzService`, `AuthzDomains` and `AuthnService` from DI by their abstract tokens; tests register fakes. Nothing in W1 may wait for an unmerged lane; that work is in "Gated follow-up tasks".
 - **Transport:** socket.io **4.8** (`"socket.io": "^4.8.1"`, tests `"socket.io-client": "^4.8.1"`).
-- **Package names (approved):** `@spinajs/http-socket-common` (new), `@spinajs/http-socket` (v3 rewrite). W2 builds `@spinajs/http-socket-client` and W4 builds `@spinajs/rbac-http-socket`. W1 creates neither.
-- **Versioning:** the monorepo releases in lockstep (`scripts/bump-all.mjs` fails on version drift). Both packages therefore stay at `"version": "2.0.549"` and pin internal deps to `"2.0.549"`. "v3" names the API generation. `RELEASE_NOTES.md` records the break (Task 16).
+- **Package names (approved):** `@spinajs/http-socket-common` (new), `@spinajs/http-socket` (v3 rewrite). W2 builds `@spinajs/http-socket-client`. The spec's W4 auth package `@spinajs/rbac-http-socket` no longer fits authz-v3 and is owner question **Q1** (Coordination with authz-v3). W1 creates none of them.
+- **Versioning** (authz-v3 convention on this branch): an existing package keeps its current version and X1 sets the 3.0 versions; a new package starts at `3.0.0-alpha.0`. So `@spinajs/http-socket` stays at `"version": "2.0.548"`, `@spinajs/http-socket-common` is `"3.0.0-alpha.0"`, existing internal deps are pinned to `"2.0.548"`, and `@spinajs/authz`, `@spinajs/authn`, `@spinajs/http-socket-common` to `"3.0.0-alpha.0"`. If `packages/di/package.json` carries another version when a task starts (feat/authz-v3 merged a later master release), use that version wherever this plan says `2.0.548`. "v3" names the API generation.
 - **`http-socket-common` has zero runtime dependencies and is isomorphic.** No `node:*` imports, no `Buffer`, no DI.
 - **`PROTOCOL_VERSION` = `1`.**
 - **Wire events:** client→server `cmd` (ack-answered), either direction `evt`, server→client `chunk` | `end` | `fail`, client→server `credit` | `cancel`. System events (sent as `evt` frames): `sys.shutdown {retryAfterMs}` and `sys.disconnect {reason}`.
@@ -41,7 +44,8 @@ Every task's requirements include this section.
   | anything else | `internal` | no; production hides the message, an `errorId` is logged and returned |
 
 - **Config `http.socket` defaults** (spec §5.6). Values are verbatim where the spec gives one:
-  - `path` `'/socket.io'`; `cors` `undefined`; `pingInterval` `25_000`; `pingTimeout` `20_000`
+  - `path` `'/socket.io'`; `cors` `{ origins: [] }` (D15: authz-v3 rule A31, an empty list allows no cross-origin handshake and sends no CORS headers); `pingInterval` `25_000`; `pingTimeout` `20_000`
+  - `auth` `{ required: false, revalidateMs: 60_000 }` (D13, D16)
   - `recovery.maxDisconnectionMs` `120_000` (2 min)
   - `maxPayloadBytes` `1024 * 1024` (1 MB)
   - `maxInFlightPerConnection` `32`
@@ -50,7 +54,7 @@ Every task's requirements include this section.
   - `drainMs` `5_000` (5 s)
   - `adapter` `undefined`
   - `system.dirs.socketControllers` `[]`
-- **Pipeline order (spec §5.2):** 1 size, 2 rate (token bucket per connection, `retryAfterMs`), 3 in flight (`> maxInFlightPerConnection`), 4 lookup (`unimplemented`), 5 idempotency (**W3**, not built here, slot `STAGE_ORDER.Idempotency = 500`), 6 policies (`unauthenticated` / `forbidden`), 7 arguments (ajv, `invalid_argument` with `details`), 8 ordering (`'connection' | 'client'`), 9 handler with an `AbortSignal` (deadline → `deadline_exceeded`, client cancel → `cancelled`, disconnect / shutdown → `unavailable`), 10 reply.
+- **Pipeline order (spec §5.2):** 1 size, 2 rate (token bucket per connection, `retryAfterMs`), 3 in flight (`> maxInFlightPerConnection`), then W1's authentication check (`STAGE_ORDER.Authentication = 350`, D16: expiry and revalidation → `unauthenticated`), 4 lookup (`unimplemented`), 5 idempotency (**W3**, not built here, slot `STAGE_ORDER.Idempotency = 500`), 6 policies (`unauthenticated` / `forbidden`, incl. `@SocketAccess`), 7 arguments (ajv, `invalid_argument` with `details`), 8 ordering (`'connection' | 'client'`), 9 handler with an `AbortSignal` (deadline → `deadline_exceeded`, client cancel → `cancelled`, disconnect / shutdown → `unavailable`), 10 reply. Stages 4–10 run inside the call's `AsyncLocalStorage` store (D14).
 - **Stream replies are W4.** W1 only reserves the wire types (`Chunk`, `StreamEnd`, `StreamFail`, `StreamCredit`, `CancelFrame`, and `CommandStreamReply`). A handler that returns an async iterable is answered `unimplemented`.
 - **Code style:** English identifiers and comments. Comment only a non-obvious "why". Follow the repo's prettier config (`printWidth 1500`, single quotes, trailing commas). Use ESM imports with `.js` suffixes in `src` and `test`.
 - **Tests:** mocha + chai + chai-as-promised + sinon via `ts-mocha -p tsconfig.json`. Each test runs a real server on a random port (`listen(0)`) with a raw `socket.io-client`. The real client is W2.
@@ -60,14 +64,37 @@ Every task's requirements include this section.
 
 - **D1. A size-limit refusal is not retryable.** Spec §5.3 says "limits … retryable yes" and §7 asks for `retryAfterMs`. Resending an oversized payload can never succeed, and a W2 durable client would retry it forever. Size therefore answers `resource_exhausted` with `retryable: false` and `details {size, limit}`. Rate answers `retryable: true` with `retryAfterMs` taken from the bucket. In-flight answers `retryable: true` with `retryAfterMs: 100` (`IN_FLIGHT_RETRY_AFTER_MS`).
 - **D2. `CommandRequest.deadline` is RELATIVE milliseconds.** It is the time the client is still willing to wait, measured from send, so the client and server clocks never have to agree. The server aborts at `min(receivedAt + deadline, receivedAt + @Command timeoutMs)`.
-- **D3. `@SocketPolicy`, not http's `@Policy`.** `@Policy` writes `@spinajs/http`'s controller descriptor. `FilesystemControllerSource` (`packages/http/src/controller-sources.ts:52`) treats any class carrying that descriptor as an http controller. `BaseController.resolve` (`packages/http/src/base-controller.ts:76`) then throws on its `unknown` route types. A socket controller in a `system.dirs.controllers` folder would therefore break http startup. `@SocketPolicy` keeps the same semantics: the same `BasePolicy` classes, AND inside a group, OR across groups, and controller scope AND route scope. It does so by reusing http's own `resolveRoutePolicies` and `createPolicyGate` (`packages/http/src/route-builder.ts:84,140`).
+- **D3. `@SocketPolicy`, not http's `@Policy`; `@SocketAccess`, not authz-http's `@Access`.** `@Policy` writes `@spinajs/http`'s controller descriptor. `FilesystemControllerSource` (`packages/http/src/controller-sources.ts:52`) treats any class carrying that descriptor as an http controller. `BaseController.resolve` (`packages/http/src/base-controller.ts:76`) then throws on its `unknown` route types. A socket controller in a `system.dirs.controllers` folder would therefore break http startup. `@SocketPolicy` keeps the same semantics: the same `BasePolicy` classes, AND inside a group, OR across groups, and controller scope AND route scope. It does so by reusing http's own `resolveRoutePolicies` and `createPolicyGate` (`packages/http/src/route-builder.ts:84,140`).
+  - *Re-checked against authz-v3 (2026-10-02).* authz-v3 keeps http's `BasePolicy` gate and its group semantics. L5 task 4 places `@Access` in a policy group "identical to today's `@Permission`", `AccessOptions.also` joins that group (AND), and a separate `@Policy` stays an alternative (OR) (design §11.2, behaviour B23). So reusing the gate stays right.
+  - `@Access` itself writes http's descriptor and `ACCESS_DESCRIPTOR` on an http route, and its `AccessPolicy` is still a stub (L5 not merged). So it cannot sit on a socket controller. W1 adds `@SocketAccess(permission, { resource, also, domain, allowAnonymous })`: one group of `SocketAccessPolicy` AND the `also` policies, deciding through the frozen `AuthzService.check` contract (Task 9A). Converging it with L5's `AccessPolicy` is gated task G4.
+  - The legacy rbac policies (`LoggedPolicy`, `AuthorizedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets: authz-v3 deprecates or removes them, and they read `req.storage` keys (`User`, `Session`, `TokenAuth`) W1 no longer seeds.
 - **D4. Step 8 (ordering) is built in W1** as an in-memory `OrderingStage` keyed `connection:<id>` / `client:<clientId>`. The spec lists it under both W1 (§8 "steps … 6–10") and W3 ("ordered commands"). W3 builds durability on top and may replace the stage.
-- **D5. A missing or invalid `auth.clientId` refuses the handshake with `invalid_argument`.** Spec §4 lists only `unauthenticated | version_mismatch` as refusals. A missing `auth.protocol` refuses with `version_mismatch`.
+- **D5. A missing or invalid `auth.clientId` refuses the handshake with `invalid_argument`.** Spec §4 lists only `unauthenticated | version_mismatch` as refusals. A missing `auth.protocol` refuses with `version_mismatch`. An origin outside `http.socket.cors.origins` refuses with `forbidden` (D15).
 - **D6. Socket.io's `maxHttpBufferSize` is set to `2 × maxPayloadBytes`.** Socket.io closes the whole connection on an oversized frame. The headroom lets step 1 answer `resource_exhausted` up to twice the limit. Above that the transport drops the connection.
 - **D7. W1's `dispose()` aborts running commands with `unavailable` at once and closes.** The drain (`sys.shutdown`, `drainMs`) is W3.
 - **D8. `ValidationFailed` (`@spinajs/validation`) is mapped too.** It is what `DataValidator.validate` throws (`packages/validation/src/validator.ts:273`). It is not a subclass of `JsonValidationFailed`.
 - **D9. Lifecycle hooks (`@OnConnect` / `@OnDisconnect`) run no policies.** Commands wait until every connect hook has finished, so a hook that joins rooms is visible to the first command.
 - **D10. The error-mapping registry is module-level, not a DI map value.** `@HandleException` stores into the DI cache (`packages/http/src/decorators.ts:281`), and `DI.clearCache()` silently drops it (see the workaround in `packages/configuration-http/test/configuration.test.ts:23-32`).
+- **D11. `SocketPrincipalSource` is the one handshake seam (plan C9's name).** authz-http's `PrincipalSource.authenticate(req: Request)` (`packages/authz-http/src/api.ts:11-15`) takes an express request after authn-http's `AuthnMiddleware` has written `req.storage.AuthnPrincipal`. A handshake has neither, so a thin socket seam is needed. It has the same shape and rule: `name`, `order`, `authenticate(handshake): Promise<Principal | null>`, ascending order, first non-null wins, throw to refuse. It adds `revalidate()` for long-lived connections (D16). It replaces the earlier `SocketAuthenticator` / `ISocketIdentity`: the identity record is `Principal.identity`, and no rbac `storage` keys are seeded.
+- **D12. Built-in `AuthnCredentialSource` (order 50, the slot of authz-http's `AuthnPrincipalSource`)** uses only `@spinajs/authn/contracts`. It builds a `SignedRequest` from the handshake, asks the DI `CredentialExtractor`s in ascending `order`, then calls `AuthnService.authenticate(credentials, { ip, userAgent, now, purpose: 'request' })` and `principalOf(result)`, so authn's throttle and audit apply (A05, A21).
+  - `auth.token` becomes `Authorization: Bearer <token>`: browsers cannot set WebSocket headers.
+  - The `Cookie` header is never passed to extractors (SR-12, D15).
+  - `ip` is the socket address and never `X-Forwarded-For` (SR-03). Trusted-proxy support waits for N8a's `ClientIp` (gated task G5).
+  - Every failure answers one shape, `unauthenticated` "authentication failed" (A02). A throttled failure adds `retryAfterMs`. `mfa_required` is a failure: a pending login is no principal (SR-07).
+  - The source is inert (returns null) while no `AuthnService` is registered: N1 has not merged.
+- **D13. No principal ⇒ `UNATTENDED`, unless `http.socket.auth.required`.** This is plan C9's documented default and design §14.1: scoped ORM queries in socket handlers fail closed. It is not authz-http's `anonymous` fallback (`authz.principals.anonymous.enabled`), which is an http feature. `auth.required: true` refuses such a handshake with `unauthenticated` "authentication required" (spec §7 Auth row).
+- **D14. The principal reaches handlers the way http's does: through the call's AsyncLocalStorage store, not `runAs`.** Every command, event and hook gets a fresh store `{ Principal, AuthnPrincipal, requestId, traceId, spanId, realIp, connectionId, clientId, socketCall }` on the DI-singleton `AsyncLocalStorage` (the instance `http/src/route-builder.ts:250` and `log/src/context.ts:29-31` use).
+  - `Principal` is the key of F4's `IAuthzAsyncStorage` (authz-v3 plan F4 task 1; design §4.3 `req.storage.Principal`), so `AuthzService.current()` returns it once F4 lands (gated task G1).
+  - `AuthnPrincipal` is `IAuthnPrincipalStorage.AuthnPrincipal`: the principal when a source resolved it, else `null`.
+  - The whole stage chain from the first stage on runs inside the store, so policies, `ArgInputFilter` (G3), hydrators and the handler all see the principal.
+  - `runAs` is not used per call: F4 audits every `runAs` (B09) and it means "act as someone else"; handlers still call it themselves.
+- **D15. Origin guard (SR-12 for sockets).** A browser opens a WebSocket to any origin and sends the user's cookies with it (cross-site WebSocket hijacking), and CORS does not apply to the upgrade. Before any source runs, a handshake whose `Origin` is neither absent (non-browser clients) nor same-origin (`new URL(origin).host === Host`) nor listed exactly in `http.socket.cors.origins` is refused with `forbidden`. A non-empty list also becomes socket.io's `cors: { origin: list, credentials: true }` for the polling transport. There are no wildcards (A31: `*` never with credentials).
+- **D16. Live connections re-check their principal (the socket form of SR-06/SR-08).** A socket outlives the credential it opened with. `AuthenticationStage` (Order 350) and the event path call `SocketPrincipalGuard.ensure(connection)`:
+  - A principal whose `ceiling.expiresAt` has passed is refused at once.
+  - Every `http.socket.auth.revalidateMs` (60 s; `0` turns it off) the guard asks the resolving source's `revalidate()`. The default re-authenticates the current handshake and expects the same `principalKey`. Concurrent calls share one check.
+  - A failure answers `unauthenticated` and, after that reply is written (`setImmediate`), disconnects with `sys.disconnect { reason: 'unauthenticated' }`, so the connection stops receiving room pushes.
+  - `UNATTENDED` connections are never re-checked.
+- **D17. Release notes and lock file follow authz-v3 rule 7 and the shared-file table.** `RELEASE_NOTES.md` belongs to X1 and `package-lock.json` to the integrator. Task 16 writes `packages/http-socket/RELEASE_NOTES.md` and commits no lock file.
 
 ---
 
@@ -90,29 +117,34 @@ Every task's requirements include this section.
 |---|---|---|
 | `package.json`, `tsconfig*.json` | 2 | v3 dependencies and references |
 | `src/config/http-socket.ts` | 2 | shipped `http.socket` defaults |
-| `src/interfaces.ts` | 2, 5, 6, 8 | config, handshake/identity, descriptor, context types; abstract `SocketAuthenticator`, `SocketHttpHost`, `SocketArg`, `SocketCommandStage`; `STAGE_ORDER` |
+| `src/interfaces.ts` | 2, 5, 6, 8 | config, handshake, auth state, call storage, descriptor, context types; abstract `SocketPrincipalSource`, `SocketHttpHost`, `SocketArg`, `SocketCommandStage`; `STAGE_ORDER` |
 | `src/limits.ts` | 3 | `payloadSize`, `TokenBucket`, `assertPayloadSize`, `assertRate` |
-| `src/errors.ts` | 4 | `@HandleSocketException`, mapping registry, default mappings, `SocketErrorMapper` |
-| `src/connection.ts` | 5 | `SocketConnection`, `toHandshake`, `parseCookies` |
+| `src/errors.ts` | 4 | `@HandleSocketException`, mapping registry, default mappings (incl. authz-v3 `AccessDenied`), `SocketErrorMapper` |
+| `src/origin.ts` | 5 | `isAllowedOrigin` (D15) |
+| `src/connection.ts` | 5 | `SocketConnection` (principal, auth state), `toHandshake`, `parseCookies` |
 | `src/hub.ts` | 5, 14 | `SocketHub` (connection registry; then rooms and push) |
 | `src/host.ts` | 5 | `HttpServerHost` (default `SocketHttpHost`) |
-| `src/server.ts` | 5, 8, 11, 15 | `SocketServer`: io options, handshake, connection wiring, dispose |
+| `src/server.ts` | 5, 5A, 8, 11, 15 | `SocketServer`: io options, origin guard, principal resolution, connection wiring, dispose |
+| `src/authn-source.ts` | 5A | `AuthnCredentialSource`, `credentialRequest`, `AUTHENTICATION_FAILED` (D12) |
 | `src/controller.ts` | 6 | `BaseSocketController` |
 | `src/args.ts` | 6 | `PayloadArg`, `ConnectionArg`, `SignalArg`, `ReasonArg`, `FromDiArg`, `SocketArgumentResolver` |
-| `src/decorators.ts` | 6 | `@SocketController`, `@Command`, `@OnEvent`, `@OnConnect`, `@OnDisconnect`, `@SocketPolicy`, `@SocketParameter`, `@Payload`, `@Connection`, `@Signal`, `@Reason`, `@FromDI` |
+| `src/decorators.ts` | 6 | `@SocketController`, `@Command`, `@OnEvent`, `@OnConnect`, `@OnDisconnect`, `@SocketPolicyGroup`, `@SocketPolicy`, `@SocketParameter`, `@Payload`, `@Connection`, `@Signal`, `@Reason`, `@FromDI` |
 | `src/registry.ts` | 7 | `SocketHandlerRegistry` (lookup, policy resolution, duplicate checks) |
 | `src/context.ts` | 8 | `SocketCommandContext` (abort controller, deadline timer) |
-| `src/dispatcher.ts` | 8, 11, 13, 15 | `SocketDispatcher`: command/event/cancel wiring, stage chain, invoke, reply, hooks |
+| `src/dispatcher.ts` | 8, 11, 13, 15 | `SocketDispatcher`: command/event/cancel wiring, call storage, stage chain inside the ALS, invoke, reply, hooks |
 | `src/stages/{index,lookup,arguments}.ts` | 8 | built-in stages 4 and 7 |
 | `src/policies.ts`, `src/stages/policies.ts` | 9 | policy request shim, `SocketPolicyGate`, stage 6 |
+| `src/access.ts` | 9A | `@SocketAccess`, `SocketAccessPolicy`, `fromPayload` (D3) |
 | `src/stages/limits.ts` | 10 | stages 1–3 |
+| `src/principal-guard.ts`, `src/stages/authentication.ts` | 10A | `SocketPrincipalGuard`, `AuthenticationStage` (D16) |
 | `src/queue.ts`, `src/stages/ordering.ts` | 12 | `SerialQueue`, stage 8 |
 | `src/metrics.ts` | 15 | telemetry metrics |
 | `src/index.ts` | every task | exports (+ re-export of `@spinajs/http-socket-common`) |
-| `test/harness.ts` | 4, 5 | test configuration, test host and authenticator, server/client helpers |
+| `test/harness.ts` | 4, 5 | test configuration, test host and principal source, server/client helpers |
 | `test/*.test.ts` | per task | see each task |
+| `RELEASE_NOTES.md` | 16 | the break, for X1 to merge into the root notes (D17) |
 
-Root: `tsconfig.build.json`, `tsconfig.build.cjs.json` (Task 1), `RELEASE_NOTES.md` and `package-lock.json` (Task 16).
+Root: `tsconfig.build.json`, `tsconfig.build.cjs.json` (Task 1, one line each). No root `RELEASE_NOTES.md` and no `package-lock.json` (D17).
 
 ---
 
@@ -147,7 +179,7 @@ Create `packages/http-socket-common/package.json`:
 ```json
 {
   "name": "@spinajs/http-socket-common",
-  "version": "2.0.549",
+  "version": "3.0.0-alpha.0",
   "description": "Wire protocol shared by the spinajs WebSocket server and client: envelopes, error codes, protocol version and contract typing helpers",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -807,8 +839,8 @@ git commit -m "feat(http-socket-common): wire protocol, error codes and contract
 - Test: `packages/http-socket/test/config.test.ts`
 
 **Interfaces:**
-- Consumes: `@spinajs/http-socket-common` (Task 1).
-- Produces: `ISocketServerConfig`, `ISocketRateConfig`, `ISocketIdempotencyConfig` (in `src/interfaces.ts`); the default export of `src/config/http-socket.ts` typed `ISocketConfigFile = { http: { socket: ISocketServerConfig }; system: { dirs: { socketControllers: string[] } } }`.
+- Consumes: `@spinajs/http-socket-common` (Task 1); the package dependencies `@spinajs/authz` and `@spinajs/authn` (3.0.0-alpha.0, on this branch).
+- Produces: `ISocketServerConfig` (with `cors: ISocketCorsConfig { origins: string[] }` and `auth: ISocketAuthConfig { required: boolean; revalidateMs: number }`), `ISocketRateConfig`, `ISocketIdempotencyConfig` (in `src/interfaces.ts`); the default export of `src/config/http-socket.ts` typed `ISocketConfigFile = { http: { socket: ISocketServerConfig }; system: { dirs: { socketControllers: string[] } } }`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -835,8 +867,13 @@ describe('http-socket default configuration', () => {
     expect(socket.pingInterval).to.equal(25_000);
     expect(socket.pingTimeout).to.equal(20_000);
     expect(socket.rate).to.deep.equal({ perSecond: 50, burst: 100 });
-    expect(socket.cors).to.be.undefined;
     expect(socket.adapter).to.be.undefined;
+  });
+
+  it('ships the authz-v3 defaults: no cross-origin handshake, unattended without credentials, revalidation every minute', () => {
+    const socket = socketConfig.http.socket;
+    expect(socket.cors).to.deep.equal({ origins: [] });
+    expect(socket.auth).to.deep.equal({ required: false, revalidateMs: 60_000 });
   });
 
   it('adds no socket controller directories by default', () => {
@@ -857,7 +894,7 @@ Replace `packages/http-socket/package.json` with:
 ```json
 {
   "name": "@spinajs/http-socket",
-  "version": "2.0.549",
+  "version": "2.0.548",
   "description": "WebSocket server for spinajs: socket controllers, commands, events, rooms, limits and error mapping over socket.io",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -916,15 +953,17 @@ Replace `packages/http-socket/package.json` with:
     "socket.io-client": "^4.8.1"
   },
   "dependencies": {
-    "@spinajs/configuration": "2.0.549",
-    "@spinajs/di": "2.0.549",
-    "@spinajs/exceptions": "2.0.549",
-    "@spinajs/http": "2.0.549",
-    "@spinajs/http-socket-common": "2.0.549",
-    "@spinajs/log": "2.0.549",
-    "@spinajs/reflection": "2.0.549",
-    "@spinajs/telemetry-common": "2.0.549",
-    "@spinajs/validation": "2.0.549",
+    "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/configuration": "2.0.548",
+    "@spinajs/di": "2.0.548",
+    "@spinajs/exceptions": "2.0.548",
+    "@spinajs/http": "2.0.548",
+    "@spinajs/http-socket-common": "3.0.0-alpha.0",
+    "@spinajs/log": "2.0.548",
+    "@spinajs/reflection": "2.0.548",
+    "@spinajs/telemetry-common": "2.0.548",
+    "@spinajs/validation": "2.0.548",
     "socket.io": "^4.8.1"
   }
 }
@@ -943,6 +982,8 @@ Replace `packages/http-socket/tsconfig.json` with:
   },
   "include": ["src/**/*", "test/**/*"],
   "references": [
+    { "path": "../authn/tsconfig.json" },
+    { "path": "../authz/tsconfig.json" },
     { "path": "../di/tsconfig.json" },
     { "path": "../configuration/tsconfig.json" },
     { "path": "../exceptions/tsconfig.json" },
@@ -969,6 +1010,8 @@ Replace `packages/http-socket/tsconfig.mjs.json` with:
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../authn/tsconfig.mjs.json" },
+    { "path": "../authz/tsconfig.mjs.json" },
     { "path": "../di/tsconfig.mjs.json" },
     { "path": "../configuration/tsconfig.mjs.json" },
     { "path": "../exceptions/tsconfig.mjs.json" },
@@ -994,6 +1037,8 @@ Replace `packages/http-socket/tsconfig.cjs.json` with:
   },
   "include": ["src/**/*"],
   "references": [
+    { "path": "../authn/tsconfig.cjs.json" },
+    { "path": "../authz/tsconfig.cjs.json" },
     { "path": "../di/tsconfig.cjs.json" },
     { "path": "../configuration/tsconfig.cjs.json" },
     { "path": "../exceptions/tsconfig.cjs.json" },
@@ -1028,11 +1073,23 @@ export interface ISocketIdempotencyConfig {
   ttlMs: number;
 }
 
+export interface ISocketCorsConfig {
+  /** Exact origins allowed to open a socket besides same-origin pages; no wildcards. Empty: none ( authz-v3 A31 ). */
+  origins: string[];
+}
+
+export interface ISocketAuthConfig {
+  /** Refuse a handshake no SocketPrincipalSource resolves, instead of running it as UNATTENDED. */
+  required: boolean;
+  /** How often a live connection's principal is re-checked with its source; 0 turns it off. */
+  revalidateMs: number;
+}
+
 /** `http.socket` */
 export interface ISocketServerConfig {
   path: string;
-  /** socket.io `cors` option; unset sends no CORS headers */
-  cors?: unknown;
+  cors: ISocketCorsConfig;
+  auth: ISocketAuthConfig;
   pingInterval: number;
   pingTimeout: number;
   recovery: { maxDisconnectionMs: number };
@@ -1060,7 +1117,13 @@ const config: ISocketConfigFile = {
   http: {
     socket: {
       path: '/socket.io',
-      cors: undefined,
+      cors: {
+        origins: [],
+      },
+      auth: {
+        required: false,
+        revalidateMs: 60_000,
+      },
       pingInterval: 25_000,
       pingTimeout: 20_000,
       recovery: {
@@ -1101,15 +1164,15 @@ export * from './interfaces.js';
 - [ ] **Step 5: Install the new dev dependency**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && npm install`
-Expected: exits 0. `node_modules/socket.io-client/package.json` exists and its version starts with `4.8`.
+Expected: exits 0. `node_modules/socket.io-client/package.json` exists and its version starts with `4.8`. `package-lock.json` changes; leave it unstaged (D17).
 
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/config.test.ts`
-Expected: `3 passing`.
+Expected: `4 passing`.
 
-Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b packages/http-socket/tsconfig.mjs.json`
-Expected: exits 0.
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b packages/http-socket/tsconfig.mjs.json packages/http-socket/tsconfig.cjs.json && node scripts/generate-packages-for-modules.mjs`
+Expected: exits 0. The project references build `packages/authn/lib/{mjs,cjs}/contracts/index.js` and `packages/authz/lib/{mjs,cjs}/index.js`, which the tests of later tasks import.
 
 - [ ] **Step 7: Commit**
 
@@ -1369,7 +1432,7 @@ git commit -m "feat(http-socket): payload size, token bucket and limit assertion
   - `HandleSocketException(exception: Constructor<Error> | Constructor<Error>[])`, a class decorator for a `SocketErrorMapping` subclass
   - `resolveSocketErrorMapping(error: unknown): Constructor<SocketErrorMapping> | null`, which walks the prototype chain by class name
   - `codeMapping(code: ErrorCode): Constructor<SocketErrorMapping>`
-  - the default mappings `InvalidArgumentMapping`, `ValidationFailedMapping`, `UnauthenticatedMapping`, `ForbiddenMapping`, `NotFoundMapping`, `ConflictMapping`, `FailedPreconditionMapping`, `UnimplementedMapping`, `SocketExceptionMapping`
+  - the default mappings `InvalidArgumentMapping`, `ValidationFailedMapping`, `UnauthenticatedMapping`, `ForbiddenMapping`, `AccessDeniedMapping` (authz-v3 `AccessDenied` → `forbidden` with `details { permission, resource, reason }`; `Unauthenticated` maps through its `AuthenticationFailed` base), `NotFoundMapping`, `ConflictMapping`, `FailedPreconditionMapping`, `UnimplementedMapping`, `SocketExceptionMapping`
   - `@Injectable() class SocketErrorMapper { toWire(error: unknown, context: string): SocketError }`. It logs `internal` errors with an `errorId` and hides their message when `configuration.isProduction`.
   - test harness: `TestConfiguration`, `configure(overrides?: Record<string, unknown>): Promise<void>`
 
@@ -1427,8 +1490,10 @@ import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOperation, JsonValidationFailed, MethodNotImplemented, NotSupported, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { DataValidator } from '@spinajs/validation';
+import { AccessDenied, FALSE, Unauthenticated } from '@spinajs/authz';
+import type { Decision } from '@spinajs/authz';
 import { ErrorCode, SocketException } from '@spinajs/http-socket-common';
-import { ForbiddenMapping, HandleSocketException, SocketErrorMapper, codeMapping, resolveSocketErrorMapping } from '../src/errors.js';
+import { AccessDeniedMapping, ForbiddenMapping, HandleSocketException, SocketErrorMapper, codeMapping, resolveSocketErrorMapping } from '../src/errors.js';
 import { configure } from './harness.js';
 
 export class ErrDocumentLocked extends Forbidden {}
@@ -1456,6 +1521,7 @@ describe('socket error mapping', function () {
     [new BadRequest('bad request'), 'invalid_argument'],
     [new JsonValidationFailed('bad json'), 'invalid_argument'],
     [new AuthenticationFailed('who are you'), 'unauthenticated'],
+    [new Unauthenticated('authentication required'), 'unauthenticated'],
     [new Forbidden('not yours'), 'forbidden'],
     [new ResourceNotFound('no such doc'), 'not_found'],
     [new ResourceDuplicated('doc exists'), 'conflict'],
@@ -1478,6 +1544,28 @@ describe('socket error mapping', function () {
     expect(resolveSocketErrorMapping(new ErrEditWindowClosed('x'))).to.equal(ErrEditWindowClosedMapping);
     expect(resolveSocketErrorMapping(new ErrDocumentLocked('x'))).to.equal(ForbiddenMapping);
     expect(mapper.toWire(new ErrEditWindowClosed('too late'), 'test').code).to.equal('failed_precondition');
+  });
+
+  it('maps authz-v3 AccessDenied to forbidden with the permission, resource and reason of the http 403 body (B23)', () => {
+    const decision: Decision = {
+      allowed: false,
+      permission: 'doc:read',
+      resource: { type: 'doc', id: 'd1' },
+      principal: { type: 'user', id: '1' },
+      residual: FALSE,
+      fields: { read: [], write: [] },
+      roles: {},
+      reason: { code: 'locked', model: 'm1', priority: 50, sortKey: 'k', detail: 'd' },
+      domain: 'root',
+    };
+
+    expect(resolveSocketErrorMapping(new AccessDenied(decision))).to.equal(AccessDeniedMapping);
+    expect(mapper.toWire(new AccessDenied(decision, 'no'), 'test')).to.deep.equal({
+      code: 'forbidden',
+      message: 'no',
+      retryable: false,
+      details: { permission: 'doc:read', resource: { type: 'doc', id: 'd1' }, reason: { code: 'locked', model: 'm1', detail: 'd' } },
+    });
   });
 
   it('puts the invalid field into details', () => {
@@ -1552,6 +1640,8 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationFailed, BadRequest, Forbidden, InvalidArgument, InvalidOperation, JsonValidationFailed, MethodNotImplemented, NotSupported, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { ValidationFailed } from '@spinajs/validation';
+import { AccessDenied } from '@spinajs/authz';
+import type { DenyReason } from '@spinajs/authz';
 import { DEFAULT_RETRYABLE, ErrorCode, SocketError, SocketException } from '@spinajs/http-socket-common';
 
 export abstract class SocketErrorMapping {
@@ -1613,6 +1703,31 @@ export class UnauthenticatedMapping extends codeMapping('unauthenticated') {}
 
 @HandleSocketException(Forbidden)
 export class ForbiddenMapping extends codeMapping('forbidden') {}
+
+// priority and sortKey only order the deny reasons; authz-http leaves them out of its 403 body (B23)
+function publicReason(reason: DenyReason): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(reason)) {
+    if (key !== 'priority' && key !== 'sortKey') {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/** The socket form of authz-http's 403 body. Never a trace: B41 forbids it in production, and sockets do not offer explain. */
+@HandleSocketException(AccessDenied)
+export class AccessDeniedMapping extends SocketErrorMapping {
+  public map(error: Error): SocketError {
+    const decision = (error as AccessDenied).decision;
+    return {
+      code: 'forbidden',
+      message: error.message,
+      retryable: false,
+      details: { permission: decision.permission, resource: decision.resource, ...(decision.reason ? { reason: publicReason(decision.reason) } : {}) },
+    };
+  }
+}
 
 @HandleSocketException(ResourceNotFound)
 export class NotFoundMapping extends codeMapping('not_found') {}
@@ -1682,7 +1797,7 @@ export * from './errors.js';
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/error-mapping.test.ts`
-Expected: `18 passing`.
+Expected: `20 passing`.
 
 - [ ] **Step 6: Commit**
 
@@ -1698,23 +1813,24 @@ git commit -m "feat(http-socket): @HandleSocketException error mapping with prot
 
 **Files:**
 - Modify: `packages/http-socket/src/interfaces.ts` (add imports at the top; append declarations)
-- Create: `packages/http-socket/src/connection.ts`, `src/hub.ts`, `src/host.ts`, `src/server.ts`
+- Create: `packages/http-socket/src/origin.ts`, `src/connection.ts`, `src/hub.ts`, `src/host.ts`, `src/server.ts`
 - Modify: `packages/http-socket/src/index.ts` (append)
 - Replace: `packages/http-socket/test/harness.ts` (full harness)
 - Test: `packages/http-socket/test/handshake.test.ts`
 
 **Interfaces:**
-- Consumes: `ISocketServerConfig` (Task 2), `SocketErrorMapper` (Task 4), `PROTOCOL_VERSION`, `MAX_ID_LENGTH`, `SocketException`, `SocketError`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `EventFrame`, `DisconnectNotice` (Task 1).
+- Consumes: `ISocketServerConfig` (Task 2), `SocketErrorMapper` (Task 4), `PROTOCOL_VERSION`, `MAX_ID_LENGTH`, `SocketException`, `SocketError`, `WIRE_EVENTS`, `SYSTEM_EVENTS`, `EventFrame`, `DisconnectNotice` (Task 1); from `@spinajs/authz`: `Principal`, `UNATTENDED`, `principalKey`, `Unauthenticated`.
 - Produces:
   - `ISocketHandshake { auth; headers; cookies; address; url; query; secure; issuedAt }`
-  - `ISocketIdentity { user?; principal?; storage? }`
-  - `abstract class SocketAuthenticator { abstract get Order(): number; abstract authenticate(h: ISocketHandshake): Promise<ISocketIdentity | null> }`. The first non-null result in ascending `Order` wins; throw to refuse.
+  - `abstract class SocketPrincipalSource { abstract readonly name: string; abstract readonly order: number; abstract authenticate(h: ISocketHandshake): Promise<Principal | null>; revalidate(h: ISocketHandshake, p: Principal): Promise<boolean> }`. Sources run in ascending `order` and the first non-null principal wins. Throw to refuse. The default `revalidate` authenticates again and compares `principalKey` (D11, D16).
+  - `ISocketAuthState { principal: Principal; source: string | null; checkedAt: number }`, kept in `socket.data.auth`
   - `abstract class SocketHttpHost { abstract server(): Promise<http.Server | https.Server> }`; the default is `HttpServerHost`, which takes the server from `@spinajs/http`'s `HttpServer`
-  - `class SocketConnection<D, U> { id; clientId; handshake; user; principal; storage; connectedAt; data: D; rooms; connected; signal; emit(name, payload); join(room); leave(room); disconnect(reason); close(reason) /* internal */ }`
+  - `isAllowedOrigin(headers, origins): boolean` (D15)
+  - `class SocketConnection<D, U> { id; clientId; handshake; connectedAt; auth: ISocketAuthState; principal: Principal; authenticated: boolean; user: U | undefined /* principal.identity */; data: D; rooms; connected; signal; emit(name, payload); join(room); leave(room); disconnect(reason); close(reason) /* internal */ }`
   - `toHandshake(socket)`, `parseCookies(header)`
   - `SocketHub { attach(io); detach(); register(conn); unregister(id); connection(id); Connections }`; rooms are added in Task 14
-  - `SocketServer { Io; resolve(); dispose() }`. A refused handshake answers `connect_error` with `data: SocketError`.
-  - harness: `ALICE`, `TestHttpHost`, `TestAuthenticator` (token `undefined` → anonymous, `'good'` → ALICE, anything else → `AuthenticationFailed('invalid token')`), `configure`, `startServer(cfg?) → ITestServer {server, url, path, close()}`, `connect`, `connected`, `open`, `nextId`, `command`, `errorOf`, `resultOf`, `nextEvent`, `delay`, `waitFor`
+  - `SocketServer { Io; resolve(); dispose() }`. Handshake order: origin (`forbidden`), protocol (`version_mismatch`), clientId (`invalid_argument`), principal sources (a throw is the refusal; none and `auth.required` → `unauthenticated` "authentication required"; none otherwise → `UNATTENDED`, D13). A refused handshake answers `connect_error` with `data: SocketError`.
+  - harness: `ALICE`, `ALICE_PRINCIPAL`, `TestHttpHost`, `TestPrincipalSource` (owns only the tokens `'good'` → `ALICE_PRINCIPAL` and `'bad'` → `AuthenticationFailed('invalid token')`; returns null for everything else, so later test files can own other tokens), `configure`, `startServer(cfg?) → ITestServer {server, url, path, close()}`, `connect`, `connected`, `open`, `refusalOf`, `nextId`, `command`, `errorOf`, `resultOf`, `nextEvent`, `delay`, `waitFor`
 
 - [ ] **Step 1: Replace the test harness with the full version**
 
@@ -1731,15 +1847,18 @@ import { io, Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthenticationFailed } from '@spinajs/exceptions';
+import type { Principal } from '@spinajs/authz';
 import '@spinajs/log';
 import { CommandReply, CommandRequest, EventFrame, PROTOCOL_VERSION, SocketError, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import socketConfig from '../src/config/http-socket.js';
-import { ISocketHandshake, ISocketIdentity, SocketAuthenticator, SocketHttpHost } from '../src/interfaces.js';
+import { ISocketHandshake, SocketHttpHost, SocketPrincipalSource } from '../src/interfaces.js';
 import { SocketServer } from '../src/server.js';
 
 chai.use(chaiAsPromised);
 
 export const ALICE = { id: 1, name: 'alice' };
+
+export const ALICE_PRINCIPAL: Principal = Object.freeze({ type: 'user', id: '1', authenticated: true, source: 'test', attributes: Object.freeze({}), identity: ALICE });
 
 /** A plain node http server, so socket tests do not need the express stack. */
 export class TestHttpHost extends SocketHttpHost {
@@ -1750,28 +1869,25 @@ export class TestHttpHost extends SocketHttpHost {
   }
 }
 
-export class TestAuthenticator extends SocketAuthenticator {
-  public get Order(): number {
-    return 0;
-  }
+/** Owns only the tokens 'good' and 'bad'; any other handshake is left to the sources of other test files. */
+export class TestPrincipalSource extends SocketPrincipalSource {
+  public readonly name = 'test';
+  public readonly order = 0;
 
-  public async authenticate(handshake: ISocketHandshake): Promise<ISocketIdentity | null> {
-    const token = handshake.auth.token;
-
-    if (token === undefined) {
-      return null;
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    switch (handshake.auth.token) {
+      case 'good':
+        return ALICE_PRINCIPAL;
+      case 'bad':
+        throw new AuthenticationFailed('invalid token');
+      default:
+        return null;
     }
-
-    if (token === 'good') {
-      return { user: ALICE, principal: { type: 'user', id: '1' }, storage: { User: ALICE } };
-    }
-
-    throw new AuthenticationFailed('invalid token');
   }
 }
 
 DI.register(TestHttpHost).as(SocketHttpHost);
-DI.register(TestAuthenticator).as(SocketAuthenticator);
+DI.register(TestPrincipalSource).as(SocketPrincipalSource);
 
 let overrides: Record<string, unknown> = {};
 
@@ -1853,6 +1969,16 @@ export function open(t: ITestServer, options: IConnectOptions = {}): Promise<Cli
   return connected(connect(t, options));
 }
 
+/** The SocketError of a refused handshake; fails when the handshake is accepted. The caller closes `socket`. */
+export function refusalOf(socket: ClientSocket): Promise<SocketError> {
+  return connected(socket).then(
+    () => {
+      throw new Error('the handshake was accepted');
+    },
+    (err: { data: SocketError }) => err.data,
+  );
+}
+
 let sequence = 0;
 
 export function nextId(): string {
@@ -1921,9 +2047,10 @@ import 'mocha';
 import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
-import { PROTOCOL_VERSION, SocketError } from '@spinajs/http-socket-common';
+import { UNATTENDED } from '@spinajs/authz';
+import { PROTOCOL_VERSION } from '@spinajs/http-socket-common';
 import { SocketHub } from '../src/hub.js';
-import { ALICE, ITestServer, connect, connected, open, startServer, waitFor } from './harness.js';
+import { ALICE, ALICE_PRINCIPAL, IConnectOptions, ITestServer, connect, open, refusalOf, startServer, waitFor } from './harness.js';
 
 describe('socket handshake', function () {
   this.timeout(15000);
@@ -1936,13 +2063,7 @@ describe('socket handshake', function () {
     return socket;
   };
 
-  const refusal = (socket: ClientSocket): Promise<SocketError> =>
-    connected(track(socket)).then(
-      () => {
-        throw new Error('the handshake was accepted');
-      },
-      (err: { data: SocketError }) => err.data,
-    );
+  const refusal = (options: IConnectOptions) => refusalOf(track(connect(t, options)));
 
   beforeEach(async () => {
     t = await startServer();
@@ -1954,42 +2075,45 @@ describe('socket handshake', function () {
     await t.close();
   });
 
-  it('accepts a client speaking the current protocol', async () => {
+  it('accepts a client speaking the current protocol and runs it as UNATTENDED without credentials', async () => {
     const socket = track(await open(t, { auth: { clientId: 'c-accept' } }));
-    const connection = DI.resolve(SocketHub).connection(socket.id!);
+    const connection = DI.resolve(SocketHub).connection(socket.id!)!;
 
-    expect(connection?.clientId).to.equal('c-accept');
-    expect(connection?.user).to.be.undefined;
+    expect(connection.clientId).to.equal('c-accept');
+    expect(connection.principal).to.equal(UNATTENDED);
+    expect(connection.authenticated).to.be.false;
+    expect(connection.user).to.be.undefined;
   });
 
   it('refuses another protocol version with version_mismatch', async () => {
-    const error = await refusal(connect(t, { auth: { protocol: 999 } }));
+    const error = await refusal({ auth: { protocol: 999 } });
     expect(error).to.include({ code: 'version_mismatch', retryable: false });
     expect(error.details).to.deep.equal({ server: PROTOCOL_VERSION });
   });
 
   it('refuses a handshake without a protocol version', async () => {
-    const error = await refusal(connect(t, { auth: { protocol: undefined } }));
+    const error = await refusal({ auth: { protocol: undefined } });
     expect(error.code).to.equal('version_mismatch');
   });
 
   it('refuses a handshake without a clientId', async () => {
-    const error = await refusal(connect(t, { auth: { clientId: '' } }));
+    const error = await refusal({ auth: { clientId: '' } });
     expect(error).to.include({ code: 'invalid_argument', retryable: false });
   });
 
-  it('refuses an invalid token with unauthenticated', async () => {
-    const error = await refusal(connect(t, { auth: { token: 'bad' } }));
+  it('refuses when a principal source throws', async () => {
+    const error = await refusal({ auth: { token: 'bad' } });
     expect(error).to.deep.equal({ code: 'unauthenticated', message: 'invalid token', retryable: false });
   });
 
-  it('keeps the identity an authenticator returns', async () => {
+  it('keeps the principal a source returns, with its identity as the user', async () => {
     const socket = track(await open(t, { auth: { token: 'good' } }));
     const connection = DI.resolve(SocketHub).connection(socket.id!)!;
 
+    expect(connection.principal).to.equal(ALICE_PRINCIPAL);
+    expect(connection.authenticated).to.be.true;
+    expect(connection.auth.source).to.equal('test');
     expect(connection.user).to.deep.equal(ALICE);
-    expect(connection.principal).to.deep.equal({ type: 'user', id: '1' });
-    expect(connection.storage).to.deep.equal({ User: ALICE });
   });
 
   it('exposes handshake headers and cookies', async () => {
@@ -2010,6 +2134,47 @@ describe('socket handshake', function () {
     await waitFor(() => hub.connection(id) === undefined);
   });
 });
+
+describe('socket handshake: origin and required authentication', function () {
+  this.timeout(15000);
+
+  let t: ITestServer | undefined;
+  let sockets: ClientSocket[] = [];
+
+  const track = (socket: ClientSocket): ClientSocket => {
+    sockets.push(socket);
+    return socket;
+  };
+
+  afterEach(async () => {
+    sockets.forEach((s) => s.close());
+    sockets = [];
+    await t?.close();
+    t = undefined;
+  });
+
+  it('refuses a handshake without credentials when http.socket.auth.required is set, and accepts one with', async () => {
+    t = await startServer({ http: { socket: { auth: { required: true } } } });
+
+    expect(await refusalOf(track(connect(t)))).to.deep.equal({ code: 'unauthenticated', message: 'authentication required', retryable: false });
+    expect(track(await open(t, { auth: { token: 'good' } })).connected).to.be.true;
+  });
+
+  it('SR-12 refuses a cross-origin handshake before any principal source runs (empty origin list)', async () => {
+    t = await startServer();
+
+    const error = await refusalOf(track(connect(t, { auth: { token: 'bad' }, headers: { origin: 'https://evil.example' } })));
+    expect(error).to.deep.equal({ code: 'forbidden', message: 'origin not allowed', retryable: false });
+  });
+
+  it('SR-12 accepts same-origin and exactly listed origins only; no wildcard', async () => {
+    t = await startServer({ http: { socket: { cors: { origins: ['https://app.example', '*'] } } } });
+
+    expect(track(await open(t, { headers: { origin: t.url } })).connected).to.be.true;
+    expect(track(await open(t, { headers: { origin: 'https://app.example' } })).connected).to.be.true;
+    expect((await refusalOf(track(connect(t, { headers: { origin: 'https://other.example' } })))).code).to.equal('forbidden');
+  });
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -2024,18 +2189,21 @@ At the top of `packages/http-socket/src/interfaces.ts`, add:
 ```ts
 import type { IncomingHttpHeaders, Server as HttpNodeServer } from 'http';
 import type { Server as HttpsNodeServer } from 'https';
+import { principalKey } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 ```
 
 Append to `packages/http-socket/src/interfaces.ts`:
 
 ```ts
-/** What a `SocketAuthenticator` sees of the socket.io handshake. */
+/** What a `SocketPrincipalSource` sees of the socket.io handshake. */
 export interface ISocketHandshake {
   /** `io(url, { auth })`: protocol, clientId, token and any app fields */
   readonly auth: Readonly<Record<string, unknown>>;
   readonly headers: Readonly<IncomingHttpHeaders>;
-  /** Unsigned raw cookie values; signed-cookie checks belong to the authenticator. */
+  /** Unsigned raw cookie values; signed-cookie checks belong to the source. */
   readonly cookies: Readonly<Record<string, string>>;
+  /** the socket's remote address; never taken from X-Forwarded-For */
   readonly address: string;
   readonly url: string;
   readonly query: Readonly<Record<string, unknown>>;
@@ -2043,27 +2211,38 @@ export interface ISocketHandshake {
   readonly issuedAt: number;
 }
 
-export interface ISocketIdentity {
-  /** App user record; exposed as `SocketConnection.user`. */
-  user?: unknown;
-  /** Principal object ( eg. an authz-v3 `Principal` ); exposed as `SocketConnection.principal`. */
-  principal?: unknown;
-  /**
-   * Seeded into the storage of every call on this connection: the ambient AsyncLocalStorage
-   * store and `request.storage` that policies read ( eg. rbac's `User`, `Session`, `TokenAuth` ).
-   */
-  storage?: Record<string, unknown>;
+/**
+ * Resolves the authz-v3 principal of a connection from its handshake: the socket form of
+ * authz-http's `PrincipalSource`, whose `authenticate(req)` needs an express request that
+ * authn-http's middleware has already seen. Sources run in ascending `order` and the first
+ * non-null principal wins. Return null when the handshake carries none of your credentials;
+ * throw ( eg. `Unauthenticated` ) to refuse the connection.
+ */
+export abstract class SocketPrincipalSource {
+  public abstract readonly name: string;
+
+  public abstract readonly order: number;
+
+  public abstract authenticate(handshake: ISocketHandshake): Promise<Principal | null>;
+
+  /** Re-checks a live connection ( expiry, revocation ): by default the handshake must still authenticate as the same principal. */
+  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<boolean> {
+    try {
+      const again = await this.authenticate(handshake);
+      return again !== null && principalKey(again) === principalKey(principal);
+    } catch {
+      return false;
+    }
+  }
 }
 
-/**
- * Turns handshake credentials into an identity. Authenticators run in ascending `Order`; the first
- * non-null identity wins. Return null when the handshake carries no credentials of your kind; throw
- * ( eg. `AuthenticationFailed` ) to refuse the connection. With no identity the connection is anonymous.
- */
-export abstract class SocketAuthenticator {
-  public abstract get Order(): number;
-
-  public abstract authenticate(handshake: ISocketHandshake): Promise<ISocketIdentity | null>;
+/** Kept in `socket.data.auth`, which connection state recovery restores after a short drop. */
+export interface ISocketAuthState {
+  principal: Principal;
+  /** name of the source that resolved the principal; null for UNATTENDED */
+  source: string | null;
+  /** ms epoch of the last successful check */
+  checkedAt: number;
 }
 
 /** Supplies the node http(s) server socket.io attaches to. */
@@ -2072,14 +2251,45 @@ export abstract class SocketHttpHost {
 }
 ```
 
-- [ ] **Step 5: Write the connection, hub, host and server**
+- [ ] **Step 5: Write the origin guard, the connection, hub, host and server**
+
+Create `packages/http-socket/src/origin.ts`:
+
+```ts
+import type { IncomingHttpHeaders } from 'http';
+
+/**
+ * CORS does not cover a WebSocket upgrade, and a browser sends the user's cookies with a socket
+ * opened from any site. So the handshake itself admits only clients without an Origin ( not a
+ * browser ), same-origin pages and exactly listed origins ( SR-12, authz-v3 A31 ).
+ */
+export function isAllowedOrigin(headers: Readonly<IncomingHttpHeaders>, origins: readonly string[]): boolean {
+  const origin = headers.origin;
+
+  if (origin === undefined) {
+    return true;
+  }
+
+  if (origin !== '*' && origins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    return typeof headers.host === 'string' && new URL(origin).host === headers.host;
+  } catch {
+    return false;
+  }
+}
+```
 
 Create `packages/http-socket/src/connection.ts`:
 
 ```ts
 import { Socket } from 'socket.io';
+import { UNATTENDED } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
-import { ISocketHandshake, ISocketIdentity } from './interfaces.js';
+import { ISocketAuthState, ISocketHandshake } from './interfaces.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const cookies = Object.create(null) as Record<string, string>;
@@ -2134,25 +2344,47 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
   public readonly id: string;
   public readonly clientId: string;
   public readonly handshake: ISocketHandshake;
-  public readonly user: U | undefined;
-  public readonly principal: unknown;
-  public readonly storage: Record<string, unknown>;
   public readonly connectedAt: number;
 
   protected readonly lifetime = new AbortController();
 
-  constructor(protected readonly socket: Socket, handshake: ISocketHandshake, identity: ISocketIdentity | null) {
+  constructor(
+    protected readonly socket: Socket,
+    handshake: ISocketHandshake,
+  ) {
     this.id = socket.id;
     this.clientId = String(handshake.auth.clientId);
     this.handshake = handshake;
-    this.user = identity?.user as U | undefined;
-    this.principal = identity?.principal;
-    this.storage = { ...(identity?.storage ?? {}) };
     this.connectedAt = Date.now();
+
+    if (!socket.data.auth) {
+      const unattended: ISocketAuthState = { principal: UNATTENDED, source: null, checkedAt: this.connectedAt };
+      socket.data.auth = unattended;
+    }
 
     if (!socket.data.app) {
       socket.data.app = {};
     }
+  }
+
+  /** Principal, its source and the last check. Kept in `socket.data`, which connection state recovery restores. */
+  public get auth(): ISocketAuthState {
+    return this.socket.data.auth as ISocketAuthState;
+  }
+
+  /** The authz-v3 principal; UNATTENDED when no SocketPrincipalSource resolved one. */
+  public get principal(): Principal {
+    return this.auth.principal;
+  }
+
+  /** True when a SocketPrincipalSource resolved the principal. */
+  public get authenticated(): boolean {
+    return this.auth.source !== null;
+  }
+
+  /** The principal's identity record ( `Principal.identity`, eg. the User model ). */
+  public get user(): U | undefined {
+    return this.principal.identity as U | undefined;
   }
 
   /** App data bag. Kept in `socket.data`, which connection state recovery restores after a short drop. */
@@ -2271,11 +2503,13 @@ import { AsyncService, Autoinject, ClassInfo, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
+import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { MAX_ID_LENGTH, PROTOCOL_VERSION, SocketError, SocketException } from '@spinajs/http-socket-common';
-import { ISocketIdentity, ISocketServerConfig, SocketAuthenticator, SocketHttpHost } from './interfaces.js';
+import { ISocketAuthState, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
+import { isAllowedOrigin } from './origin.js';
 import './host.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
@@ -2302,8 +2536,8 @@ export class SocketServer extends AsyncService {
   @Autoinject()
   protected Errors: SocketErrorMapper;
 
-  @Autoinject(SocketAuthenticator)
-  protected Authenticators: SocketAuthenticator[];
+  @Autoinject(SocketPrincipalSource)
+  protected Sources: SocketPrincipalSource[];
 
   // Loading the files is what runs their @SocketController decorators.
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.socketControllers')
@@ -2355,8 +2589,8 @@ export class SocketServer extends AsyncService {
       maxHttpBufferSize: o.maxPayloadBytes * 2,
     };
 
-    if (o.cors) {
-      options.cors = o.cors as ServerOptions['cors'];
+    if (o.cors.origins.length > 0) {
+      options.cors = { origin: [...o.cors.origins], credentials: true };
     }
 
     if (o.adapter) {
@@ -2372,6 +2606,11 @@ export class SocketServer extends AsyncService {
 
   protected async authenticate(socket: Socket): Promise<void> {
     try {
+      // first: no principal source may read the credentials of a hijacked cross-site socket
+      if (!isAllowedOrigin(socket.handshake.headers, this.Options.cors.origins)) {
+        throw new SocketException('forbidden', 'origin not allowed');
+      }
+
       const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
 
       if (auth.protocol !== PROTOCOL_VERSION) {
@@ -2382,7 +2621,7 @@ export class SocketServer extends AsyncService {
         throw new SocketException('invalid_argument', 'handshake auth.clientId must be a non-empty string');
       }
 
-      socket.data.identity = await this.identify(socket);
+      socket.data.auth = await this.identify(socket);
     } catch (err) {
       const wire = this.Errors.toWire(err, 'handshake');
       this.Log.debug(`Socket handshake refused: ${wire.code} ${wire.message}`);
@@ -2390,22 +2629,26 @@ export class SocketServer extends AsyncService {
     }
   }
 
-  protected async identify(socket: Socket): Promise<ISocketIdentity | null> {
+  protected async identify(socket: Socket): Promise<ISocketAuthState> {
     const handshake = toHandshake(socket);
-    const ordered = [...this.Authenticators].sort((a, b) => a.Order - b.Order);
+    const sources = [...this.Sources].sort((a, b) => a.order - b.order);
 
-    for (const authenticator of ordered) {
-      const identity = await authenticator.authenticate(handshake);
-      if (identity) {
-        return identity;
+    for (const source of sources) {
+      const principal = await source.authenticate(handshake);
+      if (principal) {
+        return { principal, source: source.name, checkedAt: Date.now() };
       }
     }
 
-    return null;
+    if (this.Options.auth.required) {
+      throw new Unauthenticated('authentication required');
+    }
+
+    return { principal: UNATTENDED, source: null, checkedAt: Date.now() };
   }
 
   protected onConnection(socket: Socket): void {
-    const connection = new SocketConnection(socket, toHandshake(socket), (socket.data.identity as ISocketIdentity | null | undefined) ?? null);
+    const connection = new SocketConnection(socket, toHandshake(socket));
     this.Hub.register(connection);
 
     socket.on('disconnect', (reason: string) => {
@@ -2419,6 +2662,7 @@ export class SocketServer extends AsyncService {
 Append to `packages/http-socket/src/index.ts`:
 
 ```ts
+export * from './origin.js';
 export * from './connection.js';
 export * from './hub.js';
 export * from './host.js';
@@ -2428,19 +2672,330 @@ export * from './server.js';
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/handshake.test.ts`
-Expected: `8 passing`.
+Expected: `11 passing`.
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/error-mapping.test.ts test/limits.test.ts test/config.test.ts`
-Expected: `30 passing` (the harness rewrite keeps `configure` working).
+Expected: `33 passing` (the harness rewrite keeps `configure` working).
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
 test "$(git branch --show-current)" = feat/websocket-layer && \
-git add packages/http-socket/src/interfaces.ts packages/http-socket/src/connection.ts packages/http-socket/src/hub.ts packages/http-socket/src/host.ts packages/http-socket/src/server.ts packages/http-socket/src/index.ts \
+git add packages/http-socket/src/interfaces.ts packages/http-socket/src/origin.ts packages/http-socket/src/connection.ts packages/http-socket/src/hub.ts packages/http-socket/src/host.ts packages/http-socket/src/server.ts packages/http-socket/src/index.ts \
   packages/http-socket/test/harness.ts packages/http-socket/test/handshake.test.ts && \
-git commit -m "feat(http-socket): SocketServer handshake with protocol check, SocketAuthenticator hook and SocketConnection"
+git commit -m "feat(http-socket): handshake with origin guard, protocol check and authz-v3 principal sources (unattended by default)"
+```
+
+---
+
+### Task 5A: `AuthnCredentialSource` — handshake credentials through `@spinajs/authn` contracts
+
+This task owns plan C9's "socket principal" item and the socket side of the authz-v3 security findings that apply to a handshake (SR-03, SR-07, SR-12; rule A02). See D12.
+
+**Files:**
+- Create: `packages/http-socket/src/authn-source.ts`
+- Modify: `packages/http-socket/src/server.ts` (one import line)
+- Modify: `packages/http-socket/src/index.ts` (append)
+- Test: `packages/http-socket/test/authn-source.test.ts`
+
+**Interfaces:**
+- Consumes: `SocketPrincipalSource`, `ISocketHandshake` (Task 5); from `@spinajs/authn/contracts`: `AuthnService` (`authenticate(c, ctx): Promise<AuthenticationResult>`, `principalOf(result)`), `CredentialExtractor` (`order`, `extract(req: SignedRequest): Credentials | null`), `SignedRequest`, `AuthnContext`, `Credentials`, `AuthenticationResult`; from `@spinajs/authz`: `Unauthenticated`.
+- Produces:
+  - `AUTHENTICATION_FAILED = 'authentication failed'`
+  - `credentialRequest(handshake: ISocketHandshake): SignedRequest` (headers lower-cased, no `cookie`, `auth.token` → `authorization: Bearer …` unless the header is set)
+  - `@Injectable(SocketPrincipalSource) class AuthnCredentialSource { name = 'authn'; order = 50 }`. It is inert while `DI.check(AuthnService)` is false.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/http-socket/test/authn-source.test.ts`:
+
+```ts
+import 'mocha';
+import { expect } from 'chai';
+import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
+import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
+import { UNATTENDED } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import { SocketHub } from '../src/hub.js';
+import { IConnectOptions, ITestServer, connect, open, refusalOf, startServer } from './harness.js';
+
+const BOB: Principal = Object.freeze({ type: 'user', id: 'bob', authenticated: true, source: 'token', attributes: Object.freeze({}), identity: { name: 'bob' } });
+
+const FAILED = { code: 'unauthenticated', message: 'authentication failed', retryable: false };
+
+export class AuthnTestExtractor extends CredentialExtractor {
+  public static seen: SignedRequest[] = [];
+
+  public readonly order = 10;
+
+  public extract(req: SignedRequest): Credentials | null {
+    AuthnTestExtractor.seen.push(req);
+    const value = req.headers.authorization;
+    return value?.startsWith('Bearer authn-') ? { kind: 'bearer', token: value.slice('Bearer '.length) } : null;
+  }
+}
+
+export class AuthnTestService extends AuthnService {
+  public static contexts: AuthnContext[] = [];
+
+  public async authenticate(credentials: Credentials, ctx: AuthnContext): Promise<AuthenticationResult> {
+    AuthnTestService.contexts.push(ctx);
+
+    switch ((credentials as { token: string }).token) {
+      case 'authn-ok':
+        return { status: 'success', identity: { type: 'user', id: 'bob' }, facts: { method: 'token', strategy: 'token', assurance: 'aal1', mfa: [] } };
+      case 'authn-mfa':
+        return { status: 'mfa_required', pending: { id: 'pending-1', state: 'pending' }, steps: ['totp'] };
+      case 'authn-throttled':
+        return { status: 'failure', reason: 'throttled', retryAfterSeconds: 3 };
+      case 'authn-revoked':
+        return { status: 'failure', reason: 'revoked' };
+      default:
+        return { status: 'failure', reason: 'invalid_credentials' };
+    }
+  }
+
+  public async principalOf(): Promise<Principal> {
+    return BOB;
+  }
+
+  public async completeMfa(): Promise<AuthenticationResult> {
+    throw new Error('not used by socket handshakes');
+  }
+
+  public async reauthenticate(): Promise<boolean> {
+    throw new Error('not used by socket handshakes');
+  }
+
+  public strategies(): readonly AuthenticationStrategy[] {
+    return [];
+  }
+}
+
+describe('AuthnCredentialSource', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let sockets: ClientSocket[] = [];
+
+  const track = (socket: ClientSocket): ClientSocket => {
+    sockets.push(socket);
+    return socket;
+  };
+
+  const principalOf = async (options: IConnectOptions): Promise<Principal> => {
+    const socket = track(await open(t, options));
+    return DI.resolve(SocketHub).connection(socket.id!)!.principal;
+  };
+
+  const refusal = (options: IConnectOptions) => refusalOf(track(connect(t, options)));
+
+  afterEach(async () => {
+    sockets.forEach((s) => s.close());
+    sockets = [];
+    await t.close();
+  });
+
+  describe('with an AuthnService', () => {
+    before(() => {
+      DI.register(AuthnTestService).as(AuthnService);
+      DI.register(AuthnTestExtractor).as(CredentialExtractor);
+    });
+
+    after(() => {
+      DI.unregister(AuthnTestService);
+      DI.unregister(AuthnTestExtractor);
+    });
+
+    beforeEach(async () => {
+      t = await startServer();
+    });
+
+    it('resolves a token sent in auth.token through AuthnService.authenticate and principalOf', async () => {
+      expect(await principalOf({ auth: { token: 'authn-ok' } })).to.equal(BOB);
+      expect(AuthnTestService.contexts[AuthnTestService.contexts.length - 1].purpose).to.equal('request');
+    });
+
+    it('reads the Authorization header too', async () => {
+      expect(await principalOf({ headers: { authorization: 'Bearer authn-ok' } })).to.equal(BOB);
+    });
+
+    it('A02 refuses every failure with one answer', async () => {
+      expect(await refusal({ auth: { token: 'authn-wrong' } })).to.deep.equal(FAILED);
+      expect(await refusal({ auth: { token: 'authn-revoked' } })).to.deep.equal(FAILED);
+    });
+
+    it('A06 a throttled handshake carries retryAfterMs', async () => {
+      expect(await refusal({ auth: { token: 'authn-throttled' } })).to.deep.equal({ ...FAILED, retryAfterMs: 3000 });
+    });
+
+    it('SR-07 a login still pending MFA yields no principal', async () => {
+      expect(await refusal({ auth: { token: 'authn-mfa' } })).to.deep.equal(FAILED);
+    });
+
+    it('SR-03 the client address is the socket address, never X-Forwarded-For', async () => {
+      await principalOf({ auth: { token: 'authn-ok' }, headers: { 'x-forwarded-for': '6.6.6.6' } });
+      const ctx = AuthnTestService.contexts[AuthnTestService.contexts.length - 1];
+
+      expect(ctx.ip).to.match(/127\.0\.0\.1$/);
+    });
+
+    it('SR-12 cookies never reach the credential extractors', async () => {
+      await principalOf({ auth: { token: 'authn-ok' }, headers: { cookie: 'ssid=stolen' } });
+      const request = AuthnTestExtractor.seen[AuthnTestExtractor.seen.length - 1];
+
+      expect(request.headers).not.to.have.property('cookie');
+      expect(request.headers.authorization).to.equal('Bearer authn-ok');
+    });
+
+    it('leaves a handshake without credentials UNATTENDED', async () => {
+      expect(await principalOf({})).to.equal(UNATTENDED);
+    });
+  });
+
+  describe('without an AuthnService', () => {
+    beforeEach(async () => {
+      t = await startServer();
+    });
+
+    it('is inert: the token stays unread and the connection runs as UNATTENDED', async () => {
+      expect(await principalOf({ auth: { token: 'authn-ok' } })).to.equal(UNATTENDED);
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/authn-source.test.ts`
+Expected: 7 failing and 2 passing. No source reads authn tokens yet, so `authn-ok` connections run as `UNATTENDED` and the refusal tests fail with `the handshake was accepted`. The two `UNATTENDED` tests pass.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `packages/http-socket/src/authn-source.ts`:
+
+```ts
+import { DI, Injectable } from '@spinajs/di';
+import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
+import { Unauthenticated } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import { SocketException } from '@spinajs/http-socket-common';
+import { ISocketHandshake, SocketPrincipalSource } from './interfaces.js';
+
+/** One answer for every failed attempt, as authn-http gives ( A02 ); the reason goes to authn's audit only. */
+export const AUTHENTICATION_FAILED = 'authentication failed';
+
+/**
+ * The handshake as authn's `SignedRequest`. Browsers cannot set WebSocket headers, so a token in
+ * `auth.token` becomes `Authorization: Bearer`. The Cookie header is left out: a browser sends
+ * cookies with a socket opened from any site, so they are no credential here ( SR-12 ).
+ */
+export function credentialRequest(handshake: ISocketHandshake): SignedRequest {
+  const headers: Record<string, string> = {};
+
+  for (const [name, value] of Object.entries(handshake.headers)) {
+    const key = name.toLowerCase();
+    if (key === 'cookie' || value === undefined) {
+      continue;
+    }
+    headers[key] = Array.isArray(value) ? value.join(', ') : String(value);
+  }
+
+  const token = handshake.auth.token;
+  if (typeof token === 'string' && token.length > 0 && headers.authorization === undefined) {
+    headers.authorization = `Bearer ${token}`;
+  }
+
+  return { method: 'GET', targetUri: handshake.url, headers };
+}
+
+/**
+ * Bearer, key and signature credentials through `@spinajs/authn` ( throttled and audited by
+ * AuthnService ), at order 50 like authz-http's AuthnPrincipalSource. Inert until an
+ * AuthnService is registered.
+ */
+@Injectable(SocketPrincipalSource)
+export class AuthnCredentialSource extends SocketPrincipalSource {
+  public readonly name = 'authn';
+  public readonly order = 50;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    if (!DI.check(AuthnService)) {
+      return null;
+    }
+
+    const credentials = await this.extract(credentialRequest(handshake));
+    if (!credentials) {
+      return null;
+    }
+
+    const authn = (await DI.resolve(AuthnService)) as AuthnService;
+    const userAgent = handshake.headers['user-agent'];
+    const ctx: AuthnContext = { ip: handshake.address, userAgent: typeof userAgent === 'string' ? userAgent : undefined, now: new Date(), purpose: 'request' };
+    const result = await authn.authenticate(credentials, ctx);
+
+    if (result.status === 'success') {
+      return authn.principalOf(result);
+    }
+
+    // mfa_required falls through: a login pending MFA is no principal ( SR-07 )
+    if (result.status === 'failure' && result.retryAfterSeconds !== undefined) {
+      throw new SocketException('unauthenticated', AUTHENTICATION_FAILED, { retryAfterMs: result.retryAfterSeconds * 1000 });
+    }
+
+    throw new Unauthenticated(AUTHENTICATION_FAILED);
+  }
+
+  protected async extract(request: SignedRequest): Promise<Credentials | null> {
+    const extractors = [...((await DI.resolve(Array.ofType(CredentialExtractor))) as CredentialExtractor[])].sort((a, b) => a.order - b.order);
+
+    for (const extractor of extractors) {
+      const credentials = extractor.extract(request);
+      if (credentials) {
+        return credentials;
+      }
+    }
+
+    return null;
+  }
+}
+```
+
+In `packages/http-socket/src/server.ts`, replace:
+
+```ts
+import './host.js';
+```
+
+with:
+
+```ts
+import './host.js';
+import './authn-source.js';
+```
+
+Append to `packages/http-socket/src/index.ts`:
+
+```ts
+export * from './authn-source.js';
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/authn-source.test.ts test/handshake.test.ts`
+Expected: `20 passing`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add packages/http-socket/src/authn-source.ts packages/http-socket/src/server.ts packages/http-socket/src/index.ts packages/http-socket/test/authn-source.test.ts && \
+git commit -m "feat(http-socket): AuthnCredentialSource resolves handshake credentials through the authn contracts"
 ```
 
 ---
@@ -2463,10 +3018,11 @@ git commit -m "feat(http-socket): SocketServer handshake with protocol check, So
   - `ISocketHandlerDescriptor { Kind; Method; Name; Options: ICommandOptions; Parameters: Map<number, ISocketParameter>; Policies: IPolicyGroup[] }`
   - `ISocketControllerDescriptor { Prefix: string|null; Policies: IPolicyGroup[]; Handlers: Map<string|symbol, ISocketHandlerDescriptor> }`
   - `IRegisteredHandler { fullName; controller: BaseSocketController; descriptor: ISocketHandlerDescriptor; policies: IResolvedRoutePolicies }`
-  - `ISocketCallContext { kind; connection; handler?; payload; signal; reason?; storage }`
+  - `ISocketCallStorage extends IAuthnPrincipalStorage { Principal: Principal; AuthzDecision?: Decision; [key: string]: unknown }`: the call's AsyncLocalStorage store (D14)
+  - `ISocketCallContext { kind; connection; handler?; payload; signal; reason?; storage: ISocketCallStorage }`
   - `abstract class SocketArg { abstract extract(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown> }`
   - `abstract class BaseSocketController extends AsyncService { [member: string]: any; get Descriptor(): ISocketControllerDescriptor | undefined }`
-  - decorators `SocketController(prefix?)` (also registers the class in DI as `BaseSocketController`), `Command(name?, options?)`, `OnEvent(name?, options?)`, `OnConnect()`, `OnDisconnect()`, `SocketPolicy(policy|policy[], ...options)`, `SocketParameter(type, schema?, options?)`, `Payload(schema?)`, `Connection()`, `Signal()`, `Reason()`, `FromDI(...options)`
+  - decorators `SocketController(prefix?)` (also registers the class in DI as `BaseSocketController`), `Command(name?, options?)`, `OnEvent(name?, options?)`, `OnConnect()`, `OnDisconnect()`, `SocketPolicyGroup(group: IPolicyGroup)` (one group with its own per-member options; Task 9A builds `@SocketAccess` on it), `SocketPolicy(policy|policy[], ...options)`, `SocketParameter(type, schema?, options?)`, `Payload(schema?)`, `Connection()`, `Signal()`, `Reason()`, `FromDI(...options)`
   - `PayloadArg`, `ConnectionArg`, `SignalArg`, `ReasonArg`, `FromDiArg`, `SocketArgumentResolver { resolve(ctx: ISocketCallContext): Promise<unknown[]> }`
 
 - [ ] **Step 1: Write the failing test**
@@ -2480,6 +3036,7 @@ import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { ArgHydrator, BasePolicy, Hydrator } from '@spinajs/http';
 import { DataValidator, Schema, ValidationFailed } from '@spinajs/validation';
+import { UNATTENDED } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, FromDI, OnConnect, OnDisconnect, OnEvent, Payload, Reason, Signal, SocketController, SocketPolicy } from '../src/decorators.js';
 import { ConnectionArg, FromDiArg, PayloadArg, ReasonArg, SignalArg, SocketArgumentResolver } from '../src/args.js';
@@ -2652,7 +3209,7 @@ describe('socket controller model', function () {
       handler,
       payload,
       signal: new AbortController().signal,
-      storage: {},
+      storage: { Principal: UNATTENDED },
       ...extra,
     });
 
@@ -2715,6 +3272,7 @@ At the top of `packages/http-socket/src/interfaces.ts`, add (under the Task 5 im
 ```ts
 import type { Class } from '@spinajs/di';
 import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
+import type { Decision, IAuthnPrincipalStorage } from '@spinajs/authz';
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
 ```
@@ -2777,6 +3335,18 @@ export interface IRegisteredHandler {
   readonly policies: IResolvedRoutePolicies;
 }
 
+/**
+ * The AsyncLocalStorage store of one call ( D14 ). `Principal` is the key authz-v3's
+ * `AuthzService.current()` reads ( F4 `IAuthzAsyncStorage`, as http's `req.storage.Principal` );
+ * `AuthnPrincipal` is authn's hand-off key: the principal when a source resolved it, else null.
+ */
+export interface ISocketCallStorage extends IAuthnPrincipalStorage {
+  Principal: Principal;
+  /** written by SocketAccessPolicy, as authz-http's AccessPolicy writes req.storage.AuthzDecision */
+  AuthzDecision?: Decision;
+  [key: string]: unknown;
+}
+
 /** What argument extractors, policies and hooks see of one call. */
 export interface ISocketCallContext {
   readonly kind: SocketHandlerKind;
@@ -2787,7 +3357,7 @@ export interface ISocketCallContext {
   /** disconnect reason, for @OnDisconnect hooks */
   readonly reason?: string;
   /** ambient AsyncLocalStorage store of the call */
-  readonly storage: Record<string, unknown>;
+  readonly storage: ISocketCallStorage;
 }
 
 /** Extracts one handler argument. Implementations are resolved from DI by class. */
@@ -3034,15 +3604,9 @@ export function OnDisconnect() {
   return Handler('disconnect', undefined, {});
 }
 
-/**
- * Same semantics as http's `@Policy`, with the same `BasePolicy` classes: every call forms one
- * group ( AND inside ), groups are alternatives ( OR ), controller and method scopes are combined
- * with AND. Policies receive an `ISocketPolicyRequest` in place of the express request.
- */
-export function SocketPolicy(policy: Class<BasePolicy> | string | (Class<BasePolicy> | string)[], ...options: unknown[]) {
+/** Adds one policy group ( AND inside ) at class or method scope; each member carries its own constructor options. */
+export function SocketPolicyGroup(group: IPolicyGroup) {
   return SocketDescriptor((descriptor, _target, propertyKey) => {
-    const group = (Array.isArray(policy) ? policy : [policy]).map((p) => ({ Type: p, Options: options })) as IPolicyGroup;
-
     if (group.length === 0) {
       return;
     }
@@ -3053,6 +3617,15 @@ export function SocketPolicy(policy: Class<BasePolicy> | string | (Class<BasePol
       handlerOf(descriptor, propertyKey).Policies.push(group);
     }
   });
+}
+
+/**
+ * Same semantics as http's `@Policy`, with the same `BasePolicy` classes: every call forms one
+ * group ( AND inside ), groups are alternatives ( OR ), controller and method scopes are combined
+ * with AND. Policies receive an `ISocketPolicyRequest` in place of the express request.
+ */
+export function SocketPolicy(policy: Class<BasePolicy> | string | (Class<BasePolicy> | string)[], ...options: unknown[]) {
+  return SocketPolicyGroup((Array.isArray(policy) ? policy : [policy]).map((p) => ({ Type: p, Options: options })) as IPolicyGroup);
 }
 
 /** Declares a handler argument filled by the `SocketArg` extractor `type`; the base of all argument decorators. */
@@ -3409,11 +3982,11 @@ git commit -m "feat(http-socket): handler registry with prefixed names, policy r
   - `IConnectionRuntime { connection; bucket: TokenBucket; inFlight: number; running: Map<string, ISocketCommandContext>; ready: Promise<void> }`
   - `ISocketCommandContext extends ISocketCallContext { kind: 'command'; request: CommandRequest; runtime; receivedAt; args?; abort(reason: SocketException); armDeadline(ms?: number) }`
   - `abstract class SocketCommandStage { abstract get Order(): number; abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> }`: the W3 extension point. Register one with `@Injectable(SocketCommandStage)`.
-  - `STAGE_ORDER = { Size:100, Rate:200, InFlight:300, Lookup:400, Idempotency:500, Policies:600, Arguments:700, Ordering:800 }`
+  - `STAGE_ORDER = { Size:100, Rate:200, InFlight:300, Authentication:350, Lookup:400, Idempotency:500, Policies:600, Arguments:700, Ordering:800 }` (`Authentication` is filled by Task 10A)
   - `class SocketCommandContext implements ISocketCommandContext { dispose() }`
   - `@Injectable() class SocketDispatcher extends AsyncService { attach(conn, socket): IConnectionRuntime; detach(conn, reason); execute(ctx): Promise<CommandReply> }`, plus protected `callStorage`, `next`, `invoke` and `toReply` (W4 overrides `toReply` for streams)
   - `LookupStage` (sets `ctx.handler`, else `unimplemented`), `ArgumentsStage` (sets `ctx.args`)
-  - The ALS store of a command is `{ ...connection.storage, requestId, traceId, spanId, realIp, connectionId, clientId, socketCall }`.
+  - The ALS store of a command is an `ISocketCallStorage` `{ Principal: connection.principal, AuthnPrincipal: connection.authenticated ? connection.principal : null, requestId, traceId, spanId, realIp, connectionId, clientId, socketCall }`. The whole stage chain runs inside `AsyncLocalStorage.run(store)` (D14).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3426,10 +3999,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
+import { UNATTENDED } from '@spinajs/authz';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, Payload, SocketController } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
+import { ISocketCallStorage } from '../src/interfaces.js';
 import { ALICE, ITestServer, command, errorOf, open, resultOf, startServer } from './harness.js';
 
 export class PipeNote {
@@ -3484,6 +4059,12 @@ export class PipelineSocket extends BaseSocketController {
   public async store() {
     const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>).getStore();
     return { requestId: store?.requestId ?? null, connectionId: store?.connectionId ?? null };
+  }
+
+  @Command('principal')
+  public async principal() {
+    const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
+    return { id: store?.Principal.id ?? null, unattended: store?.Principal === UNATTENDED, authn: store?.AuthnPrincipal?.id ?? null };
   }
 }
 
@@ -3552,6 +4133,19 @@ describe('socket command pipeline', function () {
     expect(resultOf(await command(socket, 'pipe.store', undefined, { id: 'store-1' }))).to.deep.equal({ requestId: 'store-1', connectionId: socket.id });
   });
 
+  it('puts the connection principal into the call storage under Principal and AuthnPrincipal (D14)', async () => {
+    expect(resultOf(await command(socket, 'pipe.principal'))).to.deep.equal({ id: '1', unattended: false, authn: '1' });
+  });
+
+  it('runs a connection without credentials as UNATTENDED, with no AuthnPrincipal', async () => {
+    const anonymous = await open(t, { auth: { clientId: 'pipe-anon' } });
+    try {
+      expect(resultOf(await command(anonymous, 'pipe.principal'))).to.deep.equal({ id: 'unattended', unattended: true, authn: null });
+    } finally {
+      anonymous.close();
+    }
+  });
+
   it('answers a malformed request with invalid_argument', async () => {
     const reply = await socket.timeout(2000).emitWithAck(WIRE_EVENTS.command, { name: 'pipe.echo' });
     expect(reply).to.deep.equal({ id: '', ok: false, error: { code: 'invalid_argument', message: 'malformed command request', retryable: false } });
@@ -3616,11 +4210,12 @@ export abstract class SocketCommandStage {
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 }
 
-/** Spec §5.2 order. 500 is reserved for W3's idempotency stage. */
+/** Spec §5.2 order. 350 is W1's principal re-check ( Task 10A, D16 ); 500 is reserved for W3's idempotency stage. */
 export const STAGE_ORDER = {
   Size: 100,
   Rate: 200,
   InFlight: 300,
+  Authentication: 350,
   Lookup: 400,
   Idempotency: 500,
   Policies: 600,
@@ -3635,7 +4230,7 @@ Create `packages/http-socket/src/context.ts`:
 
 ```ts
 import { CommandRequest, SocketException } from '@spinajs/http-socket-common';
-import { IConnectionRuntime, IRegisteredHandler, ISocketCommandContext } from './interfaces.js';
+import { IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketCommandContext } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 
 export class SocketCommandContext implements ISocketCommandContext {
@@ -3651,7 +4246,7 @@ export class SocketCommandContext implements ISocketCommandContext {
   constructor(
     public readonly runtime: IConnectionRuntime,
     public readonly request: CommandRequest,
-    public readonly storage: Record<string, unknown>,
+    public readonly storage: ISocketCallStorage,
   ) {}
 
   public get connection(): SocketConnection {
@@ -3709,7 +4304,7 @@ import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
 import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCommandRequest } from '@spinajs/http-socket-common';
-import { IConnectionRuntime, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
+import { IConnectionRuntime, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
@@ -3742,7 +4337,7 @@ export class SocketDispatcher extends AsyncService {
   protected Errors: SocketErrorMapper;
 
   @Autoinject()
-  protected Als: AsyncLocalStorage<Record<string, unknown>>;
+  protected Als: AsyncLocalStorage<ISocketCallStorage>;
 
   protected Stages: SocketCommandStage[] = [];
 
@@ -3783,7 +4378,8 @@ export class SocketDispatcher extends AsyncService {
     try {
       await runtime.ready;
 
-      const chain = this.next(ctx, 0);
+      // D14: stages, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
+      const chain = this.Als.run(ctx.storage, () => this.next(ctx, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
       chain.catch(() => undefined);
       const abort = aborted(ctx.signal);
@@ -3825,11 +4421,12 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /** The ambient AsyncLocalStorage store of one call; log lines and policies read it. */
-  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), traceparent?: string): Record<string, unknown> {
+  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), traceparent?: string): ISocketCallStorage {
     const trace = newTraceContext(traceparent);
 
     return {
-      ...connection.storage,
+      Principal: connection.principal,
+      AuthnPrincipal: connection.authenticated ? connection.principal : null,
       requestId,
       traceId: trace.traceId,
       spanId: trace.spanId,
@@ -3862,7 +4459,7 @@ export class SocketDispatcher extends AsyncService {
       throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in stage is missing');
     }
 
-    return this.Als.run(ctx.storage, () => handler.controller[handler.descriptor.Method as string](...args));
+    return handler.controller[handler.descriptor.Method as string](...args);
   }
 
   /** W4 replaces the stream branch with real stream replies. */
@@ -3949,14 +4546,17 @@ import { AsyncService, Autoinject, ClassInfo, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
+import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { MAX_ID_LENGTH, PROTOCOL_VERSION, SocketError, SocketException } from '@spinajs/http-socket-common';
-import { ISocketIdentity, ISocketServerConfig, SocketAuthenticator, SocketHttpHost } from './interfaces.js';
+import { ISocketAuthState, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
 import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
+import { isAllowedOrigin } from './origin.js';
 import { SocketHandlerRegistry } from './registry.js';
 import './host.js';
+import './authn-source.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
 function refusal(wire: SocketError): Error & { data: SocketError } {
@@ -3988,8 +4588,8 @@ export class SocketServer extends AsyncService {
   @Autoinject()
   protected Dispatcher: SocketDispatcher;
 
-  @Autoinject(SocketAuthenticator)
-  protected Authenticators: SocketAuthenticator[];
+  @Autoinject(SocketPrincipalSource)
+  protected Sources: SocketPrincipalSource[];
 
   // Loading the files is what runs their @SocketController decorators.
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.socketControllers')
@@ -4042,8 +4642,8 @@ export class SocketServer extends AsyncService {
       maxHttpBufferSize: o.maxPayloadBytes * 2,
     };
 
-    if (o.cors) {
-      options.cors = o.cors as ServerOptions['cors'];
+    if (o.cors.origins.length > 0) {
+      options.cors = { origin: [...o.cors.origins], credentials: true };
     }
 
     if (o.adapter) {
@@ -4059,6 +4659,11 @@ export class SocketServer extends AsyncService {
 
   protected async authenticate(socket: Socket): Promise<void> {
     try {
+      // first: no principal source may read the credentials of a hijacked cross-site socket
+      if (!isAllowedOrigin(socket.handshake.headers, this.Options.cors.origins)) {
+        throw new SocketException('forbidden', 'origin not allowed');
+      }
+
       const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
 
       if (auth.protocol !== PROTOCOL_VERSION) {
@@ -4069,7 +4674,7 @@ export class SocketServer extends AsyncService {
         throw new SocketException('invalid_argument', 'handshake auth.clientId must be a non-empty string');
       }
 
-      socket.data.identity = await this.identify(socket);
+      socket.data.auth = await this.identify(socket);
     } catch (err) {
       const wire = this.Errors.toWire(err, 'handshake');
       this.Log.debug(`Socket handshake refused: ${wire.code} ${wire.message}`);
@@ -4077,22 +4682,26 @@ export class SocketServer extends AsyncService {
     }
   }
 
-  protected async identify(socket: Socket): Promise<ISocketIdentity | null> {
+  protected async identify(socket: Socket): Promise<ISocketAuthState> {
     const handshake = toHandshake(socket);
-    const ordered = [...this.Authenticators].sort((a, b) => a.Order - b.Order);
+    const sources = [...this.Sources].sort((a, b) => a.order - b.order);
 
-    for (const authenticator of ordered) {
-      const identity = await authenticator.authenticate(handshake);
-      if (identity) {
-        return identity;
+    for (const source of sources) {
+      const principal = await source.authenticate(handshake);
+      if (principal) {
+        return { principal, source: source.name, checkedAt: Date.now() };
       }
     }
 
-    return null;
+    if (this.Options.auth.required) {
+      throw new Unauthenticated('authentication required');
+    }
+
+    return { principal: UNATTENDED, source: null, checkedAt: Date.now() };
   }
 
   protected onConnection(socket: Socket): void {
-    const connection = new SocketConnection(socket, toHandshake(socket), (socket.data.identity as ISocketIdentity | null | undefined) ?? null);
+    const connection = new SocketConnection(socket, toHandshake(socket));
     this.Hub.register(connection);
     this.Dispatcher.attach(connection, socket);
 
@@ -4116,10 +4725,10 @@ export * from './dispatcher.js';
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/pipeline.test.ts`
-Expected: `12 passing`.
+Expected: `14 passing`.
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && npm run test --workspace=packages/http-socket`
-Expected: every test file passes (`71 passing`).
+Expected: every test file passes (`88 passing`).
 
 - [ ] **Step 6: Commit**
 
@@ -4153,11 +4762,14 @@ Create `packages/http-socket/test/policies.test.ts`:
 ```ts
 import 'mocha';
 import { expect } from 'chai';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
 import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
+import { ISocketCallStorage } from '../src/interfaces.js';
 import { ISocketPolicyRequest } from '../src/policies.js';
 import { ALICE, ITestServer, command, errorOf, open, resultOf, startServer } from './harness.js';
 
@@ -4187,7 +4799,7 @@ export class PolRequireUser extends BasePolicy {
   }
 
   public async execute(req: unknown): Promise<void> {
-    if (!(req as ISocketPolicyRequest).storage.User) {
+    if (!(req as ISocketPolicyRequest).storage.Principal.authenticated) {
       throw new AuthenticationFailed('login required');
     }
   }
@@ -4200,7 +4812,9 @@ export class PolInspect extends BasePolicy {
 
   public async execute(req: unknown): Promise<void> {
     const r = req as ISocketPolicyRequest;
-    policySeen.push({ body: r.body, params: r.params, user: r.storage.User ?? null, method: r.method, url: r.originalUrl, clientId: r.socketConnection.clientId });
+    // policies run inside the call's AsyncLocalStorage store ( D14 ), as AuthzService.current() will need
+    const ambient = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
+    policySeen.push({ body: r.body, params: r.params, user: r.storage.Principal.identity ?? null, ambient: ambient?.Principal.id ?? null, method: r.method, url: r.originalUrl, clientId: r.socketConnection.clientId });
   }
 }
 
@@ -4301,7 +4915,7 @@ describe('socket command policies', function () {
 
   it('hands policies a request built from the call', async () => {
     await command(alice, 'pol.inspect', { doc: 7 });
-    expect(policySeen[policySeen.length - 1]).to.deep.equal({ body: { doc: 7 }, params: { doc: 7 }, user: ALICE, method: 'SOCKET', url: 'pol.inspect', clientId: 'pol-client' });
+    expect(policySeen[policySeen.length - 1]).to.deep.equal({ body: { doc: 7 }, params: { doc: 7 }, user: ALICE, ambient: '1', method: 'SOCKET', url: 'pol.inspect', clientId: 'pol-client' });
   });
 
   it('skips a policy that is not enabled for the command', async () => {
@@ -4329,13 +4943,13 @@ import { Forbidden } from '@spinajs/exceptions';
 import { IController, IRoute, createPolicyGate } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { SocketException } from '@spinajs/http-socket-common';
-import { IRegisteredHandler, ISocketCallContext, ISocketHandshake } from './interfaces.js';
+import { IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketHandshake } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 
 /**
  * What a `BasePolicy` receives in place of the express request. Policies that read only
- * `req.storage` ( rbac's LoggedPolicy, BlockGuest … ) and resource extractors that read
- * `req.body` / `req.params` work unchanged.
+ * `req.storage` ( authz-v3's `Principal` / `AuthnPrincipal` keys ) and resource extractors that
+ * read `req.body` / `req.params` work unchanged.
  */
 export interface ISocketPolicyRequest {
   readonly method: 'SOCKET';
@@ -4350,7 +4964,7 @@ export interface ISocketPolicyRequest {
   readonly params: Record<string, unknown>;
   readonly query: Record<string, unknown>;
   /** the call storage; what a policy writes here the handler sees in its AsyncLocalStorage store */
-  readonly storage: Record<string, unknown>;
+  readonly storage: ISocketCallStorage;
   readonly socketConnection: SocketConnection;
 }
 
@@ -4473,6 +5087,480 @@ cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
 test "$(git branch --show-current)" = feat/websocket-layer && \
 git add packages/http-socket/src/policies.ts packages/http-socket/src/stages/policies.ts packages/http-socket/src/stages/index.ts packages/http-socket/src/index.ts packages/http-socket/test/policies.test.ts && \
 git commit -m "feat(http-socket): @SocketPolicy gate reusing http policy groups on commands"
+```
+
+---
+
+### Task 9A: `@SocketAccess` — authz-v3 access checks on commands and events
+
+The socket form of authz-http's `@Access` (design §11.2, behaviour B23; D3). It decides through the frozen `AuthzService` contract, so it works today against any registered `AuthzService` and against F4's host once that merges. Field filters (`fields: 'filter'`), `subject: 'load'` and the convergence with L5's `AccessPolicy` are gated task G4.
+
+**Files:**
+- Create: `packages/http-socket/src/access.ts`
+- Modify: `packages/http-socket/src/index.ts` (append)
+- Test: `packages/http-socket/test/access.test.ts`
+
+**Interfaces:**
+- Consumes: `SocketPolicyGroup` (Task 6), `ISocketPolicyRequest` (Task 9), `ISocketCallStorage.Principal` / `AuthzDecision` (Task 6), `AccessDeniedMapping` (Task 4); from `@spinajs/authz`: `AuthzService.check(input: CheckInput): Promise<Decision>`, `AuthzDomains.service(name): AuthzService`, `parsePermission`, `AccessDenied`, `Unauthenticated`, `Permission`, `ResourceRef`, `ResourceType`, `Decision`.
+- Produces:
+  - `type SocketResourceExtractor = (call: ISocketPolicyRequest) => ResourceRef | object | Promise<ResourceRef | object>`
+  - `interface ISocketAccessOptions { resource?: SocketResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; allowAnonymous?: boolean }`, `interface ISocketAccess extends ISocketAccessOptions { permissions: readonly Permission[] }`
+  - `fromPayload(path: string, type: ResourceType): SocketResourceExtractor` (dotted path; a missing id throws `InvalidArgument('payload.<path> is required')`)
+  - `@NewInstance() class SocketAccessPolicy extends BasePolicy` (constructor `(access: ISocketAccess)`)
+  - `SocketAccess(permission: Permission | readonly Permission[], options?: ISocketAccessOptions)`: a class or method decorator that adds one group `[SocketAccessPolicy(access), ...also]`
+  - Behaviour:
+    - an unauthenticated principal (`UNATTENDED`, anonymous) without `allowAnonymous` → `unauthenticated`, and the engine is not asked
+    - several permissions → any of them
+    - no extractor → `{ type: parsePermission(permission).resource }`
+    - allowed → `storage.AuthzDecision = decision`
+    - denied → `AccessDenied(first denial)` → `forbidden` with `details { permission, resource, reason }`
+    - `domain` other than `'root'` → `AuthzDomains.service(domain)`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/http-socket/test/access.test.ts`:
+
+```ts
+import 'mocha';
+import { expect } from 'chai';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { Forbidden } from '@spinajs/exceptions';
+import { BasePolicy } from '@spinajs/http';
+import { AuthzDomains, AuthzService, FALSE, TRUE, resourceKey } from '@spinajs/authz';
+import type { AccessSummary, AuthorizationModel, AuthzAdmin, CheckInput, Decision, Permission, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
+import { BaseSocketController } from '../src/controller.js';
+import { Command, SocketController, SocketPolicy } from '../src/decorators.js';
+import { SocketAccess, fromPayload } from '../src/access.js';
+import { ISocketCallStorage } from '../src/interfaces.js';
+import { ALICE_PRINCIPAL, ITestServer, command, errorOf, open, resultOf, startServer } from './harness.js';
+
+function unused(member: string): never {
+  throw new Error(`AccTestAuthz.${member} is not used by socket tests`);
+}
+
+/** `${principal id}|${permission}|${resourceKey(resource)}` */
+export const accAllowed = new Set<string>();
+export const accChecks: Array<{ domain: string; input: CheckInput }> = [];
+
+/** A scripted AuthzService: the F4 host and the F3 engine have not merged. */
+export class AccTestAuthz extends AuthzService {
+  public domain = 'root';
+
+  public async check(input: CheckInput): Promise<Decision> {
+    accChecks.push({ domain: this.domain, input });
+    const resource = input.resource as ResourceRef;
+    const allowed = accAllowed.has(`${input.principal.id}|${input.permission}|${resourceKey(resource)}`);
+
+    return {
+      allowed,
+      permission: input.permission,
+      resource,
+      principal: { type: input.principal.type, id: input.principal.id },
+      residual: allowed ? TRUE : FALSE,
+      fields: { read: [], write: [] },
+      roles: {},
+      domain: this.domain,
+      ...(allowed ? {} : { reason: { code: 'no_access', model: 'm1', priority: 400, sortKey: 'm1' } }),
+    };
+  }
+
+  public current(): Principal {
+    return unused('current');
+  }
+
+  public runAs<T>(): Promise<T> {
+    return unused('runAs');
+  }
+
+  public can(): Promise<boolean> {
+    return unused('can');
+  }
+
+  public assert(): Promise<Decision> {
+    return unused('assert');
+  }
+
+  public checkMany(): Promise<ReadonlyMap<Permission, Decision>> {
+    return unused('checkMany');
+  }
+
+  public filter(): Promise<ResourceFilter> {
+    return unused('filter');
+  }
+
+  public filterNow(): ResourceFilter | undefined {
+    return unused('filterNow');
+  }
+
+  public explain(): Promise<Decision> {
+    return unused('explain');
+  }
+
+  public summary(): Promise<AccessSummary> {
+    return unused('summary');
+  }
+
+  public covers(): Promise<boolean> {
+    return unused('covers');
+  }
+
+  public preload(): Promise<void> {
+    return unused('preload');
+  }
+
+  public invalidate(): void {
+    unused('invalidate');
+  }
+
+  public models(): readonly AuthorizationModel[] {
+    return unused('models');
+  }
+
+  public admin(): AuthzAdmin {
+    return unused('admin');
+  }
+}
+
+export class AccTestDomains extends AuthzDomains {
+  public service(name: string): AuthzService {
+    const service = new AccTestAuthz();
+    service.domain = name;
+    return service;
+  }
+
+  public create(): IContainer {
+    return unused('create');
+  }
+
+  public container(): IContainer {
+    return unused('container');
+  }
+
+  public names(): readonly string[] {
+    return ['root', 'tenant'];
+  }
+}
+
+export class AccDeny extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {
+    throw new Forbidden('denied by AccDeny');
+  }
+}
+
+export class AccAllow extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(): Promise<void> {}
+}
+
+const DOC = fromPayload('id', 'doc');
+
+@SocketController('acc')
+export class AccessSocket extends BaseSocketController {
+  @Command('read')
+  @SocketAccess('doc:read', { resource: DOC })
+  public async read() {
+    const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
+    return store?.AuthzDecision?.permission ?? null;
+  }
+
+  @Command('any')
+  @SocketAccess(['doc:read', 'doc:write'], { resource: DOC })
+  public async any() {
+    return 'ok';
+  }
+
+  @Command('list')
+  @SocketAccess('doc:list')
+  public async list() {
+    return 'listed';
+  }
+
+  @Command('open')
+  @SocketAccess('doc:list', { allowAnonymous: true })
+  public async open() {
+    return 'unreachable for UNATTENDED';
+  }
+
+  @Command('also')
+  @SocketAccess('doc:read', { resource: DOC, also: [AccDeny] })
+  public async also() {
+    return 'unreachable';
+  }
+
+  @Command('either')
+  @SocketAccess('doc:read', { resource: DOC })
+  @SocketPolicy(AccAllow)
+  public async either() {
+    return 'one path is enough';
+  }
+
+  @Command('tenant')
+  @SocketAccess('doc:read', { resource: DOC, domain: 'tenant' })
+  public async tenant() {
+    return 'tenant';
+  }
+
+  @Command('nested')
+  @SocketAccess('doc:read', { resource: fromPayload('doc.id', 'doc') })
+  public async nested() {
+    return 'nested';
+  }
+}
+
+describe('@SocketAccess', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let alice: ClientSocket;
+  let anonymous: ClientSocket;
+
+  const lastCheck = () => accChecks[accChecks.length - 1];
+
+  before(() => {
+    DI.register(AccTestAuthz).as(AuthzService);
+    DI.register(AccTestDomains).as(AuthzDomains);
+  });
+
+  after(() => {
+    DI.unregister(AccTestAuthz);
+    DI.unregister(AccTestDomains);
+  });
+
+  beforeEach(async () => {
+    accAllowed.clear();
+    accChecks.length = 0;
+    t = await startServer();
+    alice = await open(t, { auth: { clientId: 'acc-alice', token: 'good' } });
+    anonymous = await open(t, { auth: { clientId: 'acc-anon' } });
+  });
+
+  afterEach(async () => {
+    alice.close();
+    anonymous.close();
+    await t.close();
+  });
+
+  it('allows through AuthzService.check with the connection principal and the extracted resource, and leaves the decision in the call storage', async () => {
+    accAllowed.add('1|doc:read|doc:d1');
+
+    expect(resultOf(await command(alice, 'acc.read', { id: 'd1' }))).to.equal('doc:read');
+    expect(lastCheck().input.principal).to.equal(ALICE_PRINCIPAL);
+    expect(lastCheck().input.resource).to.deep.equal({ type: 'doc', id: 'd1' });
+    expect(lastCheck().domain).to.equal('root');
+  });
+
+  it('answers a denial with forbidden and the permission, resource and reason, without priority or sortKey (B23)', async () => {
+    const error = errorOf(await command(alice, 'acc.read', { id: 'd2' }));
+
+    expect(error).to.include({ code: 'forbidden', retryable: false });
+    expect(error.details).to.deep.equal({ permission: 'doc:read', resource: { type: 'doc', id: 'd2' }, reason: { code: 'no_access', model: 'm1' } });
+  });
+
+  it('answers unauthenticated for an UNATTENDED connection without asking the engine', async () => {
+    expect(errorOf(await command(anonymous, 'acc.list')).code).to.equal('unauthenticated');
+    expect(accChecks).to.have.length(0);
+  });
+
+  it('allowAnonymous lets an unauthenticated principal reach the engine, which decides (B09: unattended is denied)', async () => {
+    expect(errorOf(await command(anonymous, 'acc.open')).code).to.equal('forbidden');
+    expect(lastCheck().input.principal.type).to.equal('unattended');
+  });
+
+  it('checks several permissions as any of them', async () => {
+    accAllowed.add('1|doc:write|doc:d1');
+    expect(resultOf(await command(alice, 'acc.any', { id: 'd1' }))).to.equal('ok');
+  });
+
+  it("defaults the resource to the type-level ref of the permission's resource", async () => {
+    accAllowed.add('1|doc:list|doc');
+
+    expect(resultOf(await command(alice, 'acc.list'))).to.equal('listed');
+    expect(lastCheck().input.resource).to.deep.equal({ type: 'doc' });
+  });
+
+  it('B23 the also policies join the access group (AND)', async () => {
+    accAllowed.add('1|doc:read|doc:d1');
+    expect(errorOf(await command(alice, 'acc.also', { id: 'd1' }))).to.include({ code: 'forbidden', message: 'denied by AccDeny' });
+  });
+
+  it('B23 a separate @SocketPolicy group stays an alternative (OR)', async () => {
+    expect(resultOf(await command(alice, 'acc.either', { id: 'd9' }))).to.equal('one path is enough');
+  });
+
+  it('asks the AuthzService of the named domain', async () => {
+    accAllowed.add('1|doc:read|doc:d1');
+
+    expect(resultOf(await command(alice, 'acc.tenant', { id: 'd1' }))).to.equal('tenant');
+    expect(lastCheck().domain).to.equal('tenant');
+  });
+
+  it('fromPayload reads a dotted path and refuses a call without it', async () => {
+    accAllowed.add('1|doc:read|doc:d3');
+
+    expect(resultOf(await command(alice, 'acc.nested', { doc: { id: 'd3' } }))).to.equal('nested');
+    expect(errorOf(await command(alice, 'acc.nested', {}))).to.include({ code: 'invalid_argument', message: 'payload.doc.id is required' });
+  });
+
+  it('refuses a malformed permission when the decorator runs', () => {
+    expect(() => SocketAccess('not a permission')).to.throw();
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/access.test.ts`
+Expected: FAIL with `Cannot find module '../src/access.js'`.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `packages/http-socket/src/access.ts`:
+
+```ts
+import { Class, DI, NewInstance } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
+import { BasePolicy } from '@spinajs/http';
+import { AccessDenied, AuthzDomains, AuthzService, Unauthenticated, parsePermission } from '@spinajs/authz';
+import type { Decision, Permission, ResourceRef, ResourceType } from '@spinajs/authz';
+import { SocketPolicyGroup } from './decorators.js';
+import { ISocketPolicyRequest } from './policies.js';
+
+export type SocketResourceExtractor = (call: ISocketPolicyRequest) => ResourceRef | object | Promise<ResourceRef | object>;
+
+export interface ISocketAccessOptions {
+  /** default: the type-level ref of each permission's resource ( `doc:read` → `{ type: 'doc' }` ) */
+  resource?: SocketResourceExtractor;
+  /** more policies in the same group ( AND ), as authz-http's `AccessOptions.also` ( B23 ) */
+  also?: readonly Class<BasePolicy>[];
+  /** authz domain; default 'root' */
+  domain?: string;
+  /** let an unauthenticated principal ( UNATTENDED, anonymous ) reach the engine instead of answering unauthenticated */
+  allowAnonymous?: boolean;
+}
+
+export interface ISocketAccess extends ISocketAccessOptions {
+  permissions: readonly Permission[];
+}
+
+/** The resource ref from a payload field ( dotted path ). */
+export function fromPayload(path: string, type: ResourceType): SocketResourceExtractor {
+  const keys = path.split('.');
+
+  return (call) => {
+    let value: unknown = call.body;
+    for (const key of keys) {
+      value = value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+    }
+
+    if (typeof value === 'number' || (typeof value === 'string' && value.length > 0)) {
+      return { type, id: String(value) };
+    }
+
+    throw new InvalidArgument(`payload.${path} is required`, path);
+  };
+}
+
+/**
+ * Decides one `@SocketAccess` group as authz-http's AccessPolicy decides `@Access` ( design
+ * §11.2 ): unauthenticated ⇒ Unauthenticated, several permissions ⇒ any of them, the allowing
+ * decision stays in the call storage, a denial throws AccessDenied.
+ */
+@NewInstance()
+export class SocketAccessPolicy extends BasePolicy {
+  constructor(protected readonly access: ISocketAccess) {
+    super();
+  }
+
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(req: unknown): Promise<void> {
+    const call = req as ISocketPolicyRequest;
+    const principal = call.storage.Principal;
+
+    if (!principal.authenticated && !this.access.allowAnonymous) {
+      throw new Unauthenticated(`${call.originalUrl} needs an authenticated principal`);
+    }
+
+    const authz = await this.service();
+    const extracted = this.access.resource ? await this.access.resource(call) : undefined;
+    let denied: Decision | undefined;
+
+    for (const permission of this.access.permissions) {
+      const decision = await authz.check({ principal, permission, resource: extracted ?? { type: parsePermission(permission).resource } });
+
+      if (decision.allowed) {
+        call.storage.AuthzDecision = decision;
+        return;
+      }
+
+      denied ??= decision;
+    }
+
+    throw new AccessDenied(denied!);
+  }
+
+  protected async service(): Promise<AuthzService> {
+    const domain = this.access.domain ?? 'root';
+
+    if (domain === 'root') {
+      return (await DI.resolve(AuthzService)) as AuthzService;
+    }
+
+    const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
+    return domains.service(domain);
+  }
+}
+
+/**
+ * The socket form of authz-http's `@Access`, which writes http's controller descriptor and so
+ * cannot sit on a socket controller ( D3 ). One group: SocketAccessPolicy AND the `also`
+ * policies; other `@SocketPolicy` groups stay alternatives ( OR ).
+ */
+export function SocketAccess(permission: Permission | readonly Permission[], options: ISocketAccessOptions = {}) {
+  const permissions: Permission[] = typeof permission === 'string' ? [permission] : [...permission];
+
+  if (permissions.length === 0) {
+    throw new Error('@SocketAccess needs at least one permission');
+  }
+
+  // a malformed name fails when the controller module loads, not on the first call
+  permissions.forEach((p) => parsePermission(p));
+
+  const access: ISocketAccess = { ...options, permissions };
+  return SocketPolicyGroup([{ Type: SocketAccessPolicy, Options: [access] }, ...(options.also ?? []).map((Type) => ({ Type, Options: [] }))]);
+}
+```
+
+Append to `packages/http-socket/src/index.ts`:
+
+```ts
+export * from './access.js';
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/access.test.ts test/policies.test.ts`
+Expected: `19 passing`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add packages/http-socket/src/access.ts packages/http-socket/src/index.ts packages/http-socket/test/access.test.ts && \
+git commit -m "feat(http-socket): @SocketAccess decides commands through the authz-v3 AuthzService contract"
 ```
 
 ---
@@ -4662,6 +5750,273 @@ cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
 test "$(git branch --show-current)" = feat/websocket-layer && \
 git add packages/http-socket/src/stages/limits.ts packages/http-socket/src/stages/index.ts packages/http-socket/test/limits-pipeline.test.ts && \
 git commit -m "feat(http-socket): size, rate and in-flight limit stages"
+```
+
+---
+
+### Task 10A: Authentication stage — expiry and revalidation of live connections
+
+A socket outlives the credential it opened with. This task makes revocation and expiry take effect on open connections (D16), the socket form of SR-06 and SR-08.
+
+**Files:**
+- Create: `packages/http-socket/src/principal-guard.ts`, `packages/http-socket/src/stages/authentication.ts`
+- Modify: `packages/http-socket/src/stages/index.ts`, `packages/http-socket/src/index.ts` (append)
+- Test: `packages/http-socket/test/revalidation.test.ts`
+
+**Interfaces:**
+- Consumes: `SocketPrincipalSource.revalidate`, `ISocketAuthState`, `SocketConnection.auth` / `handshake` / `connected` / `disconnect` (Task 5), `STAGE_ORDER.Authentication`, `SocketCommandStage` (Task 8), `ISocketAuthConfig` (Task 2); `Unauthenticated` from `@spinajs/authz`.
+- Produces:
+  - `@Injectable() class SocketPrincipalGuard { ensure(connection: SocketConnection): Promise<void> }`. It throws `Unauthenticated('credentials expired')` or `Unauthenticated('credentials are no longer valid')`, then disconnects with reason `'unauthenticated'` after the current reply. Task 13 calls it for events as well.
+  - `AuthenticationStage` (`STAGE_ORDER.Authentication` = 350)
+
+- [ ] **Step 1: Write the failing test**
+
+Create `packages/http-socket/test/revalidation.test.ts`:
+
+```ts
+import 'mocha';
+import { expect } from 'chai';
+import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
+import { AuthenticationFailed } from '@spinajs/exceptions';
+import type { Principal } from '@spinajs/authz';
+import { SYSTEM_EVENTS } from '@spinajs/http-socket-common';
+import { BaseSocketController } from '../src/controller.js';
+import { Command, SocketController } from '../src/decorators.js';
+import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
+import { ITestServer, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
+
+export const revalRevoked = new Set<string>();
+export let revalChecks = 0;
+
+/** Owns the tokens starting with 'reval-'. */
+export class RevalSource extends SocketPrincipalSource {
+  public readonly name = 'reval';
+  public readonly order = 1;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    const token = handshake.auth.token;
+    if (typeof token !== 'string' || !token.startsWith('reval-')) {
+      return null;
+    }
+
+    revalChecks++;
+    if (revalRevoked.has(token)) {
+      throw new AuthenticationFailed('revoked');
+    }
+
+    return { type: 'user', id: token, authenticated: true, source: 'token', attributes: {}, ...(token === 'reval-expiring' ? { ceiling: { expiresAt: new Date(Date.now() + 400) } } : {}) };
+  }
+}
+
+DI.register(RevalSource).as(SocketPrincipalSource);
+
+@SocketController('reval')
+export class RevalSocket extends BaseSocketController {
+  @Command('ping')
+  public async ping() {
+    return 'pong';
+  }
+}
+
+describe('socket principal revalidation', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let socket: ClientSocket;
+
+  const start = async (revalidateMs: number, token?: string) => {
+    t = await startServer({ http: { socket: { auth: { revalidateMs } } } });
+    socket = await open(t, { auth: token ? { clientId: 'reval-client', token } : { clientId: 'reval-client' } });
+  };
+
+  afterEach(async () => {
+    socket.close();
+    await t.close();
+  });
+
+  it('SR-08 a credential revoked while the socket is open stops working after revalidateMs, and the socket is closed', async () => {
+    await start(50, 'reval-a');
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+
+    revalRevoked.add('reval-a');
+    await delay(80);
+    const notice = nextEvent(socket, SYSTEM_EVENTS.disconnect);
+
+    expect(errorOf(await command(socket, 'reval.ping'))).to.deep.equal({ code: 'unauthenticated', message: 'credentials are no longer valid', retryable: false });
+    expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    await waitFor(() => !socket.connected);
+  });
+
+  it('refuses a principal whose ceiling expired without asking its source', async () => {
+    await start(60_000, 'reval-expiring');
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+
+    await delay(500);
+    const before = revalChecks;
+
+    expect(errorOf(await command(socket, 'reval.ping'))).to.deep.equal({ code: 'unauthenticated', message: 'credentials expired', retryable: false });
+    expect(revalChecks).to.equal(before);
+  });
+
+  it('revalidates once for concurrent commands and then waits revalidateMs again', async () => {
+    await start(200, 'reval-b');
+    await delay(250);
+    const before = revalChecks;
+
+    const replies = await Promise.all([1, 2, 3].map(() => command(socket, 'reval.ping')));
+    expect(replies.every((r) => r.ok)).to.be.true;
+    expect(revalChecks - before).to.equal(1);
+
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+    expect(revalChecks - before).to.equal(1);
+  });
+
+  it('never revalidates with revalidateMs 0', async () => {
+    await start(0, 'reval-c');
+    revalRevoked.add('reval-c');
+    await delay(30);
+
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+  });
+
+  it('leaves UNATTENDED connections alone', async () => {
+    await start(10);
+    await delay(30);
+
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/revalidation.test.ts`
+Expected: 3 failing and 2 passing. The revoked and the expired commands still answer `pong` (`expected an error reply`), and the concurrency test counts no check (`expected 0 to equal 1`). The `revalidateMs 0` and `UNATTENDED` tests pass, because nothing revalidates yet.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `packages/http-socket/src/principal-guard.ts`:
+
+```ts
+import { Autoinject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Unauthenticated } from '@spinajs/authz';
+import { ISocketAuthConfig, SocketPrincipalSource } from './interfaces.js';
+import { SocketConnection } from './connection.js';
+
+/** Re-checks the principal of a live connection ( D16 ). */
+@Injectable()
+export class SocketPrincipalGuard {
+  @Config('http.socket.auth')
+  protected Options: ISocketAuthConfig;
+
+  @Autoinject(SocketPrincipalSource)
+  protected Sources: SocketPrincipalSource[];
+
+  protected pending = new WeakMap<SocketConnection, Promise<boolean>>();
+
+  public async ensure(connection: SocketConnection): Promise<void> {
+    const auth = connection.auth;
+
+    if (auth.source === null) {
+      return;
+    }
+
+    const expiresAt = auth.principal.ceiling?.expiresAt;
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      this.refuse(connection, 'credentials expired');
+    }
+
+    if (this.Options.revalidateMs <= 0 || Date.now() - auth.checkedAt < this.Options.revalidateMs) {
+      return;
+    }
+
+    let check = this.pending.get(connection);
+    if (!check) {
+      check = this.revalidate(connection).finally(() => this.pending.delete(connection));
+      this.pending.set(connection, check);
+    }
+
+    if (!(await check)) {
+      this.refuse(connection, 'credentials are no longer valid');
+    }
+  }
+
+  protected async revalidate(connection: SocketConnection): Promise<boolean> {
+    const source = this.Sources.find((s) => s.name === connection.auth.source);
+    if (!source) {
+      return false;
+    }
+
+    const valid = await source.revalidate(connection.handshake, connection.principal);
+    if (valid) {
+      connection.auth.checkedAt = Date.now();
+    }
+
+    return valid;
+  }
+
+  protected refuse(connection: SocketConnection, message: string): never {
+    // setImmediate: the reply carrying this refusal is written first ( it goes out in a microtask )
+    setImmediate(() => {
+      if (connection.connected) {
+        connection.disconnect('unauthenticated');
+      }
+    });
+
+    throw new Unauthenticated(message);
+  }
+}
+```
+
+Create `packages/http-socket/src/stages/authentication.ts`:
+
+```ts
+import { Autoinject, Injectable } from '@spinajs/di';
+import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { SocketPrincipalGuard } from '../principal-guard.js';
+
+@Injectable(SocketCommandStage)
+export class AuthenticationStage extends SocketCommandStage {
+  @Autoinject()
+  protected Guard: SocketPrincipalGuard;
+
+  public get Order(): number {
+    return STAGE_ORDER.Authentication;
+  }
+
+  public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+    await this.Guard.ensure(ctx.connection);
+    return next();
+  }
+}
+```
+
+Append to `packages/http-socket/src/stages/index.ts`:
+
+```ts
+export * from './authentication.js';
+```
+
+Append to `packages/http-socket/src/index.ts`:
+
+```ts
+export * from './principal-guard.js';
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/revalidation.test.ts test/limits-pipeline.test.ts test/pipeline.test.ts`
+Expected: `22 passing`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add packages/http-socket/src/principal-guard.ts packages/http-socket/src/stages/authentication.ts packages/http-socket/src/stages/index.ts packages/http-socket/src/index.ts packages/http-socket/test/revalidation.test.ts && \
+git commit -m "feat(http-socket): re-check expiry and revocation of a live connection's principal"
 ```
 
 ---
@@ -4888,7 +6243,7 @@ with:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/signals.test.ts test/pipeline.test.ts`
-Expected: `18 passing`.
+Expected: `20 passing`.
 
 - [ ] **Step 5: Commit**
 
@@ -5180,9 +6535,10 @@ git commit -m "feat(http-socket): ordered commands per connection or per clientI
 - Test: `packages/http-socket/test/events.test.ts`
 
 **Interfaces:**
-- Consumes: `SocketHandlerRegistry.event` / `hooks` (Task 7), `SocketPolicyGate` (Task 9), `SocketArgumentResolver` (Task 6), `assertPayloadSize` / `assertRate` (Task 3).
+- Consumes: `SocketHandlerRegistry.event` / `hooks` (Task 7), `SocketPolicyGate` (Task 9), `SocketArgumentResolver` (Task 6), `assertPayloadSize` / `assertRate` (Task 3), `SocketPrincipalGuard` (Task 10A), `SocketPrincipalSource` (Task 5).
 - Produces:
-  - `evt` frames from the client go through size → rate → lookup → policies → arguments → handler. A failure is logged and dropped, and the socket stays up.
+  - `evt` frames from the client go through size → rate → principal guard → lookup → policies → arguments → handler, with policies, arguments and handler inside the call's AsyncLocalStorage store (D14). A failure is logged and dropped, and the socket stays up, except that a failed principal check closes it (D16).
+  - Hooks run with the same store, so `@OnConnect` code sees the connection principal.
   - `@OnConnect` hooks run on connect, and `runtime.ready` settles when they are done (commands wait for it). `@OnDisconnect` hooks run after the connect hooks, with `@Reason()`.
   - `SocketDispatcher.call(ctx, handler)` (protected), shared by events and hooks.
 
@@ -5194,15 +6550,41 @@ Create `packages/http-socket/test/events.test.ts`:
 import 'mocha';
 import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
-import { Forbidden } from '@spinajs/exceptions';
+import { DI } from '@spinajs/di';
+import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
+import type { Principal } from '@spinajs/authz';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, OnConnect, OnDisconnect, OnEvent, Payload, Reason, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
+import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
 import { ITestServer, command, delay, open, resultOf, startServer, waitFor } from './harness.js';
 
 export const evtLog: Array<{ name: string; payload?: unknown; connection: string }> = [];
+
+export const evtRevoked = new Set<string>();
+
+/** Owns the tokens starting with 'evtauth-'. */
+export class EvtAuthSource extends SocketPrincipalSource {
+  public readonly name = 'evt-auth';
+  public readonly order = 2;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    const token = handshake.auth.token;
+    if (typeof token !== 'string' || !token.startsWith('evtauth-')) {
+      return null;
+    }
+
+    if (evtRevoked.has(token)) {
+      throw new AuthenticationFailed('revoked');
+    }
+
+    return { type: 'user', id: token, authenticated: true, source: 'token', attributes: {} };
+  }
+}
+
+DI.register(EvtAuthSource).as(SocketPrincipalSource);
 
 export class EvtDeny extends BasePolicy {
   public isEnabled(): boolean {
@@ -5323,6 +6705,19 @@ describe('socket events and lifecycle hooks', function () {
     expect(seen('disconnect', id)[0].payload).to.equal('client namespace disconnect');
   });
 
+  it('drops events from a connection whose credentials stopped working, and closes it (D16)', async () => {
+    t = await startServer({ http: { socket: { auth: { revalidateMs: 50 } } } });
+    socket = await open(t, { auth: { token: 'evtauth-a' } });
+    const id = socket.id!;
+
+    evtRevoked.add('evtauth-a');
+    await delay(80);
+    socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x: 9 } });
+
+    await waitFor(() => !socket.connected);
+    expect(seen('cursor', id)).to.have.length(0);
+  });
+
   it('drops an oversized event', async () => {
     await start({ http: { socket: { maxPayloadBytes: 200 } } });
     socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x: 1, pad: 'x'.repeat(300) } });
@@ -5337,7 +6732,7 @@ describe('socket events and lifecycle hooks', function () {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/events.test.ts`
-Expected: 5 failing, because events and hooks are not wired yet: "delivers a client event", "drops an event whose payload fails validation", "survives a throwing handler and an unknown event", "finishes the connect hooks" and "runs the disconnect hooks". The last three need the `evt-lobby` room that the connect hook joins. "applies policies to events" and "drops an oversized event" pass trivially for now.
+Expected: 6 failing, because events and hooks are not wired yet: "delivers a client event", "drops an event whose payload fails validation", "survives a throwing handler and an unknown event", "finishes the connect hooks", "runs the disconnect hooks" and "drops events from a connection whose credentials stopped working" (nothing reads `evt` frames, so nothing re-checks the principal and the socket stays open). Three of them need the `evt-lobby` room that the connect hook joins. "applies policies to events" and "drops an oversized event" pass trivially for now.
 
 - [ ] **Step 3: Replace the dispatcher**
 
@@ -5351,7 +6746,7 @@ import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
 import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame } from '@spinajs/http-socket-common';
-import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
+import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
@@ -5359,6 +6754,7 @@ import { TokenBucket, assertPayloadSize, assertRate } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
+import { SocketPrincipalGuard } from './principal-guard.js';
 import './stages/index.js';
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -5396,7 +6792,10 @@ export class SocketDispatcher extends AsyncService {
   protected Gate: SocketPolicyGate;
 
   @Autoinject()
-  protected Als: AsyncLocalStorage<Record<string, unknown>>;
+  protected Guard: SocketPrincipalGuard;
+
+  @Autoinject()
+  protected Als: AsyncLocalStorage<ISocketCallStorage>;
 
   protected Stages: SocketCommandStage[] = [];
 
@@ -5457,7 +6856,8 @@ export class SocketDispatcher extends AsyncService {
     try {
       await runtime.ready;
 
-      const chain = this.next(ctx, 0);
+      // D14: stages, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
+      const chain = this.Als.run(ctx.storage, () => this.next(ctx, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
       chain.catch(() => undefined);
       const abort = aborted(ctx.signal);
@@ -5514,6 +6914,7 @@ export class SocketDispatcher extends AsyncService {
       await runtime.ready;
       assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
       assertRate(runtime.bucket);
+      await this.Guard.ensure(connection);
 
       const handler = this.Registry.event(frame.name);
       if (!handler) {
@@ -5522,7 +6923,7 @@ export class SocketDispatcher extends AsyncService {
       }
 
       const ctx: ISocketCallContext = { kind: 'event', connection, handler, payload: frame.payload, signal: connection.signal, storage: this.callStorage(connection, frame.name) };
-      await this.Gate.check(ctx);
+      await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
       await this.call(ctx, handler);
     } catch (err) {
       const wire = this.Errors.toWire(err, `event ${frame.name}`);
@@ -5548,10 +6949,12 @@ export class SocketDispatcher extends AsyncService {
     }
   }
 
-  /** Arguments and the handler call, shared by events and hooks. */
-  protected async call(ctx: ISocketCallContext, handler: IRegisteredHandler): Promise<unknown> {
-    const args = await this.Arguments.resolve(ctx);
-    return this.Als.run(ctx.storage, () => handler.controller[handler.descriptor.Method as string](...args));
+  /** Arguments and the handler call inside the call's store ( D14 ), shared by events and hooks. */
+  protected call(ctx: ISocketCallContext, handler: IRegisteredHandler): Promise<unknown> {
+    return this.Als.run(ctx.storage, async () => {
+      const args = await this.Arguments.resolve(ctx);
+      return handler.controller[handler.descriptor.Method as string](...args);
+    });
   }
 
   protected abortRunning(runtime: IConnectionRuntime, reason: SocketException): void {
@@ -5567,11 +6970,12 @@ export class SocketDispatcher extends AsyncService {
   }
 
   /** The ambient AsyncLocalStorage store of one call; log lines and policies read it. */
-  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), traceparent?: string): Record<string, unknown> {
+  protected callStorage(connection: SocketConnection, call: string, requestId: string = randomUUID(), traceparent?: string): ISocketCallStorage {
     const trace = newTraceContext(traceparent);
 
     return {
-      ...connection.storage,
+      Principal: connection.principal,
+      AuthnPrincipal: connection.authenticated ? connection.principal : null,
       requestId,
       traceId: trace.traceId,
       spanId: trace.spanId,
@@ -5604,7 +7008,7 @@ export class SocketDispatcher extends AsyncService {
       throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in stage is missing');
     }
 
-    return this.Als.run(ctx.storage, () => handler.controller[handler.descriptor.Method as string](...args));
+    return handler.controller[handler.descriptor.Method as string](...args);
   }
 
   /** W4 replaces the stream branch with real stream replies. */
@@ -5626,7 +7030,7 @@ export class SocketDispatcher extends AsyncService {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/events.test.ts test/signals.test.ts test/pipeline.test.ts`
-Expected: `25 passing`.
+Expected: `28 passing`.
 
 - [ ] **Step 5: Commit**
 
@@ -6133,7 +7537,7 @@ Replace the whole `onConnection` method with:
 
 ```ts
   protected onConnection(socket: Socket): void {
-    const connection = new SocketConnection(socket, toHandshake(socket), (socket.data.identity as ISocketIdentity | null | undefined) ?? null);
+    const connection = new SocketConnection(socket, toHandshake(socket));
     const release = trackConnection();
     this.Hub.register(connection);
     this.Dispatcher.attach(connection, socket);
@@ -6169,12 +7573,11 @@ git commit -m "feat(http-socket): per-command debug log, telemetry metrics and c
 
 ---
 
-### Task 16: Public surface, full build, release notes, lock file
+### Task 16: Public surface, full build, release notes
 
 **Files:**
 - Test: `packages/http-socket/test/exports.test.ts`
-- Modify: `RELEASE_NOTES.md` (append a section)
-- Commit: `package-lock.json`
+- Create: `packages/http-socket/RELEASE_NOTES.md` (X1 merges it into the root notes, D17)
 
 **Interfaces:**
 - Consumes: everything above.
@@ -6190,7 +7593,7 @@ import { expect } from 'chai';
 import * as api from '../src/index.js';
 
 describe('@spinajs/http-socket public surface', () => {
-  it('exports the server, decorators, extension points and the shared protocol', () => {
+  it('exports the server, decorators, extension points, the authz-v3 integration and the shared protocol', () => {
     const names = [
       'SocketServer',
       'SocketHub',
@@ -6209,10 +7612,20 @@ describe('@spinajs/http-socket public surface', () => {
       'Reason',
       'FromDI',
       'SocketPolicy',
+      'SocketPolicyGroup',
       'SocketParameter',
       'SocketArg',
       'SocketArgumentResolver',
-      'SocketAuthenticator',
+      'SocketPrincipalSource',
+      'AuthnCredentialSource',
+      'credentialRequest',
+      'AUTHENTICATION_FAILED',
+      'isAllowedOrigin',
+      'SocketPrincipalGuard',
+      'AuthenticationStage',
+      'SocketAccess',
+      'SocketAccessPolicy',
+      'fromPayload',
       'SocketHttpHost',
       'HttpServerHost',
       'SocketCommandStage',
@@ -6221,6 +7634,7 @@ describe('@spinajs/http-socket public surface', () => {
       'HandleSocketException',
       'SocketErrorMapping',
       'SocketErrorMapper',
+      'AccessDeniedMapping',
       'codeMapping',
       'SocketPolicyGate',
       'policyRequest',
@@ -6258,17 +7672,16 @@ Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && npm run test --wo
 Expected: `13 passing`.
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && npm run test --workspace=packages/http-socket`
-Expected: `117 passing`, 0 failing.
+Expected: `151 passing`, 0 failing.
 
 - [ ] **Step 5: Record the breaking change**
 
-Append to `RELEASE_NOTES.md`:
+Create `packages/http-socket/RELEASE_NOTES.md`:
 
 ```md
-
 # Release notes — WebSocket server core (W1)
 
-> Branch `feat/websocket-layer`. Design: `docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md`.
+> Branch `feat/websocket-layer`, built on `feat/authz-v3`. Design: `docs/superpowers/specs/2026-10-02-spinajs-websocket-design.md`. X1 merges this file into the root `RELEASE_NOTES.md` for 3.0.
 
 ## BREAKING CHANGES
 
@@ -6279,30 +7692,39 @@ The v2 API is gone. No package in the repo used it.
 | Removed (v2) | Use instead |
 |---|---|
 | `WebsocketServer` | `SocketServer`. It is `@Injectable`: resolve it after `HttpServer`, either before or after `start()`. |
-| `SocketServerMiddleware.before` | `SocketAuthenticator` (handshake identity, or a refusal) |
+| `SocketServerMiddleware.before` | `SocketPrincipalSource` (handshake → authz-v3 `Principal`, or a refusal) |
 | `SocketServerMiddleware.onConnect` / `onDisconnect` | `@OnConnect()` / `@OnDisconnect()` on a socket controller |
 | `SocketController` (abstract class) + `ISocketEvent` | `BaseSocketController` + `@SocketController(prefix)`, `@Command`, `@OnEvent` |
-| `SocketMiddleware.execute` | a `SocketCommandStage`, or `@SocketPolicy` |
+| `SocketMiddleware.execute` | a `SocketCommandStage`, `@SocketPolicy` or `@SocketAccess` |
 | `SocketRouteArgs` | `SocketArg` + `@SocketParameter` |
 | `ConnectionLogMiddleware` | the per-command debug line and the `socket_*` metrics |
 
 Socket controllers live in `system.dirs.socketControllers`, never in `system.dirs.controllers`.
+
+### Authentication and authorization (authz-v3)
+
+- A connection without credentials runs as `UNATTENDED`: authz denies it, and scoped ORM queries fail closed. Set `http.socket.auth.required: true` to refuse such handshakes instead.
+- Bearer tokens (`auth.token` or `Authorization`), keys and signatures resolve through `@spinajs/authn` (`AuthnCredentialSource`). Cookies are never a socket credential.
+- Every command, event and hook runs with the principal in the AsyncLocalStorage store under `Principal`, so `AuthzService.current()` works in socket handlers.
+- `@SocketAccess(permission, { resource, also, domain, allowAnonymous })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.
+- `http.socket.cors.origins` (default `[]`) admits cross-origin pages. An empty list refuses every cross-origin handshake with `forbidden`.
+- Live connections re-check their principal every `http.socket.auth.revalidateMs` (60 s), and at once when `ceiling.expiresAt` passes. A failure answers `unauthenticated` and closes the connection.
 
 ### New: `@spinajs/http-socket-common`
 
 This package holds the wire protocol (`PROTOCOL_VERSION` 1, envelopes, the 13 error codes, `SocketException`, `defineContract`). It is shared by the server and `@spinajs/http-socket-client`.
 ```
 
-- [ ] **Step 6: Commit the test, the notes and the lock file**
+- [ ] **Step 6: Commit the test and the notes**
 
 Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && git status --short`
-Expected: the only changes from this plan are `packages/http-socket/test/exports.test.ts`, `RELEASE_NOTES.md` and `package-lock.json`. Leave everything else unstaged, including W2's `packages/http-socket-client/**` and any `docs/**` files the planners left.
+Expected: the only changes from this plan are `packages/http-socket/test/exports.test.ts` and `packages/http-socket/RELEASE_NOTES.md`, plus an unstaged `package-lock.json` (D17: the integrator commits it). Leave everything else unstaged, including W2's `packages/http-socket-client/**` and any `docs/**` files the planners left.
 
 ```bash
 cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
 test "$(git branch --show-current)" = feat/websocket-layer && \
-git add packages/http-socket/test/exports.test.ts RELEASE_NOTES.md package-lock.json && \
-git commit -m "chore(http-socket): pin the v3 public surface, release notes and lock file"
+git add packages/http-socket/test/exports.test.ts packages/http-socket/RELEASE_NOTES.md && \
+git commit -m "chore(http-socket): pin the v3 public surface and its release notes"
 ```
 
 ---
@@ -6317,8 +7739,9 @@ git commit -m "chore(http-socket): pin the v3 public surface, release notes and 
 | §5.2 steps 1–3 | Tasks 3, 10 |
 | §5.2 step 4 | Task 8 |
 | §5.2 step 5 | **W3**, through `SocketCommandStage` at `STAGE_ORDER.Idempotency` (Task 8 extension point, pinned in Task 15) |
-| §5.2 step 6 | Task 9 |
-| §5.2 step 7 | Tasks 6, 8 |
+| §5.2 step 6 | Tasks 9, 9A (`@SocketAccess` on authz-v3) |
+| §5.2 step 7 | Tasks 6, 8; the authz `ArgInputFilter` is gated task G3 |
+| (W1) principal re-check before lookup | Task 10A (D16) |
 | §5.2 step 8 | Task 12 (D4) |
 | §5.2 step 9 | Tasks 8, 11 (shutdown abort; drain is W3, D7) |
 | §5.2 step 10 | Task 8 (streams answer `unimplemented` until W4) |
@@ -6326,8 +7749,11 @@ git commit -m "chore(http-socket): pin the v3 public surface, release notes and 
 | §5.4 `SocketHub`, `SocketConnection` | Tasks 5, 14 |
 | §5.5 heartbeats, recovery 2 min, adapter config | Task 5 (`ioOptions`); recovery behaviour tests are W3 |
 | §5.5 observability (debug line, metrics, `traceparent`) | Tasks 8, 15 |
-| §5.6 configuration | Task 2 |
-| §7 Errors / Auth / Cancellation / Limits / Rooms rows | Tasks 4+8, 5+9, 11, 10, 14 (recovery replay row is W3) |
+| §5.6 configuration | Task 2 (plus `cors.origins` and `auth`, D13, D15, D16) |
+| §5.1 `@User()` | `SocketConnection.user` = `Principal.identity` (Task 5); a `@User()` argument decorator follows owner question Q1 |
+| §7 Errors / Auth / Cancellation / Limits / Rooms rows | Tasks 4+8, 5+5A+9+9A, 11, 10, 14 (recovery replay row is W3) |
+| authz-v3 C9 socket principal, default unattended | Tasks 5, 5A, 8 (D11–D14) |
+| authz-v3 SR findings that apply to a socket | SR-03, SR-07, A02, A06 and SR-12 (cookies): Task 5A; SR-12 (origin): Task 5; the socket form of SR-06 and SR-08 (revocation on a live connection): Tasks 10A, 13 |
 
 ---
 
@@ -6348,8 +7774,10 @@ W2 imports only from `@spinajs/http-socket-common`. Copy the full source verbati
 1. **Handshake.** Connect with `io(url, { path, auth: { protocol: PROTOCOL_VERSION, clientId, token?, ...appFields } })`. The default path is `/socket.io`. A refusal arrives as `connect_error` with `err.data: SocketError`:
    - `version_mismatch` (also sent when `protocol` is missing; `details: { server: PROTOCOL_VERSION }`). The client stops and emits `incompatible`.
    - `invalid_argument` (missing or over-long `clientId`).
-   - `unauthenticated`. The client stops and emits `auth_required`.
+   - `unauthenticated`. The client stops and emits `auth_required`. The message is always "authentication failed" for refused credentials (A02); a throttled attempt adds `retryAfterMs`. "authentication required" means the server sets `http.socket.auth.required` and the handshake carried no credentials. By default a handshake without credentials is accepted and runs as `UNATTENDED`.
+   - `forbidden` "origin not allowed" (D15): the page's origin is not same-origin and not in `http.socket.cors.origins`. It is checked before anything else. Retrying cannot succeed, so W2 should treat it as fatal like `version_mismatch`. Today W2 retries every code other than `unauthenticated` and `version_mismatch`; that is W2's change to make.
    - `internal`.
+   - A connection whose credentials are revoked or expired gets `unauthenticated` on its next command and then `sys.disconnect { reason: 'unauthenticated' }` (D16). The W2 reconnect asks `auth()` again, so a refreshed token reconnects, and a dead one ends in `auth_required`.
 2. **Commands.** `emit('cmd', CommandRequest, ack)`. The ack carries a `CommandReply` with the same `id`.
    - A handler that returns nothing answers `result: null`, never a missing field.
    - A malformed request is answered with `id: ''`.
@@ -6373,7 +7801,7 @@ W2 imports only from `@spinajs/http-socket-common`. Copy the full source verbati
 
 ## Coordination with W3 (resilience)
 
-- **Idempotency** plugs in as `@Injectable(SocketCommandStage)` with `Order = STAGE_ORDER.Idempotency` (500). The stage can read:
+- **Idempotency** plugs in as `@Injectable(SocketCommandStage)` with `Order = STAGE_ORDER.Idempotency` (500). It runs after `AuthenticationStage` (350), so a revoked client gets no stored replay, and inside the call's AsyncLocalStorage store, so a store keyed by principal can read `ctx.storage.Principal`. The stage can read:
   - `ctx.request.idempotencyKey`
   - `ctx.connection.clientId`
   - `ctx.handler.descriptor.Options.idempotent` (lookup at 400 has already run)
@@ -6387,25 +7815,348 @@ W2 imports only from `@spinajs/http-socket-common`. Copy the full source verbati
   - call `Dispatcher.abortAll(new SocketException('unavailable', …, { retryAfterMs }))`, then close
 
   The `http.server.closing` DI event (`packages/http/src/server.ts:354`) is a good trigger.
-- **Recovery** is already configured: `connectionStateRecovery { maxDisconnectionDuration: recovery.maxDisconnectionMs, skipMiddlewares: true }`. `socket.data.identity` and `socket.data.app` (`SocketConnection.data`) survive a recovered drop. A recovered socket still gets a fresh `SocketConnection` and runtime. W3 owns the replay test (§7 Rooms row) and the fault kit; the harness's `TestHttpHost` is where the restart-on-same-port hook goes.
+- **Recovery** is already configured: `connectionStateRecovery { maxDisconnectionDuration: recovery.maxDisconnectionMs, skipMiddlewares: true }`. `socket.data.auth` (principal, source, last check) and `socket.data.app` (`SocketConnection.data`) survive a recovered drop. Because a recovered socket skips the handshake middleware, its principal is re-checked by `SocketPrincipalGuard` once `checkedAt` is older than `auth.revalidateMs` (D16), against the new handshake. A recovered socket still gets a fresh `SocketConnection` and runtime. W3 owns the replay test (§7 Rooms row) and the fault kit; the harness's `TestHttpHost` is where the restart-on-same-port hook goes.
 
-## Coordination with W4 (streams, rbac) and authz-v3
+## Coordination with W4 (streams)
 
-- **Streams.** Replace the stream branch of `SocketDispatcher.toReply` (protected) and send the reserved frames. The `cancel` handler (`onCancel`) already aborts by request id, so stream cancel can reuse it.
-- **`@spinajs/rbac-http-socket`**:
-  - It implements `SocketAuthenticator`. Read the session cookie from `handshake.cookies` (unsigned raw values; verify with `cookie-signature` and `http.cookie.secret`, as `RbacMiddleware` does in `packages/rbac-http/src/middlewares.ts:17-154`). Read Bearer or `x-api-key` from `handshake.auth.token` or `handshake.headers`, as `TokenAuthMiddleware` does in `packages/rbac-http-token/src/middlewares.ts:58-189`.
-  - It returns `ISocketIdentity { user, storage: { User, Session, ActiveRole, Impersonator, TokenAuth } }`. rbac policies read exactly these `req.storage` keys: `LoggedPolicy` needs `Session.Data.get('Logged')`, and `TokenPolicy` needs `TokenAuth`. Copy the `Session` object, not just `User`.
-  - `@User()` = `SocketParameter(SocketUserArg)`, where `SocketUserArg` returns `ctx.connection.user`.
-  - rbac policies are used through `@SocketPolicy(LoggedPolicy)`. `RbacPolicy` reads `ACL_CONTROLLER_DESCRIPTOR` from the controller instance, so verify that it works on socket controllers.
-- **authz-v3 alignment.** Read-only review of `authz-v3-D1/docs/plans/2026-10-01-authz-v3-design.md` and `…-plan.md`.
-  - **Identity.**
-    - An authz-v3 `Principal` (`packages/authn/src/contracts/principal.ts`) goes into `ISocketIdentity.principal` and is also seeded as `storage.AuthnPrincipal` / `storage.Principal`, the keys authz-http reads.
-    - The call storage is the store of the DI `AsyncLocalStorage`, so `authz().current()` sees it, provided authz uses that same DI singleton. Verify this.
-    - The authn adapter feeds a `CredentialExtractor` with a `SignedRequest { method: 'GET', targetUri: handshake.url, headers }`. It then calls `AuthnService.authenticate(credentials, { purpose: 'request', ip: handshake.address, now })` and `principalOf()`. No new hook is needed.
-  - **`@Access`** has no socket form. `AccessPolicy` is a `BasePolicy`, so `@SocketPolicy(AccessPolicy, …)` works once its options are passed that way. Its resource extractors read `req.body` / `req.params`, and the socket request fills both from the payload.
-  - **Plan collision (must be resolved before either lands).** authz-v3 lane C9 owns `packages/http-socket/src/**` and plans an optional `SocketPrincipalSource` hook whose default is unattended. Lane L5 edits "the hydration copy in `http-socket/src/interfaces.ts`", which is the v2 `SocketRouteArgs` that W1 deletes. Both must rebase onto W1:
-    - C9's hook becomes a `SocketAuthenticator` adapter.
-    - L5's `ArgInputFilter` call goes into `PayloadArg.hydrate` (`src/args.ts`).
-  - **Package naming.** authz-v3 renames rbac-http → authn-http / users-http and rbac-http-token → authn-token. The owner should confirm whether `@spinajs/rbac-http-socket` keeps that name or becomes an authn-family package before W4 starts.
-  - **Unattended default.** authz-v3 H2 treats a socket without a user as unattended (denied). W1's default with no authenticator is an anonymous connection (`user` undefined). Scoped ORM queries then fail closed, as the authz design expects.
-  - **Expiry and revocation** are not re-checked per command in W1. W4 or C9 should add a stage at Order 550 (after idempotency, before policies) that re-validates the identity.
+- **Streams.** Replace the stream branch of `SocketDispatcher.toReply` (protected) and send the reserved frames. The `cancel` handler (`onCancel`) already aborts by request id, so stream cancel can reuse it. A stream's generator runs inside the call's AsyncLocalStorage store (D14), so its `AuthzService.current()` is the connection principal. Keep that when chunks are pulled after the command's ack.
+- **The W4 auth package** (`@spinajs/rbac-http-socket` in the spec) is reshaped by owner question Q1 below. Its handshake, policy and `@User()` work is now mostly in W1 (Tasks 5, 5A, 9A, 10A). What remains is the session-cookie source (gated task G6) and a `@User()` argument.
+
+---
+
+## Gated follow-up tasks
+
+Each task below waits for an authz-v3 lane that has not merged on `feat/authz-v3`. W1 is complete and green without them. Run a task only when its gate holds.
+
+`feat/websocket-layer` is a shared worktree. Before a gated task, the owner rebases it onto the current `feat/authz-v3` while no agent is working in it: `git -C C:/Users/grzch/SourceCodes/Spinajs/websocket-layer rebase feat/authz-v3`. Where a lane's final signature is not yet known, the task's first step is to rewrite the task's code steps against the merged code. This is written out as a step, not left open.
+
+### G1: `AuthzService.current()` and `runAs` in socket handlers (gate: F3 and F4 merged)
+
+**Files:**
+- Test: `packages/http-socket/test/authz-host.test.ts`
+- Modify: `packages/http-socket/src/interfaces.ts` (`ISocketCallStorage`, Step 5)
+- Modify: `packages/http-socket/test/harness.ts` (`TestConfiguration.onLoad`, Step 2, only if F4 needs config to resolve)
+
+- [ ] **Step 1: Check the gate**
+
+Run: `git -C C:/Users/grzch/SourceCodes/Spinajs/websocket-layer log --oneline feat/authz-v3 | grep -E "Merge authz/F(3|4)"`
+Expected: two lines (F3 and F4). Otherwise stop: the gate does not hold.
+
+- [ ] **Step 2: Find what the host needs to resolve**
+
+Read `packages/authz/src/host/**` and `packages/authz/test/host/**` (F4 task 6). Copy the `authz` configuration keys F4's own host test uses to resolve `AuthzService` into the object `TestConfiguration.onLoad` returns in `packages/http-socket/test/harness.ts` (next to `http`). If F4's host test needs no configuration, skip this step.
+
+- [ ] **Step 3: Write the test**
+
+Create `packages/http-socket/test/authz-host.test.ts`:
+
+```ts
+import 'mocha';
+import { expect } from 'chai';
+import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
+import { AuthzService, SYSTEM, principalKey } from '@spinajs/authz';
+import { BaseSocketController } from '../src/controller.js';
+import { Command, Connection, OnConnect, SocketController } from '../src/decorators.js';
+import { SocketConnection } from '../src/connection.js';
+import { ITestServer, command, open, resultOf, startServer, waitFor } from './harness.js';
+
+export const hostSeen = new Map<string, string>();
+
+const authz = async (): Promise<AuthzService> => (await DI.resolve(AuthzService)) as AuthzService;
+
+@SocketController('host')
+export class HostSocket extends BaseSocketController {
+  @Command('me')
+  public async me() {
+    return principalKey((await authz()).current());
+  }
+
+  @Command('system')
+  public async system() {
+    const service = await authz();
+    const inside = await service.runAs(SYSTEM, 'socket-test', async () => principalKey(service.current()));
+    return { inside, after: principalKey(service.current()) };
+  }
+
+  @OnConnect()
+  public async joined(@Connection() conn: SocketConnection) {
+    hostSeen.set(conn.id, principalKey((await authz()).current()));
+  }
+}
+
+describe('authz-v3 host in socket handlers', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let alice: ClientSocket;
+  let anonymous: ClientSocket;
+
+  beforeEach(async () => {
+    t = await startServer();
+    alice = await open(t, { auth: { clientId: 'host-alice', token: 'good' } });
+    anonymous = await open(t, { auth: { clientId: 'host-anon' } });
+  });
+
+  afterEach(async () => {
+    alice.close();
+    anonymous.close();
+    await t.close();
+  });
+
+  it('current() is the connection principal in a command', async () => {
+    expect(resultOf(await command(alice, 'host.me'))).to.equal('user:1');
+  });
+
+  it('current() is UNATTENDED for a connection without credentials (C9 default)', async () => {
+    expect(resultOf(await command(anonymous, 'host.me'))).to.equal('unattended:unattended');
+  });
+
+  it('runAs(SYSTEM) inside a handler switches the principal for its callback only', async () => {
+    expect(resultOf(await command(alice, 'host.system'))).to.deep.equal({ inside: 'system:system', after: 'user:1' });
+  });
+
+  it('connect hooks see the connection principal', async () => {
+    await waitFor(() => hostSeen.has(alice.id!));
+    expect(hostSeen.get(alice.id!)).to.equal('user:1');
+  });
+});
+```
+
+- [ ] **Step 4: Run it**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer/packages/http-socket && npx ts-mocha -p tsconfig.json test/authz-host.test.ts`
+Expected: `4 passing` without a source change, because W1 already writes `Principal` into the store (D14).
+
+If `me` answers `unattended:unattended` for alice, F4 reads another store key. In that case, rename the `Principal` key in `ISocketCallStorage` (`src/interfaces.ts`) and in both `callStorage` bodies (`src/dispatcher.ts`) to F4's key, then run the full suite again.
+
+- [ ] **Step 5: Type the store with F4's contract**
+
+If `@spinajs/authz` exports `IAuthzAsyncStorage`, change the declaration in `packages/http-socket/src/interfaces.ts` to:
+
+```ts
+export interface ISocketCallStorage extends IAuthnPrincipalStorage, IAuthzAsyncStorage {
+  Principal: Principal;
+  /** written by SocketAccessPolicy, as authz-http's AccessPolicy writes req.storage.AuthzDecision */
+  AuthzDecision?: Decision;
+  [key: string]: unknown;
+}
+```
+
+and add `IAuthzAsyncStorage` to the `import type { … } from '@spinajs/authz'` line. Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && node node_modules/typescript-7/lib/tsc.js -b packages/http-socket/tsconfig.mjs.json`
+Expected: exits 0.
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add packages/http-socket/test/authz-host.test.ts packages/http-socket/test/harness.ts packages/http-socket/src/interfaces.ts && \
+git commit -m "test(http-socket): AuthzService.current() and runAs inside socket handlers"
+```
+
+### G2: B09 socket part, unattended sockets fail closed on scoped models (gate: F4 and L4 merged)
+
+authz-testing already holds the case: `B09Lanes` part `socket` (`packages/authz-testing/src/behaviour/B09-lanes.spec.ts:122-128`), "a socket handler without a principal source fails closed on a scoped model". It is tagged with lane `C9`, which no longer owns sockets.
+
+**Files:**
+- Create: `docs/plans/authz-v3-rfc/W1-1.md` (authz-v3 rule §1.4: a lane never edits `authz-testing`)
+- Test: `packages/http-socket/test/behaviour.test.ts`
+
+- [ ] **Step 1: Check the gate**
+
+Run: `git -C C:/Users/grzch/SourceCodes/Spinajs/websocket-layer log --oneline feat/authz-v3 | grep -E "Merge authz/(F4|L4)"`
+Expected: two lines. Otherwise stop.
+
+- [ ] **Step 2: File the lane-tag RFC**
+
+Create `docs/plans/authz-v3-rfc/W1-1.md`:
+
+```md
+# W1-1: B09 socket part moves from lane C9 to W1
+
+- Problem: `B09Lanes` part `socket` and the `later('socket', …)` entry in `B09-unattended-system.spec.ts` name lane C9. The owner moved C9's http-socket work to W1 (2026-10-02).
+- Change: tag both with `W1` instead of `C9`; no case changes.
+- Affected lanes: C9 (loses the case), W1 (runs it from `packages/http-socket/test/behaviour.test.ts`).
+```
+
+- [ ] **Step 3: Rewrite Steps 4–6 against the merged harness**
+
+Read `packages/authz-testing/src/behaviour/{harness,lane,run}.ts` and the harness L4 uses for B09's `orm` part. Replace Steps 4–6 of this task with the full code of `packages/http-socket/test/behaviour.test.ts`. The socket lane handle must:
+- start the W1 server through `startServer()`
+- register one `@Command(event)` per `SocketWorld.handlers` entry that runs its `OrmQuery` through L4's ORM handle
+- open a connection without credentials
+- make `emit(event)` send the command and turn a `forbidden` reply back into an `AccessDenied` carrying `details.reason`, as the case expects `{ throws: 'AccessDenied', reason: 'unattended' }`
+
+Do not write any code before this step is done.
+
+- [ ] **Step 4: Run `runBehaviour(['B09'], socketHarness)` filtered to the socket part**
+
+Expected: the socket case passes, and the model `m1` is called 0 times.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer
+test "$(git branch --show-current)" = feat/websocket-layer && \
+git add docs/plans/authz-v3-rfc/W1-1.md packages/http-socket/test/behaviour.test.ts && \
+git commit -m "test(http-socket): B09 socket part, unattended socket handlers fail closed"
+```
+
+### G3: L5's `ArgInputFilter` in the socket argument stage (gate: L5 task 1 merged)
+
+This is the "http-socket copy" of L5 task 1, now owned by W1. The socket payload must pass through the same filters at the same point as an http body in `RouteArgs.tryHydrateParam`.
+
+**Files:**
+- Modify: `packages/http-socket/src/args.ts` (`PayloadArg.extract`)
+- Test: `packages/http-socket/test/input-filter.test.ts`
+
+- [ ] **Step 1: Check the gate**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && git log --oneline feat/authz-v3 | grep -E "Merge authz/L5" && test -f packages/http/src/arg-input-filter.ts && grep -n "ArgInputFilter" packages/http/src/route-args/RouteArgs.ts`
+Expected: the merge line, then the hook call inside `tryHydrateParam`. Otherwise stop.
+
+- [ ] **Step 2: Rewrite Steps 3–6 against L5's signature**
+
+Read `packages/http/src/arg-input-filter.ts` and its call site in `RouteArgs.tryHydrateParam`. Note the abstract members, how filters are resolved (expected: `Array.ofType(ArgInputFilter)`), the position relative to schema validation and hydration, and the arguments passed. Replace Steps 3–6 of this task with complete code that does the following:
+- **Test.** A test-only `ArgInputFilter` drops a payload key `secret` and refuses a key `forbidden` with `InvalidArgument`. A socket command answers its hydrated payload, so the test shows `secret` stripped and `forbidden` answered `invalid_argument`.
+- **Authz test**, when L5 task 7 has also merged: authz's `AuthzInputFieldFilter` strips the fields outside `decision.fields.write`, with the decision left by `@SocketAccess` in `storage.AuthzDecision`. In `reject` mode the answer is `invalid_argument`. These are the socket form of B17's input cases.
+- **Implementation.** `PayloadArg.extract` calls the filters at exactly the position `tryHydrateParam` does, in the same order and with the same arguments. Where an express request is expected, it passes `policyRequest(ctx)` (Task 9), whose `storage` is the call storage (with `Principal` and `AuthzDecision`) and whose `body` / `params` / `headers` / `ip` mirror http's. The stage already runs inside the call's AsyncLocalStorage store (D14).
+- the run command (`npx ts-mocha -p tsconfig.json test/input-filter.test.ts test/controller-model.test.ts test/pipeline.test.ts`) with its count, and the commit.
+
+If L5's signature needs an express-only member that `ISocketPolicyRequest` lacks, file `docs/plans/authz-v3-rfc/W1-2.md` asking L5 for a transport-neutral parameter, and stop.
+
+### G4: converge `@SocketAccess` with L5's `AccessPolicy`; output field filters (gate: L5 tasks 4, 5, 7 merged)
+
+**Files:**
+- Modify: `packages/http-socket/src/access.ts`
+- Test: `packages/http-socket/test/access.test.ts` (extend)
+
+- [ ] **Step 1: Check the gate**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && grep -n "class AccessPolicy\|AuthzFieldTransformer\|AuthzInputFieldFilter" -r packages/authz-http/src`
+Expected: all three are implemented (not `notImplemented` stubs). Otherwise stop.
+
+- [ ] **Step 2: Rewrite Steps 3–5 against L5's code**
+
+Compare `SocketAccessPolicy.execute` with `AccessPolicy.execute` on these points:
+- the anonymous rule and `@AllowAnonymous`
+- the any-of order and which denial is reported
+- the `env` passed to `check`
+- `subject: 'load'`
+- `domain`
+- the 403 body and trace rules (B23, B41)
+
+Replace Steps 3–5 with complete code that does the following:
+- **Delegate.** If L5 exposes its decision step as a function callable with an `ISocketPolicyRequest` (requested in "Coordination with authz-v3"), `SocketAccessPolicy` delegates to it. Otherwise, mirror every difference found.
+- **Options.** Add `subject?: 'load' | 'none'` and `fields?: 'filter' | 'none'` to `ISocketAccessOptions`. `fields: 'filter'` filters a command result with `decision.fields.read` through L5's `AuthzFieldTransformer`.
+- **Tests.** Add tests for both options and for every B23 http case that has a socket meaning.
+
+- [ ] **Step 3: Commit** `feat(http-socket): @SocketAccess on L5's AccessPolicy decision, with field filters`, staging `packages/http-socket/src/access.ts` and `packages/http-socket/test/access.test.ts` only.
+
+### G5: authn end to end, trusted proxies and authn-http policies (gate: N1 and N8a merged)
+
+**Files:**
+- Modify: `packages/http-socket/src/authn-source.ts` (client address)
+- Test: `packages/http-socket/test/authn-e2e.test.ts`
+
+- [ ] **Step 1: Check the gate**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && git log --oneline feat/authz-v3 | grep -E "Merge authz/(N1|N8a)"`
+Expected: two lines. Otherwise stop.
+
+- [ ] **Step 2: Rewrite Steps 3–5 against the merged code**
+
+Read N8a's `ClientIp` (`packages/authn-http/src/**`, the `authn.http.trustProxy` / `http.trustProxy` rule) and N1's `AuthnService`. Replace Steps 3–5 with complete code that does the following:
+- **Client address.** `AuthnCredentialSource` derives `ctx.ip` with the same trusted-proxy rule as `ClientIp`: socket address unless a configured hop or CIDR is trusted. That rule must be callable without an express request (RFC `W1-3` if it is not). Add a test that a spoofed `X-Forwarded-For` from an untrusted peer is still ignored (SR-03) and a trusted one is honoured.
+- **End to end.** A test runs the real `AuthnService` with authn-http's `CredentialExtractor`s and authn-token's `TokenStrategy` on SQLite. A valid API token connects; a revoked one is refused with "authentication failed"; revoking a token on an open socket ends the connection after `revalidateMs` (SR-08).
+- **authn-http policies.** A test runs `@SocketPolicy(Authenticated)` and `@SocketPolicy(NoTokenAuthPolicy)` on socket commands; both read `storage.AuthnPrincipal` (D14). File an RFC if either needs more of the express request.
+- the run command and the commit.
+
+### G6: session-cookie principal source (gate: N2 and N8a merged, and the owner's answer to Q1)
+
+- [ ] **Step 1: Check the gate**
+
+Run: `cd C:/Users/grzch/SourceCodes/Spinajs/websocket-layer && git log --oneline feat/authz-v3 | grep -E "Merge authz/(N2|N8a)"`
+Expected: two lines, and Q1 has an answer recorded in this plan. Otherwise stop.
+
+- [ ] **Step 2: Write the plan for the source in its package**
+
+The placement depends on Q1. Write a plan section with complete code for a `SocketPrincipalSource` at order 100 (the slot of authn-http's session resolver). It must:
+- read the session cookie under authn-http's cookie name and secret
+- restore the session through `SessionIssuer.restore`
+- give no principal for a pending session (SR-07)
+- set `ceiling.roles` from `ActiveRole`
+- build the principal through `PrincipalFactory`, so a user lookup runs where `users` wraps it in `runAs(SYSTEM, 'session-restore')`
+- revalidate by restoring the session again (D16)
+
+Tests: SR-07 (a pending session is no principal); SR-12, a cross-origin handshake carrying the session cookie is refused before the source runs (D15); a revoked session ends the socket after `revalidateMs`. Then execute it as its own task.
+
+---
+
+## Coordination with authz-v3
+
+Owner decision 2026-10-02: W1 builds `@spinajs/http-socket` v3 on `feat/authz-v3` and absorbs the http-socket parts of lanes L5 and C9 (W1 deletes the v2 code those lanes would have edited).
+
+### What W1 now owns
+
+| authz-v3 deliverable | Source | Where in W1 |
+|---|---|---|
+| "+ http-socket copy" of the `ArgInputFilter` hook | L5 task 1 | Gated task G3 (`PayloadArg`) |
+| "the hydration copy in `packages/http-socket/src/interfaces.ts`" (L5 *Owns*) | L5 | Obsolete: Task 2 deletes v2's `SocketRouteArgs`; G3 replaces it |
+| `packages/http-socket/src/**` (C9 *Owns*) | C9 | W1, every task |
+| "optional `SocketPrincipalSource` hook in http-socket, documented default = unattended" | C9 | Tasks 5 (seam, D11, D13), 5A (authn source, D12), 8 (principal in the store, D14) |
+| C9 acceptance "B09 (socket … paths)" | C9 | Tasks 8, 9A (unattended denied); gated task G2 runs authz-testing's B09 socket part |
+| Shared-file row `packages/http-socket/src/interfaces.ts`: "L5, then C9" | plan §1 table | W1 only |
+
+### What stays with the authz-v3 lanes
+
+- **L5:** everything in `packages/authz-http/**` and the http side of task 1:
+  - `packages/http/src/arg-input-filter.ts`, the `RouteArgs` hook call, the export line
+  - `PrincipalMiddleware`, `AuthnPrincipalSource`, `ServicePrincipalSource`, `LinkPrincipalSource`
+  - `@Access`, `AccessPolicy`, the extractors
+  - `AuthzInputFieldFilter`, `AuthzFieldTransformer`, `AccessController`, the explain route
+- **C9:** email attachments under the sending principal, SR-09 mails, the log context `Principal`, and electron IPC `runAs(SYSTEM, 'electron-ipc')`. Only its socket item moved.
+
+### Merged contracts W1 uses (cited from this branch)
+
+- `packages/authn/src/contracts/principal.ts`: `Principal`, `PrincipalRef`, `Ceiling`, `UNATTENDED`, `SYSTEM`, `principalKey`, re-exported by `@spinajs/authz` (`packages/authz/src/contracts/principal.ts`).
+- `packages/authn/src/contracts/hooks.ts`: `IAuthnPrincipalStorage` (`AuthnPrincipal`).
+- `packages/authn/src/contracts/{service,extractor,credentials}.ts`: `AuthnService.authenticate` / `principalOf`, `CredentialExtractor`, `SignedRequest`, `AuthnContext`, `AuthenticationResult`.
+- `packages/authz/src/contracts/service.ts`: `AuthzService` (`check`, `current`, `runAs`), `CheckInput`, `AuthzDomains.service`.
+- `packages/authz/src/contracts/{errors,decision,permission,resource}.ts`: `AccessDenied` (non-enumerable `decision`), `Unauthenticated`, `Decision`, `DenyReason`, `parsePermission`, `resourceKey`.
+- `packages/authz-http/src/api.ts`: `PrincipalSource` and `AccessOptions` shapes, mirrored by `SocketPrincipalSource` and `ISocketAccessOptions` (W1 does not depend on `authz-http`).
+
+### Contracts W1 needs that are not merged yet
+
+| Contract | Lane | W1 without it | Follow-up |
+|---|---|---|---|
+| `AuthzService` implementation, `current()` reading the ALS `Principal` key, `runAs`, `IAuthzAsyncStorage` | F4 (and F3 engine) | writes `Principal` into the store (D14); tests use a scripted `AuthzService` | G1 |
+| ORM scoping of `@AccessResource` models | L4 | none needed | G2 |
+| `ArgInputFilter` (name and signature) | L5 task 1 | no input filter on socket payloads | G3 |
+| `AccessPolicy`, `AuthzFieldTransformer`, `AuthzInputFieldFilter` | L5 tasks 4, 5, 7 | `SocketAccessPolicy` on `AuthzService.check` | G4 |
+| `AuthnService` implementation | N1 | `AuthnCredentialSource` is inert | G5 |
+| `CredentialExtractor` implementations, `ClientIp` trusted proxies, `Authenticated` / `NoTokenAuthPolicy` | N8a | socket address as client IP (SR-03-safe, proxy-unaware) | G5 |
+| `SessionIssuer`, session cookie name and secret | N2, N8a | no cookie authentication (cookies are never a credential, D12) | G6 |
+
+### Requests to the authz-v3 lanes (for the integrator to apply to the authz-v3 plan)
+
+1. **L5 *Owns* and task 1:** drop "+ http-socket copy" and "the hydration copy in `packages/http-socket/src/interfaces.ts`"; W1 G3 does it.
+2. **L5 task 1 signature:** `ArgInputFilter` should need nothing from the request beyond `storage`, `body`, `params`, `query`, `headers` and `ip`, which `ISocketPolicyRequest` provides. Otherwise the socket copy cannot call it.
+3. **L5 tasks 4–5:** expose `AccessPolicy`'s decision step as a function `(request with storage/body/params, AccessOptions & { permissions }) → Promise<void>`. Then `@SocketAccess` delegates to it instead of mirroring it (G4).
+4. **C9:** remove `packages/http-socket/src/**` from *Owns*. Remove "optional `SocketPrincipalSource` hook in http-socket, documented default = unattended" from *Tasks* (W1 Tasks 5, 5A). Its *Depends on L5* no longer covers sockets.
+5. **Shared-files table:** remove the row `packages/http-socket/src/interfaces.ts | L5, then C9`.
+6. **F4 task 1:** keep the ALS key `Principal`, and keep `current()` on the DI-singleton `AsyncLocalStorage` (the instance `http/src/route-builder.ts` and `log/src/context.ts` use). W1 writes that key (D14).
+7. **authz-testing:** retag B09's socket part from C9 to W1 (RFC `W1-1`, G2).
+8. **N8a:** make the trusted-proxy client-address rule of `ClientIp` callable without an express request (G5), for `AuthnCredentialSource`.
+
+### Owner questions
+
+- **Q1. What becomes of `@spinajs/rbac-http-socket` (spec §3, W4)?** authz-v3 has no `rbac*` packages any more. Its authentication glue is `authn-*` and its authorization glue is `authz-*` (design §4.1.1). Most of the planned package now lives in W1: handshake principal, authn token source, `@SocketAccess`, revalidation. What is left is the session-cookie source and a `@User()` argument. Options:
+  - (a) **Recommended.** Drop the package. Put the session-cookie `SocketPrincipalSource` in `@spinajs/authn-http` under a subpath `@spinajs/authn-http/socket`, since authn-http owns the cookie name, secret and session restore. `authn-http` then gains an optional peer dependency on `@spinajs/http-socket`; the authz-v3 direction rule forbids only `authz*`/`users*` edges from `authn*`. `@User()` becomes unnecessary: use `SocketConnection.user` (`Principal.identity`), or add `@CurrentPrincipal()`-style args to W1.
+  - (b) Rename it **`@spinajs/authn-http-socket`**: a small authn-family package holding the session source and the identity arguments, depending on `authn`, `authn-http` and `http-socket`.
+
+  The spec is not renamed here; record the answer in the spec's §3 and §9.
+- **Q2. Cross-origin default.** `http.socket.cors.origins` defaults to `[]`, so a browser page on another origin cannot open a socket until its origin is listed (D15, consistent with H33/A31 for http). Confirm, or choose to apply the guard only to cookie-carrying handshakes.
+- **Q3. Release line.** W1 now depends on `@spinajs/authz`/`@spinajs/authn` `3.0.0-alpha.0`, so the socket layer ships with SpinaJS 3.0, not 2.0.549. Confirm, and confirm that `feat/websocket-layer` merges into `feat/authz-v3` (as a lane after G1) rather than into `master`.
+- **Q4. Revalidation default.** `http.socket.auth.revalidateMs` is 60 s, so a revoked token keeps a socket for at most a minute. Each check is one `AuthnService.authenticate` call per active connection per minute, counted by authn's throttle. Confirm the interval.

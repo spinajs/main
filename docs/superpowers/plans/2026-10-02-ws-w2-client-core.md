@@ -14,8 +14,8 @@
 
 - Work only in `C:\Users\grzch\SourceCodes\Spinajs\websocket-layer` (branch `feat/websocket-layer`). Never touch another Spinajs checkout or worktree (`main`, `authz-v3*`, … have in-flight work).
 - The W1 executor works in this same worktree at the same time. Stage only the paths a step names (`git add <paths>`, never `git add -A` or `git add .`). Never `git stash`, `git reset`, `git checkout -- …` or `git clean`. Verify the branch in the same command as every commit: `git branch --show-current | grep -qx feat/websocket-layer && git commit …`.
-- Never commit `package-lock.json`. `npm install` rewrites it; leave it modified. W1's Task 16 commits it once (CI runs `npm ci`, which fails on lock drift until then).
-- Runtime dependencies of `@spinajs/http-socket-client`: `socket.io-client` (`^4.8.1`) and `@spinajs/http-socket-common` (`2.0.549`) **only**. No `@spinajs/di`, no other `@spinajs/*`. `socket.io` (`^4.8.1`) is a devDependency for the test stub server.
+- Never commit `package-lock.json`. `npm install` rewrites it; leave it modified. The integrator commits it after the merge (authz-v3 rule 7; W1 commits no lock file either).
+- Runtime dependencies of `@spinajs/http-socket-client`: `socket.io-client` (`^4.8.1`) and `@spinajs/http-socket-common` (`3.0.0-alpha.0`) **only**. No `@spinajs/di`, no other `@spinajs/*`. `socket.io` (`^4.8.1`) is a devDependency for the test stub server.
 - The main entry runs in browsers: no Node built-in imports and no Node globals (`process`, `Buffer`, `require`, `__dirname`, `setImmediate`, `global`) anywhere in `src/`. Test `test/isomorphic.test.ts` (Task 2) enforces it.
 - Binding defaults, verbatim from the spec: reconnect `{ minMs: 500, maxMs: 30_000, jitter: 0.3 }`; `defaultTimeoutMs: 15_000`; `whenOffline` default `'fail'`.
 - Connection states, verbatim: `'connecting' | 'online' | 'offline' | 'closed'`; a `'state'` event fires on every change.
@@ -34,7 +34,7 @@
   - Stream commands: a W1 server answers them with `unimplemented`; a `CommandStreamReply` (W4) makes a plain command reject with `failed_precondition`.
   - Server event names `state`, `auth_required`, `incompatible` and `failed` are client lifecycle names; a server event with one of them never reaches client listeners.
 - Errors: every command rejection is common's `SocketException` (built with `SocketException.fromWire`, so `toWire()` returns the wire error unchanged). The client defines no error class of its own and uses common's `isSocketError`.
-- Repo conventions: every package is `"type": "module"`, version `2.0.549` in lockstep with exact internal pins, dual build `tsconfig.mjs.json` → `lib/mjs` and `tsconfig.cjs.json` → `lib/cjs`, `tsconfig.json` (rootDir `./`, includes `test/`) for tests; relative imports end in `.js`.
+- Repo conventions: every package is `"type": "module"`, version `3.0.0-alpha.0` for the new packages (the authz-v3 convention on this branch, which is rebased onto `feat/authz-v3`; see W1 Global Constraints "Versioning") with exact internal pins, dual build `tsconfig.mjs.json` → `lib/mjs` and `tsconfig.cjs.json` → `lib/cjs`, `tsconfig.json` (rootDir `./`, includes `test/`) for tests; relative imports end in `.js`.
 - Packages consume each other through built `lib/mjs`, not `src`. After changing `packages/http-socket-common/src`, run `npm run compile` in `packages/http-socket-common` before running client tests.
 - Run one test file from inside its package: `npx ts-mocha -p tsconfig.json test/<file>.test.ts`. The client package's `.mocharc.json` has no `spec` entry on purpose: a `spec` there is concatenated with the CLI file and runs the whole suite. (`http-socket-common`'s, copied from `log-common` by Task 1, has one whose pattern matches nothing inside that package; mocha only warns.) Type-level assertions are checked by `npm run typecheck` in the package (the test runner may transpile without type checking).
 - On Windows a TCP connect to a closed localhost port takes about 2 s before it is refused, so timing assertions use handshake refusals, never a stopped server.
@@ -118,7 +118,7 @@ Create `packages/http-socket-common/package.json`:
 ```json
 {
   "name": "@spinajs/http-socket-common",
-  "version": "2.0.549",
+  "version": "3.0.0-alpha.0",
   "description": "Wire protocol shared by the spinajs WebSocket server and client: envelopes, error codes, protocol version and contract typing helpers",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -787,7 +787,7 @@ git commit -m "feat(http-socket-common): wire protocol, error codes and contract
 ```json
 {
   "name": "@spinajs/http-socket-client",
-  "version": "2.0.549",
+  "version": "3.0.0-alpha.0",
   "description": "Isomorphic socket client for spinajs: connection state, reconnect, commands, events, typed contracts",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -836,7 +836,7 @@ git commit -m "feat(http-socket-common): wire protocol, error codes and contract
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/http-socket-common": "2.0.549",
+    "@spinajs/http-socket-common": "3.0.0-alpha.0",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
