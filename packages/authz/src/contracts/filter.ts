@@ -262,7 +262,7 @@ export function bindRefs(f: ResourceFilter, scope: { principal: Principal; env: 
 const MISSING = Symbol('missing');
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
-const isRef = (v: object): v is { ref: string } => isPlain(v) && Object.keys(v).length === 1 && typeof (v as { ref?: unknown }).ref === 'string';
+const isRef = (v: object): v is { ref: string } => isPlain(v) && Object.keys(v).length === 1 && Object.hasOwn(v, 'ref') && typeof (v as { ref?: unknown }).ref === 'string';
 
 function bind(f: ResourceFilter, scope: { principal: Principal; env: Readonly<Record<string, unknown>> }, negated: boolean): ResourceFilter {
   switch (f.op) {

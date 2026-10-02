@@ -308,3 +308,21 @@ describe('decision contracts', () => {
     });
   });
 });
+
+describe('compareDenyReasons payload tie-break', () => {
+  it('keeps a __proto__ payload key from parsed JSON and never throws on a throwing getter', () => {
+    const a = JSON.parse('{"code":"x","__proto__":{"n":1}}') as DenyReason;
+    const b = JSON.parse('{"code":"x","__proto__":{"n":2}}') as DenyReason;
+    expect(compareDenyReasons(a, b)).to.not.eq(0);
+    expect(Math.sign(compareDenyReasons(a, b))).to.eq(-Math.sign(compareDenyReasons(b, a)));
+
+    const g = { code: 'x' } as DenyReason;
+    Object.defineProperty(g, 'boom', {
+      enumerable: true,
+      get: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(() => compareDenyReasons(g, { code: 'x', y: 1 })).to.not.throw();
+  });
+});

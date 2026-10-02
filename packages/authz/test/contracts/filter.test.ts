@@ -244,6 +244,10 @@ const scope = { principal, env };
 const MISSING_REFS = ['principal.attributes.nope', 'principal.attributes.nul', 'principal.attributes.obj', 'principal.attributes.nan', 'principal.attributes.inf', 'principal.attributes.big', 'principal.attributes.fn', 'principal.attributes.withNull', 'principal.attributes.withObject', 'principal.attributes.withNaN', 'principal.attributes.sparse', 'principal.attributes.badDate', 'principal.attributes.undef', 'principal.attributes.nested', 'principal.authn', 'principal', 'env', 'env.nope', 'principal.__proto__', 'principal.constructor', 'principal.toString', 'principal.attributes.hostile.__proto__', 'principal.attributes.hostile.constructor', 'principal.attributes.hostile.prototype', 'principal.attributes.constructor.name', 'principal.id.length'];
 
 describe('filter contracts', () => {
+  it('keeps the test-only hash seam off the package root', () => {
+    expect(root).to.not.have.property('filterHashTesting');
+  });
+
   it('is exported from the package root', () => {
     expect(root.TRUE).to.eq(TRUE);
     expect(root.FALSE).to.eq(FALSE);
