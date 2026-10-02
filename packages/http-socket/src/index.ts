@@ -11,3 +11,4 @@ export * from './authn-source.js';
 export * from './controller.js';
 export * from './args.js';
 export * from './decorators.js';
+export * from './registry.js';
