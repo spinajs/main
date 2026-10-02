@@ -9,6 +9,7 @@ import { AuthnThrottle } from '../../src/contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../../src/contracts/throttle.js';
 import type { AuthnContext } from '../../src/contracts/credentials.js';
 import * as index from '../../src/contracts/index.js';
+import { memberDocs } from './source-shape.js';
 
 const expect = chai.expect;
 
@@ -156,6 +157,7 @@ describe('throttle contract', () => {
       expect(attempt).to.contain('Retry-After');
       expect(docOf(c.members, 'succeed')).to.contain("Resets the account key and removes that account's attempts from the IP key");
       expect(docOf(c.members, 'succeed')).to.contain("For 'reset' nothing is cleared; only time clears those keys");
+      for (const s of ['The caller passes the plain value', 'keyed hash', 'personal data', 'SR-19']) expect(memberDocs('throttle.ts', 'ThrottleKey').value).to.contain(s);
     });
   });
 

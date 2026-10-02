@@ -124,6 +124,8 @@ export type AuthenticationResult = {
     };
     /** Set when an interactive login issued one. */
     readonly session?: SessionHandle;
+    /** From StrategyOutcome.attributes; principalOf merges them into Principal.attributes. */
+    readonly attributes?: Readonly<Record<string, unknown>>;
 } | {
     readonly status: 'mfa_required';
     readonly pending: SessionHandle;
@@ -131,6 +133,8 @@ export type AuthenticationResult = {
 } | {
     readonly status: 'failure';
     readonly reason: AuthnFailure;
+    /** Set only when reason is 'throttled'; the HTTP layer sends it as Retry-After (A02, A06). */
+    readonly retryAfterSeconds?: number;
 };
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
 export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked';
@@ -145,6 +149,8 @@ export type StrategyOutcome = {
         readonly onBehalfOf: IdentityRef;
         readonly mode: 'inherit' | 'intersect';
     };
+    /** Merged into Principal.attributes. Adds attributes only, never authority; a token's Profile travels as attributes.profile (§18.3(e)). */
+    readonly attributes?: Readonly<Record<string, unknown>>;
 } | {
     readonly ok: false;
     readonly reason: AuthnFailure;
@@ -526,8 +532,12 @@ export declare abstract class MfaStep {
     abstract confirmEnrolment(id: IdentityRef, response: string): Promise<{
         recoveryCodes?: readonly string[];
     }>;
-    /** Counts into the throttle via AuthnService (flow 'mfa'); a code (time step) is accepted once (A10). */
+    /** Takes a step code only, never a recovery code. Counts into the throttle via AuthnService (flow 'mfa'); a code (time step) is accepted once (A10). */
     abstract verify(id: IdentityRef, response: string): Promise<boolean>;
+    /** For steps that issue recovery codes. Single use; counts into the throttle via AuthnService (flow 'mfa') (A10). */
+    verifyRecovery?(id: IdentityRef, code: string): Promise<boolean>;
+    /** /user/mfa/recovery-codes; the route requires fresh auth (A13). Returns the new codes once and voids the old ones (A10). */
+    regenerateRecoveryCodes?(id: IdentityRef): Promise<readonly string[]>;
     /**
      * Owner: the caller checks fresh auth and a valid code or recovery code first.
      * Admin reset (target guard, A25) also lands here and never receives a secret (A10).
@@ -741,8 +751,12 @@ import type { AuthenticationStrategy } from './strategy.js';
 /** The entry point. One per app (root container). */
 export declare abstract class AuthnService extends AsyncService {
     abstract authenticate(c: Credentials, ctx: AuthnContext): Promise<AuthenticationResult>;
+    /** Step 'recovery' (POST /auth/mfa/recovery): `response` is a recovery code, checked by the pending steps' MfaStep.verifyRecovery (A10). */
     abstract completeMfa(pending: SessionHandle, step: string, response: string, ctx: AuthnContext): Promise<AuthenticationResult>;
-    /** Fresh authentication (A13). */
+    /**
+     * Fresh authentication (A13). On success it refreshes authenticatedAt of the session's facts through SessionIssuer.elevate.
+     * A throttled re-authentication returns false; the route answers like any failed re-authentication.
+     */
     abstract reauthenticate(session: SessionHandle, c: Credentials, ctx: AuthnContext): Promise<boolean>;
     /** Via PrincipalFactory. */
     abstract principalOf(result: Extract<AuthenticationResult, {
@@ -752,10 +766,12 @@ export declare abstract class AuthnService extends AsyncService {
 }
 /** users: UserPrincipalFactory; apps: service and agent principals. */
 export declare abstract class PrincipalFactory {
+    /** extra.attributes are merged into Principal.attributes; they add attributes only, never authority (§18.3(e)). */
     abstract principalOf(id: IdentityRef, facts: AuthnFacts, extra: {
         ceiling?: Ceiling;
         onBehalfOf?: Principal;
         delegation?: 'inherit' | 'intersect';
+        readonly attributes?: Readonly<Record<string, unknown>>;
     }): Promise<Principal>;
 }
 ```
@@ -794,7 +810,10 @@ export declare abstract class SessionIssuer {
     } | null>;
     /** New id, same data (fixation). */
     abstract rotate(h: SessionHandle): Promise<SessionHandle>;
-    /** pending → active, aal2; rotates. */
+    /**
+     * pending → active, aal2; rotates.
+     * On an active session (a successful AuthnService.reauthenticate) it refreshes the given facts, such as authenticatedAt, and keeps the id.
+     */
     abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
     /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
     abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;
@@ -843,7 +862,12 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
     abstract readonly kinds: readonly string[];
     /** True: may start a session (password, oidc); false: per request (token, signature). */
     abstract readonly interactive: boolean;
-    /** Throttle keys this attempt counts against (account key needs the login string). */
+    /**
+     * Throttle keys this attempt counts against (account key needs the login string).
+     * Non-interactive strategies (token, keys, jwt) return an account key and an account-ip key derived from the credential's stable id
+     * (e.g. token id, key id; never the raw secret), so succeed gives the attempt back and healthy API clients never back off.
+     * They count in the 'login' flow like every authenticate call.
+     */
     abstract throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[];
     /** Verify only; no session, no MFA, no events: AuthnService does those. Must take the same time for unknown accounts (A02). */
     abstract verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome>;
@@ -856,6 +880,7 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
 import type { AuthnContext } from './credentials.js';
 export interface ThrottleKey {
     readonly kind: 'ip' | 'account' | 'account-ip' | 'global' | (string & {});
+    /** The caller passes the plain value; stores keep a keyed hash of it, since logins are personal data (SR-19). */
     readonly value: string;
 }
 export type ThrottleFlow = 'login' | 'mfa' | 'reset' | 'reauth';
@@ -941,7 +966,7 @@ export type TokenCreateResult = {
     readonly code: 'invalid_expiry' | 'invalid_scope';
 };
 /**
- * A StrategyOutcome, so TokenStrategy returns it as is. ceiling.roles are the token's roles. An agent token yields identity
+ * A StrategyOutcome; TokenStrategy returns it with `profile` copied to attributes.profile. ceiling.roles are the token's roles. An agent token yields identity
  * { type: 'agent', id: token id }, delegation 'inherit' on behalf of the owner and a ceiling with reason 'out_of_scope' and no roles (A15).
  */
 export type TokenValidation = {
@@ -950,7 +975,7 @@ export type TokenValidation = {
     readonly method: 'token';
     readonly ceiling?: Ceiling;
     readonly delegation?: never;
-    /** token.profile; authn-http's token resolver sets the principal's attributes.profile from it (§18.3(e)). */
+    /** token.profile; reaches the principal as attributes.profile through StrategyOutcome.attributes and principalOf (§18.3(e)). */
     readonly profile?: string;
     readonly token: TokenRecord;
 } | {

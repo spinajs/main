@@ -2,6 +2,7 @@ import type { AuthnContext } from './credentials.js';
 
 export interface ThrottleKey {
   readonly kind: 'ip' | 'account' | 'account-ip' | 'global' | (string & {});
+  /** The caller passes the plain value; stores keep a keyed hash of it, since logins are personal data (SR-19). */
   readonly value: string;
 }
 

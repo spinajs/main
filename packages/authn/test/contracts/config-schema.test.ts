@@ -315,6 +315,11 @@ describe('authn.* configuration schema', () => {
       refused({ session: { cookie: { hostPrefix: 'always' } } }, '/session/cookie/hostPrefix');
     });
 
+    it('refuses unhashed session ids (SR-18)', () => {
+      refused({ session: { hashIds: false } }, '/session/hashIds');
+      refused({ session: { hashIds: 'false' } }, '/session/hashIds');
+    });
+
     it('refuses a wrong type for maxConcurrent', () => {
       refused({ local: { hasher: { maxConcurrent: 'eight' } } }, '/local/hasher/maxConcurrent');
       refused({ local: { hasher: { maxConcurrent: { n: 8 } } } }, '/local/hasher/maxConcurrent');

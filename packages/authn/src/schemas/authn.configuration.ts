@@ -149,7 +149,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             sameSite: { anyOf: [{ enum: [true, false] }, { type: 'string', pattern: '^([Ss][Tt][Rr][Ii][Cc][Tt]|[Ll][Aa][Xx]|[Nn][Oo][Nn][Ee])$' }], default: 'strict' },
           },
         },
-        hashIds: { type: 'boolean', default: true },
+        hashIds: { type: 'boolean', enum: [true], default: true, description: 'Session ids are always stored hashed (SR-18); only true is accepted.' },
       },
     },
     mfa: {

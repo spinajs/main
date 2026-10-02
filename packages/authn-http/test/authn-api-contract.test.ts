@@ -286,6 +286,7 @@ describe('authn-http api stubs (api.ts)', function () {
       expect(c.AuthnPrincipalResolver.doc).to.contain('AuthnService.principalOf');
       expect(c.SessionPrincipalResolver.doc).to.contain('Pending ⇒ null');
       expect(c.TokenPrincipalResolver.doc).to.contain('ceiling.roles');
+      expect(c.TokenPrincipalResolver.doc).to.contain('attributes.profile: TokenStrategy puts it in StrategyOutcome.attributes and principalOf merges it');
       expect(c.KeyPrincipalResolver.doc).to.contain('scope');
       for (const n of Object.keys(ROUTE_ARGS)) expect(f[n].doc, n).to.match(/null|undefined/);
       for (const n of ['AuthnSession', 'SessionId', 'FromSession']) expect(f[n].doc, n).to.match(/not authentication/i);

@@ -64,7 +64,7 @@ export type TokenCreateResult =
   | { readonly ok: false; readonly code: 'invalid_expiry' | 'invalid_scope' };
 
 /**
- * A StrategyOutcome, so TokenStrategy returns it as is. ceiling.roles are the token's roles. An agent token yields identity
+ * A StrategyOutcome; TokenStrategy returns it with `profile` copied to attributes.profile. ceiling.roles are the token's roles. An agent token yields identity
  * { type: 'agent', id: token id }, delegation 'inherit' on behalf of the owner and a ceiling with reason 'out_of_scope' and no roles (A15).
  */
 export type TokenValidation =
@@ -74,7 +74,7 @@ export type TokenValidation =
       readonly method: 'token';
       readonly ceiling?: Ceiling;
       readonly delegation?: never;
-      /** token.profile; authn-http's token resolver sets the principal's attributes.profile from it (§18.3(e)). */
+      /** token.profile; reaches the principal as attributes.profile through StrategyOutcome.attributes and principalOf (§18.3(e)). */
       readonly profile?: string;
       readonly token: TokenRecord;
     }

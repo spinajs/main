@@ -49,6 +49,18 @@ class CodeStep extends MfaStep {
   }
 }
 
+class RecoveryStep extends CodeStep {
+  private codes = new Map<string, Set<string>>();
+  async verifyRecovery(id: IdentityRef, code: string): Promise<boolean> {
+    return this.codes.get(id.id)?.delete(code) ?? false;
+  }
+  async regenerateRecoveryCodes(id: IdentityRef): Promise<readonly string[]> {
+    const fresh = [randomBytes(5).toString('hex'), randomBytes(5).toString('hex')];
+    this.codes.set(id.id, new Set(fresh));
+    return fresh;
+  }
+}
+
 class EnrolledPolicy extends MfaPolicy {
   constructor(private steps: readonly MfaStep[]) {
     super();
@@ -151,6 +163,18 @@ describe('mfa and secret contracts', () => {
       expect(await step.enrolled(alice)).to.eq(false);
     });
 
+    it('a step with recovery codes takes each once and voids old ones on regeneration', async () => {
+      const step = new RecoveryStep();
+      const [first, second] = await step.regenerateRecoveryCodes(alice);
+      expect(await step.verifyRecovery(alice, first)).to.eq(true);
+      expect(await step.verifyRecovery(alice, first)).to.eq(false);
+      expect(await step.verifyRecovery(bob, second)).to.eq(false);
+      const fresh = await step.regenerateRecoveryCodes(alice);
+      expect(await step.verifyRecovery(alice, second)).to.eq(false);
+      expect(await step.verifyRecovery(alice, fresh[0])).to.eq(true);
+      expect(new CodeStep().verifyRecovery).to.eq(undefined);
+    });
+
     it('a concrete secret store works', async () => {
       const s = new MemorySecrets();
       const first = await s.issue(alice, 'reset', 60);
@@ -179,6 +203,8 @@ describe('mfa and secret contracts', () => {
             { name: 'beginEnrolment', modifiers: ['abstract'], optional: false, params: ['id'] },
             { name: 'confirmEnrolment', modifiers: ['abstract'], optional: false, params: ['id', 'response'] },
             { name: 'verify', modifiers: ['abstract'], optional: false, params: ['id', 'response'] },
+            { name: 'verifyRecovery', modifiers: [], optional: true, params: ['id', 'code'] },
+            { name: 'regenerateRecoveryCodes', modifiers: [], optional: true, params: ['id'] },
             { name: 'disable', modifiers: ['abstract'], optional: false, params: ['id'] },
           ],
         },
@@ -209,6 +235,9 @@ describe('mfa and secret contracts', () => {
       expect(docOf(step, 'confirmEnrolment')).to.contain('single use');
       expect(docOf(step, 'verify')).to.contain('Counts into the throttle via AuthnService');
       expect(docOf(step, 'verify')).to.contain('A10');
+      expect(docOf(step, 'verify')).to.contain('Takes a step code only, never a recovery code');
+      for (const s of ['recovery codes', 'Single use', "counts into the throttle via AuthnService (flow 'mfa')", 'A10']) expect(docOf(step, 'verifyRecovery'), s).to.contain(s);
+      for (const s of ['/user/mfa/recovery-codes', 'fresh auth (A13)', 'new codes once', 'voids the old ones']) expect(docOf(step, 'regenerateRecoveryCodes'), s).to.contain(s);
       expect(docOf(step, 'disable')).to.contain('Owner: the caller checks fresh auth and a valid code or recovery code first');
       expect(docOf(step, 'disable')).to.contain('Admin reset (target guard, A25)');
       expect(docOf(step, 'disable')).to.contain('never receives a secret');
@@ -244,6 +273,8 @@ describe('mfa and secret contracts', () => {
       same<ReturnType<MfaStep['verify']>, Promise<boolean>>(true);
       same<Parameters<MfaStep['disable']>, [IdentityRef]>(true);
       same<ReturnType<MfaStep['disable']>, Promise<void>>(true);
+      same<MfaStep['verifyRecovery'], ((id: IdentityRef, code: string) => Promise<boolean>) | undefined>(true);
+      same<MfaStep['regenerateRecoveryCodes'], ((id: IdentityRef) => Promise<readonly string[]>) | undefined>(true);
     });
 
     it('MfaPolicy.required takes only method and strategy', () => {
@@ -307,6 +338,18 @@ describe('mfa and secret contracts', () => {
         }
       }
       expect(LeakyDisable).to.be.a('function');
+    });
+
+    it('recovery members keep their result types', () => {
+      class BadRecovery extends CodeStep {
+        // @ts-expect-error verifyRecovery answers with a boolean
+        async verifyRecovery(): Promise<string> {
+          return 'ok';
+        }
+        // @ts-expect-error regenerateRecoveryCodes returns the codes
+        async regenerateRecoveryCodes(): Promise<void> {}
+      }
+      expect(BadRecovery).to.be.a('function');
     });
 
     it('redeem must answer with a boolean', () => {

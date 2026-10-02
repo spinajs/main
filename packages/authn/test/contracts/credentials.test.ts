@@ -7,6 +7,7 @@ import type { AuthenticationResult, AuthnContext, AuthnFailure, Credentials, Ext
 import type { SessionHandle } from '../../src/contracts/session.js';
 import type { AuthnFacts, Ceiling } from '../../src/contracts/principal.js';
 import type * as index from '../../src/contracts/index.js';
+import { memberDocs } from './source-shape.js';
 
 const expect = chai.expect;
 
@@ -15,6 +16,7 @@ type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B 
 const same = <A, B>(ok: Equals<A, B>): Equals<A, B> => ok;
 
 type Delegation = { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
+type Attributes = Readonly<Record<string, unknown>>;
 
 const session: SessionHandle = { id: 'raw', state: 'active' };
 const pending: SessionHandle = { id: 'raw-pending', state: 'pending' };
@@ -140,7 +142,18 @@ describe('credential, context and result contracts', () => {
 
   describe('AuthenticationResult', () => {
     it('is exactly the design union', () => {
-      same<AuthenticationResult, { readonly status: 'success'; readonly identity: IdentityRef; readonly facts: Omit<AuthnFacts, 'authenticatedAt'>; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly session?: SessionHandle } | { readonly status: 'mfa_required'; readonly pending: SessionHandle; readonly steps: readonly string[] } | { readonly status: 'failure'; readonly reason: AuthnFailure }>(true);
+      same<AuthenticationResult, { readonly status: 'success'; readonly identity: IdentityRef; readonly facts: Omit<AuthnFacts, 'authenticatedAt'>; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly session?: SessionHandle; readonly attributes?: Attributes } | { readonly status: 'mfa_required'; readonly pending: SessionHandle; readonly steps: readonly string[] } | { readonly status: 'failure'; readonly reason: AuthnFailure; readonly retryAfterSeconds?: number }>(true);
+    });
+
+    it('a throttled failure carries retryAfterSeconds, and success carries attributes (review I1, I3)', () => {
+      const throttled: AuthenticationResult = { status: 'failure', reason: 'throttled', retryAfterSeconds: 30 };
+      const pinned: AuthenticationResult = { status: 'success', identity: user, facts, attributes: { profile: 'dev' } };
+      // @ts-expect-error retryAfterSeconds is a number of seconds
+      const late: AuthenticationResult = { status: 'failure', reason: 'throttled', retryAfterSeconds: new Date(0) };
+      expect([throttled, pinned, late]).to.have.length(3);
+      const docs = memberDocs('credentials.ts', 'AuthenticationResult');
+      for (const s of ["Set only when reason is 'throttled'", 'Retry-After', 'A02', 'A06']) expect(docs.retryAfterSeconds).to.contain(s);
+      expect(docs.attributes).to.contain('Principal.attributes');
     });
 
     it('rejects incomplete members', () => {
@@ -180,7 +193,13 @@ describe('credential, context and result contracts', () => {
 
   describe('StrategyOutcome', () => {
     it('is exactly the design union', () => {
-      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation } | { readonly ok: false; readonly reason: AuthnFailure }>(true);
+      same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes } | { readonly ok: false; readonly reason: AuthnFailure }>(true);
+    });
+
+    it('attributes add to the principal, never authority (review I3)', () => {
+      const pinned: StrategyOutcome = { ok: true, method: 'token', identity: user, attributes: { profile: 'dev' } };
+      expect(pinned.ok && pinned.attributes).to.deep.eq({ profile: 'dev' });
+      for (const s of ['Merged into Principal.attributes', 'never authority', 'attributes.profile', '§18.3(e)']) expect(memberDocs('credentials.ts', 'StrategyOutcome').attributes).to.contain(s);
     });
 
     it('rejects incomplete members', () => {

@@ -228,6 +228,7 @@ export class KeyPrincipalResolver extends AuthnPrincipalResolver {
 /**
  * Order 50: bearer credentials. An spt_ token gives its owner with ceiling.roles = the token's roles plus its Scope ceiling;
  * Scope.agent gives an agent principal, onBehalfOf the owner, delegation 'inherit', ceiling reason 'out_of_scope' (A15).
+ * A token's profile arrives as attributes.profile: TokenStrategy puts it in StrategyOutcome.attributes and principalOf merges it (§18.3(e)).
  * A JWT gives the linked user (§22.9).
  */
 export class TokenPrincipalResolver extends AuthnPrincipalResolver {

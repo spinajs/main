@@ -59,9 +59,16 @@ export type AuthenticationResult =
       readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
       /** Set when an interactive login issued one. */
       readonly session?: SessionHandle;
+      /** From StrategyOutcome.attributes; principalOf merges them into Principal.attributes. */
+      readonly attributes?: Readonly<Record<string, unknown>>;
     }
   | { readonly status: 'mfa_required'; readonly pending: SessionHandle; readonly steps: readonly string[] }
-  | { readonly status: 'failure'; readonly reason: AuthnFailure };
+  | {
+      readonly status: 'failure';
+      readonly reason: AuthnFailure;
+      /** Set only when reason is 'throttled'; the HTTP layer sends it as Retry-After (A02, A06). */
+      readonly retryAfterSeconds?: number;
+    };
 
 /** Goes to audit only; HTTP answers one shape for all of them (A02). */
 export type AuthnFailure = 'invalid_credentials' | 'throttled' | 'unsupported_credentials' | 'expired' | 'revoked' | 'not_linked';
@@ -75,5 +82,7 @@ export type StrategyOutcome =
       readonly method: string;
       readonly ceiling?: Ceiling;
       readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
+      /** Merged into Principal.attributes. Adds attributes only, never authority; a token's Profile travels as attributes.profile (§18.3(e)). */
+      readonly attributes?: Readonly<Record<string, unknown>>;
     }
   | { readonly ok: false; readonly reason: AuthnFailure };
