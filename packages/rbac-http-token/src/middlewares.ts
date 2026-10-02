@@ -4,7 +4,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Request as sRequest, ServerMiddleware } from '@spinajs/http';
 import { AccessTokenException } from './exceptions.js';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 
 import { validateToken, touchToken } from './actions.js';
 import './interfaces.js';

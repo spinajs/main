@@ -184,7 +184,7 @@ describe('BasicPasswordProvider.generate', function () {
    * absent there entirely (not just missing a field) - see the comment on
    * `rbac.actions` in packages/rbac-http-admin/test/common.ts, and the
    * `_cfg(path, [])` fallback in `_create_middleware`
-   * (packages/rbac/src/actions.ts) for the same class of problem.
+   * (packages/users/src/actions.ts) for the same class of problem.
    *
    * An application that never declares the key must still be able to create
    * users, so generate() falls back to DEFAULT_GENERATOR (src/password.ts).

@@ -1,7 +1,7 @@
-// Type-only import brings `@spinajs/rbac` into the program so the module
+// Type-only import brings `@spinajs/users` into the program so the module
 // augmentation at the bottom of this file has a module to attach to, and
 // brings in `User` for `AccessTokenRolePolicy` below.
-import type { User } from '@spinajs/rbac';
+import type { User } from '@spinajs/users';
 import type {} from '@spinajs/http';
 // `@spinajs/rbac-http` is what puts User / Session / ActiveRole on the http
 // request storage. Pulled in type-only so `req.storage.User` type-checks in a
@@ -109,7 +109,7 @@ export abstract class AccessTokenRolePolicy {
   }
 }
 
-declare module '@spinajs/rbac' {
+declare module '@spinajs/users' {
   interface IRbacAsyncStorage {
     /**
      * Set by TokenAuthMiddleware when the request carries a valid access token.

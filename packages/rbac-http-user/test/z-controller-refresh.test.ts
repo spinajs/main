@@ -6,7 +6,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { ISession, UserSession } from '@spinajs/rbac';
+import { ISession, UserSession } from '@spinajs/users';
 import { UserController } from '../src/controllers/UserController.js';
 
 class FakeSessionProvider {

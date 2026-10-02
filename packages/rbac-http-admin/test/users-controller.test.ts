@@ -29,7 +29,7 @@ import {
   UserMetadata,
   UserSession,
   USER_COMMON_METADATA,
-} from '@spinajs/rbac';
+} from '@spinajs/users';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/rbac-http-user';
 
 import { Users } from '../src/controllers/Users/Users.js';
@@ -801,7 +801,7 @@ describe('Admin user controllers', function () {
     it('is switchable: unknown roles may be allowed', async () => {
       // Two independent layers each refuse an undeclared role: this controller's
       // own DefaultRoleGuard, and rbac's own assertRolesExist() inside grant()
-      // (packages/rbac/src/actions.ts, gated by rbac.requireKnownRole). Both must
+      // (packages/users/src/actions.ts, gated by rbac.requireKnownRole). Both must
       // be turned off for 'wizard' to actually get through - flipping only the
       // guard above would still be refused one layer further in.
       DI.get(Configuration)!.set('rbac.admin.roleGuard.requireKnownRole', false);

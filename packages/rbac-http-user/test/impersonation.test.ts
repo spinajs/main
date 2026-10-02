@@ -15,7 +15,7 @@ import {
   UserImpersonationStarted,
   UserImpersonationEnded,
   User,
-} from '@spinajs/rbac';
+} from '@spinajs/users';
 
 import { ImpersonationController } from '../src/controllers/ImpersonationController.js';
 import { ImpersonationService } from '../src/services/ImpersonationService.js';

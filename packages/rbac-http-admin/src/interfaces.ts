@@ -1,4 +1,4 @@
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 
 /**
  * What an administrator is allowed to do to roles and to accounts, read from

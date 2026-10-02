@@ -3,7 +3,7 @@ import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Pos
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/rbac';
+import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { Schema } from '@spinajs/validation';
 

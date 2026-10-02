@@ -1,5 +1,5 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
-import { User as UserModel, UserMetadata } from '@spinajs/rbac';
+import { User as UserModel, UserMetadata } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/rbac-http';
 import { PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';

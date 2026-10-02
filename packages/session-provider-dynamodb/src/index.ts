@@ -14,7 +14,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/users';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
@@ -22,7 +22,7 @@ import { Logger, Log } from '@spinajs/log';
 type AttributeMap = Record<string, AttributeValue>;
 
 /**
- * DynamoDB-backed session store. Conforms to the `@spinajs/rbac`
+ * DynamoDB-backed session store. Conforms to the `@spinajs/users`
  * `SessionProvider` contract: ownership is the numeric `UserId` (persisted as
  * its own top-level attribute), expiration is owned by the injected strategy
  * (`this.Expiration`) and persisted verbatim, and `Data` is (de)serialized with

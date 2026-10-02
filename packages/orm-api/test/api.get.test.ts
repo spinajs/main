@@ -15,7 +15,7 @@ import { Test } from './models/Test.js';
 import { Test2 } from './models/Test2.js';
 import '../src/PlainJsonCollectionTransformer.js';
 import '../src/index.js';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 import { DateTime } from 'luxon';
 
 describe('crud tests', function () {

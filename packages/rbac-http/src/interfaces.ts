@@ -1,4 +1,4 @@
-import { User, ISession, PermissionType } from '@spinajs/rbac';
+import { User, ISession, PermissionType } from '@spinajs/users';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
 // ---------------------------------------------------------------------------

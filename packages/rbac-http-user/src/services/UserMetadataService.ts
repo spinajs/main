@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { UserMetadata, assertNoProtectedMetadata } from '@spinajs/rbac';
+import { UserMetadata, assertNoProtectedMetadata } from '@spinajs/users';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import type { IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';

@@ -13,7 +13,7 @@ import {
   UserSession,
   UserImpersonationEnded,
   User,
-} from '@spinajs/rbac';
+} from '@spinajs/users';
 
 import { LogoutHandler, ILogoutContext } from '../src/logout.js';
 import { ImpersonationLogoutHandler } from '../src/handlers/ImpersonationLogoutHandler.js';

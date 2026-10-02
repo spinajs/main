@@ -1,7 +1,7 @@
 import _ from 'lodash';
 import { DateTime } from 'luxon';
 import { AccessControl } from 'accesscontrol';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 import { _check_arg, _trim, _non_empty, _non_nil, _max_length } from '@spinajs/util';
 import { service } from '@spinajs/configuration';
 import { ev } from '@spinajs/queue';

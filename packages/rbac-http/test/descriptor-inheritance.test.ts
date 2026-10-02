@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { PermissionType } from '@spinajs/rbac';
+import { PermissionType } from '@spinajs/users';
 import { ACL_CONTROLLER_DESCRIPTOR, Permission, Resource, setRbacMetadata } from '../src/decorators.js';
 import { IRbacDescriptor } from '../src/interfaces.js';
 

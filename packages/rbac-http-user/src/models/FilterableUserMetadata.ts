@@ -1,7 +1,7 @@
 import { Connection, Model } from '@spinajs/orm';
 import _ from 'lodash';
  
-import { OrmResource, UserMetadata } from '@spinajs/rbac';
+import { OrmResource, UserMetadata } from '@spinajs/users';
 import { Filterable } from '@spinajs/orm-http';
 
 @Connection('default')

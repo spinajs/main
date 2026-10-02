@@ -4,7 +4,7 @@ import { AuthenticationFailed, Forbidden } from '@spinajs/exceptions';
 import { ACL_CONTROLLER_DESCRIPTOR } from '../decorators.js';
 import { IRbacDescriptor } from '../interfaces.js';
 import { DI } from '@spinajs/di';
-import { User, effectiveRoles, probeGrant } from '@spinajs/rbac';
+import { User, effectiveRoles, probeGrant } from '@spinajs/users';
 
 /**
  * Checks if user is logged, authorized & have proper permissions
@@ -70,7 +70,7 @@ export class RbacPolicy extends BasePolicy {
 }
 
 // Guard semantics (unknown role answers null, programming errors stay loud) live on
-// `probeGrant` in @spinajs/rbac — the single home shared with the ORM query middleware.
+// `probeGrant` in @spinajs/users — the single home shared with the ORM query middleware.
 
 export function checkRbacPermission(role: string | string[], resource: string, permission: string): Permission | null {
   return probeGrant(role, permission, resource);

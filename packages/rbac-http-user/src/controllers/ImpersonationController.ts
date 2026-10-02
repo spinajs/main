@@ -7,8 +7,8 @@ import {
   UserImpersonationStarted,
   canImpersonate,
   userModel,
-} from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+} from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { _ev } from '@spinajs/queue';

@@ -49,12 +49,12 @@ const rbacHttp = {
       service: 'Default2FaToken',
     },
     // NOTE: the session cookie ( `rbac.session.cookie` ) is configured by
-    // @spinajs/rbac and defaults to Secure + SameSite=Strict + HttpOnly. This
+    // @spinajs/users and defaults to Secure + SameSite=Strict + HttpOnly. This
     // package used to weaken it to SameSite=Lax here, which is what let a
     // cross-site GET reach the logout route.
     password: {
       // NOTE: the password reset token's lifetime is `rbac.password.passwordResetWaitTime`
-      // ( seconds, defined by @spinajs/rbac ) — this package does not restate it.
+      // ( seconds, defined by @spinajs/users ) — this package does not restate it.
 
       /**
        * Block account after invalid login attempts

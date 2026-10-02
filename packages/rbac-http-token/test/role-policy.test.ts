@@ -4,7 +4,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 
 import { OwnRolesTokenRolePolicy, _role_excluded } from '../src/role-policy.js';
 import { DbTestConfiguration } from './db-common.js';

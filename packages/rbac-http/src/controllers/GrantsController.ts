@@ -1,5 +1,5 @@
 import { BaseController, BasePath, Get, Ok, Policy } from '@spinajs/http';
-import { AccessControl, User as RbacUser } from '@spinajs/rbac';
+import { AccessControl, User as RbacUser } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy } from '../policies/AuthorizedPolicy.js';
 import { User } from '../decorators.js';

@@ -5,7 +5,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { ISession, UserSession } from '@spinajs/rbac';
+import { ISession, UserSession } from '@spinajs/users';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
 import { NotAuthorizedPolicy } from '@spinajs/rbac-http';

@@ -1,4 +1,4 @@
-import type { ISession, User } from '@spinajs/rbac';
+import type { ISession, User } from '@spinajs/users';
 
 /**
  * Per-request context handed to each {@link LogoutHandler} during logout.

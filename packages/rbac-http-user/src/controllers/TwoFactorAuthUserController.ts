@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Body, ForbiddenResponse, Get, Ok, Policy, Post, Unauthorized } from '@spinajs/http';
-import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { AuthorizedPolicy, IEnable2faResponse, Permission, Resource, Session as SessionRouteArg, TwoFactorAuthConfig, User } from '@spinajs/rbac-http';

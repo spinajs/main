@@ -7,7 +7,7 @@ import { Orm } from '@spinajs/orm';
 import { Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/users';
 
 import { req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from './common.js';
 import { createToken } from '../src/actions.js';

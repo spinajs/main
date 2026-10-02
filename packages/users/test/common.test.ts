@@ -127,7 +127,7 @@ export class TestConfiguration extends FrameworkConfiguration {
         ],
         // `assertRolesExist` (actions.ts) checks roles against THIS map, resolved
         // through the `AccessControl` DI singleton - not against the shipped
-        // `packages/rbac/src/config/rbac.ts` defaults. This suite runs via
+        // `packages/users/src/config/users.ts` defaults. This suite runs via
         // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
         // (unlike eg. rbac-http-admin/rbac-http-token), so the configuration
         // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages

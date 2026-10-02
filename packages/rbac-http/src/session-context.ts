@@ -1,5 +1,5 @@
 import { DI } from '@spinajs/di';
-import type { User } from '@spinajs/rbac';
+import type { User } from '@spinajs/users';
 
 /**
  * Adds application fields to every auth response that reports the session's active role:

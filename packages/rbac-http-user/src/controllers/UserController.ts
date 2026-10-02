@@ -1,6 +1,6 @@
 import { PasswordDto } from '../dto/password-dto.js';
-import { User as UserModel, PasswordProvider, SessionProvider, UserSession, verifyPassword, changeUserPassword, assertNotLocked, registerFailedLogin, LoginAttemptsExceeded, AccessControl } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { User as UserModel, PasswordProvider, SessionProvider, UserSession, verifyPassword, changeUserPassword, assertNotLocked, registerFailedLogin, LoginAttemptsExceeded, AccessControl } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { BaseController, BasePath, Get, Ok, Body, Patch, Policy } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject } from '@spinajs/di';

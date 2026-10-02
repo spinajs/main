@@ -1,5 +1,5 @@
 import { BelongsTo, Connection, CreatedAt, DateTime as DT, Hidden, Model, ModelBase, Primary, Set, SingleRelation } from '@spinajs/orm';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _default } from '@spinajs/util';

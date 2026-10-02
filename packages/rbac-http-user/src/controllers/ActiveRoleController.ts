@@ -1,7 +1,7 @@
 import { SwitchRoleDto } from '../dto/switchRole-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, BadRequestResponse, Unauthorized, Policy } from '@spinajs/http';
-import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regenerateSession } from '@spinajs/rbac';
-import type { ISession, User } from '@spinajs/rbac';
+import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regenerateSession } from '@spinajs/users';
+import type { ISession, User } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, FromSession, IActiveRoleResponse, resolveSessionContext } from '@spinajs/rbac-http';

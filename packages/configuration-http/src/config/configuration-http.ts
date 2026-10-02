@@ -15,7 +15,7 @@ const configurationHttp = {
     grants: {
       /**
        * Dedicated admin sub-role granting full management over configuration
-       * entries. Mirrors the `admin.users` sub-role in @spinajs/rbac: only the
+       * entries. Mirrors the `admin.users` sub-role in @spinajs/users: only the
        * `admin` role ( and `system`, which extends admin ) inherits it below, so
        * the configuration HTTP api is an admin-only capability. The resource
        * itself is named `configuration` ( see @Resource in the controller ).

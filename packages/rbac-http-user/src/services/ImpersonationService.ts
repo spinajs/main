@@ -1,7 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
-import { SessionProvider, User, UserImpersonationEnded, regenerateSession } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { SessionProvider, User, UserImpersonationEnded, regenerateSession } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { _ev } from '@spinajs/queue';
 
 /** Session keys holding the impersonation block. */

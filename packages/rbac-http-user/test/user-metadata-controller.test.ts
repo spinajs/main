@@ -11,7 +11,7 @@ import { Ok } from '@spinajs/http';
 import { OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User, UserMetadata } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User, UserMetadata } from '@spinajs/users';
 
 import { UserMetadataController } from '../src/controllers/UserMetadataController.js';
 import { DbTestConfiguration } from './db-common.js';

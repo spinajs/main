@@ -1,5 +1,5 @@
 import { Injectable } from '@spinajs/di';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 
 import { AccessTokenRolePolicy } from './interfaces.js';
 

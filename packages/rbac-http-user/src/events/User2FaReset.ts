@@ -1,5 +1,5 @@
 import { Event } from '@spinajs/queue';
-import { UserEvent } from '@spinajs/rbac';
+import { UserEvent } from '@spinajs/users';
 
 @Event()
 export class User2FaReset extends UserEvent {}

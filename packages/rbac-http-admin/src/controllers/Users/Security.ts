@@ -1,7 +1,7 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
-import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/rbac-http';
 import { FromModel } from '@spinajs/orm-http';
 import { Schema } from '@spinajs/validation';

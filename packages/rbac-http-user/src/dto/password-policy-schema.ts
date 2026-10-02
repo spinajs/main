@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 
 /**
- * Wire schema of `GET /auth/password/policy` — `IPasswordPolicy` from @spinajs/rbac.
+ * Wire schema of `GET /auth/password/policy` — `IPasswordPolicy` from @spinajs/users.
  *
  * Registered under the interface's own name, the way @spinajs/rbac-http's
  * `dto/auth-responses.ts` registers `IGrantsMap` and friends: the controller's

@@ -31,7 +31,7 @@ const rbacHttpToken = {
       // switch off migration discovery in every application that installs this
       // package. `RbacHttpTokenInitial_...` needs no scan anyway - it carries
       // `@Migration`, is exported from the package index, and is picked up from
-      // the DI registry by `DiRegistryMigrationSource`. `@spinajs/rbac` ships
+      // the DI registry by `DiRegistryMigrationSource`. `@spinajs/users` ships
       // `cli` only for the same reason.
       //
       // Nothing in the framework reads `system.dirs.models` - models register
@@ -40,7 +40,7 @@ const rbacHttpToken = {
   },
   queue: {
     // All events emitted by this package go to the black hole connection
-    // declared by @spinajs/rbac ( `rbac-user-empty-queue` ). Without the
+    // declared by @spinajs/users ( `rbac-user-empty-queue` ). Without the
     // routing they would fall back to the application's DEFAULT connection -
     // a real broker - and every token operation would publish to it.
     routing: {

@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Del, Get, NotFound, Ok, Param, Policy } from '@spinajs/http';
-import { SessionProvider, User as UserModel, hashSessionId } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { SessionProvider, User as UserModel, hashSessionId } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { AutoinjectService } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { AuthorizedPolicy, Permission, Resource, SessionId as SessionIdArg, User } from '@spinajs/rbac-http';

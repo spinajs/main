@@ -1,5 +1,5 @@
 import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Policy, Post, Put, Query } from '@spinajs/http';
-import { User as UserModel } from '@spinajs/rbac';
+import { User as UserModel } from '@spinajs/users';
 import { Permission, Resource, User } from '@spinajs/rbac-http';
 import { AccessTokenRoleNotAllowed } from '../exceptions.js';
 import { DateTime } from 'luxon';

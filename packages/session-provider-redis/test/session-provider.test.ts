@@ -6,9 +6,9 @@ import { DI } from '@spinajs/di';
 import RedisMock from 'ioredis-mock';
 import '../src/index.js';
 import { RedisSessionStore } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/users';
 import { DateTime } from 'luxon';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration } from '../../users/test/conformance/session-provider-conformance.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;

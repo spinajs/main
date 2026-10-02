@@ -12,7 +12,7 @@ import {
   AuthProvider,
   ISession,
   UserSession,
-} from '@spinajs/rbac';
+} from '@spinajs/users';
 
 import { ActiveRoleController } from '../src/controllers/ActiveRoleController.js';
 import { SwitchRoleDto } from '../src/dto/switchRole-dto.js';

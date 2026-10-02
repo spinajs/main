@@ -11,7 +11,7 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok, Unauthorized } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
 import { RbacPolicy } from '@spinajs/rbac-http';
 import { BadRequest } from '@spinajs/exceptions';
-import type { ISession } from '@spinajs/rbac';
+import type { ISession } from '@spinajs/users';
 
 import { TwoFactorAuthUserController } from '../src/controllers/TwoFactorAuthUserController.js';
 import { TwoFactorAuthEnabled } from '../src/policies/2FaPolicy.js';

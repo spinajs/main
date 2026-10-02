@@ -1,6 +1,6 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService } from '@spinajs/configuration';
-import { SessionProvider, hashSessionId } from '@spinajs/rbac';
+import { SessionProvider, hashSessionId } from '@spinajs/users';
 import { Log, Logger } from '@spinajs/log';
 import { LogoutHandler, ILogoutContext, ILogoutResult } from '../logout.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';

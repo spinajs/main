@@ -1,6 +1,6 @@
 import { AutoinjectService } from '@spinajs/configuration';
 import { BaseController, BasePath, Get, Ok, Param, Policy } from '@spinajs/http';
-import { _user, UserProfileProvider } from '@spinajs/rbac';
+import { _user, UserProfileProvider } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource } from '@spinajs/rbac-http';
 
 /**

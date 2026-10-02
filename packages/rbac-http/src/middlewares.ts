@@ -1,4 +1,4 @@
-import { ISession, SessionProvider, User, hashSessionId, sessionCookie, sessionCookieName, ISessionCookieConfig } from '@spinajs/rbac';
+import { ISession, SessionProvider, User, hashSessionId, sessionCookie, sessionCookieName, ISessionCookieConfig } from '@spinajs/users';
 import { Autoinject, DI, Injectable } from '@spinajs/di';
 import 'reflect-metadata';
 import * as express from 'express';

@@ -9,7 +9,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
 
-import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 
 import { LoginController } from '../src/controllers/LoginController.js';
 import { DbTestConfiguration } from './db-common.js';

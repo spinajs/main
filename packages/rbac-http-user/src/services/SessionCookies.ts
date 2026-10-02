@@ -1,7 +1,7 @@
 import { Config } from '@spinajs/configuration';
 import { Injectable } from '@spinajs/di';
-import type { ISession, ISessionCookieConfig } from '@spinajs/rbac';
-import { clearSessionCookie, sessionCookie, sessionCookieName } from '@spinajs/rbac';
+import type { ISession, ISessionCookieConfig } from '@spinajs/users';
+import { clearSessionCookie, sessionCookie, sessionCookieName } from '@spinajs/users';
 
 /** Cookie descriptor accepted by the http `Coockies` response option. */
 export interface ISessionCookie {
@@ -26,7 +26,7 @@ export const SESSION_COOKIE_NAME = 'ssid';
  * overrides, and to derive maxAge from the session's real expiration. A drift in
  * any one of them silently produces a cookie the next request cannot restore.
  *
- * The attributes themselves are decided by `@spinajs/rbac` so the session
+ * The attributes themselves are decided by `@spinajs/users` so the session
  * middleware — which renews the very same cookie on every request, from a
  * package that cannot import this one — produces a byte-identical set.
  */

@@ -1,6 +1,6 @@
 import { BaseController, BasePath, Body, BadRequestResponse, Get, Ok, Post } from '@spinajs/http';
-import { confirmPasswordReset, passwordChangeRequest, PasswordValidationProvider, RbacException } from '@spinajs/rbac';
-import type { IPasswordPolicy } from '@spinajs/rbac';
+import { confirmPasswordReset, passwordChangeRequest, PasswordValidationProvider, RbacException } from '@spinajs/users';
+import type { IPasswordPolicy } from '@spinajs/users';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { AutoinjectService } from '@spinajs/configuration';
 import { SkipModelPermission } from '@spinajs/rbac-http';

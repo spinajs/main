@@ -7,8 +7,8 @@ import sinon from 'sinon';
 import { DateTime } from 'luxon';
 
 import { NotFound, Ok } from '@spinajs/http';
-import { hashSessionId } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { hashSessionId } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 
 import { SessionsController } from '../src/controllers/SessionsController.js';
 

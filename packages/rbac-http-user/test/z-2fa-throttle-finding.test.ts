@@ -10,7 +10,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 
-import { AuthProvider, BasicPasswordProvider, LoginAttemptsExceeded, PasswordProvider, SimpleDbAuthProvider, User, USER_COMMON_METADATA } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, LoginAttemptsExceeded, PasswordProvider, SimpleDbAuthProvider, User, USER_COMMON_METADATA } from '@spinajs/users';
 
 import { auth2Fa } from '../src/actions/2fa.js';
 import { Default2FaToken } from '../src/2fa/Default2FaToken.js';

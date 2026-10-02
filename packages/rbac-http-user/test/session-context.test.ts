@@ -10,8 +10,8 @@ import {
   ISession,
   UserSession,
   AccessControl,
-} from '@spinajs/rbac';
-import type { User } from '@spinajs/rbac';
+} from '@spinajs/users';
+import type { User } from '@spinajs/users';
 import { SessionContextProvider } from '@spinajs/rbac-http';
 
 import { LoginController } from '../src/controllers/LoginController.js';

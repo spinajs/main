@@ -2,7 +2,7 @@ import { DI } from '@spinajs/di';
 import { Controllers } from '@spinajs/http';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode } from '@spinajs/orm';
-import { SessionProvider, UserSession, User } from '@spinajs/rbac';
+import { SessionProvider, UserSession, User } from '@spinajs/users';
 import * as cs from 'cookie-signature';
 import chai from 'chai';
 import { join, normalize, resolve } from 'path';

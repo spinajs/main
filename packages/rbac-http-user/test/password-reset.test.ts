@@ -6,7 +6,7 @@ import sinon from 'sinon';
 
 import { BadRequestResponse, Ok } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { InvalidCredentials, TokenExpired, TokenInvalid } from '@spinajs/rbac';
+import { InvalidCredentials, TokenExpired, TokenInvalid } from '@spinajs/users';
 
 import { PasswordResetController } from '../src/controllers/PasswordResetController.js';
 import { PasswordResetConfirmDto, PasswordResetRequestDto } from '../src/dto/password-reset-dto.js';

@@ -1,4 +1,4 @@
-import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/users';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
@@ -12,7 +12,7 @@ export * from './migrations/UserSessionDataJson_2026_07_31_00_00_00.js';
 export * from './migrations/UserSessionTimestamps_2026_07_31_00_00_01.js';
 
 /**
- * Relational-db backed session store. Conforms to the `@spinajs/rbac`
+ * Relational-db backed session store. Conforms to the `@spinajs/users`
  * `SessionProvider` contract: ownership is the numeric `UserId`, expiration is
  * owned by the injected strategy (`this.Expiration`) and persisted verbatim, and
  * `Data` is (de)serialized with the shared session codec.

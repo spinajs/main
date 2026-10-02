@@ -9,7 +9,7 @@ import {
   AuthProvider,
   ISession,
   UserSession,
-} from '@spinajs/rbac';
+} from '@spinajs/users';
 
 import { LoginController } from '../src/controllers/LoginController.js';
 import { Ok } from '@spinajs/http';

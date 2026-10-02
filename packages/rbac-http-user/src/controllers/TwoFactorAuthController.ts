@@ -1,6 +1,6 @@
 import { TokenDto } from './../dto/token-dto.js';
 import { BaseController, BasePath, Ok, Post, ForbiddenResponse } from '@spinajs/http';
-import { ISession, SessionProvider, User as UserModel, AccessControl, regenerateSession } from '@spinajs/rbac';
+import { ISession, SessionProvider, User as UserModel, AccessControl, regenerateSession } from '@spinajs/users';
 import { Session } from '@spinajs/rbac-http';
 import { Body, Policy } from '@spinajs/http';
 import _ from 'lodash';

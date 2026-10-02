@@ -1,7 +1,7 @@
 import { RouteArgs, IRouteParameter, ParameterType, IRouteCall } from '@spinajs/http';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { ISessionCookieConfig, sessionCookieName } from '@spinajs/rbac';
+import { ISessionCookieConfig, sessionCookieName } from '@spinajs/users';
 import * as cs from 'cookie-signature';
 import { Request } from '@spinajs/http';
 

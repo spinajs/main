@@ -5,8 +5,8 @@ import * as cs from 'cookie-signature';
 import cookieParser from 'cookie-parser';
 
 import { DI } from '@spinajs/di';
-import { UserSession } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { UserSession } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { RbacMiddleware } from '../src/middlewares.js';
 // side-effect import: brings in the `@spinajs/http` storage-context augmentation
 // (User / Session / ActiveRole / Impersonator) the middleware relies on.

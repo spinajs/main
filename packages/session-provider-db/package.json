@@ -56,7 +56,7 @@
     "@spinajs/exceptions": "2.0.548",
     "@spinajs/log": "2.0.548",
     "@spinajs/orm": "2.0.548",
-    "@spinajs/rbac": "2.0.548",
+    "@spinajs/users": "3.0.0-alpha.0",
     "@spinajs/reflection": "2.0.548",
     "@spinajs/util": "2.0.548",
     "luxon": "^3.6.1"

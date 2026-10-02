@@ -8,7 +8,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata } from '@spinajs/users';
 
 import * as OTPAuth from 'otpauth';
 import { beginUser2FaEnrolment, confirmUser2Fa, disableUser2Fa, enableUser2Fa, resetUser2Fa } from '../src/actions/2fa.js';

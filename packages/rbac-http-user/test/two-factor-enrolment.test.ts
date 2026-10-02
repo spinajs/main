@@ -5,7 +5,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { Default2FaToken, TWO_FA_METATADATA_KEYS } from '../src/2fa/Default2FaToken.js';

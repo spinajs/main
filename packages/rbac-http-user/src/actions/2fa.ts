@@ -1,4 +1,4 @@
-import { User, getUserUnsafe, updateUser, UserLoginFailed, assertNotLocked, clearLoginThrottle, registerFailedLogin } from '@spinajs/rbac';
+import { User, getUserUnsafe, updateUser, UserLoginFailed, assertNotLocked, clearLoginThrottle, registerFailedLogin } from '@spinajs/users';
 import { ev } from '@spinajs/queue';
 import { Unauthorized } from '@spinajs/http';
 import { service } from '@spinajs/configuration';

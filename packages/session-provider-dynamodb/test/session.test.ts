@@ -6,7 +6,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
 import { DynamoDbSessionProvider } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/users';
 import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);

@@ -2,7 +2,7 @@ import { Injectable, DI } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Forbidden, InvalidArgument } from '@spinajs/exceptions';
-import { AccessControl, User, _combineGrants, _unwindGrants } from '@spinajs/rbac';
+import { AccessControl, User, _combineGrants, _unwindGrants } from '@spinajs/users';
 import _ from 'lodash';
 
 import { AccountDisableAction, IRoleGuardConfig, RoleGuard } from '../interfaces.js';

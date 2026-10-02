@@ -10,7 +10,7 @@ import { Intl } from '@spinajs/intl';
 import { fsService } from '@spinajs/fs';
 import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
 import { RbacMiddleware, RbacPolicy } from '@spinajs/rbac-http';
-import { UserSession } from '@spinajs/rbac';
+import { UserSession } from '@spinajs/users';
 
 import { dir, req, TestConfiguration } from './common.js';
 

@@ -35,7 +35,7 @@ const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'rbac-http-token', 'lib'))
  *
  * A deployed application only ever has the compiled copy, so this is an artifact
  * of testing the sources of a package that is symlinked into its own
- * node_modules. Only THIS package's paths are dropped - what `@spinajs/rbac`
+ * node_modules. Only THIS package's paths are dropped - what `@spinajs/users`
  * and friends contribute is left untouched.
  */
 export function dropOwnCompiledDirs(cfg: Configuration): void {
@@ -76,7 +76,7 @@ export class DbTestConfiguration extends FrameworkConfiguration {
       system: {
         dirs: {
           // A configured value REPLACES the orm defaults, so this list is the whole
-          // filesystem scan set: this package's migrations, run from source. `@spinajs/rbac`'s
+          // filesystem scan set: this package's migrations, run from source. `@spinajs/users`'s
           // own migrations still arrive through the DI registry ( its index exports them and
           // the tests import it ), so the users table is created regardless.
           migrations: [dir('./../src/migrations')],

@@ -1,13 +1,13 @@
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } from '@spinajs/http';
-import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacException, hashSessionId } from '@spinajs/rbac';
+import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacException, hashSessionId } from '@spinajs/users';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
 import { LoggedPolicy, User as UserRouteArg, Session as SessionRouteArg, SessionId, FromSession, ILoginResponse, IWhoamiResponse, SkipModelPermission, resolveSessionContext } from '@spinajs/rbac-http';
-import { User } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { LogoutHandler, ILogoutContext } from '../logout.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants } from '../services/grants.js';

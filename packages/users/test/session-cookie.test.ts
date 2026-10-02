@@ -114,7 +114,7 @@ describe('shipped session cookie configuration', () => {
     else process.env.NODE_ENV = nodeEnv;
 
     try {
-      const mod = await import(`../src/config/rbac.js?case=${tag}`);
+      const mod = await import(`../src/config/users.js?case=${tag}`);
       return mod.default.rbac.session.cookie;
     } finally {
       if (previous === undefined) delete process.env.NODE_ENV;

@@ -29,7 +29,7 @@ describe('MemorySessionStore', () => {
     DI.clearCache();
     await DI.resolve(Configuration);
     // Cast bridges the src<->lib SessionProvider class identity: the conformance
-    // kit types against @spinajs/rbac (lib) while these tests run the src store.
+    // kit types against @spinajs/users (lib) while these tests run the src store.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (await DI.resolve(MemorySessionStore)) as any;
   });

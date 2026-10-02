@@ -1,5 +1,5 @@
-import { AccessControl, User, _unwindGrants } from '@spinajs/rbac';
-import type { ISession } from '@spinajs/rbac';
+import { AccessControl, User, _unwindGrants } from '@spinajs/users';
+import type { ISession } from '@spinajs/users';
 import { resolveSessionContext } from '@spinajs/rbac-http';
 import type { IGrantsMap, IUserWithGrants } from '@spinajs/rbac-http';
 

@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
-import type { ISession, SessionProvider } from '@spinajs/rbac';
+import type { ISession, SessionProvider } from '@spinajs/users';
 
 /**
  * Expiration strategy config passed to the provider factory. Mirrors the shape

@@ -4,7 +4,7 @@ import { Exception } from '@spinajs/exceptions';
  * Base class for access token failures. `data` carries a transport-agnostic
  * payload ( token uuid, refused roles ) that middleware / controllers log or
  * translate into responses. Named AccessToken* so the classes stay distinct
- * from the password-reset TokenExpired / TokenInvalid in `@spinajs/rbac` -
+ * from the password-reset TokenExpired / TokenInvalid in `@spinajs/users` -
  * the http error map is keyed by constructor name.
  */
 export class AccessTokenException extends Exception {

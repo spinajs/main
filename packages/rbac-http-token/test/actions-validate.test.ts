@@ -5,7 +5,7 @@ import { Bootstrapper, DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, ban, create, deactivate, deleteUser, revoke } from '@spinajs/users';
 import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from '../src/exceptions.js';
 import { DateTime } from 'luxon';
 

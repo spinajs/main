@@ -6,7 +6,7 @@ import { Orm } from '@spinajs/orm';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Controllers, HttpServer, IControllerDescriptor } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/rbac';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/users';
 import { ACL_CONTROLLER_DESCRIPTOR, IRbacDescriptor, RbacPolicy } from '@spinajs/rbac-http';
 import { DateTime } from 'luxon';
 

@@ -1,7 +1,7 @@
 import { IRbacDescriptor, IRbacRoutePermissionDescriptor } from './interfaces.js';
 import { BasePolicy, IController, IRoute, Middleware, Parameter, Policy, Route, RouteMiddleware, Request as sRequest, Response } from '@spinajs/http';
 import { RbacPolicy } from './policies/RbacPolicy.js';
-import { PermissionType } from '@spinajs/rbac';
+import { PermissionType } from '@spinajs/users';
 import { Constructor, getInheritedDescriptor } from '@spinajs/di';
 import * as express from 'express';
 

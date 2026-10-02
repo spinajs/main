@@ -1,5 +1,5 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
-import { UserMetadataBase } from '@spinajs/rbac';
+import { UserMetadataBase } from '@spinajs/users';
 import { TWO_FA_METATADATA_KEYS } from './2fa/Default2FaToken.js';
 
 export * from './controllers/LoginController.js';
