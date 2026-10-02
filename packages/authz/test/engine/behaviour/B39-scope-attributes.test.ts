@@ -140,7 +140,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(seen).to.deep.equal({ size: 3 });
   });
 
-  it('B39: a resolver answering null makes the node unknown: its refs are missing and the store is not read', async () => {
+  it('B39: a resolver answering null makes the node unknown: the vote reading it is indeterminate and the store is not read', async () => {
     const store = new FakeStore({ 'org:o2': { plan: 'enterprise' } });
     let seen: unknown = 'unset';
     const m = new StaticModel('m', {
@@ -152,32 +152,56 @@ describe('B39: scope attributes and engine refs', () => {
     const d = await setup([m], { store }).a.check(read(D2));
     expect(seen).to.equal(null);
     expect(d.allowed).to.equal(false);
-    expect(d.reason).to.deep.equal({ code: 'no_access' });
+    expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     expect(store.calls).to.deep.equal([]);
   });
 
-  it('B39: a missing attribute fails closed by polarity', async () => {
+  it('B39: a scope ref that resolves missing makes the vote indeterminate, wherever the vote holds it (decision 29)', async () => {
     const missing = eq('x', ref('scope.org.nope'));
-    const cases: [string, ResourceFilter, ResourceFilter | undefined][] = [
-      ['missing', missing, undefined],
-      ['not(missing)', not(missing), undefined],
-      ['an object is not a literal', eq('x', ref('scope.org.limits')), undefined],
-      ['unsafe path', eq('x', ref('scope.org.__proto__.x')), undefined],
-      ['type not among the ancestors', eq('x', ref('scope.team.x')), undefined],
-      ['bare scope', eq('x', ref('scope.org')), undefined],
-      ['unknown root', eq('x', ref('foo.bar')), undefined],
+    const cases: [string, ResourceFilter, string][] = [
+      ['missing', missing, 'scope.org.nope'],
+      ['not(missing)', not(missing), 'scope.org.nope'],
+      ['an object is not a literal', eq('x', ref('scope.org.limits')), 'scope.org.limits'],
+      ['unsafe path', eq('x', ref('scope.org.__proto__.x')), 'scope.org.__proto__.x'],
+      ['type not among the ancestors', eq('x', ref('scope.team.x')), 'scope.team.x'],
+      ['bare scope', eq('x', ref('scope.org')), 'scope.org'],
+      ['next to a known value', or(eq('a', 1), missing), 'scope.org.nope'],
     ];
-    for (const [name, when] of cases) {
-      const d = await setup([new StaticModel('m', { vote: permit(when) })]).a.check(read(D1));
+    for (const [name, when, missingRef] of cases) {
+      const { a, log } = setup([new StaticModel('m', { vote: permit(when) })]);
+      const d = await a.explain(read(D1));
       expect(d.residual, name).to.equal(FALSE);
+      expect(d.reason, name).to.deep.equal({ code: 'model_error', model: 'm' });
+      expect(d.trace!.votes[0].error, name).to.include(missingRef);
+      expect(
+        log.at('error').some((e) => /"m"/.test(e.message) && e.message.includes(missingRef)),
+        name,
+      ).to.equal(true);
     }
-    const dropped = await setup([new StaticModel('m', { vote: permit(or(eq('a', 1), missing)) })]).a.check(read(D1));
-    expect(dropped.residual).to.deep.equal(eq('a', 1));
-    // A deny on an unknown value holds whichever way it is phrased.
-    for (const when of [missing, not(missing)]) {
-      const denied = await setup([new StaticModel('m', { vote: { ...permit(), ...deny(when) } })]).a.check(read(D1));
-      expect(denied.residual).to.equal(FALSE);
+    // In denyWhen and in a deny entry too.
+    const inDeny = await setup([new StaticModel('m', { vote: { ...permit(), ...deny(missing) } })]).a.check(read(D1));
+    expect(inDeny.reason).to.deep.equal({ code: 'model_error', model: 'm' });
+    const inEntry = await setup([new StaticModel('m', { vote: pass('m', TRUE, { denies: [{ when: missing, reason: { code: 'frozen', priority: 100 } }] }) })]).a.check(read(D1));
+    expect(inEntry.allowed).to.equal(false);
+    expect(inEntry.reason).to.deep.equal({ code: 'model_error', model: 'm' });
+    // Under deny-overrides another model's permit does not outweigh it.
+    const two = await setup([new StaticModel('m', { vote: permit(missing) }), new StaticModel('n', { vote: permit() })]).a.check(read(D1));
+    expect(two.reason).to.deep.equal({ code: 'model_error', model: 'm' });
+    // Refs outside scope.* keep the polarity rule.
+    for (const when of [eq('x', ref('foo.bar')), eq('x', ref('actor.attributes.nope'))]) {
+      const d = await setup([new StaticModel('m', { vote: permit(or(eq('a', 1), when)) })]).a.check(read(D1));
+      expect(d.residual).to.deep.equal(eq('a', 1));
     }
+  });
+
+  it('B39: under permit-overrides an indeterminate vote is skipped and the next model decides; explain agrees (decision 29)', async () => {
+    const models = () => [new StaticModel('m', { vote: pass('m', TRUE, { denies: [{ when: eq('x', ref('scope.org.nope')), reason: { code: 'frozen', priority: 100 } }] }) }), new StaticModel('n', { vote: permit(eq('b', 2)) })];
+    const { a } = setup(models(), { combine: { default: { algorithm: 'permit-overrides' } } });
+    const checked = await a.check(read(D1));
+    const explained = await a.explain(read(D1));
+    expect(checked.residual).to.deep.equal(eq('b', 2));
+    expect(explained.residual).to.deep.equal(checked.residual);
+    expect(explained.trace!.votes.map((v) => v.error !== undefined)).to.deep.equal([true, false]);
   });
 
   it('B39: a model whose condition reads a missing attribute is indeterminate (B04)', async () => {
@@ -195,7 +219,7 @@ describe('B39: scope attributes and engine refs', () => {
     expect(missingKey.reason).to.deep.equal({ code: 'model_error', model: 'abac' });
   });
 
-  it('B39: a failing store makes the asking model indeterminate and the binder deny with model_error', async () => {
+  it('B39: a failing store makes the asking model and every vote reading that node indeterminate', async () => {
     const failing = () => {
       const store = new FakeStore();
       store.getImpl = () => Promise.reject(new Error('store down'));
@@ -211,9 +235,10 @@ describe('B39: scope attributes and engine refs', () => {
 
     const { a, log } = setup([new StaticModel('m', { vote: permit(or(eq('a', 1), eq('plan', ref('scope.org.plan')))) })], { store: failing() });
     const d = await a.check(read(D1));
-    expect(d.residual).to.deep.equal(eq('a', 1));
+    expect(d.residual).to.equal(FALSE);
+    expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     const denied = await setup([new StaticModel('m', { vote: permit(eq('plan', ref('scope.org.plan'))) })], { store: failing() }).a.check(read(D1));
-    expect(denied.reason).to.deep.equal({ code: 'model_error' });
+    expect(denied.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     expect(log.at('error').some((e) => /org:o1/.test(e.message) && /store down/.test(e.message))).to.equal(true);
   });
 
@@ -222,10 +247,10 @@ describe('B39: scope attributes and engine refs', () => {
     store.getImpl = () => Promise.resolve(null as never);
     const d = await setup([new StaticModel('m', { vote: permit(eq('plan', ref('scope.org.public_links'))) })], { store }).a.check(read(D1));
     expect(d.allowed).to.equal(false);
-    expect(d.reason).to.deep.equal({ code: 'model_error' });
+    expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
   });
 
-  it('B39: a store load that never settles times out to unknown', async () => {
+  it('B39: a store load that never settles times out to unknown: the vote reading it is indeterminate', async () => {
     const store = new FakeStore();
     store.getImpl = () => new Promise(() => undefined);
     let ctx!: EvaluationContext;
@@ -237,7 +262,8 @@ describe('B39: scope attributes and engine refs', () => {
     });
     const { a, log } = setup([m], { store, config: { modelTimeoutMs: 50 } });
     const d = await within(1000, () => a.check(read(D1)));
-    expect(d.residual).to.deep.equal(eq('a', 1));
+    expect(d.residual).to.equal(FALSE);
+    expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
     expect(log.at('error').some((e) => /org:o1/.test(e.message) && /timed out/.test(e.message))).to.equal(true);
     // The memoised load answers null (unknown) to models too.
     expect(await within(1000, () => ctx.attributes(O1))).to.equal(null);
@@ -245,15 +271,16 @@ describe('B39: scope attributes and engine refs', () => {
     const only = setup([new StaticModel('m', { vote: permit(eq('plan', ref('scope.org.plan'))) })], { store, config: { modelTimeoutMs: 50 } });
     const denied = await within(1000, () => only.a.check(read(D1)));
     expect(denied.allowed).to.equal(false);
-    expect(denied.reason).to.deep.equal({ code: 'no_access' });
+    expect(denied.reason).to.deep.equal({ code: 'model_error', model: 'm' });
   });
 
-  it('B39: an adapter scopeAttributes that never settles times out to unknown', async () => {
+  it('B39: an adapter scopeAttributes that never settles times out to unknown: the vote reading it is indeterminate', async () => {
     const m = new StaticModel('m', { vote: permit(or(eq('a', 1), eq('team', ref('scope.folder.team')))) });
     const { a, adapter } = setup([m], { config: { modelTimeoutMs: 50 } });
     adapter.scopeAttributes = () => new Promise(() => undefined);
     const d = await within(1000, () => a.check(read(D1)));
-    expect(d.residual).to.deep.equal(eq('a', 1));
+    expect(d.residual).to.equal(FALSE);
+    expect(d.reason).to.deep.equal({ code: 'model_error', model: 'm' });
   });
 
   it('B39: actor.* reads input.actor, else the inherit agent, else the principal the models ran with', async () => {
@@ -273,12 +300,19 @@ describe('B39: scope attributes and engine refs', () => {
     expect((await nope.a.check(read())).residual).to.equal(FALSE);
   });
 
-  it('B39: type-level refs: scope.<type> is missing, scope.$global binds from defaults ⊕ store', async () => {
-    const vote = permit(or(eq('plan', ref('scope.org.plan')), eq('region', ref('scope.$global.region'))));
-    const { a, resolver } = setup([new StaticModel('m', { vote })]);
+  it('B39: type-level refs: scope.<type> is missing (vote indeterminate), scope.$global binds from defaults ⊕ store', async () => {
+    const both = permit(or(eq('plan', ref('scope.org.plan')), eq('region', ref('scope.$global.region'))));
+    const typed = setup([new StaticModel('m', { vote: both })]);
+    expect((await typed.a.check(read())).reason).to.deep.equal({ code: 'model_error', model: 'm' });
+    expect(await typed.a.filter(alice, 'doc:read', 'doc')).to.equal(FALSE);
+    // No load starts for a type-level scope ref, so filterNow answers without IO.
+    expect(setup([new StaticModel('m', { vote: permit(eq('plan', ref('scope.org.plan'))) })]).a.filterNow(alice, 'doc:read', 'doc')).to.equal(FALSE);
+    expect(typed.resolver.attributeCalls).to.deep.equal([]);
+
+    const vote = permit(eq('region', ref('scope.$global.region')));
+    const { a } = setup([new StaticModel('m', { vote })]);
     expect((await a.check(read())).residual).to.deep.equal(eq('region', 'eu'));
     expect(await a.filter(alice, 'doc:read', 'doc')).to.deep.equal(eq('region', 'eu'));
-    expect(resolver.attributeCalls).to.deep.equal([]);
 
     // A $global ref needs a load, so filterNow cannot answer, and it starts none.
     const store = new FakeStore({ $global: { region: 'us' } });
@@ -316,7 +350,7 @@ describe('B39: scope attributes and engine refs', () => {
   it('B39: only refs whose path the L2 key holds keep a decision cacheable (decision 17, step 10 hook)', async () => {
     const run = async (when: ResourceFilter, p: Principal = alice) => {
       const { a } = setup([new StaticModel('n', { vote: permit(when) })]);
-      const result = await pipelineOf(a, { principal: p, permission: 'doc:read', env: { x: 'y' } });
+      const result = await pipelineOf(a, { principal: p, permission: 'doc:read', resource: D1, env: { x: 'y' } });
       return result.uncacheable;
     };
     expect(await run(eq('a', 1))).to.equal(false);
@@ -412,20 +446,20 @@ describe('B39: scope attributes and engine refs', () => {
     const plan = permit(or(eq('a', 1), eq('plan', ref('scope.org.plan'))));
     const healthy = setup([new StaticModel('m', { vote: plan })], { store: new FakeStore() });
     expect((await pipelineOf(healthy.a, read(D1))).uncacheable).to.equal(false);
-    // A real null answer (the resolver's for o2) is a fact, not an outage.
-    expect((await pipelineOf(healthy.a, read(D2))).uncacheable).to.equal(false);
+    // A null answer (the resolver's for o2) leaves the ref missing: the vote is indeterminate, so the decision is faulted (decisions 22, 29).
+    expect((await pipelineOf(healthy.a, read(D2))).uncacheable).to.equal(true);
 
     const down = new FakeStore();
     down.getImpl = () => Promise.reject(new Error('store down'));
     const rejected = await pipelineOf(setup([new StaticModel('m', { vote: plan })], { store: down }).a, read(D1));
-    expect(rejected.decision.residual).to.deep.equal(eq('a', 1));
+    expect(rejected.decision.residual).to.equal(FALSE);
     expect(rejected.uncacheable).to.equal(true);
 
     const hung = new FakeStore();
     hung.getImpl = () => new Promise(() => undefined);
     const h = setup([new StaticModel('m', { vote: plan })], { store: hung, config: { modelTimeoutMs: 50 } });
     const timedOut = await within(1000, () => pipelineOf(h.a, read(D1)));
-    expect(timedOut.decision.residual).to.deep.equal(eq('a', 1));
+    expect(timedOut.decision.residual).to.equal(FALSE);
     expect(timedOut.uncacheable).to.equal(true);
     // Logged once, although the store's own limit and the binder's both run out.
     await new Promise((r) => setTimeout(r, 40));
@@ -445,22 +479,21 @@ describe('B39: scope attributes and engine refs', () => {
     });
     const { a } = setup([m], { store: hung, config: { modelTimeoutMs: 50 } });
     const r = await within(1000, () => pipelineOf(a, read(D1)));
-    expect(r.decision.residual).to.deep.equal(eq('a', 1));
+    expect(r.decision.residual).to.equal(FALSE);
     expect(r.uncacheable).to.equal(true);
   });
 
-  it('B39: the reason pass waits one modelTimeoutMs in all, its loads included', async () => {
-    const hung = new FakeStore();
-    hung.getImpl = () => new Promise(() => undefined);
+  it('B39: the reason pass waits one modelTimeoutMs in all', async () => {
     const stuck = new FakeRelation('doc', 'stuck', () => new Promise<boolean>(() => undefined));
+    const stuckToo = new FakeRelation('doc', 'stuckToo', () => new Promise<boolean>(() => undefined));
     const vote = pass('m', eq('owner', 'nobody'), {
       reason: { code: 'not_owner', priority: 300 },
       denies: [
-        { when: eq('plan', ref('scope.org.plan')), reason: { code: 'plan', priority: 100 } },
+        { when: { op: 'relation', relation: 'stuckToo' } as ResourceFilter, reason: { code: 'plan', priority: 100 } },
         { when: { op: 'relation', relation: 'stuck' } as ResourceFilter, reason: { code: 'stuck', priority: 50 } },
       ],
     });
-    const { a } = setup([new StaticModel('m', { vote })], { store: hung, relations: [stuck], config: { modelTimeoutMs: 500 } });
+    const { a } = setup([new StaticModel('m', { vote })], { relations: [stuck, stuckToo], config: { modelTimeoutMs: 500 } });
     const d = await within(950, () => a.check(read(rows()[0])));
     expect(d.allowed).to.equal(false);
     // The batch ran out of time: static truths.

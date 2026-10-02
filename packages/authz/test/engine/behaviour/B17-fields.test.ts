@@ -32,11 +32,12 @@ describe('B17: fields (core)', () => {
     expect(allows(r.read, 'Name')).to.equal(true);
   });
 
-  it('B17: minus neverRead (default Password) on read; write is untouched', () => {
+  it('B17: minus neverRead (default Password) on read and write (decision 28)', () => {
     const r = combiner.combine('deny-overrides', [vote('rbac', TRUE, FALSE)]);
     expect(allows(r.read, 'Password')).to.equal(false);
     expect(allows(r.read, 'Name')).to.equal(true);
-    expect(allows(r.write, 'Password')).to.equal(true);
+    expect(allows(r.write, 'Password')).to.equal(false);
+    expect(allows(r.write, 'Name')).to.equal(true);
   });
 
   it('B17: `!X` negations and `A.*` globs work', () => {
@@ -93,27 +94,30 @@ describe('B17: fields through the Authorizer', () => {
     expect(d.fields).to.deep.equal({ read: ['Email', 'Name', 'Phone'], write: ['Name', 'Phone'] });
   });
 
-  it('B17: a denying model hides its fields; neverRead (default Password) limits reads', async () => {
+  it('B17: a denying model hides its fields; neverRead (default Password) limits reads and writes', async () => {
     const d = await authorizer([new StaticModel('rbac', { vote: permit(TRUE, { fields: { read: ['Name', 'Password', 'Email'] } }) }), new StaticModel('abac', { vote: deny(serviceOnly, { fields: { hide: ['Name'] } }) })]).check(read());
     expect(d.allowed).to.equal(true);
     expect(allows(d.fields.read, 'Name')).to.equal(false);
     expect(allows(d.fields.read, 'Password')).to.equal(false);
     expect(allows(d.fields.read, 'Email')).to.equal(true);
     expect(allows(d.fields.write, 'Name')).to.equal(false);
-    expect(allows(d.fields.write, 'Password')).to.equal(true);
+    expect(allows(d.fields.write, 'Password')).to.equal(false);
+    expect(allows(d.fields.write, 'Email')).to.equal(true);
   });
 
-  it('B17: config.neverRead replaces the default and limits reads only', async () => {
+  it('B17: config.neverRead replaces the default and limits reads and writes', async () => {
     const d = await authorizer([new StaticModel('rbac', { vote: permit(TRUE) })], { config: { neverRead: ['Salary', 'Secret.*'] } }).check(read());
     expect(allows(d.fields.read, 'Salary')).to.equal(false);
     expect(allows(d.fields.read, 'Secret.Key')).to.equal(false);
     expect(allows(d.fields.read, 'Password')).to.equal(true);
-    expect(allows(d.fields.write, 'Salary')).to.equal(true);
+    expect(allows(d.fields.write, 'Salary')).to.equal(false);
+    expect(allows(d.fields.write, 'Secret.Key')).to.equal(false);
+    expect(allows(d.fields.write, 'Password')).to.equal(true);
   });
 
-  it('B17: SYSTEM reads * minus neverRead and writes *; a denial reads and writes nothing', async () => {
+  it('B17: SYSTEM reads and writes * minus neverRead; a denial reads and writes nothing', async () => {
     const a = authorizer([new StaticModel('rbac', { vote: { permitWhen: TRUE, denyWhen: TRUE, fields: { read: ['*'], write: ['*'] } } })]);
-    expect((await a.check(read(SYSTEM))).fields).to.deep.equal({ read: ['*', '!Password'], write: ['*'] });
+    expect((await a.check(read(SYSTEM))).fields).to.deep.equal({ read: ['*', '!Password'], write: ['*', '!Password'] });
     const d = await a.check(read());
     expect(d.allowed).to.equal(false);
     expect(d.fields).to.deep.equal({ read: [], write: [] });
@@ -243,9 +247,9 @@ describe('B17: fields through the Authorizer', () => {
     expect(d.fields).to.deep.equal({ read: ['Name', 'Phone'], write: ['Name'] });
   });
 
-  describe('B17: a failed load in the fields cover', () => {
+  describe('B17: a failed load of a node only the fields read', () => {
     const schemas = [{ scopeType: '$global', schema: {}, defaults: { region: 'eu' } }];
-    // The allow is or(TRUE, P2) = TRUE: only the fields cover loads the node P2 reads.
+    // The allow is or(TRUE, P2) = TRUE: only the votes' scope ref pass (decision 29) and the fields read the node P2 reads.
     const models = () => [new StaticModel('rbac', { vote: permit(TRUE, { fields: { read: ['Name'] } }) }), new StaticModel('abac', { vote: permit(eq('region', ref('scope.$global.region')), { fields: { read: ['Salary'] } }) })];
     const withStore = (load: () => Promise<Readonly<Record<string, unknown>>>, log = new RecordingLog()) => authorizer(models(), { scopeAttributes: { schemas, store: new Store(load) }, log, config: { modelTimeoutMs: 50 } });
 
@@ -258,46 +262,48 @@ describe('B17: fields through the Authorizer', () => {
       expect(r.uncacheable).to.equal(false);
     });
 
-    it("B17: a rejected load drops that vote's fields and makes the decision non-cacheable", async () => {
+    it('B17: a rejected load makes the vote reading it indeterminate: denied, non-cacheable (decision 29)', async () => {
       const log = new RecordingLog();
       const r = await pipelineOf(
         withStore(() => Promise.reject(new Error('store down')), log),
         read(),
       );
-      expect(r.decision.allowed).to.equal(true);
-      expect(r.decision.fields.read).to.deep.equal(['Name']);
+      expect(r.decision.allowed).to.equal(false);
+      expect(r.decision.reason).to.deep.equal({ code: 'model_error', model: 'abac' });
+      expect(r.decision.fields).to.deep.equal({ read: [], write: [] });
       expect(r.uncacheable).to.equal(true);
       expect(log.at('error').some((e) => /store down/.test(e.message))).to.equal(true);
     });
 
-    it("B17: a timed-out load drops that vote's fields and makes the decision non-cacheable", async () => {
+    it('B17: a timed-out load makes the vote reading it indeterminate: denied, non-cacheable (decision 29)', async () => {
       const r = await pipelineOf(
         withStore(() => new Promise(() => undefined)),
         read(),
       );
-      expect(r.decision.allowed).to.equal(true);
-      expect(r.decision.fields.read).to.deep.equal(['Name']);
+      expect(r.decision.allowed).to.equal(false);
+      expect(r.decision.reason).to.deep.equal({ code: 'model_error', model: 'abac' });
       expect(r.uncacheable).to.equal(true);
     });
 
-    it('B17: a cover that throws fails closed for the fields, logged and non-cacheable', async () => {
+    it('B17: a fields cover that throws is logged and makes the decision non-cacheable', async () => {
       const log = new RecordingLog();
       const a = withStore(() => Promise.resolve({}), log);
-      // The second cover of the check is the fields cover (the first binds the allow).
+      // The third cover of the check is the fields cover (the votes' scope refs, then the allow).
       const make = (a as any)['refBinder'].bind(a);
       (a as any)['refBinder'] = (...args: unknown[]) => {
         const binder = make(...args);
         const cover = binder.cover.bind(binder);
         let calls = 0;
         binder.cover = function* (filters: readonly ResourceFilter[]) {
-          if (++calls === 2) throw new Error('cover down');
+          if (++calls === 3) throw new Error('cover down');
           return yield* cover(filters);
         };
         return binder;
       };
       const r = await pipelineOf(a, read());
       expect(r.decision.allowed).to.equal(true);
-      expect(r.decision.fields.read).to.deep.equal(['Name']);
+      // The votes' pass already loaded the node, so the fields still bind it.
+      expect(r.decision.fields.read).to.deep.equal(['Name', 'Salary']);
       expect(r.uncacheable).to.equal(true);
       expect(log.at('error').some((e) => /cover down/.test(e.message))).to.equal(true);
     });

@@ -42,6 +42,8 @@ export const MAX_SUMMARY_PERMISSIONS = 1000;
 const SUMMARY_BATCH = 8;
 /** A whole summary() or covers() call gets this many modelTimeoutMs (M2). */
 const DEADLINE_FACTOR = 4;
+/** Principals remembered as preloaded per Authorizer (decision 30), least recently used dropped first. */
+const MAX_PRELOADED = 10_000;
 
 /**
  * Generations come from one counter for every Authorizer of this module, so a
@@ -297,6 +299,8 @@ export class Authorizer {
   private readonly allFields: Fields;
   private readonly fieldCombiner: FieldCombiner;
   private readonly host: ContextHost;
+  /** Decision 30: principal cache id ⇒ the generation its preload finished in; a stale generation counts as not preloaded. */
+  private readonly preloaded = new Map<string, number>();
 
   constructor(options: AuthorizerOptions) {
     if (!isObject(options)) throw new AuthzConfigError('Authorizer options must be an object');
@@ -368,7 +372,8 @@ export class Authorizer {
     } catch (e) {
       throw e instanceof AuthzConfigError ? new AuthzConfigError(`${this.where}: config.neverRead: ${e.message}`, { cause: e }) : e;
     }
-    this.allFields = Object.freeze({ read: Object.freeze(subtractFieldGlobs(['*'], this.config.neverRead)), write: Object.freeze(['*']) });
+    const allowed = Object.freeze(subtractFieldGlobs(['*'], this.config.neverRead));
+    this.allFields = Object.freeze({ read: allowed, write: allowed });
 
     this.host = Object.freeze({
       domain: this.domain,
@@ -540,6 +545,8 @@ export class Authorizer {
     // A version change first, so the scope is born with the generation its data belongs to.
     this.epoch();
     this.bornOf(map);
+    const generation = this.generation;
+    const failed = new Set<string>();
     await Promise.all(
       this.modelList.flatMap((model) =>
         typeof model.preload !== 'function'
@@ -548,6 +555,7 @@ export class Authorizer {
               try {
                 await model.preload!(who, new ModelContext(this.host, model.name, map, instant, 0, undefined, contextCacheKey(model.name, cacheId)));
               } catch (e) {
+                failed.add(cacheId);
                 // The model may now vote from missing per-request state.
                 this.markFault(map);
                 this.logAt('error', `${this.where}: model ${quote(model.name)} failed to preload: ${describeError(e)}`);
@@ -555,10 +563,20 @@ export class Authorizer {
             }),
       ),
     );
+    // An invalidate() during the preload may have dropped what it loaded.
+    if (this.generation !== generation) return;
+    for (const { cacheId } of runAs) {
+      if (failed.has(cacheId)) continue;
+      map.set(l1Key('preloaded', this.domain, cacheId), generation);
+      this.preloaded.delete(cacheId);
+      this.preloaded.set(cacheId, generation);
+      if (this.preloaded.size > MAX_PRELOADED) this.preloaded.delete(this.preloaded.keys().next().value!);
+    }
   }
 
   invalidate(tags: readonly string[]): void {
     this.generation = nextGeneration();
+    this.preloaded.clear();
     this.invalidateL2(invalidationTags(tags));
     const copy = Object.freeze(Array.isArray(tags) ? [...tags] : []);
     for (const model of this.modelList) {
@@ -779,11 +797,13 @@ export class Authorizer {
     const contexts = models.map((m) => new ModelContext(host, m.name, run.scope, run.instant, run.depth, steps, contextCacheKey(m.name, parties.cacheId)));
     const request = () => this.request(parties, def, ref, subject, input.env, run.instant, explain);
     const label = `${def.name} on ${resourceKey(ref)}`;
-    const votes = yield* this.evaluate(models, contexts, request, plan.algorithm, explain, run, label);
+    const binder = this.refBinder(parties, env, ancestors, run);
+    const voteLoads = { degraded: false };
+    const resolve = (vs: readonly Vote[]) => this.resolveScopeRefs(vs, binder, label, voteLoads);
+    const votes = yield* this.evaluate(models, contexts, request, plan.algorithm, explain, run, label, resolve, parties.cacheId);
 
     const combined = this.combine(plan.algorithm, votes);
     const allow = ceiling.denials.length > 0 ? FALSE : and(combined.allow, ceiling.restrict);
-    const binder = this.refBinder(parties, env, ancestors, run);
     const bound = yield* this.bind(allow, binder);
     let residual = bound.residual;
     const coreDenials: DenyReason[] = [...ceiling.denials];
@@ -849,7 +869,7 @@ export class Authorizer {
     if (reason) outcome.reason = reason;
     const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil]);
     if (validUntil) outcome.validUntil = validUntil;
-    const faulted = votes.some((v) => v.error !== undefined) || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
+    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
     if (faulted) {
       run.nested.faulted = true;
       // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
@@ -1095,15 +1115,21 @@ export class Authorizer {
     return { ref, subject: undefined };
   }
 
-  /** Step 8: concurrent under deny-overrides and custom algorithms; in plan order with a stop otherwise. */
-  private *evaluate(models: readonly AuthorizationModel[], contexts: readonly ModelContext[], request: () => DecisionRequest, algorithm: string, explain: boolean, run: Run, label: string): Pipeline<Vote[]> {
+  /**
+   * Step 8: concurrent under deny-overrides and custom algorithms; in plan
+   * order with a stop otherwise. `resolve` (decision 29) runs on each vote
+   * before the stop rule reads it, so check and explain stop at the same vote.
+   */
+  private *evaluate(models: readonly AuthorizationModel[], contexts: readonly ModelContext[], request: () => DecisionRequest, algorithm: string, explain: boolean, run: Run, label: string, resolve: (votes: readonly Vote[]) => Pipeline<Vote[]>, cacheId: string): Pipeline<Vote[]> {
     if (run.sync && models.some((m) => syncMode(m) === 'never')) yield NEEDS_ASYNC;
+    // Decision 30: such a model may answer sync from state only its preload loads.
+    if (run.sync && models.some((m) => syncMode(m) === 'after-preload') && !this.wasPreloaded(cacheId, run.scope)) yield NEEDS_ASYNC;
 
     if (algorithm === 'permit-overrides' || algorithm === 'first-applicable') {
       const votes: Vote[] = [];
       for (let i = 0; i < models.length; i++) {
         const started = this.start(models[i], contexts[i], request(), run, label);
-        const vote = (isThenable(started) ? yield started : started) as Vote;
+        const [vote] = yield* resolve([(isThenable(started) ? yield started : started) as Vote]);
         votes.push(vote);
         if (!explain && decides(algorithm, vote)) break;
       }
@@ -1116,7 +1142,46 @@ export class Authorizer {
       if (run.sync && isThenable(s)) yield s;
       started.push(s);
     }
-    return started.some(isThenable) ? ((yield Promise.all(started)) as Vote[]) : (started as Vote[]);
+    return yield* resolve(started.some(isThenable) ? ((yield Promise.all(started)) as Vote[]) : (started as Vote[]));
+  }
+
+  private wasPreloaded(cacheId: string, scope: Map<string, unknown>): boolean {
+    if (scope.get(l1Key('preloaded', this.domain, cacheId)) === this.generation) return true;
+    if (this.preloaded.get(cacheId) !== this.generation) return false;
+    this.preloaded.delete(cacheId);
+    this.preloaded.set(cacheId, this.generation);
+    return true;
+  }
+
+  /**
+   * Decision 29: a vote holding a scope.* ref that resolves missing (absent
+   * attribute, unknown node, a type-level ref other than $global, a failed or
+   * timed-out load) is indeterminate. Loads through the check's binder, so the
+   * allow, fields and reasons reuse them; sync mode yields NEEDS_ASYNC before
+   * any load.
+   */
+  private *resolveScopeRefs(votes: readonly Vote[], binder: RefBinder, label: string, loads: { degraded: boolean }): Pipeline<Vote[]> {
+    const filtersOf = (v: Vote): ResourceFilter[] => [v.permitWhen, v.denyWhen, ...(v.denies ?? []).map((d) => d.when)];
+    try {
+      if ((yield* binder.cover(votes.filter((v) => v.error === undefined).flatMap(filtersOf))).degraded) loads.degraded = true;
+    } catch (e) {
+      // Nodes left unloaded make their refs missing below.
+      loads.degraded = true;
+      this.logAt('error', `${this.where}: loading the scope attributes of the votes of ${label} failed: ${describeError(e)}`);
+    }
+    return votes.map((v) => {
+      if (v.error !== undefined) return v;
+      let fault: string | undefined;
+      try {
+        const missing = binder.missingScopeRef(filtersOf(v));
+        if (missing !== undefined) fault = `scope ref ${quote(missing)} resolves missing`;
+      } catch (e) {
+        fault = `reading its scope refs failed: ${describeError(e)}`;
+      }
+      if (fault === undefined) return v;
+      this.logAt('error', `${this.where}: model ${quote(v.model)} is indeterminate for ${label}: ${fault}`);
+      return faultVote(v.model, fault);
+    });
   }
 
   /** A clean vote, or (async) a promise of one that never rejects, or (sync) the model's thenable. */
@@ -1778,6 +1843,17 @@ class RefBinder {
   bind(f: ResourceFilter): ResourceFilter {
     const pre = bindRefs(f, this.scope);
     return bindEngineRefs(pre, refValues(collectRefs(pre), this.actor, this.attributes));
+  }
+
+  /** The first scope.* ref of `filters` without a value from the nodes `cover` loaded. */
+  missingScopeRef(filters: readonly ResourceFilter[]): string | undefined {
+    for (const f of filters) {
+      const refs = collectRefs(bindRefs(f, this.scope)).filter((r) => r.startsWith('scope.'));
+      const values = refValues(refs, this.actor, this.attributes);
+      const missing = refs.find((r) => !values.has(r));
+      if (missing !== undefined) return missing;
+    }
+    return undefined;
   }
 }
 

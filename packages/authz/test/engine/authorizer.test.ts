@@ -289,7 +289,7 @@ describe('Authorizer', () => {
       expect(d.allowed).to.equal(true);
       expect(d.residual).to.equal(TRUE);
       expect(d.principal).to.deep.equal({ type: 'system', id: 'system' });
-      expect(d.fields.write).to.deep.equal(['*']);
+      expect(d.fields.write).to.deep.equal(['*', '!Password']);
       expect(d.fields.read).to.include('*');
       expect(d.fields.read).to.include('!Password');
       expect(m.calls).to.have.length(0);
@@ -768,7 +768,7 @@ describe('Authorizer', () => {
       const c = make({ models: [new StaticModel('m', { vote: permit({ op: 'cmp', field: 'team', cmp: 'eq', value: { ref: 'actor.team' } }) })] });
       expect(await c.filter(alice, 'doc:read', 'doc')).to.equal(FALSE);
       const n = make({ models: [new StaticModel('m', { vote: permit({ op: 'not', arg: { op: 'cmp', field: 'team', cmp: 'eq', value: { ref: 'scope.org.x' } } }) })] });
-      // not(missing) is FALSE too: the missing comparison becomes TRUE under the not.
+      // A type-level scope ref is missing: the vote is indeterminate (decision 29).
       expect(await n.filter(alice, 'doc:read', 'doc')).to.equal(FALSE);
     });
 
@@ -800,6 +800,95 @@ describe('Authorizer', () => {
       expect(make({ models: [first, never] }).filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
       expect(never.calls).to.have.length(0);
     });
+
+    describe("sync: 'after-preload' (decision 30)", () => {
+      const lazy = () => new StaticModel('lazy', { capabilities: { sync: 'after-preload' }, vote: permit(owner()) });
+      const OWNED = { op: 'cmp', field: 'owner', cmp: 'eq', value: 'alice' };
+
+      it('filterNow ⇒ undefined before preload, without calling evaluate; the residual after it', async () => {
+        const m = lazy();
+        const a = make({ models: [m] });
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+        expect(m.calls).to.have.length(0);
+        await a.preload(alice);
+        // A fresh request scope: the Authorizer remembers the preload.
+        expect(a.filterNow(alice, 'doc:read', 'doc', { cache: new Map() })).to.deep.equal(OWNED);
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.deep.equal(OWNED);
+      });
+
+      it('the preload is per principal the models run with', async () => {
+        const a = make({ models: [lazy()] });
+        await a.preload(principal('user', 'bob'));
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+        // Another object with the same state counts as preloaded.
+        await a.preload(principal('user', 'alice'));
+        expect(a.filterNow(principal('user', 'alice'), 'doc:read', 'doc')).to.deep.equal(OWNED);
+        // A principal whose state differs is not.
+        expect(a.filterNow(principal('user', 'alice', { attributes: { team: 'x' } }), 'doc:read', 'doc')).to.equal(undefined);
+      });
+
+      it('the request scope records the preload too', async () => {
+        const a = make({ models: [lazy()] });
+        const scope = { cache: new Map<string, unknown>() };
+        await a.preload(alice, scope);
+        // As if the bounded per-Authorizer record had dropped alice (white-box).
+        (a as any)['preloaded'].clear();
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+        expect(a.filterNow(alice, 'doc:read', 'doc', scope)).to.deep.equal(OWNED);
+        // An invalidate() makes the scope's record stale too.
+        a.invalidate(['*']);
+        expect(a.filterNow(alice, 'doc:read', 'doc', scope)).to.equal(undefined);
+      });
+
+      it('invalidate() forgets the preloads', async () => {
+        const a = make({ models: [lazy()] });
+        await a.preload(alice);
+        a.invalidate(['subject:user:alice']);
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+      });
+
+      it('a preload that throws or overlaps an invalidate() is not recorded', async () => {
+        const m = lazy();
+        m.preloadImpl = () => Promise.reject(new Error('down'));
+        const a = make({ models: [m] });
+        await a.preload(alice);
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+
+        const slow = lazy();
+        let release!: () => void;
+        slow.preloadImpl = () => new Promise<void>((r) => (release = r));
+        const b = make({ models: [slow] });
+        const pending = b.preload(alice);
+        await tick();
+        b.invalidate(['*']);
+        release();
+        await pending;
+        expect(b.filterNow(alice, 'doc:read', 'doc')).to.equal(undefined);
+      });
+
+      it('an intersect delegate is gated on its own preload', async () => {
+        const bob = principal('user', 'bob');
+        const token = principal('token', 't1', { onBehalfOf: bob });
+        const a = make({ models: [lazy()] });
+        await a.preload(token);
+        expect(a.filterNow(token, 'doc:read', 'doc')).to.not.equal(undefined);
+        const b = make({ models: [lazy()] });
+        await b.preload(principal('token', 't1'));
+        expect(b.filterNow(token, 'doc:read', 'doc')).to.equal(undefined);
+      });
+
+      it('the async paths are not gated', async () => {
+        const a = make({ models: [lazy()] });
+        expect(await a.filter(alice, 'doc:read', 'doc')).to.deep.equal(OWNED);
+        expect((await a.check({ principal: alice, permission: 'doc:read' })).allowed).to.equal(true);
+      });
+
+      it('a model left out of the plan does not gate', () => {
+        const other = new StaticModel('other', { capabilities: { sync: 'after-preload' }, applies: () => false, vote: permit() });
+        const a = make({ models: [new StaticModel('m', { vote: permit(owner()) }), other] });
+        expect(a.filterNow(alice, 'doc:read', 'doc')).to.deep.equal(OWNED);
+      });
+    });
   });
 
   describe('decisions', () => {
@@ -830,7 +919,7 @@ describe('Authorizer', () => {
 
     it('allowed: fields read/write; denied: empty fields, reason only on denial', async () => {
       const ok = await make({ models: [new StaticModel('m', { vote: permit() })] }).check({ principal: alice, permission: 'doc:read' });
-      expect(ok.fields.write).to.deep.equal(['*']);
+      expect(ok.fields.write).to.deep.equal(['*', '!Password']);
       expect(ok).to.not.have.property('reason');
       const no = await make({ models: [new StaticModel('m')] }).check({ principal: alice, permission: 'doc:read' });
       expect(no.fields).to.deep.equal({ read: [], write: [] });

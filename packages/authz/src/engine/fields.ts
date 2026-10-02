@@ -94,8 +94,8 @@ export class FieldCombiner {
 
     if (reads.length === 0) return NONE;
     return this.memoised(JSON.stringify([reads, writes, hides]), () => {
-      const hidden = unionFieldGlobs(...hides);
-      return result(subtractFieldGlobs(unionFieldGlobs(...reads), unionFieldGlobs(hidden, this.neverRead)), subtractFieldGlobs(unionFieldGlobs(...writes), hidden));
+      const removed = unionFieldGlobs(...hides, this.neverRead);
+      return result(subtractFieldGlobs(unionFieldGlobs(...reads), removed), subtractFieldGlobs(unionFieldGlobs(...writes), removed));
     });
   }
 

@@ -69,13 +69,15 @@ describe('FieldCombiner', () => {
       expect(allows(r.read, 'secret')).to.equal(true);
     });
 
-    it('applies neverRead to read only', () => {
+    it('applies neverRead to read and write (decision 28)', () => {
       const c = new FieldCombiner({ neverRead: ['Password', '*.Password'] });
       const r = c.combine('deny-overrides', [permitting()]);
       expect(allows(r.read, 'Password')).to.equal(false);
       expect(allows(r.read, 'user.Password')).to.equal(false);
       expect(allows(r.read, 'name')).to.equal(true);
-      expect(r.write).to.deep.equal(['*']);
+      expect(allows(r.write, 'Password')).to.equal(false);
+      expect(allows(r.write, 'user.Password')).to.equal(false);
+      expect(allows(r.write, 'name')).to.equal(true);
     });
 
     it('ignores indeterminate votes, their fields and their hide', () => {
@@ -332,12 +334,13 @@ describe('FieldCombiner', () => {
     const sAnd = (...xs: Sym[]): Sym => (xs.includes('F') ? 'F' : xs.every((x) => x === 'T') ? 'T' : 'X');
     const sOr = (...xs: Sym[]): Sym => (xs.includes('T') ? 'T' : xs.every((x) => x === 'F') ? 'F' : 'X');
     const sNot = (x: Sym): Sym => (x === 'T' ? 'F' : x === 'F' ? 'T' : 'X');
-    const voteArb = fc.record({ p: symArb, d: symArb, read: fc.option(list, { nil: undefined }), hide: fc.option(list, { nil: undefined }), error: fc.boolean() });
-    type Spec = { p: Sym; d: Sym; read?: string[]; hide?: string[]; error: boolean };
+    const voteArb = fc.record({ p: symArb, d: symArb, read: fc.option(list, { nil: undefined }), write: fc.option(list, { nil: undefined }), hide: fc.option(list, { nil: undefined }), error: fc.boolean() });
+    type Spec = { p: Sym; d: Sym; read?: string[]; write?: string[]; hide?: string[]; error: boolean };
     const build = (specs: readonly Spec[]) =>
       specs.map((s, i) => {
-        const fields: { read?: string[]; hide?: string[] } = {};
+        const fields: { read?: string[]; write?: string[]; hide?: string[] } = {};
         if (s.read) fields.read = s.read;
+        if (s.write) fields.write = s.write;
         if (s.hide) fields.hide = s.hide;
         return vote(`m${i}`, toFilter(s.p), toFilter(s.d), fields, s.error ? 'boom' : undefined);
       });
@@ -349,24 +352,27 @@ describe('FieldCombiner', () => {
         return false;
       });
 
-    it('read allows a path ⇔ a contributor reads it, no hide covers it and neverRead does not, for every algorithm', () => {
+    it('read (write) allows a path ⇔ a contributor reads (writes) it, no hide covers it and neverRead does not, for every algorithm', () => {
       fc.assert(
         fc.property(fc.constantFrom(...algorithms), fc.array(voteArb, { maxLength: 4 }), list, fc.constantFrom(...paths), (algorithm, specs, neverRead, path) => {
           const result = new FieldCombiner({ neverRead }).combine(algorithm, build(specs));
           const k = decidingIndex(algorithm, specs);
           let unapplied: Sym = 'T';
           let readable = false;
+          let writable = false;
           let hidden = false;
           for (const s of k < 0 ? specs : specs.slice(0, k + 1)) {
             const [p, d]: Sym[] = s.error ? ['F', 'T'] : [s.p, s.d];
             if (!s.error) {
               const term = algorithm === 'permit-overrides' ? sAnd(p, sNot(d)) : algorithm === 'first-applicable' ? sAnd(p, sNot(d), unapplied) : p;
               if (term !== 'F') readable ||= allows(s.read ?? ['*'], path);
+              if (term !== 'F') writable ||= allows(s.write ?? ['*'], path);
               if (d !== 'F') hidden ||= allows(s.hide ?? [], path);
             }
             unapplied = sAnd(unapplied, sNot(sOr(p, d)));
           }
           expect(allows(result.read, path)).to.equal(readable && !hidden && !allows(neverRead, path));
+          expect(allows(result.write, path)).to.equal(writable && !hidden && !allows(neverRead, path));
         }),
         { numRuns: 500 },
       );

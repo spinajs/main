@@ -681,8 +681,10 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
     const rbac = new StaticModel('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(tier) } }) });
     expect(await make({ models: [rbac], ...store(() => Promise.reject(new Error('store down'))) }).covers(alice, bob)).to.equal(false);
     expect(await make({ models: [rbac], config: { modelTimeoutMs: 50 }, ...store(() => new Promise(() => {})) }).covers(alice, bob)).to.equal(false);
-    // A store that answers without the attribute: bob's doc:write is really denied, so alice covers him.
-    expect(await make({ models: [rbac], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(true);
+    // A store that answers without the attribute: bob's vote is indeterminate (decision 29), so covers is false too.
+    expect(await make({ models: [rbac], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(false);
+    // Control: without bob's grant that reads the store, alice covers him.
+    expect(await make({ models: [new StaticModel('rbac', { vote: table('rbac', bobWithoutWrite) })], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(true);
   });
 
   it('a model that catches a failed or timed-out ctx.attributes and votes no makes covers false', async () => {
