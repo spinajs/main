@@ -4,6 +4,7 @@ import type { Ceiling, Principal, PrincipalRef, ResourceRef, ResourceType } from
 import type { Permission } from './permission.js';
 import type { ResourceFilter } from './filter.js';
 import type { Decision, DecisionRequest, FieldSet, Trace } from './decision.js';
+import type { AuthzAdmin } from './admin.js';
 import type { AuthorizationModel, ModelSummary } from './model.js';
 
 // The @PerChildInstance() implementation is the host's.
@@ -24,6 +25,8 @@ export abstract class AuthzService extends AsyncService {
   abstract preload(principal: Principal): Promise<void>;
   abstract invalidate(tags: readonly string[]): void;
   abstract models(): readonly AuthorizationModel[];
+  /** This domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1). */
+  abstract admin(): AuthzAdmin;
 }
 
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };

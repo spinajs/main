@@ -48,7 +48,7 @@ export interface RuleDef {
   readonly resource?: Condition; // e.g. { attr: 'resource.name', wildcard: 'release/*' }
   readonly minRole?: string | { readonly ref: string };
   readonly at?: ResourceType;
-  readonly reason?: Omit<DenyReason, 'model'>; // code, payload, priority, sortKey
+  readonly reason?: DenyReason & { readonly model?: never }; // code, payload, priority, sortKey
 }
 
 /** Share link: bearer secret + scope + expiry; its grant is an assignment to link:<id>. */

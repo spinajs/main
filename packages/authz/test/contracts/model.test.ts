@@ -4,7 +4,7 @@ import 'mocha';
 import { AsyncService, type IContainer } from '@spinajs/di';
 import * as authz from '../../src/index.js';
 import { AuthorizationModel, AuthzDomains, AuthzService, ChangeBus, Combinator, ConditionCompiler, ConditionFunction, DecisionAudit, DecisionCache, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, FALSE, TRUE, GLOBAL, UNATTENDED } from '../../src/index.js';
-import type { AccessSummary, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, FilterOp, PermissionRegistry, PrincipalType, TraceStep, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
+import type { AccessSummary, AuthzAdmin, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, FilterOp, PermissionRegistry, PrincipalType, TraceStep, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -154,6 +154,9 @@ class FakeService extends AuthzService {
   public invalidate(_tags: readonly string[]): void {}
   public models(): readonly AuthorizationModel[] {
     return [];
+  }
+  public admin(): AuthzAdmin {
+    return undefined as unknown as AuthzAdmin;
   }
 }
 
@@ -326,6 +329,7 @@ describe('model, adapter, host and condition contracts', () => {
     });
 
     it('pins parameters, optionality, readonly and unions', () => {
+      yes<Equal<AuthzService['admin'], () => AuthzAdmin>>();
       yes<Equal<Parameters<RelationResolver['holds']>, [principal: Principal, ref: ResourceRef, subject?: unknown]>>();
       yes<Equal<Parameters<ConditionFunction['evaluate']>, [args: unknown, ctx: { principal: Principal; actor?: Principal; env: Readonly<Record<string, unknown>> }]>>();
       yes<Equal<Parameters<EvaluationContext['trace']>, [step: Omit<TraceStep, 'by'>]>>();

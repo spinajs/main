@@ -47,13 +47,13 @@ export interface AuthzAdminError {
 // codes: unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable,
 //        invalid_attributes, not_found, forbidden, escalation, last_holder, self_lockout, protected_role, conflict
 
-/** Thrown by AuthzWriteHandler.validate; converts to an AuthzAdminError structurally. */
+/** Thrown by write handlers, AdminGuard and AuthzCommandValidator; AuthzAdmin reports it as an AuthzAdminError. */
 export class AuthzAdminFailure extends Error {
   readonly code: string;
   readonly field?: string;
 
-  constructor(code: string, message?: string, field?: string) {
-    super(message ?? code);
+  constructor(code: string, message?: string, field?: string, options?: ErrorOptions) {
+    super(message ?? code, options);
     this.name = new.target.name;
     this.code = code;
     this.field = field;
@@ -66,8 +66,11 @@ export interface AuthzAdminOptions {
   readonly dryRun?: boolean; // validate and guard, then roll back (admin UIs)
 }
 
+/**
+ * Root singleton; per-domain variants via AuthzDomains.service(name).admin().
+ * The typed sugar methods throw AuthzAdminFailure with the failed result's error code (and field) instead of returning it.
+ */
 export abstract class AuthzAdmin {
-  // root singleton; per-domain variants via AuthzDomains.service(name).admin()
   /** All commands in one transaction; the first failure rolls back the batch and is reported with its index. */
   abstract execute(actor: Principal, commands: readonly AuthzCommand[], opts?: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]>;
   // typed sugar over execute([one command])
@@ -96,13 +99,13 @@ export abstract class AuthzWriteHandler {
   abstract apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{ id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }>;
 }
 
+/** DefaultAdminGuard implements it; was RoleGuard. */
 export abstract class AdminGuard {
-  // DefaultAdminGuard
   abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>; // escalation, last holder, self-lockout, protected roles
 }
 
+/** App hook, Array.ofType; e.g. refuse external invites when the product rule says so. */
 export abstract class AuthzCommandValidator {
-  // app hook, Array.ofType
   abstract validate(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;
 }
 
