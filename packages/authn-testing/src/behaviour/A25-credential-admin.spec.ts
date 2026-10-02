@@ -199,6 +199,7 @@ export const A25: AuthnRule = defineRule('A25', 'credential admin routes need us
     facet: 'A25/http',
     needs: ['http', 'actors', 'seed', 'targetGuard', 'mfa', 'events', 'http.routes.login', 'http.routes.adminMfaReset'],
     async run(h, k) {
+      await h.targetGuard.allowAll();
       const { b } = await bobWithSessions(h, k);
       await h.mfa.enrol(b);
       const { ad, jar } = await adminJar(h, k, true);

@@ -20,6 +20,12 @@ const otherPort = (origin: string): string => {
   return u.origin;
 };
 
+const longerHost = (origin: string): string => {
+  const u = new URL(origin);
+  u.hostname += '.evil.example.net';
+  return u.origin;
+};
+
 const otherScheme = (origin: string): string => {
   const u = new URL(origin);
   u.protocol = u.protocol === 'https:' ? 'http:' : 'https:';
@@ -56,7 +62,8 @@ const ROWS: readonly Row[] = [
   { name: 'A22 no Origin and no fetch metadata is refused', method: 'POST', headers: () => ({}), pass: false },
   { name: 'A22 Origin null is refused', method: 'POST', headers: () => ({ origin: 'null' }), pass: false },
   { name: 'A22 another port is another origin', method: 'POST', headers: (o) => ({ origin: otherPort(o) }), pass: false },
-  { name: 'A22 a longer host is another origin', method: 'POST', headers: (o) => ({ origin: `${o}.evil.example.net` }), pass: false },
+  { name: 'A22 a longer host is another origin', method: 'POST', headers: (o) => ({ origin: longerHost(o) }), pass: false },
+  { name: 'A22 a longer listed origin is another origin', method: 'POST', headers: () => ({ origin: `${ORIGIN_PARTNER}.evil.example.net` }), pass: false },
   { name: 'A22 same-site fetch metadata is refused', method: 'POST', headers: () => ({ 'sec-fetch-site': 'same-site' }), pass: false },
   { name: 'A22 another scheme is another origin', method: 'POST', headers: (o) => ({ origin: otherScheme(o) }), pass: false },
   { name: 'A22 Origin wins over fetch metadata', method: 'POST', headers: () => ({ origin: ORIGIN_EVIL, 'sec-fetch-site': 'same-origin' }), pass: false },

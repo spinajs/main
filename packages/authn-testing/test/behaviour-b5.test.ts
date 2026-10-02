@@ -9,6 +9,7 @@ import { migrateA32 } from './reference/a32-migration.js';
 import type { MigrationResult } from './reference/a32-migration.js';
 import { corsStub } from './reference/cors-stub.js';
 import type { CorsStubMutants } from './reference/cors-stub.js';
+import { ORIGIN_PARTNER } from '../src/behaviour/steps.js';
 import { referenceHttpHarness } from './reference/http-app.js';
 
 function corsFactory(mutants: CorsStubMutants = {}): HarnessFactory {
@@ -97,6 +98,15 @@ describe('A22 mutants seen through the request headers', () => {
       ['A22 a longer host is another origin'],
       (ctx) => referenceHttpHarness(ctx),
       viaHeaders((h, app) => (h['origin']?.startsWith(app) ? { ...h, origin: app } : h)),
+    ));
+
+  it('fails when a listed origin is matched by prefix', () =>
+    assertBites(
+      'A22',
+      'A22/http',
+      ['A22 a longer listed origin is another origin'],
+      (ctx) => referenceHttpHarness(ctx),
+      viaHeaders((h) => (h['origin']?.startsWith(ORIGIN_PARTNER) ? { ...h, origin: ORIGIN_PARTNER } : h)),
     ));
 
   it('fails when same-site fetch metadata is accepted', () =>

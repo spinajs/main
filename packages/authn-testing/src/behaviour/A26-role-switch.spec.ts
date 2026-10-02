@@ -81,6 +81,7 @@ export const A26: AuthnRule = defineRule('A26', 'role switch takes only held rol
           assert.ok(res.status >= 200 && res.status < 300, `the role switch answered ${res.status}`);
         } else {
           assert.ok(in4xx(res.status), `the role switch answered ${res.status}`);
+          assert.ok(!(await ceilingRoles(h, jar))?.includes('kit-root'), 'the ceiling stays off kit-root');
         }
       },
     }),
