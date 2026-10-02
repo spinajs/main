@@ -1,8 +1,7 @@
 import { Socket } from 'socket.io';
-import { UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
-import { ISocketAuthState, ISocketHandshake } from './interfaces.js';
+import { DisconnectNotice, EventFrame, SYSTEM_EVENTS, SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { ISocketAuthState, ISocketClientState, ISocketHandshake } from './interfaces.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const cookies = Object.create(null) as Record<string, string>;
@@ -53,9 +52,22 @@ export function toHandshake(socket: Socket): ISocketHandshake {
   };
 }
 
+function isClientState(value: unknown): value is ISocketClientState {
+  const state = value as ISocketClientState | null | undefined;
+  return typeof state?.clientId === 'string' && state.clientId.length > 0 && typeof state.protocol === 'number';
+}
+
+function isAuthState(value: unknown): value is ISocketAuthState {
+  const state = value as ISocketAuthState | null | undefined;
+  return typeof state?.principal === 'object' && state.principal !== null && typeof state.checkedAt === 'number';
+}
+
 export class SocketConnection<D extends Record<string, unknown> = Record<string, unknown>, U = unknown> {
   public readonly id: string;
+  /** The clientId the handshake checked, never re-read from a recovered connection's new `auth`. */
   public readonly clientId: string;
+  /** The protocol version the handshake checked. */
+  public readonly protocol: number;
   public readonly handshake: ISocketHandshake;
   public readonly connectedAt: number;
 
@@ -65,15 +77,18 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
     protected readonly socket: Socket,
     handshake: ISocketHandshake,
   ) {
+    const client: unknown = socket.data.client;
+
+    // fail closed: a socket the handshake never checked ( eg. recovered from a session stored without this state ) gets no connection
+    if (!isClientState(client) || !isAuthState(socket.data.auth)) {
+      throw new SocketException('unauthenticated', 'connection state was not set by the handshake');
+    }
+
     this.id = socket.id;
-    this.clientId = String(handshake.auth.clientId);
+    this.clientId = client.clientId;
+    this.protocol = client.protocol;
     this.handshake = handshake;
     this.connectedAt = Date.now();
-
-    if (!socket.data.auth) {
-      const unattended: ISocketAuthState = { principal: UNATTENDED, source: null, checkedAt: this.connectedAt };
-      socket.data.auth = unattended;
-    }
 
     if (!socket.data.app) {
       socket.data.app = {};

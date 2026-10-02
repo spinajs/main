@@ -3,9 +3,9 @@ import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { UNATTENDED } from '@spinajs/authz';
-import { PROTOCOL_VERSION } from '@spinajs/http-socket-common';
+import { MAX_ID_LENGTH, PROTOCOL_VERSION } from '@spinajs/http-socket-common';
 import { SocketHub } from '../src/hub.js';
-import { ALICE, ALICE_PRINCIPAL, IConnectOptions, ITestServer, connect, open, refusalOf, startServer, waitFor } from './harness.js';
+import { ALICE, ALICE_PRINCIPAL, IConnectOptions, ITestServer, TestPrincipalSource, connect, open, refusalOf, startServer, waitFor } from './harness.js';
 
 describe('socket handshake', function () {
   this.timeout(15000);
@@ -53,7 +53,27 @@ describe('socket handshake', function () {
 
   it('refuses a handshake without a clientId', async () => {
     const error = await refusal({ auth: { clientId: '' } });
-    expect(error).to.include({ code: 'invalid_argument', retryable: false });
+    expect(error).to.deep.equal({ code: 'invalid_argument', message: 'handshake auth.clientId must be a non-empty string', retryable: false });
+    expect((await refusal({ auth: { clientId: 42 } })).message).to.equal('handshake auth.clientId must be a non-empty string');
+  });
+
+  it('refuses an overlong clientId and says so', async () => {
+    const error = await refusal({ auth: { clientId: 'x'.repeat(MAX_ID_LENGTH + 1) } });
+    expect(error).to.deep.equal({ code: 'invalid_argument', message: `handshake auth.clientId is longer than ${MAX_ID_LENGTH} characters`, retryable: false });
+    expect(track(await open(t, { auth: { clientId: 'x'.repeat(MAX_ID_LENGTH) } })).connected).to.be.true;
+  });
+
+  it('refuses with internal when a principal source throws an unmapped error', async () => {
+    const error = await refusal({ auth: { token: 'crash' } });
+    expect(error).to.include({ code: 'internal', retryable: false });
+    expect(error.errorId).to.be.a('string');
+  });
+
+  it('builds the handshake view once: the connection keeps the one the principal sources saw', async () => {
+    const socket = track(await open(t, { auth: { token: 'good' } }));
+    const connection = DI.resolve(SocketHub).connection(socket.id!)!;
+
+    expect(TestPrincipalSource.lastHandshake).to.equal(connection.handshake);
   });
 
   it('refuses when a principal source throws', async () => {
@@ -120,6 +140,27 @@ describe('socket handshake: origin and required authentication', function () {
 
     const error = await refusalOf(track(connect(t, { auth: { token: 'bad' }, headers: { origin: 'https://evil.example' } })));
     expect(error).to.deep.equal({ code: 'forbidden', message: 'origin not allowed', retryable: false });
+  });
+
+  it('hides the message of an unmapped principal source error in production', async () => {
+    t = await startServer({ configuration: { isProduction: true } });
+
+    const error = await refusalOf(track(connect(t, { auth: { token: 'crash' } })));
+    expect(error.errorId).to.be.a('string');
+    expect(error).to.deep.equal({ code: 'internal', message: 'Internal server error', retryable: false, errorId: error.errorId });
+  });
+
+  it('SR-12 refuses Origin: null, even when listed', async () => {
+    t = await startServer({ http: { socket: { cors: { origins: ['null'] } } } });
+
+    expect(await refusalOf(track(connect(t, { headers: { origin: 'null' } })))).to.deep.equal({ code: 'forbidden', message: 'origin not allowed', retryable: false });
+  });
+
+  it('SR-12 same-origin means the same scheme, host and port', async () => {
+    t = await startServer();
+
+    expect((await refusalOf(track(connect(t, { headers: { origin: t.url.replace('http:', 'https:') } })))).code).to.equal('forbidden');
+    expect((await refusalOf(track(connect(t, { headers: { origin: t.url.replace(/:\d+$/, ':1') } })))).code).to.equal('forbidden');
   });
 
   it('SR-12 accepts same-origin and exactly listed origins only; no wildcard', async () => {

@@ -33,6 +33,7 @@ const config: ISocketConfigFile = {
       },
       drainMs: 5_000,
       adapter: undefined,
+      transports: ['websocket', 'polling'],
     },
   },
   system: {

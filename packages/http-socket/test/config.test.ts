@@ -19,6 +19,7 @@ describe('http-socket default configuration', () => {
     expect(socket.pingTimeout).to.equal(20_000);
     expect(socket.rate).to.deep.equal({ perSecond: 50, burst: 100 });
     expect(socket.adapter).to.be.undefined;
+    expect(socket.transports).to.deep.equal(['websocket', 'polling']);
   });
 
   it('ships the authz-v3 defaults: no cross-origin handshake, unattended without credentials, revalidation every minute', () => {

@@ -30,17 +30,23 @@ export class TestHttpHost extends SocketHttpHost {
   }
 }
 
-/** Owns only the tokens 'good' and 'bad'; any other handshake is left to the sources of other test files. */
+/** Owns only the tokens 'good', 'bad' and 'crash'; any other handshake is left to the sources of other test files. */
 export class TestPrincipalSource extends SocketPrincipalSource {
+  public static lastHandshake: ISocketHandshake | null = null;
+
   public readonly name = 'test';
   public readonly order = 0;
 
   public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    TestPrincipalSource.lastHandshake = handshake;
+
     switch (handshake.auth.token) {
       case 'good':
         return ALICE_PRINCIPAL;
       case 'bad':
         throw new AuthenticationFailed('invalid token');
+      case 'crash':
+        throw new Error('principal store unreachable: password=hunter2');
       default:
         return null;
     }
@@ -78,21 +84,25 @@ export async function configure(cfg: Record<string, unknown> = {}): Promise<void
 
 export interface ITestServer {
   server: SocketServer;
+  host: TestHttpHost;
   url: string;
   path: string;
   close(): Promise<void>;
 }
 
-export async function startServer(cfg: Record<string, unknown> = {}): Promise<ITestServer> {
+/** @param prepare - runs on the fresh http server before socket.io attaches to it */
+export async function startServer(cfg: Record<string, unknown> = {}, prepare?: (host: TestHttpHost) => void): Promise<ITestServer> {
   await configure(cfg);
 
   const host = DI.resolve(SocketHttpHost) as TestHttpHost;
+  prepare?.(host);
   const server = await DI.resolve(SocketServer);
   await new Promise<void>((resolve) => host.Http.listen(0, '127.0.0.1', () => resolve()));
   const { port } = host.Http.address() as AddressInfo;
 
   return {
     server,
+    host,
     url: `http://127.0.0.1:${port}`,
     path: DI.get(Configuration)!.get<string>('http.socket.path'),
     close: async () => {

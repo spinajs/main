@@ -46,7 +46,14 @@ export interface ISocketServerConfig {
   drainMs: number;
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
+  /**
+   * engine.io transports. Prefer `['websocket']` when a principal source reads cookies: a browser
+   * always sends an Origin on a WebSocket upgrade, while polling requests are plain HTTP.
+   */
+  transports: SocketTransport[];
 }
+
+export type SocketTransport = 'websocket' | 'polling';
 
 /** What a `SocketPrincipalSource` sees of the socket.io handshake. */
 export interface ISocketHandshake {
@@ -86,6 +93,15 @@ export abstract class SocketPrincipalSource {
       return false;
     }
   }
+}
+
+/**
+ * What the handshake checked, kept in `socket.data.client`. Connection state recovery restores it and
+ * skips the handshake middleware, so a recovered connection reads these, never its new `auth`.
+ */
+export interface ISocketClientState {
+  clientId: string;
+  protocol: number;
 }
 
 /** Kept in `socket.data.auth`, which connection state recovery restores after a short drop. */
