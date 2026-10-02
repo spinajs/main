@@ -4,11 +4,20 @@
     "rootDir": "./",
     "outDir": "./lib/mjs",
     "module": "node16",
-    "moduleResolution": "node16",
-    "paths": {
-      "@spinajs": ["../"]
-    }
+    "moduleResolution": "node16"
   },
-  "include": ["src/**/*","test/**/*"],
-  "references": [{ "path": "../util/tsconfig.json" }, { "path": "../configuration/tsconfig.json" }, { "path": "../di/tsconfig.json" }, { "path": "../exceptions/tsconfig.json" }, { "path": "../log-common/tsconfig.json" }, { "path": "../reflection/tsconfig.json" }, { "path": "../http/tsconfig.json" }, { "path": "../templates/tsconfig.json" }, { "path": "../validation/tsconfig.json" }, { "path": "../templates-pug/tsconfig.json" }]
+  "include": ["src/**/*", "test/**/*"],
+  "references": [
+    { "path": "../authn/tsconfig.json" },
+    { "path": "../authz/tsconfig.json" },
+    { "path": "../di/tsconfig.json" },
+    { "path": "../configuration/tsconfig.json" },
+    { "path": "../exceptions/tsconfig.json" },
+    { "path": "../http/tsconfig.json" },
+    { "path": "../http-socket-common/tsconfig.json" },
+    { "path": "../log/tsconfig.json" },
+    { "path": "../reflection/tsconfig.json" },
+    { "path": "../telemetry-common/tsconfig.json" },
+    { "path": "../validation/tsconfig.json" }
+  ]
 }
