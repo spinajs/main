@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 
-import { AsyncService, DI, IContainer, PerChildInstance } from '../src/index.js';
+import { AsyncService, Autoinject, Container, DI, IContainer, Inject, PerChildInstance, SyncService } from '../src/index.js';
 
 class Model {}
 class Rbac extends Model {}
@@ -324,5 +324,118 @@ describe('child-chain (B29 DI part)', () => {
     expect(child.getRegisteredTypes(Model, false)).to.deep.equal([FsAbac]);
     expect(DI.RootContainer.hasRegistered(Rbac, false)).to.equal(false);
     expect(DI.RootContainer.getRegisteredTypes(Model, false)).to.deep.equal([Rbac, Abac]);
+  });
+
+  it('a child replaces by name a root class that is also registered as self', () => {
+    DI.register(Abac).as(Model);
+    DI.register(Abac).asSelf();
+    const ChildAbac = class Abac extends Model {};
+    const child = DI.child();
+    child.register(ChildAbac).as(Model);
+
+    const chained = child.resolveChain(Model) as Model[];
+    const listed = child.resolve(Array.ofType(Model));
+
+    expect(chained.map((m) => m.constructor)).to.deep.equal([ChildAbac]);
+    expect(listed[0]).to.equal(chained[0]);
+    expect(child.get(ChildAbac, false)).to.equal(chained[0]);
+    expect((DI.resolveChain(Model) as Model[])[0].constructor).to.equal(Abac);
+  });
+
+  it('a child replaces by name a root class that root has already resolved', () => {
+    DI.register(Abac).as(Model);
+    const fromRoot = DI.resolve(Abac);
+    const ChildAbac = class Abac extends Model {};
+    const child = DI.child();
+    child.register(ChildAbac).as(Model);
+
+    const chained = child.resolveChain(Model) as Model[];
+
+    expect(chained.map((m) => m.constructor)).to.deep.equal([ChildAbac]);
+    expect(chained[0]).to.not.equal(fromRoot);
+    expect(child.resolve(Array.ofType(Model))[0]).to.equal(chained[0]);
+  });
+
+  it('disposing a domain child disposes only what the child created', async () => {
+    const disposed: unknown[] = [];
+
+    class DomainModel extends SyncService {
+      public async dispose() {
+        disposed.push(this);
+      }
+    }
+
+    class ModelConfig extends SyncService {
+      public async dispose() {
+        disposed.push(this);
+      }
+    }
+
+    @Inject(ModelConfig)
+    class RbacModel extends DomainModel {
+      constructor(public config: ModelConfig) {
+        super();
+      }
+    }
+
+    @Inject(ModelConfig)
+    class AbacModel extends DomainModel {
+      constructor(public config: ModelConfig) {
+        super();
+      }
+    }
+
+    class FakeModel extends DomainModel {}
+    const ChildRbacModel = class RbacModel extends DomainModel {};
+
+    @PerChildInstance()
+    class AuthzService extends SyncService {
+      @Autoinject()
+      public container: Container;
+
+      public models: DomainModel[];
+
+      public resolve() {
+        this.models = this.container.resolveChain(DomainModel) as DomainModel[];
+        super.resolve();
+      }
+
+      public async dispose() {
+        disposed.push(this);
+      }
+    }
+
+    DI.register(RbacModel).as(DomainModel);
+    DI.register(RbacModel).asSelf();
+    DI.register(AbacModel).as(DomainModel);
+    DI.register(AbacModel).asSelf();
+
+    const rootService = DI.resolve(AuthzService);
+    const rootRegistry = [...(DI.RootContainer.Registry as unknown as { registry: Map<string, unknown[]> }).registry.entries()].map(([k, v]) => [k, [...v]]);
+    const rootCache = (DI.RootContainer as Container).getCacheStats().entries;
+    const rootChildren = (DI.RootContainer as Container).getCacheStats().childrenCount;
+
+    const child = DI.child();
+    child.register(FakeModel).as(DomainModel);
+    child.register(ChildRbacModel).as(DomainModel);
+    const childService = child.resolve(AuthzService);
+
+    expect(childService).to.not.equal(rootService);
+    expect(childService.container).to.equal(child);
+    expect(childService.models.map((m) => m.constructor)).to.deep.equal([ChildRbacModel, AbacModel, FakeModel]);
+    expect(childService.models[1]).to.equal(rootService.models[1]);
+    expect(rootService.models.map((m) => m.constructor)).to.deep.equal([RbacModel, AbacModel]);
+
+    await child.dispose();
+
+    expect(disposed).to.have.members([childService, childService.models[0], childService.models[2]]);
+    expect(disposed).to.have.length(3);
+    expect((DI.RootContainer as Container).getCacheStats().entries).to.deep.equal(rootCache);
+    expect((DI.RootContainer as Container).getCacheStats().childrenCount).to.equal(rootChildren);
+    expect([...(DI.RootContainer.Registry as unknown as { registry: Map<string, unknown[]> }).registry.entries()].map(([k, v]) => [k, [...v]])).to.deep.equal(rootRegistry);
+    expect(DI.resolve(AuthzService)).to.equal(rootService);
+    expect(DI.resolveChain(DomainModel)).to.deep.equal(rootService.models);
+    (DI.resolveChain(DomainModel) as DomainModel[]).forEach((m, i) => expect(m).to.equal(rootService.models[i]));
+    expect((rootService.models[0] as RbacModel).config).to.equal((rootService.models[1] as AbacModel).config);
   });
 });

@@ -7,10 +7,26 @@ import { Class, Factory } from './types.js';
 export class Registry {
   protected registry: Map<string, any[]> = new Map<string, any[]>();
 
+  /**
+   * Keys created only by resolving an unregistered type ( the container records it under
+   * its own name ). They do not make the container the owner of the key.
+   */
+  protected implicitKeys = new Set<string>();
+
   constructor(protected container: IContainer) { }
 
   public clear() {
     this.registry.clear();
+    this.implicitKeys.clear();
+  }
+
+  /**
+   * True when this registry ( not an ancestor ) holds an entry for `service` that was
+   * registered on purpose, not just recorded by a resolve.
+   */
+  public ownsRegistration<T>(service: TypedArray<T> | Class<T> | string): boolean {
+    const name = getTypeName(service);
+    return this.registry.has(name) && !this.implicitKeys.has(name);
   }
 
   public unregister(type: any) {
@@ -24,12 +40,19 @@ export class Registry {
     });
   }
 
-  public register(name: string | Class<any> | TypedArray<any>, type: any) {
+  public register(name: string | Class<any> | TypedArray<any>, type: any, implicit = false) {
     if (!isConstructor(type) && !isFactory(type) && !isObject(type)) {
       throw new InvalidOperation('cannot register type if its not an class or factory function');
     } else {
       const tname = getTypeName(name);
       const value = this.registry.get(tname);
+
+      if (!implicit) {
+        this.implicitKeys.delete(tname);
+      } else if (!value) {
+        this.implicitKeys.add(tname);
+      }
+
       if (value) {
         // factory functions, we always add to registry
         // its impossible to check for duplicates
@@ -84,8 +107,16 @@ export class Registry {
       lineage.unshift(c);
     }
 
+    // A self record left by resolving the key before anything was registered must not
+    // join a real registration made later.
+    const anyOwner = lineage.some((c) => c.Registry.ownsRegistration(service));
+
     const chain: IChainRegistration[] = [];
     for (const container of lineage) {
+      if (anyOwner && !container.Registry.ownsRegistration(service)) {
+        continue;
+      }
+
       for (const type of container.Registry.getTypes(service, false) ?? []) {
         const name = isFactory(type) ? null : getTypeName(type);
         const replaced = name === null ? -1 : chain.findIndex((e) => !isFactory(e.type) && getTypeName(e.type) === name);
