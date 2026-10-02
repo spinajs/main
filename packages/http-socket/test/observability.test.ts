@@ -9,7 +9,8 @@ import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, SocketController } from '../src/decorators.js';
 import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../src/interfaces.js';
 import { SocketDispatcher } from '../src/dispatcher.js';
-import { ITestServer, command, open, resultOf, startServer } from './harness.js';
+import { socketMetrics } from '../src/metrics.js';
+import { ITestServer, command, delay, nextId, open, resultOf, startServer } from './harness.js';
 
 export const obsStageSeen: Array<{ handler: string | null; args: boolean }> = [];
 
@@ -20,6 +21,10 @@ export class ObsTagStage extends SocketCommandStage {
   }
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
+    if (!ctx.handler?.fullName.startsWith('obs.')) {
+      return next();
+    }
+
     obsStageSeen.push({ handler: ctx.handler?.fullName ?? null, args: ctx.args !== undefined });
     ctx.storage.obsTag = 'tagged';
     return next();
@@ -31,6 +36,12 @@ export class ObsSocket extends BaseSocketController {
   @Command('echo')
   public async echo(@Payload() payload: unknown) {
     return payload;
+  }
+
+  @Command('slow')
+  public async slow() {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return 'done';
   }
 
   @Command('trace')
@@ -47,6 +58,7 @@ describe('socket observability', function () {
   let socket: ClientSocket;
 
   beforeEach(async () => {
+    obsStageSeen.length = 0;
     t = await startServer();
     socket = await open(t);
   });
@@ -89,7 +101,7 @@ describe('socket observability', function () {
 
     const text = await (DI.resolve(Metrics) as Metrics).render();
     expect(text).to.contain('socket_commands_total{command="obs.echo",code="ok"} 2');
-    expect(text).to.contain('socket_commands_total{command="unknown",code="unimplemented"} 1');
+    expect(text).to.contain('socket_commands_total{command="<unknown>",code="unimplemented"} 1');
     expect(text).to.contain('socket_command_duration_seconds_count{command="obs.echo"} 2');
     expect(text).to.contain('socket_connections 1');
   });
@@ -106,6 +118,34 @@ describe('socket observability', function () {
 
     const text = await (DI.resolve(Metrics) as Metrics).render();
     expect(text).to.contain('socket_commands_total{command="obs.echo",code="resource_exhausted"} 1');
+  });
+
+  it('still replies when publishing a metric throws', async () => {
+    await command(socket, 'obs.echo', 0);
+    const counter = socketMetrics()!.commands_total as unknown as { inc: () => void };
+    sinon.stub(counter, 'inc').throws(new Error('registry broken'));
+
+    const reply = await command(socket, 'obs.echo', 5);
+    expect(resultOf(reply)).to.equal(5);
+  });
+
+  it('records a malformed request as invalid_argument', async () => {
+    const reply = (await socket.timeout(5000).emitWithAck('cmd', { nonsense: true })) as { ok: boolean };
+    expect(reply.ok).to.be.false;
+
+    const text = await (DI.resolve(Metrics) as Metrics).render();
+    expect(text).to.contain('socket_commands_total{command="<unknown>",code="invalid_argument"} 1');
+  });
+
+  it('records a duplicate in-flight id under the registered command', async () => {
+    const id = nextId();
+    const first = command(socket, 'obs.slow', undefined, { id });
+    await delay(50);
+    await command(socket, 'obs.slow', undefined, { id });
+    await first;
+
+    const text = await (DI.resolve(Metrics) as Metrics).render();
+    expect(text).to.contain('socket_commands_total{command="obs.slow",code="invalid_argument"} 1');
   });
 
   it('releases the connection gauge on disconnect', async () => {

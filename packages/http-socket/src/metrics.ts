@@ -8,7 +8,7 @@ export const SOCKET_METRIC_KEY_DURATION = 'command_duration_seconds';
 export const SOCKET_METRIC_KEY_CONNECTIONS = 'connections';
 export const SOCKET_DURATION_BUCKETS_SECONDS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 /** Label of a command no handler is registered for: names come from the client and must not reach label values. */
-export const SOCKET_UNKNOWN_COMMAND = 'unknown';
+export const SOCKET_UNKNOWN_COMMAND = '<unknown>';
 
 const SOCKET_METRIC_DEFS: MetricDef[] = [
   { name: SOCKET_METRIC_KEY_COMMANDS, help: 'Socket commands answered, by command and reply code', type: 'counter', labelNames: ['command', 'code'] },

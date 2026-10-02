@@ -146,10 +146,24 @@ export class SocketDispatcher extends AsyncService {
 
   protected observe(ctx: SocketCommandContext, reply: CommandReply, ms: number): void {
     const code = reply.ok ? 'ok' : reply.error.code;
-    this.Log.debug(`socket command ${ctx.request.name} ${code} ${Math.round(ms)}ms connection ${ctx.connection.id}`);
-    // only registered names are labels; a refusal before lookup still resolves the name here
-    const label = (ctx.handler ?? this.Registry.command(ctx.request.name))?.fullName ?? SOCKET_UNKNOWN_COMMAND;
-    observeCommand(label, code, ms / 1000);
+
+    // observability must never turn into a missing reply
+    try {
+      this.Log.debug(`socket command ${ctx.request.name} ${code} ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+      // only registered names are labels; a refusal before lookup still resolves the name here
+      observeCommand((ctx.handler ?? this.Registry.command(ctx.request.name))?.fullName ?? SOCKET_UNKNOWN_COMMAND, code, ms / 1000);
+    } catch {
+      // swallowed on purpose
+    }
+  }
+
+  /** Refusals answered before `execute`. */
+  protected observeRefused(name: string | null): void {
+    try {
+      observeCommand((name !== null ? this.Registry.command(name)?.fullName : undefined) ?? SOCKET_UNKNOWN_COMMAND, 'invalid_argument', 0);
+    } catch {
+      // swallowed on purpose
+    }
   }
 
   protected onCommand(runtime: IConnectionRuntime, raw: unknown, ack: unknown): void {
@@ -162,11 +176,13 @@ export class SocketDispatcher extends AsyncService {
 
     if (!isCommandRequest(raw)) {
       const id = typeof (raw as { id?: unknown } | null)?.id === 'string' ? (raw as { id: string }).id : '';
+      this.observeRefused(null);
       reply({ id, ok: false, error: new SocketException('invalid_argument', 'malformed command request').toWire() });
       return;
     }
 
     if (runtime.running.has(raw.id)) {
+      this.observeRefused(raw.name);
       reply({ id: raw.id, ok: false, error: new SocketException('invalid_argument', 'request id already in flight').toWire() });
       return;
     }
