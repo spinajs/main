@@ -1,7 +1,7 @@
 import { Redis, RedisOptions } from 'ioredis';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/users';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
@@ -19,7 +19,7 @@ interface IStoredSession {
 }
 
 /**
- * Redis-backed session store (ioredis). Conforms to the `@spinajs/rbac`
+ * Redis-backed session store (ioredis). Conforms to the `@spinajs/users`
  * `SessionProvider` contract: ownership is the numeric `UserId`, expiration is
  * owned by the injected strategy (`this.Expiration`) and persisted verbatim, and
  * `Data` is (de)serialized with the shared session codec.
@@ -38,7 +38,7 @@ export class RedisSessionStore extends SessionProvider {
   @Logger('redis-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.redis')
+  @Config('authn.session.redis')
   protected RedisConfig: RedisOptions;
 
   protected Client: Redis;

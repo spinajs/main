@@ -4,7 +4,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm, extractModelDescriptor } from '@spinajs/orm';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 import { Controllers, HttpServer } from '@spinajs/http';
-import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/rbac-http';
+import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
 import { DbConfig } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
 import 'mocha';
@@ -315,7 +315,7 @@ describe('configuration-http rbac wiring', () => {
     expect(grants['admin.configuration'].configuration).to.have.property('read:any');
     expect(grants['admin.configuration'].configuration).to.have.property('update:any');
 
-    // admin ( and system, which extends admin in @spinajs/rbac ) inherits it
+    // admin ( and system, which extends admin in @spinajs/users ) inherits it
     expect(grants.admin.$extend).to.include('admin.configuration');
 
     // no other role defined by this module gets configuration access - it is

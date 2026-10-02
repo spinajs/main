@@ -2,12 +2,12 @@ import { IModelStatic, Orm } from '@spinajs/orm';
 import { BasePath, Ok, Post, Policy, BodyField, Param } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 import { Forbidden, ResourceNotFound, UnexpectedServerError } from '@spinajs/exceptions';
-import { User } from '@spinajs/rbac-http';
+import { User } from '@spinajs/authn-http';
 import _ from 'lodash';
 import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
-import { AccessControl, IRbacModelDescriptor, User as UserModel } from '@spinajs/rbac';
+import { AccessControl, IRbacModelDescriptor, User as UserModel } from '@spinajs/users';
 import { Permission } from 'accesscontrol';
 import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 

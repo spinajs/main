@@ -1,10 +1,10 @@
 import { BaseController, BasePath, Get, Post, Del, Ok, Param } from '@spinajs/http';
 
 /**
- * Test-only equivalent of rbac-http's @Resource decorator.
+ * Test-only equivalent of authn-http's @Resource decorator.
  * Writes metadata to the same global symbol (`Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL')`)
  * that http-swagger reads — so we can exercise RBAC extraction without depending
- * on @spinajs/rbac-http in this test suite.
+ * on @spinajs/authn-http in this test suite.
  */
 const ACL_SYMBOL = Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
 

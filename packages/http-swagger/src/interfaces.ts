@@ -165,7 +165,7 @@ export interface IOpenApiOperation {
   requestBody?: IOpenApiRequestBody;
   responses: Record<string, IOpenApiResponse>;
   security?: Record<string, string[]>[];
-  /** RBAC resource name (from rbac-http @Resource) */
+  /** RBAC resource name (from authn-http @Resource) */
   'x-rbac-resource'?: string;
   /**
    * Permissions accepted for this route (accesscontrol actions:

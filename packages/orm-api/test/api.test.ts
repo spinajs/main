@@ -4,7 +4,7 @@
 // import { Orm } from '@spinajs/orm';
 // import { TestConfiguration, req } from './common.js';
 // import { Controllers, HttpServer, BasePolicy, Request as sRequest } from '@spinajs/http';
-// import { RbacPolicy } from '@spinajs/rbac-http';
+// import { RbacPolicy } from '@spinajs/authn-http';
 
 // import 'mocha';
 // import sinon from 'sinon';

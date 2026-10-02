@@ -17,8 +17,8 @@
     { "path": "../http/tsconfig.json" },
     { "path": "../log/tsconfig.json" },
     { "path": "../orm/tsconfig.json" },
-    { "path": "../rbac/tsconfig.json" },
-    { "path": "../rbac-http/tsconfig.json" },
+    { "path": "../users/tsconfig.json" },
+    { "path": "../authn-http/tsconfig.json" },
     { "path": "../validation/tsconfig.json" }
   ]
 }

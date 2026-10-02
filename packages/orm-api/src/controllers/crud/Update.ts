@@ -1,6 +1,6 @@
 import { IModelStatic, Orm } from '@spinajs/orm';
 import { BasePath, Ok, Put, Policy, BodyField, Param } from '@spinajs/http';
-import { Permission } from '@spinajs/rbac-http';
+import { Permission } from '@spinajs/authn-http';
 import { Autoinject } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
@@ -8,7 +8,7 @@ import _ from 'lodash';
 import { ModelType } from '../../route-args/ModelType.js';
 import { FindModelType } from '../../policies/FindModelType.js';
 import { Log, Logger } from '@spinajs/log';
-import { AccessControl } from '@spinajs/rbac';
+import { AccessControl } from '@spinajs/users';
 import { Crud, _assertSingleColumnKey } from './../../interfaces.js';
 
 @BasePath('crud')

@@ -6,12 +6,12 @@ import { DI, Bootstrapper } from '@spinajs/di';
 import '../src/index.js';
 import { DbSessionStore } from '../src/index.js';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/users';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration } from '../../users/test/conformance/session-provider-conformance.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -33,7 +33,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             db: {
               cleanupInterval: 1000,
@@ -82,7 +82,7 @@ export class ConnectionConf extends FrameworkConfiguration {
 async function boot() {
   DI.clearCache();
 
-  // importing @spinajs/rbac registers ORM query middleware that depends on the
+  // importing @spinajs/users registers ORM query middleware that depends on the
   // AccessControl instance provided by RbacBootstrapper — run bootstrappers as a
   // real app would before touching the Orm.
   const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
@@ -112,7 +112,7 @@ describe('db session provider', function () {
   runSessionProviderConformance(makeProvider);
 
   describe('DbSessionStore regressions', () => {
-    it('reads the correctly-spelled rbac.session.db.cleanupInterval config key (B2)', async () => {
+    it('reads the correctly-spelled authn.session.db.cleanupInterval config key (B2)', async () => {
       const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
 
       // The fixture sets cleanupInterval = 1000. With the historic typo

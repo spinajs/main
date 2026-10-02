@@ -253,9 +253,9 @@ export class OpenApiBuilder {
       });
     }
 
-    // RBAC metadata (from rbac-http @Resource / @Permission) — accessed via the
+    // RBAC metadata (from authn-http @Resource / @Permission) — accessed via the
     // global Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL') so http-swagger
-    // doesn't depend on rbac-http.
+    // doesn't depend on authn-http.
     const rbac = this.readRbacDescriptor(controller.instance);
 
     for (const [methodName, route] of descriptor.Routes) {
@@ -349,7 +349,7 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Read rbac-http's controller descriptor via the global metadata symbol.
+   * Read authn-http's controller descriptor via the global metadata symbol.
    * Returns undefined when the controller isn't RBAC-decorated.
    */
   private readRbacDescriptor(

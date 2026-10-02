@@ -5,9 +5,9 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src/index.js';
 import { DynamoDbSessionProvider } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/users';
 import { DateTime } from 'luxon';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration } from '../../users/test/conformance/session-provider-conformance.js';
 import { GetItemCommand, PutItemCommand, DeleteItemCommand, ScanCommand, DescribeTableCommand, CreateTableCommand, UpdateTimeToLiveCommand, DeleteTableCommand } from '@aws-sdk/client-dynamodb';
 
 chai.use(chaiAsPromised);
@@ -30,7 +30,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             aws: {
               table: 'rbac_sessions',

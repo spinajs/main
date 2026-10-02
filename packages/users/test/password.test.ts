@@ -1,0 +1,205 @@
+import 'mocha';
+import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { UnexpectedServerError } from '@spinajs/exceptions';
+import { join, normalize, resolve } from 'path';
+import chaiAsPromised from 'chai-as-promised';
+import * as chai from 'chai';
+
+import { BasicPasswordProvider, BasicPasswordValidationProvider } from '../src/password.js';
+import { PasswordProvider, PasswordValidationProvider } from '../src/interfaces.js';
+import { TestConfiguration } from './common.test.js';
+
+chai.use(chaiAsPromised);
+
+function dir(path: string) {
+  return resolve(normalize(join(process.cwd(), 'test', path)));
+}
+
+describe('Password provider tests', () => {
+  /**
+   * BasicPasswordProvider now carries @Config('authn.local.generator') and
+   * @AutoinjectService('authn.local.policy') fields, so - unlike at
+   * baseline - resolving PasswordProvider requires a Configuration and a
+   * PasswordValidationProvider to be registered too. Re-registered and
+   * re-resolved per test (rather than once in `before`) because afterEach
+   * clears the DI cache, and DI.get(Configuration) used by @Config is a
+   * synchronous cache read.
+   */
+  beforeEach(async () => {
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordProvider).as(PasswordProvider);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+
+    await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+  });
+
+  afterEach(async () => {
+    DI.clearCache();
+  });
+
+  it('Should hash password', async () => {
+    const provider = await DI.resolve(PasswordProvider);
+    const hashed = await provider.hash('bbbb');
+    expect(typeof hashed).to.be.eq('string');
+    expect(hashed.length).to.gt(12);
+  });
+
+  it('Should verify password', async () => {
+    const provider = await DI.resolve(PasswordProvider);
+    const ok = await provider.verify('$argon2i$v=19$m=4096,t=3,p=1$xS9IIsZik2It+PrdjFNKiA$3sEyHfIHLXObxIm8Jva5F18MNB9O+yOw4Lkh+P7+Sdk', 'bbbb');
+    const notok = await provider.verify('$argon2i$v=19$m=4096,t=3,p=1$xSddasddsaqPrdjFNKiA$3sEyHfIHLXObxIm8Jva5F18MNB9O+yOw4Lkh+P7+Sdk', 'bbbb');
+
+    expect(notok).to.be.false;
+    expect(ok).to.be.true;
+  });
+
+  it('Should generate password', async () => {
+    const provider = await DI.resolve(PasswordProvider);
+    const password = provider.generate();
+    expect(typeof password).to.be.eq('string');
+    expect(password.length).to.gt(1);
+  });
+});
+
+describe('BasicPasswordValidationProvider.describe', function () {
+  this.timeout(15000);
+
+  beforeEach(async () => {
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+    await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  const withRule = (rule: object, description?: string) => {
+    const cfg = DI.get(Configuration)!;
+    cfg.set('authn.local.policy.rule', rule);
+    cfg.set('authn.local.policy.description', description);
+    return DI.resolve(PasswordValidationProvider);
+  };
+
+  it('lifts minLength, maxLength and pattern out of the configured schema', async () => {
+    const provider = await withRule({ type: 'string', minLength: 8, maxLength: 64, pattern: '^(?=.*\d).{8,}$' });
+
+    expect(provider.describe()).to.deep.equal({ minLength: 8, maxLength: 64, pattern: '^(?=.*\d).{8,}$' });
+  });
+
+  it('carries the configured description verbatim and omits it when blank', async () => {
+    const described = await withRule({ type: 'string', minLength: 8 }, 'Eight characters at least');
+    expect(described.describe().description).to.equal('Eight characters at least');
+
+    DI.clearCache();
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+    await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+
+    const blank = await withRule({ type: 'string', minLength: 8 }, '   ');
+    expect(blank.describe()).to.deep.equal({ minLength: 8 });
+  });
+
+  it('says nothing about a schema that carries none of the three keywords', async () => {
+    const provider = await withRule({ type: 'string' });
+
+    expect(provider.describe()).to.deep.equal({});
+  });
+
+  it('describes the same rule check() enforces', async () => {
+    const provider = await withRule({ type: 'string', pattern: '^(?=.*\d).{8,}$' });
+    const regex = new RegExp(provider.describe().pattern!);
+
+    for (const candidate of ['short1', 'longenough', 'longenough1']) {
+      expect(regex.test(candidate), candidate).to.equal(provider.check(candidate));
+    }
+  });
+});
+
+describe('BasicPasswordProvider.generate', function () {
+  this.timeout(15000);
+
+  let provider: PasswordProvider;
+  let config: Configuration;
+
+  beforeEach(async () => {
+    DI.register(TestConfiguration).as(Configuration);
+    DI.register(BasicPasswordProvider).as(PasswordProvider);
+    DI.register(BasicPasswordValidationProvider).as(PasswordValidationProvider);
+
+    config = await DI.resolve(Configuration, [null, null, [dir('./config')]]);
+    provider = await DI.resolve(PasswordProvider);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('generates a password of the configured length from the configured characters', () => {
+    config.set('authn.local.generator', { length: 24, characters: ['abc', '123'] });
+
+    const password = provider.generate();
+
+    expect(password).to.have.lengthOf(24);
+    expect(password.split('').every((c) => 'abc123'.includes(c)), `unexpected character in ${password}`).to.eq(true);
+  });
+
+  /**
+   * The shipped default rule demands a digit. A uniform draw from an
+   * alphanumeric pool misses one often enough (~6% at length 16) that the
+   * generator must retry rather than hand back an invalid password.
+   */
+  it('always returns a password satisfying the validation rule', () => {
+    config.set('authn.local.generator', { length: 16, characters: ['abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] });
+    config.set('authn.local.policy.rule', { type: 'string', pattern: '^(?=.*\\d).{8,}$' });
+
+    for (let i = 0; i < 200; i++) {
+      expect(/^(?=.*\d).{8,}$/.test(provider.generate()), 'generated password must satisfy the configured rule').to.eq(true);
+    }
+  });
+
+  /**
+   * A pool that cannot satisfy the rule is a misconfiguration the caller cannot
+   * fix, so it must surface as a server error - never as a 400 on whoever
+   * happened to create an account.
+   */
+  it('throws a server error when the pool cannot satisfy the rule', () => {
+    config.set('authn.local.generator', { length: 16, characters: ['abcdef'] });
+    config.set('authn.local.policy.rule', { type: 'string', pattern: '^(?=.*\\d).{8,}$' });
+
+    expect(() => provider.generate()).to.throw(UnexpectedServerError);
+  });
+
+  it('does not repeat itself', () => {
+    const seen = new Set(Array.from({ length: 50 }, () => provider.generate()));
+    expect(seen.size, 'generated passwords must not collide').to.eq(50);
+  });
+
+  /**
+   * Regression coverage for the rbac-http-admin break under commit 53c8845:
+   * that test harness declares its own `rbac` config block without merging
+   * rbac's shipped defaults underneath it, so `authn.local.generator` is
+   * absent there entirely (not just missing a field) - see the comment on
+   * `users.actions` in packages/users-http/test/admin-common.ts, and the
+   * `_cfg(path, [])` fallback in `_create_middleware`
+   * (packages/users/src/actions.ts) for the same class of problem.
+   *
+   * An application that never declares the key must still be able to create
+   * users, so generate() falls back to DEFAULT_GENERATOR (src/password.ts).
+   * A pool that *is* declared but left empty is a different case - a real
+   * misconfiguration - and must keep throwing.
+   */
+  it('falls back to the shipped default when authn.local.generator is not declared, but still throws when it is declared with an empty pool', () => {
+    // TestConfiguration (./common.test.js) does not declare authn.local.generator.
+    const password = provider.generate();
+
+    expect(password).to.have.lengthOf(16);
+    expect(/^(?=.*\d).{8,}$/.test(password), `generated password ${password} must satisfy the default validation rule`).to.eq(true);
+
+    config.set('authn.local.generator', { length: 16, characters: [] });
+
+    expect(() => provider.generate()).to.throw(UnexpectedServerError);
+  });
+});

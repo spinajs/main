@@ -14,7 +14,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { DateTime } from 'luxon';
 
-import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/rbac';
+import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/users';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Logger, Log } from '@spinajs/log';
@@ -22,7 +22,7 @@ import { Logger, Log } from '@spinajs/log';
 type AttributeMap = Record<string, AttributeValue>;
 
 /**
- * DynamoDB-backed session store. Conforms to the `@spinajs/rbac`
+ * DynamoDB-backed session store. Conforms to the `@spinajs/users`
  * `SessionProvider` contract: ownership is the numeric `UserId` (persisted as
  * its own top-level attribute), expiration is owned by the injected strategy
  * (`this.Expiration`) and persisted verbatim, and `Data` is (de)serialized with
@@ -34,21 +34,21 @@ export class DynamoDbSessionProvider extends SessionProvider {
   @Logger('dynamo-session-store')
   protected Log: Log;
 
-  @Config('rbac.session.aws.table')
+  @Config('authn.session.aws.table')
   protected Table: string;
 
-  @Config('rbac.session.aws.config')
+  @Config('authn.session.aws.config')
   protected AwsConfig: any;
 
-  @Config('rbac.session.aws.configPath')
+  @Config('authn.session.aws.configPath')
   protected ConfigPath: any;
 
-  @Config('rbac.session.aws.readCapacityUnits', {
+  @Config('authn.session.aws.readCapacityUnits', {
     defaultValue: 10,
   })
   protected ReadCapacityUnits: any;
 
-  @Config('rbac.session.aws.writeCapacityUnits', {
+  @Config('authn.session.aws.writeCapacityUnits', {
     defaultValue: 10,
   })
   protected WriteCapacityUnits: any;

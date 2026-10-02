@@ -6,9 +6,9 @@ import { DI } from '@spinajs/di';
 import RedisMock from 'ioredis-mock';
 import '../src/index.js';
 import { RedisSessionStore } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/users';
 import { DateTime } from 'luxon';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../rbac/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration } from '../../users/test/conformance/session-provider-conformance.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -30,7 +30,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             // connection opts are irrelevant — the test injects an ioredis-mock
             // client and stubs resolve() so no real connection is opened.

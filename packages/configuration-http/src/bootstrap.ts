@@ -1,7 +1,7 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { extractModelDescriptor } from '@spinajs/orm';
 import { DbConfig } from '@spinajs/configuration-db-source';
-import { IRbacModelDescriptor } from '@spinajs/rbac';
+import { IRbacModelDescriptor } from '@spinajs/users';
 
 /**
  * Ties the `DbConfig` model to the `configuration` RBAC resource.

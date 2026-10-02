@@ -6,7 +6,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { DI } from '@spinajs/di';
 import '../src';
 import { DynamoDbSessionProvider } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/rbac';
+import { UserSession as Session } from '@spinajs/users';
 import { DateTime } from 'luxon';
 
 chai.use(chaiAsPromised);
@@ -19,7 +19,7 @@ export class ConnectionConf extends FrameworkConfiguration {
     _.mergeWith(
       this.Config,
       {
-        rbac: {
+        authn: {
           session: {
             aws: {
               table: 'rbac_sessions',

@@ -85,7 +85,7 @@ export class MemoryThrottleStore extends ThrottleStore {
 
 /**
  * Per-ip, per-route rate limiting. Complements ( does NOT replace ) the
- * per-account lockout in `@spinajs/rbac` - this one caps request volume from
+ * per-account lockout in `@spinajs/users` - this one caps request volume from
  * one address before any handler runs, the lockout counts failures against the
  * account no matter where they come from.
  *

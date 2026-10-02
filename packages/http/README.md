@@ -240,7 +240,7 @@ export class AdminController extends BaseController {
 Policies can also be referenced **by configuration key** — the key must resolve to a registered policy type name:
 
 ```ts
-@Policy('rbac.session.policy')      // read from configuration at startup
+@Policy('authn.session.policy')      // read from configuration at startup
 ```
 
 A config key that does not resolve to a registered `BasePolicy` throws `RouteRegistrationException` at startup — a silently dropped policy would leave the route unprotected.
@@ -380,5 +380,5 @@ The command exits non-zero when any controller fails to parse, failing the image
 
 - `@spinajs/http-swagger` — OpenAPI document generation from controller JSDoc
 - `@spinajs/orm-http` — `@Model()` route arg, ORM-aware responses
-- `@spinajs/rbac-http` — session / role policies
+- `@spinajs/authn-http` — session / role policies
 - `@spinajs/templates-pug` — HTML rendering for `TemplateResponse` and error pages

@@ -3,7 +3,7 @@ import { Migration, OrmMigration, OrmDriver, ReferentialAction } from '@spinajs/
 /**
  * Creates the `user_sessions` table.
  *
- * The timestamp is deliberately later than `@spinajs/rbac`'s `RBACInitial_2022_06_28_01_13_00`,
+ * The timestamp is deliberately later than `@spinajs/users`'s `RBACInitial_2022_06_28_01_13_00`,
  * because the foreign key below references `users`, which that migration creates. When
  * `session-provider-connection` is an alias of the default connection - the usual setup, and what
  * `db.Aliases` exists for - both migrations resolve to the same `OrmDriver`, so

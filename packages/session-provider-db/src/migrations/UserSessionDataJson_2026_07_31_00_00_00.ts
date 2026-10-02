@@ -36,7 +36,7 @@ import { columnNativeType, isMySqlDialect, isTextFamily } from '../migration-sup
  * `assertNoFailed()` then refuses to run ANY migration on that connection ever
  * again: the application never boots without manual surgery on the tracking
  * table. Probing the target state first and returning early is the same shape
- * `@spinajs/rbac`'s `RBACRegisteredAt_2026_07_28_00_00_00` already uses, and it
+ * `@spinajs/users`'s `RBACRegisteredAt_2026_07_28_00_00_00` already uses, and it
  * makes the no-op case genuinely free rather than merely survivable.
  *
  * An unreadable probe skips too - see `columnNativeType`.

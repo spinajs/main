@@ -36,11 +36,7 @@
     { "path": "packages/queue-orm-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-stomp-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-templates-pdf/tsconfig.mjs.json" },
-    { "path": "packages/rbac/tsconfig.mjs.json" },
-    { "path": "packages/rbac-http/tsconfig.mjs.json" },
-    { "path": "packages/rbac-http-user/tsconfig.mjs.json" },
-    { "path": "packages/rbac-http-token/tsconfig.mjs.json" },
-    { "path": "packages/rbac-http-admin/tsconfig.mjs.json" },
+    { "path": "packages/users/tsconfig.mjs.json" },
     { "path": "packages/reflection/tsconfig.mjs.json" },
     { "path": "packages/session-provider-db/tsconfig.mjs.json" },
     { "path": "packages/session-provider-dynamodb/tsconfig.mjs.json" },
@@ -90,7 +86,8 @@
     { "path": "packages/authn-token/tsconfig.mjs.json" },
     { "path": "packages/authn-keys/tsconfig.mjs.json" },
     { "path": "packages/authn-http/tsconfig.mjs.json" },
-    { "path": "packages/authn-oidc/tsconfig.mjs.json" }
+    { "path": "packages/authn-oidc/tsconfig.mjs.json" },
+    { "path": "packages/users-http/tsconfig.mjs.json" }
 
 
 

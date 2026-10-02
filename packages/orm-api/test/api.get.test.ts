@@ -4,7 +4,7 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { TestConfiguration, FakeRbacPolicy, req } from './common.js';
 import { Controllers, HttpServer } from '@spinajs/http';
-import { RbacPolicy } from '@spinajs/rbac-http';
+import { RbacPolicy } from '@spinajs/authn-http';
 import { v4 as uuidv4 } from 'uuid';
 import { expect } from 'chai';
 import sinon from 'sinon';
@@ -15,7 +15,7 @@ import { Test } from './models/Test.js';
 import { Test2 } from './models/Test2.js';
 import '../src/PlainJsonCollectionTransformer.js';
 import '../src/index.js';
-import { User } from '@spinajs/rbac';
+import { User } from '@spinajs/users';
 import { DateTime } from 'luxon';
 
 describe('crud tests', function () {
