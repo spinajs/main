@@ -2,6 +2,8 @@ import { CommandRequest, SocketException } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketCommandContext } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 export class SocketCommandContext implements ISocketCommandContext {
   public readonly kind = 'command' as const;
   public readonly receivedAt = Date.now();
@@ -34,7 +36,7 @@ export class SocketCommandContext implements ISocketCommandContext {
   }
 
   public armDeadline(ms: number | undefined): void {
-    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || this.controller.signal.aborted) {
       return;
     }
 
@@ -48,7 +50,21 @@ export class SocketCommandContext implements ISocketCommandContext {
       clearTimeout(this.timer);
     }
 
-    this.timer = setTimeout(() => this.abort(new SocketException('deadline_exceeded', `command ${this.request.name} exceeded its deadline of ${ms} ms`)), Math.max(0, at - Date.now()));
+    this.schedule(ms);
+  }
+
+  protected schedule(ms: number): void {
+    // setTimeout fires at once for a delay above 2^31-1 ms; a longer deadline is reached in several steps
+    this.timer = setTimeout(
+      () => {
+        if (Date.now() < this.deadlineAt) {
+          this.schedule(ms);
+          return;
+        }
+        this.abort(new SocketException('deadline_exceeded', `command ${this.request.name} exceeded its deadline of ${ms} ms`));
+      },
+      Math.min(MAX_TIMER_DELAY_MS, Math.max(0, this.deadlineAt - Date.now())),
+    );
   }
 
   public dispose(): void {
