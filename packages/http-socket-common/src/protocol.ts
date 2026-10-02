@@ -138,13 +138,7 @@ export function isCommandRequest(value: unknown): value is CommandRequest {
     return false;
   }
 
-  return (
-    isId(value.id) &&
-    isName(value.name) &&
-    (value.idempotencyKey === undefined || typeof value.idempotencyKey === 'string') &&
-    (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) &&
-    (value.traceparent === undefined || typeof value.traceparent === 'string')
-  );
+  return isId(value.id) && isName(value.name) && (value.idempotencyKey === undefined || typeof value.idempotencyKey === 'string') && (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) && (value.traceparent === undefined || typeof value.traceparent === 'string');
 }
 
 export function isEventFrame(value: unknown): value is EventFrame {

@@ -1,31 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import {
-  ClientEventName,
-  ClientEventPayload,
-  CommandName,
-  CommandPayload,
-  CommandResult,
-  ContractOf,
-  DEFAULT_RETRYABLE,
-  ERROR_CODES,
-  ErrorCode,
-  EventName,
-  EventPayload,
-  MAX_ID_LENGTH,
-  MAX_NAME_LENGTH,
-  NAME_PATTERN,
-  PROTOCOL_VERSION,
-  SYSTEM_EVENTS,
-  SocketException,
-  WIRE_EVENTS,
-  defineContract,
-  isCancelFrame,
-  isCommandRequest,
-  isErrorCode,
-  isEventFrame,
-  isSocketError,
-} from '../src/index.js';
+import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, MAX_ID_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isSocketError } from '../src/index.js';
 
 type DocsContract = {
   commands: { 'docs.open': [{ id: string }, { title: string }] };

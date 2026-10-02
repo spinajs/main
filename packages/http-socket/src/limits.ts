@@ -27,11 +27,7 @@ export class TokenBucket {
   protected tokens: number;
   protected last: number;
 
-  constructor(
-    protected readonly perSecond: number,
-    protected readonly burst: number,
-    protected readonly now: () => number = () => performance.now(),
-  ) {
+  constructor(protected readonly perSecond: number, protected readonly burst: number, protected readonly now: () => number = () => performance.now()) {
     this.tokens = burst;
     this.last = now();
   }
