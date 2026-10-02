@@ -1,5 +1,5 @@
 import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
-import { MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isSocketError, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
+import { DEFAULT_RETRYABLE, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isErrorCode, isSocketError, type DisconnectNotice, type ErrorCode, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
 import { Emitter } from './emitter.js';
 import { ReconnectPolicy, type ReconnectOptions } from './reconnect.js';
 
@@ -29,6 +29,7 @@ export interface ConnectionEvents {
   state: (state: ConnectionState, previous: ConnectionState) => void;
   auth_required: (error: SocketError) => void;
   incompatible: (error: SocketError) => void;
+  refused: (error: SocketError) => void;
 }
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 20_000;
@@ -51,6 +52,7 @@ export class Connection {
   // bumped whenever an attempt is abandoned, so a late auth callback cannot revive it
   private attemptId = 0;
   private retryAfterMs: number | undefined;
+  private kickCode: ErrorCode | undefined;
   private retryTimer: Timer | undefined;
   private connectTimer: Timer | undefined;
 
@@ -78,7 +80,7 @@ export class Connection {
     });
     this.socket.on('connect', () => this.onConnect());
     this.socket.on('connect_error', (error: Error) => this.onConnectError(error));
-    this.socket.on('disconnect', () => this.onDisconnect());
+    this.socket.on('disconnect', (reason: string) => this.onDisconnect(reason));
     this.socket.on(WIRE_EVENTS.event, (frame: EventFrame) => this.onEventFrame(frame));
   }
 
@@ -93,8 +95,8 @@ export class Connection {
   public connect(): void {
     if (this.current === 'closed') throw new Error('the client is closed');
     this.stopped = false;
-    this.retryAfterMs = undefined;
     if (this.current !== 'offline') return;
+    this.retryAfterMs = undefined;
     this.attempt = 0;
     this.clearTimers();
     this.open();
@@ -168,6 +170,7 @@ export class Connection {
     this.clearTimers();
     this.attempt = 0;
     this.retryAfterMs = undefined;
+    this.kickCode = undefined;
     this.setState('online');
   }
 
@@ -176,23 +179,35 @@ export class Connection {
     if (this.stopped) return;
     const data = (error as Error & { data?: unknown }).data;
     if (isSocketError(data)) {
-      if (data.code === 'unauthenticated') return this.halt('auth_required', data);
-      if (data.code === 'version_mismatch') return this.halt('incompatible', data);
+      if (data.code === 'unauthenticated' || data.code === 'version_mismatch' || data.retryable === false) return this.haltFor(data);
       if (data.retryAfterMs !== undefined) this.retryAfterMs = data.retryAfterMs;
     }
     this.scheduleRetry();
   }
 
-  private onDisconnect(): void {
+  private onDisconnect(reason: string): void {
+    const kickCode = this.kickCode;
+    this.kickCode = undefined;
     // socket.io re-sends what it buffered during a drop once it reconnects; only the durable
     // queue may re-send a command, and only with an idempotency key
     this.socket.sendBuffer = [];
     if (this.current === 'closed') return;
     this.setState('offline');
-    if (!this.stopped) this.scheduleRetry();
+    if (this.stopped) return;
+    // a sys.disconnect listener that wanted no reconnect has already called disconnect()
+    if (kickCode !== undefined && reason === 'io server disconnect') {
+      return this.haltFor({ code: kickCode, message: `the server disconnected the client: ${kickCode}`, retryable: false });
+    }
+    this.scheduleRetry();
   }
 
   private onEventFrame(frame: EventFrame): void {
+    if (frame?.name === SYSTEM_EVENTS.disconnect) {
+      // W1 sends the error code of the kick as the reason
+      const reason = (frame.payload as Partial<DisconnectNotice> | undefined)?.reason;
+      this.kickCode = isErrorCode(reason) && !DEFAULT_RETRYABLE[reason] ? reason : undefined;
+      return;
+    }
     if (frame?.name !== SYSTEM_EVENTS.shutdown) return;
     const retryAfterMs = (frame.payload as Partial<ShutdownNotice> | undefined)?.retryAfterMs;
     if (typeof retryAfterMs === 'number') this.retryAfterMs = retryAfterMs;
@@ -204,7 +219,11 @@ export class Connection {
     this.scheduleRetry();
   }
 
-  private halt(event: 'auth_required' | 'incompatible', error: SocketError): void {
+  private haltFor(error: SocketError): void {
+    this.halt(error.code === 'unauthenticated' ? 'auth_required' : error.code === 'version_mismatch' ? 'incompatible' : 'refused', error);
+  }
+
+  private halt(event: 'auth_required' | 'incompatible' | 'refused', error: SocketError): void {
     this.stopped = true;
     this.abortAttempt();
     this.setState('offline');

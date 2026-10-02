@@ -33,6 +33,8 @@ export interface ClientLifecycleEvents {
   state: (state: ConnectionState, previous: ConnectionState) => void;
   auth_required: (error: SocketError) => void;
   incompatible: (error: SocketError) => void;
+  /** The server refused the connection for a reason no retry can fix (forbidden, invalid_argument …); connect() tries again. */
+  refused: (error: SocketError) => void;
   /** Reserved for durable commands: an outbox entry the server refused for good. */
   failed: (event: FailedCommand) => void;
 }
@@ -40,7 +42,7 @@ export interface ClientLifecycleEvents {
 export type LifecycleEventName = keyof ClientLifecycleEvents;
 
 /** Names `on()` routes to client lifecycle listeners; server events with these names are unreachable. */
-export const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set<LifecycleEventName>(['state', 'auth_required', 'incompatible', 'failed']);
+export const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set<LifecycleEventName>(['state', 'auth_required', 'incompatible', 'refused', 'failed']);
 
 export type ServerEventListener<T = unknown> = (payload: T) => void;
 export type Unsubscribe = () => void;
@@ -79,6 +81,7 @@ export class SocketClient {
     this.connection.events.on('state', (state, previous) => this.lifecycle.emit('state', state, previous));
     this.connection.events.on('auth_required', (error) => this.lifecycle.emit('auth_required', error));
     this.connection.events.on('incompatible', (error) => this.lifecycle.emit('incompatible', error));
+    this.connection.events.on('refused', (error) => this.lifecycle.emit('refused', error));
     this.connection.listen(WIRE_EVENTS.event, (frame: EventFrame) => {
       if (typeof frame?.name === 'string') this.serverEvents.emit(frame.name, frame.payload);
     });
