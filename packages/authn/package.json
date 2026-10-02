@@ -39,6 +39,7 @@
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
     "pretest": "npm run compile && npm run compile:cjs && cd ../.. && node scripts/generate-packages-for-modules.mjs",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
+    "api:check": "ts-mocha -p tsconfig.json --grep \"authn api snapshot\"",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
     "format": "prettier --write \"src/**/*.ts\"",
