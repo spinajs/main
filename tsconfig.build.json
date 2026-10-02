@@ -10,6 +10,7 @@
     { "path": "packages/internal-logger/tsconfig.mjs.json" },
     { "path": "packages/log-common/tsconfig.mjs.json" },
     { "path": "packages/telemetry-common/tsconfig.mjs.json" },
+    { "path": "packages/http-socket-common/tsconfig.mjs.json" },
     { "path": "packages/util/tsconfig.mjs.json" },
     { "path": "packages/fs/tsconfig.mjs.json" },
     { "path": "packages/electron/tsconfig.mjs.json" },
