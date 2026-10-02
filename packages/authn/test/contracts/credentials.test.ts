@@ -22,9 +22,9 @@ const facts: Omit<AuthnFacts, 'authenticatedAt'> = { method: 'password', strateg
 const user: IdentityRef = { type: 'user', id: 'u1' };
 
 describe('credential, context and result contracts', () => {
-  it('has no runtime exports', () => {
+  it('has no runtime exports besides SessionIssuer', () => {
     expect(Object.keys(credentialsModule)).to.deep.eq([]);
-    expect(Object.keys(sessionModule)).to.deep.eq([]);
+    expect(Object.keys(sessionModule)).to.deep.eq(['SessionIssuer']);
   });
 
   it('re-exports every type from the contracts index', () => {
