@@ -70,7 +70,27 @@
     { "path": "packages/log-otlp/tsconfig.mjs.json" },
     { "path": "packages/queue-amqp-transport/tsconfig.mjs.json" },
     { "path": "packages/queue-sqs-transport/tsconfig.mjs.json" },
-    { "path": "packages/session-provider-redis/tsconfig.mjs.json" }
+    { "path": "packages/session-provider-redis/tsconfig.mjs.json" },
+    { "path": "packages/authz/tsconfig.mjs.json" },
+    { "path": "packages/authz-testing/tsconfig.mjs.json" },
+    { "path": "packages/authz-rbac/tsconfig.mjs.json" },
+    { "path": "packages/authz-abac/tsconfig.mjs.json" },
+    { "path": "packages/authz-orm/tsconfig.mjs.json" },
+    { "path": "packages/authz-http/tsconfig.mjs.json" },
+    { "path": "packages/authz-http-admin/tsconfig.mjs.json" },
+    { "path": "packages/authz-queue/tsconfig.mjs.json" },
+    { "path": "packages/authz-fs/tsconfig.mjs.json" },
+    { "path": "packages/authz-convert/tsconfig.mjs.json" },
+    { "path": "packages/authn/tsconfig.mjs.json" },
+    { "path": "packages/authn-testing/tsconfig.mjs.json" },
+    { "path": "packages/authn-orm/tsconfig.mjs.json" },
+    { "path": "packages/authn-session/tsconfig.mjs.json" },
+    { "path": "packages/authn-local/tsconfig.mjs.json" },
+    { "path": "packages/authn-totp/tsconfig.mjs.json" },
+    { "path": "packages/authn-token/tsconfig.mjs.json" },
+    { "path": "packages/authn-keys/tsconfig.mjs.json" },
+    { "path": "packages/authn-http/tsconfig.mjs.json" },
+    { "path": "packages/authn-oidc/tsconfig.mjs.json" }
 
 
 
