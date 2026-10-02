@@ -1,17 +1,6 @@
 import { Injectable } from '@spinajs/di';
+import { untilAborted } from '../limits.js';
 import { ISocketCommandContext, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
-
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(signal.reason);
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
-    signal.addEventListener('abort', onAbort, { once: true });
-    void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
-  });
-}
 
 /**
  * Holds a command until the connection's connect hooks are done. After the size, rate and in-flight

@@ -1,5 +1,5 @@
 import { SocketException } from '@spinajs/http-socket-common';
-import type { ISocketServerConfig } from './interfaces.js';
+import type { IConnectionRuntime, ISocketServerConfig } from './interfaces.js';
 
 /**
  * Wire size of a command payload: the UTF-8 length of its JSON form plus the bytes of every
@@ -83,11 +83,17 @@ export function assertRate(bucket: TokenBucket): void {
   }
 }
 
-export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate'>): void {
+export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate' | 'maxInFlightEventsPerConnection'>): void {
   const { perSecond, burst } = options.rate;
 
   if (!(perSecond > 0) || !(burst > 0)) {
     throw new RangeError(`http.socket.rate.perSecond and burst must be positive numbers, got perSecond ${perSecond}, burst ${burst}`);
+  }
+
+  // a cap below the burst would drop events the rate limit lets through
+  const cap = options.maxInFlightEventsPerConnection;
+  if (!(Number.isInteger(cap) && cap > 0 && cap >= burst)) {
+    throw new RangeError(`http.socket.maxInFlightEventsPerConnection must be an integer of at least rate.burst ( ${burst} ), got ${String(cap)}`);
   }
 }
 
@@ -105,4 +111,30 @@ export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'orderin
   if (!(typeof grace === 'number' && grace > 0)) {
     throw new RangeError(`http.socket.ordering.abortGraceMs must be a positive number, got ${String(grace)}`);
   }
+}
+
+/** Runs `work` holding one of `max` slots of the counter, refusing when none is free; the slot is given back when `work` settles. */
+export async function withSlot<T>(runtime: IConnectionRuntime, counter: 'inFlight' | 'eventsInFlight', max: number, work: () => Promise<T>, retryAfterMs?: number): Promise<T> {
+  if (runtime[counter] >= max) {
+    throw new SocketException('resource_exhausted', `more than ${max} calls in flight on this connection`, retryAfterMs === undefined ? undefined : { retryAfterMs });
+  }
+
+  runtime[counter]++;
+  try {
+    return await work();
+  } finally {
+    runtime[counter]--;
+  }
+}
+
+export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }

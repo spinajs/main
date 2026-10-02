@@ -9,7 +9,7 @@ import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCall
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate } from './limits.js';
+import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
@@ -77,6 +77,7 @@ export class SocketDispatcher extends AsyncService {
       connection,
       bucket: new TokenBucket(this.Options.rate.perSecond, this.Options.rate.burst),
       inFlight: 0,
+      eventsInFlight: 0,
       running: new Map(),
       ready: Promise.resolve(),
     };
@@ -198,40 +199,38 @@ export class SocketDispatcher extends AsyncService {
       return;
     }
 
-    let counted = false;
     try {
       // before waiting for the connect hooks, so a flood sent while they run is not queued
       assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
       assertRate(runtime.bucket);
 
-      const max = this.Options.maxInFlightPerConnection;
-      if (runtime.inFlight >= max) {
-        throw new SocketException('resource_exhausted', `more than ${max} calls in flight on this connection`);
-      }
-      runtime.inFlight++;
-      counted = true;
-
-      await runtime.ready;
-      // closes the connection itself when the principal is no longer valid
-      await this.Guard.ensure(connection);
-
-      const handler = this.Registry.event(frame.name);
-      if (!handler) {
-        this.Log.debug(`Unknown socket event ${frame.name} from connection ${connection.id}, dropped`);
-        return;
-      }
-
-      // built after ensure(): a revalidation may have adopted a renewed principal
-      const ctx: ISocketCallContext = { kind: 'event', connection, handler, payload: frame.payload, signal: connection.signal, storage: this.callStorage(connection, frame.name) };
-      await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
-      await this.call(ctx, handler);
+      await withSlot(runtime, 'eventsInFlight', this.Options.maxInFlightEventsPerConnection, () => this.runEvent(runtime, frame.name, frame.payload));
     } catch (err) {
-      this.dropped(runtime, frame.name, err);
-    } finally {
-      if (counted) {
-        runtime.inFlight--;
+      // a disconnect that ended the wait for the connect hooks is not a failure worth a line
+      if (err !== connection.signal.reason || !connection.signal.aborted) {
+        this.dropped(runtime, frame.name, err);
       }
     }
+  }
+
+  protected async runEvent(runtime: IConnectionRuntime, name: string, payload: unknown): Promise<void> {
+    const connection = runtime.connection;
+
+    // a disconnect frees the slot and drops the event while the connect hooks still run
+    await untilAborted(runtime.ready, connection.signal);
+    // closes the connection itself when the principal is no longer valid
+    await this.Guard.ensure(connection);
+
+    const handler = this.Registry.event(name);
+    if (!handler) {
+      this.Log.debug(`Unknown socket event ${name} from connection ${connection.id}, dropped`);
+      return;
+    }
+
+    // built after ensure(): a revalidation may have adopted a renewed principal
+    const ctx: ISocketCallContext = { kind: 'event', connection, handler, payload, signal: connection.signal, storage: this.callStorage(connection, name) };
+    await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
+    await this.call(ctx, handler);
   }
 
   /** A client can make every event fail, so refusals must not turn into one warn each. */
@@ -257,7 +256,9 @@ export class SocketDispatcher extends AsyncService {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       timer = setTimeout(() => {
-        this.Log.error(`Socket connect hooks of connection ${id} still running after ${ms} ms; its commands and events no longer wait for them`);
+        if (this.runtimes.get(id) === runtime) {
+          this.Log.error(`Socket connect hooks of connection ${id} still running after ${ms} ms; its commands and events no longer wait for them`);
+        }
         resolve();
       }, ms);
       timer.unref?.();

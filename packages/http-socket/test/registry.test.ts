@@ -5,6 +5,7 @@ import { BasePolicy } from '@spinajs/http';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, OnConnect, OnDisconnect, OnEvent, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
+import { MAX_NAME_LENGTH } from '@spinajs/http-socket-common';
 import { configure } from './harness.js';
 
 export class RegAllow extends BasePolicy {
@@ -45,6 +46,16 @@ export class RegDupTwo extends BaseSocketController {
 
 export class RegOrphan extends BaseSocketController {
   public async orphan(@Payload() _payload: unknown): Promise<void> {}
+}
+
+export class RegBadName extends BaseSocketController {
+  @OnEvent('reg-name.has space')
+  public async spaced(): Promise<void> {}
+}
+
+export class RegLongName extends BaseSocketController {
+  @Command('reg-long.' + 'x'.repeat(MAX_NAME_LENGTH))
+  public async long(): Promise<void> {}
 }
 
 describe('socket handler registry', function () {
@@ -99,6 +110,17 @@ describe('socket handler registry', function () {
       await expect(registry.build()).to.be.rejectedWith(/RegOrphan::orphan has socket parameter or policy decorators but no/);
     } finally {
       DI.unregister(RegOrphan);
+    }
+  });
+
+  it('refuses command and event names the wire would reject', async () => {
+    for (const type of [RegBadName, RegLongName]) {
+      DI.register(type).as(BaseSocketController);
+      try {
+        await expect(registry.build()).to.be.rejectedWith(/is not a valid socket (command|event) name/);
+      } finally {
+        DI.unregister(type);
+      }
     }
   });
 

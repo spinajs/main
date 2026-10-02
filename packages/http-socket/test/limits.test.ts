@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { SocketException } from '@spinajs/http-socket-common';
-import { TokenBucket, assertHooksConfig, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
+import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertPayloadSize, assertRate, payloadSize } from '../src/limits.js';
 
 describe('socket limit primitives', () => {
   describe('payloadSize', () => {
@@ -102,6 +102,21 @@ describe('socket limit primitives', () => {
         expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: bad as number } }), String(bad)).to.throw(RangeError);
       }
       expect(() => assertHooksConfig({ hooks: { connectTimeoutMs: 1 } })).not.to.throw();
+    });
+  });
+
+  describe('assertLimitsConfig', () => {
+    const ok = { rate: { perSecond: 50, burst: 100 }, maxInFlightPerConnection: 32, maxInFlightEventsPerConnection: 128 };
+
+    it('accepts the defaults and an event cap equal to the burst', () => {
+      expect(() => assertLimitsConfig(ok)).not.to.throw();
+      expect(() => assertLimitsConfig({ ...ok, maxInFlightEventsPerConnection: 100 })).not.to.throw();
+    });
+
+    it('refuses an event cap that is not an integer or is below the burst', () => {
+      for (const bad of [0, -1, 1.5, 99, Number.NaN, undefined]) {
+        expect(() => assertLimitsConfig({ ...ok, maxInFlightEventsPerConnection: bad as number }), String(bad)).to.throw(RangeError);
+      }
     });
   });
 });

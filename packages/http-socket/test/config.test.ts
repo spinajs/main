@@ -8,6 +8,7 @@ describe('http-socket default configuration', () => {
     expect(socket.path).to.equal('/socket.io');
     expect(socket.maxPayloadBytes).to.equal(1024 * 1024);
     expect(socket.maxInFlightPerConnection).to.equal(32);
+    expect(socket.maxInFlightEventsPerConnection).to.equal(128);
     expect(socket.recovery).to.deep.equal({ maxDisconnectionMs: 120_000 });
     expect(socket.idempotency).to.deep.equal({ service: 'MemoryIdempotencyStore', ttlMs: 600_000 });
     expect(socket.drainMs).to.equal(5_000);

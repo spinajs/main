@@ -23,6 +23,7 @@ const config: ISocketConfigFile = {
       },
       maxPayloadBytes: 1024 * 1024,
       maxInFlightPerConnection: 32,
+      maxInFlightEventsPerConnection: 128,
       rate: {
         perSecond: 50,
         burst: 100,

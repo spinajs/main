@@ -44,13 +44,20 @@ export interface ISocketServerConfig {
   pingTimeout: number;
   recovery: { maxDisconnectionMs: number };
   maxPayloadBytes: number;
+  /** commands running on one connection at once */
   maxInFlightPerConnection: number;
+  /** events running or waiting on one connection at once, apart from the command slots; at least rate.burst */
+  maxInFlightEventsPerConnection: number;
   rate: ISocketRateConfig;
   idempotency: ISocketIdempotencyConfig;
   drainMs: number;
   /** `ordered` commands: how long an aborted command whose handler is still running keeps its queue place */
   ordering: { abortGraceMs: number };
-  /** a connect hook still running after `connectTimeoutMs` is logged, and the connection's commands and events stop waiting for it */
+  /**
+   * A connect hook still running after `connectTimeoutMs` is logged, and the connection's commands and events stop
+   * waiting for it. The connection then proceeds as if the hooks were done, so a disconnect hook may run while the
+   * timed-out connect hook is still running.
+   */
   hooks: { connectTimeoutMs: number };
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
@@ -241,7 +248,10 @@ export abstract class SocketArg {
 export interface IConnectionRuntime {
   readonly connection: SocketConnection;
   readonly bucket: TokenBucket;
+  /** commands past the in-flight stage */
   inFlight: number;
+  /** events counted against maxInFlightEventsPerConnection, from arrival until their handler settles */
+  eventsInFlight: number;
   /** running commands by request id, for cancel / disconnect / shutdown */
   readonly running: Map<string, ISocketCommandContext>;
   /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */

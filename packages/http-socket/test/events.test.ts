@@ -406,7 +406,7 @@ describe('socket events and lifecycle hooks', function () {
 
     const pending = command(socket, 'evt.rooms', null, { id: 'evt-hang-cancel' });
     await delay(50);
-    expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted', message: 'more than 1 commands in flight on this connection' });
+    expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted', message: 'more than 1 calls in flight on this connection' });
     expect(errorOf(await command(socket, 'evt.rooms', 'x'.repeat(300))).message).to.match(/^payload of \d+ bytes exceeds the limit of 200 bytes$/);
 
     socket.emit(WIRE_EVENTS.cancel, { id: 'evt-hang-cancel' });
@@ -487,7 +487,7 @@ describe('socket events and lifecycle hooks', function () {
   });
 
   it('warns about other refused events at most once per connection in a window, and logs the rest at debug', async () => {
-    await start({ http: { socket: { maxInFlightPerConnection: 1000, rate: { perSecond: 1000, burst: 1000 } } } });
+    await start({ http: { socket: { maxInFlightEventsPerConnection: 1000, rate: { perSecond: 1000, burst: 1000 } } } });
     const id = socket.id!;
     const forbidden = (l: string) => l.startsWith(`Socket event evt.guarded from connection ${id} dropped: forbidden`);
     for (let x = 0; x < 200; x++) {
@@ -498,9 +498,19 @@ describe('socket events and lifecycle hooks', function () {
     expect(lines('warn').filter((l) => l.startsWith('Socket event') && l.includes(id))).to.have.length(1);
   });
 
-  it('counts events against the in-flight cap shared with commands, until their handler settles', async () => {
+  it('lets a burst of 100 instant events through the default caps', async () => {
+    await start();
+    for (let x = 0; x < 100; x++) {
+      socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x } });
+    }
+
+    await waitFor(() => seen('cursor', socket.id!).length === 100);
+    expect(lines('debug').filter((l) => l.includes('dropped'))).to.deep.equal([]);
+  });
+
+  it('caps running events with maxInFlightEventsPerConnection, apart from the command slots', async () => {
     holdSlow();
-    await start({ http: { socket: { maxInFlightPerConnection: 2 } } });
+    await start({ http: { socket: { maxInFlightPerConnection: 1, maxInFlightEventsPerConnection: 2, rate: { perSecond: 50, burst: 2 } } } });
     const id = socket.id!;
     try {
       for (let x = 0; x < 5; x++) {
@@ -509,14 +519,42 @@ describe('socket events and lifecycle hooks', function () {
 
       await waitFor(() => lines('debug').filter((l) => l.startsWith(`Socket event evt.slow from connection ${id} dropped: resource_exhausted`)).length === 3);
       await waitFor(() => evtSlow.active === 2);
-      expect(errorOf(await command(socket, 'evt.rooms'))).to.include({ code: 'resource_exhausted' });
+      expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
     } finally {
       evtSlow.release();
     }
 
     await waitFor(() => evtSlow.active === 0);
     expect(evtSlow).to.include({ max: 2, started: 2 });
-    expect(resultOf(await command(socket, 'evt.rooms'))).to.include('evt-lobby');
+  });
+
+  it('frees the slots of events waiting for the connect hooks when the connection closes, and never runs them', async () => {
+    holdHang();
+    await start({}, { auth: { clientId: 'evt-hang' } });
+    const id = socket.id!;
+    const runtime = (DI.resolve(SocketDispatcher) as unknown as { runtimes: Map<string, { eventsInFlight: number }> }).runtimes.get(id)!;
+    for (let x = 0; x < 3; x++) {
+      socket.emit(WIRE_EVENTS.event, { name: 'evt.cursor', payload: { x } });
+    }
+    await waitFor(() => runtime.eventsInFlight === 3);
+
+    socket.disconnect();
+    await waitFor(() => runtime.eventsInFlight === 0);
+    evtHang.release();
+    await delay(100);
+
+    expect(seen('cursor', id)).to.have.length(0);
+    expect(lines('warn').filter((l) => l.startsWith('Socket event') && l.includes(id))).to.deep.equal([]);
+  });
+
+  it('does not log a still-running connect hook for a connection that already left', async () => {
+    holdHang();
+    await start({ http: { socket: { hooks: { connectTimeoutMs: 200 } } } }, { auth: { clientId: 'evt-hang' } });
+    const id = socket.id!;
+    socket.disconnect();
+    await delay(400);
+
+    expect(lines('error').filter((l) => l.includes(id))).to.deep.equal([]);
   });
 
   it('refuses command and event names longer than MAX_NAME_LENGTH or outside NAME_PATTERN', async () => {

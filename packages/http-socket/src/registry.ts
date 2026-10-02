@@ -1,6 +1,7 @@
 import { Autoinject, Class, Container, DI, IContainer, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
+import { MAX_NAME_LENGTH, NAME_PATTERN } from '@spinajs/http-socket-common';
 import { IControllerDescriptor, IRoute, resolveRoutePolicies } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 import { BaseSocketController } from './controller.js';
@@ -67,6 +68,10 @@ export class SocketHandlerRegistry {
     }
 
     const fullName = descriptor.Prefix ? `${descriptor.Prefix}.${handler.Name}` : handler.Name;
+
+    if ((handler.Kind === 'command' || handler.Kind === 'event') && !(fullName.length <= MAX_NAME_LENGTH && NAME_PATTERN.test(fullName))) {
+      throw new InvalidOperation(`Socket ${handler.Kind} ${fullName} ( ${controllerName}::${String(handler.Method)} ) is not a valid socket ${handler.Kind} name: at most ${MAX_NAME_LENGTH} characters of ${NAME_PATTERN.source}`);
+    }
 
     // http's resolver reads only Policies and Method, so the socket descriptors pass structurally
     const policies = await resolveRoutePolicies(

@@ -1,8 +1,7 @@
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { SocketException } from '@spinajs/http-socket-common';
 import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
-import { assertPayloadSize, assertRate } from '../limits.js';
+import { assertPayloadSize, assertRate, withSlot } from '../limits.js';
 
 export const IN_FLIGHT_RETRY_AFTER_MS = 100;
 
@@ -43,19 +42,8 @@ export class InFlightStage extends SocketCommandStage {
   }
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
-    const max = this.Options.maxInFlightPerConnection;
-
-    if (ctx.runtime.inFlight >= max) {
-      throw new SocketException('resource_exhausted', `more than ${max} commands in flight on this connection`, { retryAfterMs: IN_FLIGHT_RETRY_AFTER_MS });
-    }
-
     // The slot is held until the handler settles, even after an abort answered the client:
     // otherwise cancel-and-resend would run unbounded handlers.
-    ctx.runtime.inFlight++;
-    try {
-      return await next();
-    } finally {
-      ctx.runtime.inFlight--;
-    }
+    return withSlot(ctx.runtime, 'inFlight', this.Options.maxInFlightPerConnection, next, IN_FLIGHT_RETRY_AFTER_MS);
   }
 }

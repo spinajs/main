@@ -72,7 +72,7 @@ describe('socket pipeline limits', function () {
     const second = command(socket, 'lim.hold');
     await delay(50);
 
-    expect(errorOf(await command(socket, 'lim.hold'))).to.deep.equal({ code: 'resource_exhausted', message: 'more than 2 commands in flight on this connection', retryable: true, retryAfterMs: 100 });
+    expect(errorOf(await command(socket, 'lim.hold'))).to.deep.equal({ code: 'resource_exhausted', message: 'more than 2 calls in flight on this connection', retryable: true, retryAfterMs: 100 });
 
     release();
     expect(resultOf(await first)).to.equal('released');
@@ -109,7 +109,7 @@ describe('socket pipeline limits', function () {
   });
 
   describe('limit configuration', () => {
-    const cfg = (rate: { perSecond: number; burst: number }) => ({ rate }) as Parameters<typeof assertLimitsConfig>[0];
+    const cfg = (rate: { perSecond: number; burst: number }) => ({ rate, maxInFlightEventsPerConnection: Math.max(rate.burst, 128) }) as Parameters<typeof assertLimitsConfig>[0];
 
     for (const bad of [{ perSecond: 0, burst: 10 }, { perSecond: -1, burst: 10 }, { perSecond: 10, burst: 0 }, { perSecond: NaN, burst: 10 }]) {
       it(`rejects ${JSON.stringify(bad)} with a RangeError`, () => {
