@@ -178,11 +178,11 @@ describe('BasicPasswordProvider.generate', function () {
   });
 
   /**
-   * Regression coverage for the rbac-http-admin break under commit 53c8845:
+   * Regression coverage for the users-http break under commit 53c8845:
    * that test harness declares its own `rbac` config block without merging
    * rbac's shipped defaults underneath it, so `rbac.password.generator` is
    * absent there entirely (not just missing a field) - see the comment on
-   * `rbac.actions` in packages/rbac-http-admin/test/common.ts, and the
+   * `rbac.actions` in packages/users-http/test/admin-common.ts, and the
    * `_cfg(path, [])` fallback in `_create_middleware`
    * (packages/users/src/actions.ts) for the same class of problem.
    *

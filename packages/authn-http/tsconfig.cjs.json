@@ -6,5 +6,5 @@
     "module": "commonjs"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../authn/tsconfig.cjs.json" }, { "path": "../authn-session/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../orm-http/tsconfig.cjs.json" }, { "path": "../users/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }, { "path": "../authn-token/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }]
+  "references": [{ "path": "../authn/tsconfig.cjs.json" }, { "path": "../authn-session/tsconfig.cjs.json" }, { "path": "../http/tsconfig.cjs.json" }, { "path": "../configuration/tsconfig.cjs.json" }, { "path": "../di/tsconfig.cjs.json" }, { "path": "../exceptions/tsconfig.cjs.json" }, { "path": "../log/tsconfig.cjs.json" }, { "path": "../orm/tsconfig.cjs.json" }, { "path": "../orm-http/tsconfig.cjs.json" }, { "path": "../users/tsconfig.cjs.json" }, { "path": "../reflection/tsconfig.cjs.json" }, { "path": "../authn-token/tsconfig.cjs.json" }, { "path": "../validation/tsconfig.cjs.json" }, { "path": "../authn-totp/tsconfig.cjs.json" }, { "path": "../queue/tsconfig.cjs.json" }]
 }

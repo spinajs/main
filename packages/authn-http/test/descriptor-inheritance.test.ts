@@ -6,7 +6,7 @@ import { IRbacDescriptor } from '../src/interfaces.js';
 
 /**
  * Package controller - the one an application is meant to subclass and override
- * ( eg. `UserController` from @spinajs/rbac-http-user ).
+ * ( eg. `UserController` from @spinajs/users-http ).
  */
 @Resource('pkg-user', ['readAny'])
 class PkgUserController {

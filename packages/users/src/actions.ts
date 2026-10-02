@@ -434,7 +434,7 @@ export function roleList(role?: string | string[]): string[] {
  *
  * A role counts as configured if it either holds grants in the resolved
  * {@link AccessControl} instance or is merely declared in `rbac.roles` - the
- * same definition of "known" `DefaultRoleGuard` (`@spinajs/rbac-http-admin`)
+ * same definition of "known" `DefaultRoleGuard` (`@spinajs/authz-http-admin`)
  * already uses for its own route-level check. A role may legitimately be named
  * before it is given any permission, and a narrower definition here would
  * refuse a role the route layer of this same codebase already accepts.
@@ -448,7 +448,7 @@ export function roleList(role?: string | string[]): string[] {
  */
 export function assertRolesExist(roles: string[]): void {
   // An application whose roles are defined at runtime rather than in static
-  // config turns this off wholesale. `rbac-http-admin`'s DefaultRoleGuard has
+  // config turns this off wholesale. `authz-http-admin`'s DefaultRoleGuard has
   // carried the same escape hatch for its own route-level check since before
   // this one existed; a library-level check that could not be turned off would
   // make rbac unusable for those applications.

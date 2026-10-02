@@ -64,6 +64,7 @@
     "@spinajs/users": "3.0.0-alpha.0",
     "@spinajs/util": "2.0.548",
     "@spinajs/validation": "2.0.548",
+    "accesscontrol": "^2.2.1",
     "jose": "^6.1.0",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1",
@@ -72,7 +73,6 @@
   "devDependencies": {
     "@spinajs/fs": "2.0.548",
     "@spinajs/orm-sqlite": "2.0.548",
-    "accesscontrol": "^2.2.1",
     "cookie-signature": "^1.2.2"
   }
 }

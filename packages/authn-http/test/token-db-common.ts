@@ -22,6 +22,14 @@ export function dir(path: string) {
 const OWN_COMPILED_DIRS = [normalize(join('@spinajs', 'authn-http', 'lib')), normalize(join(process.cwd(), 'lib'))];
 
 /**
+ * Compiled controller dirs shipped by ANY workspace package ( telemetry, users-http, ... ).
+ * Suites here name every controller dir they need under `src`, and scanning the
+ * others registers their controllers in the shared container, where a later
+ * suite with its own configuration then fails to resolve their route policies.
+ */
+const FOREIGN_COMPILED_CONTROLLERS = /[\\/]@spinajs[\\/][^\\/]+[\\/]lib[\\/]/;
+
+/**
  * Removes this package's compiled dirs from `system.dirs`.
  *
  * Configuration MERGES arrays ( `mergeArrays` in `configuration/src/util-common.ts`
@@ -52,7 +60,7 @@ export function dropOwnCompiledDirs(cfg: Configuration): void {
 
     cfg.set(
       ['system', 'dirs', kind],
-      dirs.filter((d) => !OWN_COMPILED_DIRS.some((fragment) => normalize(d).includes(fragment))),
+      dirs.filter((d) => !OWN_COMPILED_DIRS.some((fragment) => normalize(d).includes(fragment)) && !(kind === 'controllers' && FOREIGN_COMPILED_CONTROLLERS.test(d))),
     );
   }
 }

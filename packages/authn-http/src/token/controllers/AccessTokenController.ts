@@ -229,7 +229,7 @@ export class AccessTokenController extends BaseController {
    *     converter emits its driver format ( `"2026-08-11 10:00:00"` ), which
    *     names no offset at all, so a client has to guess the zone. Every other
    *     user-bearing response in the repo dehydrates with this option - see
-   *     `rbac-http-user/src/controllers/UserController.ts` - and a plain
+   *     `users-http/src/controllers/UserController.ts` - and a plain
    *     `toJSON()` is exactly `dehydrate()` with the option missing.
    *   - `@Set()`'s converter joins the role list into `"user,admin"`. Left
    *     alone, `Roles` reaches clients as a string that only looks like a list,

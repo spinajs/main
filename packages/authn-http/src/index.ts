@@ -24,4 +24,5 @@ export * from "./policies/AuthorizedPolicy.js";
 export * from "./controllers/GrantsController.js";
 
 
+export * from './account/index.js';
 export * from './token/index.js';

@@ -1,6 +1,6 @@
 # `@spinajs/authn-http`
 
-> TODO: description
+HTTP integration for SpinaJS authentication.
 
 ## Usage
 

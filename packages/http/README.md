@@ -380,5 +380,5 @@ The command exits non-zero when any controller fails to parse, failing the image
 
 - `@spinajs/http-swagger` — OpenAPI document generation from controller JSDoc
 - `@spinajs/orm-http` — `@Model()` route arg, ORM-aware responses
-- `@spinajs/rbac-http` — session / role policies
+- `@spinajs/authn-http` — session / role policies
 - `@spinajs/templates-pug` — HTML rendering for `TemplateResponse` and error pages

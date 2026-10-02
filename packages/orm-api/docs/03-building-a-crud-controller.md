@@ -195,7 +195,7 @@ export class Collection extends Crud {
 ## Things to get right
 
 **Authorisation.** A generic controller exposes every registered model, including internal ones.
-Put a policy in front of it, or maintain an allow-list of model names. `@spinajs/rbac-http`'s
+Put a policy in front of it, or maintain an allow-list of model names. `@spinajs/authn-http`'s
 `RbacPolicy` is the intended companion — the package's own test fixtures stub it out.
 
 **Clone before counting.** A builder executes at most once, so awaiting it for the count and

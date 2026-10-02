@@ -176,7 +176,7 @@ const rbac = {
      * that is neither present in `grants` above nor declared by name in `roles`.
      * Set this to `false` to turn that check off wholesale, for an application
      * whose roles are defined at runtime rather than in this static config -
-     * the same escape hatch `@spinajs/rbac-http-admin`'s `DefaultRoleGuard` has
+     * the same escape hatch `@spinajs/authz-http-admin`'s `DefaultRoleGuard` has
      * long had for its own, separate route-level check
      * (`rbac.admin.roleGuard.requireKnownRole`). The two are independent: an
      * application using both layers must turn off both to actually allow an
@@ -215,7 +215,7 @@ const rbac = {
         /**
          * Human-readable statement of `rule`, returned by
          * `PasswordValidationProvider.describe()` (and by
-         * `GET /auth/password/policy` in @spinajs/rbac-http-user) so a client
+         * `GET /auth/password/policy` in @spinajs/authn-http) so a client
          * can show the user what to type BEFORE the server refuses it. A regex
          * cannot be turned back into words, so this is the application's job;
          * keep it in step with `rule`. Unset by default: clients then fall back
