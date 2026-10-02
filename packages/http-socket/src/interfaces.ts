@@ -7,6 +7,8 @@ import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
 import type { Decision, IAuthnPrincipalStorage } from '@spinajs/authz';
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
+import type { CommandRequest, SocketException } from '@spinajs/http-socket-common';
+import type { TokenBucket } from './limits.js';
 
 export interface ISocketRateConfig {
   perSecond: number;
@@ -202,3 +204,51 @@ export interface ISocketCallContext {
 export abstract class SocketArg {
   public abstract extract(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown>;
 }
+
+/** Per-connection pipeline state. */
+export interface IConnectionRuntime {
+  readonly connection: SocketConnection;
+  readonly bucket: TokenBucket;
+  inFlight: number;
+  /** running commands by request id, for cancel / disconnect / shutdown */
+  readonly running: Map<string, ISocketCommandContext>;
+  /** settles when the connect hooks are done; commands wait for it */
+  ready: Promise<void>;
+}
+
+export interface ISocketCommandContext extends ISocketCallContext {
+  readonly kind: 'command';
+  readonly request: CommandRequest;
+  readonly runtime: IConnectionRuntime;
+  readonly receivedAt: number;
+  /** set by the arguments stage */
+  args?: unknown[];
+  /** fires `signal`; the dispatcher replies with `reason` at once */
+  abort(reason: SocketException): void;
+  /** keeps the earliest of all armed deadlines, counted from `receivedAt` */
+  armDeadline(ms: number | undefined): void;
+}
+
+/**
+ * One step of the command pipeline. Stages run in ascending `Order` as an onion: call `next()` to
+ * continue, return without calling it to answer early ( eg. an idempotent replay ), throw to fail.
+ * Register with `@Injectable(SocketCommandStage)`.
+ */
+export abstract class SocketCommandStage {
+  public abstract get Order(): number;
+
+  public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
+}
+
+/** Spec §5.2 order. 350 is W1's principal re-check ( Task 10A, D16 ); 500 is reserved for W3's idempotency stage. */
+export const STAGE_ORDER = {
+  Size: 100,
+  Rate: 200,
+  InFlight: 300,
+  Authentication: 350,
+  Lookup: 400,
+  Idempotency: 500,
+  Policies: 600,
+  Arguments: 700,
+  Ordering: 800,
+} as const;

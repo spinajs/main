@@ -8,9 +8,11 @@ import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketError, SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
+import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
 import { crossSiteRefusal, isAllowedOrigin } from './origin.js';
+import { SocketHandlerRegistry } from './registry.js';
 import './host.js';
 import './authn-source.js';
 
@@ -66,6 +68,12 @@ export class SocketServer extends AsyncService {
   @Autoinject()
   protected Errors: SocketErrorMapper;
 
+  @Autoinject()
+  protected Registry: SocketHandlerRegistry;
+
+  @Autoinject()
+  protected Dispatcher: SocketDispatcher;
+
   @Autoinject(SocketPrincipalSource)
   protected Sources: SocketPrincipalSource[];
 
@@ -87,6 +95,8 @@ export class SocketServer extends AsyncService {
   public async resolve(): Promise<void> {
     await super.resolve();
     await this.ControllerFiles;
+    // a duplicate or orphan handler rejects here, before socket.io attaches: no partial routing
+    await this.Registry.build();
 
     const http = await this.Host.server();
     const { io, release } = attachTo(http, () => new Server(http, this.ioOptions()));
@@ -232,9 +242,11 @@ export class SocketServer extends AsyncService {
     }
 
     this.Hub.register(connection);
+    this.Dispatcher.attach(connection, socket);
 
     socket.on('disconnect', (reason: string) => {
       connection.close(reason);
+      this.Dispatcher.detach(connection, reason);
       this.Hub.unregister(connection.id);
     });
   }
