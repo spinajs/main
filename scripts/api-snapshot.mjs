@@ -418,10 +418,7 @@ export function generateSnapshots(root = ROOT, config = loadConfig(root)) {
     for (const p of res.externalPackages) targets.packages.add(p);
     for (const f of res.files) targets.files.add(f.slice(rootDir.length + 1));
   }
-  for (const pending of config.pending ?? []) {
-    const pkgDir = join(root, ...pending.split('/').slice(0, 2));
-    targets.packages.add(packageNameOf(join(pkgDir, 'package.json')));
-  }
+  for (const { pkg, rel } of frozenPatternFiles(root)) if (isPending(config, rel)) targets.packages.add(packageNameOf(join(root, 'packages', pkg, 'package.json')));
   return { snapshots, targets };
 }
 
@@ -448,7 +445,10 @@ function walkTs(dir, out = []) {
 }
 
 function resolveRelativeModule(rootDir, file, spec) {
-  const base = resolve(dirname(file), spec);
+  let base = toPosix(resolve(dirname(real(file)), spec));
+  // A built file under lib/ declares what its source under src/ declares.
+  const built = base.startsWith(`${rootDir}/`) && base.slice(rootDir.length + 1).match(/^(packages\/[^/]+)\/lib\/(?:mjs|cjs)\/(.+?)(?:\.d\.[cm]?ts|\.[cm]?js)?$/);
+  if (built) base = `${rootDir}/${built[1]}/src/${built[2]}`;
   const stripped = base.replace(/\.([cm]?)js$/, '.$1ts');
   for (const candidate of [stripped, base, `${base}.ts`, `${base}.d.ts`, join(base, 'index.ts')]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return real(candidate).slice(rootDir.length + 1);
@@ -487,20 +487,27 @@ export function findAugmentations(root, targets, allowlist = []) {
   return out.sort(byCodePoint);
 }
 
-/** Files of a rule 3 pattern in an authz* or authn* package that neither a config entry nor `pending` covers. */
-export function unconfiguredFrozenFiles(root, config) {
+function frozenPatternFiles(root) {
   const out = [];
   const packages = join(root, 'packages');
   for (const pkg of readdirSync(packages).sort(byCodePoint)) {
     if (!FROZEN_PACKAGE.test(pkg)) continue;
     for (const file of FROZEN_FILES) {
       const rel = `packages/${pkg}/${file}`;
-      if (!existsSync(join(root, rel))) continue;
-      if (config.packages[pkg]?.includes(file) || (config.pending ?? []).includes(rel)) continue;
-      out.push(rel);
+      if (existsSync(join(root, rel))) out.push({ pkg, file, rel });
     }
   }
   return out;
+}
+
+// A pending entry is a path prefix: `packages/authn` covers every packages/authn* file.
+const isPending = (config, rel) => (config.pending ?? []).some((p) => rel.startsWith(p));
+
+/** Files of a rule 3 pattern in an authz* or authn* package that neither a config entry nor `pending` covers. */
+export function unconfiguredFrozenFiles(root, config) {
+  return frozenPatternFiles(root)
+    .filter(({ pkg, file, rel }) => !config.packages[pkg]?.includes(file) && !isPending(config, rel))
+    .map(({ rel }) => rel);
 }
 
 const MAX_DIFF_LINES = 8;

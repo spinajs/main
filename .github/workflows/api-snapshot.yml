@@ -18,9 +18,11 @@ jobs:
     runs-on: ubuntu-latest
 
     # A cancelled push run would skip the RFC check of its range for good (the
-    # next push diffs from its own `before`), so only pull requests cancel.
+    # next push diffs from its own `before`). A queued run cancels the pending
+    # one of its group whatever cancel-in-progress says, so each push gets a
+    # group of its own; pull requests share one and cancel superseded runs.
     concurrency:
-      group: api-snapshot-${{ github.ref }}
+      group: api-snapshot-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
