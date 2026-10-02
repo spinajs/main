@@ -47,6 +47,11 @@ describe('resource contracts', () => {
       expect(resourceKey({ type: 'a%b', id: 'c' })).to.eq('a%25b:c');
       expect(resourceKey({ type: '%3A' })).to.eq('%253A');
       expect(resourceKey({ type: '%:/' })).to.eq('%25%3A%2F');
+      expect(resourceKey({ type: 'a//b::c%%', id: 'x' })).to.eq('a%2F%2Fb%3A%3Ac%25%25:x');
+    });
+
+    it('treats a null id read back from JSON or a row as absent', () => {
+      expect(resourceKey({ type: 'file', id: null } as unknown as ResourceRef)).to.eq('file');
     });
 
     it('is injective on pairs that would collide without escaping', () => {

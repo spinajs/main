@@ -19,7 +19,7 @@
   "typesVersions": {
     "*": {
       "contracts": [
-        "lib/mjs/contracts/index.d.ts"
+        "lib/cjs/contracts/index.d.ts"
       ]
     }
   },
