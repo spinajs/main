@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-socket-client",
-  "version": "2.0.549",
+  "version": "3.0.0-alpha.0",
   "description": "Isomorphic socket client for spinajs: connection state, reconnect, commands, events, typed contracts",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
@@ -49,7 +49,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/http-socket-common": "2.0.549",
+    "@spinajs/http-socket-common": "3.0.0-alpha.0",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {

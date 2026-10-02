@@ -1,6 +1,6 @@
 {
   "name": "@spinajs/http-socket-common",
-  "version": "2.0.549",
+  "version": "3.0.0-alpha.0",
   "description": "Wire protocol shared by the spinajs WebSocket server and client: envelopes, error codes, protocol version and contract typing helpers",
   "main": "lib/cjs/index.js",
   "module": "lib/mjs/index.js",
