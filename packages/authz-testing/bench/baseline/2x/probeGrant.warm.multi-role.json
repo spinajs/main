@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.warm.multi-role",
+  "description": "two roles, same list every call",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 1200,
+  "p95": 2600,
+  "p99": 3600,
+  "mean": 1660.9635,
+  "opsPerSec": 602060.1897633512,
+  "perRepeat": [
+    {
+      "p50": 1200,
+      "p95": 2600,
+      "p99": 3600,
+      "mean": 1660.9635,
+      "opsPerSec": 602060.1897633512
+    },
+    {
+      "p50": 1200,
+      "p95": 2400,
+      "p99": 3300,
+      "mean": 1559.1265,
+      "opsPerSec": 641384.7753854481
+    },
+    {
+      "p50": 1500,
+      "p95": 2800,
+      "p99": 4500,
+      "mean": 1893.535,
+      "opsPerSec": 528112.7626370783
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

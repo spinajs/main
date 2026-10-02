@@ -1,0 +1,44 @@
+{
+  "name": "orm.point.nouser",
+  "description": "select one row by Id (row 11, owned by the read:own user); ALS store without a user: middleware returns at !User; baseline that includes the ALS cost",
+  "compare": "orm.point.nostore",
+  "unit": "ns",
+  "iterations": 10000,
+  "warmup": 1000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 332400,
+  "p95": 561900,
+  "p99": 754500,
+  "mean": 363083.77,
+  "opsPerSec": 2754.1853495682276,
+  "perRepeat": [
+    {
+      "p50": 309500,
+      "p95": 504200,
+      "p99": 754500,
+      "mean": 333730.09,
+      "opsPerSec": 2996.433435175114
+    },
+    {
+      "p50": 332400,
+      "p95": 561900,
+      "p99": 737900,
+      "mean": 363083.77,
+      "opsPerSec": 2754.1853495682276
+    },
+    {
+      "p50": 365500,
+      "p95": 653300,
+      "p99": 950600,
+      "mean": 411945.98,
+      "opsPerSec": 2427.5027516957443
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

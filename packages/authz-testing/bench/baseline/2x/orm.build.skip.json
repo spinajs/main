@@ -1,0 +1,44 @@
+{
+  "name": "orm.build.skip",
+  "description": "build a 50-row list select; SkipModelPermissionCheck set (middleware enters, applies nothing)",
+  "compare": "orm.build.nouser",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 98100,
+  "p95": 221700,
+  "p99": 361100,
+  "mean": 118997.396,
+  "opsPerSec": 8403.54523388058,
+  "perRepeat": [
+    {
+      "p50": 97500,
+      "p95": 212500,
+      "p99": 354900,
+      "mean": 116999.914,
+      "opsPerSec": 8547.014829429703
+    },
+    {
+      "p50": 98800,
+      "p95": 228000,
+      "p99": 363500,
+      "mean": 120453.448,
+      "opsPerSec": 8301.962431162618
+    },
+    {
+      "p50": 98100,
+      "p95": 221700,
+      "p99": 361100,
+      "mean": 118997.396,
+      "opsPerSec": 8403.54523388058
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

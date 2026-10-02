@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.unknown-role",
+  "description": "role absent from the grants map: accesscontrol throws, probeGrant catches and answers null",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 14700,
+  "p95": 27500,
+  "p99": 53600,
+  "mean": 17318.84,
+  "opsPerSec": 57740.587706797916,
+  "perRepeat": [
+    {
+      "p50": 14700,
+      "p95": 27500,
+      "p99": 53600,
+      "mean": 17318.84,
+      "opsPerSec": 57740.587706797916
+    },
+    {
+      "p50": 14600,
+      "p95": 26100,
+      "p99": 39700,
+      "mean": 16661.626,
+      "opsPerSec": 60018.15188985757
+    },
+    {
+      "p50": 14800,
+      "p95": 28200,
+      "p99": 58300,
+      "mean": 17647.004,
+      "opsPerSec": 56666.84271165802
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

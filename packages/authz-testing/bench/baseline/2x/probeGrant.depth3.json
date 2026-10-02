@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.depth3",
+  "description": "3 $extend level(s); the grant sits on the root role, attribute list ['*']",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 1200,
+  "p95": 1800,
+  "p99": 2700,
+  "mean": 1415.561,
+  "opsPerSec": 706433.7036694286,
+  "perRepeat": [
+    {
+      "p50": 1200,
+      "p95": 1600,
+      "p99": 2300,
+      "mean": 1352.712,
+      "opsPerSec": 739255.6582628083
+    },
+    {
+      "p50": 1200,
+      "p95": 1800,
+      "p99": 2700,
+      "mean": 1415.561,
+      "opsPerSec": 706433.7036694286
+    },
+    {
+      "p50": 1300,
+      "p95": 2700,
+      "p99": 3700,
+      "mean": 1669.6075,
+      "opsPerSec": 598943.1647857355
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

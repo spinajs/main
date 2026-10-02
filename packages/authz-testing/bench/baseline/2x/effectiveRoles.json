@@ -1,0 +1,43 @@
+{
+  "name": "effectiveRoles",
+  "description": "ActiveRole rule against a plain storage object (the middleware calls it on an existing ALS store)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 10,
+  "repeats": 3,
+  "p50": 10,
+  "p95": 20,
+  "p99": 20,
+  "mean": 9.65775,
+  "opsPerSec": 103543786.07853796,
+  "perRepeat": [
+    {
+      "p50": 10,
+      "p95": 10,
+      "p99": 20,
+      "mean": 9.4843,
+      "opsPerSec": 105437407.08328502
+    },
+    {
+      "p50": 10,
+      "p95": 20,
+      "p99": 20,
+      "mean": 10.76585,
+      "opsPerSec": 92886302.52139868
+    },
+    {
+      "p50": 10,
+      "p95": 20,
+      "p99": 20,
+      "mean": 9.65775,
+      "opsPerSec": 103543786.07853796
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

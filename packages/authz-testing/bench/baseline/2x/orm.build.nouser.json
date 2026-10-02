@@ -1,0 +1,44 @@
+{
+  "name": "orm.build.nouser",
+  "description": "build a 50-row list select; ALS store without a user: middleware returns at !User; baseline that includes the ALS cost",
+  "compare": "orm.build.nostore",
+  "unit": "ns",
+  "iterations": 50000,
+  "warmup": 5000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 97400,
+  "p95": 218800,
+  "p99": 349200,
+  "mean": 117814.848,
+  "opsPerSec": 8487.894496965273,
+  "perRepeat": [
+    {
+      "p50": 97200,
+      "p95": 218800,
+      "p99": 353500,
+      "mean": 117814.848,
+      "opsPerSec": 8487.894496965273
+    },
+    {
+      "p50": 99100,
+      "p95": 223800,
+      "p99": 349200,
+      "mean": 119797.074,
+      "opsPerSec": 8347.449287450878
+    },
+    {
+      "p50": 97400,
+      "p95": 215200,
+      "p99": 348000,
+      "mean": 117096.858,
+      "opsPerSec": 8539.938791525901
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}

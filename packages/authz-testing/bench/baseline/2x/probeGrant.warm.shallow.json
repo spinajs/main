@@ -1,0 +1,43 @@
+{
+  "name": "probeGrant.warm.shallow",
+  "description": "one role, hit through a 1-level $extend (editor -> viewer)",
+  "unit": "ns",
+  "iterations": 200000,
+  "warmup": 20000,
+  "batch": 1,
+  "repeats": 3,
+  "p50": 1000,
+  "p95": 2200,
+  "p99": 3100,
+  "mean": 1363.794,
+  "opsPerSec": 733248.5697986645,
+  "perRepeat": [
+    {
+      "p50": 1000,
+      "p95": 2200,
+      "p99": 3100,
+      "mean": 1363.794,
+      "opsPerSec": 733248.5697986645
+    },
+    {
+      "p50": 1000,
+      "p95": 2200,
+      "p99": 3000,
+      "mean": 1354.259,
+      "opsPerSec": 738411.1901785404
+    },
+    {
+      "p50": 1100,
+      "p95": 2500,
+      "p99": 3600,
+      "mean": 1558.4945,
+      "opsPerSec": 641644.8694557472
+    }
+  ],
+  "env": {
+    "node": "v24.14.1",
+    "os": "win32 10.0.26200",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+    "cores": 20
+  }
+}
