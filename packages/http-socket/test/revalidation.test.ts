@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import _ from 'lodash';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { AuthenticationFailed } from '@spinajs/exceptions';
@@ -10,7 +11,7 @@ import { SYSTEM_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, SocketController } from '../src/decorators.js';
 import { SocketHub } from '../src/hub.js';
-import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from '../src/interfaces.js';
+import { ISocketCallStorage, ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from '../src/interfaces.js';
 import { MAX_CONCURRENT_REVALIDATIONS, SocketPrincipalGuard } from '../src/principal-guard.js';
 import { ALICE_PRINCIPAL, ITestServer, TestPrincipalSource, command, delay, errorOf, nextEvent, open, resultOf, startServer, waitFor } from './harness.js';
 
@@ -134,6 +135,12 @@ export class RevalSocket extends BaseSocketController {
   public async ping() {
     return 'pong';
   }
+
+  @Command('attributes')
+  public async attributes() {
+    const store = (DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<ISocketCallStorage>).getStore();
+    return { principal: store?.Principal.attributes ?? null, authn: store?.AuthnPrincipal?.attributes ?? null };
+  }
 }
 
 function handshakeWith(token?: string): ISocketHandshake {
@@ -230,6 +237,17 @@ describe('socket principal revalidation on commands', function () {
     const notice = nextEvent(socket, SYSTEM_EVENTS.disconnect);
     expect(errorOf(await command(socket, 'reval.ping'))).to.deep.equal({ code: 'unauthenticated', message: 'credentials are no longer valid', retryable: false });
     expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+  });
+
+  it('shows the principal a revalidation renewed to the command that triggered it', async () => {
+    RevalScriptedSource.reset();
+    await start(50, 'revalscript-renew');
+    const renewed: Principal = { type: 'user', id: 'revalscript-renew', authenticated: true, source: 'token', attributes: { generation: 2 } };
+    RevalScriptedSource.answers = [{ status: 'valid', principal: renewed }];
+    await delay(80);
+
+    expect(resultOf(await command(socket, 'reval.attributes'))).to.deep.equal({ principal: { generation: 2 }, authn: { generation: 2 } });
+    expect(RevalScriptedSource.calls).to.equal(1);
   });
 
   it('closes a connection whose principal expired', async () => {

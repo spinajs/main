@@ -12,7 +12,12 @@ export class AuthenticationStage extends SocketCommandStage {
   }
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
-    await this.Guard.ensure(ctx.connection);
+    const connection = ctx.connection;
+    await this.Guard.ensure(connection);
+
+    // the store was built before ensure(), which may have adopted a renewed principal
+    ctx.storage.Principal = connection.principal;
+    ctx.storage.AuthnPrincipal = connection.authenticated ? connection.principal : null;
     return next();
   }
 }
