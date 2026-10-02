@@ -6,7 +6,9 @@ import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import { AuthnCredentialSource } from '../src/authn-source.js';
 import { SocketHub } from '../src/hub.js';
+import { ISocketHandshake } from '../src/interfaces.js';
 import { IConnectOptions, ITestServer, connect, open, refusalOf, startServer } from './harness.js';
 
 const BOB: Principal = Object.freeze({ type: 'user', id: 'bob', authenticated: true, source: 'token', attributes: Object.freeze({}), identity: { name: 'bob' } });
@@ -40,6 +42,8 @@ export class AuthnTestService extends AuthnService {
         return { status: 'failure', reason: 'throttled', retryAfterSeconds: 3 };
       case 'authn-revoked':
         return { status: 'failure', reason: 'revoked' };
+      case 'authn-down':
+        throw new Error('authn store unreachable');
       default:
         return { status: 'failure', reason: 'invalid_credentials' };
     }
@@ -140,6 +144,31 @@ describe('AuthnCredentialSource', function () {
 
     it('leaves a handshake without credentials UNATTENDED', async () => {
       expect(await principalOf({})).to.equal(UNATTENDED);
+    });
+
+    describe('revalidate', () => {
+      const source = new AuthnCredentialSource();
+      const handshakeWith = (token?: string): ISocketHandshake => ({ auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
+
+      it('answers valid with the principal AuthnService resolves now', async () => {
+        expect(await source.revalidate(handshakeWith('authn-ok'), BOB)).to.deep.equal({ status: 'valid', principal: BOB });
+      });
+
+      it('answers invalid when AuthnService rejects or revoked the credential', async () => {
+        expect(await source.revalidate(handshakeWith('authn-revoked'), BOB)).to.equal('invalid');
+        expect(await source.revalidate(handshakeWith('authn-wrong'), BOB)).to.equal('invalid');
+        expect(await source.revalidate(handshakeWith('authn-mfa'), BOB)).to.equal('invalid');
+      });
+
+      it('answers invalid when the handshake carries no credential any more, or another principal', async () => {
+        expect(await source.revalidate(handshakeWith(), BOB)).to.equal('invalid');
+        expect(await source.revalidate(handshakeWith('authn-ok'), { ...BOB, id: 'mallory' })).to.equal('invalid');
+      });
+
+      it('answers unavailable when AuthnService fails or throttles', async () => {
+        expect(await source.revalidate(handshakeWith('authn-down'), BOB)).to.equal('unavailable');
+        expect(await source.revalidate(handshakeWith('authn-throttled'), BOB)).to.equal('unavailable');
+      });
     });
   });
 

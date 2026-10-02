@@ -6021,6 +6021,39 @@ git commit -m "feat(http-socket): re-check expiry and revocation of a live conne
 
 ---
 
+### Task 10B: Revalidation sweep and the tri-state revalidation result
+
+Task 10A re-checks a principal only before a command, so an idle socket whose credential expired or was revoked kept receiving room pushes. **Owner ruling:** expired or revoked credentials on an open socket are refused and the socket is closed, revalidated every 60 s; a source that cannot decide gets one grace interval.
+
+**Files:**
+- Modify: `packages/http-socket/src/principal-guard.ts`, `packages/http-socket/src/server.ts`, `packages/http-socket/src/interfaces.ts`, `packages/http-socket/src/authn-source.ts`
+- Test: `packages/http-socket/test/revalidation.test.ts`, `packages/http-socket/test/authn-source.test.ts`
+
+**What it adds:**
+- **One server-wide sweep**, not a timer per connection. `SocketPrincipalGuard.start(connections)` / `stop()`; `SocketServer.resolve()` starts it over `SocketHub.Connections` and `dispose()` stops it. One `setInterval` (`unref()`) ticks every `min(revalidateMs, 1000)` ms, and every 1000 ms when `revalidateMs` is 0. Each tick, for every authenticated connection:
+  - it enforces `ceiling.expiresAt`, so an expired principal is closed within about 1 s, without asking its source;
+  - it calls `revalidate()` when `now - checkedAt >= revalidateMs`, counted per connection, which spreads the load.
+  A command and the sweep share one check through the pending map. The sweep keeps at most `MAX_CONCURRENT_REVALIDATIONS` (16) checks running; the rest are picked up on later ticks. `sweep()` is public and resolves when the checks it started have settled.
+- **Tri-state result.** `SocketPrincipalSource.revalidate()` returns `SocketRevalidationResult`: `'valid' | 'invalid' | 'unavailable'`, `{ status: 'valid', principal }`, or a boolean (`true` = valid, `false` = invalid, kept for existing sources). A throw counts as `'unavailable'`.
+  - `'invalid'`, or an expired ceiling: `sys.disconnect { reason: 'unauthenticated' }`, then close. A command on the same check is answered `unauthenticated` first, as in Task 10A.
+  - `'unavailable'`: the connection keeps running for one more `revalidateMs` grace window (`ISocketAuthState.unavailableSince`) and is asked again. A second answer that is not `'valid'` closes it with `'unauthenticated'`. Commands are served during the grace window, and the guard logs one warning when it opens.
+  - The default `revalidate()` maps `AuthenticationFailed` (and a non-throttled `unauthenticated` `SocketException`) to `'invalid'` and any other error to `'unavailable'`. `AuthnCredentialSource.revalidate()` maps failure results to `'invalid'`, and `throttled`, a throwing `AuthnService` or a missing `AuthnService` to `'unavailable'`.
+- **Adopting a renewed principal.** A `'valid'` answer that carries a principal replaces the connection's principal when the `principalKey` matches, so a rotated token is not closed at the old `expiresAt`. A different `principalKey` is refused as `'invalid'`. Both built-in sources return the principal they resolved again.
+
+**Tests:** fake `Date` and `setInterval` (sinon `toFake: ['Date', 'setInterval', 'clearInterval']`, `pingInterval: 300_000`). The Task 10A command-path tests stop the sweep first. The new tests cover:
+- an idle revoked socket is closed after 60 s;
+- an idle expired socket is closed within one tick, including with `revalidateMs` 0;
+- `'unavailable'` once, then `'valid'`: the socket stays and its commands work;
+- `'unavailable'` twice: the socket is closed;
+- boolean answers;
+- principal adoption, and the refusal of another principal;
+- the concurrency cap;
+- a command and the sweep sharing one `revalidate` call;
+- one interval while running and none after `dispose()`;
+- the result mapping of both built-in sources.
+
+---
+
 ### Task 11: Deadline, cancel, disconnect and shutdown signals (stage 9)
 
 **Files:**

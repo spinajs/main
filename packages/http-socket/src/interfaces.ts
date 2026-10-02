@@ -7,7 +7,9 @@ import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
 import type { Decision, IAuthnPrincipalStorage } from '@spinajs/authz';
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
-import type { CommandRequest, SocketException } from '@spinajs/http-socket-common';
+import { SocketException } from '@spinajs/http-socket-common';
+import type { CommandRequest } from '@spinajs/http-socket-common';
+import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { TokenBucket } from './limits.js';
 
 export interface ISocketRateConfig {
@@ -29,7 +31,7 @@ export interface ISocketCorsConfig {
 export interface ISocketAuthConfig {
   /** Refuse a handshake no SocketPrincipalSource resolves, instead of running it as UNATTENDED. */
   required: boolean;
-  /** How often a live connection's principal is re-checked with its source; 0 turns it off. */
+  /** How often a live connection's principal is re-checked with its source, idle or not; 0 turns it off ( `ceiling.expiresAt` is still enforced ). */
   revalidateMs: number;
 }
 
@@ -72,6 +74,16 @@ export interface ISocketHandshake {
   readonly issuedAt: number;
 }
 
+/** How a `SocketPrincipalSource` judged a live connection's principal. */
+export type SocketRevalidationStatus = 'valid' | 'invalid' | 'unavailable';
+
+/**
+ * `true` / `false` mean 'valid' / 'invalid' ( the pre-tri-state contract ). A 'valid' answer may carry
+ * the principal as the source sees it now ( eg. a rotated token's later `ceiling.expiresAt` ); the
+ * connection adopts it when it has the same `principalKey`, and is refused when it has not.
+ */
+export type SocketRevalidationResult = SocketRevalidationStatus | boolean | { readonly status: 'valid'; readonly principal: Principal };
+
 /**
  * Resolves the authz-v3 principal of a connection from its handshake: the socket form of
  * authz-http's `PrincipalSource`, whose `authenticate(req)` needs an express request that
@@ -86,14 +98,26 @@ export abstract class SocketPrincipalSource {
 
   public abstract authenticate(handshake: ISocketHandshake): Promise<Principal | null>;
 
-  /** Re-checks a live connection ( expiry, revocation ): by default the handshake must still authenticate as the same principal. */
-  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<boolean> {
+  /**
+   * Re-checks a live connection every `http.socket.auth.revalidateMs` ( expiry, revocation ). By
+   * default the handshake must still authenticate as the same principal.
+   *
+   * - 'invalid' ( or `false` ): the connection is refused with `unauthenticated` and closed at once.
+   * - 'unavailable', or a throw: the source could not decide ( eg. its store is down ). The connection
+   *   keeps running for ONE more `revalidateMs` grace window and is asked again; when that answer is
+   *   not 'valid' either, it is refused and closed. Commands are served during the grace window.
+   */
+  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+    let again: Principal | null;
     try {
-      const again = await this.authenticate(handshake);
-      return again !== null && principalKey(again) === principalKey(principal);
-    } catch {
-      return false;
+      again = await this.authenticate(handshake);
+    } catch (err) {
+      // a throttled refusal ( retryAfterMs ) says "not now", not "no"
+      const refused = err instanceof AuthenticationFailed || (err instanceof SocketException && err.code === 'unauthenticated' && err.retryAfterMs === undefined);
+      return refused ? 'invalid' : 'unavailable';
     }
+
+    return again !== null && principalKey(again) === principalKey(principal) ? { status: 'valid', principal: again } : 'invalid';
   }
 }
 
@@ -113,6 +137,8 @@ export interface ISocketAuthState {
   source: string | null;
   /** ms epoch of the last successful check */
   checkedAt: number;
+  /** ms epoch of an 'unavailable' answer not yet followed by a 'valid' one: the connection is in its grace window */
+  unavailableSince?: number;
 }
 
 /** Supplies the node http(s) server socket.io attaches to. */

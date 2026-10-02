@@ -11,6 +11,7 @@ import { SocketConnection, toHandshake } from './connection.js';
 import { SocketDispatcher } from './dispatcher.js';
 import { SocketErrorMapper } from './errors.js';
 import { SocketHub } from './hub.js';
+import { SocketPrincipalGuard } from './principal-guard.js';
 import { crossSiteRefusal, isAllowedOrigin } from './origin.js';
 import { SocketHandlerRegistry } from './registry.js';
 import './host.js';
@@ -77,6 +78,9 @@ export class SocketServer extends AsyncService {
   @Autoinject(SocketPrincipalSource)
   protected Sources: SocketPrincipalSource[];
 
+  @Autoinject()
+  protected Guard: SocketPrincipalGuard;
+
   // Loading the files is what runs their @SocketController decorators.
   @ListFromFiles('/**/!(*.d).{ts,js}', 'system.dirs.socketControllers')
   protected ControllerFiles: Promise<Array<ClassInfo<unknown>>>;
@@ -112,6 +116,7 @@ export class SocketServer extends AsyncService {
 
     this.Hub.attach(io);
     this._io = io;
+    this.Guard.start(() => this.Hub.Connections.values());
   }
 
   public async dispose(): Promise<void> {
@@ -121,6 +126,7 @@ export class SocketServer extends AsyncService {
     }
 
     this._io = null;
+    this.Guard.stop();
     this.Dispatcher.abortAll(new SocketException('unavailable', 'server is shutting down'));
     io.disconnectSockets(true);
     // not io.close(): that also closes the http server, which the host owns

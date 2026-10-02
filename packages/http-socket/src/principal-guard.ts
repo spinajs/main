@@ -1,11 +1,41 @@
 import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
-import { Unauthenticated } from '@spinajs/authz';
-import { ISocketAuthConfig, SocketPrincipalSource } from './interfaces.js';
+import { Unauthenticated, principalKey } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
+import { ISocketAuthConfig, SocketPrincipalSource, SocketRevalidationResult, SocketRevalidationStatus } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 
-/** Re-checks the principal of a live connection ( D16 ). */
+/** Revalidations the sweep keeps running at once; commands are never held back by it. */
+export const MAX_CONCURRENT_REVALIDATIONS = 16;
+
+const MAX_SWEEP_TICK_MS = 1_000;
+
+interface IRevalidation {
+  status: SocketRevalidationStatus;
+  principal?: Principal;
+}
+
+function toRevalidation(result: SocketRevalidationResult): IRevalidation {
+  if (result === true || result === 'valid') {
+    return { status: 'valid' };
+  }
+
+  if (result === 'unavailable') {
+    return { status: 'unavailable' };
+  }
+
+  if (typeof result === 'object' && result !== null && result.status === 'valid') {
+    return { status: 'valid', principal: result.principal };
+  }
+
+  return { status: 'invalid' };
+}
+
+/**
+ * Re-checks the principal of a live connection ( D16 ): before a command, and in one server-wide
+ * sweep, so an idle connection stops receiving pushes once its credential expires or is revoked.
+ */
 @Injectable()
 export class SocketPrincipalGuard {
   @Logger('http-socket')
@@ -17,65 +47,167 @@ export class SocketPrincipalGuard {
   @Autoinject(SocketPrincipalSource)
   protected Sources: SocketPrincipalSource[];
 
+  /** true when the connection may keep running; a command and the sweep share one check */
   protected pending = new WeakMap<SocketConnection, Promise<boolean>>();
 
-  public async ensure(connection: SocketConnection): Promise<void> {
-    const auth = connection.auth;
+  protected running = 0;
 
-    if (auth.source === null) {
+  protected closing = new WeakSet<SocketConnection>();
+
+  protected timer: ReturnType<typeof setInterval> | null = null;
+
+  protected connections: () => Iterable<SocketConnection> = () => [];
+
+  public start(connections: () => Iterable<SocketConnection>): void {
+    this.stop();
+    this.connections = connections;
+
+    const revalidateMs = this.Options.revalidateMs;
+    const tick = revalidateMs > 0 ? Math.min(revalidateMs, MAX_SWEEP_TICK_MS) : MAX_SWEEP_TICK_MS;
+    this.timer = setInterval(() => {
+      this.sweep().catch((err: Error) => this.Log.error(err, 'Socket principal sweep failed'));
+    }, tick);
+    this.timer.unref?.();
+  }
+
+  public stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /** One sweep tick; resolves when the revalidations it started have settled. */
+  public async sweep(): Promise<void> {
+    const now = Date.now();
+    const started: Array<Promise<boolean>> = [];
+
+    for (const connection of this.connections()) {
+      if (connection.auth.source === null || !connection.connected || this.closing.has(connection)) {
+        continue;
+      }
+
+      if (this.expired(connection, now)) {
+        this.close(connection, 'credentials expired');
+        continue;
+      }
+
+      // no break at the cap: the remaining connections still get their expiry checked
+      if (this.due(connection, now) && !this.pending.has(connection) && this.running < MAX_CONCURRENT_REVALIDATIONS) {
+        started.push(this.check(connection));
+      }
+    }
+
+    await Promise.allSettled(started);
+  }
+
+  public async ensure(connection: SocketConnection): Promise<void> {
+    if (connection.auth.source === null) {
       return;
     }
 
-    const expiresAt = auth.principal.ceiling?.expiresAt;
-    // new Date(): a state restored through a serializing adapter carries the date as a string; NaN counts as expired
-    if (expiresAt != null && !(new Date(expiresAt).getTime() > Date.now())) {
+    const now = Date.now();
+    if (this.expired(connection, now)) {
       this.refuse(connection, 'credentials expired');
     }
 
-    if (this.Options.revalidateMs <= 0 || Date.now() - auth.checkedAt < this.Options.revalidateMs) {
+    if (this.closing.has(connection)) {
+      this.refuse(connection, 'credentials are no longer valid');
+    }
+
+    if (!this.due(connection, now)) {
       return;
     }
 
-    let check = this.pending.get(connection);
-    if (!check) {
-      check = this.revalidate(connection).finally(() => this.pending.delete(connection));
-      this.pending.set(connection, check);
-    }
-
-    if (!(await check)) {
+    if (!(await (this.pending.get(connection) ?? this.check(connection)))) {
       this.refuse(connection, 'credentials are no longer valid');
     }
   }
 
-  protected async revalidate(connection: SocketConnection): Promise<boolean> {
-    const source = this.Sources.find((s) => s.name === connection.auth.source);
-    if (!source) {
-      return false;
-    }
-
-    let valid: boolean;
-    try {
-      valid = await source.revalidate(connection.handshake, connection.principal);
-    } catch (err) {
-      this.Log.warn(err as Error, `Socket ${connection.id}: source ${source.name} could not revalidate its principal; refusing it`);
-      return false;
-    }
-
-    if (valid) {
-      connection.auth.checkedAt = Date.now();
-    }
-
-    return valid;
+  protected expired(connection: SocketConnection, now: number): boolean {
+    const expiresAt = connection.auth.principal.ceiling?.expiresAt;
+    // new Date(): a state restored through a serializing adapter carries the date as a string; NaN counts as expired
+    return expiresAt != null && !(new Date(expiresAt).getTime() > now);
   }
 
-  protected refuse(connection: SocketConnection, message: string): never {
-    // setImmediate: the reply carrying this refusal is written first ( it goes out in a microtask )
+  protected due(connection: SocketConnection, now: number): boolean {
+    const auth = connection.auth;
+    return this.Options.revalidateMs > 0 && now - (auth.unavailableSince ?? auth.checkedAt) >= this.Options.revalidateMs;
+  }
+
+  protected check(connection: SocketConnection): Promise<boolean> {
+    this.running++;
+    const check = this.revalidate(connection).finally(() => {
+      this.running--;
+      this.pending.delete(connection);
+    });
+    this.pending.set(connection, check);
+    return check;
+  }
+
+  protected async revalidate(connection: SocketConnection): Promise<boolean> {
+    const auth = connection.auth;
+    const verdict = await this.ask(connection);
+
+    if (verdict.status === 'valid') {
+      auth.checkedAt = Date.now();
+      delete auth.unavailableSince;
+      if (verdict.principal) {
+        auth.principal = verdict.principal;
+      }
+      return true;
+    }
+
+    if (verdict.status === 'unavailable' && auth.unavailableSince === undefined) {
+      auth.unavailableSince = Date.now();
+      this.Log.warn(`Socket ${connection.id}: source ${auth.source} could not revalidate its principal; the connection keeps running for one more ${this.Options.revalidateMs} ms`);
+      return true;
+    }
+
+    this.close(connection, verdict.status === 'unavailable' ? 'its principal source is still unavailable' : 'credentials are no longer valid');
+    return false;
+  }
+
+  protected async ask(connection: SocketConnection): Promise<IRevalidation> {
+    const source = this.Sources.find((s) => s.name === connection.auth.source);
+    if (!source) {
+      return { status: 'invalid' };
+    }
+
+    let verdict: IRevalidation;
+    try {
+      verdict = toRevalidation(await source.revalidate(connection.handshake, connection.principal));
+    } catch (err) {
+      this.Log.warn(err as Error, `Socket ${connection.id}: source ${source.name} failed to revalidate its principal`);
+      return { status: 'unavailable' };
+    }
+
+    if (verdict.principal && principalKey(verdict.principal) !== principalKey(connection.principal)) {
+      this.Log.warn(`Socket ${connection.id}: source ${source.name} revalidated it as another principal; refusing it`);
+      return { status: 'invalid' };
+    }
+
+    return verdict;
+  }
+
+  /** setImmediate: a command reply refused by the same check is written first ( it goes out in a microtask ). */
+  protected close(connection: SocketConnection, why: string): void {
+    if (this.closing.has(connection)) {
+      return;
+    }
+
+    this.closing.add(connection);
+    this.Log.info(`Socket ${connection.id} closed: ${why}`);
+
     setImmediate(() => {
       if (connection.connected) {
         connection.disconnect('unauthenticated');
       }
     });
+  }
 
+  protected refuse(connection: SocketConnection, message: string): never {
+    this.close(connection, message);
     throw new Unauthenticated(message);
   }
 }

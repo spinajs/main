@@ -1,10 +1,10 @@
 import { DI, Injectable } from '@spinajs/di';
 import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
-import { Unauthenticated } from '@spinajs/authz';
+import { Unauthenticated, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { SocketException } from '@spinajs/http-socket-common';
-import { ISocketHandshake, SocketPrincipalSource } from './interfaces.js';
+import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from './interfaces.js';
 
 /** One answer for every failed attempt, as authn-http gives ( A02 ); the reason goes to authn's audit only. */
 export const AUTHENTICATION_FAILED = 'authentication failed';
@@ -54,9 +54,7 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
     }
 
     const authn = (await DI.resolve(AuthnService)) as AuthnService;
-    const userAgent = handshake.headers['user-agent'];
-    const ctx: AuthnContext = { ip: handshake.address, userAgent: typeof userAgent === 'string' ? userAgent : undefined, now: new Date(), purpose: 'request' };
-    const result = await authn.authenticate(credentials, ctx);
+    const result = await authn.authenticate(credentials, this.context(handshake));
 
     if (result.status === 'success') {
       return authn.principalOf(result);
@@ -68,6 +66,37 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
     }
 
     throw new Unauthenticated(AUTHENTICATION_FAILED);
+  }
+
+  /** A rejected, expired or revoked credential is 'invalid'; a throttled attempt or a failing AuthnService is 'unavailable'. */
+  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+    try {
+      if (!DI.check(AuthnService)) {
+        return 'unavailable';
+      }
+
+      const credentials = await this.extract(credentialRequest(handshake));
+      if (!credentials) {
+        return 'invalid';
+      }
+
+      const authn = (await DI.resolve(AuthnService)) as AuthnService;
+      const result = await authn.authenticate(credentials, this.context(handshake));
+
+      if (result.status === 'success') {
+        const again = await authn.principalOf(result);
+        return principalKey(again) === principalKey(principal) ? { status: 'valid', principal: again } : 'invalid';
+      }
+
+      return result.status === 'failure' && result.reason === 'throttled' ? 'unavailable' : 'invalid';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  protected context(handshake: ISocketHandshake): AuthnContext {
+    const userAgent = handshake.headers['user-agent'];
+    return { ip: handshake.address, userAgent: typeof userAgent === 'string' ? userAgent : undefined, now: new Date(), purpose: 'request' };
   }
 
   protected async extract(request: SignedRequest): Promise<Credentials | null> {
