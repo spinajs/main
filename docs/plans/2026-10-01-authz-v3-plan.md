@@ -64,7 +64,7 @@ what changed. The design (r6) holds the decisions behind them.
      A12 prefix list, route builders for B5 http paths). The owning lane
      decides each one.
 5. **Open items from F5, with proposed owners** (the integrator confirms;
-   none is decided here).
+   none is decided here, except the token roles: r6, D3).
    - The `C2 → C2` rewrites (`users-controller`, `z-controller-refresh`)
      have no T lane. Proposed owner: T2, which already writes
      `users-http/test/v3` and depends on C2; the effort needs a re-check.
@@ -73,9 +73,10 @@ what changed. The design (r6) holds the decisions behind them.
      `authz.token.rolePolicy`, which authn-http cannot load. Proposed owner:
      C2 (users-http may depend on both families), reading C5's policy API
      (dotted edge C5 to C2).
-   - Token roles against design §18.3(g): B24 and B07 say a role the owner
-     lacks grants nothing; §18.3(g) lets a role through when the owner's
-     grants cover it. Proposed owner: C5, before T3 ports the token rows.
+   - (r6, D3) Decided by the human, no longer open: token roles against
+     design §18.3(g). B24 and B07 hold: a role the owner lacks grants
+     nothing. §18.3(g) follows them; the grant-subset check is not ported.
+     C5 task 5 carries it.
    - Also open (F5): a last-privileged-holder check on `deactivateUser`
      (B26 covers `AuthzAdmin` commands only). Proposed owner: C2.
 
@@ -252,7 +253,14 @@ the r3 change list above.
    (r3) `packages/authn/src/contracts/**`, `packages/authn-*/src/contracts.ts`
    or `packages/authn-http/src/api.ts` writes `docs/plans/authz-v3-rfc/<lane>-<n>.md`
    (problem, change, affected lanes) and stops that task until the integrator
-   approves and merges the change on `feat/authz-v3`.
+   approves and merges the change on `feat/authz-v3`. (r6, D3) The doc
+   comments of the declarations in those files are part of the frozen
+   contract: `scripts/api-snapshot.mjs` keeps them in
+   `packages/*/etc/*.api.md`, so changing one needs an RFC like a signature
+   change. This covers every declaration the snapshot holds, also those of
+   files the entries import and of re-exported declarations; it does not
+   cover a doc on the same line as the token before it, docs inside a
+   constant's value, or a constant whose declared type drops them.
 4. **Behaviour fixtures** live in `@spinajs/authz-testing` (F5). A lane runs
    the B-rules it owns from its own package tests:
    `runBehaviour(['B11', 'B12'], () => harness)`. A lane never edits
@@ -438,8 +446,8 @@ F0a first, alone (§0a).
      `JobOptions`), authz-fs (`FsDecorator` mirror, `FileMetadataStore`,
      `FsPathResolver`, `fromFsPath`).
   10. `api-extractor`-style snapshot: `packages/authz*/etc/*.api.md` generated
-      from `tsc --declaration` output and committed; CI fails when it changes
-      without an RFC file.
+      from `tsc --declaration` output and committed; (r6, D3) it keeps doc
+      comments; CI fails when it changes without an RFC file.
   11. (r3, D20; r4, H29; done first, about half a day, because F6 imports
       it) Principal contracts in `packages/authn/src/contracts/principal.ts`:
       `PrincipalType`, `PrincipalRef`, `Principal` with `AuthnFacts`,
@@ -622,7 +630,8 @@ F0a first, alone (§0a).
   8. Config schema skeleton for `authn.*` (AJV, design §22.5, r4: with the
      backoff keys and `authn.oidc.providers`) and the old-key table for the
      detector (shipped off, like authz's).
-  9. API snapshot for `authn*` packages; CI rule as F1 task 10.
+  9. API snapshot for `authn*` packages, with doc comments (r6, D3); CI rule
+     as F1 task 10.
   10. (r4, D26) Hand-off and hooks: `IAuthnPrincipalStorage`,
       `AuthnResponseExtension`, `RoleSource`, `ExternalLoginHook`; OIDC
       contracts in `authn-oidc/src/contracts.ts` (`OidcProviderConfig`,
@@ -662,7 +671,7 @@ All must hold on `feat/authz-v3`:
 1. F0a–F7 merged; `tsc -b` green; all `authz*` packages export the design
    §5 and §6.6.1 names, (r4) `@spinajs/authn/contracts` the §5.1 and §22.3
    names and loads no service module, all `authn*` packages the §22.3 and
-   §22.11 names; API snapshots committed.
+   §22.11 names; API snapshots (r6, D3: with doc comments) committed.
 2. F0b merged: no `rbac*` package left; every suite that passed on
    `master` passes.
 3. Engine tests green with fake models; B01, B03–B09, B14, B17, B36, B37,
@@ -1721,9 +1730,9 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
   3. Remove `TokenPolicy` uses from moved token controllers; keep
      `NoTokenAuthPolicy`, `NoImpersonationPolicy`.
   4. Adapt tests.
-  5. (r6, proposal) Settle B24 and B07 ("never above the owner") against
-     design §18.3(g) (`covers(owner, grantsOf(role))`) and edit the
-     losing text, before T3 ports the token rows.
+  5. (r6, D3) The human decided: B24 and B07 hold, and design §18.3(g)
+     follows them. Implement and test "never above the owner" as task 1
+     says, with no grant-subset path.
 - **Acceptance:** B07, B08, B24 (token), B37 (agent token), A15.
 
 ### C6 — configuration-http, configuration-db-source (1–1.5 d)

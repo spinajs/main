@@ -85,12 +85,13 @@ changed.
     an admin reset never returns the secret; an old password is dead after
     a change or an expiry; a CORS preflight never echoes an arbitrary
     origin; the CSRF origin match has no prefix match and no `same-site`.
-16. **Open, not decided here.** Token roles above the owner: B24 and B07
-    say never, §18.3(g) says `covers(owner, grantsOf(role))` (F5; the plan
-    gives C5 the decision). A last-holder check on `deactivate`: B26 covers
-    `AuthzAdmin` commands only (plan C2). F6 review note r3: F1's snapshot
-    tool strips comments, so doc-only rule changes after G1 need no RFC (a
-    decision for the human).
+16. **Two points decided by the human, one open (r6, D3).**
+    Decided: a token's role is never above its owner's role. B24 and B07
+    hold, and §18.3(g) follows them; the 2.x grant-subset check is not
+    ported. Decided: the API snapshot keeps doc comments, so a rule
+    written only in a doc comment is frozen after G1 and changes only by
+    RFC (D3 changed the snapshot tool to keep them). Open: a last-holder
+    check on `deactivate`; B26 covers `AuthzAdmin` commands only (plan C2).
 
 ## Changes in this revision (r5, as built after F1)
 
@@ -1403,7 +1404,7 @@ read at preload per path prefix and cached for single checks; lists read
 #### 6.1.5 Extras the consumers need
 
 `RbacService.covers(holder: Principal | readonly string[], wanted: readonly string[], at?: ResourceRef): boolean`
-(`AdminGuard`, token role policy); `rolesOf(principal, at)`; `grantsOf(role)`;
+(`AdminGuard`); `rolesOf(principal, at)`; `grantsOf(role)`;
 `linkPrincipal(id, companion?)`. (r3, H22) Writes (`assign`, `revoke`,
 `createLink`, `revokeLink`, tags, rules) are not on `RbacService`; they are
 `AuthzAdmin` commands (§6.6) served by the RBAC write handlers, which emit
@@ -3122,8 +3123,11 @@ comment (a profile never widens a decision).
 their own roles in `authz.rbac.serviceRoles`, instead of borrowing `system`.
 
 **(g) Token role policy** (`services/GrantSubsetTokenRolePolicy.ts:26`):
-`getGrants()` keys and `_collectPermissions` become `rbac.covers(owner, rbac.grantsOf(role))`.
-(r6, F5) Open: B24 and B07 say a token role the owner lacks grants nothing ("never above the owner"); this item lets a role through when the owner's grants cover it. Plan C5 decides before T3 ports the token rows.
+the 2.x grant-subset check is not ported. A token's roles are the token's
+roles ∩ the owner's roles ∩ `authz.token.rolePolicy` (B24); `ceiling.roles`
+drops roles the owner lacks (B07). A role the owner lacks grants nothing,
+even when the owner's grants cover it. (r6, D3) Decided by the human: a
+token's role is never above its owner's role.
 
 **(h) Frontend** (`yourscreen-frontend/src/lib/auth/acl.ts:22-60`):
 `new AccessControl({ _user: grants })` and `HasAccess(resource, action)`
