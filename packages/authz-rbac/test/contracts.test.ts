@@ -1,3 +1,5 @@
+import type * as core from '@spinajs/authz';
+import type { FieldSet, ResourceType } from '@spinajs/authz';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -167,5 +169,67 @@ describe('authz-rbac contracts', () => {
     const p = { ...actor } as Principal;
     expect(await new Sync().subjects(p)).to.have.length(1);
     expect(await new Async().subjects(p)).to.have.length(0);
+  });
+});
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Shape<C> = Pick<C, keyof C>;
+const yes = <_T extends true>(): void => {};
+
+describe('authz-rbac pinned shapes', () => {
+  it('match the design exactly', () => {
+    yes<Equal<GrantDef, { readonly permission: string; readonly relation?: string | readonly string[]; readonly on?: readonly ResourcePattern[]; readonly fields?: FieldSet; readonly requiresTag?: string; readonly grantedAt?: readonly ResourceType[] }>>();
+    yes<Equal<ResourcePattern, { readonly type: ResourceType; readonly id?: string }>>();
+    yes<Equal<LadderDef, { readonly name: string; readonly roles: readonly string[]; readonly resourceTypes?: readonly ResourceType[] }>>();
+    yes<Equal<ImpliedRole, { readonly role: string; readonly at: 'self-and-descendants' | 'descendants'; readonly tags?: readonly string[]; readonly bypass?: readonly ('restrict' | 'cap')[] }>>();
+    yes<
+      Equal<
+        RoleDef,
+        {
+          readonly name: string;
+          readonly ladder?: string;
+          readonly extends: readonly string[];
+          readonly grants: readonly GrantDef[];
+          readonly implies?: readonly ImpliedRole[];
+          readonly subjectSet?: boolean;
+          readonly assignable: boolean;
+          readonly scopeTypes?: readonly ResourceType[];
+          readonly description?: string;
+          readonly source: string;
+        }
+      >
+    >();
+    yes<Equal<Shape<RoleStore>, { readonly name: string; load(): Promise<{ roles: readonly RoleDef[]; ladders: readonly LadderDef[] }>; version(): Promise<string> }>>();
+    yes<Equal<Shape<RuleStore>, { readonly name: string; forPath(path: readonly ResourceRef[], at: Date): Promise<readonly RuleDef[]>; version(): Promise<string> }>>();
+    yes<
+      Equal<
+        Shape<AssignmentStore>,
+        {
+          readonly name: string;
+          forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
+          holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;
+          assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
+          revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+        }
+      >
+    >();
+    yes<
+      Equal<
+        Shape<LinkStore>,
+        {
+          byToken(token: string): Promise<LinkDef | null>;
+          byId(id: string): Promise<LinkDef | null>;
+          create?(l: Omit<LinkDef, 'id'>, grant: { role: string; tags?: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<{ link: LinkDef; token: string }>;
+          revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+        }
+      >
+    >();
+    yes<Equal<Shape<SubjectResolver>, { subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[] }>>();
+    yes<Equal<AssignmentSubject, core.AssignmentSubject>>();
+    yes<Equal<Assignment, core.Assignment>>();
+    yes<Equal<SubjectSelector, core.SubjectSelector>>();
+    yes<Equal<RuleDef, core.RuleDef>>();
+    yes<Equal<LinkDef, core.LinkDef>>();
+    expect(true).to.equal(true);
   });
 });

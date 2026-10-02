@@ -1,3 +1,4 @@
+import type * as core from '@spinajs/authz';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -47,5 +48,17 @@ describe('authz-abac contracts', () => {
       }
     }
     expect(await new S().load()).to.have.length(0);
+  });
+});
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Shape<C> = Pick<C, keyof C>;
+const yes = <_T extends true>(): void => {};
+
+describe('authz-abac pinned shapes', () => {
+  it('match the design exactly', () => {
+    yes<Equal<Shape<PolicyStore>, { readonly name: string; load(): Promise<readonly Policy[]>; version(): Promise<string> }>>();
+    yes<Equal<Policy, core.Policy>>();
+    expect(true).to.equal(true);
   });
 });

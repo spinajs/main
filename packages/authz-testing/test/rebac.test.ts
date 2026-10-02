@@ -37,3 +37,24 @@ describe('authz-testing rebac shape', () => {
     expect(await s.reverse({ type: 'user', id: 'u1' }, 'viewer', 'file')).to.have.length(0);
   });
 });
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Shape<C> = Pick<C, keyof C>;
+const yes = <_T extends true>(): void => {};
+
+describe('authz-testing pinned shapes', () => {
+  it('match the design exactly', () => {
+    yes<Equal<Tuple, { readonly object: ResourceRef; readonly relation: string; readonly subject: PrincipalRef | { readonly object: ResourceRef; readonly relation: string } }>>();
+    yes<
+      Equal<
+        Shape<TupleStore>,
+        {
+          read(object: ResourceRef, relation: string): Promise<readonly Tuple[]>;
+          reverse(subject: PrincipalRef, relation: string, objectType: ResourceType): Promise<readonly ResourceRef[]>;
+          write(add: readonly Tuple[], remove: readonly Tuple[], actor: PrincipalRef): Promise<string>;
+        }
+      >
+    >();
+    expect(true).to.equal(true);
+  });
+});

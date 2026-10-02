@@ -12,10 +12,9 @@ export interface GrantDef {
   readonly grantedAt?: readonly ResourceType[]; // only assignments made at these scope types count, else provenance
 }
 
-// glob with {principal.*} templates
 export interface ResourcePattern {
   readonly type: ResourceType;
-  readonly id?: string;
+  readonly id?: string; // glob with {principal.*} templates
 }
 
 // ranked roles, weakest first; rank = index

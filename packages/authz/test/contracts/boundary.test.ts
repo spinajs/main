@@ -60,9 +60,16 @@ describe('authz contract files boundary', () => {
   });
 
   it('declares no DI registration, lifetime decorator or container call', () => {
-    const withoutComments = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    const forbidden = /@(Injectable|Singleton|PerChildInstance|NewInstance|PerInstance|PerInstanceCheck|Inject|Autoinject|LazyInject)\b|\bDI\.(register|resolve|get)\b/;
-    const bad = files().filter((f) => forbidden.test(withoutComments(readFileSync(f, 'utf8'))));
-    expect(bad.map((f) => relative(PKG_ROOT, f))).to.deep.eq([]);
+    const bad: string[] = [];
+    for (const f of files()) {
+      const sf = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true);
+      const visit = (n: ts.Node): void => {
+        if (ts.isDecorator(n)) bad.push(`${relative(PKG_ROOT, f)}: decorator ${n.expression.getText(sf)}`);
+        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === 'DI') bad.push(`${relative(PKG_ROOT, f)}: ${n.expression.getText(sf)}`);
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    expect(bad).to.deep.eq([]);
   });
 });
