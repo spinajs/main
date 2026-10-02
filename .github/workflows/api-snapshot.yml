@@ -1,0 +1,65 @@
+name: api-snapshot
+
+# Guards the frozen authz/authn contracts (plan §1 rule 3): the committed
+# packages/*/etc/*.api.md must match the contract declarations, and after gate
+# G1 (tag authz-v3-g1) a pull request or push that changes one needs an RFC
+# file docs/plans/authz-v3-rfc/<lane>-<n>.md.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-snapshot:
+    runs-on: ubuntu-latest
+
+    # A cancelled push run would skip the RFC check of its range for good (the
+    # next push diffs from its own `before`). A queued run cancels the pending
+    # one of its group whatever cancel-in-progress says, so each push gets a
+    # group of its own; pull requests share one and cancel superseded runs.
+    concurrency:
+      group: api-snapshot-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+      # Full history and tags: --check-rfc diffs against the base branch or the
+      # previous head and looks for the G1 tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      # The snapshot reads the referenced packages' built .d.ts.
+      - name: build monorepo (esm + cjs)
+        run: npm run build
+
+      - name: snapshots match the contracts
+        run: node scripts/api-snapshot.mjs --check
+
+      - name: snapshot changes carry an RFC
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/api-snapshot.mjs --check-rfc "origin/$BASE_REF"
+
+      - name: pushed snapshot changes carry an RFC
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "no previous head for this push (new branch or rewritten history); RFC check skipped"
+            exit 0
+          fi
+          node scripts/api-snapshot.mjs --check-rfc "$BEFORE"

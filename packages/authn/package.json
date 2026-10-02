@@ -16,6 +16,13 @@
       "require": "./lib/cjs/contracts/index.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "contracts": [
+        "lib/cjs/contracts/index.d.ts"
+      ]
+    }
+  },
   "type": "module",
   "private": false,
   "publishConfig": {
