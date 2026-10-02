@@ -22,10 +22,7 @@ export abstract class SessionIssuer {
   abstract restore(rawId: string): Promise<{ handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> } | null>;
   /** New id, same data (fixation). */
   abstract rotate(h: SessionHandle): Promise<SessionHandle>;
-  /**
-   * pending → active, aal2; rotates.
-   * On an active session (a successful AuthnService.reauthenticate) it refreshes the given facts, such as authenticatedAt, and keeps the id.
-   */
+  /** pending → active, aal2; rotates. Refuses an active session: a re-authentication never changes the facts of a live session. */
   abstract elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle>;
   /** Holds ActiveRole and the impersonation block. Never changes the subject, impersonator or state: the issuer refuses its reserved keys. */
   abstract set(h: SessionHandle, key: string, value: unknown): Promise<void>;

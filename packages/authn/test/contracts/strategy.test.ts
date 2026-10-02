@@ -22,7 +22,7 @@ type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B 
 const same = <A, B>(ok: Equals<A, B>): Equals<A, B> => ok;
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
-type Extra = { ceiling?: Ceiling; onBehalfOf?: Principal; delegation?: 'inherit' | 'intersect'; readonly attributes?: Readonly<Record<string, unknown>> };
+type Extra = { ceiling?: Ceiling; onBehalfOf?: Principal; delegation?: 'inherit' | 'intersect'; attributes?: Readonly<Record<string, unknown>> };
 
 const SRC_DIR = join(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'), 'src', 'contracts');
 
@@ -169,12 +169,12 @@ describe('strategy, service and principal factory contracts', () => {
       for (const s of ['account key needs the login string', 'Non-interactive strategies (token, keys, jwt)', 'account key and an account-ip key', "credential's stable id", 'never the raw secret', 'succeed gives the attempt back', 'never back off', "'login' flow like every authenticate call"]) expect(doc).to.contain(s);
     });
 
-    it('reauthenticate, completeMfa and principalOf state the review rules (I1, I3, I4, m4)', () => {
+    it('reauthenticate, completeMfa and principalOf state the review rules (I1, I3, I4, R1, R2)', () => {
       const c = documentedMembers('service.ts');
       const reauth = docOf(c.AuthnService.members, 'reauthenticate');
-      for (const s of ['A13', 'refreshes authenticatedAt', 'SessionIssuer.elevate', 'throttled re-authentication returns false', 'like any failed re-authentication']) expect(reauth).to.contain(s);
+      for (const s of ['A13', 'counts for the current request only', 'changes no session facts', 'does not rotate', 'throttled re-authentication returns false', 'like any failed re-authentication']) expect(reauth).to.contain(s);
       for (const s of ["Step 'recovery'", 'POST /auth/mfa/recovery', 'MfaStep.verifyRecovery']) expect(docOf(c.AuthnService.members, 'completeMfa')).to.contain(s);
-      for (const s of ['extra.attributes', 'Principal.attributes', 'never authority']) expect(docOf(c.PrincipalFactory.members, 'principalOf')).to.contain(s);
+      for (const s of ['extra.attributes', 'StrategyOutcome.attributes', 'PrincipalAttributeProvider derives win']) expect(docOf(c.PrincipalFactory.members, 'principalOf')).to.contain(s);
     });
   });
 

@@ -163,7 +163,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             forceForRoles: stringList,
           },
         },
-        steps: named,
+        steps: { ...named, items: { ...named.items, properties: { ...named.items.properties, name: { type: 'string', minLength: 1, not: { enum: ['recovery'] }, description: "'recovery' is reserved for recovery codes (AuthnService.completeMfa)." } } } },
         encryptionKey: secretRef('AES-256-GCM key for stored MFA secrets; required when any step stores secrets.'),
         totp: {
           type: 'object',

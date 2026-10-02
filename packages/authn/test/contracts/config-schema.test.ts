@@ -387,6 +387,11 @@ describe('authn.* configuration schema', () => {
       );
     });
 
+    it("refuses an mfa step named 'recovery', which completeMfa reserves", () => {
+      refused({ mfa: { steps: [{ name: 'recovery', service: 'A' }] } }, '/mfa/steps/0/name');
+      expect(check({ strategies: [{ name: 'recovery', service: 'A' }] }).ok).to.eq(true);
+    });
+
     it('refuses a secret ref without secret', () => {
       refused({ local: { pepper: { version: 1 } } }, '/local/pepper');
     });

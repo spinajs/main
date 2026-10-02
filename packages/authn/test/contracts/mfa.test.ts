@@ -236,6 +236,7 @@ describe('mfa and secret contracts', () => {
       expect(docOf(step, 'verify')).to.contain('Counts into the throttle via AuthnService');
       expect(docOf(step, 'verify')).to.contain('A10');
       expect(docOf(step, 'verify')).to.contain('Takes a step code only, never a recovery code');
+      expect(docOf(step, 'name')).to.contain("'recovery' is reserved");
       for (const s of ['recovery codes', 'Single use', "counts into the throttle via AuthnService (flow 'mfa')", 'A10']) expect(docOf(step, 'verifyRecovery'), s).to.contain(s);
       for (const s of ['/user/mfa/recovery-codes', 'fresh auth (A13)', 'new codes once', 'voids the old ones']) expect(docOf(step, 'regenerateRecoveryCodes'), s).to.contain(s);
       expect(docOf(step, 'disable')).to.contain('Owner: the caller checks fresh auth and a valid code or recovery code first');

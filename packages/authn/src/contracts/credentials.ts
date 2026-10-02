@@ -59,7 +59,7 @@ export type AuthenticationResult =
       readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
       /** Set when an interactive login issued one. */
       readonly session?: SessionHandle;
-      /** From StrategyOutcome.attributes; principalOf merges them into Principal.attributes. */
+      /** StrategyOutcome.attributes, passed to principalOf under the same rules; the session does not keep them. */
       readonly attributes?: Readonly<Record<string, unknown>>;
     }
   | { readonly status: 'mfa_required'; readonly pending: SessionHandle; readonly steps: readonly string[] }
@@ -82,7 +82,12 @@ export type StrategyOutcome =
       readonly method: string;
       readonly ceiling?: Ceiling;
       readonly delegation?: { readonly onBehalfOf: IdentityRef; readonly mode: 'inherit' | 'intersect' };
-      /** Merged into Principal.attributes. Adds attributes only, never authority; a token's Profile travels as attributes.profile (§18.3(e)). */
+      /**
+       * Merged into Principal.attributes. ABAC may read them, so they count as asserted by the strategy: it sets only keys it owns (today
+       * profile: a token's Profile travels as attributes.profile, §18.3(e)), from server-side records or validated claims, never from raw
+       * request input. Keys that PrincipalFactory or a PrincipalAttributeProvider derives win over them. They apply to per-request
+       * credentials; sessions do not keep them.
+       */
       readonly attributes?: Readonly<Record<string, unknown>>;
     }
   | { readonly ok: false; readonly reason: AuthnFailure };

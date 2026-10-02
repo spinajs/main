@@ -153,7 +153,7 @@ describe('credential, context and result contracts', () => {
       expect([throttled, pinned, late]).to.have.length(3);
       const docs = memberDocs('credentials.ts', 'AuthenticationResult');
       for (const s of ["Set only when reason is 'throttled'", 'Retry-After', 'A02', 'A06']) expect(docs.retryAfterSeconds).to.contain(s);
-      expect(docs.attributes).to.contain('Principal.attributes');
+      for (const s of ['StrategyOutcome.attributes', 'principalOf', 'the session does not keep them']) expect(docs.attributes).to.contain(s);
     });
 
     it('rejects incomplete members', () => {
@@ -196,10 +196,10 @@ describe('credential, context and result contracts', () => {
       same<StrategyOutcome, { readonly ok: true; readonly identity?: IdentityRef; readonly external?: ExternalSubject; readonly method: string; readonly ceiling?: Ceiling; readonly delegation?: Delegation; readonly attributes?: Attributes } | { readonly ok: false; readonly reason: AuthnFailure }>(true);
     });
 
-    it('attributes add to the principal, never authority (review I3)', () => {
+    it('attributes are strategy-owned keys that lose to derived ones (review I3, R2)', () => {
       const pinned: StrategyOutcome = { ok: true, method: 'token', identity: user, attributes: { profile: 'dev' } };
       expect(pinned.ok && pinned.attributes).to.deep.eq({ profile: 'dev' });
-      for (const s of ['Merged into Principal.attributes', 'never authority', 'attributes.profile', '§18.3(e)']) expect(memberDocs('credentials.ts', 'StrategyOutcome').attributes).to.contain(s);
+      for (const s of ['Merged into Principal.attributes', 'ABAC may read them', 'asserted by the strategy', 'only keys it owns', 'attributes.profile', '§18.3(e)', 'server-side records or validated claims', 'never from raw request input', 'PrincipalFactory or a PrincipalAttributeProvider derives win', 'sessions do not keep them']) expect(memberDocs('credentials.ts', 'StrategyOutcome').attributes).to.contain(s);
     });
 
     it('rejects incomplete members', () => {

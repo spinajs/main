@@ -186,7 +186,7 @@ describe('session issuer contract', () => {
       expect(docOf(m, 'elevate')).to.contain('pending');
       expect(docOf(m, 'elevate')).to.contain('aal2');
       expect(docOf(m, 'elevate')).to.contain('rotates');
-      for (const s of ['On an active session', 'AuthnService.reauthenticate', 'authenticatedAt', 'keeps the id']) expect(docOf(m, 'elevate')).to.contain(s);
+      expect(docOf(m, 'elevate')).to.contain('Refuses an active session');
       expect(docOf(m, 'set')).to.contain('ActiveRole');
       expect(docOf(m, 'set')).to.contain('impersonation');
       expect(docOf(m, 'revokeAll')).to.contain('impersonator');

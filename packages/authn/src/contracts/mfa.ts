@@ -3,7 +3,7 @@ import type { AuthnFacts } from './principal.js';
 
 /** TotpMfaStep in authn-totp; later WebAuthn, email code. */
 export abstract class MfaStep {
-  /** 'totp' */
+  /** e.g. 'totp'. 'recovery' is reserved: completeMfa's step for recovery codes. */
   abstract readonly name: string;
   abstract enrolled(id: IdentityRef): Promise<boolean>;
   /** Shown to the owner only. The caller requires fresh auth first (A10). */

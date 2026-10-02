@@ -576,7 +576,7 @@ export declare abstract class PrincipalFactory {
         ceiling?: Ceiling;
         onBehalfOf?: Principal;
         delegation?: "inherit" | "intersect";
-        readonly attributes?: Readonly<Record<string, unknown>>;
+        attributes?: Readonly<Record<string, unknown>>;
     }): Promise<Principal>;
 }
 ```
