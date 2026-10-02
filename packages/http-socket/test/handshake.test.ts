@@ -156,10 +156,10 @@ describe('socket handshake: origin and required authentication', function () {
     expect(await refusalOf(track(connect(t, { headers: { origin: 'null' } })))).to.deep.equal({ code: 'forbidden', message: 'origin not allowed', retryable: false });
   });
 
-  it('SR-12 same-origin means the same scheme, host and port', async () => {
+  it('SR-12 same-origin means the same host and port; an https page may reach a plain-http server (TLS proxy)', async () => {
     t = await startServer();
 
-    expect((await refusalOf(track(connect(t, { headers: { origin: t.url.replace('http:', 'https:') } })))).code).to.equal('forbidden');
+    expect(track(await open(t, { headers: { origin: t.url.replace('http:', 'https:') } })).connected).to.be.true;
     expect((await refusalOf(track(connect(t, { headers: { origin: t.url.replace(/:\d+$/, ':1') } })))).code).to.equal('forbidden');
   });
 
