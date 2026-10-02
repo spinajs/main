@@ -101,7 +101,30 @@ export class RevalScriptedSource extends SocketPrincipalSource {
   }
 }
 
+/** Owns the tokens starting with 'revalhang-'; its revalidate() never settles. */
+export class RevalHangingSource extends SocketPrincipalSource {
+  public static calls = 0;
+
+  public readonly name = 'reval-hanging';
+  public readonly order = 4;
+
+  public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
+    const token = handshake.auth.token;
+    if (typeof token !== 'string' || !token.startsWith('revalhang-')) {
+      return null;
+    }
+
+    return { type: 'user', id: token, authenticated: true, source: 'token', attributes: {} };
+  }
+
+  public revalidate(): Promise<SocketRevalidationResult> {
+    RevalHangingSource.calls++;
+    return new Promise(() => undefined);
+  }
+}
+
 DI.register(RevalSource).as(SocketPrincipalSource);
+DI.register(RevalHangingSource).as(SocketPrincipalSource);
 DI.register(RevalThrowingSource).as(SocketPrincipalSource);
 DI.register(RevalScriptedSource).as(SocketPrincipalSource);
 
@@ -218,6 +241,35 @@ describe('socket principal revalidation on commands', function () {
     expect(errorOf(await command(socket, 'reval.ping'))).to.deep.equal({ code: 'unauthenticated', message: 'credentials expired', retryable: false });
     expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
     await waitFor(() => !socket.connected);
+  });
+
+  it('re-checks the expiry of a principal a valid answer has just renewed', async () => {
+    RevalScriptedSource.reset();
+    await start(50, 'revalscript-renew');
+    await delay(80);
+    RevalScriptedSource.answers = [{ status: 'valid', principal: { type: 'user', id: 'revalscript-renew', authenticated: true, source: 'token', attributes: {}, ceiling: { expiresAt: new Date(Date.now() - 1000) } } }];
+
+    expect(errorOf(await command(socket, 'reval.ping'))).to.deep.equal({ code: 'unauthenticated', message: 'credentials expired', retryable: false });
+  });
+
+  it('warns once when a grace window opens and once when it ends', async () => {
+    clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+    await start(1_000, 'revalthrow-warn');
+    const warn = sinon.stub((DI.resolve(SocketPrincipalGuard) as unknown as { Log: { warn: (...a: unknown[]) => void } }).Log, 'warn');
+
+    try {
+      clock.tick(1_000);
+      expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+      expect(warn.callCount).to.equal(1);
+      expect(warn.firstCall.args.some((a) => a instanceof Error)).to.be.true;
+
+      clock.tick(1_000);
+      expect(errorOf(await command(socket, 'reval.ping')).code).to.equal('unauthenticated');
+      expect(warn.callCount).to.equal(2);
+      expect(String(warn.secondCall.args.find((a) => typeof a === 'string'))).to.match(/closing after grace/);
+    } finally {
+      warn.restore();
+    }
   });
 
   it('a source that cannot revalidate gets one grace interval, then the connection is refused', async () => {
@@ -447,6 +499,71 @@ describe('socket principal revalidation sweep', function () {
 
     await t.server.dispose();
     expect(clock.countTimers()).to.equal(0);
+  });
+});
+
+describe('socket principal revalidation timeout', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let sockets: ClientSocket[] = [];
+
+  const openWith = async (token: string, clientId: string): Promise<ClientSocket> => {
+    const socket = await open(t, { auth: { clientId, token } });
+    sockets.push(socket);
+    return socket;
+  };
+
+  beforeEach(() => {
+    RevalHangingSource.calls = 0;
+  });
+
+  afterEach(async () => {
+    sockets.forEach((s) => s.close());
+    sockets = [];
+    await t.close();
+  });
+
+  it('reads a source that never answers as unavailable: a command is served in the grace window, then the socket is closed', async () => {
+    t = await startServer({ http: { socket: { auth: { revalidateMs: 100 } } } });
+    const socket = await openWith('revalhang-a', 'hang-client');
+    const notice = nextEvent(socket, SYSTEM_EVENTS.disconnect, 5000);
+
+    await waitFor(() => RevalHangingSource.calls === 1);
+    expect(resultOf(await command(socket, 'reval.ping'))).to.equal('pong');
+
+    expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+    expect(RevalHangingSource.calls).to.equal(2);
+  });
+
+  it(`frees the ${MAX_CONCURRENT_REVALIDATIONS} slots after the timeout, so a revoked socket behind hung ones is still closed`, async () => {
+    t = await startServer({ http: { socket: { auth: { revalidateMs: 100 } } } });
+    for (let i = 0; i < MAX_CONCURRENT_REVALIDATIONS + 1; i++) {
+      await openWith(`revalhang-cap-${i}`, `hang-client-${i}`);
+    }
+
+    const revoked = await openWith('reval-hang-victim', 'hang-victim');
+    const notice = nextEvent(revoked, SYSTEM_EVENTS.disconnect, 5000);
+    revalRevoked.add('reval-hang-victim');
+
+    expect(await notice).to.deep.equal({ reason: 'unauthenticated' });
+  });
+
+  it('stop() resets the running counter, and a stale check does not corrupt it after a restart', async () => {
+    t = await startServer({ http: { socket: { auth: { revalidateMs: 100 } } } });
+    await openWith('revalhang-restart', 'hang-restart');
+    await waitFor(() => RevalHangingSource.calls === 1);
+
+    const guard = DI.resolve(SocketPrincipalGuard) as SocketPrincipalGuard & { running: number };
+    expect(guard.running).to.equal(1);
+
+    guard.stop();
+    expect(guard.running).to.equal(0);
+    guard.start(() => DI.resolve(SocketHub).Connections.values());
+
+    await delay(250);
+    expect(guard.running).to.be.at.least(0);
+    expect(guard.running).to.be.at.most(1);
   });
 });
 

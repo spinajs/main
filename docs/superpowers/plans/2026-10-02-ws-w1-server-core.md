@@ -89,11 +89,14 @@ Every task's requirements include this section.
   - The whole stage chain from the first stage on runs inside the store, so policies, `ArgInputFilter` (G3), hydrators and the handler all see the principal.
   - `runAs` is not used per call: F4 audits every `runAs` (B09) and it means "act as someone else"; handlers still call it themselves.
 - **D15. Origin guard (SR-12 for sockets).** A browser opens a WebSocket to any origin and sends the user's cookies with it (cross-site WebSocket hijacking), and CORS does not apply to the upgrade. Before any source runs, a handshake whose `Origin` is neither absent (non-browser clients) nor same-origin (`new URL(origin).host === Host`) nor listed exactly in `http.socket.cors.origins` is refused with `forbidden`. A non-empty list also becomes socket.io's `cors: { origin: list, credentials: true }` for the polling transport. There are no wildcards (A31: `*` never with credentials).
-- **D16. Live connections re-check their principal (the socket form of SR-06/SR-08).** A socket outlives the credential it opened with. `AuthenticationStage` (Order 350) and the event path call `SocketPrincipalGuard.ensure(connection)`:
-  - A principal whose `ceiling.expiresAt` has passed is refused at once.
-  - Every `http.socket.auth.revalidateMs` (60 s; `0` turns it off) the guard asks the resolving source's `revalidate()`. The default re-authenticates the current handshake and expects the same `principalKey`. Concurrent calls share one check.
-  - A failure answers `unauthenticated` and, after that reply is written (`setImmediate`), disconnects with `sys.disconnect { reason: 'unauthenticated' }`, so the connection stops receiving room pushes.
+- **D16. Live connections re-check their principal (the socket form of SR-06/SR-08).** A socket outlives the credential it opened with. Checks run in a server-wide sweep and on the command and event paths (`AuthenticationStage`, Order 350, and the event path call `SocketPrincipalGuard.ensure(connection)`):
+  - The sweep ticks every `min(revalidateMs, 1000)` ms and enforces `ceiling.expiresAt` even when `revalidateMs` is `0`. At most 16 checks run at once, and each check times out at `min(revalidateMs, 10 s)` ( 10 s when `revalidateMs` is `0` ) and then counts as 'unavailable'. A command and the sweep share one check per connection.
+  - A source's `revalidate()` answers `'valid' | 'invalid' | 'unavailable'` ( booleans are accepted; a throw or a timeout is 'unavailable' ). The default re-authenticates the current handshake and expects the same `principalKey`.
+  - 'invalid' or an expired principal answers `unauthenticated` and, after that reply is written (`setImmediate`), disconnects with `sys.disconnect { reason: 'unauthenticated' }`, so the connection stops receiving room pushes.
+  - 'unavailable' gets ONE grace window of `revalidateMs`: commands are served, and the connection is closed when the next check is not 'valid' either.
+  - A 'valid' answer may carry a renewed principal; it is adopted when its `principalKey` matches ( and its expiry is checked before the command proceeds ).
   - `UNATTENDED` connections are never re-checked.
+  - Task 16 release notes must list the `revalidate()` contract change ( boolean to tri-state ) and that a throw now gets a grace window instead of an immediate refusal.
 - **D17. Release notes and lock file follow authz-v3 rule 7 and the shared-file table.** `RELEASE_NOTES.md` belongs to X1 and `package-lock.json` to the integrator. Task 16 writes `packages/http-socket/RELEASE_NOTES.md` and commits no lock file.
 
 ---

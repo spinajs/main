@@ -103,7 +103,9 @@ export abstract class SocketPrincipalSource {
    * default the handshake must still authenticate as the same principal.
    *
    * - 'invalid' ( or `false` ): the connection is refused with `unauthenticated` and closed at once.
-   * - 'unavailable', or a throw: the source could not decide ( eg. its store is down ). The connection
+   *   Return it for a definitive refusal ( disabled account, revoked credential ).
+   * - 'unavailable', a throw or a timeout: the source could not decide ( eg. its store is down ); a throw
+   *   is read as 'unavailable', never as a refusal. The connection
    *   keeps running for ONE more `revalidateMs` grace window and is asked again; when that answer is
    *   not 'valid' either, it is refused and closed. Commands are served during the grace window.
    */

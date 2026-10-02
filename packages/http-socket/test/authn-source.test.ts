@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import sinon from 'sinon';
 import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
@@ -8,7 +9,7 @@ import { UNATTENDED } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { AuthnCredentialSource } from '../src/authn-source.js';
 import { SocketHub } from '../src/hub.js';
-import { ISocketHandshake } from '../src/interfaces.js';
+import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
 import { IConnectOptions, ITestServer, connect, open, refusalOf, startServer } from './harness.js';
 
 const BOB: Principal = Object.freeze({ type: 'user', id: 'bob', authenticated: true, source: 'token', attributes: Object.freeze({}), identity: { name: 'bob' } });
@@ -148,6 +149,7 @@ describe('AuthnCredentialSource', function () {
 
     describe('revalidate', () => {
       const source = new AuthnCredentialSource();
+      const registered = async () => ((await DI.resolve(Array.ofType(SocketPrincipalSource))) as SocketPrincipalSource[]).find((s) => s.name === 'authn')!;
       const handshakeWith = (token?: string): ISocketHandshake => ({ auth: token ? { token } : {}, headers: {}, cookies: {}, address: '127.0.0.1', url: '/socket.io/', query: {}, secure: false, issuedAt: 0 });
 
       it('answers valid with the principal AuthnService resolves now', async () => {
@@ -168,6 +170,18 @@ describe('AuthnCredentialSource', function () {
       it('answers unavailable when AuthnService fails or throttles', async () => {
         expect(await source.revalidate(handshakeWith('authn-down'), BOB)).to.equal('unavailable');
         expect(await source.revalidate(handshakeWith('authn-throttled'), BOB)).to.equal('unavailable');
+      });
+
+      it('logs the error when AuthnService throws', async () => {
+        const logged = await registered();
+        const warn = sinon.stub((logged as unknown as { Log: { warn: (...a: unknown[]) => void } }).Log, 'warn');
+        try {
+          expect(await logged.revalidate(handshakeWith('authn-down'), BOB)).to.equal('unavailable');
+          expect(warn.calledOnce).to.be.true;
+          expect(warn.firstCall.args.some((a) => a instanceof Error)).to.be.true;
+        } finally {
+          warn.restore();
+        }
       });
     });
   });

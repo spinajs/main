@@ -10,10 +10,12 @@ import { SocketConnection } from './connection.js';
 export const MAX_CONCURRENT_REVALIDATIONS = 16;
 
 const MAX_SWEEP_TICK_MS = 1_000;
+const MAX_REVALIDATE_MS = 10_000;
 
 interface IRevalidation {
   status: SocketRevalidationStatus;
   principal?: Principal;
+  error?: Error;
 }
 
 function toRevalidation(result: SocketRevalidationResult): IRevalidation {
@@ -52,6 +54,9 @@ export class SocketPrincipalGuard {
 
   protected running = 0;
 
+  /** bumped by stop(): a check of an earlier run must not touch the new run's counter or map */
+  protected generation = 0;
+
   protected closing = new WeakSet<SocketConnection>();
 
   protected timer: ReturnType<typeof setInterval> | null = null;
@@ -75,6 +80,10 @@ export class SocketPrincipalGuard {
       clearInterval(this.timer);
       this.timer = null;
     }
+
+    this.generation++;
+    this.running = 0;
+    this.pending = new WeakMap();
   }
 
   /** One sweep tick; resolves when the revalidations it started have settled. */
@@ -122,6 +131,11 @@ export class SocketPrincipalGuard {
     if (!(await (this.pending.get(connection) ?? this.check(connection)))) {
       this.refuse(connection, 'credentials are no longer valid');
     }
+
+    // the check may have adopted a renewed principal that is already expired
+    if (this.expired(connection, Date.now())) {
+      this.refuse(connection, 'credentials expired');
+    }
   }
 
   protected expired(connection: SocketConnection, now: number): boolean {
@@ -136,12 +150,16 @@ export class SocketPrincipalGuard {
   }
 
   protected check(connection: SocketConnection): Promise<boolean> {
+    const generation = this.generation;
+    const pending = this.pending;
     this.running++;
     const check = this.revalidate(connection).finally(() => {
-      this.running--;
-      this.pending.delete(connection);
+      if (generation === this.generation) {
+        this.running--;
+        pending.delete(connection);
+      }
     });
-    this.pending.set(connection, check);
+    pending.set(connection, check);
     return check;
   }
 
@@ -160,10 +178,18 @@ export class SocketPrincipalGuard {
 
     if (verdict.status === 'unavailable' && auth.unavailableSince === undefined) {
       auth.unavailableSince = Date.now();
-      this.Log.warn(`Socket ${connection.id}: source ${auth.source} could not revalidate its principal; the connection keeps running for one more ${this.Options.revalidateMs} ms`);
+      const reason = `Socket ${connection.id}: source ${auth.source} could not revalidate its principal; the connection keeps running for one more ${this.Options.revalidateMs} ms`;
+      if (verdict.error) {
+        this.Log.warn(verdict.error, reason);
+      } else {
+        this.Log.warn(reason);
+      }
       return true;
     }
 
+    if (verdict.status === 'unavailable') {
+      this.Log.warn(`Socket ${connection.id}: source ${auth.source} is still unavailable, closing after grace`);
+    }
     this.close(connection, verdict.status === 'unavailable' ? 'its principal source is still unavailable' : 'credentials are no longer valid');
     return false;
   }
@@ -174,12 +200,21 @@ export class SocketPrincipalGuard {
       return { status: 'invalid' };
     }
 
+    const limit = this.Options.revalidateMs > 0 ? Math.min(this.Options.revalidateMs, MAX_REVALIDATE_MS) : MAX_REVALIDATE_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`revalidate() of source ${source.name} timed out after ${limit} ms`)), limit);
+      timer.unref?.();
+    });
+
     let verdict: IRevalidation;
     try {
-      verdict = toRevalidation(await source.revalidate(connection.handshake, connection.principal));
+      // a late answer of a timed out call is dropped by the race
+      verdict = toRevalidation(await Promise.race([source.revalidate(connection.handshake, connection.principal), timeout]));
     } catch (err) {
-      this.Log.warn(err as Error, `Socket ${connection.id}: source ${source.name} failed to revalidate its principal`);
-      return { status: 'unavailable' };
+      return { status: 'unavailable', error: err as Error };
+    } finally {
+      clearTimeout(timer);
     }
 
     if (verdict.principal && principalKey(verdict.principal) !== principalKey(connection.principal)) {

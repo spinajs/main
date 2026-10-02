@@ -1,4 +1,5 @@
 import { DI, Injectable } from '@spinajs/di';
+import { Log, Logger } from '@spinajs/log';
 import { AuthnService, CredentialExtractor } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, SignedRequest } from '@spinajs/authn/contracts';
 import { Unauthenticated, principalKey } from '@spinajs/authz';
@@ -42,6 +43,9 @@ export function credentialRequest(handshake: ISocketHandshake): SignedRequest {
 export class AuthnCredentialSource extends SocketPrincipalSource {
   public readonly name = 'authn';
   public readonly order = 50;
+
+  @Logger('http-socket')
+  protected Log: Log;
 
   public async authenticate(handshake: ISocketHandshake): Promise<Principal | null> {
     if (!DI.check(AuthnService)) {
@@ -89,7 +93,8 @@ export class AuthnCredentialSource extends SocketPrincipalSource {
       }
 
       return result.status === 'failure' && result.reason === 'throttled' ? 'unavailable' : 'invalid';
-    } catch {
+    } catch (err) {
+      this.Log.warn(err as Error, 'AuthnService failed to revalidate a socket credential');
       return 'unavailable';
     }
   }
