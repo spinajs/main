@@ -79,7 +79,7 @@ export abstract class SubjectResolver {
   abstract subjects(p: Principal): Promise<readonly AssignmentSubject[]> | readonly AssignmentSubject[];
 }
 
+// authz-orm compiles both native ops to SQL (§12.4)
 export const RBAC_ASSIGNMENT_OP = 'native:rbac.assignment' as const; // permit rows whose ancestors carry a live assignment
 export const RBAC_THRESHOLD_OP = 'native:rbac.threshold' as const; // deny rows where a threshold rule fails
-// authz-orm compiles both native ops to SQL (§12.4)
 export const RBAC_RESIDUALS: readonly FilterOp[] = Object.freeze([...CORE_FILTER_OPS, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP]);

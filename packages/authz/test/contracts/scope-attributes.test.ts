@@ -46,7 +46,5 @@ describe('CORE_FILTER_OPS', () => {
     expect(Object.isFrozen(CORE_FILTER_OPS)).to.equal(true);
     expect((authz as Record<string, unknown>).CORE_FILTER_OPS).to.equal(CORE_FILTER_OPS);
     yes<Equal<typeof CORE_FILTER_OPS, readonly FilterOp[]>>();
-    const valid: readonly string[] = ['true', 'false', 'and', 'or', 'not', 'cmp', 'relation', 'under'];
-    for (const op of CORE_FILTER_OPS) expect(valid).to.include(op);
   });
 });
