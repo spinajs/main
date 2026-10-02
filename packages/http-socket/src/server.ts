@@ -5,7 +5,7 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
 import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
-import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketError, SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
 import { SocketDispatcher } from './dispatcher.js';
@@ -218,7 +218,9 @@ export class SocketServer extends AsyncService {
       const auth = handshake.auth;
 
       if (auth.protocol !== PROTOCOL_VERSION) {
-        throw new SocketException('version_mismatch', `server speaks protocol ${PROTOCOL_VERSION}, client sent ${String(auth.protocol)}`, { details: { server: PROTOCOL_VERSION } });
+        // the message is logged: a client string must not reach it
+        const sent = typeof auth.protocol === 'number' ? String(auth.protocol) : 'no numeric protocol';
+        throw new SocketException('version_mismatch', `server speaks protocol ${PROTOCOL_VERSION}, client sent ${sent}`, { details: { server: PROTOCOL_VERSION } });
       }
 
       if (typeof auth.clientId !== 'string' || auth.clientId.length === 0) {
@@ -227,6 +229,10 @@ export class SocketServer extends AsyncService {
 
       if (auth.clientId.length > MAX_ID_LENGTH) {
         throw new SocketException('invalid_argument', `handshake auth.clientId is longer than ${MAX_ID_LENGTH} characters`);
+      }
+
+      if (!isId(auth.clientId)) {
+        throw new SocketException('invalid_argument', 'handshake auth.clientId must be printable ASCII');
       }
 
       const client: ISocketClientState = { clientId: auth.clientId, protocol: PROTOCOL_VERSION };

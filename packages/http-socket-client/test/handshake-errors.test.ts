@@ -68,6 +68,9 @@ describe('Connection handshake errors', () => {
   it('throws at construction for a clientId the server would refuse with invalid_argument', () => {
     expect(() => makeConnection(server, { clientId: '' })).to.throw(RangeError);
     expect(() => makeConnection(server, { clientId: 'x'.repeat(MAX_ID_LENGTH + 1) })).to.throw(RangeError);
+    for (const clientId of ['c 1', 'c1\n', 'c\u0000', 'ż']) {
+      expect(() => makeConnection(server, { clientId }), JSON.stringify(clientId)).to.throw(RangeError);
+    }
     expect(() => makeConnection(server, { clientId: 'x'.repeat(MAX_ID_LENGTH) })).to.not.throw();
     expect(server.handshakes).to.have.length(0);
   });

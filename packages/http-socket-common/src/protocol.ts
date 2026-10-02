@@ -5,6 +5,9 @@ export const PROTOCOL_VERSION = 1;
 /** Longest accepted command / cancel id. */
 export const MAX_ID_LENGTH = 128;
 
+/** Characters an id ( command, cancel, clientId ) may use: printable ASCII, since ids end up in log lines. */
+export const ID_PATTERN = /^[\x21-\x7E]+$/;
+
 /** Longest accepted command / event name. */
 export const MAX_NAME_LENGTH = 128;
 
@@ -125,8 +128,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
-function isId(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
+export function isId(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_ID_LENGTH && ID_PATTERN.test(value);
 }
 
 export function isName(value: unknown): value is string {

@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, MAX_ID_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isSocketError } from '../src/index.js';
+import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, ID_PATTERN, MAX_ID_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isSocketError } from '../src/index.js';
 
 type DocsContract = {
   commands: { 'docs.open': [{ id: string }, { title: string }] };
@@ -83,6 +83,20 @@ describe('http-socket-common', () => {
       expect(isCommandRequest({ id: 'r1', name: '' })).to.be.false;
       expect(isCommandRequest({ id: 'r1', name: 'x', deadline: '5' })).to.be.false;
       expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 5 })).to.be.false;
+    });
+
+    it('accepts only printable ASCII ids ( ID_PATTERN ), so an id cannot break a log line', () => {
+      expect(ID_PATTERN.test('a-B_9:{}~!')).to.be.true;
+      for (const id of ['r-1', '550e8400-e29b-41d4-a716-446655440000', '!~', 'x'.repeat(MAX_ID_LENGTH)]) {
+        expect(isCommandRequest({ id, name: 'x' }), id).to.be.true;
+        expect(isCancelFrame({ id }), id).to.be.true;
+      }
+
+      for (const id of ['r 1', 'r1\n', 'r1\r', '\u0000', 'r\u007f', '\u017c', '\u202e1r', '\t']) {
+        expect(ID_PATTERN.test(id), JSON.stringify(id)).to.be.false;
+        expect(isCommandRequest({ id, name: 'x' }), JSON.stringify(id)).to.be.false;
+        expect(isCancelFrame({ id }), JSON.stringify(id)).to.be.false;
+      }
     });
 
     it('bounds command and event names to MAX_NAME_LENGTH characters of NAME_PATTERN', () => {

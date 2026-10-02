@@ -206,6 +206,12 @@ describe('socket command pipeline', function () {
     expect(reply).to.deep.equal({ id: '', ok: false, error: { code: 'invalid_argument', message: 'malformed command request', retryable: false } });
   });
 
+  it('answers a request id outside printable ASCII as malformed', async () => {
+    for (const id of ['r 1', 'r1\n', 'r\u0000', 'ż']) {
+      expect(errorOf(await command(socket, 'pipe.echo', 'x', { id })), JSON.stringify(id)).to.include({ code: 'invalid_argument', message: 'malformed command request' });
+    }
+  });
+
   for (const name of ['bigint', 'circular']) {
     it(`answers a ${name} result that cannot be encoded with internal, without an unhandled rejection`, async () => {
       const rejections: unknown[] = [];

@@ -1,5 +1,5 @@
 import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
-import { DEFAULT_RETRYABLE, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isErrorCode, isSocketError, type DisconnectNotice, type ErrorCode, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
+import { DEFAULT_RETRYABLE, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isErrorCode, isId, isSocketError, type DisconnectNotice, type ErrorCode, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
 import { Emitter } from './emitter.js';
 import { assertTimeoutMs } from './timeout.js';
 import { ReconnectPolicy, type ReconnectOptions } from './reconnect.js';
@@ -59,8 +59,8 @@ export class Connection {
 
   constructor(private readonly options: ConnectionOptions) {
     // the server refuses such a handshake with invalid_argument, which no retry can fix
-    if (typeof options.clientId !== 'string' || options.clientId.length === 0 || options.clientId.length > MAX_ID_LENGTH) {
-      throw new RangeError(`clientId must be 1-${MAX_ID_LENGTH} characters`);
+    if (!isId(options.clientId)) {
+      throw new RangeError(`clientId must be 1-${MAX_ID_LENGTH} printable ASCII characters`);
     }
     this.events = new Emitter<ConnectionEvents>(options.onListenerError);
     this.policy = new ReconnectPolicy(options.reconnect);

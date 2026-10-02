@@ -63,6 +63,24 @@ describe('socket handshake', function () {
     expect(track(await open(t, { auth: { clientId: 'x'.repeat(MAX_ID_LENGTH) } })).connected).to.be.true;
   });
 
+  it('refuses a clientId outside printable ASCII, which would reach the log lines', async () => {
+    for (const clientId of ['c 1', 'c1\n', 'c1\r', 'c\u0000', 'c\u007f', 'ż', '‮c1']) {
+      const error = await refusal({ auth: { clientId } });
+      expect(error, JSON.stringify(clientId)).to.deep.equal({ code: 'invalid_argument', message: 'handshake auth.clientId must be printable ASCII', retryable: false });
+    }
+    expect(track(await open(t, { auth: { clientId: '!~{c-1}:' } })).connected).to.be.true;
+  });
+
+  it('echoes a numeric protocol version only, so a client string never reaches the message', async () => {
+    expect((await refusal({ auth: { protocol: 999 } })).message).to.equal(`server speaks protocol ${PROTOCOL_VERSION}, client sent 999`);
+
+    for (const protocol of ['1\n[forged] line', { toString: 'x' }, 'x'.repeat(10_000)]) {
+      const error = await refusal({ auth: { protocol } });
+      expect(error.code).to.equal('version_mismatch');
+      expect(error.message).to.equal(`server speaks protocol ${PROTOCOL_VERSION}, client sent no numeric protocol`);
+    }
+  });
+
   it('refuses with internal when a principal source throws an unmapped error', async () => {
     const error = await refusal({ auth: { token: 'crash' } });
     expect(error).to.include({ code: 'internal', retryable: false });

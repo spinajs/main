@@ -13,7 +13,7 @@ export interface SocketClientOptions {
   path?: string;
   /** Asked on every (re)connect; its fields go into the handshake. */
   auth?: AuthProvider;
-  /** Stable per install, persisted by the app; 1 to MAX_ID_LENGTH characters. Generated when omitted. */
+  /** Stable per install, persisted by the app; 1 to MAX_ID_LENGTH printable ASCII characters. Generated when omitted. */
   clientId?: string;
   reconnect?: Partial<ReconnectOptions>;
   defaultTimeoutMs?: number;
