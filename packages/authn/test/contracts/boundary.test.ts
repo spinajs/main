@@ -15,7 +15,7 @@ const SRC_DIR = join(PKG_ROOT, 'src', 'contracts');
 const MJS_DIR = join(PKG_ROOT, 'lib', 'mjs', 'contracts');
 const CJS_DIR = join(PKG_ROOT, 'lib', 'cjs', 'contracts');
 const ALLOWED_PACKAGES = ['@spinajs/di'];
-const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash'];
+const RUNTIME_EXPORTS = ['SYSTEM', 'UNATTENDED', 'principalKey', 'ceilingHash', 'AuthenticationStrategy', 'AuthnService', 'PrincipalFactory'];
 
 // Plain JS so the same code runs in this process and in the child processes.
 const EXERCISE = `(c) => ({
