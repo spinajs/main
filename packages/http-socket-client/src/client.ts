@@ -1,6 +1,7 @@
-import { SocketException, WIRE_EVENTS, type EventFrame, type SocketError } from '@spinajs/http-socket-common';
+import { SocketException, WIRE_EVENTS, type ContractShape, type EventFrame, type SocketContract, type SocketError } from '@spinajs/http-socket-common';
 import { CommandDispatcher, DEFAULT_TIMEOUT_MS, type CommandOptions } from './commands.js';
 import { Connection, type AuthProvider, type ConnectionState, type IoOptions } from './connection.js';
+import type { TypedSocketClient } from './contract.js';
 import { Emitter, rethrowAsync } from './emitter.js';
 import { randomId } from './ids.js';
 import type { ReconnectOptions } from './reconnect.js';
@@ -101,6 +102,11 @@ export class SocketClient {
   /** Terminal: rejects pending commands and releases the socket. */
   public close(): void {
     this.connection.close();
+  }
+
+  /** The same client, typed by a contract shared with the server; no runtime cost. */
+  public typed<C extends ContractShape>(_contract: SocketContract<C>): TypedSocketClient<C> {
+    return this as unknown as TypedSocketClient<C>;
   }
 
   public command<R = unknown>(name: string, payload?: unknown, options?: CommandOptions): Promise<R> {
