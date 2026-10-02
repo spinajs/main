@@ -18,7 +18,7 @@ class RecordingSink extends PerfSink {
 }
 
 function resetDi() {
-  DI.uncache(Configuration);
+  DI.uncache(TestConfiguration);
   DI.uncache(Array.ofType(PerfSink));
   DI.uncache(RecordingSink);
   DI.uncache(PerfRollup);

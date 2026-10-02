@@ -14,14 +14,14 @@ import { configuredCookieParser, resetCookieParser } from "../src/cookie.js";
 describe("configured cookie parser", () => {
   beforeEach(async () => {
     // Not DI.clearCache(): it also wipes cache-only maps such as __http_error_map__.
-    DI.uncache(Configuration);
+    DI.uncache(TestConfiguration);
     resetCookieParser();
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
   });
 
   afterEach(() => {
-    DI.uncache(Configuration);
+    DI.uncache(TestConfiguration);
     resetCookieParser();
   });
 
