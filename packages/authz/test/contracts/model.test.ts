@@ -167,7 +167,7 @@ class FakeDomains extends AuthzDomains {
   public container(_name: string): IContainer {
     return undefined as unknown as IContainer;
   }
-  public service(_name: string): AuthzService {
+  public async service(_name: string): Promise<AuthzService> {
     return new FakeService();
   }
   public names(): readonly string[] {
@@ -217,8 +217,8 @@ describe('model, adapter, host and condition contracts', () => {
     }
   });
 
-  it('exports no host lookup value (it belongs to F4)', () => {
-    expect(authz).to.not.have.property('authz');
+  it('exports the host lookup authz() from the package root (F4)', () => {
+    expect(authz).to.have.property('authz').that.is.a('function');
   });
 
   it('models: minimal and full subclasses instantiate', async () => {

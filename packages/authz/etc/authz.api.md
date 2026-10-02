@@ -199,7 +199,7 @@ export interface AuthzAdminOptions {
     readonly dryRun?: boolean;
 }
 /**
- * Root singleton; per-domain variants via AuthzDomains.service(name).admin().
+ * Root singleton; per-domain variants via (await AuthzDomains.service(name)).admin().
  * The typed sugar methods throw AuthzAdminFailure with the failed result's error code (and field) instead of returning it.
  */
 export declare abstract class AuthzAdmin {
@@ -812,7 +812,7 @@ export declare abstract class AuthzService extends AsyncService {
     abstract preload(principal: Principal): Promise<void>;
     abstract invalidate(tags: readonly string[]): void;
     abstract models(): readonly AuthorizationModel[];
-    /** This domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1). */
+    /** This domain's AuthzAdmin; (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1). */
     abstract admin(): AuthzAdmin;
 }
 export type CheckInput = Omit<DecisionRequest, "resource"> & {
@@ -821,7 +821,7 @@ export type CheckInput = Omit<DecisionRequest, "resource"> & {
 export declare abstract class AuthzDomains {
     abstract create(name: string, parent?: string): IContainer;
     abstract container(name: string): IContainer;
-    abstract service(name: string): AuthzService;
+    abstract service(name: string): Promise<AuthzService>;
     abstract names(): readonly string[];
 }
 export interface AccessSummary {
