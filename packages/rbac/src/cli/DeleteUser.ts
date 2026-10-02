@@ -1,11 +1,12 @@
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
 import { deleteUser } from '../actions.js';
 
 @Command('rbac:user-delete', 'Deletes user from database permanently')
 @Argument('idOrUuid',true, 'numeric id or uuid')
-export class DeleteUser extends CliCommand {
+export class DeleteUser extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
   public async execute(idOrUuid: string): Promise<void> {

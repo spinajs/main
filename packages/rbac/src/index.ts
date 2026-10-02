@@ -41,6 +41,7 @@ export * from './profile.js';
 export * from './impersonation.js';
 export * from './ownership.js';
 export * from './model-token.js';
+export * from './cli/RbacCliCommand.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

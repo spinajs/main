@@ -1,12 +1,13 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from '@spinajs/rbac';
 
 import { revokeTokenRole } from '../actions.js';
 
 @Command('rbac:token-revoke', 'Revokes a role from an access token')
 @Argument('uuid', true, 'token uuid')
 @Argument('role', true, 'role to revoke')
-export class RevokeTokenRole extends CliCommand {
+export class RevokeTokenRole extends RbacCliCommand {
   @Logger('rbac-http-token')
   protected Log: Log;
 
