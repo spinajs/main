@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type { IdentityStatus, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { FakeClock } from '../fakes/clock.js';
 import type { SeedPort } from '../harness/ports.js';
-import type { BddApi } from './bdd.js';
+import type { BddApi } from '../behaviour/types.js';
 import { bddOf, withSubject } from './run.js';
 
 export interface IdentitySubject {

@@ -4,7 +4,8 @@ import type { FakeClock } from '../fakes/clock.js';
 import type { EventsPort } from '../harness/ports.js';
 import { assertSameTiming } from '../helpers/timing.js';
 import type { TimedSource, TimingOptions } from '../helpers/timing.js';
-import type { BddApi, TestThis } from './bdd.js';
+import { PendingLog } from '../behaviour/runner.js';
+import type { BddApi, TestThis } from '../behaviour/types.js';
 import { bddOf, pending, withSubject } from './run.js';
 
 export interface StrategySubject {
@@ -28,9 +29,12 @@ export interface StrategySubject {
 export type StrategySubjectFactory = (k: { clock: FakeClock }) => StrategySubject | Promise<StrategySubject>;
 
 export interface StrategyConformanceOptions {
+  /** Lanes should pass it: the strategy's name is unknown until the async factory runs, so the default title has none. */
   readonly title?: string;
   readonly timing?: TimingOptions | false;
   readonly fakeDate?: boolean;
+  /** Timeout of the timing case (default 600 s); a lane with slower hashing raises it, e.g. with timingTimeoutMs. */
+  readonly timeoutMs?: number;
   readonly bdd?: BddApi;
 }
 
@@ -46,6 +50,7 @@ async function credentialsOf(s: StrategySubject): Promise<Credentials[]> {
 
 export function runStrategyConformance(factory: StrategySubjectFactory, opts: StrategyConformanceOptions = {}): void {
   const bdd = bddOf(opts.bdd);
+  const log = new PendingLog();
   const kase = (title: string, body: (s: StrategySubject, ctx: AuthnContext, t: TestThis) => Promise<void>, timeoutMs?: number) =>
     bdd.it(`conformance: ${title}`, async function (this: TestThis) {
       if (timeoutMs) {
@@ -115,7 +120,7 @@ export function runStrategyConformance(factory: StrategySubjectFactory, opts: St
 
     kase('a non-interactive strategy returns account and account-ip keys from a stable id', async (s, ctx, t) => {
       if (s.strategy.interactive) {
-        pending(t, 'n/a for interactive strategies');
+        pending(t, 'n/a for interactive strategies', log);
       }
       const keys = s.strategy.throttleKeys(await s.valid(), ctx);
       const kinds = keys.map((k) => k.kind);
@@ -130,10 +135,10 @@ export function runStrategyConformance(factory: StrategySubjectFactory, opts: St
       async (s, ctx, t) => {
         const unknown = s.unknown?.bind(s);
         if (!unknown) {
-          pending(t, 'n/a without unknown()');
+          pending(t, 'n/a without unknown()', log);
         }
         if (opts.timing === false) {
-          pending(t, 'timing off');
+          pending(t, 'timing off', log);
         }
         const source = (gen: () => Promise<Credentials>): TimedSource => ({
           prepare: async (count) => {
@@ -146,7 +151,8 @@ export function runStrategyConformance(factory: StrategySubjectFactory, opts: St
         });
         await assertSameTiming(source(() => s.invalid()), source(unknown), opts.timing || undefined);
       },
-      TIMING_CASE_TIMEOUT_MS,
+      opts.timeoutMs ?? TIMING_CASE_TIMEOUT_MS,
     );
+    log.register(bdd);
   });
 }

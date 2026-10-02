@@ -1,5 +1,5 @@
 import type { AuthenticationStrategy, Credentials } from '@spinajs/authn/contracts';
-import type { BddApi, TestThis } from '../../src/conformance/bdd.js';
+import type { BddApi, TestThis } from '../../src/behaviour/types.js';
 import type { StrategySubject, StrategySubjectFactory } from '../../src/conformance/strategy.js';
 import { FakeIdentityStore, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, fakeSeedPort } from '../../src/fakes/index.js';
 
