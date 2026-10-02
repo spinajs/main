@@ -55,6 +55,55 @@ describe('Connection refusals that retrying cannot fix', () => {
     expect(refused).to.deep.equal([]);
   });
 
+  it('retries an internal refusal with backoff and emits no refused', async () => {
+    let refusing = true;
+    server.refuse = () => (refusing ? { code: 'internal', message: 'db down', retryable: false } : undefined);
+    const connection = makeConnection(server);
+    const target = statefulConnection(connection);
+    const refused: unknown[] = [];
+    connection.events.on('refused', (error) => refused.push(error));
+
+    connection.connect();
+    await until(() => server.handshakes.length >= 2);
+    refusing = false;
+    await waitForState(target, 'online');
+
+    expect(refused).to.deep.equal([]);
+  });
+
+  it('reconnects after an internal kick', async () => {
+    const connection = makeConnection(server);
+    const target = statefulConnection(connection);
+    const refused: unknown[] = [];
+    connection.events.on('refused', (error) => refused.push(error));
+    connection.connect();
+    await waitForState(target, 'online');
+
+    server.kick('internal');
+    await waitForState(target, 'offline');
+    await waitForState(target, 'online');
+
+    expect(refused).to.deep.equal([]);
+  });
+
+  for (const [code, event] of [['unauthenticated', 'auth_required'], ['version_mismatch', 'incompatible']] as const) {
+    it(`emits ${event} and stops when kicked with ${code}`, async () => {
+      const connection = makeConnection(server);
+      const target = statefulConnection(connection);
+      const events: string[] = [];
+      for (const name of ['auth_required', 'incompatible', 'refused'] as const) connection.events.on(name, () => events.push(name));
+      connection.connect();
+      await waitForState(target, 'online');
+
+      server.kick(code);
+      await waitForState(target, 'offline');
+      await sleep(FAST_RECONNECT.maxMs * 1.5);
+
+      expect(events).to.deep.equal([event]);
+      expect(server.handshakes).to.have.length(1);
+    });
+  }
+
   it('keeps retrying a retryable refusal', async () => {
     server.refuse = () => ({ code: 'forbidden', message: 'busy', retryable: true });
     const connection = makeConnection(server);

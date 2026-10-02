@@ -212,8 +212,8 @@ client.on('failed', ({ entry, error }) => …)                 // a durable comm
   client.
 - **Reconnect.** Exponential backoff with jitter. Auth is asked again on each attempt. `unauthenticated` stops the
   retries and emits `auth_required`. `version_mismatch` stops and emits `incompatible`. Any other refusal with `retryable: false` (`forbidden`,
-  `invalid_argument` …) stops and emits `refused` with the error, as does a `sys.disconnect` kick that carries a
-  non-retryable code (unless a listener already called `disconnect()`); `connect()` tries again. `sys.shutdown` waits
+  `invalid_argument` …, but not `internal`, which retries with backoff) stops and emits `refused` with the error, as does a `sys.disconnect` kick that carries a
+  non-retryable code other than `internal` (unless a listener already called `disconnect()`); `connect()` tries again. `sys.shutdown` waits
   `retryAfterMs` before the next attempt.
 - **Plain commands.** When offline, `whenOffline: 'fail'` (the default) rejects at once with `unavailable`; `'wait'`
   holds the command in memory until the client is online or the timeout passes. A drop in the middle of a command

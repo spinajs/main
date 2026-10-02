@@ -49,6 +49,18 @@ describe('Final-review hardening', () => {
       });
     }
 
+    it('rejects an invalid per-call timeoutMs with a RangeError even while offline', async () => {
+      const connection = makeConnection(server);
+      const commands = new CommandDispatcher(connection);
+      let caught: unknown;
+      try {
+        await commands.execute('ping', null, { timeoutMs: 0 });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).to.be.instanceOf(RangeError);
+    });
+
     it('accepts the largest timer delay', () => {
       const connection = makeConnection(server, { connectTimeoutMs: 2_147_483_647 });
       expect(() => new CommandDispatcher(connection, 2_147_483_647)).to.not.throw();

@@ -54,16 +54,16 @@ export class CommandDispatcher {
   }
 
   public execute(name: string, payload: unknown, options: CommandOptions = {}): Promise<unknown> {
-    if (this.connection.state === 'closed') return rejected(CLOSED);
-    if (options.signal?.aborted) return rejected(CANCELLED);
-    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
-
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
     try {
       assertTimeoutMs('timeoutMs', timeoutMs);
     } catch (error) {
       return Promise.reject(error);
     }
+    if (this.connection.state === 'closed') return rejected(CLOSED);
+    if (options.signal?.aborted) return rejected(CANCELLED);
+    if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
+
     const request: CommandRequest = { id: this.nextId(), name, payload };
     if (options.traceparent !== undefined) request.traceparent = options.traceparent;
     const signal = options.signal;

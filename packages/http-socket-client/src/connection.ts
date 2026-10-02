@@ -96,6 +96,7 @@ export class Connection {
   public connect(): void {
     if (this.current === 'closed') throw new Error('the client is closed');
     this.stopped = false;
+    this.kickCode = undefined;
     if (this.current !== 'offline') return;
     this.retryAfterMs = undefined;
     this.attempt = 0;
@@ -180,7 +181,7 @@ export class Connection {
     if (this.stopped) return;
     const data = (error as Error & { data?: unknown }).data;
     if (isSocketError(data)) {
-      if (data.code === 'unauthenticated' || data.code === 'version_mismatch' || data.retryable === false) return this.haltFor(data);
+      if (data.code === 'unauthenticated' || data.code === 'version_mismatch' || (data.retryable === false && data.code !== 'internal')) return this.haltFor(data);
       if (data.retryAfterMs !== undefined) this.retryAfterMs = data.retryAfterMs;
     }
     this.scheduleRetry();
@@ -206,7 +207,7 @@ export class Connection {
     if (frame?.name === SYSTEM_EVENTS.disconnect) {
       // W1 sends the error code of the kick as the reason
       const reason = (frame.payload as Partial<DisconnectNotice> | undefined)?.reason;
-      this.kickCode = isErrorCode(reason) && !DEFAULT_RETRYABLE[reason] ? reason : undefined;
+      this.kickCode = isErrorCode(reason) && reason !== 'internal' && !DEFAULT_RETRYABLE[reason] ? reason : undefined;
       return;
     }
     if (frame?.name !== SYSTEM_EVENTS.shutdown) return;
