@@ -1,5 +1,5 @@
 import { Container } from './container.js';
-import { IBind, IContainer, ResolvableObject } from './interfaces.js';
+import { IBind, IContainer, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
 import { TypedArray } from './array.js';
 
@@ -136,6 +136,15 @@ export function resolve(type: Class<any> | TypedArray<any> | string, options?: u
 }
 
 
+
+/**
+ * Resolves every registration of `type` in the root container. Unlike
+ * `resolve(Array.ofType(type))` it also returns factory results and does not
+ * populate the Array.ofType collection cache.
+ */
+export function resolveChain<T>(type: Class<T>): ResolveChainResult<T> {
+  return RootContainer.resolveChain(type);
+}
 
 /**
  * Gets already resolved service from root container.

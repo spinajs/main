@@ -1,7 +1,7 @@
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { TypedArray } from './array.js';
 import { getTypeName, isConstructor, isFactory, isObject } from './helpers.js';
-import { IContainer } from './interfaces.js';
+import { IChainRegistration, IContainer } from './interfaces.js';
 import { Class, Factory } from './types.js';
 
 export class Registry {
@@ -72,6 +72,33 @@ export class Registry {
     }
 
     return null as any;
+  }
+
+  public getTypesChain<T>(service: string | Class<T> | TypedArray<T>): IChainRegistration[] {
+    if (!service) {
+      throw new InvalidArgument('argument "service" cannot be null or empty');
+    }
+
+    const lineage: IContainer[] = [];
+    for (let c: IContainer | undefined = this.container; c; c = c.Parent) {
+      lineage.unshift(c);
+    }
+
+    const chain: IChainRegistration[] = [];
+    for (const container of lineage) {
+      for (const type of container.Registry.getTypes(service, false) ?? []) {
+        const name = isFactory(type) ? null : getTypeName(type);
+        const replaced = name === null ? -1 : chain.findIndex((e) => !isFactory(e.type) && getTypeName(e.type) === name);
+
+        if (replaced === -1) {
+          chain.push({ type, container });
+        } else {
+          chain[replaced] = { type, container };
+        }
+      }
+    }
+
+    return chain;
   }
 
   public hasRegistered<T>(service: TypedArray<T> | Class<T> | string, parent = true): boolean {

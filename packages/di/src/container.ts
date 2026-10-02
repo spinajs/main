@@ -5,7 +5,7 @@ import { TypedArray } from './array.js';
 import { DI_DESCRIPTION_SYMBOL } from './decorators.js';
 import { ResolveType } from './enums.js';
 import { getTypeName, isAsyncService, isFactory, isTypedArray, isPromise } from './helpers.js';
-import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service } from './interfaces.js';
+import { IBind, IContainer, IInjectDescriptor, IResolvedInjection, SyncService, IToInject, AsyncService, ResolvableObject, Service, ResolveChainResult } from './interfaces.js';
 import { Class, Factory } from './types.js';
 import { EventEmitter } from './events.js';
 import { Binder } from './binder.js';
@@ -321,6 +321,39 @@ export class Container extends EventEmitter implements IContainer {
     return this.Registry.getTypes(service, parent);
   }
 
+  public getRegisteredTypesChain<T>(service: string | Class<T> | TypedArray<T>): (Class<unknown> | Factory<unknown>)[] {
+    return this.Registry.getTypesChain(service).map((e) => e.type);
+  }
+
+  public resolveChain<T>(type: Class<T>): ResolveChainResult<T> {
+    if (!type) {
+      throw new InvalidArgument('argument `type` cannot be null or undefined');
+    }
+
+    // The service class (not Array.ofType) is the source so the Array.ofType
+    // collection cache stays untouched; `register: false` keeps resolveType from
+    // adding redirect targets to the service list.
+    const resolved = this.Registry.getTypesChain(type).map(({ type: entry, container }) => {
+      const owner = container as Container;
+      if (isFactory(entry)) {
+        return owner.resolveType(type, entry as Factory<T>, undefined, false);
+      }
+
+      const target = owner.followRegistered(entry as Class<T>);
+      const resolver = owner.extractDescriptor(target).resolver === ResolveType.PerChildContainer ? this : owner;
+      return resolver.resolveType(type, target, undefined, false);
+    });
+
+    // An async element is a promise only on its first resolve; wrapping whenever
+    // one is present keeps the result shape the same on every call.
+    const isAsyncBase = type === AsyncService || type.prototype instanceof AsyncService;
+    if (isAsyncBase || resolved.some((r) => isPromise(r) || isAsyncService(r))) {
+      return Promise.all(resolved) as ResolveChainResult<T>;
+    }
+
+    return resolved as ResolveChainResult<T>;
+  }
+
   private getCurrentType<T>(type: Class<T> | string, tType?: Class<T>, check?: boolean) {
     // finaly resolve single type:
     // 1. last registered type OR
@@ -345,7 +378,31 @@ export class Container extends EventEmitter implements IContainer {
     return fType;
   }
 
-  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[]): Promise<T> | T | Promise<T> | T[] {
+  /**
+   * Follows `last registered` links until they stabilize. Every @Injectable registers
+   * under itself, so X -> [ X ] is the common fixed point. The seen-set guards against
+   * registration cycles ( eg. A -> B -> C where C is self registered but never maps back to A ).
+   */
+  private followRegistered<T>(type: Class<T>): Class<T> {
+    let tType = type;
+    const seen = new Set<unknown>([tType]);
+    for (;;) {
+      const chained = this.Registry.getTypes(tType);
+      if (!chained || chained.length === 0) {
+        return tType;
+      }
+
+      const next = chained[chained.length - 1] as Class<T>;
+      if (next === tType || seen.has(next)) {
+        return tType;
+      }
+
+      seen.add(next);
+      tType = next;
+    }
+  }
+
+  private resolveType<T>(sourceType: Class<T> | string | TypedArray<T>, targetType: Class<T> | Factory<T>, options?: unknown[], register = true): Promise<T> | T | Promise<T> | T[] {
     /**
      * If its a factory func, always resolve as new instance
      */
@@ -358,29 +415,7 @@ export class Container extends EventEmitter implements IContainer {
     // becouse isFactory is custom type check
 
 
-    /**
-     * Chain to the last registered type - follow `last registered` links until
-     * they stabilize. Every @Injectable registers under itself, so X -> [ X ]
-     * is the common fixed point. Seen-set guards against registration cycles
-     * that would otherwise loop forever ( eg. A -> B -> C where C is self
-     * registered but never maps back to A ).
-     */
-    let tType = targetType as Class<T>;
-    const seen = new Set<unknown>([tType]);
-    for (;;) {
-      const chained = this.Registry.getTypes(tType);
-      if (!chained || chained.length === 0) {
-        break;
-      }
-
-      const next = chained[chained.length - 1] as Class<T>;
-      if (next === tType || seen.has(next)) {
-        break;
-      }
-
-      seen.add(next);
-      tType = next;
-    }
+    const tType = this.followRegistered(targetType as Class<T>);
     const sName = getTypeName(sourceType);
     const descriptor = this.extractDescriptor(tType);
 
@@ -395,7 +430,9 @@ export class Container extends EventEmitter implements IContainer {
         return this.getNewInstance(t, i, options);
       }
 
-      this.Registry.register(sName, t);
+      if (register) {
+        this.Registry.register(sName, t);
+      }
 
       // For singletons, don't check cache here - let getOrCreate handle it atomically
       return this.getNewInstance(t, i, options);
