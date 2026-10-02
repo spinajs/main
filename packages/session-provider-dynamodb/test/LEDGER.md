@@ -14,12 +14,14 @@ replaces them and deletes the legacy file.
 | Class | Count |
 |---|---|
 | move | 0 |
-| adapt | 8 |
-| rewrite | 0 |
+| adapt | 7 |
+| rewrite | 1 |
 | drop | 0 |
 | **total** | 8 |
 
 Lane codes: N2 authn-session and session providers.
+
+Contract change (G1, `authn-session/src/contracts.ts`): every `UserSession` is built with `Subject: { type: 'user', id }` and `State: 'active'` instead of `UserId`; `deleteByUser`/`listByUser` become `deleteBySubject`/`listBySubject`. Hashing of session ids (A07, SR-18) lives in `SessionIssuer`; a store keys rows by the SessionId it gets, so raw keys in these tests stay.
 
 Conformance suite: the tests also import `runSessionProviderConformance` from `../../users/test/conformance/session-provider-conformance.ts`. The users ledger classes that file "move" to `authn-session/test/conformance/` (N2); the import path changes with it. Its `it` rows are ledgered in `packages/users/test/LEDGER.md`, not here.
 
@@ -29,8 +31,8 @@ DynamoDB regressions on `DynamoDbSessionProvider` over an in-memory fake client.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 144 | dynamodb session provider > DynamoDbSessionProvider regressions > deleteByUser removes only the target user's sessions, keyed on numeric UserId (B4) | adapt | N2 | session-provider-dynamodb/test/ Import path only. The fake's `ScanCommand` `:uid` filter must still serve `deleteByUser`; add the impersonator set (N2 task 6, SR-06). Keep the numeric `UserId` unless the contract changes the subject type. |
-| 2 | 170 | dynamodb session provider > DynamoDbSessionProvider regressions > persists UserId as a top-level numeric DynamoDB attribute | adapt | N2 | session-provider-dynamodb/test/ The assertion goes through `restore`, so it holds while `UserId` stays numeric. If `authn-session` types the subject as a string or `IdentityRef`, N2 changes the expected value and names the rule. |
+| 1 | 144 | dynamodb session provider > DynamoDbSessionProvider regressions > deleteByUser removes only the target user's sessions, keyed on numeric UserId (B4) | adapt | N2 | session-provider-dynamodb/test/ Expected null / not-null unchanged. The fake's `ScanCommand` filter (lines 104-108, `:uid` with `.N`) must match the new subject attribute; `deleteByUser(1)` becomes `deleteBySubject(ref)`; the title's "numeric UserId (B4)" no longer describes the check. The impersonator set (N2 task 6, SR-06) is a new N2 test, not part of this adapt. |
+| 2 | 170 | dynamodb session provider > DynamoDbSessionProvider regressions > persists UserId as a top-level numeric DynamoDB attribute | rewrite | N2 → N2 | session-provider-dynamodb/test/v3/ — the subject persists as top-level attribute(s) that the `deleteBySubject` scan filters on, and restores as the same `IdentityRef`; G1 contract `ISession.Subject: IdentityRef` (design §22.3), A08. The 2.x test expects `restored!.UserId` to equal `77`; there is no numeric `UserId` in 3.0. |
 
 ## test/session.test.ts
 
@@ -38,9 +40,9 @@ Live-DynamoDB integration run (skipped unless `DYNAMO_INTEGRATION=1`; needs loca
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 83 | should insert session | adapt | N2 | session-provider-dynamodb/test/ Import path only; stays skipped by default. |
-| 2 | 104 | should update session | adapt | N2 | session-provider-dynamodb/test/ Import path only. |
-| 3 | 127 | should delete session | adapt | N2 | session-provider-dynamodb/test/ Import path only. |
-| 4 | 149 | should touch session | adapt | N2 | session-provider-dynamodb/test/ Import path only. Its `expect(...)` calls assert nothing (no matcher); N2 should add real `.to.equal` checks while porting. |
-| 5 | 176 | should return null when session expired | adapt | N2 | session-provider-dynamodb/test/ Import path only. Real 5 s wait; the fake-backed run covers expiry. |
-| 6 | 211 | should return null if session not exist | adapt | N2 | session-provider-dynamodb/test/ Import path only. |
+| 1 | 83 | should insert session | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session; stays skipped by default. |
+| 2 | 104 | should update session | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. |
+| 3 | 127 | should delete session | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. |
+| 4 | 149 | should touch session | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State`. Its three `expect(...)` calls (lines 172-174) assert nothing (no matcher). `touch` renews through the expiration strategy and overwrites the assigned `date2`, so do not assert `sR2 === date2`; if N2 tightens it, assert `touch()` returns `true` and `sR2.Expiration > sR.Expiration`. |
+| 5 | 176 | should return null when session expired | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. Real 5 s wait; the fake-backed run covers expiry. |
+| 6 | 211 | should return null if session not exist | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. |

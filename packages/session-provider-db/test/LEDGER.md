@@ -13,13 +13,15 @@ replaces them and deletes the legacy file.
 
 | Class | Count |
 |---|---|
-| move | 1 |
-| adapt | 10 |
+| move | 0 |
+| adapt | 11 |
 | rewrite | 0 |
 | drop | 0 |
 | **total** | 11 |
 
 Lane codes: N2 authn-session and session providers.
+
+Contract change (G1, `authn-session/src/contracts.ts`): every `UserSession` is built with `Subject: { type: 'user', id }` and `State: 'active'` instead of `UserId`; `deleteByUser`/`listByUser` become `deleteBySubject`/`listBySubject`. Hashing of session ids (A07, SR-18) lives in `SessionIssuer`; a store keys rows by the SessionId it gets, so raw keys in these tests stay.
 
 Conformance suite: the tests also import `runSessionProviderConformance` from `../../users/test/conformance/session-provider-conformance.ts`. The users ledger classes that file "move" to `authn-session/test/conformance/` (N2); the import path changes with it. Its `it` rows are ledgered in `packages/users/test/LEDGER.md`, not here.
 
@@ -30,13 +32,13 @@ Session store regressions and the `Data` column codec on the sqlite-backed `DbSe
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 115 | db session provider > DbSessionStore regressions > reads the correctly-spelled authn.session.db.cleanupInterval config key (B2) | adapt | N2 | session-provider-db/test/ The key is already `authn.session.db.*`; assertion unchanged. |
-| 2 | 124 | db session provider > DbSessionStore regressions > save preserves an already-set Expiration exactly, under sliding mode (B3) | adapt | N2 | session-provider-db/test/ Import `UserSession` from `@spinajs/authn-session`. Hashed storage (A07) is invisible: `restore('b3-verbatim')` still takes the raw id. |
-| 3 | 143 | db session provider > DbSessionStore regressions > assigns an initial expiration only when a brand-new session has none | adapt | N2 | session-provider-db/test/ Import path only; strategy and expected 60 minute window unchanged. |
-| 4 | 167 | db session provider > DbSessionStore regressions > cleanupExpired removes expired sessions and keeps live ones | adapt | N2 | session-provider-db/test/ The direct `DbSession.where({ SessionId: ... })` lookups must use the stored hash of the id (A07, SR-18); counts and outcome unchanged. |
-| 5 | 196 | db session provider > DbSessionStore regressions > cleanupExpired is a no-op when nothing expired | adapt | N2 | session-provider-db/test/ Import path only. |
-| 6 | 268 | db session provider > session Data: json column (object) and text column (string) > decodes an already-parsed object and the equivalent string to the identical session | adapt | N2 | session-provider-db/test/ Imports `encodeSessionData` from `@spinajs/authn-session` (N2 task 1 moves the codec); the `toSession` row fixture gains the hashed `SessionId` shape. |
-| 7 | 289 | db session provider > session Data: json column (object) and text column (string) > rebuilds the tagged payload from an object without going through JSON text | move | N2 | authn-session/test/ Pure `decodeSessionData` check with no store; the codec moves to `authn-session` (N2 task 1). Assertions unchanged; N2 may keep it here as an adapt if it prefers one file. |
-| 8 | 298 | db session provider > session Data: json column (object) and text column (string) > reads a Buffer-delivered payload (blob-ish column / binary driver mode) | adapt | N2 | session-provider-db/test/ Import path only; a Buffer payload still decodes through `toSession`. |
-| 9 | 318 | db session provider > session Data: json column (object) and text column (string) > runs both converging migrations on startup without failing on a driver that cannot MODIFY | adapt | N2 | session-provider-db/test/ Keep both assertions; add `UserSessionIdHash_2026_10_02_00_00_00` to the recorded-names list (N2 task 6) and check it records on sqlite too. |
-| 10 | 335 | db session provider > session Data: json column (object) and text column (string) > both migrations resolve to SKIP on this sqlite connection | adapt | N2 | session-provider-db/test/ Assertions unchanged. Add the same non-MySQL probe for `UserSessionIdHash` (`SessionId` to 64, `ImpersonatorId` + index) so it cannot run `MODIFY` on sqlite. |
-| 11 | 354 | db session provider > session Data: json column (object) and text column (string) > round-trips a saved session back out of the store with its structural types intact | adapt | N2 | session-provider-db/test/ Import path only; hashed storage stays invisible (A07). |
+| 2 | 124 | db session provider > DbSessionStore regressions > save preserves an already-set Expiration exactly, under sliding mode (B3) | adapt | N2 | session-provider-db/test/ Import `UserSession` from `@spinajs/authn-session`. Build the session with `Subject` and `State: 'active'`. Restore takes the stored key (`restore('b3-verbatim')` unchanged); hashing lives in `SessionIssuer`. |
+| 3 | 143 | db session provider > DbSessionStore regressions > assigns an initial expiration only when a brand-new session has none | adapt | N2 | session-provider-db/test/ Import path plus `Subject`/`State` on the session; strategy and expected 60 minute window unchanged. |
+| 4 | 167 | db session provider > DbSessionStore regressions > cleanupExpired removes expired sessions and keeps live ones | adapt | N2 | session-provider-db/test/ Lookups unchanged: the store keys rows by the id it gets, so `DbSession.where({ SessionId: 'expired-one' })` and `'live-one'` stay. Sessions built with `Subject` and `State: 'active'`; counts and outcome unchanged. |
+| 5 | 196 | db session provider > DbSessionStore regressions > cleanupExpired is a no-op when nothing expired | adapt | N2 | session-provider-db/test/ Import path plus `Subject`/`State` on the session. |
+| 6 | 268 | db session provider > session Data: json column (object) and text column (string) > decodes an already-parsed object and the equivalent string to the identical session | adapt | N2 | session-provider-db/test/ Imports `encodeSessionData` from `@spinajs/authn-session` (N2 task 1 moves the codec); the `toSession` row fixture changes for the 3.0 row columns (subject, `State`); line 286 compares `Subject` of both decodes instead of `UserId` (a relative check). |
+| 7 | 289 | db session provider > session Data: json column (object) and text column (string) > rebuilds the tagged payload from an object without going through JSON text | adapt | N2 | session-provider-db/test/ Import `decodeSessionData` from `@spinajs/authn-session` (N2 task 1); assertions unchanged. Stays beside 268, 298 and 354, which share `payload()` / `assertPayload()`; it guards the MySQL `json` column handing the decoder an object. Codec round trips are also covered in `authn-session/test/session-codec.test.ts`. |
+| 8 | 298 | db session provider > session Data: json column (object) and text column (string) > reads a Buffer-delivered payload (blob-ish column / binary driver mode) | adapt | N2 | session-provider-db/test/ Import path plus `Subject`/`State` on the row fixture; a Buffer payload still decodes through `toSession`. |
+| 9 | 318 | db session provider > session Data: json column (object) and text column (string) > runs both converging migrations on startup without failing on a driver that cannot MODIFY | adapt | N2 | session-provider-db/test/ Keep the three `include` checks (lines 325-327); add `UserSessionIdHash_2026_10_02_00_00_00` to the recorded-names list (new N2 task 6 check). |
+| 10 | 335 | db session provider > session Data: json column (object) and text column (string) > both migrations resolve to SKIP on this sqlite connection | adapt | N2 | session-provider-db/test/ Assertions unchanged. New check for `UserSessionIdHash`: the `SessionId` widen (MySQL `MODIFY`) may skip on sqlite, but `ImpersonatorId` and its index must still be added, or `deleteBySubject(..., { includeImpersonations })` breaks there. |
+| 11 | 354 | db session provider > session Data: json column (object) and text column (string) > round-trips a saved session back out of the store with its structural types intact | adapt | N2 | session-provider-db/test/ Import path plus `Subject`/`State`; restore takes the stored key, hashing lives in `SessionIssuer`. |

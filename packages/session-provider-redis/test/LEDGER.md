@@ -21,6 +21,8 @@ replaces them and deletes the legacy file.
 
 Lane codes: N2 authn-session and session providers.
 
+Contract change (G1, `authn-session/src/contracts.ts`): every `UserSession` is built with `Subject: { type: 'user', id }` and `State: 'active'` instead of `UserId`; `deleteByUser`/`listByUser` become `deleteBySubject`/`listBySubject`. Hashing of session ids (A07, SR-18) lives in `SessionIssuer`; a store keys rows by the SessionId it gets, so raw keys in these tests stay.
+
 Conformance suite: the tests also import `runSessionProviderConformance` from `../../users/test/conformance/session-provider-conformance.ts`. The users ledger classes that file "move" to `authn-session/test/conformance/` (N2); the import path changes with it. Its `it` rows are ledgered in `packages/users/test/LEDGER.md`, not here.
 
 ## test/session-provider.test.ts
@@ -29,7 +31,7 @@ Redis-specific regressions on `RedisSessionStore` over `ioredis-mock`. Dominant 
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 88 | redis session provider > RedisSessionStore regressions > deleteByUser removes only the target user's sessions across multiple users | adapt | N2 | session-provider-redis/test/ Import path only; the check goes through the public API. The outcome must hold with hashed ids in the per-subject index and the new impersonator set (N2 task 6, SR-06). |
-| 2 | 107 | redis session provider > RedisSessionStore regressions > listByUser returns live sessions and prunes expired ids from the user set | adapt | N2 | session-provider-redis/test/ The test edits the raw key `session:r-expired` and reads `session:user:9`; under A07 they hold the id hash, so derive them with the store's hash function. Expected result (live only, expired pruned from the set) unchanged. |
-| 3 | 133 | redis session provider > RedisSessionStore regressions > save persists an already-set Expiration verbatim | adapt | N2 | session-provider-redis/test/ Import path only. |
-| 4 | 147 | redis session provider > RedisSessionStore regressions > restore returns null for an expired session even if the mock kept the key | adapt | N2 | session-provider-redis/test/ The raw key `session:r-ghost` becomes the hashed key (A07); the `isExpired` gate expectation is unchanged. |
+| 1 | 88 | redis session provider > RedisSessionStore regressions > deleteByUser removes only the target user's sessions across multiple users | adapt | N2 | session-provider-redis/test/ Import path, `Subject`/`State` on the sessions; `deleteByUser(1)` becomes `deleteBySubject(ref)`, which now returns a count. The outcome must hold with the new impersonator set (N2 task 6, SR-06). |
+| 2 | 107 | redis session provider > RedisSessionStore regressions > listByUser returns live sessions and prunes expired ids from the user set | adapt | N2 | session-provider-redis/test/ `listByUser(9)` becomes `listBySubject(ref)`; the raw key `session:r-expired` stays (the store keys by the id it gets); the subject index key `session:user:9` follows N2's new per-subject key format (an `IdentityRef`). Expected members `['r-live']` and result unchanged. |
+| 3 | 133 | redis session provider > RedisSessionStore regressions > save persists an already-set Expiration verbatim | adapt | N2 | session-provider-redis/test/ Import path plus `Subject`/`State` on the session. |
+| 4 | 147 | redis session provider > RedisSessionStore regressions > restore returns null for an expired session even if the mock kept the key | adapt | N2 | session-provider-redis/test/ The raw key `session:r-ghost` stays; only `Subject`/`State` fields change. The `isExpired` gate expectation is unchanged. |
