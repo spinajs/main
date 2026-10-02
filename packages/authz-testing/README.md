@@ -99,7 +99,7 @@ runBehaviour(['B01', 'B03', 'B04.core'], engineHarness);
 - `beforeAll`/`afterAll` run once around the cases (bootstrap an app, open a database).
 - A harness whose root is a test domain names it in `domain` (boot messages are matched against it).
 - Lane handles (orm, http, fs, …) are declared by the fixture file that first needs them, by
-  augmenting `LaneHandles`.
+  augmenting `LaneHandles`; "Lane data and handles" below lists them.
 
 ### World → system
 
@@ -123,9 +123,54 @@ so a shared host harness helper comes with F4; until then each host lane follows
 | `scopeAttributes` | — | the lane's `ScopeAttributeStore` and schemas |
 | `config.engine`, `config.fields`, `config.cache`, `config.audit`, `config.principals` | the Authorizer's options | the same keys under `authz.*` |
 | `config.<model>` | — | the model's section (`authz.<model>.*`) |
+| `config.admin`, `config.impersonation` | — | `authz.admin.*` (AdminGuard options, command permissions) and `authz.impersonation.*` (users' impersonation guard) |
+| `config.http`, `config.fs`, `config.token`, `config.domains` | — | `authz.http.*`, `authz.fs.*`, `authz.token.*`, `authz.domains.*` |
+| `lane` | — | what the lane builds with its own decorators and classes (routes, ORM models, filesystems, jobs, configuration rows, socket handlers); see "Lane data and handles" |
 | (audit, bus facets) | `kit.audit`, `kit.bus` | `kit.audit` and `kit.bus` registered as the host's `DecisionAudit` and `ChangeBus` |
 
 Kit models arrive un-initialised: the system's boot calls their `init`, as it does for any model.
+
+### Lane data and handles
+
+`World.lane` holds what a lane builds, as data (`LaneWorld`: `http`, `orm`, `fs`, `queue`,
+`configuration`, `socket`). The steps of a lane part are `do` steps that call the lane handles in
+`session.lane`. A harness fills the handles of the facets it declares; a step whose handle is missing
+fails and names it.
+
+| Facet | Session handles | Lane handles (`session.lane.<key>`) |
+|---|---|---|
+| `engine` | `authz`, `kit` | — |
+| `boot` | (`setup` rejects) | — |
+| `audit` | `audit` | — |
+| `clock` | `clock` | — |
+| `cache` | — | — |
+| `host` | `domains`, `authz.current`, `authz.runAs` | — |
+| `bus` | `bus` | — |
+| `rbac`, `ladders`, `rules`, `abac`, `conditions`, `rebac`, `scopeAttributes` | — (world data in the lane's models) | — |
+| `links` | — | `rbacLinks` |
+| `admin` | `admin` | `adminEvents` |
+| `store` | — | `store`, `rbacStore` |
+| `list` | `list` | — |
+| `sql` | `list` | `sqlPages` |
+| `orm` | `load` (optional) | `orm` |
+| `http` | — | `http`; also `linkSource` (L5) and `adminHttp` (C4) |
+| `fs` | — | `fs` |
+| `queue` | — | `queue` |
+| `socket` | — | `socket` |
+| `email` | — | `email` |
+| `configuration` | — | `configuration` |
+| `token` | — | `token` |
+| `authn` | — | `authn` (login, MFA completion, role switch, impersonation start) |
+| `impersonation` | — | `impersonationGuard` |
+| `canvas` | — | declared by K1 |
+
+- The types come from the package root (`LaneWorld`, `HttpHandle`, `OrmHandle`, `LaneHandles`, …);
+  importing any of them brings the `World.lane` and `LaneHandles` declarations along. The step
+  helpers are under `laneSteps` and `modelSteps`.
+- ORM queries, fs calls, `queue.emit` and `email.send` run in the current ALS (cases wrap them in
+  `runAs`); `queue.handle` runs outside any ALS, as a consumer does.
+- `OrmModelSpec.json` names the JSON columns; their row values are JSON text.
+- `store.version` steps read the domain of `session.domain` (else 'root') unless they name one.
 
 ### DI rules for harness writers
 

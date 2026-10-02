@@ -22,8 +22,11 @@ describe('behaviour fixture catalogue', () => {
     for (const f of fixtures.values()) assert.equal(f.rule, BEHAVIOUR_RULES[f.id]);
   });
 
-  it('has the rules of task 4a, each with a part every lane can name', () => {
-    assert.deepEqual([...fixtures.keys()].sort(), ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B09', 'B14', 'B17', 'B22', 'B27', 'B29', 'B36', 'B37', 'B39']);
+  it('has every rule B01-B46, each with a part every lane can name', () => {
+    assert.deepEqual(
+      [...fixtures.keys()].sort(),
+      Array.from({ length: 46 }, (_, i) => 'B' + String(i + 1).padStart(2, '0')),
+    );
     for (const f of fixtures.values()) {
       const names = f.parts.map((p) => p.name);
       assert.equal(new Set(names).size, names.length, `${f.id}: part names are unique`);
@@ -106,6 +109,12 @@ describe('validateWorld and validateCase', () => {
     ['an agree without principals', { steps: [{ agree: { as: [], permissions: ['file:read'], type: 'file' } }] }, /agree: needs at least one principal and one permission/],
     ['an agree without permissions', { steps: [{ agree: { as: ['alice'], permissions: [], type: 'file' } }] }, /agree: needs at least one principal and one permission/],
     ['an agree over a type with no rows', { steps: [{ agree: { as: ['alice'], permissions: ['file:read'], type: 'dir' } }] }, /the world has no rows of type dir/],
+    ['a check whose only key is an empty fields', { steps: [{ check: CHECK, expect: { fields: {} } }] }, /check: the expectation checks nothing/],
+    ['a check whose only key is an empty fields probe', { steps: [{ check: CHECK, expect: { fields: { read: {} } } }] }, /check: the expectation checks nothing/],
+    ['an empty fields beside other keys', { steps: [{ check: CHECK, expect: { allowed: true, fields: {} } }] }, /check: fields checks nothing/],
+    ['an empty fields probe beside a real one', { steps: [{ check: CHECK, expect: { allowed: true, fields: { read: { allows: ['a'] }, write: { denies: [] } } } }] }, /check: fields.write checks nothing/],
+    ['a checkMany entry with an empty fields probe', { steps: [{ checkMany: { as: 'alice', permissions: ['file:read'] }, expect: { 'file:read': { fields: { read: {} } } } }] }, /expectation of file:read checks nothing/],
+    ['an agree over rows of an adapter that does not claim the type', { world: { ...good, adapters: [{ types: ['file'], rows: { file: [{ id: 'f1' }], dir: [{ id: 'd1' }] } }] }, steps: [{ agree: { as: ['alice'], permissions: ['file:read'], type: 'dir' } }] }, /the world has no rows of type dir/],
     ['a published step without tags or count', { steps: [{ published: { tags: [] } }] }, /published: no tags and no count/],
     ['an orAtCall boot case with no step that expects a throw', { boot: { throws: 'AuthzConfigError', orAtCall: true }, steps: [{ check: CHECK, expect: { allowed: true } }] }, /orAtCall needs a step that expects a throw/],
   ];

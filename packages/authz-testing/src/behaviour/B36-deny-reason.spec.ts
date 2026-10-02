@@ -106,6 +106,12 @@ function coreVsModel(): Case[] {
         { check: { as: 'svc', permission: 'file:read', resource: ref('file', 'open1'), subject: 'row' }, expect: { allowed: false, reason: 'delegate' } },
       ],
     },
+    {
+      // The order of evaluation never changes the reason (§7): the delegate is asked even though svc's own answer is already no.
+      name: "the core's delegate deny (200) beats the principal's own no_access (400)",
+      world: { ...delegateWorld, models: [staticModel('m1', { votes: (req) => (req.principal.id === 'svc' ? { reason: { code: 'no_access' } } : {}) })] },
+      steps: [{ check: { as: 'svc', permission: 'file:read', resource: ref('file', 'open1') }, expect: { allowed: false, reason: 'delegate' } }],
+    },
   ];
 }
 

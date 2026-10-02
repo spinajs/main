@@ -10,7 +10,7 @@ import type { Tuple } from '../rebac.js';
 import { ManualClock, RecordingAudit, RecordingChangeBus } from '../recording.js';
 import { FakePermissionRegistry } from '../registry.js';
 import { isThrows } from './expect.js';
-import type { Case, KitModelSpec, Step, Who, World } from './types.js';
+import type { Case, DecisionExpectation, FieldsProbe, KitModelSpec, Step, Who, World } from './types.js';
 
 /** The kit fakes of one world, built by {@link instantiateWorld}. */
 export interface KitWorld {
@@ -301,7 +301,15 @@ export function validateCase(c: Case, partWorld?: World): string[] {
     return (specs ?? []).find((s) => specName(s) === name);
   };
 
-  const vacuous = (e: object | undefined) => !e || Object.values(e).every((v) => v === undefined);
+  const probes = (p: FieldsProbe | undefined) => (p?.allows?.length ?? 0) + (p?.denies?.length ?? 0) > 0;
+  const fieldsVacuous = (f: DecisionExpectation['fields']) => !probes(f?.read) && !probes(f?.write);
+  const vacuous = (e: DecisionExpectation | undefined) => !e || Object.entries(e).every(([k, v]) => v === undefined || (k === 'fields' && fieldsVacuous(v as DecisionExpectation['fields'])));
+  // A `fields` key, or one of its probes, that names no path checks nothing even when other keys do.
+  const emptyFields = (e: DecisionExpectation, where: string) => {
+    if (e.fields === undefined) return;
+    if (fieldsVacuous(e.fields)) say(`${where}: fields checks nothing`);
+    else for (const k of ['read', 'write'] as const) if (e.fields[k] !== undefined && !probes(e.fields[k])) say(`${where}: fields.${k} checks nothing`);
+  };
 
   const walk = (steps: readonly Step[], path: string) => {
     steps.forEach((step, i) => {
@@ -313,7 +321,10 @@ export function validateCase(c: Case, partWorld?: World): string[] {
         for (const k of PRINCIPAL_KEYS) who(req[k], `${where} ${key}.${k}`);
         domain(req.domain, `${where} ${key}`);
         if (req.subject === 'row' && (!req.resource || req.resource.id == null || !hasRow(req.resource))) say(`${where} ${key}: subject 'row' needs a world row for ${req.resource ? resourceKey(req.resource) : 'a missing resource'}`);
-        if (key !== 'can' && !isThrows(s.expect) && vacuous(s.expect as object)) say(`${where} ${key}: the expectation checks nothing`);
+        if (key !== 'can' && !isThrows(s.expect)) {
+          if (vacuous(s.expect as DecisionExpectation)) say(`${where} ${key}: the expectation checks nothing`);
+          else emptyFields(s.expect as DecisionExpectation, `${where} ${key}`);
+        }
       }
       for (const key of ['checkMany', 'filter', 'filterNow', 'summary'] as const) {
         const req = s[key] as { as: Who; domain?: string } | undefined;
@@ -328,6 +339,7 @@ export function validateCase(c: Case, partWorld?: World): string[] {
         for (const [p, e] of entries) {
           if (!step.checkMany.permissions.includes(p)) say(`${where} checkMany: expects ${p}, which it does not request`);
           if (vacuous(e)) say(`${where} checkMany: the expectation of ${p} checks nothing`);
+          else emptyFields(e, `${where} checkMany ${p}`);
         }
       }
       if ('summary' in step && !step.expect.permissions?.length && !step.expect.absent?.length) say(`${where} summary: the expectation checks nothing`);
@@ -335,7 +347,8 @@ export function validateCase(c: Case, partWorld?: World): string[] {
         for (const w of step.agree.as) who(w, `${where} agree.as`);
         domain(step.agree.domain, `${where} agree`);
         if (step.agree.as.length === 0 || step.agree.permissions.length === 0) say(`${where} agree: needs at least one principal and one permission`);
-        if (!(world.adapters ?? []).some((a) => (a.rows?.[step.agree.type] ?? []).length > 0)) say(`${where} agree: the world has no rows of type ${step.agree.type}`);
+        // The runner reads rows only from adapters that claim the type.
+        if (!(world.adapters ?? []).some((a) => a.types.includes(step.agree.type) && (a.rows?.[step.agree.type] ?? []).length > 0)) say(`${where} agree: the world has no rows of type ${step.agree.type}`);
       }
       if ('published' in step && step.published.tags.length === 0 && step.published.count === undefined) say(`${where} published: no tags and no count check nothing`);
       if ('covers' in step) {

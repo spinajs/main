@@ -18,7 +18,7 @@ export type BehaviourSelector = BehaviourId | `${BehaviourId}.${string}`;
  * What a harness can do. A part lists the facets it needs; `runBehaviour` runs it only on a harness
  * that has all of them. {@link FACETS} says what each one promises.
  */
-export type Facet = 'engine' | 'boot' | 'audit' | 'clock' | 'cache' | 'host' | 'bus' | 'rbac' | 'ladders' | 'rules' | 'links' | 'abac' | 'conditions' | 'rebac' | 'admin' | 'scopeAttributes' | 'store' | 'list' | 'sql' | 'orm' | 'http' | 'fs' | 'queue' | 'socket' | 'email' | 'configuration' | 'token' | 'impersonation' | 'canvas';
+export type Facet = 'engine' | 'boot' | 'audit' | 'clock' | 'cache' | 'host' | 'bus' | 'rbac' | 'ladders' | 'rules' | 'links' | 'abac' | 'conditions' | 'rebac' | 'admin' | 'scopeAttributes' | 'store' | 'list' | 'sql' | 'orm' | 'http' | 'fs' | 'queue' | 'socket' | 'email' | 'configuration' | 'token' | 'authn' | 'impersonation' | 'canvas';
 
 /** The promise behind each facet; a harness that lists a facet keeps it. */
 export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
@@ -32,25 +32,26 @@ export const FACETS: Readonly<Record<Facet, string>> = Object.freeze({
   rbac: "`world.rbac` roles (extends, grants with relation, on, fields) and assignments are loaded into the lane's RBAC model, named 'rbac'.",
   ladders: '`world.rbac.ladders`, implied roles, tags, provenance (`grantedAt`) and subject sets are honoured (L1b).',
   rules: '`world.rbac.rules` (restrict, cap, threshold) are loaded (L1b; L4b in SQL).',
-  links: '`world.rbac.links` exist as share links whose tokens resolve to link principals (L1b, L2, L5, C4).',
+  links: '`world.rbac.links` exist as share links whose tokens resolve to link principals (lane handle `rbacLinks`; L1b, L2, L5, C4).',
   abac: "`world.abac.policies` are loaded into the lane's ABAC model, named 'abac'.",
   conditions: 'the core ConditionCompiler is wired (`ctx.conditions`), so policy and rule conditions work (L3).',
   rebac: '`world.rebac.tuples` are loaded into a real ReBAC model (reserved for @spinajs/authz-rebac; the kit FakeTupleModel needs only `engine`).',
-  admin: "`session.admin` is the domain's AuthzAdmin over the lane's stores (L9, C4).",
+  admin: "`session.admin` is the domain's AuthzAdmin over the lane's stores, and lane handle `adminEvents` lists the AuthzEvents its sinks received (L9, C4).",
   scopeAttributes: '`world.scopeAttributes` (schemas and stored values) feed `ctx.attributes`, the store winning over resolver values (L9).',
-  store: 'assignments, rules, links and policies live in the DB-backed stores, with `authz_version` bumps (L2).',
+  store: 'assignments, rules, links and policies live in the DB-backed stores, with `authz_version` bumps (lane handles `store` and `rbacStore`; L2).',
   list: "`session.list` returns the ids of the world rows a type-level residual selects, computed by the lane's own query side (in memory or SQL).",
-  sql: '`session.list` runs on a SQL database holding the world rows (L4, L4b, K1).',
-  orm: 'ORM queries on @AccessResource models (lane handle, L4).',
-  http: 'HTTP requests against the app (lane handle, L5, C2–C7).',
-  fs: 'a guarded filesystem (lane handle, L7).',
-  queue: 'queue emit and handle with initiators (lane handle, L6, C8).',
-  socket: 'socket handlers (lane handle, C9).',
-  email: 'mail sending with attachments (lane handle, C9).',
-  configuration: 'configuration-db-source polling (lane handle, C6).',
-  token: 'token and agent-token principals from authn (lane handle, C5).',
-  impersonation: 'impersonation through authn-http (lane handle, C3).',
-  canvas: 'the canvas C6 facade over the §8.5 config (lane handle, K1).',
+  sql: '`session.list` runs on a SQL database holding the world rows, and lane handle `sqlPages` reads one page of a list (L4, L4b, K1).',
+  orm: 'ORM queries on the @AccessResource models of `world.lane.orm` (lane handle `orm`; L4).',
+  http: 'HTTP requests against the app built from `world.lane.http` (lane handle `http`; L5, C2–C7). Parts of L5 also use lane handle `linkSource`, parts of C4 `adminHttp`.',
+  fs: 'the filesystems of `world.lane.fs` behind authz-fs, with `authz.fs.*` from `world.config.fs` (lane handle `fs`; L7).',
+  queue: 'queue emit and handle with initiators over the jobs of `world.lane.queue` (lane handle `queue`; L6, C8).',
+  socket: 'the socket handlers of `world.lane.socket` (lane handle `socket`; C9).',
+  email: 'mail sending with attachments read from guarded filesystems (lane handle `email`; C9).',
+  configuration: 'configuration-db-source polling over the rows of `world.lane.configuration` (lane handle `configuration`; C6).',
+  token: 'tokens issued by authn and the principals the app resolves for them (lane handle `token`; C5).',
+  authn: 'authn-http flows for world principals: login, MFA completion, role switch and impersonation start, each answering with the principal the session then yields (lane handle `authn`; C3).',
+  impersonation: "users' AuthzImpersonationGuard: may an actor impersonate a target (lane handle `impersonationGuard`; C3). The impersonation flow itself is `authn`.",
+  canvas: 'the canvas C6 facade over the §8.5 config (a lane handle K1 declares).',
 });
 
 /** A world principal by its key in `World.principals`, a principal object (SYSTEM, UNATTENDED, …), or '$current' (`authz.current()`). */

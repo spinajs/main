@@ -16,6 +16,8 @@ import { B29 } from './B29-domains.spec.js';
 import { B36 } from './B36-deny-reason.spec.js';
 import { B37 } from './B37-inherit.spec.js';
 import { B39 } from './B39-scope-attributes.spec.js';
+import { MODEL_FIXTURES } from './catalogue-models.js';
+import { LANE_FIXTURES } from './catalogue-lanes.js';
 
 /** Every fixture and extension file of the kit; a new file adds one import and one entry here. */
-export const BEHAVIOUR_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B01, B02, B03, B04, B05, B06, B07, B08, B09, B14, B17, B22, B27, B29, B36, B37, B39]);
+export const BEHAVIOUR_FIXTURES: readonly (BehaviourFixture | FixtureExtension)[] = Object.freeze([B01, B02, B03, B04, B05, B06, B07, B08, B09, B14, B17, B22, B27, B29, B36, B37, B39, ...MODEL_FIXTURES, ...LANE_FIXTURES]);

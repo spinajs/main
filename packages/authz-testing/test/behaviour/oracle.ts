@@ -211,7 +211,8 @@ class Engine implements BehaviourAuthz {
     const delegate = p.onBehalfOf;
     if (delegate && p.delegation === 'inherit') return this.outcome(delegate, p, def, ref, input, ctx);
     const own = await this.vote(p, actor, def, ref, input, ctx);
-    if (!delegate || isFalse(own.allow)) return own;
+    // The delegate is asked even when the principal's own models deny: its reason (200) may beat theirs (D-F5-1).
+    if (!delegate) return own;
     const theirs = await this.outcome(delegate, undefined, def, ref, input, ctx);
     if (isFalse(theirs.allow)) return { ...own, allow: FALSE, core: [...own.core, { code: 'delegate', priority: 200 }] };
     return { ...own, allow: and(own.allow, theirs.allow) };

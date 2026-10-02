@@ -69,6 +69,7 @@ describe('behaviour fixtures under the reference engine', () => {
       { id: 'B09', part: 'core', case: 'a SYSTEM check is audited', mutate: (c) => withStep(c, 1, { audit: { kind: 'system', count: 2 } }) },
       { id: 'B09', part: 'runAs', case: 'without a principal in the ALS, current() is UNATTENDED', mutate: (c) => withStep(c, 0, { current: SYSTEM }) },
       { id: 'B36', part: 'core', case: 'a model deny with priority 100 beats the ceiling (200)', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'out_of_scope' })) },
+      { id: 'B36', part: 'core', case: "the core's delegate deny (200) beats the principal's own no_access (400)", mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'no_access' })) },
       { id: 'B17', part: 'core', case: 'a permitting vote without fields contributes every field, before hide and neverRead', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, fields: { read: { allows: ['b'] } } })) },
     ];
 
