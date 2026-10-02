@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { LegacyMetadataRow, LegacyUser, SecretRowView } from '../harness/ports.js';
+
 export type A32CaseName = 'liveReset' | 'liveInvite' | 'expiredReset' | 'resetWithoutStartDate' | 'resetWithoutWaitTime' | 'lastAttemptOnly';
 
 export interface A32Case {

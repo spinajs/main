@@ -67,9 +67,15 @@ describe('A32 fixtures', () => {
     const f = a32Fixtures(NOW);
     const m = migrateA32(f.users, NOW);
     assert.deepStrictEqual(m.rows, f.expectedRows);
+    assert.equal(m.liveCount, f.liveCount);
     for (const n of NAMES) {
       const c = f.cases[n];
       assert.deepStrictEqual([...m.metadataKeys.get(c.user.Uuid)!].sort(), [...c.expected.metadataKeysAfter].sort(), n);
     }
+  });
+
+  it('the reference migration throws when inserted rows differ from live entries', () => {
+    const f = a32Fixtures(NOW);
+    assert.throws(() => migrateA32(f.users, NOW, (rows) => rows.slice(1)), /2 live entries but 1 rows inserted/);
   });
 });
