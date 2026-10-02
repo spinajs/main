@@ -57,5 +57,8 @@
     "@spinajs/di": "2.0.548",
     "@spinajs/exceptions": "2.0.548",
     "@spinajs/log-common": "2.0.548"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0"
   }
 }
