@@ -1,4 +1,5 @@
 import { SocketException } from '@spinajs/http-socket-common';
+import type { ISocketServerConfig } from './interfaces.js';
 
 /**
  * Wire size of a command payload: the UTF-8 length of its JSON form plus the bytes of every
@@ -59,7 +60,14 @@ export class TokenBucket {
 }
 
 export function assertPayloadSize(payload: unknown, maxBytes: number): void {
-  const size = payloadSize(payload);
+  let size: number;
+
+  try {
+    size = payloadSize(payload);
+  } catch (err) {
+    // BigInt and cyclic values cannot be serialized, so they could never be sent as a command payload
+    throw new SocketException('invalid_argument', 'payload cannot be serialized', { cause: err });
+  }
 
   if (size > maxBytes) {
     throw new SocketException('resource_exhausted', `payload of ${size} bytes exceeds the limit of ${maxBytes} bytes`, {
@@ -72,5 +80,13 @@ export function assertPayloadSize(payload: unknown, maxBytes: number): void {
 export function assertRate(bucket: TokenBucket): void {
   if (!bucket.take()) {
     throw new SocketException('resource_exhausted', 'rate limit exceeded', { retryAfterMs: bucket.retryAfterMs() });
+  }
+}
+
+export function assertLimitsConfig(options: Pick<ISocketServerConfig, 'rate'>): void {
+  const { perSecond, burst } = options.rate;
+
+  if (!(perSecond > 0) || !(burst > 0)) {
+    throw new RangeError(`http.socket.rate.perSecond and burst must be positive numbers, got perSecond ${perSecond}, burst ${burst}`);
   }
 }
