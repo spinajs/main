@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { BaseController, BasePath, Del, Get, NotFound, Ok, Param, Policy } from '@spinajs/http';
 import { SessionProvider, User as UserModel, hashSessionId } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';

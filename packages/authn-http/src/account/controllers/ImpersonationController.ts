@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { ImpersonateDto } from '../dto/impersonate-dto.js';
 import { BaseController, BasePath, Post, Del, Body, Ok, Get, BadRequestResponse, Unauthorized, ForbiddenResponse, Conflict, NotFound, Policy } from '@spinajs/http';
 import {

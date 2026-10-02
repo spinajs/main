@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { BaseController, BasePath, Body, BadRequestResponse, Get, Ok, Post } from '@spinajs/http';
 import { confirmPasswordReset, passwordChangeRequest, PasswordValidationProvider, RbacException } from '@spinajs/users';
 import type { IPasswordPolicy } from '@spinajs/users';

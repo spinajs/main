@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { TokenDto } from './../dto/token-dto.js';
 import { BaseController, BasePath, Ok, Post, ForbiddenResponse } from '@spinajs/http';
 import { ISession, SessionProvider, User as UserModel, AccessControl, regenerateSession } from '@spinajs/users';

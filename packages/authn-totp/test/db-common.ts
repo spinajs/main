@@ -6,11 +6,8 @@ import chaiAsPromised from 'chai-as-promised';
 chai.use(chaiAsPromised);
 
 /**
- * Configuration for the database backed user-controller suites.
- *
- * Kept separate from `common.ts` (which drives the http-server based suites) so
- * neither can break the other: this one boots an in-memory sqlite database and
- * never starts a server.
+ * Configuration for the database backed suites: boots an in-memory sqlite
+ * database and never starts a server.
  */
 export class DbTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {

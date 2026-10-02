@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { UserLoginDto } from '../dto/userLogin-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } from '@spinajs/http';
 import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacException, hashSessionId } from '@spinajs/users';

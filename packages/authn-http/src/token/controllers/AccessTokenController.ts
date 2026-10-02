@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { BadRequestResponse, BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Policy, Post, Put, Query } from '@spinajs/http';
 import { User as UserModel } from '@spinajs/users';
 import { Permission, Resource, User } from '../../decorators.js';

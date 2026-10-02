@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { SwitchRoleDto } from '../dto/switchRole-dto.js';
 import { BaseController, BasePath, Post, Body, Ok, Get, BadRequestResponse, Unauthorized, Policy } from '@spinajs/http';
 import { AccessControl, AuthProvider, PasswordProvider, SessionProvider, regenerateSession } from '@spinajs/users';

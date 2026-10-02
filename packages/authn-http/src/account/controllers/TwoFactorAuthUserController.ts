@@ -1,3 +1,4 @@
+import '../../registrations.js';
 import { BaseController, BasePath, Body, ForbiddenResponse, Get, Ok, Policy, Post, Unauthorized } from '@spinajs/http';
 import { PasswordProvider, SessionProvider, User as UserModel, regenerateSession } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';

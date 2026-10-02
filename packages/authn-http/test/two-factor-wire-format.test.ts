@@ -11,7 +11,6 @@ import { fsService } from '@spinajs/fs';
 import { Controllers, ForbiddenResponse, HttpServer } from '@spinajs/http';
 import { RbacMiddleware } from '../src/middlewares.js';
 import { RbacPolicy } from '../src/policies/RbacPolicy.js';
-import '../src/route-args.js';
 import { UserSession } from '@spinajs/users';
 
 import { dir, req, TestConfiguration } from './account-common.js';
