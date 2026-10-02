@@ -15,3 +15,4 @@ export * from './token.js';
 export * from './keys.js';
 export * from './jws.js';
 export * from './extractor.js';
+export * from './hooks.js';
