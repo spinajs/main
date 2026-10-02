@@ -74,15 +74,7 @@ export class SocketHandlerRegistry {
     }
 
     // http's resolver reads only Policies and Method, so the socket descriptors pass structurally
-    const policies = await resolveRoutePolicies(
-      { Policies: descriptor.Policies } as unknown as IControllerDescriptor,
-      { Policies: handler.Policies, Method: handler.Method } as unknown as IRoute,
-      this.Container,
-      this.Cfg,
-      this.Log,
-      controllerName,
-      fullName,
-    );
+    const policies = await resolveRoutePolicies({ Policies: descriptor.Policies } as unknown as IControllerDescriptor, { Policies: handler.Policies, Method: handler.Method } as unknown as IRoute, this.Container, this.Cfg, this.Log, controllerName, fullName);
 
     const registered: IRegisteredHandler = { fullName, controller, descriptor: handler, policies };
 
@@ -108,9 +100,7 @@ export class SocketHandlerRegistry {
     const existing = map.get(registered.fullName);
 
     if (existing) {
-      throw new InvalidOperation(
-        `Socket ${registered.descriptor.Kind} ${registered.fullName} is declared twice: ${existing.controller.constructor.name}::${String(existing.descriptor.Method)} and ${controllerName}::${String(registered.descriptor.Method)}`,
-      );
+      throw new InvalidOperation(`Socket ${registered.descriptor.Kind} ${registered.fullName} is declared twice: ${existing.controller.constructor.name}::${String(existing.descriptor.Method)} and ${controllerName}::${String(registered.descriptor.Method)}`);
     }
 
     map.set(registered.fullName, registered);
