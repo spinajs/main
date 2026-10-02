@@ -170,7 +170,7 @@ export interface ICommandOptions {
   timeoutMs?: number;
   /** W3: replay by `(clientId, idempotencyKey)` */
   idempotent?: boolean;
-  /** serial queue per connection, or per clientId across reconnects */
+  /** serial queue per connection, or per principal and clientId across reconnects */
   ordered?: 'connection' | 'client';
 }
 

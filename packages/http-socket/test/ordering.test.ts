@@ -116,8 +116,8 @@ describe('socket ordered commands', function () {
   let t: ITestServer;
   let sockets: ClientSocket[] = [];
 
-  const connectAs = async (clientId: string) => {
-    const socket = await open(t, { auth: { clientId } });
+  const connectAs = async (clientId: string, token?: string) => {
+    const socket = await open(t, { auth: { clientId, ...(token ? { token } : {}) } });
     sockets.push(socket);
     return socket;
   };
@@ -167,6 +167,26 @@ describe('socket ordered commands', function () {
     const b = command(second, 'ord.client', { tag: 'B', ms: 0 });
     await Promise.all([a, b]);
     expect(ordDone).to.deep.equal(['B', 'A']);
+  });
+
+  it("keeps different principals with the same clientId independent under ordered: 'client'", async () => {
+    const first = await connectAs('ord-shared', 'good');
+    const second = await connectAs('ord-shared');
+    const a = command(first, 'ord.client', { tag: 'A', ms: 80 });
+    await delay(20);
+    const b = command(second, 'ord.client', { tag: 'B', ms: 0 });
+    await Promise.all([a, b]);
+    expect(ordDone).to.deep.equal(['B', 'A']);
+  });
+
+  it("runs ordered: 'client' commands in order across connections of one principal and clientId", async () => {
+    const first = await connectAs('ord-alice', 'good');
+    const second = await connectAs('ord-alice', 'good');
+    const a = command(first, 'ord.client', { tag: 'A', ms: 80 });
+    await delay(20);
+    const b = command(second, 'ord.client', { tag: 'B', ms: 0 });
+    await Promise.all([a, b]);
+    expect(ordDone).to.deep.equal(['A', 'B']);
   });
 
   it('skips a queued command whose deadline passed while it waited', async () => {

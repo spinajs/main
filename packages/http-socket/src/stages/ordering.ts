@@ -2,11 +2,12 @@ import { Injectable } from '@spinajs/di';
 import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
+import { principalKey } from '@spinajs/authz';
 import { SerialQueue } from '../queue.js';
 
 /**
- * `ordered: 'connection'` serialises a connection's commands; `ordered: 'client'` serialises a
- * clientId's commands across reconnects. In memory, per server instance.
+ * `ordered: 'connection'` serialises a connection's commands; `ordered: 'client'` serialises the
+ * commands of one principal and clientId across reconnects. In memory, per server instance.
  */
 @Injectable(SocketCommandStage)
 export class OrderingStage extends SocketCommandStage {
@@ -29,8 +30,9 @@ export class OrderingStage extends SocketCommandStage {
       return next();
     }
 
-    // clientId is the one the handshake checked ( socket.data.client ), never raw auth
-    const key = mode === 'client' ? `client:${ctx.connection.clientId}` : `connection:${ctx.connection.id}`;
+    // clientId is chosen by the client, so another principal sending the same one must not stall this queue;
+    // the encoded principal key holds no ':', which keeps the key unambiguous
+    const key = mode === 'client' ? `client:${encodeURIComponent(principalKey(ctx.connection.principal))}:${ctx.connection.clientId}` : `connection:${ctx.connection.id}`;
 
     return this.Queue.run(key, async () => {
       // already answered ( deadline, cancel, disconnect ) while it waited: never start the handler
