@@ -1,1 +1,1 @@
-export {};
+export * from './contracts/index.js';
