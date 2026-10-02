@@ -18,6 +18,8 @@ breaks §4.2.
 | `authn-token` | `users` | Token actions and `AccessTokenRolePolicy` use `User`, `UserEvent` and role helpers. | N6 (owner resolved through links), C1 |
 | `authn-totp` | `users` | 2FA actions and `Default2FaToken` read and write user metadata and emit user events. | N5 (`TotpMfaStep` on the `MfaStore` contract) |
 | `authn-totp` | `http`, `queue` | `auth2Fa` throws `Unauthorized` from `@spinajs/http`; the 2FA events extend `Event` from `@spinajs/queue`. | N5 |
+| `authn-token` | `http`, `queue` | `src/interfaces.ts` augments `@spinajs/http`'s request storage with `TokenAuth`; token actions emit `AccessToken*` events on `@spinajs/queue`. | N6 |
+| `authn-http` | `queue` | `ImpersonationService` and `ImpersonationController` emit the impersonation events on `@spinajs/queue`. | N8a (events go through the authn audit and event sinks) |
 | `authz-http-admin` | `users` | `src/legacy/**` (`Roles`, `DefaultRoleGuard`) use `User`, `grant`, `revoke`, `AccessControl`. | C4 (deletes `src/legacy/**`), R1 |
 | `authz-http-admin` | `authn-http` | `Roles` uses `AuthorizedPolicy`, `Permission`, `Resource` and the `User` route argument. | C4 (routes read the principal through `@Access` and `AuthzAdmin`), R1 |
 | `users-http` | `authn-totp` | `Security` calls `enableUser2Fa`, `disableUser2Fa`, `resetUser2Fa`. | C2 (credential routes leave `Security`), N8b (credential admin) |
@@ -29,3 +31,16 @@ breaks §4.2.
 Edges that follow §4.2 and are not listed: `authn-http` → `authn-session`,
 `authn-oidc` → `authn-http`, `users-http` → `users` and `authn-http`,
 `authz-http-admin` → `authz` and `authz-http`, `authz` → `authn`.
+
+## Runtime note
+
+Installing `authn-http` now brings what the 2.x `rbac-http-user` and
+`rbac-http-token` packages brought: its config scans
+`account/controllers` and `token/controllers` (`/auth/*`,
+`/user/tokens`), it pulls in the authn-token and authn-totp configs (token
+CLI, `user.tokens` grants, `rbac.twoFactorAuth.enabled: true`), and its
+index registers `TokenAuthMiddleware` and `RbacHttpUserBootstrapper`. An
+app that used `rbac-http` alone (for example through `configuration-http`
+or `orm-api`) gets those routes too. N8a and N8b must turn each route group
+on only when its service is registered (design §22.11) before 3.0 ships, and
+X1 mentions it in the release notes.
