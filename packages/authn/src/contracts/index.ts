@@ -6,3 +6,7 @@ export * from './strategy.js';
 export * from './service.js';
 export * from './identity.js';
 export * from './link.js';
+export * from './mfa.js';
+export * from './secrets.js';
+export * from './audit.js';
+export * from './impersonation.js';
