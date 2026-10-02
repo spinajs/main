@@ -176,7 +176,7 @@ describe('socket pipeline limits', function () {
   });
 
   describe('limit configuration', () => {
-    const cfg = (rate: { perSecond: number; burst: number }) => ({ rate, maxInFlightEventsPerConnection: Math.max(rate.burst, 128) }) as Parameters<typeof assertLimitsConfig>[0];
+    const cfg = (rate: { perSecond: number; burst: number }) => ({ rate, maxPayloadBytes: 1024, maxInFlightPerConnection: 32, maxInFlightEventsPerConnection: Math.max(rate.burst, 128), auth: { required: false, revalidateMs: 0 }, transports: ['websocket'] }) as Parameters<typeof assertLimitsConfig>[0];
 
     for (const bad of [{ perSecond: 0, burst: 10 }, { perSecond: -1, burst: 10 }, { perSecond: 10, burst: 0 }, { perSecond: NaN, burst: 10 }]) {
       it(`rejects ${JSON.stringify(bad)} with a RangeError`, () => {
