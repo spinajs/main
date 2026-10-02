@@ -11,10 +11,15 @@ describe('origin guard', () => {
     it('compares scheme, host and port, with the host lowercased and default ports dropped', () => {
       expect(isAllowedOrigin({ origin: 'http://app.example', host: 'APP.example:80' }, [])).to.be.true;
       expect(isAllowedOrigin({ origin: 'https://app.example', host: 'app.example:443' }, [], true)).to.be.true;
-      expect(isAllowedOrigin({ origin: 'https://app.example', host: 'app.example' }, [])).to.be.false;
       expect(isAllowedOrigin({ origin: 'http://app.example', host: 'app.example' }, [], true)).to.be.false;
       expect(isAllowedOrigin({ origin: 'http://app.example:8080', host: 'app.example' }, [])).to.be.false;
       expect(isAllowedOrigin({ origin: 'http://app.example.evil', host: 'app.example' }, [])).to.be.false;
+    });
+
+    it('admits an https page on the same host when the server is plain http ( TLS-terminating proxy ), never an http page on a TLS server', () => {
+      expect(isAllowedOrigin({ origin: 'https://app.example', host: 'app.example' }, [], false)).to.be.true;
+      expect(isAllowedOrigin({ origin: 'http://app.example', host: 'app.example' }, [], true)).to.be.false;
+      expect(isAllowedOrigin({ origin: 'https://evil.example', host: 'app.example' }, [], false)).to.be.false;
     });
 
     it('refuses a Host header that is not a bare host and port', () => {

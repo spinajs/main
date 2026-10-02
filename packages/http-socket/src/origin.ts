@@ -11,7 +11,8 @@ function isSameOrigin(origin: string, host: string | undefined, secure: boolean)
     const page = new URL(origin);
     const self = new URL(`${secure ? 'https' : 'http'}://${host}`);
     // URL lowercases the host and drops default ports, so `app.example:80` equals `http://app.example`
-    return page.protocol === self.protocol && page.host === self.host;
+    // an https page may reach a non-TLS server only through a TLS-terminating proxy; never the reverse
+    return page.host === self.host && (page.protocol === self.protocol || (!secure && page.protocol === 'https:'));
   } catch {
     return false;
   }
@@ -21,8 +22,9 @@ function isSameOrigin(origin: string, host: string | undefined, secure: boolean)
  * CORS does not cover a WebSocket upgrade, and a browser sends the user's cookies with a socket
  * opened from any site. So the handshake itself admits only clients without an Origin ( not a
  * browser, see `crossSiteRefusal` ), same-origin pages ( scheme, host and port ) and exactly
- * listed origins ( SR-12, authz-v3 A31 ). Behind a TLS-terminating proxy the request scheme is
- * http, so list the public origin in `http.socket.cors.origins`.
+ * listed origins ( SR-12, authz-v3 A31 ). Behind a TLS-terminating proxy that keeps Host, an https
+ * page on the same host is admitted although the request is plain http; if the proxy rewrites
+ * Host, list the public origin in `http.socket.cors.origins`.
  *
  * @param secure - whether the request reached this server over TLS
  */

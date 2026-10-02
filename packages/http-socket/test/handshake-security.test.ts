@@ -138,8 +138,10 @@ describe('socket handshake: connection state recovery', function () {
     const { id, pid, offset } = await dropped({ auth: { clientId: 'c-origin' } });
 
     const second = track(connect(t, { auth: { pid, offset }, headers: { origin: 'https://evil.example' } }));
+    const notice = nextEvent<{ reason: string }>(second, SYSTEM_EVENTS.disconnect);
 
     expect(await disconnectedWithin(second, 2000)).to.be.true;
+    expect(await notice).to.deep.equal({ reason: 'forbidden' });
     expect(DI.resolve(SocketHub).connection(id)).to.be.undefined;
   });
 });
