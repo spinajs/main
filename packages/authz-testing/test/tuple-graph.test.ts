@@ -5,7 +5,8 @@ import * as fc from 'fast-check';
 import { TRUE, resourceKey } from '@spinajs/authz';
 import type { Vote } from '@spinajs/authz';
 
-import { FakeTupleModel, FakeTupleStore, fakeEvaluationContext, tupleGraph, userPrincipal } from '../src/index.js';
+import { FakeTupleModel, FakeTupleStore, fakeEvaluationContext, userPrincipal } from '../src/index.js';
+import { tupleGraph } from '../src/arbitraries/index.js';
 import type { Tuple } from '../src/index.js';
 
 const isUserset = (s: Tuple['subject']): s is { object: { type: string; id?: string }; relation: string } => 'object' in s;

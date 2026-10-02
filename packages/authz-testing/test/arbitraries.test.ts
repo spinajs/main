@@ -5,8 +5,9 @@ import * as fc from 'fast-check';
 import { FALSE, GLOBAL, PERMISSION_GLOB_PATTERN, PERMISSION_PATTERN, SYSTEM, UNATTENDED, isPermissionGlob, resourceKey } from '@spinajs/authz';
 import type { ResourceFilter } from '@spinajs/authz';
 
-import { FakeAdapter, FakeScopeResolver, assignment, cap, ceiling, evaluateFilter, filter, ladder, permissionGlob, permissionName, principal, principalRef, resourceRef, restriction, roleGraph, row, scopeTree, vote, denyReason } from '../src/index.js';
-import type { TestRoleDef } from '../src/index.js';
+import { FakeAdapter, FakeScopeResolver, evaluateFilter } from '../src/index.js';
+import { assignment, cap, ceiling, filter, ladder, permissionGlob, permissionName, principal, principalRef, resourceRef, restriction, roleGraph, row, scopeTree, vote, denyReason } from '../src/arbitraries/index.js';
+import type { TestRoleDef } from '../src/arbitraries/index.js';
 
 const assertProperty = <T>(arb: fc.Arbitrary<T>, check: (v: T) => void, numRuns = 150): void =>
   fc.assert(

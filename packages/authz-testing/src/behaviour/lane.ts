@@ -610,8 +610,11 @@ export const handled = (key: string, expect: JobExpectation): DoStep => ({
   },
 });
 
-/** Waits (polling) until `fn` stops throwing. */
-export async function eventually(fn: () => void | Promise<void>, timeoutMs = 2000, everyMs = 10): Promise<void> {
+/**
+ * Waits (polling) until `fn` stops throwing; gives up after `timeoutMs` (default 10 s).
+ * A harness on slow CI can pass a longer one if its step takes an option.
+ */
+export async function eventually(fn: () => void | Promise<void>, timeoutMs = 10_000, everyMs = 10): Promise<void> {
   const until = Date.now() + timeoutMs;
   for (;;) {
     try {

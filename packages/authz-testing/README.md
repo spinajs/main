@@ -5,7 +5,8 @@ Test kit for SpinaJS authorization: fakes, conformance suites, behaviour fixture
 - Fakes: `StaticModel`, `FakeRbacModel`, `FakeTupleModel`, `FakeAdapter`, `FakeScopeResolver`,
   `FakeRelationResolver`, `FakePrincipalSource`, `RecordingAudit`, `RecordingChangeBus`, `ManualClock`,
   fake contexts, principal builders and `evaluateFilter` (the reference residual evaluator).
-- fast-check arbitraries for principals, ceilings, filters, votes, role graphs and rules.
+- fast-check arbitraries for principals, ceilings, filters, votes, role graphs and rules, exported under
+  the `arb` namespace (`import { arb } from '@spinajs/authz-testing'`, then `arb.filter`, `arb.principal`, …).
 - Conformance suites for models and adapters.
 - Behaviour fixtures B01–B46 (design §17) and `runBehaviour`.
 
@@ -96,6 +97,8 @@ runBehaviour(['B01', 'B03', 'B04.core'], engineHarness);
 - Lanes with their own query side (`list`, `sql` facets) implement `session.list(principal,
   permission, type)` returning the ids of the world rows the residual selects; `session.load(ref)`
   returns what the lane's adapter loads for a row (an ORM instance).
+- A harness for both this kit and `@spinajs/authn-testing` adapts authn's `FakeClock` to the kit's
+  `BehaviourClock`: `{ now: () => c.now(), advance: (ms) => c.tick(ms) }` (`FakeClock.now()` returns a `Date`).
 - `beforeAll`/`afterAll` run once around the cases (bootstrap an app, open a database).
 - A harness whose root is a test domain names it in `domain` (boot messages are matched against it).
 - Lane handles (orm, http, fs, …) are declared by the fixture file that first needs them, by
@@ -105,7 +108,8 @@ runBehaviour(['B01', 'B03', 'B04.core'], engineHarness);
 
 Where each key of a `World` goes. "Engine" is an `Authorizer`-style harness (F3); "host" is a test
 domain built from `AuthzService`/`AuthzDomains` (F4 and the lanes). The kit cannot import host code,
-so a shared host harness helper comes with F4; until then each host lane follows this table.
+so each host lane follows this table. A shared host harness helper is a follow-up once F4's host exists
+(not yet planned).
 
 | World key | Engine harness | Host harness (test domain) |
 |---|---|---|
@@ -211,3 +215,27 @@ A fixture file exports a `BehaviourFixture` (`fixtureDsl.fixture(id, parts)`) or
 rule another file defines, a `FixtureExtension` (`fixtureDsl.extension(id, parts)`); a part with cases
 replaces a declared part of the same name that has none. Add the file to `behaviour/catalogue.ts`.
 After G1 a lane does not edit this package: a broken fixture is an RFC.
+
+## Decisions
+
+Binding readings of the design that the fixtures rely on. Fixture notes cite them by id.
+
+- D-F5-1: the reported deny reason is the lowest `(priority, sortKey)` among all deny sources, the core's
+  included. A ceiling or delegate deny (200) does not stop model evaluation; `agents_disabled` (100)
+  beats `ceiling`. SYSTEM and UNATTENDED skip the models.
+- D-F5-2: a permitting vote without `fields` contributes all fields (`*`) before `hide` and
+  `authz.fields.neverRead` apply.
+- D-F5-3: `maxDelegation` counts hops; an agent acting for a user is one hop.
+- D-F5-4: L2 invalidation tags are the design's names. A fixture asserts only that a decision is dropped
+  by `subject:<principalKey>`, by `model:<name>` of a model that voted, and by a model `version()` change.
+- D-F5-5: a residual evaluated against a subject uses SQL three-valued logic; UNKNOWN does not allow.
+- D-F5-6: error-message expectations never hard-code the domain name; the runner substitutes `$domain`.
+- D-F5-7: the AdminGuard does not run `covers` on a revoke; the last-holder and self-lockout checks still
+  apply. SYSTEM passes the permission check and the guard.
+- D-F5-8: `Decision.roles` (effective role per ladder) is filled for every outcome, denials included.
+- D-F5-9: B05.orm rule 6 has no fixture. `ModelCapabilities` lacks an "IO-free residual" field, so no
+  fixture refuses a `sync: 'never'` model at boot; the ORM lane raises an RFC if it needs one.
+- D-F5-10: facet `authn` covers authentication flows (login, MFA completion, role switch, whoami);
+  `impersonation` covers the impersonation guard only.
+- D-F5-11: fixture export names are `Bxx` for a rule's own fixture and `BxxPart` in PascalCase for an
+  extension (`B02Lanes`, `B06Rules`).

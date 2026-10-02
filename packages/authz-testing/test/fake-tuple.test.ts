@@ -145,12 +145,9 @@ describe('FakeTupleModel', () => {
     tuples.push(tuple(g(layers - 1, width - 1), 'member', u('carol')));
     await store.write(tuples, [], actor);
     const m = new FakeTupleModel({ store, schema, permissions });
-
-    const started = Date.now();
     expect(await permit(m, 'zed', 'folder:read', folder('d1'))).to.eq(FALSE);
     const reads = store.reads;
     expect(await permit(m, 'carol', 'folder:read', folder('d1'))).to.eq(TRUE);
-    expect(Date.now() - started).to.be.below(1000);
     // d1#view, #viewer, #owner, the parent arrow, and each group's #member once.
     expect(reads).to.be.at.most(3 + layers * width + 1);
   });

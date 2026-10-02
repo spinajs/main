@@ -3,8 +3,10 @@ import * as fc from 'fast-check';
 import { CORE_FILTER_OPS, FALSE, GLOBAL, TRUE, or } from '@spinajs/authz';
 import type { DenyReason, PrincipalRef, ResourceFilter, ResourceRef } from '@spinajs/authz';
 
-import { FAKE_TUPLE_OP, FakeAdapter, FakeRbacModel, FakeTupleModel, FakeTupleStore, StaticModel, servicePrincipal, tupleGraph, userPrincipal, withCompanions, worldRows } from '../../src/index.js';
-import type { AdapterSetup, FakeRow, ModelFactory, ModelSetup, Tuple, TupleGraph, VoteFn } from '../../src/index.js';
+import { FAKE_TUPLE_OP, FakeAdapter, FakeRbacModel, FakeTupleModel, FakeTupleStore, StaticModel, servicePrincipal, userPrincipal, withCompanions, worldRows } from '../../src/index.js';
+import type { AdapterSetup, FakeRow, ModelFactory, ModelSetup, Tuple, VoteFn } from '../../src/index.js';
+import { tupleGraph } from '../../src/arbitraries/index.js';
+import type { TupleGraph } from '../../src/arbitraries/index.js';
 
 const ADMIN: PrincipalRef = { type: 'user', id: 'admin' };
 

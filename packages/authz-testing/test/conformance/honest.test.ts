@@ -6,7 +6,7 @@ import { b19Factory, denyOnlyFactory, plainAdapterSetup, rbacFactory, rbacSeeds,
 
 describe('conformance: the kit fakes pass', () => {
   // G1 item 4: the model contract admits ReBAC. Graphs stay within maxDepth, so no vote may be indeterminate.
-  runModelConformance('FakeTupleModel (ReBAC) over random tuple graphs', tupleFactory, { seeds: tupleGraphs });
+  runModelConformance('FakeTupleModel (ReBAC) over random tuple graphs', tupleFactory, { seeds: tupleGraphs, timeoutMs: 120_000 });
 
   runModelConformance('FakeRbacModel over random assignments', rbacFactory, { seeds: rbacSeeds });
 

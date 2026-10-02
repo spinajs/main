@@ -113,7 +113,7 @@ export interface ModelConformanceOptions<S = undefined> {
   readonly indeterminate?: 'allow' | 'forbid';
   /** Checks registered as pending. */
   readonly skip?: readonly ModelCheckId[];
-  /** Mocha timeout per check, default 20000 ms. */
+  /** Mocha timeout per check; default: the inherited timeout, at least 20000 ms. */
   readonly timeoutMs?: number;
 }
 
@@ -927,7 +927,7 @@ export function runModelConformance<S>(name: string, factory: ModelFactory<S>, o
 export function runModelConformance<S>(name: string, factory: ModelFactory<S>, opts: ModelConformanceOptions<S> = {}): void {
   const checks = checksOf(factory, opts);
   describe(name, function () {
-    this.timeout(opts.timeoutMs ?? 20000);
+    this.timeout(opts.timeoutMs ?? Math.max(this.timeout(), 20000));
     for (const c of checks) {
       if (opts.skip?.includes(c.id)) it(c.title);
       else it(c.title, () => c.run());

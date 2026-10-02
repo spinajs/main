@@ -315,7 +315,7 @@ export function adapterConformanceChecks<T = unknown>(factory: AdapterFactory<T>
 export function runAdapterConformance<T = unknown>(name: string, factory: AdapterFactory<T>, opts: AdapterConformanceOptions = {}): void {
   const checks = adapterConformanceChecks(factory, opts);
   describe(name, function () {
-    this.timeout(opts.timeoutMs ?? 20000);
+    this.timeout(opts.timeoutMs ?? Math.max(this.timeout(), 20000));
     for (const c of checks) {
       if (opts.skip?.includes(c.id)) it(c.title);
       else it(c.title, () => c.run());
