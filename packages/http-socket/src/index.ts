@@ -19,3 +19,4 @@ export * from './policies.js';
 export * from './access.js';
 export * from './principal-guard.js';
 export * from './queue.js';
+export * from './metrics.js';

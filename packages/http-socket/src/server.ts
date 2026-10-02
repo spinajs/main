@@ -14,6 +14,7 @@ import { SocketHub } from './hub.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
 import { crossSiteRefusal, isAllowedOrigin } from './origin.js';
 import { SocketHandlerRegistry } from './registry.js';
+import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
 
@@ -248,10 +249,12 @@ export class SocketServer extends AsyncService {
       return;
     }
 
+    const release = trackConnection();
     this.Hub.register(connection);
     this.Dispatcher.attach(connection, socket);
 
     socket.on('disconnect', (reason: string) => {
+      release();
       connection.close(reason);
       this.Dispatcher.detach(connection, reason);
       this.Hub.unregister(connection.id);

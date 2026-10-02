@@ -11,6 +11,7 @@ import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
 import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
+import { SOCKET_UNKNOWN_COMMAND, observeCommand } from './metrics.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
@@ -115,6 +116,7 @@ export class SocketDispatcher extends AsyncService {
   /** Runs one command through the stages and the handler; never rejects. */
   public async execute(ctx: SocketCommandContext): Promise<CommandReply> {
     const runtime = ctx.runtime;
+    const started = performance.now();
     runtime.running.set(ctx.request.id, ctx);
 
     let reply: CommandReply;
@@ -138,7 +140,16 @@ export class SocketDispatcher extends AsyncService {
       }
     }
 
+    this.observe(ctx, reply, performance.now() - started);
     return reply;
+  }
+
+  protected observe(ctx: SocketCommandContext, reply: CommandReply, ms: number): void {
+    const code = reply.ok ? 'ok' : reply.error.code;
+    this.Log.debug(`socket command ${ctx.request.name} ${code} ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+    // only registered names are labels; a refusal before lookup still resolves the name here
+    const label = (ctx.handler ?? this.Registry.command(ctx.request.name))?.fullName ?? SOCKET_UNKNOWN_COMMAND;
+    observeCommand(label, code, ms / 1000);
   }
 
   protected onCommand(runtime: IConnectionRuntime, raw: unknown, ack: unknown): void {
