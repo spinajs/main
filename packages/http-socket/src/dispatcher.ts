@@ -4,12 +4,16 @@ import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
-import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest } from '@spinajs/http-socket-common';
-import { IConnectionRuntime, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
+import { CommandReply, CommandRequest, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame } from '@spinajs/http-socket-common';
+import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertLimitsConfig, assertOrderingConfig } from './limits.js';
+import { TokenBucket, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate } from './limits.js';
+import { SocketHandlerRegistry } from './registry.js';
+import { SocketArgumentResolver } from './args.js';
+import { SocketPolicyGate } from './policies.js';
+import { SocketPrincipalGuard } from './principal-guard.js';
 import './stages/index.js';
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -38,6 +42,18 @@ export class SocketDispatcher extends AsyncService {
   protected Errors: SocketErrorMapper;
 
   @Autoinject()
+  protected Registry: SocketHandlerRegistry;
+
+  @Autoinject()
+  protected Arguments: SocketArgumentResolver;
+
+  @Autoinject()
+  protected Gate: SocketPolicyGate;
+
+  @Autoinject()
+  protected Guard: SocketPrincipalGuard;
+
+  @Autoinject()
   protected Als: AsyncLocalStorage<ISocketCallStorage>;
 
   protected Stages: SocketCommandStage[] = [];
@@ -64,11 +80,15 @@ export class SocketDispatcher extends AsyncService {
     this.runtimes.set(connection.id, runtime);
     socket.on(WIRE_EVENTS.command, (request: unknown, ack: unknown) => this.onCommand(runtime, request, ack));
     socket.on(WIRE_EVENTS.cancel, (frame: unknown) => this.onCancel(runtime, frame));
+    socket.on(WIRE_EVENTS.event, (frame: unknown) => {
+      this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
+    });
+    runtime.ready = this.runHooks(runtime, 'connect');
 
     return runtime;
   }
 
-  public detach(connection: SocketConnection, _reason: string): void {
+  public detach(connection: SocketConnection, reason: string): void {
     const runtime = this.runtimes.get(connection.id);
     if (!runtime) {
       return;
@@ -76,6 +96,8 @@ export class SocketDispatcher extends AsyncService {
 
     this.runtimes.delete(connection.id);
     this.abortRunning(runtime, new SocketException('unavailable', 'connection closed'));
+    // a client that leaves while its connect hooks still run gets its disconnect hooks after them
+    void runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason));
   }
 
   /** Aborts every running command on every connection ( shutdown ). */
@@ -163,6 +185,64 @@ export class SocketDispatcher extends AsyncService {
     }
 
     runtime.running.get(frame.id)?.abort(new SocketException('cancelled', `command ${frame.id} cancelled by the client`));
+  }
+
+  /** Fire-and-forget: a refused or failing event is logged and dropped, the socket stays up unless its principal check fails ( D16 ). */
+  protected async onEvent(runtime: IConnectionRuntime, frame: unknown): Promise<void> {
+    const connection = runtime.connection;
+
+    if (!isEventFrame(frame)) {
+      this.Log.debug(`Malformed socket event from connection ${connection.id}, dropped`);
+      return;
+    }
+
+    try {
+      // before waiting for the connect hooks, so a flood sent while they run is not queued
+      assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
+      assertRate(runtime.bucket);
+      await runtime.ready;
+      // closes the connection itself when the principal is no longer valid
+      await this.Guard.ensure(connection);
+
+      const handler = this.Registry.event(frame.name);
+      if (!handler) {
+        this.Log.debug(`Unknown socket event ${frame.name} from connection ${connection.id}, dropped`);
+        return;
+      }
+
+      // built after ensure(): a revalidation may have adopted a renewed principal
+      const ctx: ISocketCallContext = { kind: 'event', connection, handler, payload: frame.payload, signal: connection.signal, storage: this.callStorage(connection, frame.name) };
+      await this.Als.run(ctx.storage, () => this.Gate.check(ctx));
+      await this.call(ctx, handler);
+    } catch (err) {
+      const wire = this.Errors.toWire(err, `event ${frame.name}`);
+      this.Log.warn(`Socket event ${frame.name} from connection ${connection.id} dropped: ${wire.code} ${wire.message}`);
+    }
+  }
+
+  /** Hooks run in registration order and no policies ( D9 ); a throwing hook is logged and never refuses the connection. */
+  protected async runHooks(runtime: IConnectionRuntime, kind: 'connect' | 'disconnect', reason?: string): Promise<void> {
+    const connection = runtime.connection;
+    // the connection's signal is already aborted when the disconnect hooks start
+    const signal = kind === 'connect' ? connection.signal : new AbortController().signal;
+
+    for (const handler of this.Registry.hooks(kind)) {
+      try {
+        const ctx: ISocketCallContext = { kind, connection, handler, payload: undefined, signal, reason, storage: this.callStorage(connection, handler.fullName) };
+        await this.call(ctx, handler);
+      } catch (err) {
+        const wire = this.Errors.toWire(err, `${kind} hook ${handler.fullName}`);
+        this.Log.warn(`Socket ${kind} hook ${handler.fullName} failed for connection ${connection.id}: ${wire.code} ${wire.message}`);
+      }
+    }
+  }
+
+  /** Arguments and the handler of an event or a hook, inside the call's store ( D14 ). */
+  protected call(ctx: ISocketCallContext, handler: IRegisteredHandler): Promise<unknown> {
+    return this.Als.run(ctx.storage, async () => {
+      const args = await this.Arguments.resolve(ctx);
+      return handler.controller[handler.descriptor.Method as string](...args);
+    });
   }
 
   protected abortRunning(runtime: IConnectionRuntime, reason: SocketException): void {
