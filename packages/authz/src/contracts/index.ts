@@ -5,3 +5,6 @@ export * from './permission.js';
 export * from './filter.js';
 export * from './fields.js';
 export * from './decision.js';
+export * from './model.js';
+export * from './adapter.js';
+export * from './service.js';
