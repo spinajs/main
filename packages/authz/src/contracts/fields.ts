@@ -10,8 +10,12 @@ const GLOB = new RegExp(`^!?${SEGMENT}(?:\\.${SEGMENT})*$`, 'u');
 const MAX_GLOBS = 1000; // per list
 const MAX_SEGMENTS = 32;
 // Steps (roughly trie nodes visited) one union/subtract/normalize may take
-// before it throws. Random lists of 50 globs at depth 5 stay below 1M;
-// hostile ones reach the limit in well under 1 s.
+// before it throws AuthzConfigError; at 50-200 ns a step a throw costs
+// 0.1-0.3 s. This, not the caps above, is the real limit: the cost grows
+// with the product of the literal counts the lists combine. Realistic field
+// sets use about 2%, random depth-5 lists of 30-50 globs up to 77%,
+// ['*', 300 x '!*.f'] with 100 x 'M.*' 95%; 300 x 300 throws. Callers
+// should cache a failure per policy version.
 const WORK_LIMIT = 1_500_000;
 
 export const isFieldGlob = (s: unknown): s is string => typeof s === 'string' && GLOB.test(s);
@@ -45,17 +49,18 @@ export function filterObject<T>(fields: readonly string[], data: readonly T[]): 
 export function filterObject<T>(fields: readonly string[], data: T): Partial<T>;
 export function filterObject(fields: readonly string[], data: unknown): unknown {
   const root: Cursors = [start(compile(parseList(fields), new Budget()))];
-  const top = (v: unknown): unknown => {
-    if (isDropped(v)) return undefined;
-    if (isLeaf(v)) return v;
-    if (!Array.isArray(v)) return filterRecord(v as object, root);
+  const stack = new Set<object>();
+  const top = (v: unknown, key: string): unknown => {
+    const json = toJson(v, key);
+    if (json === null || typeof json !== 'object') return json;
+    if (!Array.isArray(json)) return filterRecord(json, root, stack);
+    enter(stack, json);
     const out: unknown[] = [];
-    for (let i = 0; i < v.length; i++) {
-      if (!isDropped(v[i])) out.push(top(v[i]));
-    }
+    for (let i = 0; i < json.length; i++) out.push(top(json[i], String(i)) ?? null);
+    stack.delete(json);
     return out;
   };
-  return top(data);
+  return top(data, '');
 }
 
 // A glob of n segments matches every path of m >= n segments whose first n
@@ -404,11 +409,11 @@ const compareGlobs = (a: Glob, b: Glob): number => {
 
 const format = (g: Glob): string => (g.allow ? '' : '!') + g.segs.join('.');
 
-// filterObject. Any object that is not a leaf or an array is read as a record
-// of its own enumerable string keys and rebuilt as a plain object, so a
-// prototype, its getters or a toJSON never reach the output; that can only
-// narrow what is shown. instanceof (not the spoofable toStringTag) picks the
-// leaves, so a Date from another realm also becomes a record.
+// filterObject sees a value the way JSON.stringify does, since its output
+// is what gets serialised: toJSON(key) first (a model's dehydrate(), a
+// date's ISO string), then primitives are leaves and any other object is a
+// record of its own enumerable string keys rebuilt as a plain object. A
+// toJSON that returns raw data is still filtered.
 
 // All cursors must allow: a key with '.' is judged both as one segment and
 // as the path its dots spell.
@@ -416,9 +421,37 @@ type Cursors = readonly Cursor[];
 
 const DROP = Symbol('drop');
 
-const isDropped = (v: unknown): boolean => typeof v === 'function' || typeof v === 'symbol';
+// undefined where JSON leaves the value out (or writes null in an array).
+const toJson = (value: unknown, key: string): unknown => {
+  let v = value;
+  if (v !== null && (typeof v === 'object' || typeof v === 'function' || typeof v === 'bigint')) {
+    const toJSON = (v as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === 'function') v = toJSON.call(v, key);
+  }
+  if (typeof v === 'object' && v !== null) {
+    if (hasSlot(Number.prototype.valueOf, v)) return Number(v);
+    if (hasSlot(String.prototype.valueOf, v)) return String(v);
+    if (hasSlot(Boolean.prototype.valueOf, v)) return Boolean.prototype.valueOf.call(v);
+    if (hasSlot(BigInt.prototype.valueOf, v)) v = BigInt.prototype.valueOf.call(v);
+  }
+  if (typeof v === 'bigint') throw new TypeError('Do not know how to serialize a BigInt');
+  return v === undefined || typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
+};
 
-const isLeaf = (v: unknown): boolean => v === null || typeof v !== 'object' || v instanceof Date || v instanceof ArrayBuffer || ArrayBuffer.isView(v);
+// Boxed primitives: valueOf of the matching prototype throws on anything else.
+const hasSlot = (valueOf: (this: never) => unknown, v: object): boolean => {
+  try {
+    valueOf.call(v as never);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const enter = (stack: Set<object>, v: object): void => {
+  if (stack.has(v)) throw new TypeError('Converting circular structure to JSON');
+  stack.add(v);
+};
 
 const allowed = (cs: Cursors): boolean => cs.every((c) => c.value);
 
@@ -439,51 +472,56 @@ const stepKey = (cs: Cursors, key: string): Cursors | undefined => {
   return out.length > 0 ? out : [...next.values()].slice(0, 1);
 };
 
-const filterRecord = (obj: object, cs: Cursors): Record<string, unknown> => {
+const filterRecord = (obj: object, cs: Cursors, stack: Set<object>): Record<string, unknown> => {
+  enter(stack, obj);
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(obj)) {
     if (key === '__proto__') continue;
     const next = stepKey(cs, key);
     if (next === undefined) continue;
-    const value = filterValue((obj as Record<string, unknown>)[key], next);
+    const json = toJson((obj as Record<string, unknown>)[key], key);
+    if (json === undefined) continue;
+    const value = filterValue(json, next, stack);
     if (value !== DROP) Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true });
   }
+  stack.delete(obj);
   return out;
 };
 
-const filterValue = (v: unknown, cs: Cursors): unknown => {
-  if (isDropped(v)) return DROP;
-  if (isLeaf(v)) return allowed(cs) ? v : DROP;
-  if (Array.isArray(v)) {
-    const { out, any } = filterArray(v, cs);
+// json is already what toJson returned.
+const filterValue = (json: unknown, cs: Cursors, stack: Set<object>): unknown => {
+  if (json === null || typeof json !== 'object') return allowed(cs) ? json : DROP;
+  if (Array.isArray(json)) {
+    const { out, any } = filterArray(json, cs, stack);
     return allowed(cs) || any ? out : DROP;
   }
-  const out = filterRecord(v as object, cs);
+  const out = filterRecord(json, cs, stack);
   return allowed(cs) || Object.keys(out).length > 0 ? out : DROP;
 };
 
 // Object and array elements stay, possibly empty; scalars the path denies
 // are dropped. any reports whether something below the array path survived.
-const filterArray = (arr: readonly unknown[], cs: Cursors): { readonly out: unknown[]; readonly any: boolean } => {
+const filterArray = (arr: readonly unknown[], cs: Cursors, stack: Set<object>): { readonly out: unknown[]; readonly any: boolean } => {
+  enter(stack, arr);
   const out: unknown[] = [];
   let any = false;
   for (let i = 0; i < arr.length; i++) {
-    const el = arr[i];
-    if (isDropped(el)) continue;
-    if (isLeaf(el)) {
+    const json = toJson(arr[i], String(i)) ?? null;
+    if (json === null || typeof json !== 'object') {
       if (allowed(cs)) {
         any = true;
-        out.push(el);
+        out.push(json);
       }
-    } else if (Array.isArray(el)) {
-      const a = filterArray(el, cs);
+    } else if (Array.isArray(json)) {
+      const a = filterArray(json, cs, stack);
       any ||= a.any;
       out.push(a.out);
     } else {
-      const o = filterRecord(el as object, cs);
+      const o = filterRecord(json, cs, stack);
       any ||= Object.keys(o).length > 0;
       out.push(o);
     }
   }
+  stack.delete(arr);
   return { out, any };
 };

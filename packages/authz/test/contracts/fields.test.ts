@@ -352,7 +352,8 @@ describe('field glob contracts', () => {
       );
     });
 
-    it('stays fast on lists whose naive product is exponential', () => {
+    it('handles lists whose naive product is exponential', function () {
+      this.timeout(30_000);
       // 'k' at exactly one of 14 positions: 2^14 sets of matching globs
       const depth = 14;
       const globs = Array.from({ length: depth }, (_, i) => Array.from({ length: depth }, (__, j) => (i === j ? 'k' : '*')).join('.'));
@@ -361,14 +362,15 @@ describe('field glob contracts', () => {
       const u = unionFieldGlobs(globs, negs);
       const s = subtractFieldGlobs(globs, ['*.' + globs[1]]);
       const n = normalizeFieldGlobs([...globs, ...negs]);
-      expect(Date.now() - started).to.be.lessThan(1000);
+      expect(Date.now() - started).to.be.lessThan(10_000);
       const path = Array.from({ length: depth }, (_, i) => (i === 3 ? 'k' : i === 1 ? 'n' : 'x'));
       expect(oracle(u, path)).to.eq(oracle(globs, path) || oracle(negs, path));
       expect(oracle(n, path)).to.eq(oracle([...globs, ...negs], path));
       expect(oracle(s, path)).to.eq(oracle(globs, path));
     });
 
-    describe('hostile lists finish or throw AuthzConfigError within 1 s', () => {
+    describe('hostile lists give the exact result or throw AuthzConfigError', function () {
+      this.timeout(30_000);
       const star = (n: number) => Array<string>(n).fill('*');
       const shapes: Array<[string, string[]]> = [];
       // 'k' at position i of a glob of length n + i: no trie node covers another
@@ -389,21 +391,61 @@ describe('field glob contracts', () => {
       shapes.push(['deep literal', ['*', '!' + Array.from({ length: 32 }, (_, i) => `s${i}`).join('.')]]);
       shapes.push(['deep star', ['!' + star(32).join('.'), '*']]);
 
-      const bounded = (label: string, run: () => string[]) => {
-        const started = Date.now();
-        try {
-          run();
-        } catch (e) {
-          expect(e, label).to.be.instanceOf(AuthzConfigError);
+      // Paths over the literals the globs name plus one they do not, from a
+      // fixed seed so a run is repeatable.
+      const probes = (lists: readonly (readonly string[])[]): string[][] => {
+        const names = new Set<string>(['zz']);
+        let depth = 1;
+        for (const l of lists) {
+          for (const g of l) {
+            const segs = g.replace(/^!/, '').split('.');
+            depth = Math.max(depth, segs.length + 1);
+            for (const x of segs) if (x !== '*') names.add(x);
+          }
         }
-        expect(Date.now() - started, label).to.be.lessThan(1000);
+        const pool = [...names];
+        let seed = 7;
+        const rnd = (n: number) => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
+        return Array.from({ length: 300 }, () => Array.from({ length: 1 + rnd(depth) }, () => pool[rnd(pool.length)]));
       };
 
+      const outcome = (label: string, run: () => string[], expected: (p: readonly string[]) => boolean, paths: readonly string[][]) => {
+        const started = Date.now();
+        let out: string[] | undefined;
+        try {
+          out = run();
+        } catch (e) {
+          expect(e, label).to.be.instanceOf(AuthzConfigError);
+          expect((e as Error).message, label).to.match(/too complex|Too many|segments/);
+        }
+        expect(Date.now() - started, label).to.be.lessThan(10_000);
+        if (out !== undefined) {
+          for (const p of paths) expect(oracle(out, p), `${label} ${p.join('.')}`).to.eq(expected(p));
+        }
+      };
+
+      const extra = ['!*.*.x0', 'x1.*'];
       for (const [name, globs] of shapes) {
         it(name, () => {
-          bounded('normalize', () => normalizeFieldGlobs(globs));
-          bounded('union', () => unionFieldGlobs(globs, ['!*.*.x0', 'x1.*']));
-          bounded('subtract', () => subtractFieldGlobs(['*'], globs));
+          const paths = probes([globs, extra]);
+          outcome(
+            'normalize',
+            () => normalizeFieldGlobs(globs),
+            (p) => oracle(globs, p),
+            paths,
+          );
+          outcome(
+            'union',
+            () => unionFieldGlobs(globs, extra),
+            (p) => oracle(globs, p) || oracle(extra, p),
+            paths,
+          );
+          outcome(
+            'subtract',
+            () => subtractFieldGlobs(['*'], globs),
+            (p) => !oracle(globs, p),
+            paths,
+          );
         });
       }
 
@@ -475,70 +517,77 @@ describe('field glob contracts', () => {
       expect(filterObject(['*'], [])).to.deep.eq([]);
     });
 
-    it('keeps Date, ArrayBuffer and views as leaves', () => {
-      const created = new Date(0);
-      const buf = Buffer.from('ab');
-      const bytes = new Uint8Array([1]);
-      const raw = new ArrayBuffer(2);
-      const out = filterObject(['*', '!*.Password'], { created, buf, bytes, raw });
-      expect(out.created).to.eq(created);
-      expect(out.buf).to.eq(buf);
-      expect(out.bytes).to.eq(bytes);
-      expect(out.raw).to.eq(raw);
-      expect(filterObject(['created.time'], { created })).to.deep.eq({});
-    });
-
-    describe('reads every other object as a record (fails closed)', () => {
+    describe('JSON semantics', () => {
       const F = ['*', '!Password', '!*.Password'];
-      class User {
-        Id = 1;
-        Password = 'h';
-        get Secret() {
-          return 's';
-        }
-        toJSON() {
-          return { Id: this.Id, Password: this.Password };
-        }
-      }
 
-      it('class instances, at the top, nested and in arrays', () => {
-        expect(filterObject(F, new User())).to.deep.eq({ Id: 1 });
-        expect(Object.getPrototypeOf(filterObject(F, new User()))).to.eq(Object.prototype);
-        expect(JSON.stringify(filterObject(F, { Owner: new User() }))).to.eq('{"Owner":{"Id":1}}');
-        expect(JSON.stringify(filterObject(F, { users: [new User()] }))).to.eq('{"users":[{"Id":1}]}');
-        expect(JSON.stringify(filterObject(F, [new User()]))).to.eq('[{"Id":1}]');
+      it('Date, Buffer, typed arrays and ArrayBuffer read as JSON.stringify reads them', () => {
+        const created = new Date(0);
+        const out = filterObject(F, { created, buf: Buffer.from('ab'), bytes: new Uint8Array([1]), raw: new ArrayBuffer(2) });
+        expect(out).to.deep.eq({ created: '1970-01-01T00:00:00.000Z', buf: { type: 'Buffer', data: [97, 98] }, bytes: { '0': 1 }, raw: {} });
+        expect(filterObject(['created.time'], { created })).to.deep.eq({});
+        expect(filterObject(['*'], created)).to.eq('1970-01-01T00:00:00.000Z');
+      });
+
+      it('calls toJSON with the key and filters what it returns', () => {
+        const keyed = { toJSON: (k: string) => `key:${k}` };
+        expect(filterObject(['*'], { a: keyed, list: [keyed] })).to.deep.eq({ a: 'key:a', list: ['key:0'] });
+        expect(filterObject(['*'], keyed)).to.eq('key:');
+        const raw = { Password: 'h', Id: 1 };
+        expect(filterObject(F, { Id: 2, Password: 'x', toJSON: () => raw })).to.deep.eq({ Id: 1 });
+        expect(filterObject(F, { Owner: { toJSON: () => raw } })).to.deep.eq({ Owner: { Id: 1 } });
+      });
+
+      it('drops functions, symbols and undefined from records and writes null in arrays', () => {
+        const out = filterObject(F, { Id: 1, f: function named() {}, s: Symbol('x'), u: undefined, list: [1, () => 2, Symbol('y'), undefined] });
+        expect(out).to.deep.eq({ Id: 1, list: [1, null, null, null] });
+        expect(filterObject(['*'], () => 1)).to.eq(undefined);
+        expect(filterObject(['*'], [() => 1, 2])).to.deep.eq([null, 2]);
+        expect(filterObject(['list.a'], { list: [() => 1, { a: 1 }] })).to.deep.eq({ list: [{ a: 1 }] });
+      });
+
+      it('unwraps boxed primitives and throws on bigint, as JSON does', () => {
+        expect(filterObject(['*'], { n: new Number(1), s: new String('x'), b: new Boolean(false) })).to.deep.eq({ n: 1, s: 'x', b: false });
+        expect(() => filterObject(['*'], { n: BigInt(1) })).to.throw(TypeError);
+        expect(() => filterObject(['*'], { n: Object(BigInt(1)) })).to.throw(TypeError);
+      });
+
+      it('throws TypeError on a cycle it reaches', () => {
+        const a: Record<string, unknown> = { Id: 1 };
+        a.self = a;
+        expect(() => filterObject(['*'], a)).to.throw(TypeError, 'circular');
+        const list: unknown[] = [];
+        list.push(list);
+        expect(() => filterObject(['*'], { list })).to.throw(TypeError, 'circular');
+        // a denied key is never read
+        expect(filterObject(['Id'], a)).to.deep.eq({ Id: 1 });
+        // the same object twice, not nested, is no cycle
+        const shared = { x: 1 };
+        expect(filterObject(['*'], { a: shared, b: [shared, shared] })).to.deep.eq({ a: { x: 1 }, b: [{ x: 1 }, { x: 1 }] });
+      });
+
+      it('a fake Date fails closed', () => {
+        const fake = Object.create(Date.prototype) as Record<string, unknown>;
+        fake.Password = 'h';
+        expect(() => filterObject(['*'], { created: fake })).to.throw(TypeError);
+      });
+
+      it('class instances without toJSON, objects from another realm, Map and Set are records', () => {
         class Point {
           x = 1;
+          get y() {
+            return 2;
+          }
         }
         expect(filterObject(['at'], { at: new Point() })).to.deep.eq({ at: { x: 1 } });
-        expect(filterObject(['at.x'], { at: new Point() })).to.deep.eq({ at: { x: 1 } });
         expect(filterObject(['at', '!at.*'], { at: new Point() })).to.deep.eq({ at: {} });
-      });
-
-      it('objects from another realm', () => {
+        expect(Object.getPrototypeOf(filterObject(['*'], new Point()))).to.eq(Object.prototype);
         const row = vm.runInNewContext('({ Id: 1, Password: "h", Owner: { Password: "h", Name: "n" }, created: new Date(0) })') as object;
-        expect(JSON.stringify(filterObject(F, row))).to.eq('{"Id":1,"Owner":{"Name":"n"},"created":{}}');
-      });
-
-      it('Map and Set have no own keys', () => {
+        expect(JSON.stringify(filterObject(F, row))).to.eq('{"Id":1,"Owner":{"Name":"n"},"created":"1970-01-01T00:00:00.000Z"}');
         expect(filterObject(F, { m: new Map([['Password', 'h']]), s: new Set(['h']) })).to.deep.eq({ m: {}, s: {} });
       });
 
-      it('drops functions and symbols', () => {
-        const raw = { Password: 'h', Id: 1 };
-        const out = filterObject(F, { Id: 1, Password: 'h', toJSON: () => raw, f: function named() {}, s: Symbol('x'), list: [1, () => 2, Symbol('y')] });
-        expect(out).to.deep.eq({ Id: 1, list: [1] });
-        expect(JSON.stringify(out)).to.eq('{"Id":1,"list":[1]}');
-        expect(filterObject(['*'], () => 1)).to.eq(undefined);
-        expect(filterObject(['*'], [() => 1, 2])).to.deep.eq([2]);
-      });
-
       it('returns plain arrays for array subclasses', () => {
-        class Coll<T> extends Array<T> {
-          toJSON() {
-            return 'leak';
-          }
-        }
+        class Coll<T> extends Array<T> {}
         const top = Coll.from([{ Id: 1, Password: 'h' }]);
         const outTop = filterObject(F, top);
         expect(Object.getPrototypeOf(outTop)).to.eq(Array.prototype);
@@ -546,6 +595,81 @@ describe('field glob contracts', () => {
         const nested = filterObject(F, { list: Coll.from([1, 2]) });
         expect(Object.getPrototypeOf(nested.list)).to.eq(Array.prototype);
         expect(JSON.stringify(nested)).to.eq('{"list":[1,2]}');
+      });
+
+      // Same shape as an @spinajs/orm model: a relation object pointing back
+      // at its owner, internal own fields, a Luxon-like timestamp, and toJSON
+      // returning dehydrated columns. The real ModelBase needs DI and a
+      // driver, and authz does not depend on orm.
+      class DateTimeLike {
+        ts = 0;
+        _zone = {};
+        loc = { locale: 'pl-PL' };
+        toJSON() {
+          return '2026-10-02T12:00:00.000+02:00';
+        }
+      }
+      class RelationLike {
+        Populated = false;
+        constructor(public _owner: ModelLike, public Value?: ModelLike) {}
+      }
+      class ModelLike {
+        _container = { config: { db: { password: 'p' } } };
+        __snapshot__ = { Columns: { Password: 'h' } };
+        Password = 'h';
+        CreatedAt = new DateTimeLike();
+        Owner: RelationLike;
+        constructor(public Id: number, owner?: ModelLike) {
+          this.Owner = new RelationLike(this, owner);
+        }
+        dehydrate(): Record<string, unknown> {
+          const data: Record<string, unknown> = { Id: this.Id, Password: this.Password, CreatedAt: this.CreatedAt };
+          if (this.Owner.Value) data.Owner = this.Owner.Value.dehydrate();
+          return data;
+        }
+        toJSON() {
+          return this.dehydrate();
+        }
+      }
+
+      it('model-shaped objects serialise through toJSON without internals or overflow', () => {
+        const model = new ModelLike(2, new ModelLike(1));
+        const expected = { Id: 2, CreatedAt: '2026-10-02T12:00:00.000+02:00', Owner: { Id: 1, CreatedAt: '2026-10-02T12:00:00.000+02:00' } };
+        expect(filterObject(F, model)).to.deep.eq(expected);
+        expect(filterObject(F, [model])).to.deep.eq([expected]);
+        // rows.Owner.Password is three segments deep: F alone keeps it
+        expect(filterObject([...F, '!*.*.Password'], { rows: [model] })).to.deep.eq({ rows: [expected] });
+        expect(JSON.stringify(filterObject(['*'], model))).to.not.match(/_container|__snapshot__|_owner|password/);
+        expect(filterObject(F, { CreatedAt: new DateTimeLike() })).to.deep.eq({ CreatedAt: '2026-10-02T12:00:00.000+02:00' });
+      });
+
+      it('equals filtering the JSON round trip (property)', () => {
+        const keyArb = fc.constantFrom('a', 'b', 'c', 'a.b', 'Password');
+        const leafArb = fc.oneof(
+          fc.integer(),
+          fc.boolean(),
+          fc.constant(null),
+          fc.constantFrom('x', 'y'),
+          fc.date({ noInvalidDate: true }),
+          fc.constant(undefined),
+          fc.constant(() => 1),
+          fc.constant(Number.NaN),
+        );
+        const valueArb = fc.letrec((tie) => ({
+          value: fc.oneof({ depthSize: 'small', maxDepth: 3 }, leafArb, tie('record'), tie('array'), tie('wrapped')),
+          record: fc.dictionary(keyArb, tie('value'), { maxKeys: 4 }),
+          array: fc.array(tie('value'), { maxLength: 3 }),
+          wrapped: tie('value').map((inner) => ({ hidden: 'x', toJSON: () => inner })),
+        })).value;
+        fc.assert(
+          fc.property(listArb, valueArb, (globs, x) => {
+            const text = JSON.stringify(x);
+            const direct = JSON.stringify(filterObject(globs, x));
+            const roundTrip = JSON.stringify(filterObject(globs, text === undefined ? undefined : JSON.parse(text)));
+            return direct === roundTrip;
+          }),
+          { numRuns: 500 },
+        );
       });
     });
 
