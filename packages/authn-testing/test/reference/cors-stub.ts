@@ -8,6 +8,7 @@ export interface CorsStubMutants {
   readonly allowAnyWithCredentials?: boolean;
   readonly substringMatch?: boolean;
   readonly headersWhenEmpty?: boolean;
+  readonly preflightEchoesAny?: boolean;
 }
 
 /**
@@ -19,6 +20,9 @@ export function corsStub(origins: readonly string[] | null | undefined, mutants:
   const listed = (origin: string): boolean => (mutants.substringMatch ? list.some((l) => origin.startsWith(l)) : list.includes(origin));
 
   const send = async (req: HttpRequest): Promise<HttpResponse> => {
+    if (req.path !== CORS_STUB_PROBE) {
+      return { status: 404, headers: { 'content-type': 'application/json' }, setCookie: [], body: undefined };
+    }
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     const origin = Object.entries(req.headers ?? {}).find(([k]) => k.toLowerCase() === 'origin')?.[1];
     if (origin !== undefined) {
@@ -27,7 +31,7 @@ export function corsStub(origins: readonly string[] | null | undefined, mutants:
         if (mutants.allowAnyWithCredentials) {
           headers['access-control-allow-credentials'] = 'true';
         }
-      } else if (listed(origin) || (mutants.headersWhenEmpty && list.length === 0)) {
+      } else if (listed(origin) || (mutants.headersWhenEmpty && list.length === 0) || (mutants.preflightEchoesAny && req.method === 'OPTIONS')) {
         headers['access-control-allow-origin'] = origin;
         headers['access-control-allow-credentials'] = 'true';
         headers['vary'] = 'Origin';

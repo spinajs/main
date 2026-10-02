@@ -65,7 +65,8 @@ export const A31: AuthnRule = defineRule('A31', 'CORS allows only listed origins
       needs: ['http'],
       config: cors([ORIGIN_PARTNER]),
       async run(h) {
-        assert.strictEqual((await simple(h, row.origin)).headers['access-control-allow-origin'], undefined);
+        assert.strictEqual((await simple(h, row.origin)).headers['access-control-allow-origin'], undefined, 'a simple request');
+        assert.strictEqual((await preflight(h, row.origin)).headers['access-control-allow-origin'], undefined, 'a preflight');
       },
     }),
   ),

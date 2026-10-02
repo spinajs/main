@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { IdentityRef, TokenCreateOptions } from '@spinajs/authn/contracts';
 import type { ProbeBody } from '../harness/http.js';
-import { ALICE, BOB, NEW_PW, auth, factsAal1, probe, pw, routes, seedUser, send } from './steps.js';
+import { ALICE, BOB, NEW_PW, auth, factsAal1, in4xx, probe, pw, routes, seedUser, send } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule, CaseKit, HarnessWith } from './types.js';
 
@@ -20,6 +20,11 @@ const mintPat = (h: HarnessWith<'tokens'>, k: CaseKit, owner: IdentityRef) => mi
 
 const tokenOk = async (h: HarnessWith<'tokens'>, k: CaseKit, plaintext: string): Promise<boolean> => (await h.tokens.validate(plaintext, k.ctx({ purpose: 'request' }))).ok;
 
+async function expectPasswordChanged(h: HarnessWith<'service'>, k: CaseKit): Promise<void> {
+  assert.strictEqual((await auth(h, k, pw(ALICE.login, NEW_PW))).status, 'success', 'the new password logs in');
+  assert.strictEqual((await auth(h, k, pw(ALICE.login, ALICE.password))).status, 'failure', 'the old password no longer logs in');
+}
+
 const INVALID_ROWS = [
   {
     label: "another identity's session",
@@ -37,7 +42,7 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
   defineCase({
     name: 'A30 a voluntary change keeps every API and agent token',
     facet: 'A30/local',
-    needs: ['password', 'sessions', 'tokens', 'seed'],
+    needs: ['password', 'sessions', 'tokens', 'seed', 'service'],
     async run(h, k) {
       const a = await seedUser(h, ALICE);
       const s = await h.sessions.issue(a, factsAal1(k));
@@ -45,6 +50,7 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
       const agent = await mint(h, k, a, { name: 'kit-agent', kind: 'agent', scope: { agent: true }, expiresAt: after(k, HOUR) });
       const r = await h.password.change(a, ALICE.password, NEW_PW, s, k.ctx({ purpose: 'reauth' }));
       assert.strictEqual(r.status, 'changed');
+      await expectPasswordChanged(h, k);
       assert.strictEqual(await tokenOk(h, k, pat), true, 'the API token is valid');
       assert.strictEqual(await tokenOk(h, k, agent), true, 'the agent token is valid');
     },
@@ -52,7 +58,7 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
   defineCase({
     name: 'A30 a change ends every other session, impersonations included, and rotates the current one',
     facet: 'A30/local',
-    needs: ['password', 'sessions', 'seed'],
+    needs: ['password', 'sessions', 'seed', 'service'],
     async run(h, k) {
       const a = await seedUser(h, ALICE);
       const c = await seedUser(h, BOB);
@@ -63,6 +69,7 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
       assert.ok(r.status === 'changed', `the change answered ${r.status}`);
       assert.ok(r.session.id !== s1.id, 'the id rotates');
       assert.ok(await h.sessions.restore(r.session.id), 'the rotated session is alive');
+      await expectPasswordChanged(h, k);
       for (const [label, dead] of [
         ['s1', s1],
         ['s2', s2],
@@ -89,13 +96,14 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
     defineCase({
       name: `A30 an admin expiry revokes tokens and an aged one keeps them: ${row.label}`,
       facet: 'A30/local',
-      needs: ['password', 'sessions', 'tokens', 'seed'],
+      needs: ['password', 'sessions', 'tokens', 'seed', 'service'],
       async run(h, k) {
         const a = await seedUser(h, ALICE);
         const s = await h.sessions.issue(a, factsAal1(k));
         const pat = await mintPat(h, k, a);
         await h.password.expire(a, row.expiry, k.ctx());
         assert.strictEqual(await h.sessions.restore(s.id), null, 'the session is revoked');
+        assert.strictEqual((await auth(h, k, pw(ALICE.login, ALICE.password))).status, 'failure', 'the expired password no longer logs in');
         assert.strictEqual(await tokenOk(h, k, pat), row.keepsTokens);
       },
     }),
@@ -116,6 +124,8 @@ export const A30: AuthnRule = defineRule('A30', 'a voluntary change keeps tokens
       assert.strictEqual(((await send(h, probe(h, 'GET'), j1)).body as ProbeBody).principal?.id, a.id, 'the changing session stays');
       assert.strictEqual(((await send(h, probe(h, 'GET'), j2)).body as ProbeBody).principal, null, 'the other session is revoked');
       assert.strictEqual(await tokenOk(h, k, pat), true, 'the API token is valid');
+      assert.strictEqual((await send(h, routes(h).login(ALICE.login, NEW_PW))).status, 200, 'the new password logs in');
+      assert.ok(in4xx((await send(h, routes(h).login(ALICE.login, ALICE.password))).status), 'the old password is refused');
     },
   }),
 ]);

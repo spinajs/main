@@ -69,7 +69,7 @@ describe('behaviour registry', () => {
 
   it('batch 5 transcribed A22, A25, A26, A27, A30, A31 and A32 with the design counts', () => {
     const counts = Object.fromEntries(['A22', 'A25', 'A26', 'A27', 'A30', 'A31', 'A32'].map((id) => [id, AUTHN_RULES.get(id as RuleId)!.cases.length]));
-    assert.deepStrictEqual(counts, { A22: 16, A25: 11, A26: 5, A27: 14, A30: 7, A31: 10, A32: 8 });
+    assert.deepStrictEqual(counts, { A22: 18, A25: 13, A26: 5, A27: 14, A30: 7, A31: 10, A32: 8 });
   });
 
   it('task 3 transcribed the exemplars A02, A05, A06, A07 and A09 in full', () => {

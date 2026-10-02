@@ -3,7 +3,7 @@ import type { IdTokenTamper } from '../harness/ports.js';
 import type { ProbeBody } from '../harness/http.js';
 import type { CookieJar } from '../helpers/cookies.js';
 import { parseSetCookie } from '../helpers/cookies.js';
-import { ALICE, NOBODY, WRONG, expectSameBody, probe, routes, seedUser, send } from './steps.js';
+import { ALICE, NOBODY, WRONG, expectSameBody, probe, routes, seedUser, send, sessionCookieOf } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule, HarnessWith } from './types.js';
 
@@ -54,7 +54,7 @@ export const A27: AuthnRule = defineRule('A27', 'OIDC login is code flow with PK
       const loc = await begin(h, jar);
       const res = await callback(h, await h.oidc.authorize(loc, sub1), jar);
       assert.ok(res.status < 400, `the callback answered ${res.status}`);
-      assert.ok(jar.get(h.http.sessionCookie), 'the session cookie is set');
+      assert.ok(sessionCookieOf(h, res)?.value, 'the callback sets a session cookie');
       assert.strictEqual(((await send(h, probe(h, 'GET'), jar)).body as ProbeBody).principal?.id, a.id);
     },
   }),
@@ -114,7 +114,8 @@ export const A27: AuthnRule = defineRule('A27', 'OIDC login is code flow with PK
       const q = await h.oidc.authorize(loc, { provider: h.oidc.linkProvider, subject: 'kit-oidc-new', email: 'new@example.test', emailVerified: true });
       const res = await callback(h, q, jar);
       assert.ok(res.status < 400, `the callback answered ${res.status}`);
-      assert.ok(jar.get(h.http.sessionCookie), 'the session cookie is set');
+      assert.ok(sessionCookieOf(h, res)?.value, 'the callback sets a session cookie');
+      assert.notStrictEqual(((await send(h, probe(h, 'GET'), jar)).body as ProbeBody).principal, null, 'the session resolves to a principal');
     },
   }),
 ]);
