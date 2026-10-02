@@ -92,6 +92,6 @@ export class ReferenceJwsSigner extends JwsSigner {
   }
 
   async publicKeys(): Promise<readonly JwsKey[]> {
-    return this.pairs.map((p) => ({ alg: p.alg, jwk: p.publicJwk, kid: p.kid }) as JwsKey);
+    return this.pairs.map((p) => ({ alg: p.alg, jwk: p.publicJwk, kid: p.kid } as JwsKey));
   }
 }

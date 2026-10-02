@@ -28,8 +28,7 @@ const world = (k: CaseKit, kp: KitKeyPair, kid: string): SigWorld => {
     kp,
     kid,
     nowS,
-    signed: (o = {}, over = {}) =>
-      signHttpRequest(over.request ?? { method: 'POST', targetUri: TARGET, headers: { 'content-type': 'application/json' }, body: BODY }, over.key ?? kp, kid, { created: nowS, expires: nowS + 300, nonce: randomUUID(), ...o }),
+    signed: (o = {}, over = {}) => signHttpRequest(over.request ?? { method: 'POST', targetUri: TARGET, headers: { 'content-type': 'application/json' }, body: BODY }, over.key ?? kp, kid, { created: nowS, expires: nowS + 300, nonce: randomUUID(), ...o }),
   };
 };
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import type { IdentityRef, JwsClaims, JwsKey, JwsVerifyOptions, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistry } from '@spinajs/authn/contracts';
 import type { Harness, KitKeyPair } from '../harness/ports.js';
 import { b64url, b64urlDecode, generateKeyPair, signCompactJws, thumbprint } from '../helpers/index.js';
@@ -23,8 +23,7 @@ const registered = (r: KeyRegisterResult): KeyRecord => {
 };
 
 /** reg(kp, owner = service): the admin path, no proof. */
-const reg = (keys: KeyRegistry, k: CaseKit, kp: KitKeyPair, over: { owner?: KeyOwner & { type: 'service' | 'agent' }; kid?: string } = {}): Promise<KeyRegisterResult> =>
-  keys.register({ owner: over.owner ?? (SERVICE_OWNER as KeyOwner & { type: 'service' }), actor: ADMIN, jwk: kp.publicJwk, ...(over.kid ? { kid: over.kid } : {}) }, k.ctx());
+const reg = (keys: KeyRegistry, k: CaseKit, kp: KitKeyPair, over: { owner?: KeyOwner & { type: 'service' | 'agent' }; kid?: string } = {}): Promise<KeyRegisterResult> => keys.register({ owner: over.owner ?? (SERVICE_OWNER as KeyOwner & { type: 'service' }), actor: ADMIN, jwk: kp.publicJwk, ...(over.kid ? { kid: over.kid } : {}) }, k.ctx());
 
 type WithKeyProofs = Harness & Required<Pick<Harness, 'keys' | 'keyProofs'>>;
 
@@ -78,9 +77,9 @@ interface JwsFixture {
 
 const BASE_TYP = 'kit+jwt';
 
-const fixture = (k: CaseKit): JwsFixture => {
-  const kp = generateKeyPair('EdDSA');
-  return { kp, key: { alg: 'EdDSA', jwk: kp.publicJwk, kid: kp.kid } as JwsKey, t: k.clock.now(), tS: nowSeconds(k) };
+const fixture = (k: CaseKit, alg: KeyAlgorithm = 'EdDSA'): JwsFixture => {
+  const kp = generateKeyPair(alg);
+  return { kp, key: { alg, jwk: kp.publicJwk, kid: kp.kid } as JwsKey, t: k.clock.now(), tS: nowSeconds(k) };
 };
 
 const baseClaims = (f: JwsFixture, over: Record<string, unknown> = {}): Record<string, unknown> => ({ iss: 'kit-iss', aud: 'kit-aud', iat: f.tS, exp: f.tS + 120, ...over });
@@ -109,21 +108,45 @@ const flipBit = (token: string): string => {
   return `${h}.${p}.${b64url(sig)}`;
 };
 
-const withPart = (token: string, index: number, value: string): string => token.split('.').map((part, i) => (i === index ? value : part)).join('.');
+/** A valid token whose signature part holds '-' or '_' (re-signed with a varying claim), rewritten with the standard base64 characters. */
+const signatureWithStandardBase64 = (f: JwsFixture): string => {
+  for (let i = 0; i < 1000; i += 1) {
+    const [h, p, sig] = baseToken(f, baseClaims(f, { jti: String(i) })).split('.');
+    if (/[-_]/.test(sig)) {
+      return `${h}.${p}.${sig.replace(/-/g, '+').replace(/_/g, '/')}`;
+    }
+  }
+  throw new Error('no signature with - or _ found');
+};
+
+const derEs256Token = (f: JwsFixture): string => {
+  const input = `${b64url(JSON.stringify(baseHeader(f)))}.${b64url(JSON.stringify(baseClaims(f)))}`;
+  return `${input}.${b64url(sign('sha256', Buffer.from(input), { key: f.kp.privateKey, dsaEncoding: 'der' }))}`;
+};
+
+const withPart = (token: string, index: number, value: string): string =>
+  token
+    .split('.')
+    .map((part, i) => (i === index ? value : part))
+    .join('.');
 
 const secondsAt = (s: number): Date => new Date(s * SECOND);
 
 interface JwsRow {
   readonly label: string;
   readonly code: string;
+  readonly alg?: KeyAlgorithm;
   readonly token: (f: JwsFixture) => string;
   readonly options?: (f: JwsFixture) => Partial<JwsVerifyOptions<JwsClaims>>;
 }
 
 const JWS_ROWS: readonly JwsRow[] = [
   { label: 'valid', code: 'ok', token: (f) => baseToken(f) },
+  { label: 'valid ES256', code: 'ok', alg: 'ES256', token: (f) => baseToken(f) },
+  { label: 'ES256 DER signature', code: 'malformed', alg: 'ES256', token: derEs256Token },
   { label: 'two parts', code: 'malformed', token: () => 'a.b' },
-  { label: 'bad base64url', code: 'malformed', token: (f) => withPart(baseToken(f), 1, 'e30+') },
+  { label: 'bad base64url', code: 'malformed', token: signatureWithStandardBase64 },
+  { label: 'trailing =', code: 'malformed', token: (f) => `${baseToken(f)}=` },
   { label: '63-byte signature', code: 'malformed', token: (f) => withPart(baseToken(f), 2, b64url(Buffer.alloc(63, 1))) },
   { label: 'extra header member', code: 'bad_header', token: (f) => baseToken(f, baseClaims(f), baseHeader(f, { cty: 'x' })) },
   { label: 'missing typ', code: 'bad_header', token: (f) => baseToken(f, baseClaims(f), { alg: f.key.alg, kid: f.key.kid }) },
@@ -134,11 +157,14 @@ const JWS_ROWS: readonly JwsRow[] = [
   { label: 'bad signature', code: 'bad_signature', token: (f) => flipBit(baseToken(f)) },
   { label: 'bad signature beats expired', code: 'bad_signature', token: (f) => flipBit(baseToken(f, baseClaims(f, { iat: f.tS - 220, exp: f.tS - 100 }))) },
   { label: 'claims rejected', code: 'invalid_claims', token: (f) => baseToken(f), options: () => ({ claims: () => null }) },
-  { label: 'exp <= iat', code: 'invalid_claims', token: (f) => baseToken(f, baseClaims(f, { exp: f.tS })) },
+  { label: 'exp ≤ iat', code: 'invalid_claims', token: (f) => baseToken(f, baseClaims(f, { exp: f.tS })) },
   { label: 'lifetime over max', code: 'invalid_claims', token: (f) => baseToken(f, baseClaims(f, { exp: f.tS + 301 })) },
+  { label: 'lifetime over max beats wrong issuer', code: 'invalid_claims', token: (f) => baseToken(f, baseClaims(f, { iss: 'other', exp: f.tS + 301 })) },
   { label: 'wrong issuer', code: 'wrong_issuer', token: (f) => baseToken(f, baseClaims(f, { iss: 'other' })) },
   { label: 'wrong issuer beats expired', code: 'wrong_issuer', token: (f) => baseToken(f, baseClaims(f, { iss: 'other', iat: f.tS - 220, exp: f.tS - 100 })) },
+  { label: 'wrong issuer beats wrong audience', code: 'wrong_issuer', token: (f) => baseToken(f, baseClaims(f, { iss: 'other', aud: 'other' })) },
   { label: 'wrong audience', code: 'wrong_audience', token: (f) => baseToken(f, baseClaims(f, { aud: 'other' })) },
+  { label: 'wrong audience beats expired', code: 'wrong_audience', token: (f) => baseToken(f, baseClaims(f, { aud: 'other', iat: f.tS - 220, exp: f.tS - 100 })) },
   { label: 'expired at the boundary', code: 'expired', token: (f) => baseToken(f), options: (f) => ({ now: secondsAt(f.tS + 120 + 30) }) },
   { label: 'not expired 1 s before', code: 'ok', token: (f) => baseToken(f), options: (f) => ({ now: secondsAt(f.tS + 120 + 29) }) },
   { label: 'not yet valid', code: 'not_yet_valid', token: (f) => baseToken(f, baseClaims(f, { iat: f.tS + 31, exp: f.tS + 91 })) },
@@ -189,6 +215,9 @@ function findChallenge(body: unknown): { id: string; nonce: string; expiresAt: s
   }
   return undefined;
 }
+
+/** The route may send an ISO string, epoch milliseconds or epoch seconds. */
+const challengeExpiry = (v: unknown): Date => (typeof v === 'number' ? new Date(v < 1e11 ? v * SECOND : v) : new Date(v as string));
 
 export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and JWS follows the C8 rules', [
   table(KEY_ROWS, (row) =>
@@ -267,7 +296,10 @@ export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and J
       assert.strictEqual(await h.keys.revoke({ type: 'service', id: 'other' }, kid, k.ctx()), false, 'another owner cannot revoke it');
       assert.strictEqual(await h.keys.revoke(SERVICE_OWNER, kid, k.ctx()), true);
       assert.ok((await h.keys.byId(kid))?.revokedAt, 'revokedAt is set');
-      assert.ok((await h.keys.list(SERVICE_OWNER)).some((x) => x.kid === kid), 'a revoked key is still listed');
+      assert.ok(
+        (await h.keys.list(SERVICE_OWNER)).some((x) => x.kid === kid),
+        'a revoked key is still listed',
+      );
     },
   }),
   table(JWS_ROWS, (row) =>
@@ -276,7 +308,7 @@ export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and J
       facet: 'A17/jws',
       needs: ['jws'],
       async run(h, k) {
-        const f = fixture(k);
+        const f = fixture(k, row.alg);
         const res = await h.jws.verifier.verify(row.token(f), baseOptions(f, row.options?.(f)));
         if (row.code === 'ok') {
           assert.strictEqual(res.ok, true, `verification ${JSON.stringify(res)}`);
@@ -346,7 +378,9 @@ export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and J
     needs: [...ASSERTION_NEEDS, 'fakeDate'],
     async run(h, k) {
       const { owner, kp, kid } = await userKey(h, k, { expiresAt: new Date(k.clock.now().getTime() + 60 * SECOND) });
-      k.clock.tick(61 * SECOND);
+      k.clock.tick(59 * SECOND);
+      expectSuccess(await auth(h, k, { kind: 'jws-assertion', jws: assertionFor(h, k, kp, kid, owner, 120) }, { purpose: 'request' }), 'the key before its expiry');
+      k.clock.tick(2 * SECOND);
       expectFail(await auth(h, k, { kind: 'jws-assertion', jws: assertionFor(h, k, kp, kid, owner, 120) }, { purpose: 'request' }));
     },
   }),
@@ -401,7 +435,7 @@ export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and J
       assert.ok(challenge.status >= 200 && challenge.status < 300, `challenge status ${challenge.status}`);
       const ch = findChallenge(challenge.body);
       assert.ok(ch, `a challenge in ${JSON.stringify(challenge.body)}`);
-      const signature = await h.keyProofs.sign({ id: ch.id, nonce: ch.nonce, expiresAt: new Date(ch.expiresAt) }, 'login', kp);
+      const signature = await h.keyProofs.sign({ id: ch.id, nonce: ch.nonce, expiresAt: challengeExpiry(ch.expiresAt) }, 'login', kp);
       const login = await send(h, h.http.routes.keyLogin!({ keyId: kid, challengeId: ch.id, signature }), jar);
       assert.ok(login.status >= 200 && login.status < 300, `login status ${login.status}`);
       assert.ok(sessionCookieOf(h, login), 'the login sets the session cookie');

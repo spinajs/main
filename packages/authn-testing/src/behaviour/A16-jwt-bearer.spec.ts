@@ -68,7 +68,7 @@ const REFUSED_ROWS: readonly RefusedRow[] = [
   { label: 'wrong audience', token: (k) => jwt(k, { aud: 'other' }) },
   {
     label: 'alg none',
-    token: (k) => compactJws([b64url(JSON.stringify({ alg: 'none', typ: 'JWT' })), b64url(JSON.stringify(claimsAt(nowSeconds(k)))), '']),
+    token: (k) => compactJws([b64url(JSON.stringify({ alg: 'none', kid: world(k).kp1.kid, typ: 'JWT' })), b64url(JSON.stringify(claimsAt(nowSeconds(k)))), '']),
   },
   {
     label: 'HMAC with the public key',
@@ -122,6 +122,18 @@ export const A16: AuthnRule = defineRule('A16', 'JWT bearers only from configure
       await linkSubject(h.links, a);
       const nowS = nowSeconds(k);
       expectSuccess(await auth(h, k, { kind: 'bearer', token: jwt(k, { exp: nowS - 10, iat: nowS - 310 }) }, { purpose: 'request' }));
+    },
+  }),
+  defineCase({
+    name: 'A16 nbf within the skew is accepted',
+    facet: 'A16/jwt',
+    needs: ['service', 'links', 'seed'],
+    prepare: prepareJwt(),
+    config: jwtConfig(),
+    async run(h, k) {
+      const a = await seedUser(h, ALICE);
+      await linkSubject(h.links, a);
+      expectSuccess(await auth(h, k, { kind: 'bearer', token: jwt(k, { nbf: nowSeconds(k) + 10 }) }, { purpose: 'request' }));
     },
   }),
   defineCase({
