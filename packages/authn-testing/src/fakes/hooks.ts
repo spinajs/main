@@ -21,6 +21,7 @@ export class FakeImpersonationGuard extends ImpersonationGuard implements GuardP
     if (target) {
       this.denyTarget.set(keyOf(target), code);
     } else {
+      this.denyTarget.clear();
       this.denyAll = code;
     }
   }

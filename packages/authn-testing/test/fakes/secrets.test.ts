@@ -72,4 +72,13 @@ describe('MemorySecretStore', () => {
     assert.equal(store.rows().length, 1);
     assert.equal(await store.redeem(A, 'invite', 'planted'), true);
   });
+
+  it('seedHash keeps only the latest row per identity and purpose', async () => {
+    const h = (s: string) => createHash('sha256').update(s).digest('hex');
+    store.seedHash(A, 'invite', h('one'), new Date(Date.now() + 1000), new Date());
+    store.seedHash(A, 'invite', h('two'), new Date(Date.now() + 1000), new Date());
+    assert.equal(store.rows().length, 1);
+    assert.equal(await store.redeem(A, 'invite', 'one'), false);
+    assert.equal(await store.redeem(A, 'invite', 'two'), true);
+  });
 });

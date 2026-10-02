@@ -25,9 +25,9 @@ export class RecordingPrincipalFactory extends PrincipalFactory {
       source: facts.sessionHandle ? 'session' : 'token',
       attributes: { ...extra.attributes, ...this.derive(id) },
       authn: facts,
-      ceiling: extra.ceiling,
-      onBehalfOf: extra.onBehalfOf,
-      delegation: extra.delegation,
+      ...(extra.ceiling ? { ceiling: extra.ceiling } : {}),
+      ...(extra.onBehalfOf ? { onBehalfOf: extra.onBehalfOf } : {}),
+      ...(extra.delegation ? { delegation: extra.delegation } : {}),
     };
   }
 }

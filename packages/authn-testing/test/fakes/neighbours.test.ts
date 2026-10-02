@@ -87,6 +87,11 @@ describe('RecordingPrincipalFactory', () => {
     assert.deepEqual(f.calls[0].id, A);
   });
 
+  it('omits keys it has no value for', async () => {
+    const p = await new RecordingPrincipalFactory().principalOf(A, facts(), {});
+    assert.deepEqual(Object.keys(p).sort(), ['attributes', 'authenticated', 'authn', 'id', 'source', 'type']);
+  });
+
   it('marks per-request credentials as token and forwards ceiling and delegation', async () => {
     const f = new RecordingPrincipalFactory();
     const behalf = principal('boss');
@@ -117,7 +122,9 @@ describe('FakeImpersonationGuard', () => {
     assert.deepEqual(await g.allowed(principal('x'), B), { ok: true });
     await g.deny('forbidden');
     assert.deepEqual(await g.allowed(principal('x'), B), { ok: false, code: 'forbidden' });
-    assert.deepEqual(await g.allowed(principal('x'), A), { ok: false, code: 'protected_role' });
+    assert.deepEqual(await g.allowed(principal('x'), A), { ok: false, code: 'forbidden' });
+    await g.deny('escalation', A);
+    assert.deepEqual(await g.allowed(principal('x'), A), { ok: false, code: 'escalation' });
     await g.allowAll();
     assert.deepEqual(await g.allowed(principal('x'), A), { ok: true });
     assert.deepEqual(await g.allowed(principal('x'), B), { ok: true });

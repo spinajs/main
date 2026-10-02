@@ -48,6 +48,7 @@ export class MemorySecretStore extends SecretStore {
   }
 
   seedHash(identity: IdentityRef, purpose: string, hashHex: string, expiresAt: Date, createdAt: Date): void {
+    this.all = this.all.filter((r) => !samePair(r, identity, purpose));
     this.all.push({ identity, purpose, hash: hashHex, expiresAt, createdAt, usedAt: null });
   }
 }

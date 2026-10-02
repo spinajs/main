@@ -202,4 +202,56 @@ describe('MemorySessionIssuer', () => {
     assert.equal(await s.revokeHandle(A, aRow.handle), false);
     assert.equal(await s.revokeHandle(B, bRow.handle), true);
   });
+
+  it('does not migrate a v1 uuid', async () => {
+    const rawId = 'c232ab00-9414-11ec-b3c8-9f6bdeced846';
+    await s.storage.seedLegacy({ rawId, user: 'x', authorized: true, creation: new Date() });
+    assert.equal(await s.restore(rawId), null);
+    assert.deepEqual(await s.storage.storedKeys(), [rawId]);
+  });
+
+  it('restores an unauthorized legacy row as pending', async () => {
+    const rawId = randomUUID();
+    await s.storage.seedLegacy({ rawId, user: 'x', authorized: false, creation: new Date() });
+    assert.equal((await s.restore(rawId))!.handle.state, 'pending');
+  });
+
+  it('drops an expired legacy row without migrating it', async () => {
+    const rawId = randomUUID();
+    await s.storage.seedLegacy({ rawId, user: 'x', authorized: true, creation: new Date(Date.now() - 60 * 60_000) });
+    assert.equal(await s.restore(rawId), null);
+  });
+
+  it('keeps a legacy row handle stable across migration', async () => {
+    const rawId = randomUUID();
+    const u = { type: 'user', id: 'legacy-h' };
+    await s.storage.seedLegacy({ rawId, user: 'legacy-h', authorized: true, creation: new Date() });
+    const [before] = await s.list(u);
+    const r = (await s.restore(rawId))!;
+    assert.equal(r.facts.sessionHandle, before.handle);
+    assert.equal((await s.list(u))[0].handle, before.handle);
+    assert.equal(await s.revokeHandle(u, before.handle), true);
+  });
+
+  it('list leaves out pending sessions', async () => {
+    await s.issue(A, facts(), { pending: { steps: ['fake'] } });
+    assert.deepEqual(await s.list(A), []);
+  });
+
+  it('elevate forces aal2 and keeps the row impersonator and handle', async () => {
+    const h = await s.issue(B, facts({ impersonator: A }), { pending: { steps: ['fake'] } });
+    const n = await s.elevate(h, { assurance: 'aal1', impersonator: B, sessionHandle: 'planted', mfa: ['fake'] });
+    const r = (await s.restore(n.id))!;
+    assert.equal(r.facts.assurance, 'aal2');
+    assert.deepEqual(r.facts.impersonator, A);
+    assert.equal(r.facts.sessionHandle, (await s.list(B))[0].handle);
+    assert.equal(await s.revokeAll(A, { includeImpersonations: true }), 1);
+  });
+
+  it('restore hands out facts the caller cannot change', async () => {
+    const h = await s.issue(A, facts());
+    const r = (await s.restore(h.id))!;
+    assert.throws(() => (r.facts.mfa as string[]).push('evil'));
+    assert.deepEqual((await s.restore(h.id))!.facts.mfa, []);
+  });
 });

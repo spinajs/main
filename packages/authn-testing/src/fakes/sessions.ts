@@ -23,7 +23,9 @@ interface Row {
 const RESERVED = new Set(['Subject', 'Impersonator', 'State', 'authn:facts']);
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
-const handleOf = (rowKey: string) => sha256hex('authn-testing/handle\0' + rowKey);
+// A raw-keyed 2.x row is listed under the handle of its future hashed key, so the handle survives migration.
+const handleOf = (rowKey: string) => sha256hex('authn-testing/handle\0' + (UUID_V4.test(rowKey) ? sha256hex(rowKey) : rowKey));
+const seal = (f: AuthnFacts): AuthnFacts => Object.freeze({ ...f, mfa: Object.freeze([...f.mfa]) });
 const sameRef = (a: PrincipalRef, b: PrincipalRef) => a.type === b.type && a.id === b.id;
 
 export class MemorySessionIssuer extends SessionIssuer {
@@ -41,7 +43,7 @@ export class MemorySessionIssuer extends SessionIssuer {
     this.storage = {
       storedKeys: async () => [...this.rows.keys()],
       seedLegacy: async (r) => {
-        const facts: AuthnFacts = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: r.creation };
+        const facts = seal({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: r.creation, sessionHandle: handleOf(r.rawId) });
         this.rows.set(r.rawId, {
           subject: { type: 'user', id: r.user },
           impersonator: r.impersonator ? { type: 'user', id: r.impersonator } : undefined,
@@ -89,7 +91,7 @@ export class MemorySessionIssuer extends SessionIssuer {
   private place(row: Row): SessionHandle {
     const id = this.newId();
     const key = sha256hex(id);
-    row.facts = { ...row.facts, sessionHandle: handleOf(key) };
+    row.facts = seal({ ...row.facts, sessionHandle: handleOf(key) });
     this.rows.set(key, row);
     return { id, state: row.state };
   }
@@ -117,7 +119,7 @@ export class MemorySessionIssuer extends SessionIssuer {
       if (legacy) {
         this.rows.delete(rawId);
         this.rows.set(key, legacy);
-        legacy.facts = { ...legacy.facts, sessionHandle: handleOf(key) };
+        legacy.facts = seal({ ...legacy.facts, sessionHandle: handleOf(key) });
         row = legacy;
       }
     }
@@ -149,7 +151,8 @@ export class MemorySessionIssuer extends SessionIssuer {
     }
     const now = Date.now();
     row.state = 'active';
-    row.facts = { ...row.facts, assurance: 'aal2', ...facts };
+    const { impersonator: _impersonator, sessionHandle: _handle, ...rest } = facts;
+    row.facts = { ...row.facts, ...rest, assurance: 'aal2' };
     row.expiresAt = Math.min(now + this.idleMs, row.creation + this.absoluteMs);
     this.rows.delete(key);
     return this.place(row);
