@@ -6,6 +6,7 @@ import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { PROTOCOL_VERSION, SYSTEM_EVENTS } from '@spinajs/http-socket-common';
 import { SocketHub } from '../src/hub.js';
+import { SocketPrincipalGuard } from '../src/principal-guard.js';
 import { IConnectOptions, ITestServer, connect, delay, nextEvent, open, startServer, waitFor } from './harness.js';
 
 interface IRawReply {
@@ -81,6 +82,7 @@ describe('socket handshake: connection state recovery', function () {
   });
 
   afterEach(async () => {
+    sinon.restore();
     sockets.forEach((s) => s.close());
     sockets = [];
     await t.close();
@@ -119,11 +121,29 @@ describe('socket handshake: connection state recovery', function () {
     expect(connection.protocol).to.equal(PROTOCOL_VERSION);
   });
 
-  for (const field of ['client', 'auth']) {
-    it(`disconnects a recovered connection whose stored state lacks socket.data.${field} (fail closed)`, async () => {
+  const storedData = (pid: string): Record<string, unknown> => (t.server.Io!.of('/').adapter as unknown as { sessions: Map<string, { data: Record<string, unknown> }> }).sessions.get(pid)!.data;
+
+  for (const [what, spoil] of [
+    ['lacks socket.data.client', (data: Record<string, unknown>) => delete data.client],
+    ['lacks socket.data.auth', (data: Record<string, unknown>) => delete data.auth],
+    ['has a malformed socket.data.auth', (data: Record<string, unknown>) => ((data.auth as Record<string, unknown>).checkedAt = 'yesterday')],
+  ] as const) {
+    it(`forces a full handshake when the stored state ${what}`, async () => {
       const { id, pid, offset } = await dropped({ auth: { clientId: 'c-stale' } });
-      const adapter = t.server.Io!.of('/').adapter as unknown as { sessions: Map<string, { data: Record<string, unknown> }> };
-      delete adapter.sessions.get(pid)!.data[field];
+      spoil(storedData(pid));
+
+      const second = track(await open(t, { auth: { pid, offset, clientId: 'c-fresh' } }));
+
+      expect(second.id).not.to.equal(id);
+      expect(DI.resolve(SocketHub).connection(second.id!)!.clientId).to.equal('c-fresh');
+    });
+  }
+
+  for (const field of ['client', 'auth']) {
+    it(`disconnects a recovered connection whose stored state lacks socket.data.${field}, should the restore check let it through (fail closed)`, async () => {
+      const { id, pid, offset } = await dropped({ auth: { clientId: 'c-stale' } });
+      sinon.stub(DI.resolve(SocketPrincipalGuard), 'restorable').returns(true);
+      delete storedData(pid)[field];
 
       const second = track(connect(t, { auth: { pid, offset } }));
       const notice = nextEvent<{ reason: string }>(second, SYSTEM_EVENTS.disconnect);

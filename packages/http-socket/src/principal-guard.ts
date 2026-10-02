@@ -3,8 +3,8 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { Unauthenticated, principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
-import { ISocketAuthConfig, SocketPrincipalSource, SocketRevalidationResult, SocketRevalidationStatus } from './interfaces.js';
-import { SocketConnection } from './connection.js';
+import { ISocketAuthConfig, ISocketAuthState, SocketPrincipalSource, SocketRevalidationResult, SocketRevalidationStatus } from './interfaces.js';
+import { SocketConnection, isAuthState, isClientState } from './connection.js';
 
 /** Revalidations the sweep keeps running at once; commands are never held back by it. */
 export const MAX_CONCURRENT_REVALIDATIONS = 16;
@@ -156,14 +156,35 @@ export class SocketPrincipalGuard {
     }
   }
 
+  /**
+   * @internal Whether a session stored by connection state recovery may be restored. socket.io writes its
+   * missed packets before any middleware or `connection` handler runs, so this is the last place to refuse them.
+   */
+  public restorable(data: unknown): boolean {
+    const state = data as { client?: unknown; auth?: unknown; revoked?: unknown } | null | undefined;
+    if (!state || state.revoked === true || !isClientState(state.client) || !isAuthState(state.auth)) {
+      return false;
+    }
+
+    const now = Date.now();
+    return state.auth.source === null || (!this.expiredAt(state.auth, now) && !this.dueAt(state.auth, now));
+  }
+
   protected expired(connection: SocketConnection, now: number): boolean {
-    const expiresAt = connection.auth.principal.ceiling?.expiresAt;
+    return this.expiredAt(connection.auth, now);
+  }
+
+  protected expiredAt(auth: ISocketAuthState, now: number): boolean {
+    const expiresAt = auth.principal.ceiling?.expiresAt;
     // new Date(): a state restored through a serializing adapter carries the date as a string; NaN counts as expired
     return expiresAt != null && !(new Date(expiresAt).getTime() > now);
   }
 
   protected due(connection: SocketConnection, now: number): boolean {
-    const auth = connection.auth;
+    return this.dueAt(connection.auth, now);
+  }
+
+  protected dueAt(auth: ISocketAuthState, now: number): boolean {
     return this.Options.revalidateMs > 0 && now - (auth.unavailableSince ?? auth.checkedAt) >= this.Options.revalidateMs;
   }
 
@@ -245,6 +266,9 @@ export class SocketPrincipalGuard {
 
   /** setImmediate: a command reply refused by the same check is written first ( it goes out in a microtask ). */
   protected close(connection: SocketConnection, why: string): void {
+    // before the early return: a session persisted by a drop that came first must not be restored either
+    connection.markClosing();
+
     // the socket may have dropped while a revalidation was awaited; its id must not outlive the connection (recovery reuses ids)
     if (this.closing.has(connection) || connection.signal.aborted) {
       return;
@@ -252,7 +276,6 @@ export class SocketPrincipalGuard {
 
     this.closing.add(connection);
     this.closingIds.add(connection.id);
-    connection.markClosing();
     this.Log.info(`Socket ${connection.id} closed: ${why}`);
 
     setImmediate(() => {

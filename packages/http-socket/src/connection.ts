@@ -53,14 +53,14 @@ export function toHandshake(socket: Socket): ISocketHandshake {
   };
 }
 
-function isClientState(value: unknown): value is ISocketClientState {
+export function isClientState(value: unknown): value is ISocketClientState {
   const state = value as ISocketClientState | null | undefined;
   return typeof state?.clientId === 'string' && state.clientId.length > 0 && typeof state.protocol === 'number';
 }
 
-function isAuthState(value: unknown): value is ISocketAuthState {
+export function isAuthState(value: unknown): value is ISocketAuthState {
   const state = value as ISocketAuthState | null | undefined;
-  return typeof state?.principal === 'object' && state.principal !== null && typeof state.checkedAt === 'number';
+  return typeof state?.principal === 'object' && state.principal !== null && typeof state.checkedAt === 'number' && (state.source === null || typeof state.source === 'string');
 }
 
 export class SocketConnection<D extends Record<string, unknown> = Record<string, unknown>, U = unknown> {
@@ -157,9 +157,13 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
     this.socket.emit(WIRE_EVENTS.event, frame);
   }
 
-  /** @internal set by the principal guard; the connection then emits nothing but its own disconnect notice */
+  /**
+   * @internal set by the principal guard; the connection then emits nothing but its own disconnect notice.
+   * `revoked` travels with the session socket.io persists on a transport drop, so it is never restored.
+   */
   public markClosing(): void {
     this.closing = true;
+    this.socket.data.revoked = true;
   }
 
   public join(room: string | string[]): void {

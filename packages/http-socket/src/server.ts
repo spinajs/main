@@ -1,5 +1,5 @@
 import type { EventEmitter } from 'events';
-import { Server, ServerOptions, Socket } from 'socket.io';
+import { Namespace, Server, ServerOptions, Socket } from 'socket.io';
 import { AsyncService, Autoinject, ClassInfo, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
@@ -106,6 +106,7 @@ export class SocketServer extends AsyncService {
     const http = await this.Host.server();
     const { io, release } = attachTo(http, () => new Server(http, this.ioOptions()));
     this.releaseHost = release;
+    this.guardRecovery(io);
 
     io.use((socket, next) => {
       this.authenticate(socket).then(
@@ -179,6 +180,31 @@ export class SocketServer extends AsyncService {
     }
 
     return options;
+  }
+
+  /**
+   * socket.io writes a restored session's missed packets in the Socket constructor, before any middleware or
+   * `connection` handler: an expired, due or revoked principal must be refused here, which forces a full handshake.
+   */
+  protected guardRecovery(io: Server): void {
+    const nsp = io.of('/') as Namespace & { _initAdapter(): void };
+
+    const wrap = () => {
+      const adapter = nsp.adapter;
+      const restore = adapter.restoreSession.bind(adapter);
+      adapter.restoreSession = async (pid, offset) => {
+        const session = await restore(pid, offset);
+        return session && this.Guard.restorable(session.data) ? session : null;
+      };
+    };
+
+    wrap();
+    // io.adapter() replaces the adapter of every namespace through _initAdapter
+    const init = nsp._initAdapter.bind(nsp);
+    nsp._initAdapter = () => {
+      init();
+      wrap();
+    };
   }
 
   protected async authenticate(socket: Socket): Promise<void> {
