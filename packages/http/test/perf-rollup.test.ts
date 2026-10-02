@@ -17,11 +17,19 @@ class RecordingSink extends PerfSink {
   }
 }
 
+function resetDi() {
+  DI.uncache(TestConfiguration);
+  DI.uncache(Array.ofType(PerfSink));
+  DI.uncache(RecordingSink);
+  DI.uncache(PerfRollup);
+}
+
 describe("PerfRollup middleware", () => {
   let sink: RecordingSink;
 
   beforeEach(async () => {
-    DI.clearCache();
+    // Not DI.clearCache(): it also wipes cache-only maps such as __http_error_map__.
+    resetDi();
     DI.register(TestConfiguration).as(Configuration);
     await DI.resolve(Configuration);
     DI.register(RecordingSink).as(PerfSink);
@@ -29,7 +37,10 @@ describe("PerfRollup middleware", () => {
     Perf.refreshSinks();
   });
 
-  afterEach(() => DI.clearCache());
+  afterEach(() => {
+    resetDi();
+    DI.unregister(RecordingSink);
+  });
 
   it("creates a scope on req.storage and flushes one rollup on finish", async () => {
     const mw = await DI.resolve(PerfRollup);
