@@ -18,7 +18,9 @@ The v2 API is gone. No package in the repo used it.
 | `SocketRouteArgs` | `SocketArg` + `@SocketParameter` |
 | `ConnectionLogMiddleware` | the per-command debug line and the `socket_*` metrics |
 
-Socket controllers live in `system.dirs.socketControllers`, never in `system.dirs.controllers`.
+- Socket controllers live in `system.dirs.socketControllers`, never in `system.dirs.controllers`.
+- There is no `@User()` parameter decorator. Use `@Connection() conn` and read `conn.user` (the principal's `identity`).
+- The package index names its exports. Internal helpers (`parseCookies`, `toHandshake`, `withSlot`, `untilAborted`, the `assert*Config` checks, `SerialQueue`, `policyRequest`, `EVENT_WARN_WINDOW_MS`, `MAX_CONCURRENT_REVALIDATIONS`, ...) are not exported. `SocketHub.attach/detach/register/unregister`, `SocketDispatcher.attach/detach/abortAll` and `SocketPrincipalGuard.start/stop/sweep/release` are `@internal`: only `SocketServer` calls them.
 
 ### Authentication and authorization (authz-v3)
 
@@ -27,37 +29,77 @@ Socket controllers live in `system.dirs.socketControllers`, never in `system.dir
 - Every command, event and hook runs with the principal in the AsyncLocalStorage store under `Principal`, so `AuthzService.current()` works in socket handlers.
 - `@SocketAccess(permission, { resource, also, domain, allowAnonymous })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.
 - `http.socket.cors.origins` (default `[]`) admits cross-origin pages. An empty list refuses every cross-origin handshake with `forbidden`.
-- Live connections re-check their principal every `http.socket.auth.revalidateMs` (60 s), and at once when `ceiling.expiresAt` passes. Invalid credentials answer `unauthenticated` and close the connection. See "Revalidation" below for the tri-state contract.
 
-### New: `@spinajs/http-socket-common`
+### `SocketPrincipalSource.revalidate()` contract
 
-This package holds the wire protocol (`PROTOCOL_VERSION` 1, envelopes, the 13 error codes, `SocketException`, `defineContract`). It is shared by the server and `@spinajs/http-socket-client`.
+- It is tri-state: `'valid' | 'invalid' | 'unavailable'` (booleans are still accepted). A `'valid'` answer may carry a renewed principal: `{ status: 'valid', principal }`.
+- A throw or a timeout from a source now means `'unavailable'`: the connection is kept for one grace window (`revalidateMs`) and closed if the next check is not `'valid'` either. It no longer closes at once.
+- See "Revalidation" under New for the full rules.
 
-### Revalidation
+### Handshake, ids and names
 
-- `SocketPrincipalSource.revalidate()` is tri-state: `'valid' | 'invalid' | 'unavailable'` (booleans are still accepted). A throw or a timeout from a source now means `'unavailable'`: the connection is kept for one grace window (`revalidateMs`) and closed if the next check is still unavailable. It no longer closes immediately.
-- A server-wide sweep re-checks idle connections, so a revoked or expired credential stops receiving pushes without a command. Each check times out at `min(revalidateMs, 10 s)` and then counts as `'unavailable'`. A command and the sweep share one check per connection.
-
-### Configuration
-
-- New `http.socket.transports` (default `['websocket', 'polling']`): the engine.io transports. Prefer `['websocket']` when a principal source reads cookies.
-- New `http.socket.maxInFlightEventsPerConnection` (default `128`). It must be at least `rate.burst`. Events have their own in-flight cap, separate from `maxInFlightPerConnection`.
-- New `http.socket.ordering.abortGraceMs` (default `30_000`): how long an aborted `ordered` command whose handler is still running keeps its queue place.
-- `http.socket.hooks.connectTimeoutMs` (default `10_000`): a connect hook still running after it is logged and commands stop waiting for it, so a disconnect hook may start while the connect hook is still running.
-- Limit refusals read "more than N commands in flight on this connection" and "more than N events in flight on this connection".
-
-### Handshake and names
-
+- `auth.protocol` must be `1` (`version_mismatch` otherwise) and `auth.clientId` must be 1 to 128 characters (`invalid_argument` otherwise). The refusal message echoes the client's protocol only when it is a number.
+- Ids must be printable ASCII (0x21-0x7E): a command or cancel id outside it is answered `invalid_argument` "malformed command request", and such a `clientId` refuses the handshake with `invalid_argument`. Ids end up in log lines.
 - Origin rules: a cross-origin handshake is refused unless its origin is listed in `http.socket.cors.origins`. `Origin: null` (sandboxed frames, `file:`) is refused. JSONP polling (`j=` parameter) and no-Origin requests marked `Sec-Fetch-Site: cross-site|same-site` are refused. An https page may reach a plain-http server on the same host:port (a TLS-terminating proxy that keeps `Host`); the reverse never.
 - A handler whose command or event name fails `NAME_PATTERN` or `MAX_NAME_LENGTH` (128) is refused at startup. Incoming names are checked with the same rule.
-- `@spinajs/http-socket-common` now exports `isName`, `NAME_PATTERN` and `MAX_NAME_LENGTH`.
 
 ### SocketHub
 
 - `to([])` and empty room names throw (socket.io would treat an empty set as every socket).
 - Names starting with `sys.` are reserved for server notices; pushing one throws.
+
+## New
+
+### `@spinajs/http-socket-common`
+
+This package holds the wire protocol (`PROTOCOL_VERSION` 1, envelopes, the 13 error codes, `SocketException`, `defineContract`). It is shared by the server and `@spinajs/http-socket-client`. It exports `isName`, `NAME_PATTERN`, `MAX_NAME_LENGTH`, `isId`, `ID_PATTERN` and `MAX_ID_LENGTH`, so a client can check names and ids the way the server does.
+
+### Revalidation
+
+Live connections re-check their principal, so a revoked or expired credential stops receiving pushes even without a command.
+
+- A server-wide sweep ticks every `min(revalidateMs, 1 s)` and re-checks a connection every `http.socket.auth.revalidateMs` (default 60 s). Commands and events check too, before they run. A command and the sweep share one check per connection. At most 16 checks run at once.
+- `ceiling.expiresAt` is enforced on every tick and before every command and event. A command of an expired or invalid principal is answered `unauthenticated`; the connection is then closed with `sys.disconnect { reason: 'unauthenticated' }`.
+- `revalidateMs: 0` turns revalidation off. The sweep still runs every second and still enforces `ceiling.expiresAt`.
+- Each check times out at `min(revalidateMs, 10 s)` (10 s when `revalidateMs` is `0`) and then counts as `'unavailable'`.
+- A `{ status: 'valid', principal }` answer whose `principalKey` differs from the connection's counts as `'invalid'` and closes the connection. With the same key, the renewed principal is adopted and its expiry is checked before the command runs.
+- The default `revalidate()` re-authenticates the current handshake. It answers `'invalid'` when the source throws `AuthenticationFailed` or an `unauthenticated` `SocketException` without `retryAfterMs`, and `'unavailable'` on any other throw, a throttled refusal included. It answers `'invalid'` when the source returns no principal or a principal with another `principalKey`.
+- `UNATTENDED` connections are never re-checked.
+
+### Configuration
+
+- `http.socket.transports` (default `['websocket', 'polling']`): the engine.io transports. Prefer `['websocket']` when a principal source reads cookies.
+- `http.socket.maxInFlightEventsPerConnection` (default `128`). It must be at least `rate.burst`. Events have their own in-flight cap, separate from `maxInFlightPerConnection`.
+- `http.socket.ordering.abortGraceMs` (default `30_000`): how long an aborted `ordered` command whose handler is still running keeps its queue place.
+- `http.socket.hooks.connectTimeoutMs` (default `10_000`): a connect hook still running after it is logged and commands stop waiting for it, so a disconnect hook may start while the connect hook is still running.
+- Limit refusals read "more than N commands in flight on this connection" and "more than N events in flight on this connection".
+
+### SocketHub
+
 - Pushes skip connections that are being closed, on the local instance only. Pushes by room or connection id still reach other instances through a configured socket.io adapter; `connection()` sees only local connections.
 - Public additions: `ISocketEmitter`, the `socket_*` metrics helpers (`socketMetrics`, `observeCommand`, `trackConnection`), `SocketPrincipalGuard`.
+
+## Startup checks
+
+`SocketServer` refuses to start with a `RangeError` when:
+
+- `rate.perSecond` or `rate.burst` is not a positive number;
+- `maxInFlightEventsPerConnection` is not an integer of at least `rate.burst`;
+- `maxPayloadBytes` is not a finite integer above 0;
+- `maxInFlightPerConnection` is not an integer above 0;
+- `auth.revalidateMs` is not a finite number of at least 0;
+- `transports` is empty or holds anything but `'websocket'` and `'polling'`;
+- `hooks.connectTimeoutMs` is not a positive number;
+- `ordering.abortGraceMs` is not a positive number.
+
+The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, and when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`. Socket.io is not attached in either case.
+
+## Behaviour notes
+
+- **Rate limit.** Every `cmd` frame takes a token from the connection's bucket when it arrives, including frames without an ack, malformed frames and duplicate ids. A refused frame without an ack is dropped silently. Ack-less frames are logged with one warn per connection per 10 s, the rest at debug.
+- **Ordering.** `ordered: 'client'` queues are keyed by the principal (`principalKey`) and the `clientId`, so another principal sending the same `clientId` never waits on that queue.
+- **Shutdown.** `dispose()` aborts running commands with `unavailable` at once and closes the connections. The drain (`sys.shutdown`, `drainMs`) comes with W3.
+- **Connection state recovery.** A recovered connection keeps its socket id. Its disconnect hooks ran at the drop, and its connect hooks run again on recovery with the same id. A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes.
 
 ## Notes for W3 (resilience)
 
