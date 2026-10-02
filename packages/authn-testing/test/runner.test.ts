@@ -340,12 +340,15 @@ describe('runAuthnBehaviour: execution', () => {
       ],
     );
     assert.deepStrictEqual(logs, ['authn-testing pending: A04 → not transcribed yet (PENDING_TRANSCRIPTION)']);
-    const claimed = await collect((bdd) => runBehaviourIn(RULES, ['A04'], factory(), { bdd, claim: ['A04/local'], facets: ['A04/local'] }));
-    assert.deepStrictEqual(
-      claimed.ran.map((x) => x.status),
-      ['pending'],
-      'a claim cannot make an untranscribed rule pass or fail',
-    );
+    for (const claim of [['A04/local'], ['A04']] as const) {
+      const claimed = await collect((bdd) => runBehaviourIn(RULES, ['A04'], factory(), { bdd, claim, facets: ['A04/local'] }));
+      assert.deepStrictEqual(
+        claimed.ran.map((x) => x.status),
+        ['failed'],
+        `claimed ${claim[0]}: an untranscribed rule fails`,
+      );
+      assert.match((claimed.ran[0].error as Error).message, /claimed rule A04 is not transcribed yet \(PENDING_TRANSCRIPTION\)/);
+    }
     const elsewhere = await collect((bdd) => runBehaviourIn(RULES, ['A03', 'A04'], factory(), { bdd, facets: ['A03/argon2'] }));
     assert.deepStrictEqual(
       elsewhere.ran.map((x) => x.title),

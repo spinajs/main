@@ -38,10 +38,7 @@ describe('HTTP signatures', () => {
 
   it('RFC 9421 B.2.6 signature base and sig-b26 value match byte for byte', () => {
     const base = signatureBase(request, components, params);
-    assert.equal(
-      base,
-      ['"date": Tue, 20 Apr 2021 02:07:55 GMT', '"@method": POST', '"@path": /foo', '"@authority": example.com', '"content-type": application/json', '"content-length": 18', `"@signature-params": ${params}`].join('\n'),
-    );
+    assert.equal(base, ['"date": Tue, 20 Apr 2021 02:07:55 GMT', '"@method": POST', '"@path": /foo', '"@authority": example.com', '"content-type": application/json', '"content-length": 18', `"@signature-params": ${params}`].join('\n'));
     const sig = createPrivateKey(ED_PRIVATE);
     const signature = sign(null, Buffer.from(base), sig).toString('base64');
     assert.equal(signature, 'wqcAqbmYJ2ji2glfAMaRy4gruYYnx2nEFN2HN6jrnDnQCK1u02Gb04v9EDgwUPiu4A0w6vuQv5lIp5WPpBKRCw==');

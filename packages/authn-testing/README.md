@@ -21,9 +21,10 @@ the kit uses the `describe`, `it` and `after` globals).
 
 - `ctx`: `rule`, `facet`, `caseName`, `clock` (a `FakeClock`), `config` (the
   case's `ConfigOverrides`, `{}` when none).
-- Apply `ctx.config` (`authn.*` semantics of design §22.5; secrets are the
-  values themselves; `throttle` merges over `DEFAULT_THROTTLE`). Without
-  overrides, run the §22.5 defaults. A config you cannot apply: throw
+- Apply `ctx.config`: `authn.*` keys mean what the `authn.*` config means
+  (`docs/plans/2026-10-01-authz-v3-design.md` §22.5); secrets are the
+  values themselves; `throttle` merges over `DEFAULT_THROTTLE`. Without
+  overrides, run those defaults. A config you cannot apply: throw
   `new UnsupportedConfig(keys)`.
 - Return only the ports you have; every port shares one container (the
   `seed` users are the ones `service` authenticates, `events` sees what
@@ -50,11 +51,15 @@ the kit uses the `describe`, `it` and `after` globals).
   missing need or an unsupported config **fails**, naming what is missing.
 - `facets`: register only these facets. Unknown ids, A28/A29, duplicates
   and claims/facets outside the given ids throw at registration.
+- A requested rule whose cases are not written yet (listed in
+  `PENDING_TRANSCRIPTION`) shows one case `<id> [pending: not transcribed
+  yet (PENDING_TRANSCRIPTION)]`; when you claim the rule or one of its
+  facets, that case fails instead. Nothing is silent.
 - `timeoutMs` raises every case to at least that value (timing cases set
   600 s themselves; lanes with slow hashing raise them here, see
   `timingTimeoutMs`).
 
-### Time rules (design §3.3)
+### Time rules
 
 Each case installs a `FakeClock` that fakes `Date` only (timers,
 `performance.now()` and `process.hrtime` stay real). Code under test must:
@@ -78,7 +83,18 @@ pending (or fail when claimed).
 { title })` checks one `AuthenticationStrategy`; pass a `title`, the default
 names no strategy. `runIdentityStoreConformance` covers `IdentityStore`.
 
-### Lane → facets (design §4.4)
+### Fakes for the `service` port
+
+Lanes that do not own `AuthnService` (N3, N6, N7, N10) build the `service`
+port from kit fakes until N1 lands: `FakeAuthnService` (the login, MFA and
+re-authentication flow over the contracts) with `FakeBackoffThrottle`,
+`MemorySessionIssuer`, `FakeIdentityStore`, `MemoryLinkStore`,
+`EnrolledMfaPolicy`, `RecordingEventSink`, `RecordingPrincipalFactory` and
+the lane's own strategy. `throttleParams(ctx.config)` gives the params to
+build the throttle with and to report in the `throttle` port. These are
+fakes, not N1's implementation.
+
+### Lane → facets
 
 | Lane | Facets it claims |
 |---|---|
@@ -96,6 +112,45 @@ names no strategy. `runIdentityStoreConformance` covers `IdentityStore`.
 | C2, SEC1 | A12/api |
 | C3 | A26/http |
 
-Some of these are not yet in the lane's plan list (design §4.4 `*`,
-§12). Ports per facet: the `needs` of each case in `src/behaviour/A*.spec.ts`.
-Shared names and helpers for spec files: `src/behaviour/steps.ts`.
+Some of these are not yet in the lane's plan list (see below). Ports per
+facet: the `needs` of each case in `src/behaviour/A*.spec.ts`. Shared names
+and helpers for spec files: `src/behaviour/steps.ts`.
+
+## Known gaps for lanes
+
+Open hand-offs (no frozen contract changes; the owning lane decides):
+
+| Topic | Gap | Who |
+|---|---|---|
+| Plan lists | A08/http has no lane (add to N8a), A08/lifecycle none (C1); A20/core missing from N1; A15/core missing from N8a; A05 missing from N8a; A13/local missing from N3 | controller |
+| Pepper versions | "a hash under an older pepper version is rehashed" needs the older secret; the kit tests only unpeppered → peppered and other argon2 parameters | N3, N1: add `pepper.previous` or drop the clause |
+| A25 credential admin | who enforces `users:credentials` and the target rule; the kit uses `ActorsPort.admin({ credentialsRight })` and a separate `targetGuard` port | N8b, C3 |
+| A17 formats | the key proof signing input and an assertion's `iss` are not frozen; lanes supply `KeyProofPort` and `AssertionPort` | N7: document both for CLI clients |
+| A18 | the kit signs with RFC 9421 label `sig1` and no `alg` parameter | N7 must accept it |
+| A12 prefixes | the reserved metadata prefixes (`2fa:`, `user:2fa:`, `user:pwd_reset:`, `user:pwd:`, `user:login:`, `user:ban:`, `user:invite:`) come from plan SEC1, not a contract | SEC1, C2: confirm |
+| Time in stores | `SessionIssuer`, `SecretStore`, `MfaStep` and `AuthnThrottle.succeed` take no `ctx`: compute "now" in Node and pass it to SQL, never SQL `now()` | N2, N4 |
+| A13 inline re-auth | the re-auth field of `POST /user/tokens` is not frozen; supply `routes.tokenCreate({ reauthPassword })` | N8b |
+| A16 JIT | the kit sets only `authn.linking.jit` for JWT subjects; `authn.jwt.issuers` has no per-issuer switch | N6: confirm |
+| Two `bearer` strategies | token and JWT strategies share kind `bearer`; A14/A15 configs list only the token strategy, A16 only the JWT one | N1, N6: first-listed-wins or unique kinds |
+| `impersonation.requireMfa` | no defined meaning; every A20 case pins it true and uses an aal2 admin session | N1, N8a |
+| A24 secret-storing step | how boot learns that an MFA step stores secrets (A24 `mfaStep: 'secret-storing'`) | N1 |
+| C8 golden tickets | not in the kit yet | N7 waits |
+
+Per lane, today:
+
+| Lane | Runs today | Gaps |
+|---|---|---|
+| N1 | A01, A02, A05, A06, A09, A13, A19, A21, A23, A24 | add A20; `BootPort` needs `start` and `checkConfig` |
+| N2 | A07/A08/A09 store via `runSessionIssuerConformance` | none |
+| N3 | A02/local, A03, A04, A11/local (service from the fakes above) | A30 untranscribed; A13/local not in its list |
+| N4 | A05/A06 store, A11/store, A19/store wrappers; `a32Fixtures` | A32/migration untranscribed |
+| N5 | A10/step, A10/totp | none |
+| N6 | A14/token, A15/token, A16/jwt (service from the fakes above), strategy conformance | two `bearer` strategies; JWT JIT switch |
+| N7 | A17/keys, A17/jws, A17/core, A18/core (service and throttle from the fakes above), strategy conformance | C8 golden tickets; proof and `iss` formats; `sig1` |
+| N8a | A02, A07, A09 (the force row needs `routes.mfaEnrol`), A20/http, A23 | A22, A26, A31 untranscribed; add A05, A08, A15; a test-only probe route answering `ProbeBody` (`principal`, `clientIp`, `hits`) after all middlewares |
+| N8b | A10, A11, A13, A14, A17 http/core facets | A25, A30, A32 untranscribed; A25 enforcement |
+| N10 | A02/external (service from the fakes above), A19/oidc | A27 untranscribed |
+| SEC1 | A12/api | the "red on the 2.x code" run stays in the lane; prefix list to confirm |
+
+All lanes: follow the time rules above; never `DI.clearCache()`; list
+per-request 401 body keys in `volatileBodyFields`; claim the facets you own.

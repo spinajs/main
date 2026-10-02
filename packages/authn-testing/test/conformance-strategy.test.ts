@@ -5,8 +5,7 @@ import { runStrategyConformance } from '../src/conformance/index.js';
 import type { StrategySubjectFactory } from '../src/conformance/index.js';
 import { CASE, FAST_TIMING, bearerSubject, externalSubject, failedTitles, passwordSubject, pendingTitles, runSuite, wrap } from './reference/conformance-support.js';
 
-const run = (factory: StrategySubjectFactory, opts: { timing?: typeof FAST_TIMING | false; fakeDate?: boolean } = {}) =>
-  runSuite((bdd) => runStrategyConformance(factory, { bdd, timing: FAST_TIMING, ...opts }));
+const run = (factory: StrategySubjectFactory, opts: { timing?: typeof FAST_TIMING | false; fakeDate?: boolean } = {}) => runSuite((bdd) => runStrategyConformance(factory, { bdd, timing: FAST_TIMING, ...opts }));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isUnknownLogin = (c: Credentials) => c.kind === 'password' && c.login === 'conf-nobody';
@@ -91,7 +90,14 @@ describe('runStrategyConformance: broken strategies fail the named case', functi
 
   it('a secret in the keys of a non-interactive strategy', () =>
     expectFails(
-      bearerSubject((s) => wrap(s, { throttleKeys: (c) => [{ kind: 'account', value: String((c as { token: string }).token) }, { kind: 'account-ip', value: `${String((c as { token: string }).token)}|ip` }] })),
+      bearerSubject((s) =>
+        wrap(s, {
+          throttleKeys: (c) => [
+            { kind: 'account', value: String((c as { token: string }).token) },
+            { kind: 'account-ip', value: `${String((c as { token: string }).token)}|ip` },
+          ],
+        }),
+      ),
       CASE.noSecret,
     ));
 
@@ -187,7 +193,11 @@ describe('runStrategyConformance: broken strategies fail the named case', functi
       CASE.alike,
     ));
 
-  it('rejects valid credentials', () => expectFails(passwordSubject((s) => wrap(s, { verify: async (c, ctx) => (c.kind === 'password' ? INVALID : s.verify(c, ctx)) })), CASE.accepts));
+  it('rejects valid credentials', () =>
+    expectFails(
+      passwordSubject((s) => wrap(s, { verify: async (c, ctx) => (c.kind === 'password' ? INVALID : s.verify(c, ctx)) })),
+      CASE.accepts,
+    ));
 
   it('answers success with neither identity nor external', () =>
     expectFails(
@@ -195,7 +205,11 @@ describe('runStrategyConformance: broken strategies fail the named case', functi
       CASE.accepts,
     ));
 
-  it('declares no kinds', () => expectFails(passwordSubject((s) => wrap(s, { kinds: [] })), CASE.declared));
+  it('declares no kinds', () =>
+    expectFails(
+      passwordSubject((s) => wrap(s, { kinds: [] })),
+      CASE.declared,
+    ));
 
   it('a non-interactive strategy without an account-ip key', () =>
     expectFails(

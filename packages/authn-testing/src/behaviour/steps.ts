@@ -128,8 +128,6 @@ export function throttleParams(config: ConfigOverrides = {}): ThrottleParams {
   };
 }
 
-// HTTP
-
 type WithHttp = Pick<Required<Harness>, 'http'>;
 
 /** The route builders; a case lists the ones it uses in `needs`. */
@@ -177,7 +175,6 @@ export function expectSameBody(h: WithHttp, x: HttpResponse, y: HttpResponse, ms
   assert.deepStrictEqual(stripBody(h, x.body), stripBody(h, y.body), msg);
 }
 
-/** The session cookie a response sets, if any. */
 export const sessionCookieOf = (h: WithHttp, res: HttpResponse): SetCookie | undefined => parseSetCookie(res.setCookie).find((c) => c.name === h.http.sessionCookie);
 
 /** A jar holding only the session cookie with this value. */

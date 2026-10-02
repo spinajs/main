@@ -6,23 +6,15 @@ import type { IdentitySubject } from '../src/conformance/index.js';
 import { FakeIdentityStore, MemoryPasswordCredentialStore, fakeSeedPort } from '../src/fakes/index.js';
 import { failedTitles, pendingTitles, runSuite } from './reference/conformance-support.js';
 
-const TITLES = [
-  'identity store: finds by login and by email',
-  'identity store: an unknown login is null',
-  'identity store: status reflects active false',
-  'identity store: status reflects banned',
-  'identity store: status reflects deleted',
-  'identity store: status reflects invitePending',
-  'identity store: display gives the email',
-  'identity store: no password reads null; a set hash reads back verbatim',
-  'identity store: provision exists exactly when JIT is on',
-];
+const TITLES = ['identity store: finds by login and by email', 'identity store: an unknown login is null', 'identity store: status reflects active false', 'identity store: status reflects banned', 'identity store: status reflects deleted', 'identity store: status reflects invitePending', 'identity store: display gives the email', 'identity store: no password reads null; a set hash reads back verbatim', 'identity store: provision exists exactly when JIT is on'];
 
-const subjectOf = (jit: boolean, tweak: (s: FakeIdentityStore) => IdentitySubject['store'] = (s) => s) => async (): Promise<IdentitySubject> => {
-  const store = new FakeIdentityStore({ jit });
-  const passwords = new MemoryPasswordCredentialStore();
-  return { store: tweak(store), passwords, seed: fakeSeedPort(store, passwords), jit };
-};
+const subjectOf =
+  (jit: boolean, tweak: (s: FakeIdentityStore) => IdentitySubject['store'] = (s) => s) =>
+  async (): Promise<IdentitySubject> => {
+    const store = new FakeIdentityStore({ jit });
+    const passwords = new MemoryPasswordCredentialStore();
+    return { store: tweak(store), passwords, seed: fakeSeedPort(store, passwords), jit };
+  };
 
 const run = (factory: Parameters<typeof runIdentityStoreConformance>[0]) => runSuite((bdd) => runIdentityStoreConformance(factory, { bdd }));
 

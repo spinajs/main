@@ -5,6 +5,7 @@ import { AUTHN_RULES } from '../src/behaviour/index.js';
 import type { Facet, RuleId } from '../src/behaviour/index.js';
 import { runSuite } from './reference/conformance-support.js';
 import type { CaseOutcome } from './reference/conformance-support.js';
+import { FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySecretStore, fakeSeedPort } from '../src/fakes/index.js';
 import { fakeStoreHarness, throttleHarness } from './reference/harness.js';
 
 const UNTRANSCRIBED = ' [pending: not transcribed yet (PENDING_TRANSCRIPTION)]';
@@ -45,9 +46,19 @@ describe('store conformance wrappers', function () {
     );
   });
 
-  it('the secret store and link store wrappers register their facets, or one visible pending case until B2 and B4', async () => {
-    const secrets = await runSuite((bdd) => runSecretStoreConformance(() => ({}), { bdd }));
-    const links = await runSuite((bdd) => runLinkStoreConformance(() => ({}), { bdd }));
+  it('runSecretStoreConformance and runLinkStoreConformance run green on MemorySecretStore and MemoryLinkStore', async () => {
+    const seed = () => fakeSeedPort(new FakeIdentityStore(), new MemoryPasswordCredentialStore());
+    const secrets = await runSuite((bdd) =>
+      runSecretStoreConformance(
+        () => {
+          const store = new MemorySecretStore();
+          return { seed: seed(), secrets: store, secretStorage: { rows: async () => store.rows() } };
+        },
+        { bdd },
+      ),
+    );
+    const links = await runSuite((bdd) => runLinkStoreConformance(() => ({ seed: seed(), links: new MemoryLinkStore() }), { bdd }));
+    assert.deepStrictEqual(notGreen([...secrets, ...links]), []);
     assert.deepStrictEqual(
       secrets.map((c) => c.title),
       titlesOf(['A11'], ['A11/store']),
@@ -56,9 +67,10 @@ describe('store conformance wrappers', function () {
       links.map((c) => c.title),
       titlesOf(['A19'], ['A19/store']),
     );
-    assert.ok(
-      [...secrets, ...links].every((c) => c.status === (c.title.endsWith(UNTRANSCRIBED) ? 'pending' : 'failed')),
-      'claimed: an empty harness fails once the rule has cases',
-    );
+  });
+
+  it('the secret store and link store wrappers claim their facets: an empty harness fails', async () => {
+    const r = [...(await runSuite((bdd) => runSecretStoreConformance(() => ({}), { bdd }))), ...(await runSuite((bdd) => runLinkStoreConformance(() => ({}), { bdd })))];
+    assert.ok(r.length > 0 && r.every((c) => c.status === 'failed'));
   });
 });

@@ -44,24 +44,12 @@ export function a32Fixtures(now: Date): A32Fixtures {
   const token = (t: string): LegacyMetadataRow => ({ Key: TOKEN, Type: 'string', Value: t });
   const wait = (s: string): LegacyMetadataRow => ({ Key: WAIT, Type: 'number', Value: s });
 
-  const make = (
-    name: A32CaseName,
-    n: number,
-    login: string,
-    isActive: boolean,
-    tok: string | null,
-    metadata: readonly LegacyMetadataRow[],
-    secret: { purpose: string; expiresIn: number; createdAt: number } | null,
-    metadataKeysAfter: readonly string[],
-  ): A32Case => ({
+  const make = (name: A32CaseName, n: number, login: string, isActive: boolean, tok: string | null, metadata: readonly LegacyMetadataRow[], secret: { purpose: string; expiresIn: number; createdAt: number } | null, metadataKeysAfter: readonly string[]): A32Case => ({
     name,
     user: { Uuid: uuid(n), Email: `${login}@example.test`, Login: login, IsActive: isActive, metadata },
     token: tok,
     expected: {
-      secret:
-        secret && tok
-          ? { identity: `user:${uuid(n)}`, purpose: secret.purpose, secret_hash: sha256hex(tok), expires_at: d(secret.expiresIn), created_at: d(secret.createdAt) }
-          : null,
+      secret: secret && tok ? { identity: `user:${uuid(n)}`, purpose: secret.purpose, secret_hash: sha256hex(tok), expires_at: d(secret.expiresIn), created_at: d(secret.createdAt) } : null,
       metadataKeysAfter,
     },
   });
@@ -78,7 +66,19 @@ export function a32Fixtures(now: Date): A32Fixtures {
     expiredReset: make('expiredReset', 3, 'reset.expired', true, t3, [start(-7200), token(t3), wait('3600')], null, []),
     resetWithoutStartDate: make('resetWithoutStartDate', 4, 'reset.nostart', true, t4, [token(t4), wait('3600')], null, []),
     resetWithoutWaitTime: make('resetWithoutWaitTime', 5, 'reset.nowait', true, t5, [start(-60), token(t5)], null, []),
-    lastAttemptOnly: make('lastAttemptOnly', 6, 'reset.done', true, null, [{ Key: LAST_ATTEMPT, Type: 'string', Value: iso(-86400) }, { Key: 'user:pwd:reset', Type: 'boolean', Value: 'false' }], null, []),
+    lastAttemptOnly: make(
+      'lastAttemptOnly',
+      6,
+      'reset.done',
+      true,
+      null,
+      [
+        { Key: LAST_ATTEMPT, Type: 'string', Value: iso(-86400) },
+        { Key: 'user:pwd:reset', Type: 'boolean', Value: 'false' },
+      ],
+      null,
+      [],
+    ),
   };
 
   const order: A32CaseName[] = ['liveReset', 'liveInvite', 'expiredReset', 'resetWithoutStartDate', 'resetWithoutWaitTime', 'lastAttemptOnly'];

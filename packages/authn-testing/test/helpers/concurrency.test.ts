@@ -26,6 +26,9 @@ describe('burst', () => {
       r.rejected().map((e) => (e as Error).message),
       ['sync', 'async'],
     );
-    assert.equal(r.count((v) => v > 0), 1);
+    assert.equal(
+      r.count((v) => v > 0),
+      1,
+    );
   });
 });

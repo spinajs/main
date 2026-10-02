@@ -11,3 +11,5 @@ export * from './throttle.js';
 export * from './principals.js';
 export * from './hooks.js';
 export * from './seed.js';
+export * from './backoff.js';
+export * from './service.js';

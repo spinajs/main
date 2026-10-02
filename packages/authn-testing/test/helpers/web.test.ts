@@ -24,7 +24,10 @@ describe('cookies', () => {
   it('isCleared: empty value, max-age <= 0 or a past expiry', () => {
     const now = new Date('2030-01-01T00:00:00Z');
     const [empty, zero, past, future, live] = parseSetCookie(['a=', 'b=1; Max-Age=0', 'c=1; Expires=Tue, 01 Jan 2019 00:00:00 GMT', 'd=1; Expires=Wed, 01 Jan 2031 00:00:00 GMT', 'e=1']);
-    assert.deepEqual([empty, zero, past, future, live].map((c) => isCleared(c, now)), [true, true, true, false, false]);
+    assert.deepEqual(
+      [empty, zero, past, future, live].map((c) => isCleared(c, now)),
+      [true, true, true, false, false],
+    );
   });
 
   it('jar stores, applies (request cookies win) and drops cleared cookies', () => {

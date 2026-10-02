@@ -49,7 +49,9 @@ export function totp(secretBase32: string, at: Date, o: { digits?: number; perio
   const digits = o.digits ?? 6;
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(Math.floor(at.getTime() / 1000 / (o.period ?? 30))));
-  const mac = createHmac((o.algorithm ?? 'SHA1').toLowerCase(), base32Decode(secretBase32)).update(counter).digest();
+  const mac = createHmac((o.algorithm ?? 'SHA1').toLowerCase(), base32Decode(secretBase32))
+    .update(counter)
+    .digest();
   const offset = mac[mac.length - 1] & 0x0f;
   const code = (mac.readUInt32BE(offset) & 0x7fffffff) % 10 ** digits;
   return String(code).padStart(digits, '0');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import type { IdentityRef, JwsClaims, JwsKey, JwsVerifyOptions, KeyAlgorithm, KeyChallenge, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistry } from '@spinajs/authn/contracts';
 import type { Harness, KitKeyPair } from '../harness/ports.js';
-import { b64url, b64urlDecode, generateKeyPair, signCompactJws, thumbprint } from '../helpers/index.js';
+import { b64url, b64urlDecode, backoffDelayMs, generateKeyPair, retryAfterSeconds, signCompactJws, thumbprint } from '../helpers/index.js';
 import { ALICE, auth, expectFail, expectSuccess, probe, send, seedUser, sessionCookieOf } from './steps.js';
 import { defineCase, defineRule, table } from './types.js';
 import type { AuthnRule, CaseKit } from './types.js';
@@ -65,8 +65,6 @@ const PROOF_ROWS: readonly { readonly label: string; readonly ok: boolean; reado
   { label: 'challenge used twice', ok: false },
   { label: 'garbage signature', ok: false, over: () => ({ signature: 'AAAA' }) },
 ];
-
-// JwsVerifier rows
 
 interface JwsFixture {
   readonly kp: KitKeyPair;
@@ -170,8 +168,6 @@ const JWS_ROWS: readonly JwsRow[] = [
   { label: 'not yet valid', code: 'not_yet_valid', token: (f) => baseToken(f, baseClaims(f, { iat: f.tS + 31, exp: f.tS + 91 })) },
   { label: 'iat at the skew edge', code: 'ok', token: (f) => baseToken(f, baseClaims(f, { iat: f.tS + 30, exp: f.tS + 90 })) },
 ];
-
-// Assertion cases
 
 type AssertionHarness = Harness & Required<Pick<Harness, 'service' | 'keys' | 'keyProofs' | 'assertion' | 'seed'>>;
 
@@ -414,12 +410,13 @@ export const A17: AuthnRule = defineRule('A17', 'keys are Ed25519 or P-256 and J
     facet: 'A17/core',
     needs: ['keys', 'throttle'],
     async run(h, k) {
-      const free = h.throttle.params.login.ip?.free;
-      assert.ok(free !== undefined, 'the login flow has an ip key');
+      const ip = h.throttle.params.login.ip;
+      assert.ok(ip !== undefined, 'the login flow has an ip key');
+      const free = ip.free;
       for (let i = 0; i < free; i += 1) {
         assert.ok((await h.keys.challenge({ purpose: 'login', kid: 'kit-x' }, k.ctx())).ok, `challenge ${i + 1} of ${free}`);
       }
-      assert.deepStrictEqual({ ...(await h.keys.challenge({ purpose: 'login', kid: 'kit-x' }, k.ctx())) }, { ok: false, retryAfterSeconds: 1 });
+      assert.deepStrictEqual({ ...(await h.keys.challenge({ purpose: 'login', kid: 'kit-x' }, k.ctx())) }, { ok: false, retryAfterSeconds: retryAfterSeconds(backoffDelayMs(ip, free)) });
     },
   }),
   defineCase({

@@ -37,11 +37,17 @@ describe('A32 fixtures', () => {
   it('holds the six cases with stable uuids and a datetime in 2.x text form', () => {
     const f = a32Fixtures(NOW);
     assert.deepStrictEqual(Object.keys(f.cases), NAMES);
-    assert.deepStrictEqual(f.users, NAMES.map((n) => f.cases[n].user));
+    assert.deepStrictEqual(
+      f.users,
+      NAMES.map((n) => f.cases[n].user),
+    );
     assert.equal(f.cases.liveReset.user.Uuid, 'a32a0000-0000-4000-8000-000000000001');
     const start = f.cases.liveReset.user.metadata.find((m) => m.Key === 'user:pwd_reset:start_date')!;
     assert.deepStrictEqual(start, { Key: 'user:pwd_reset:start_date', Type: 'datetime', Value: isoWithOffset(new Date(NOW.getTime() - 600_000), 120) });
-    assert.deepStrictEqual(f.cases.liveInvite.user.metadata.find((m) => m.Key === 'user:invite:pending'), { Key: 'user:invite:pending', Type: 'boolean', Value: 'true' });
+    assert.deepStrictEqual(
+      f.cases.liveInvite.user.metadata.find((m) => m.Key === 'user:invite:pending'),
+      { Key: 'user:invite:pending', Type: 'boolean', Value: 'true' },
+    );
   });
 
   it('stores the token in metadata and hashes it with SHA-256 hex', () => {
@@ -60,7 +66,10 @@ describe('A32 fixtures', () => {
     assert.equal(f.liveCount, 2);
     assert.equal(live.length, f.liveCount);
     assert.deepStrictEqual(f.expectedRows, live);
-    assert.deepStrictEqual(f.expectedRows.map((r) => r.purpose), ['reset', 'invite']);
+    assert.deepStrictEqual(
+      f.expectedRows.map((r) => r.purpose),
+      ['reset', 'invite'],
+    );
   });
 
   it('a reference migration turns the users into expectedRows and metadataKeysAfter', () => {

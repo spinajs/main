@@ -118,7 +118,10 @@ describe('reference backoff throttle', () => {
     const clock = new FakeClock();
     const out = await Promise.all(Array.from({ length: 50 }, () => t.attempt(pwKeys('burst@example.test', IP), 'login', clock.ctx())));
     assert.equal(out.filter((r) => r.allowed).length, acct.free);
-    assert.deepEqual(out.find((r) => !r.allowed), { allowed: false, retryAfterSeconds: 1 });
+    assert.deepEqual(
+      out.find((r) => !r.allowed),
+      { allowed: false, retryAfterSeconds: 1 },
+    );
   });
 
   it('a success clears only that account from the ip key', async () => {

@@ -278,7 +278,11 @@ export function runBehaviourIn(rules: ReadonlyMap<RuleId, AuthnRule>, ids: reado
       }
       bdd.describe(`${id} ${rule.title}`, () => {
         if (untranscribed) {
+          const claimed = opts.claim?.some((c) => c === id || c.startsWith(`${id}/`)) ?? false;
           bdd.it(id, async function (this: TestThis) {
+            if (claimed) {
+              throw new AssertionError({ message: `claimed rule ${id} is ${UNTRANSCRIBED_REASON}` });
+            }
             markPending(this, UNTRANSCRIBED_REASON, log);
           });
         }
