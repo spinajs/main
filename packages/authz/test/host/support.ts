@@ -4,12 +4,7 @@ import type { Class, Factory, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 
-import { DefaultAuthzService } from '../../src/host/service.js';
-import { DefaultAuthzDomains } from '../../src/host/domains.js';
-import { InProcessChangeBus } from '../../src/host/bus.js';
-import { LogDecisionAudit } from '../../src/host/audit.js';
-import { SystemClock } from '../../src/host/clock.js';
-import { AuthzDomains, AuthzService } from '../../src/index.js';
+import { DefaultAuthzService, DefaultAuthzDomains, InProcessChangeBus, LogDecisionAudit, SystemClock, AuthzDomains, AuthzService } from '@spinajs/authz';
 
 type Path = string | readonly string[];
 

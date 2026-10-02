@@ -3,10 +3,8 @@ import 'mocha';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DI } from '@spinajs/di';
 
-import { authzStorage, currentPrincipal, requestScope, runWithPrincipal } from '../../src/host/storage.js';
-import type { IAuthzAsyncStorage } from '../../src/host/storage.js';
-import { UNATTENDED } from '../../src/index.js';
-import type { Principal } from '../../src/index.js';
+import { authzStorage, currentPrincipal, requestScope, runWithPrincipal, UNATTENDED } from '@spinajs/authz';
+import type { IAuthzAsyncStorage, Principal } from '@spinajs/authz';
 
 const expect = chai.expect;
 

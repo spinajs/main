@@ -4,14 +4,8 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Log } from '@spinajs/log-common';
 
-import { InProcessChangeBus } from '../../src/host/bus.js';
-import { LogDecisionAudit } from '../../src/host/audit.js';
-import { AuthzClock, SystemClock } from '../../src/host/clock.js';
-import { isProduction } from '../../src/host/env.js';
-import { engineLog } from '../../src/host/log.js';
-import '../../src/host/cache.js';
-import { ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, TRUE } from '../../src/index.js';
-import type { AuthzChange, Decision } from '../../src/index.js';
+import { InProcessChangeBus, LogDecisionAudit, AuthzClock, SystemClock, isProduction, engineLog, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, TRUE } from '@spinajs/authz';
+import type { AuthzChange, Decision } from '@spinajs/authz';
 
 const expect = chai.expect;
 

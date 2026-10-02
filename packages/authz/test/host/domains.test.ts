@@ -2,10 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 
-import { DefaultAuthzDomains } from '../../src/host/domains.js';
-import { DefaultAuthzService } from '../../src/host/service.js';
-import { authz } from '../../src/host/authz.js';
-import { AuthzConfigError, AuthzDomains, AuthzService } from '../../src/index.js';
+import { DefaultAuthzDomains, DefaultAuthzService, authz, AuthzConfigError, AuthzDomains, AuthzService } from '@spinajs/authz';
 import { domains, installHost, resetHost, resetRoot, rootDomains, rootService, setConfig, uninstallHost } from './support.js';
 
 const expect = chai.expect;

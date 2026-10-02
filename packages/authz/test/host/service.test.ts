@@ -5,15 +5,9 @@ import type { IContainer } from '@spinajs/di';
 import { RecordingAudit, StaticModel, userPrincipal } from '@spinajs/authz-testing';
 import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
-import { DefaultAuthzService } from '../../src/host/service.js';
-import { AuthzContributor } from '../../src/host/contributor.js';
-import { authz } from '../../src/host/authz.js';
-import { requestScope } from '../../src/host/storage.js';
-import { AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '../../src/index.js';
-import type { AuthzChange, AuthzService, ModelInitContext, ResourceRef } from '../../src/index.js';
-import type { LruDecisionCacheOptions } from '../../src/index.js';
+import { DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
+import type { AuthzChange, AuthzService, ModelInitContext, ResourceRef, LruDecisionCacheOptions, DefaultAuthzDomains } from '@spinajs/authz';
 import { domains, installHost, instance, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost } from './support.js';
-import type { DefaultAuthzDomains } from '../../src/host/domains.js';
 
 const expect = chai.expect;
 

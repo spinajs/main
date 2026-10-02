@@ -4,12 +4,7 @@ import Ajv from 'ajv';
 import ajvFormats from 'ajv-formats';
 import ajvKeywords from 'ajv-keywords';
 
-import { AUTHZ_CONFIGURATION_SCHEMA } from '../../src/config/schema.js';
-import { AUTHZ_DEFAULTS } from '../../src/config/defaults.js';
-import { readDomainConfig } from '../../src/config/domain-config.js';
-import { AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys } from '../../src/config/legacy-keys.js';
-import { AuthzConfigError } from '../../src/index.js';
-import { AuthzConfigBootstrapper } from '../../src/config/bootstrap.js';
+import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 
 const expect = chai.expect;
