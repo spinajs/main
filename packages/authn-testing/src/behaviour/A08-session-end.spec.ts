@@ -89,6 +89,7 @@ export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout
       const hi = (await h.sessions.list(b, { current: si })).find((x) => x.current)?.handle;
       assert.ok(hi, 'the impersonated session is listed for its subject');
       assert.strictEqual(await h.sessions.revokeHandle(a, hi), false, 'the impersonator is not the subject');
+      assert.ok(await h.sessions.restore(si.id), 'the impersonated session lives');
       const ha = (await h.sessions.list(a))[0].handle;
       assert.strictEqual(await h.sessions.revokeHandle(a, ha), true);
       assert.strictEqual(await h.sessions.restore(s1.id), null);
@@ -105,6 +106,7 @@ export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout
       await send(h, R.login(ALICE.login, ALICE.password), jar);
       const v = jar.get(h.http.sessionCookie);
       assert.ok(v, 'the login sets the session cookie');
+      assert.strictEqual((await send(h, R.whoami(), sessionJar(h, v))).status, 200, 'whoami works before the logout');
       const res = await send(h, R.logout(), jar);
       const c = sessionCookieOf(h, res);
       assert.ok(c && isCleared(c, k.clock.now()), `the logout clears the session cookie: ${JSON.stringify(res.setCookie)}`);
@@ -123,6 +125,9 @@ export const A08: AuthnRule = defineRule('A08', 'sessions end by timeout, logout
         const s1 = await h.sessions.issue(a, factsAal1(k));
         const s2 = await h.sessions.issue(a, factsAal1(k));
         const si = await h.sessions.issue(c, { ...factsAal1(k), impersonator: { type: 'user', id: a.id } });
+        for (const s of [s1, s2, si]) {
+          assert.ok(await h.sessions.restore(s.id), `session ${s.id} is alive before the action`);
+        }
         await h.lifecycle[action](a);
         for (const s of [s1, s2, si]) {
           assert.strictEqual(await h.sessions.restore(s.id), null, `session ${s.id} is revoked`);

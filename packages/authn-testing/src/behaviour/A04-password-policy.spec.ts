@@ -132,4 +132,3 @@ export const A04: AuthnRule = defineRule('A04', 'passwords are 8 to 128 characte
     }),
   ),
 ]);
-

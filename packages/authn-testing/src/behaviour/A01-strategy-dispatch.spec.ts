@@ -56,7 +56,7 @@ export const A01: AuthnRule = defineRule('A01', 'credentials go to the listed st
     needs: ['boot'],
     async run(h, k) {
       const s1 = strategy('one', ['password'], true);
-      const s3 = strategy('three', ['bearer'], false);
+      const s3 = strategy('three', ['bearer'], true);
       const b = await h.boot.start({
         strategies: [
           { name: 'one', service: 'KitOne', instance: s1, listed: true },
@@ -65,7 +65,7 @@ export const A01: AuthnRule = defineRule('A01', 'credentials go to the listed st
       });
       assert.ok(b.ok, 'the boot succeeds');
       try {
-        expectFailure(await b.service.authenticate({ kind: 'bearer', token: 'x' }, k.ctx({ purpose: 'request' })), 'unsupported_credentials');
+        expectFailure(await b.service.authenticate({ kind: 'bearer', token: 'x' }, k.ctx()), 'unsupported_credentials');
         assert.strictEqual(s3.verifyCalls.length, 0);
         assert.strictEqual(s3.keyCalls.length, 0);
       } finally {
