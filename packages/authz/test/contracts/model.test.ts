@@ -4,7 +4,7 @@ import 'mocha';
 import { AsyncService, type IContainer } from '@spinajs/di';
 import * as authz from '../../src/index.js';
 import { AuthorizationModel, AuthzDomains, AuthzService, ChangeBus, Combinator, ConditionCompiler, ConditionFunction, DecisionAudit, DecisionCache, NativeFilter, RelationResolver, ResourceAdapter, ScopeResolver, FALSE, TRUE, GLOBAL, UNATTENDED } from '../../src/index.js';
-import type { AccessSummary, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
+import type { AccessSummary, AuthzChange, CheckInput, Condition, Decision, DecisionRequest, EvaluationContext, FieldSet, FilterOp, PermissionRegistry, PrincipalType, TraceStep, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, RoutePlan, Trace, Vote } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -290,5 +290,70 @@ describe('model, adapter, host and condition contracts', () => {
     const plan: RoutePlan = { algorithm: 'deny-overrides', models: [] };
     const fields: FieldSet = {};
     expect([noNeeds, badSync, badCondition, plan, fields]).to.have.length(5);
+  });
+
+  describe('pinned shapes', () => {
+    type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+    const yes = <_T extends true>(): void => {};
+
+    it('accepts full literals of the interfaces', () => {
+      const evalCtx: EvaluationContext = {
+        domain: 'root',
+        now: new Date(0),
+        permissions: undefined as unknown as PermissionRegistry,
+        ancestors: async (ref) => [ref],
+        attributes: async () => null,
+        conditions: new FakeCompiler(),
+        relation: () => undefined,
+        check: async () => decision,
+        cache: new Map(),
+        trace: () => {},
+      };
+      const initCtx: ModelInitContext = {
+        domain: 'root',
+        config: <T>(_path: string, dflt?: T) => dflt as T,
+        permissions: undefined as unknown as PermissionRegistry,
+        registerPermissions: () => {},
+        registerNativeFilter: () => {},
+        registerRelation: () => {},
+      };
+      const minimalChange: AuthzChange = { tags: ['a'], at: new Date(0) };
+      const fullChange: AuthzChange = { domain: 'root', tags: [], actor: { type: 'user', id: '1' }, at: new Date(0) };
+      const byRef: CheckInput = { principal: UNATTENDED, permission: 'a:b', resource: GLOBAL };
+      const byObject: CheckInput = { principal: UNATTENDED, permission: 'a:b', resource: { any: 'object' }, explain: true };
+      const noResource: CheckInput = { principal: UNATTENDED, permission: 'a:b' };
+      expect([evalCtx, initCtx, minimalChange, fullChange, byRef, byObject, noResource]).to.have.length(7);
+    });
+
+    it('pins parameters, optionality, readonly and unions', () => {
+      yes<Equal<Parameters<RelationResolver['holds']>, [principal: Principal, ref: ResourceRef, subject?: unknown]>>();
+      yes<Equal<Parameters<ConditionFunction['evaluate']>, [args: unknown, ctx: { principal: Principal; actor?: Principal; env: Readonly<Record<string, unknown>> }]>>();
+      yes<Equal<Parameters<EvaluationContext['trace']>, [step: Omit<TraceStep, 'by'>]>>();
+      yes<Equal<Parameters<EvaluationContext['check']>, [req: Omit<DecisionRequest, 'explain'>]>>();
+      yes<Equal<NativeFilter['op'], `native:${string}`>>();
+      yes<Equal<Parameters<DecisionAudit['record']>[0]['kind'], 'deny' | 'runAs' | 'unscoped' | 'explain' | 'system' | 'admin'>>();
+      yes<Equal<CheckInput, Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object }>>();
+      yes<Equal<Pick<ScopeResolver, 'attributes'>, { attributes?: (ref: ResourceRef) => Promise<Readonly<Record<string, unknown>> | null> }>>();
+      yes<Equal<Pick<ResourceAdapter, 'compiles'>, { readonly compiles?: readonly FilterOp[] }>>();
+      yes<Equal<AuthzChange, { readonly domain?: string; readonly tags: readonly string[]; readonly actor?: PrincipalRef; readonly at: Date }>>();
+      yes<
+        Equal<
+          ModelCapabilities,
+          {
+            readonly effects: readonly ('permit' | 'deny')[];
+            readonly residuals: readonly FilterOp[];
+            readonly sync: 'always' | 'after-preload' | 'never';
+            readonly fields: boolean;
+            readonly needsSubject: boolean;
+            readonly principalTypes?: readonly PrincipalType[];
+            readonly resourceTypes?: readonly ResourceType[] | '*';
+          }
+        >
+      >();
+      yes<Equal<Pick<EvaluationContext, 'conditions'>, { readonly conditions: ConditionCompiler }>>();
+      yes<Equal<keyof ModelInitContext, 'domain' | 'config' | 'permissions' | 'registerPermissions' | 'registerNativeFilter' | 'registerRelation'>>();
+      yes<Equal<keyof EvaluationContext, 'domain' | 'now' | 'permissions' | 'ancestors' | 'attributes' | 'conditions' | 'relation' | 'check' | 'cache' | 'trace'>>();
+      expect(true).to.eq(true);
+    });
   });
 });

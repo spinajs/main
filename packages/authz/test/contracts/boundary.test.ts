@@ -59,8 +59,10 @@ describe('authz contract files boundary', () => {
     expect(roots).to.deep.eq([]);
   });
 
-  it('declares no DI registration', () => {
-    const bad = files().filter((f) => /@Injectable|DI\.register/.test(readFileSync(f, 'utf8')));
+  it('declares no DI registration, lifetime decorator or container call', () => {
+    const withoutComments = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const forbidden = /@(Injectable|Singleton|PerChildInstance|NewInstance|PerInstance|PerInstanceCheck|Inject|Autoinject|LazyInject)\b|\bDI\.(register|resolve|get)\b/;
+    const bad = files().filter((f) => forbidden.test(withoutComments(readFileSync(f, 'utf8'))));
     expect(bad.map((f) => relative(PKG_ROOT, f))).to.deep.eq([]);
   });
 });

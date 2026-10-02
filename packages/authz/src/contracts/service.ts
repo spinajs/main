@@ -6,7 +6,7 @@ import type { ResourceFilter } from './filter.js';
 import type { Decision, DecisionRequest, FieldSet, Trace } from './decision.js';
 import type { AuthorizationModel, ModelSummary } from './model.js';
 
-// The @PerChildInstance() implementation is the host's (F4).
+// The @PerChildInstance() implementation is the host's.
 export abstract class AuthzService extends AsyncService {
   abstract readonly domain: string; // 'root' or a child domain name
   abstract current(): Principal; // ALS principal, else UNATTENDED
@@ -28,6 +28,7 @@ export abstract class AuthzService extends AsyncService {
 
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
 
+// Root singleton; the implementation is the host's.
 export abstract class AuthzDomains {
   abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
   abstract container(name: string): IContainer;

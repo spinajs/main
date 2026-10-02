@@ -35,7 +35,7 @@ export interface EvaluationContext {
   readonly permissions: PermissionRegistry;
   ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null>; // memoised per request
   attributes(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>; // scope attributes, memoised per request
-  conditions: ConditionCompiler;
+  readonly conditions: ConditionCompiler;
   relation(type: ResourceType, name: string): RelationResolver | undefined;
   check(req: Omit<DecisionRequest, 'explain'>): Promise<Decision>; // for models that delegate (fs-inherit)
   readonly cache: Map<string, unknown>; // per-request scratch, per model namespace
