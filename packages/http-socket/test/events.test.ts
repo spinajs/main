@@ -142,7 +142,7 @@ export class EvtTestAuthz extends AuthzService {
 }
 
 export class EvtTestDomains extends AuthzDomains {
-  public service(): AuthzService {
+  public async service(): Promise<AuthzService> {
     return new EvtTestAuthz();
   }
   public create(): IContainer {

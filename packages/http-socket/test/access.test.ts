@@ -109,7 +109,7 @@ export class AccTestAuthz extends AuthzService {
 }
 
 export class AccTestDomains extends AuthzDomains {
-  public service(name: string): AuthzService {
+  public async service(name: string): Promise<AuthzService> {
     const service = new AccTestAuthz();
     service.domain = name;
     return service;
