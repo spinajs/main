@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
+import { isDeepStrictEqual } from 'node:util';
 
 import * as root from '../../src/index.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../../src/contracts/filter.js';
@@ -14,6 +15,7 @@ const cmp = (field: string, value: Value = true, op: CmpOp = 'eq'): ResourceFilt
 const a = cmp('a');
 const b = cmp('b');
 const c = cmp('c');
+const ref = (r: string) => ({ ref: r });
 const rawAnd = (...args: ResourceFilter[]): ResourceFilter => ({ op: 'and', args });
 const rawOr = (...args: ResourceFilter[]): ResourceFilter => ({ op: 'or', args });
 const rawNot = (arg: ResourceFilter): ResourceFilter => ({ op: 'not', arg });
@@ -73,6 +75,65 @@ const treeOf = (leaf: fc.Arbitrary<ResourceFilter>) =>
   })).node;
 const treeArb = treeOf(atomArb);
 
+// Pairs of distinct leaves that a sloppy dedupe key could merge; all leaves are pairwise distinct.
+const CONFUSABLE_PAIRS: [ResourceFilter, ResourceFilter][] = [
+  [cmp('a', 1), cmp('a', '1')],
+  [cmp('a', true), cmp('a', 'true')],
+  [cmp('a', null), { op: 'cmp', field: 'a', cmp: 'eq' }],
+  [cmp('a', 'null'), cmp('a', ['null'], 'in')],
+  [cmp('a', ref('x')), cmp('a', 'x')],
+  [cmp('a', 2, 'ne'), cmp('a', 2, 'lt')],
+  [cmp('b', 3), cmp('c', 3)],
+  [
+    { op: 'cmp', field: 'a', cmp: 'null' },
+    { op: 'cmp', field: 'a', cmp: 'notnull' },
+  ],
+  [cmp('a', ['a'], 'in'), cmp('a', 'a', 'in')],
+  [cmp('a', [1, 2], 'in'), cmp('a', [2, 1], 'in')],
+  [cmp('a', ['1', '2'], 'in'), cmp('a', ['1', '2'], 'nin')],
+  [{ op: 'cmp', field: 'a', cmp: 'eq', value: 4, extra: true } as ResourceFilter, cmp('a', 4)],
+  [
+    { op: 'relation', relation: 'owner' },
+    { op: 'relation', relation: 'editor' },
+  ],
+  [
+    { op: 'under', scopes: [{ type: 'org', id: '1' }] },
+    { op: 'under', scopes: [{ type: 'org', id: '2' }] },
+  ],
+  [
+    { op: 'native:x', args: { a: 1 } },
+    { op: 'native:x', args: { a: '1' } },
+  ],
+  [
+    { op: 'native:y', args: { a: 1 } },
+    { op: 'native:x', args: { a: 1, b: 2 } },
+  ],
+];
+const reversedCopy = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(reversedCopy)
+    : v !== null && typeof v === 'object'
+    ? Object.fromEntries(
+        Object.entries(v)
+          .reverse()
+          .map(([k, x]) => [k, reversedCopy(x)]),
+      )
+    : v;
+// Leaf i of the pool reads the Kleene variable of FIELDS[i].
+const poolTable = (f: ResourceFilter, pool: readonly ResourceFilter[]) => {
+  const index = new Map<ResourceFilter, number>();
+  const leafIndex = (n: ResourceFilter): number => {
+    let i = index.get(n);
+    if (i === undefined) {
+      i = pool.findIndex((p) => isDeepStrictEqual(p, n));
+      if (i < 0) throw new Error(`unexpected leaf ${JSON.stringify(n)}`);
+      index.set(n, i);
+    }
+    return i;
+  };
+  return ASSIGNMENTS.map((row) => kleene(f, (n) => row[FIELDS[leafIndex(n)]]));
+};
+
 const walk = (f: ResourceFilter, visit: (f: ResourceFilter) => void): void => {
   visit(f);
   if (f.op === 'and' || f.op === 'or') f.args.forEach((x) => walk(x, visit));
@@ -113,9 +174,8 @@ const principal: Principal = {
 };
 const env = { now: NOW, region: 'eu', limit: 5 };
 const scope = { principal, env };
-const ref = (r: string) => ({ ref: r });
 
-const MISSING_REFS = ['principal.attributes.nope', 'principal.attributes.obj', 'principal.attributes.nan', 'principal.attributes.inf', 'principal.attributes.big', 'principal.attributes.fn', 'principal.attributes.withNull', 'principal.attributes.withObject', 'principal.attributes.withNaN', 'principal.attributes.sparse', 'principal.attributes.badDate', 'principal.attributes.undef', 'principal.attributes.nested', 'principal.authn', 'principal', 'env', 'env.nope', 'principal.__proto__', 'principal.constructor', 'principal.toString', 'principal.attributes.hostile.__proto__', 'principal.attributes.hostile.constructor', 'principal.attributes.hostile.prototype', 'principal.attributes.constructor.name', 'principal.id.length'];
+const MISSING_REFS = ['principal.attributes.nope', 'principal.attributes.nul', 'principal.attributes.obj', 'principal.attributes.nan', 'principal.attributes.inf', 'principal.attributes.big', 'principal.attributes.fn', 'principal.attributes.withNull', 'principal.attributes.withObject', 'principal.attributes.withNaN', 'principal.attributes.sparse', 'principal.attributes.badDate', 'principal.attributes.undef', 'principal.attributes.nested', 'principal.authn', 'principal', 'env', 'env.nope', 'principal.__proto__', 'principal.constructor', 'principal.toString', 'principal.attributes.hostile.__proto__', 'principal.attributes.hostile.constructor', 'principal.attributes.hostile.prototype', 'principal.attributes.constructor.name', 'principal.id.length'];
 
 describe('filter contracts', () => {
   it('is exported from the package root', () => {
@@ -215,6 +275,49 @@ describe('filter contracts', () => {
       expect(simplify(rawAnd(isNull, { op: 'cmp', field: 'a', cmp: 'null', value: undefined }))).to.eq(isNull);
     });
 
+    it('keeps leaves that differ in value type, op, field, ref or an extra key', () => {
+      const pairs: [ResourceFilter, ResourceFilter][] = [
+        [cmp('a', 1), cmp('a', '1')],
+        [cmp('a', true), cmp('a', 'true')],
+        [cmp('a', null), cmp('a', 'null')],
+        [cmp('a', null), { op: 'cmp', field: 'a', cmp: 'eq' }],
+        [cmp('a', ['a'], 'in'), cmp('a', 'a', 'in')],
+        [cmp('a', [1, 2], 'in'), cmp('a', [2, 1], 'in')],
+        [cmp('a', [1], 'in'), cmp('a', ['1'], 'in')],
+        [cmp('a', ref('x')), cmp('a', 'x')],
+        [cmp('a', 1, 'eq'), cmp('a', 1, 'ne')],
+        [cmp('a', 1), cmp('b', 1)],
+        [
+          { op: 'cmp', field: 'a', cmp: 'null' },
+          { op: 'cmp', field: 'a', cmp: 'notnull' },
+        ],
+        [cmp('a', 1), { op: 'cmp', field: 'a', cmp: 'eq', value: 1, extra: true } as ResourceFilter],
+        [
+          { op: 'native:x', args: { a: 1 } },
+          { op: 'native:y', args: { a: 1 } },
+        ],
+        [
+          { op: 'native:x', args: { a: 1 } },
+          { op: 'native:x', args: { a: '1' } },
+        ],
+        [
+          { op: 'native:x', args: [1, 2] },
+          { op: 'native:x', args: { 0: 1, 1: 2 } },
+        ],
+        [
+          { op: 'relation', relation: 'owner' },
+          { op: 'relation', relation: 'editor' },
+        ],
+        [rawNot(a), rawNot(b)],
+        [rawNot(rawOr(a, b)), rawNot(rawAnd(a, b))],
+        [rawNot(rawOr(a, b)), rawNot(rawOr(b, a))],
+      ];
+      for (const [x, y] of pairs) {
+        expect(simplify(rawAnd(x, y)), JSON.stringify([x, y])).to.deep.eq(rawAnd(simplify(x), simplify(y)));
+        expect(simplify(rawOr(y, x)), JSON.stringify([y, x])).to.deep.eq(rawOr(simplify(y), simplify(x)));
+      }
+    });
+
     it('never dedupes native nodes with unserialisable args by structure, and never throws', () => {
       const cyclic: Record<string, unknown> = { k: 1 };
       cyclic.self = cyclic;
@@ -232,6 +335,36 @@ describe('filter contracts', () => {
       expect(() => simplify(rawAnd(...nodes))).to.not.throw();
       expect(simplify(rawAnd(...nodes))).to.deep.eq(rawAnd(...nodes));
       expect(simplify(rawOr(nodes[0], nodes[0], nodes[2], nodes[2]))).to.deep.eq(rawOr(nodes[0], nodes[2]));
+    });
+
+    it('treats native args with a throwing getter or proxy as unserialisable', () => {
+      const getter = (): unknown =>
+        Object.defineProperty({}, 'boom', {
+          enumerable: true,
+          get() {
+            throw new Error('getter');
+          },
+        });
+      const trap = (): unknown =>
+        new Proxy(
+          {},
+          {
+            ownKeys() {
+              throw new Error('trap');
+            },
+            getPrototypeOf() {
+              throw new Error('trap');
+            },
+          },
+        );
+      const g1: ResourceFilter = { op: 'native:x', args: getter() };
+      const g2: ResourceFilter = { op: 'native:x', args: getter() };
+      const p1: ResourceFilter = { op: 'native:x', args: trap() };
+      const p2: ResourceFilter = { op: 'native:x', args: trap() };
+
+      expect(() => simplify(rawAnd(g1, g2, p1, p2, g1, p1))).to.not.throw();
+      const out = simplify(rawAnd(g1, g2, p1, p2, g1, p1));
+      expect(out.op === 'and' && out.args).to.have.ordered.members([g1, g2, p1, p2]);
     });
 
     it('folds trivial leaves', () => {
@@ -289,6 +422,52 @@ describe('filter contracts', () => {
         }),
       );
     });
+
+    it('preserves the Kleene truth table over 6 leaves that differ in op, value type, field or kind (property)', () => {
+      const scenario = fc
+        .shuffledSubarray(CONFUSABLE_PAIRS, { minLength: FIELDS.length / 2, maxLength: FIELDS.length / 2 })
+        .map((pairs) => pairs.flat())
+        .chain((pool) => {
+          const leaf = fc.tuple(fc.nat({ max: pool.length - 1 }), fc.boolean()).map(([i, copy]) => (copy ? (reversedCopy(pool[i]) as ResourceFilter) : pool[i]));
+          // A junction at the root puts confusable leaves side by side more often.
+          const root = fc.tuple(fc.constantFrom<'and' | 'or'>('and', 'or'), fc.array(treeOf(leaf), { minLength: 2, maxLength: 6 })).map(([op, args]): ResourceFilter => ({ op, args }));
+          return root.map((tree) => ({ pool, tree }));
+        });
+
+      fc.assert(
+        fc.property(scenario, ({ pool, tree }) => {
+          expect(poolTable(simplify(tree), pool)).to.deep.eq(poolTable(tree, pool));
+        }),
+        { numRuns: 1000 },
+      );
+    });
+  });
+
+  describe('cost', () => {
+    const DEPTH = 2000;
+    const atom = (i: number) => cmp(`f${i}`, i);
+
+    it(`simplifies a ${DEPTH}-deep alternating and/or chain fast`, () => {
+      let f = atom(0);
+      for (let i = 1; i < DEPTH; i++) f = { op: i % 2 ? 'and' : 'or', args: [f, atom(i), atom(i - 1)] };
+      const start = performance.now();
+      const out = simplify(f);
+      expect(performance.now() - start).to.be.below(500);
+      expect(simplify(out)).to.eq(out);
+    });
+
+    it(`grows trees through ${DEPTH} successive constructor calls fast`, () => {
+      let start = performance.now();
+      let flat = atom(0);
+      for (let i = 1; i < DEPTH; i++) flat = and(flat, atom(i));
+      expect(performance.now() - start).to.be.below(500);
+      expect(flat.op === 'and' && flat.args).to.have.length(DEPTH);
+
+      start = performance.now();
+      let nested = atom(0);
+      for (let i = 1; i < DEPTH; i++) nested = i % 2 ? and(nested, atom(i)) : or(nested, atom(i));
+      expect(performance.now() - start).to.be.below(500);
+    });
   });
 
   describe('constructors', () => {
@@ -342,8 +521,22 @@ describe('filter contracts', () => {
       expect(bindRefs(cmp('expires', ref('env.now'), 'gt'), scope)).to.deep.eq(cmp('expires', '2026-10-02T12:00:00.000Z', 'gt'));
     });
 
-    it('binds null as null', () => {
-      expect(bindRefs(cmp('n', ref('principal.attributes.nul')), scope)).to.deep.eq(cmp('n', null));
+    it('counts a null result as missing, never binding null', () => {
+      expect(bindRefs(cmp('n', ref('principal.attributes.nul')), scope)).to.eq(FALSE);
+      expect(bindRefs(rawNot(cmp('n', ref('principal.attributes.nul'), 'ne')), scope)).to.eq(FALSE);
+    });
+
+    it('fails closed on an array value holding anything but strings and finite numbers', () => {
+      const refIn = cmp('g', [ref('principal.id')] as unknown as Value, 'in');
+      const refNin = cmp('g', ['x', ref('principal.attributes.pool')] as unknown as Value, 'nin');
+      expect(bindRefs(refIn, scope)).to.eq(FALSE);
+      expect(bindRefs(rawNot(refNin), scope)).to.eq(FALSE);
+      expect(bindRefs(rawNot(rawNot(refNin)), scope)).to.eq(FALSE);
+      expect(bindRefs(rawOr(a, refIn), scope)).to.eq(a);
+      for (const bad of [[null], [true], ['a', NaN], [1, Infinity], [['a']]]) {
+        expect(bindRefs(cmp('g', bad as unknown as Value, 'in'), scope), JSON.stringify(bad)).to.eq(FALSE);
+      }
+      expect(bindRefs(cmp('g', ['a', 1], 'in'), scope)).to.deep.eq(cmp('g', ['a', 1], 'in'));
     });
 
     it('fails closed on a missing ref: FALSE under an even number of nots, TRUE under an odd number', () => {
@@ -387,7 +580,7 @@ describe('filter contracts', () => {
       expect(principal.attributes.groups).to.deep.eq(['g1', 'g2']);
     });
 
-    const RESOLVABLE_REFS = ['principal.id', 'principal.type', 'principal.attributes.pool', 'principal.attributes.groups', 'principal.attributes.nul', 'principal.authn.method', 'env.now', 'env.region', 'env.limit'];
+    const RESOLVABLE_REFS = ['principal.id', 'principal.type', 'principal.attributes.pool', 'principal.attributes.groups', 'principal.authn.method', 'env.now', 'env.region', 'env.limit'];
     const OTHER_REFS = ['actor.type', 'scope.org.policies.public_links'];
     const refLeaf: fc.Arbitrary<ResourceFilter> = fc.tuple(fc.constantFrom(...RESOLVABLE_REFS, ...MISSING_REFS, ...OTHER_REFS), fc.constantFrom<CmpOp>('eq', 'ne', 'in', 'lt')).map(([r, op]) => cmp('x', ref(r), op));
 
