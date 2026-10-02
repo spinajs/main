@@ -1,6 +1,7 @@
 import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
 import { DEFAULT_RETRYABLE, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, WIRE_EVENTS, isErrorCode, isSocketError, type DisconnectNotice, type ErrorCode, type EventFrame, type Handshake, type ShutdownNotice, type SocketError } from '@spinajs/http-socket-common';
 import { Emitter } from './emitter.js';
+import { assertTimeoutMs } from './timeout.js';
 import { ReconnectPolicy, type ReconnectOptions } from './reconnect.js';
 
 export type ConnectionState = 'connecting' | 'online' | 'offline' | 'closed';
@@ -63,7 +64,7 @@ export class Connection {
     }
     this.events = new Emitter<ConnectionEvents>(options.onListenerError);
     this.policy = new ReconnectPolicy(options.reconnect);
-    this.connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+    this.connectTimeoutMs = assertTimeoutMs('connectTimeoutMs', options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
     this.socket = io(options.url, {
       ...options.io,
       ...(options.path !== undefined ? { path: options.path } : {}),

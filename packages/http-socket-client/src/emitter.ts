@@ -39,7 +39,11 @@ export class Emitter<E extends ListenerMap<E>> {
       try {
         listener(...args);
       } catch (error) {
-        this.onListenerError(error);
+        try {
+          this.onListenerError(error);
+        } catch {
+          // a faulty error handler must not stop the remaining listeners or the emitting code path
+        }
       }
     }
   }

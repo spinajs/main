@@ -60,6 +60,8 @@ export class SocketClient {
   private readonly commands: CommandDispatcher;
   private readonly lifecycle: Emitter<ClientLifecycleEvents>;
   private readonly serverEvents: Emitter<ServerEvents>;
+  // set once the app calls connect(), disconnect() or close(), which then override autoConnect
+  private controlled = false;
 
   constructor(options: SocketClientOptions) {
     const onListenerError = options.onListenerError ?? rethrowAsync;
@@ -86,7 +88,12 @@ export class SocketClient {
       if (typeof frame?.name === 'string') this.serverEvents.emit(frame.name, frame.payload);
     });
 
-    if (options.autoConnect !== false) this.connect();
+    // a microtask, so listeners attached right after construction still see 'connecting'
+    if (options.autoConnect !== false) queueMicrotask(() => this.autoConnect());
+  }
+
+  private autoConnect(): void {
+    if (!this.controlled) this.connection.connect();
   }
 
   public get state(): ConnectionState {
@@ -94,16 +101,19 @@ export class SocketClient {
   }
 
   public connect(): void {
+    this.controlled = true;
     this.connection.connect();
   }
 
   /** Goes offline and stops reconnecting until connect(). */
   public disconnect(): void {
+    this.controlled = true;
     this.connection.disconnect();
   }
 
   /** Terminal: rejects pending commands and releases the socket. */
   public close(): void {
+    this.controlled = true;
     this.connection.close();
   }
 

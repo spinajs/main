@@ -1,5 +1,6 @@
 import { SocketException, WIRE_EVENTS, isSocketError, type CancelFrame, type CommandReply, type CommandRequest, type SocketError } from '@spinajs/http-socket-common';
 import type { Connection, ConnectionState } from './connection.js';
+import { assertTimeoutMs } from './timeout.js';
 
 export type WhenOffline = 'fail' | 'wait';
 
@@ -43,6 +44,7 @@ export class CommandDispatcher {
   private readonly inFlight = new Set<PendingCommand>();
 
   constructor(private readonly connection: Connection, private readonly defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS) {
+    assertTimeoutMs('defaultTimeoutMs', defaultTimeoutMs);
     connection.events.on('state', (state, previous) => this.onState(state, previous));
   }
 
@@ -57,6 +59,11 @@ export class CommandDispatcher {
     if (!this.connection.connected && (options.whenOffline ?? 'fail') === 'fail') return rejected(OFFLINE);
 
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
+    try {
+      assertTimeoutMs('timeoutMs', timeoutMs);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     const request: CommandRequest = { id: this.nextId(), name, payload };
     if (options.traceparent !== undefined) request.traceparent = options.traceparent;
     const signal = options.signal;
