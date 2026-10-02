@@ -35,7 +35,8 @@ const RESIDUALS: readonly FilterOp[] = Object.freeze(['true', 'false', 'and', 'o
 /**
  * A tiny role map, not RBAC: a role assigned at GLOBAL or at an ancestor of the resource permits
  * its grants. A type-level request answers synchronously with `under` over the assignment scopes
- * (TRUE for GLOBAL), which is what `sync: 'always'` claims; a concrete one reads ctx.ancestors.
+ * (TRUE for GLOBAL), which is what `sync: 'always'` claims (a claim about type-level requests, see
+ * runModelConformance); a concrete one reads ctx.ancestors.
  * The principal and its companions speak.
  */
 export class FakeRbacModel extends AuthorizationModel {

@@ -88,7 +88,10 @@ class DepthExceeded extends Error {}
  * `{ op: 'native:fake.tuple', args: { relation, principal } }`, answered per row by the NativeFilter
  * that init() registers, with the same walk. Cycles contribute nothing. When no proof lies within
  * maxDepth and the walk would go deeper, the vote is indeterminate (error, B04) and the native filter
- * answers false, so check and list agree; for the same reason never put this residual under `not`.
+ * answers false (never put this residual under `not`). Check and list then agree for this model's vote
+ * alone: combined with other models, design §7 reads the error as D = TRUE, so under deny-overrides or
+ * first-applicable the check refuses a row that another model's residual still lists. Keep graphs
+ * within maxDepth where models are combined (the `tupleGraph` arbitrary does).
  *
  * An adapter that serves the types this model routes must list FAKE_TUPLE_OP in `compiles`, e.g.
  * `compiles: [...CORE_FILTER_OPS, FAKE_TUPLE_OP]`: FakeAdapter's default (CORE_FILTER_OPS) leaves it

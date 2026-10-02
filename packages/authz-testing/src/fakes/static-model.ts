@@ -13,7 +13,10 @@ export type VoteFn = (req: DecisionRequest, ctx: EvaluationContext) => ScriptedV
 
 export interface StaticModelOptions {
   readonly name?: string;
-  /** Merged over: permit and deny effects, the core ops, sync 'always', no fields, no subject needed. */
+  /**
+   * Merged over: permit and deny effects, the core ops, no fields, no subject needed, and sync 'always'
+   * ('never' with a delay). A vote function that returns a promise needs `sync: 'never'` here.
+   */
   readonly capabilities?: Partial<ModelCapabilities>;
   /** Permission globs and types (both optional, AND), or a function. Default: every route. */
   readonly applies?: { readonly permissions?: readonly string[]; readonly types?: readonly ResourceType[] } | ((permission: PermissionDef, type: ResourceType) => boolean);
@@ -55,7 +58,7 @@ export class StaticModel extends AuthorizationModel {
     this.capabilities = {
       effects: ['permit', 'deny'],
       residuals: CORE_FILTER_OPS,
-      sync: 'always',
+      sync: opts.delayMs !== undefined && opts.delayMs > 0 ? 'never' : 'always',
       fields: false,
       needsSubject: false,
       ...(types ? { resourceTypes: types } : {}),
@@ -96,7 +99,7 @@ export class StaticModel extends AuthorizationModel {
     return this.route(permission, type);
   }
 
-  /** Synchronous unless a delay is set or the vote function returns a promise (so sync: 'always' holds by default). */
+  /** Synchronous unless a delay is set or the vote function returns a promise. */
   evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
     this.calls.push({ method: 'evaluate', args: [req, ctx] });
     const { delayMs } = this.opts;

@@ -21,7 +21,7 @@ describe('StaticModel', () => {
     expect(await m.evaluate(req('file:read', 'f1'), fakeEvaluationContext())).to.deep.eq({ model: 'static', permitWhen: FALSE, denyWhen: FALSE, cacheable: true });
   });
 
-  it('answers synchronously unless delayed or scripted with a promise (sync: always holds)', () => {
+  it('answers synchronously unless delayed or scripted with a promise', () => {
     expect(new StaticModel().evaluate(req('file:read'), fakeEvaluationContext())).to.not.be.instanceOf(Promise);
     expect(new StaticModel({ votes: async () => ({}) }).evaluate(req('file:read'), fakeEvaluationContext())).to.be.instanceOf(Promise);
   });
@@ -122,6 +122,13 @@ describe('StaticModel', () => {
 
     m.respond({ 'file:read': { permitWhen: TRUE } });
     expect(((await m.evaluate(req('file:read', 'f1'), ctx)) as Vote).permitWhen).to.eq(TRUE);
+  });
+
+  it('a delayed model claims sync: never, so the claim stays honest', () => {
+    expect(new StaticModel({ delayMs: 30 }).capabilities.sync).to.eq('never');
+    expect(new StaticModel({ delayMs: Infinity }).capabilities.sync).to.eq('never');
+    expect(new StaticModel({ delayMs: 0 }).capabilities.sync).to.eq('always');
+    expect(new StaticModel({ delayMs: 30, capabilities: { sync: 'after-preload' } }).capabilities.sync).to.eq('after-preload');
   });
 
   it('capabilities can be overridden', () => {

@@ -155,6 +155,35 @@ describe('FakeTupleModel', () => {
     expect(reads).to.be.at.most(3 + layers * width + 1);
   });
 
+  it('finds a proof at exactly maxDepth although a node earlier in the same level would go deeper', async () => {
+    const store = new FakeTupleStore();
+    // Level 2 holds g1#member (whose userset reaches depth 3) before d0#viewer (the proof); depth-first fails here.
+    await store.write(
+      [
+        tuple(folder('d1'), 'parent', folder('d0')),
+        tuple(folder('d1'), 'viewer', { object: group('g1'), relation: 'member' }),
+        tuple(group('g1'), 'member', { object: group('g2'), relation: 'member' }),
+        tuple(group('g2'), 'member', u('zed')),
+        tuple(folder('d0'), 'viewer', u('bob')),
+      ],
+      [],
+      actor,
+    );
+    const m = new FakeTupleModel({ store, schema, permissions, maxDepth: 2 });
+    expect(await permit(m, 'bob', 'folder:read', folder('d1'))).to.eq(TRUE);
+    expect(((await m.evaluate(req('zed', 'folder:read', folder('d1')), fakeEvaluationContext())) as Vote).error).to.match(/depth/);
+  });
+
+  it('finds a short proof beside a chain longer than maxDepth, whatever the term order', async () => {
+    const arrowFirst: FakeTupleSchema = { folder: { relations: { parent: 'folder', owner: 'user' }, permissions: { view: 'parent->view | owner' } } };
+    const store = new FakeTupleStore();
+    const chain: Tuple[] = [tuple(folder('c12'), 'owner', u('bob'))];
+    for (let i = 1; i <= 12; i++) chain.push(tuple(folder(`c${i}`), 'parent', folder(`c${i - 1}`)));
+    await store.write(chain, [], actor);
+    const m = new FakeTupleModel({ store, schema: arrowFirst, permissions: { 'folder:read': 'folder#view' }, maxDepth: 3 });
+    expect(await permit(m, 'bob', 'folder:read', folder('c12'))).to.eq(TRUE);
+  });
+
   it('a type-level request yields the native residual', async () => {
     const m = new FakeTupleModel({ store: await seeded(), schema, permissions });
     expect(await permit(m, 'bob', 'file:read', { type: 'file' })).to.deep.eq({ op: FAKE_TUPLE_OP, args: { relation: 'view', principal: u('bob') } });
