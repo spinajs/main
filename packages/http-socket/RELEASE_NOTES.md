@@ -39,7 +39,7 @@ The v2 API is gone. No package in the repo used it.
 ### Handshake, ids and names
 
 - `auth.protocol` must be `1` (`version_mismatch` otherwise) and `auth.clientId` must be 1 to 128 characters (`invalid_argument` otherwise). The refusal message echoes the client's protocol only when it is a number.
-- Ids must be printable ASCII (0x21-0x7E): a command or cancel id outside it is answered `invalid_argument` "malformed command request", and such a `clientId` refuses the handshake with `invalid_argument`. Ids end up in log lines.
+- Ids must be printable ASCII (0x21-0x7E): a command id outside it is answered `invalid_argument` "malformed command request", a cancel id outside it is dropped, and such a `clientId` refuses the handshake with `invalid_argument`. Ids end up in log lines.
 - Origin rules: a cross-origin handshake is refused unless its origin is listed in `http.socket.cors.origins`. `Origin: null` (sandboxed frames, `file:`) is refused. JSONP polling (`j=` parameter) and no-Origin requests marked `Sec-Fetch-Site: cross-site|same-site` are refused. An https page may reach a plain-http server on the same host:port (a TLS-terminating proxy that keeps `Host`); the reverse never.
 - A handler whose command or event name fails `NAME_PATTERN` or `MAX_NAME_LENGTH` (128) is refused at startup. Incoming names are checked with the same rule.
 
@@ -99,9 +99,10 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - **Rate limit.** Every `cmd` frame takes a token from the connection's bucket when it arrives, including frames without an ack, malformed frames and duplicate ids. A refused frame without an ack is dropped silently. Ack-less frames are logged with one warn per connection per 10 s, the rest at debug.
 - **Ordering.** `ordered: 'client'` queues are keyed by the principal (`principalKey`) and the `clientId`, so another principal sending the same `clientId` never waits on that queue.
 - **Shutdown.** `dispose()` aborts running commands with `unavailable` at once and closes the connections. The drain (`sys.shutdown`, `drainMs`) comes with W3.
-- **Connection state recovery.** A recovered connection keeps its socket id. Its disconnect hooks ran at the drop, and its connect hooks run again on recovery with the same id. A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes.
+- **Connection state recovery.** A recovered connection keeps its socket id. Its disconnect hooks ran at the drop, and its connect hooks run again on recovery with the same id. A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes. The restore filter wraps socket.io 4.8 internals (`adapter.restoreSession`, `Namespace._initAdapter`): `test/recovery.test.ts` must pass before any socket.io upgrade.
 
 ## Notes for W3 (resilience)
 
 - `sys.shutdown` must be sent through `SocketConnection.notify()` or a raw `io.emit`. `SocketHub` pushes refuse `sys.*` names.
 - Idempotency must key independently of the running map: the dispatcher's per-connection running map is by request id and is not a dedupe store.
+- Idempotency keys must be `(principalKey, clientId, key)`, for the same reason as the ordering key: a `clientId` is not a secret, and a replayed reply must never reach another principal.
