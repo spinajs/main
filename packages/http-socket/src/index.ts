@@ -8,3 +8,6 @@ export * from './hub.js';
 export * from './host.js';
 export * from './server.js';
 export * from './authn-source.js';
+export * from './controller.js';
+export * from './args.js';
+export * from './decorators.js';

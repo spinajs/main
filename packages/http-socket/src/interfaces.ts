@@ -2,6 +2,11 @@ import type { IncomingHttpHeaders, Server as HttpNodeServer } from 'http';
 import type { Server as HttpsNodeServer } from 'https';
 import { principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
+import type { Class } from '@spinajs/di';
+import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
+import type { Decision, IAuthnPrincipalStorage } from '@spinajs/authz';
+import type { SocketConnection } from './connection.js';
+import type { BaseSocketController } from './controller.js';
 
 export interface ISocketRateConfig {
   perSecond: number;
@@ -95,4 +100,89 @@ export interface ISocketAuthState {
 /** Supplies the node http(s) server socket.io attaches to. */
 export abstract class SocketHttpHost {
   public abstract server(): Promise<HttpNodeServer | HttpsNodeServer>;
+}
+
+export const SOCKET_CONTROLLER_DESCRIPTOR = Symbol('SOCKET_CONTROLLER_DESCRIPTOR');
+
+export type SocketHandlerKind = 'unknown' | 'command' | 'event' | 'connect' | 'disconnect';
+
+export interface ICommandOptions {
+  /** ajv schema for the payload; wins over the `@Payload` schema and the DTO's `@Schema` */
+  schema?: object;
+  /** server-side deadline; the earlier of this and the client's `deadline` applies */
+  timeoutMs?: number;
+  /** W3: replay by `(clientId, idempotencyKey)` */
+  idempotent?: boolean;
+  /** serial queue per connection, or per clientId across reconnects */
+  ordered?: 'connection' | 'client';
+}
+
+export interface IEventOptions {
+  schema?: object;
+}
+
+export interface ISocketParameter {
+  Index: number;
+  /** extractor resolved from DI */
+  Type: Class<SocketArg>;
+  /** design:paramtypes entry */
+  RuntimeType: unknown;
+  Schema: object | null;
+  Options?: unknown;
+}
+
+export interface ISocketHandlerDescriptor {
+  /** 'unknown' until a handler decorator runs; registration refuses it */
+  Kind: SocketHandlerKind;
+  Method: string | symbol;
+  /** name without the controller prefix */
+  Name: string;
+  Options: ICommandOptions;
+  Parameters: Map<number, ISocketParameter>;
+  /** one group per @SocketPolicy call: AND inside a group, OR across groups */
+  Policies: IPolicyGroup[];
+}
+
+export interface ISocketControllerDescriptor {
+  Prefix: string | null;
+  Policies: IPolicyGroup[];
+  Handlers: Map<string | symbol, ISocketHandlerDescriptor>;
+}
+
+export interface IRegisteredHandler {
+  /** prefix + '.' + name */
+  readonly fullName: string;
+  readonly controller: BaseSocketController;
+  readonly descriptor: ISocketHandlerDescriptor;
+  readonly policies: IResolvedRoutePolicies;
+}
+
+/**
+ * The AsyncLocalStorage store of one call ( D14 ). `Principal` is the key authz-v3's
+ * `AuthzService.current()` reads ( F4 `IAuthzAsyncStorage`, as http's `req.storage.Principal` );
+ * `AuthnPrincipal` is authn's hand-off key: the principal when a source resolved it, else null.
+ */
+export interface ISocketCallStorage extends IAuthnPrincipalStorage {
+  Principal: Principal;
+  /** written by SocketAccessPolicy, as authz-http's AccessPolicy writes req.storage.AuthzDecision */
+  AuthzDecision?: Decision;
+  [key: string]: unknown;
+}
+
+/** What argument extractors, policies and hooks see of one call. */
+export interface ISocketCallContext {
+  readonly kind: SocketHandlerKind;
+  readonly connection: SocketConnection;
+  handler?: IRegisteredHandler;
+  readonly payload: unknown;
+  readonly signal: AbortSignal;
+  /** disconnect reason, for @OnDisconnect hooks */
+  readonly reason?: string;
+  /** ambient AsyncLocalStorage store of the call */
+  readonly storage: ISocketCallStorage;
+}
+
+/** Extracts one handler argument. Implementations are resolved from DI by class. */
+export abstract class SocketArg {
+  public abstract extract(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown>;
 }
