@@ -6,7 +6,8 @@ function notImplemented(name: string, ..._args: unknown[]): Error {
   return new Error(`@spinajs/authz-fs: ${name} is not implemented yet`);
 }
 
-// Mirrors the hook lane L7 adds to @spinajs/fs.
+// Mirrors the hook lane L7 adds to @spinajs/fs; L7 replaces it with a re-export from there, a contract change that needs
+// the integrator's approval at G1 or an RFC.
 export abstract class FsDecorator {
   abstract readonly order: number;
   abstract decorate(instance: fs, config: IProviderConfiguration): fs;

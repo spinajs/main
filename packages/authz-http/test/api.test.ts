@@ -69,6 +69,8 @@ const yes = <_T extends true>(): void => {};
 describe('authz-http pinned shapes', () => {
   it('match the design exactly', () => {
     yes<Equal<Shape<PrincipalSource>, { readonly name: string; readonly order: number; authenticate(req: Request): Promise<Principal | null> }>>();
+    yes<Equal<LinkPrincipalSource['name'], 'link'>>();
+    yes<Equal<LinkPrincipalSource['order'], 110>>();
     yes<Equal<AccessOptions, { resource?: ResourceExtractor; also?: readonly Class<BasePolicy>[]; domain?: string; subject?: 'load' | 'none'; fields?: 'filter' | 'none' }>>();
     yes<Equal<ResourceExtractor, (req: Request) => ResourceRef | object | Promise<ResourceRef | object>>>();
     yes<Equal<typeof Access, (permission: Permission | readonly Permission[], opts?: AccessOptions) => ClassDecorator & MethodDecorator>>();

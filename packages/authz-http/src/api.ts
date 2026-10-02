@@ -15,15 +15,15 @@ export abstract class PrincipalSource {
 }
 
 export class LinkPrincipalSource extends PrincipalSource {
-  readonly name = 'link';
-  readonly order = 110;
+  readonly name = 'link' as const;
+  readonly order = 110 as const;
 
   authenticate(req: Request): Promise<Principal | null> {
     throw notImplemented('LinkPrincipalSource.authenticate', req);
   }
 }
 
-// returns the request's principal; route-arg decorator in the style of @spinajs/http's Req()
+// returns the request's principal
 export function CurrentPrincipal(): (target: any, propertyKey?: string | symbol, indexOrDescriptor?: number | PropertyDescriptor) => void {
   throw notImplemented('CurrentPrincipal');
 }
