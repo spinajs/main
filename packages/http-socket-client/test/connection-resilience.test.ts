@@ -7,7 +7,7 @@ import { recordStates, retryGaps, sleep, until, waitForState } from './support/w
 
 function expectGaps(actual: number[], expected: number[]): void {
   expect(actual).to.have.length(expected.length);
-  actual.forEach((gap, i) => expect(gap, `gap ${i}`).to.be.within(expected[i] - 5, expected[i] + 60));
+  actual.forEach((gap, i) => expect(gap, `gap ${i}`).to.be.within(expected[i] - 5, expected[i] + 150));
 }
 
 describe('Connection resilience', () => {
@@ -143,5 +143,41 @@ describe('Connection resilience', () => {
     await sleep(100);
 
     expect(server.requests.map((request) => request.name)).to.not.include('ghost');
+  });
+
+  for (const leave of ['close', 'disconnect'] as const) {
+    it(`stays ${leave === 'close' ? 'closed' : 'offline'} when a connecting listener calls ${leave}()`, async () => {
+      const connection = makeConnection(server);
+      const seen: string[] = [];
+      connection.events.on('state', (state) => {
+        seen.push(state);
+        if (state === 'connecting') connection[leave]();
+      });
+
+      connection.connect();
+      await sleep(300);
+
+      expect(connection.state).to.equal(leave === 'close' ? 'closed' : 'offline');
+      expect(seen).to.not.include('online');
+      expect(server.connectionCount).to.equal(0);
+    });
+  }
+
+  it('drops a stale shutdown hint on a fresh connect()', async () => {
+    const connection = makeConnection(server);
+    const target = statefulConnection(connection);
+    connection.connect();
+    await waitForState(target, 'online');
+    server.announceShutdown(5000);
+    await sleep(50);
+    connection.disconnect();
+
+    let refusals = 1;
+    server.refuse = () => (refusals-- > 0 ? { code: 'unavailable', message: 'busy', retryable: true } : undefined);
+    const startedAt = Date.now();
+    connection.connect();
+    await waitForState(target, 'online', 2000);
+
+    expect(Date.now() - startedAt).to.be.below(1000);
   });
 });

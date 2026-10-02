@@ -5,6 +5,9 @@ export interface ReconnectOptions {
   jitter: number;
 }
 
+/** Ceiling for a server-provided retry hint, independent of the backoff ceiling. */
+export const MAX_SERVER_HINT_MS = 300_000;
+
 export const DEFAULT_RECONNECT: Readonly<ReconnectOptions> = Object.freeze({ minMs: 500, maxMs: 30_000, jitter: 0.3 });
 
 export class ReconnectPolicy {
@@ -30,7 +33,7 @@ export class ReconnectPolicy {
     const backoff = Math.round(exponential * (1 - jitter * this.random()));
     if (retryAfterMs === undefined || !Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return backoff;
     // a hostile or buggy server must not park the client for days
-    const hinted = Math.min(Math.round(retryAfterMs * (1 + jitter * this.random())), maxMs * 10);
+    const hinted = Math.min(Math.round(retryAfterMs * (1 + jitter * this.random())), MAX_SERVER_HINT_MS);
     return Math.max(backoff, hinted);
   }
 }

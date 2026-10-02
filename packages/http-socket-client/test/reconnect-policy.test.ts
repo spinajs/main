@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DEFAULT_RECONNECT, ReconnectPolicy } from '../src/reconnect.js';
+import { DEFAULT_RECONNECT, MAX_SERVER_HINT_MS, ReconnectPolicy } from '../src/reconnect.js';
 
 const fixed = (value: number) => (): number => value;
 
@@ -35,9 +35,13 @@ describe('ReconnectPolicy', () => {
     for (const hint of [NaN, Infinity, -Infinity, 0, -5]) expect(policy.delay(0, hint), String(hint)).to.equal(500);
   });
 
-  it('caps a finite hint at ten times maxMs', () => {
-    expect(new ReconnectPolicy({}, fixed(0)).delay(0, 1e12)).to.equal(300_000);
-    expect(new ReconnectPolicy({}, fixed(1)).delay(0, 1e12)).to.equal(300_000);
+  it('caps a finite hint at MAX_SERVER_HINT_MS regardless of maxMs', () => {
+    expect(MAX_SERVER_HINT_MS).to.equal(300_000);
+    for (const maxMs of [100, 30_000]) {
+      expect(new ReconnectPolicy({ minMs: 0, maxMs }, fixed(0)).delay(0, 1e12)).to.equal(MAX_SERVER_HINT_MS);
+      expect(new ReconnectPolicy({ minMs: 0, maxMs }, fixed(1)).delay(0, 1e12)).to.equal(MAX_SERVER_HINT_MS);
+    }
+    expect(new ReconnectPolicy({ minMs: 0, maxMs: 100 }, fixed(0)).delay(0, 5000)).to.equal(5000);
   });
 
   it('never yields NaN for minMs 0 and a huge attempt', () => {

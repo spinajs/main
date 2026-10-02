@@ -93,6 +93,7 @@ export class Connection {
   public connect(): void {
     if (this.current === 'closed') throw new Error('the client is closed');
     this.stopped = false;
+    this.retryAfterMs = undefined;
     if (this.current !== 'offline') return;
     this.attempt = 0;
     this.clearTimers();
@@ -135,6 +136,8 @@ export class Connection {
   private open(): void {
     this.attemptId++;
     this.setState('connecting');
+    // a state listener may have closed or stopped the connection
+    if (this.current !== 'connecting' || this.stopped) return;
     this.connectTimer = setTimeout(() => this.onConnectTimeout(), this.connectTimeoutMs);
     this.socket.connect();
   }
@@ -158,6 +161,10 @@ export class Connection {
   }
 
   private onConnect(): void {
+    if (this.stopped || this.current === 'closed') {
+      this.socket.disconnect();
+      return;
+    }
     this.clearTimers();
     this.attempt = 0;
     this.retryAfterMs = undefined;
