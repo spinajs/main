@@ -12,6 +12,8 @@ import { ladderExtension } from './ladder/extension.js';
 import { addImplied, impliesExtension } from './ladder/implies.js';
 import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
+import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
+import type { SetMemberships } from './sets/resolver.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
 import { isTypeLevel, patternsFilter } from './patterns.js';
@@ -80,6 +82,8 @@ export interface RbacInput {
   readonly ladders?: LadderIndex;
   /** What each role implies (RbacExtension.tables); absent: no role implies another. */
   readonly implies?: ImpliesIndex;
+  /** The sets the principal joined through its own assignments (SetsExtension), by subjectKey. */
+  readonly memberships?: SetMemberships;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -254,7 +258,7 @@ function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceF
     return {
       op: RBAC_ASSIGNMENT_OP,
       args: rbacAssignmentArgs(
-        s.input.subjects ?? defaultSubjects(s.input.request.principal),
+        usableSubjects(s) ?? defaultSubjects(s.input.request.principal),
         holders.map((h) => h.assignment.role),
       ),
     };
@@ -279,6 +283,7 @@ function mayBeAssignedAt(roles: RoleGraph, role: string, type: ResourceType): bo
 export const RBAC_STEPS: RbacSteps = Object.freeze({
   collect: (s: RbacState) => {
     collect(s);
+    applyMemberships(s);
     addImplied(s);
     rankAssignments(s);
   },
@@ -503,7 +508,7 @@ export interface RbacExtension {
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
 /** One factory per extension, so every model gets its own instances. */
-export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension, impliesExtension]);
+export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension, impliesExtension, setsExtension]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */
 export function createRbacExtensions(opts: RbacModelOptions, factories: readonly RbacExtensionFactory[] = DEFAULT_RBAC_EXTENSIONS): readonly RbacExtension[] {

@@ -42,6 +42,8 @@ export class RbacService {
    * The wanted roles count with the roles they imply (at any `at`). Role names held everywhere
    * count with what they imply at 'self-and-descendants' (held wherever the wanted role is handed
    * out); a principal's names already hold the implied roles live at `at`, after its ceiling.
+   * Subject sets are not judged: a subjectSet role without grants of its own is covered by anyone,
+   * although its holders receive what is assigned to the set.
    * Conditions compare as role definitions, not as resolved rows: `home/{principal.id}` and `owner`
    * cover themselves, although the assignee gets its own home and its own rows, not the actor's. That
    * is "an actor may hand out its own role". So an unconditional grant covers a conditional one and

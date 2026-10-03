@@ -12,3 +12,4 @@ export * from './model.js';
 export * from './contributor.js';
 export * from './service.js';
 export * from './ladder/index.js';
+export * from './sets/index.js';

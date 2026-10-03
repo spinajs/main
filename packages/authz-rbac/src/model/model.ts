@@ -3,18 +3,19 @@ import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext,
 
 import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS } from './cache.js';
-import { RBAC_SUMMARY_STEPS, createRbacExtensions, defaultSubjects, extendRbacInput, liveAssignments, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
+import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
 import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
+import { RbacSubjectResolver, groupPrincipalConfig } from './sets/resolver.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
 export interface RbacModelOptions {
   readonly roles: RoleStore;
   readonly assignments: AssignmentStore;
-  /** Default: the principal and its companions. */
+  /** Default: RbacSubjectResolver (principal, companions, group member set, subject sets), with `authz.rbac.groupPrincipal`. */
   readonly subjects?: SubjectResolver;
   readonly rules?: RuleStore;
   readonly links?: LinkStore;
@@ -67,6 +68,7 @@ export class RbacModel extends AuthorizationModel {
   private lastRoleCheck = 0;
   /** A reload or version check failed and none has succeeded since. */
   private rolesBroken = false;
+  private defaultResolver?: RbacSubjectResolver;
 
   constructor(private readonly opts: RbacModelOptions) {
     super();
@@ -90,6 +92,7 @@ export class RbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     for (const ext of this.extensions) await ext.init?.(ctx);
+    if (!this.opts.subjects) this.defaultResolver = new RbacSubjectResolver({ groupPrincipal: groupPrincipalConfig(ctx) });
     const version = await this.opts.roles.version();
     const { roles, ladders } = await this.opts.roles.load();
     const graph = compileRoles(roles, ladders, { extraEdges: this.extraEdges() });
@@ -213,18 +216,23 @@ export class RbacModel extends AuthorizationModel {
     if (this.rolesFreshAt < this.roleMarks) throw new AuthzConfigError('rbac: the role definitions are stale and not reloaded yet; preload the principal or run a check first');
     const loaded = this.state();
     const sources = this.sources();
-    const subjects = this.opts.subjects ? this.opts.subjects.subjects(principal) : defaultSubjects(principal);
+    const subjects = this.resolver().subjects(principal);
     if (isThenable(subjects)) {
       Promise.resolve(subjects).catch(() => undefined);
       throw new AuthzConfigError('rbac: the subject resolver needs IO; covers of a principal needs subjects it can answer at once');
     }
     const now = ctx?.now ?? this.clock().now();
-    const rows = loaded.assignments.peek(subjects as readonly AssignmentSubject[], now, ctx);
-    if (rows === undefined) throw new AuthzConfigError(`rbac: the assignments of ${principal.type}:${principal.id} are not preloaded (or their cache entry expired); preload the principal first`);
+    const peek = (list: readonly AssignmentSubject[]) => {
+      const rows = loaded.assignments.peek(list, now, ctx);
+      if (rows === undefined) throw new AuthzConfigError(`rbac: the assignments of ${principal.type}:${principal.id} are not preloaded (or their cache entry expired); preload the principal first`);
+      return rows;
+    };
+    const rows = peek(subjects as readonly AssignmentSubject[]);
     const request: DecisionRequest = { principal, permission: ROLES_PROBE, resource: at };
     const path = at.id == null ? (resourcePath(at, NO_CONTEXT) as readonly ResourceRef[]) : [at, GLOBAL];
     const base: RbacInput = { request, now, path, subjects: subjects as readonly AssignmentSubject[], assignments: [...rows, ...configAssignments(loaded, subjects as readonly AssignmentSubject[])], roles: sources.roles, grants: sources.grants, ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}), ...(sources.onRefusedAssignment ? { onRefusedAssignment: sources.onRefusedAssignment } : {}) };
-    const input = extendRbacInput(request, NO_CONTEXT, sources, base);
+    // Subject sets read their rows through `load`: from the cache here, never the store.
+    const input = extendRbacInput(request, NO_CONTEXT, { ...sources, load: peek }, base);
     if (input instanceof Promise) {
       input.catch(() => undefined);
       throw new AuthzConfigError("rbac: an extension's gather needs IO; covers of a principal cannot answer at once");
@@ -248,7 +256,7 @@ export class RbacModel extends AuthorizationModel {
       roles: loaded.graph,
       grants: this.grantIndex(),
       assignments: this.opts.assignments,
-      subjects: this.opts.subjects,
+      subjects: this.resolver(),
       rules: this.opts.rules,
       links: this.opts.links,
       extensions: this.extensions,
@@ -262,15 +270,15 @@ export class RbacModel extends AuthorizationModel {
   /**
    * Reloads stale roles (and checks the role store version every `cache.rolesCheckSeconds`), then
    * loads the assignments of the principal's subjects into the request (ctx.cache) and across
-   * requests (per subject, TTL).
+   * requests (per subject, TTL): through the gathering phase, so the subject sets the extensions
+   * add are loaded too (one store read for the principal and its companions, one for its sets).
    */
   async preload(principal: Principal, ctx: EvaluationContext): Promise<void> {
     const { rolesCheckMs } = this.state();
     const now = this.clock().now().getTime();
     if (rolesCheckMs > 0 && (now - this.lastRoleCheck >= rolesCheckMs || now < this.lastRoleCheck)) await this.checkRoleVersion();
     await this.ensureRoles();
-    const subjects = this.opts.subjects ? await this.opts.subjects.subjects(principal) : defaultSubjects(principal);
-    await this.state().assignments.read(subjects, ctx);
+    await readRbacInput({ principal, permission: ROLES_PROBE, resource: GLOBAL }, ctx, this.sources());
   }
 
   /**
@@ -369,6 +377,11 @@ export class RbacModel extends AuthorizationModel {
     });
     this.checking = run;
     return run;
+  }
+
+  /** The SubjectResolver of the options, else the RbacSubjectResolver built at init. */
+  private resolver(): SubjectResolver {
+    return this.opts.subjects ?? this.defaultResolver ?? new RbacSubjectResolver();
   }
 
   private clock(): { now(): Date } {

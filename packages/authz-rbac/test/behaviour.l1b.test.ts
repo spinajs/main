@@ -12,4 +12,4 @@ const fixtures = BEHAVIOUR_FIXTURES.map((f): BehaviourFixture | FixtureExtension
   return { ...f, parts: f.parts.map((p) => (p.name !== 'ladders' ? p : { ...p, cases: p.cases.map((c) => ({ ...c, steps: c.steps.filter((s) => !TAG_STEP.test(JSON.stringify(s))) })) })) };
 });
 
-runBehaviour(['B05.ladders', 'B12.implies', 'B31.ladders', 'B32.ladders'], () => rbacHarness({ facets: ['ladders'] }), { strict: true, timeoutMs: 30_000, fixtures });
+runBehaviour(['B05.ladders', 'B12.implies', 'B31.ladders', 'B32.ladders', 'B33'], () => rbacHarness({ facets: ['ladders'] }), { strict: true, timeoutMs: 30_000, fixtures });
