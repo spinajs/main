@@ -75,8 +75,8 @@ export class DocsSocket extends BaseSocketController {
   }
 
   @OnEvent('cursor')
-  public async cursor(@Payload() at: { x: number; y: number }, @Connection() conn: SocketConnection) {
-    this.Hub.to('docs:cursors').emit('docs.cursor', { by: conn.id, at });
+  public async cursor(@Payload() at: { doc: string; x: number; y: number }, @Connection() conn: SocketConnection) {
+    this.Hub.to(`doc:${at.doc}`).emit('docs.cursor', { by: conn.id, at });
   }
 
   @OnConnect()

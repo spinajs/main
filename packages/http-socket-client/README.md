@@ -30,7 +30,7 @@ const client = new SocketClient({
 |---|---|
 | `unauthenticated` | `auth_required` |
 | `version_mismatch` | `incompatible` |
-| any other refusal with `retryable: false` (`forbidden` for a foreign origin, `invalid_argument` ...) | `refused` |
+| any other refusal with `retryable: false`, except `internal`, which is retried (`forbidden` for a foreign origin, `invalid_argument` ...) | `refused` |
 
 `connect()` tries again. A `sys.shutdown { retryAfterMs }` notice delays the next attempt. A `sys.disconnect` whose reason is a non-retryable error code (the server sends `unauthenticated` for a revoked credential) stops the client in the same way.
 
