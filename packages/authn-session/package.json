@@ -54,6 +54,7 @@
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
+    "@spinajs/configuration-common": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/util": "2.0.549",
