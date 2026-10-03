@@ -59,6 +59,7 @@ export class AbacModel extends AuthorizationModel {
   private readonly retryMs: number;
   private retryDelay: number;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
 
   constructor(options: AbacModelOptions = {}) {
     super();
@@ -67,6 +68,7 @@ export class AbacModel extends AuthorizationModel {
     this.parser = new DefaultConditionCompiler(options.functions ?? BUILTIN_CONDITION_FUNCTIONS);
     this.stores = options.stores;
     this.retryMs = options.retryMs ?? 1000;
+    if (!Number.isFinite(this.retryMs) || this.retryMs <= 0) throw new AuthzConfigError(`${this.name}: retryMs must be a positive number of milliseconds`);
     this.retryDelay = this.retryMs;
   }
 
@@ -338,20 +340,19 @@ export class AbacModel extends AuthorizationModel {
 
   /** Retries a failed load on its own, so a change also takes effect when no request of this model comes (backoff to 60 s). */
   private scheduleRetry(): void {
-    if (this.retryTimer) return;
+    if (this.retryTimer || this.disposed) return;
     const delay = this.retryDelay;
     this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_MS);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
-      if (this.failed && !this.reload) {
-        this.failed = false;
-        this.startLoad();
-      }
+      // `failed` stays set while the retry runs, so routing keeps to the last good index meanwhile.
+      if (this.failed && !this.reload && !this.disposed) this.startLoad();
     }, delay);
     this.retryTimer.unref?.();
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
   }

@@ -205,13 +205,44 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       await new Promise((r) => setTimeout(r, 30));
       expect(loads).to.be.greaterThan(1);
       expect(m.version()).to.not.match(/~$/);
+      const stale = m.version();
       down = false;
       await new Promise((r) => setTimeout(r, 200));
+      // The timer, not a request, brought the new data in.
+      expect(m.version()).to.not.equal(stale);
       expect(((await m.evaluate(req(), ctx())) as Vote).denyWhen).to.equal(TRUE);
       const settled = loads;
       await new Promise((r) => setTimeout(r, 50));
       expect(loads).to.equal(settled);
       await m.dispose();
+    });
+
+    it('keeps routing to the last good index while it retries a failed load (r4 I-d)', async () => {
+      const reg = registry();
+      const store = new MemoryPolicyStore([policy('read')]);
+      const m = await model({ stores: [store], retryMs: 2 }, reg);
+      const rbac = new StaticModel({ name: 'rbac', votes: () => ({ permitWhen: TRUE }) });
+      const a = new Authorizer({ domain: 'root', models: [rbac, m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      store.load = async () => {
+        await new Promise((r) => setTimeout(r, 1));
+        throw new Error('db down');
+      };
+      a.invalidate(['policy']);
+      const versions = new Set<string>();
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 1));
+        if (i > 3) {
+          versions.add(m.version());
+          expect((await a.check({ principal: alice, permission: 'file:delete', resource: F1 })).allowed).to.equal(true);
+          expect(a.filterNow(alice, 'file:delete', 'file')).to.deep.equal(TRUE);
+        }
+      }
+      expect([...versions].some((v) => v.endsWith('~'))).to.equal(false);
+      await m.dispose();
+    });
+
+    it('refuses a retryMs that is not a positive number', () => {
+      expect(() => new AbacModel({ retryMs: 0 })).to.throw(AuthzConfigError, /retryMs must be a positive number/);
     });
 
     it('a model over config stores only ignores invalidations and stays sync (M1)', async () => {
