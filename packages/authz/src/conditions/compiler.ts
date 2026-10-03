@@ -1,0 +1,343 @@
+import { Inject, Injectable } from '@spinajs/di';
+
+import { ConditionCompiler, ConditionFunction } from './contracts.js';
+import type { Condition } from './contracts.js';
+import { AuthzConfigError } from '../contracts/errors.js';
+import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
+import type { ResourceFilter, Value } from '../contracts/filter.js';
+import type { DecisionRequest } from '../contracts/decision.js';
+import type { EvaluationContext } from '../contracts/model.js';
+import type { Principal, ResourceRef } from '../contracts/principal.js';
+import { GLOBAL, resourceKey } from '../contracts/resource.js';
+import { cacheSafeRef } from '../engine/cache-key.js';
+import { defaultAttribute, evaluateResidual } from '../engine/evaluate.js';
+import type { SubjectEnv } from '../engine/evaluate.js';
+import { parseCondition } from './parse.js';
+import type { ConditionOp, ConditionPath, ParsedCondition } from './parse.js';
+
+/**
+ * UNKNOWN (SQL NULL) as a residual. The filter language has no such constant, so it is a
+ * comparison against a ref that never resolves (`__proto__` is a reserved segment): the engine
+ * binds a missing ref FALSE or TRUE by its polarity in the final allow residual, which is
+ * exactly what Kleene UNKNOWN decides there, and the bound residual never reaches SQL with it.
+ * The path is cache-safe, so it does not make a decision uncacheable.
+ */
+export const CONDITION_UNKNOWN: ResourceFilter = Object.freeze({ op: 'cmp', field: '$unknown', cmp: 'eq', value: Object.freeze({ ref: 'principal.attributes.__proto__' }) });
+
+export interface CompiledCondition {
+  readonly filter: ResourceFilter;
+  readonly cacheable: boolean;
+  readonly needsSubject: boolean;
+}
+
+const NEEDS_SUBJECT = Symbol('needs-subject');
+const MISSING = Symbol('missing');
+type Resolved = unknown | typeof NEEDS_SUBJECT | typeof MISSING;
+
+const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+/**
+ * The core `ConditionCompiler` (design §5.9). `principal.*`, `actor.*`, `env.*` and `scope.*`
+ * are read now; `resource.*` becomes a residual `cmp`, or a constant when the request has an id,
+ * no subject and the resource's own attributes hold the field. The result agrees with the
+ * Kleene evaluation of the condition row by row (`evaluateResidual`, and SQL after it).
+ * Registered in root with every `ConditionFunction` the container knows when it is first resolved.
+ */
+@Injectable(ConditionCompiler)
+@Inject(Array.ofType(ConditionFunction))
+export class DefaultConditionCompiler extends ConditionCompiler {
+  private readonly functions: ReadonlyMap<string, ConditionFunction>;
+  private readonly parsed = new WeakMap<object, ParsedCondition>();
+
+  constructor(functions: readonly ConditionFunction[] = []) {
+    super();
+    const map = new Map<string, ConditionFunction>();
+    for (const f of functions ?? []) {
+      if (!(f instanceof ConditionFunction) && (typeof f !== 'object' || f === null || typeof (f as ConditionFunction).evaluate !== 'function')) throw new AuthzConfigError('a condition function must extend ConditionFunction');
+      const name = f.name;
+      if (typeof name !== 'string' || name === '') throw new AuthzConfigError('a condition function needs a name');
+      if (map.has(name)) throw new AuthzConfigError(`two condition functions are named ${JSON.stringify(name)}`);
+      map.set(name, f);
+    }
+    this.functions = map;
+  }
+
+  /** Names of the registered functions, for `parseCondition`. */
+  functionNames(): ReadonlySet<string> {
+    return new Set(this.functions.keys());
+  }
+
+  /** `parseCondition` with this compiler's functions; memoised per condition object. */
+  parse(c: Condition, where?: string): ParsedCondition {
+    if (c !== null && typeof c === 'object') {
+      const hit = this.parsed.get(c);
+      if (hit) return hit;
+    }
+    const p = parseCondition(c, { functions: this.functions, ...(where === undefined ? {} : { where }) });
+    if (c !== null && typeof c === 'object') this.parsed.set(c, p);
+    return p;
+  }
+
+  compile(c: Condition, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
+    try {
+      return this.compileParsed(this.parse(c), req, ctx);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+
+  async compileParsed(p: ParsedCondition, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
+    const run = new Run(req, ctx, this.functions);
+    const filter = simplify(await run.node(p));
+    return Object.freeze({ filter, cacheable: run.cacheable, needsSubject: run.needsSubject });
+  }
+}
+
+class Run {
+  cacheable = true;
+  needsSubject = false;
+  private readonly env: Readonly<Record<string, unknown>>;
+  private readonly actor: Principal;
+  private resourceAttributes?: Promise<Readonly<Record<string, unknown>> | null>;
+
+  constructor(private readonly req: DecisionRequest, private readonly ctx: EvaluationContext, private readonly functions: ReadonlyMap<string, ConditionFunction>) {
+    this.env = { now: ctx.now, ...(req.env ?? {}) };
+    this.actor = req.actor ?? req.principal;
+  }
+
+  async node(p: ParsedCondition): Promise<ResourceFilter> {
+    switch (p.kind) {
+      case 'all':
+        return and(...(await this.each(p.items)));
+      case 'any':
+        return or(...(await this.each(p.items)));
+      case 'not':
+        return not(await this.node(p.item));
+      case 'cmp':
+        return this.comparison(p.attr, p.op, p.operand.kind === 'ref' ? await this.read(p.operand.ref, 'value') : p.operand.value);
+      case 'fn':
+        return this.fn(p.name, p.args);
+    }
+  }
+
+  // In order, so the reads (and their faults) do not depend on timing.
+  private async each(items: readonly ParsedCondition[]): Promise<ResourceFilter[]> {
+    const out: ResourceFilter[] = [];
+    for (const item of items) out.push(await this.node(item));
+    return out;
+  }
+
+  private async comparison(attr: ConditionPath, op: ConditionOp, operand: Resolved): Promise<ResourceFilter> {
+    // Read before any early return: a scope read that cannot resolve must fault wherever it sits.
+    const value = attr.root === 'resource' ? await this.ownAttribute(attr) : await this.read(attr, 'attr');
+    if (operand === NEEDS_SUBJECT || value === NEEDS_SUBJECT) return this.unknownForSubject();
+    // A comparison with a value that does not exist is UNKNOWN for every row; a null test has no value.
+    if (operand === MISSING && op !== 'null') return CONDITION_UNKNOWN;
+    if (attr.root === 'resource' && value === MISSING) return simplify(residualCmp(attr.path.join('.'), op, operand));
+    return truthFilter(await constantTruth(op, value === MISSING ? undefined : value, operand, this.req, this.ctx));
+  }
+
+  private async fn(name: string, args: Readonly<Record<string, unknown>>): Promise<ResourceFilter> {
+    const f = this.functions.get(name);
+    if (!f) throw new AuthzConfigError(`unknown condition function ${JSON.stringify(name)}`);
+    let unknown = false;
+    let subject = false;
+    const resolveArgs = async (v: unknown): Promise<unknown> => {
+      if (v === null || typeof v !== 'object') return v;
+      if (Array.isArray(v)) {
+        const out: unknown[] = [];
+        for (const x of v) out.push(await resolveArgs(x));
+        return Object.freeze(out);
+      }
+      const keys = Object.keys(v);
+      if (keys.length === 1 && keys[0] === 'ref' && typeof (v as { ref: unknown }).ref === 'string') {
+        const r = await this.readArgRef((v as { ref: string }).ref);
+        if (r === NEEDS_SUBJECT) subject = true;
+        else if (r === MISSING) unknown = true;
+        return r === NEEDS_SUBJECT || r === MISSING ? undefined : r;
+      }
+      const out: Record<string, unknown> = {};
+      for (const k of keys) Object.defineProperty(out, k, { value: await resolveArgs((v as Record<string, unknown>)[k]), enumerable: true });
+      return Object.freeze(out);
+    };
+    const resolved = await resolveArgs(args);
+    if (subject) return this.unknownForSubject();
+    if (unknown) return CONDITION_UNKNOWN;
+
+    const env = this.trackedEnv();
+    const result: unknown = f.evaluate(resolved, { principal: this.req.principal, ...(this.req.actor ? { actor: this.req.actor } : {}), env });
+    if (typeof result !== 'boolean') throw new AuthzConfigError(`condition function ${JSON.stringify(name)} returned ${result === null ? 'null' : typeof result}, not a boolean`);
+    return result ? TRUE : FALSE;
+  }
+
+  private unknownForSubject(): ResourceFilter {
+    this.needsSubject = true;
+    return CONDITION_UNKNOWN;
+  }
+
+  // Reads mark the result uncacheable; a function that never looks at env keeps it cacheable.
+  private trackedEnv(): Readonly<Record<string, unknown>> {
+    const target = this.env;
+    const touch = () => {
+      this.cacheable = false;
+    };
+    return new Proxy(target, {
+      get(t, k, r) {
+        touch();
+        return Reflect.get(t, k, r);
+      },
+      has(t, k) {
+        touch();
+        return Reflect.has(t, k);
+      },
+      ownKeys(t) {
+        touch();
+        return Reflect.ownKeys(t);
+      },
+      getOwnPropertyDescriptor(t, k) {
+        touch();
+        return Reflect.getOwnPropertyDescriptor(t, k);
+      },
+    });
+  }
+
+  private async readArgRef(text: string): Promise<Resolved> {
+    const parts = text.split('.');
+    if (parts[0] === 'resource') {
+      const path = parts.slice(1);
+      if (this.req.subject !== undefined) {
+        const v = defaultAttribute(this.req.subject, path.join('.'));
+        return v === undefined ? MISSING : valueOf(v);
+      }
+      const own = await this.ownAttribute({ root: 'resource', path, text });
+      return own === MISSING ? NEEDS_SUBJECT : valueOf(own);
+    }
+    const path: ConditionPath = parts[0] === 'scope' ? { root: 'scope', scopeType: parts[1], path: parts.slice(2), text } : { root: parts[0] as ConditionPath['root'], path: parts.slice(1), text };
+    return this.read(path, 'value');
+  }
+
+  /**
+   * principal.*, actor.*, env.* and scope.* now. A value ref follows bindRefs (a scalar, a valid
+   * Date as ISO, a literal list; anything else is missing); an attr is handed to the comparison
+   * as it is. scope.* that resolves missing throws (B39: the vote is indeterminate); on a
+   * request without id only `scope.$global.*` resolves, the rest needs the subject (B19).
+   */
+  private async read(path: ConditionPath, side: 'attr' | 'value'): Promise<Resolved> {
+    let raw: unknown;
+    switch (path.root) {
+      case 'principal':
+      case 'actor':
+        if (!cacheSafeRef(path.text)) this.cacheable = false;
+        raw = readOwn(path.root === 'principal' ? this.req.principal : this.actor, path.path);
+        break;
+      case 'env':
+        this.cacheable = false;
+        raw = readOwn(this.env, path.path);
+        break;
+      case 'scope': {
+        const scoped = await this.scopeValue(path);
+        if (scoped === NEEDS_SUBJECT) return NEEDS_SUBJECT;
+        raw = scoped;
+        if (side === 'value') {
+          const v = valueOf(raw);
+          if (v === MISSING) throw new Error(`scope ref ${JSON.stringify(path.text)} is not a scalar or a literal list`);
+          return v;
+        }
+        return raw;
+      }
+      default:
+        throw new AuthzConfigError(`${JSON.stringify(path.text)} cannot be read here`);
+    }
+    if (side === 'value') return raw === MISSING ? MISSING : valueOf(raw);
+    return raw;
+  }
+
+  private async scopeValue(path: ConditionPath): Promise<unknown | typeof NEEDS_SUBJECT> {
+    const type = path.scopeType!;
+    let node: ResourceRef;
+    if (type === GLOBAL.type) {
+      node = GLOBAL;
+    } else {
+      const res = this.req.resource;
+      if (res.id === undefined || res.id === null) return NEEDS_SUBJECT;
+      const ancestors = await this.ctx.ancestors(res);
+      if (ancestors === null) throw new Error(`scope ref ${JSON.stringify(path.text)}: ${resourceKey(res)} is an unknown resource`);
+      const nearest = ancestors.find((a) => a?.type === type);
+      // A nearest node without id is "some node of that type": going further up would read another node.
+      if (nearest === undefined || typeof nearest.id !== 'string') throw new Error(`scope ref ${JSON.stringify(path.text)}: ${resourceKey(res)} has no ${type} ancestor with an id`);
+      node = { type, id: nearest.id };
+    }
+    const attrs = await this.ctx.attributes(node);
+    if (attrs === null) throw new Error(`scope ref ${JSON.stringify(path.text)}: ${resourceKey(node)} is an unknown node`);
+    const v = readOwn(attrs, path.path);
+    if (v === MISSING || v === null) throw new Error(`scope ref ${JSON.stringify(path.text)}: ${resourceKey(node)} has no such attribute`);
+    return v;
+  }
+
+  /** The field from the resource's own attributes (scope resolver, adapter, store), when the request has an id and no subject. */
+  private async ownAttribute(attr: ConditionPath): Promise<unknown> {
+    const res = this.req.resource;
+    if (this.req.subject !== undefined || res.id === undefined || res.id === null) return MISSING;
+    this.resourceAttributes ??= this.ctx.attributes(res);
+    const attrs = await this.resourceAttributes;
+    if (attrs === null) return MISSING;
+    const v = readOwn(attrs, attr.path);
+    return v === undefined ? MISSING : v;
+  }
+}
+
+function readOwn(from: unknown, path: readonly string[]): unknown {
+  try {
+    let v = from;
+    for (const segment of path) {
+      if (UNSAFE_SEGMENTS.has(segment) || v === null || typeof v !== 'object' || !Object.hasOwn(v, segment)) return MISSING;
+      v = (v as Record<string, unknown>)[segment];
+    }
+    return v === undefined ? MISSING : v;
+  } catch {
+    return MISSING;
+  }
+}
+
+/** bindRefs' leaf rule for a ref's value. */
+function valueOf(v: unknown): Value | typeof MISSING {
+  if (typeof v === 'string' || typeof v === 'boolean') return v;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : MISSING;
+  if (v instanceof Date) {
+    const t = Date.prototype.getTime.call(v);
+    return Number.isNaN(t) ? MISSING : new Date(t).toISOString();
+  }
+  if (Array.isArray(v)) {
+    const out: (string | number)[] = [];
+    for (let i = 0; i < v.length; i++) {
+      const x: unknown = v[i];
+      if (!(i in v) || !(typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x)))) return MISSING;
+      out.push(x);
+    }
+    return Object.freeze(out);
+  }
+  return MISSING;
+}
+
+function residualCmp(field: string, op: ConditionOp, operand: unknown): ResourceFilter {
+  if (op === 'null') return Object.freeze({ op: 'cmp', field, cmp: operand === false ? 'notnull' : 'null' });
+  return Object.freeze({ op: 'cmp', field, cmp: op, value: operand as Value });
+}
+
+const truthFilter = (t: boolean | undefined): ResourceFilter => (t === undefined ? CONDITION_UNKNOWN : t ? TRUE : FALSE);
+
+const NO_RELATIONS = () => undefined;
+
+/** A comparison of two known values, decided by the engine's own `cmp` rules so it matches a row's. */
+function constantTruth(op: ConditionOp, attr: unknown, operand: unknown, req: DecisionRequest, ctx: EvaluationContext): Promise<boolean | undefined> {
+  const env: SubjectEnv = {
+    principal: req.principal,
+    ref: req.resource,
+    attribute: (subject, field) => (subject as Record<string, unknown>)[field],
+    relation: NO_RELATIONS,
+    ancestors: async () => null,
+    native: NO_RELATIONS,
+    ctx,
+  };
+  return evaluateResidual(residualCmp('v', op, operand), { v: attr }, env);
+}
