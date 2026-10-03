@@ -1,0 +1,51 @@
+import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+
+import { AssignmentStore, LinkStore, RuleStore } from '../contracts.js';
+import type { Assignment, AssignmentSubject, LinkDef, RuleDef } from '../contracts.js';
+
+export interface AssignmentQuery {
+  readonly scope?: ResourceRef;
+  readonly subject?: AssignmentSubject;
+  readonly role?: string;
+  readonly includeExpired?: boolean;
+  readonly at: Date;
+}
+
+export interface Page {
+  readonly limit: number;
+  readonly offset: number;
+}
+
+/** What the RBAC write handlers of AuthzAdmin write through; every write runs inside the batch transaction. */
+export abstract class AdminAssignmentStore extends AssignmentStore {
+  /** The same (subject, role, scope), expired rows included, updates tags and expiry and keeps the id. */
+  abstract assign(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
+  abstract revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+  abstract update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
+  abstract find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }>;
+  /** Removes every row AT the scope (not rows whose subject is a set at it); returns the removed rows. */
+  abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly Assignment[]>;
+}
+
+/** Links and their assignments (subject `link:<id>`); the store writes both. */
+export abstract class AdminLinkStore extends LinkStore {
+  abstract create(l: Omit<LinkDef, 'id'>, grant: { role: string; tags?: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<{ link: LinkDef; token: string }>;
+  /** Also removes the link's assignments. */
+  abstract revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+  abstract update(id: string, patch: { readonly expiresAt?: Date | null; readonly attributes?: Readonly<Record<string, unknown>> }, actor: PrincipalRef, tx: AuthzTx): Promise<LinkDef>;
+  abstract find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly LinkDef[]; total: number }>;
+  /** Removes the links AT the scope and their assignments; returns the removed live links. */
+  abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly LinkDef[]>;
+}
+
+export abstract class AdminRuleStore extends RuleStore {
+  /** Expired rules too. */
+  abstract byId(id: string): Promise<RuleDef | null>;
+  /** Throws AuthzAdminFailure('rule_not_compilable') when the store cannot hold the rule (DB: not in SQL form, D24). */
+  abstract assertStorable(rule: Omit<RuleDef, 'source'>): void;
+  /** Insert or replace by id. */
+  abstract put(rule: Omit<RuleDef, 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
+  abstract delete(id: string, tx: AuthzTx): Promise<void>;
+  abstract find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly RuleDef[]; total: number }>;
+  abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly RuleDef[]>;
+}
