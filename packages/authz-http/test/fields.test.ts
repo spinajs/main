@@ -65,6 +65,12 @@ class FieldRoutes extends BaseController {
     return new Ok({ name: name ?? null, salary: salary ?? null });
   }
 
+  @Patch('multi/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  public multi(@Body() name: string, @Body() roles: string[], @Body() address: object) {
+    return new Ok({ name: name ?? null, roles: roles ?? null, address: address ?? null });
+  }
+
   @Patch('field/:id')
   @Access('user:update', { domain: D, resource: USER })
   public bodyField(@BodyField() body: object) {
@@ -207,6 +213,20 @@ describe('field filters (B17 http)', function () {
 
       reject();
       expect((await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', Password: 'new' })).status).to.eq(400);
+    });
+
+    it('checks each of several body params as the field of its name, arrays and objects included', async () => {
+      const send = () => app.request().patch('/fld/multi/u1').set('x-user', 'alice').send({ name: 'M', roles: ['admin'], address: { city: 'X', zip: 'Y' } });
+
+      const res = await send();
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq({ name: 'M', roles: null, address: { city: 'X' } });
+
+      reject();
+      const refused = await send();
+      expect(refused.status).to.eq(400);
+      // the first offending param refuses the request; http extracts params in its own order
+      expect(refused.body.fields).to.satisfy((f: string[]) => f.length === 1 && ['roles', 'address.zip'].includes(f[0]));
     });
 
     it('filters @BodyField() input too', async () => {

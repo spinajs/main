@@ -78,6 +78,12 @@ class PolicyRoutes extends BaseController {
     return ok(req);
   }
 
+  @Get('nothing')
+  @Access('file:read', { domain: D, resource: () => undefined as unknown as object })
+  public nothing(@Req() req: Request) {
+    return ok(req);
+  }
+
   @Get('other/:id')
   @Access('file:read', { domain: OTHER, resource: fromParamForTests('id', 'file') })
   public other(@Req() req: Request) {
@@ -157,6 +163,10 @@ describe('AccessPolicy', function () {
     const req = domain.model.requests.find((r) => r.permission === 'doc:read')!;
     expect(req.resource).to.deep.eq({ type: 'doc', id: 'd1' });
     expect(req.subject).to.eq(undefined);
+  });
+
+  it('answers 400 when a custom extractor finds no resource', async () => {
+    expect((await app.request().get('/pol/nothing').set('x-user', 'alice')).status).to.eq(400);
   });
 
   it('checks in the domain the @Access names', async () => {

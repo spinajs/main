@@ -2,6 +2,7 @@ import { DI, NewInstance } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, readDomainConfig, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
@@ -75,6 +76,9 @@ export class AccessPolicy extends BasePolicy {
     const domain = rule.options.domain ?? 'root';
     const authz = await domainService(domain);
     const extracted = rule.options.resource ? await rule.options.resource(req) : undefined;
+    if (rule.options.resource && (extracted === null || extracted === undefined)) {
+      throw new InvalidArgument(`the resource extractor of ${controller.constructor.name}.${String(route.Method)} found no resource`, 'resource');
+    }
     const resource = isUnloadedModel(extracted) ? await this.refOf(domain, extracted) : extracted;
     const decision = await this.inStore(req, () => this.decide(authz, domain, rule, principal, resource));
 

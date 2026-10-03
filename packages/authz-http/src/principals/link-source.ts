@@ -44,6 +44,9 @@ export class LinkPrincipalSource extends PrincipalSource {
   @Logger('authz-http')
   protected Log: Log;
 
+  // Warned once: any request can carry a token, so a warning per request would let anyone flood the log.
+  private warned = false;
+
   public async authenticate(req: Request): Promise<Principal | null> {
     const token = this.token(req);
     if (token === undefined) {
@@ -52,7 +55,8 @@ export class LinkPrincipalSource extends PrincipalSource {
 
     const companion = req.storage?.Principal;
     if ((DI.getRegisteredTypes(LinkResolver) ?? []).length === 0) {
-      this.Log.warn('a request carries a share link token, but no LinkResolver is registered; the link denies everything');
+      if (!this.warned) this.Log.warn('a request carries a share link token, but no LinkResolver is registered; links deny everything');
+      this.warned = true;
       return deadLinkPrincipal(companion);
     }
 
