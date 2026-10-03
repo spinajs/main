@@ -29,6 +29,8 @@ export const rbacHarness = (opts: RbacHarnessOptions = {}): BehaviourHarness => 
       const options: RbacModelOptions = {
         roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []),
         assignments: new MemoryAssignmentStore(rbac.assignments ?? []),
+        // The cache TTL then moves with the case's `advance` steps.
+        clock: host.kit.clock,
         ...(opts.rules ? { rules: opts.rules(host) } : {}),
         ...(opts.links ? { links: opts.links(host) } : {}),
       };

@@ -320,44 +320,76 @@ export interface RbacSources {
   readonly extensions?: readonly RbacExtension[];
   /** Assignments the config gives these subjects at GLOBAL (anonymousRoles, serviceRoles). */
   readonly configAssignments?: (subjects: readonly AssignmentSubject[]) => readonly Assignment[];
+  /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache). */
+  readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext) => readonly Assignment[] | Promise<readonly Assignment[]>;
   readonly onUnknownRole?: (assignment: Assignment) => void;
+}
+
+type Maybe<T> = T | PromiseLike<T>;
+
+const isThenable = <T>(v: Maybe<T> | undefined): v is PromiseLike<T> => typeof (v as { then?: unknown } | null | undefined)?.then === 'function';
+
+/** Runs `next` on the value now, or once the promise resolves. */
+function after<T, U>(value: Maybe<T>, next: (value: T) => Maybe<U>): Maybe<U> {
+  return isThenable(value) ? Promise.resolve(value).then(next) : next(value);
 }
 
 /** The IO phase: subjects, their assignments, the path, then what the extensions gather. */
 export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): Promise<RbacInput> {
-  const subjects = sources.subjects ? await sources.subjects.subjects(request.principal) : defaultSubjects(request.principal);
-  const stored = await sources.assignments.forSubjects(subjects, ctx.now);
-  let input: RbacInput = {
-    request,
-    now: ctx.now,
-    path: await resourcePath(request.resource, ctx),
-    subjects,
-    assignments: [...stored, ...(sources.configAssignments?.(subjects) ?? [])],
-    roles: sources.roles,
-    grants: sources.grants,
-    ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}),
-  };
-  for (const ext of sources.extensions ?? []) {
-    if (ext.gather) input = { ...input, ...(await ext.gather(request, ctx, input, sources)) };
+  return readRbacInput(request, ctx, sources);
+}
+
+/**
+ * gatherRbacInput, answered synchronously when no source needs IO: the subjects and assignments
+ * come back as values (a type-level request after preload, B22), and so do the extensions' gathers.
+ */
+export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): RbacInput | Promise<RbacInput> {
+  const subjects = sources.subjects ? sources.subjects.subjects(request.principal) : defaultSubjects(request.principal);
+  const input = after(subjects, (subjects) =>
+    after(sources.load ? sources.load(subjects, ctx) : sources.assignments.forSubjects(subjects, ctx.now), (stored) =>
+      after(resourcePath(request.resource, ctx), (path) =>
+        extendInput(request, ctx, sources, 0, {
+          request,
+          now: ctx.now,
+          path,
+          subjects,
+          assignments: [...stored, ...(sources.configAssignments?.(subjects) ?? [])],
+          roles: sources.roles,
+          grants: sources.grants,
+          ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}),
+        }),
+      ),
+    ),
+  );
+  return isThenable(input) ? Promise.resolve(input) : input;
+}
+
+function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
+  const extensions = sources.extensions ?? [];
+  for (let i = from; i < extensions.length; i++) {
+    const part = extensions[i].gather?.(request, ctx, input, sources);
+    if (isThenable(part)) return Promise.resolve(part).then((p) => extendInput(request, ctx, sources, i + 1, { ...input, ...p }));
+    if (part) input = { ...input, ...part };
   }
   return input;
 }
 
 /**
  * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its
- * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]` (§6.1.2): an
- * assignment at the bare type ref permits every row of the type; any other scoped assignment needs a
- * row filter, which `residual` builds from `state.scoped`.
+ * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]` (§6.1.2),
+ * without IO: an assignment at the bare type ref permits every row of the type; any other scoped
+ * assignment needs a row filter, which `residual` builds from `state.scoped`.
  */
-export async function resourcePath(resource: ResourceRef, ctx: EvaluationContext): Promise<readonly ResourceRef[]> {
+export function resourcePath(resource: ResourceRef, ctx: EvaluationContext): readonly ResourceRef[] | Promise<readonly ResourceRef[]> {
   if (resource.id == null) return resource.type === GLOBAL.type ? [GLOBAL] : [{ type: resource.type }, GLOBAL];
-  const ancestors = await ctx.ancestors(resource);
-  // The engine denies unknown_resource before the models run; a "no" here would look like a clean answer.
-  if (ancestors === null) throw new Error(`rbac: unknown resource ${resourceKey(resource)}: ancestors answered null`);
-  const global = resourceKey(GLOBAL);
-  const path = new Map<string, ResourceRef>();
-  for (const ref of [resource, ...ancestors]) if (resourceKey(ref) !== global && !path.has(resourceKey(ref))) path.set(resourceKey(ref), ref);
-  return [...path.values(), GLOBAL];
+  return ctx.ancestors(resource).then((ancestors) => {
+    // The engine denies unknown_resource before the models run; a "no" here would look like a clean answer.
+    if (ancestors === null) throw new Error(`rbac: unknown resource ${resourceKey(resource)}: ancestors answered null`);
+    const global = resourceKey(GLOBAL);
+    const path = new Map<string, ResourceRef>();
+    for (const ref of [resource, ...ancestors]) if (resourceKey(ref) !== global && !path.has(resourceKey(ref))) path.set(resourceKey(ref), ref);
+    return [...path.values(), GLOBAL];
+  });
 }
 
 /** The principal and its companions, each once. */

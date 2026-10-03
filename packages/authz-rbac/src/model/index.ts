@@ -4,6 +4,7 @@ export * from './patterns.js';
 export * from './fields.js';
 export * from './native.js';
 export * from './assignments.js';
+export * from './cache.js';
 export * from './evaluate.js';
 export * from './memory.js';
 export * from './model.js';

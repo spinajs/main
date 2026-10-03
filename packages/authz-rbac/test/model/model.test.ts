@@ -92,7 +92,7 @@ describe('authz-rbac model: RbacModel', () => {
     const { model: m } = await model({ assignments: [assignment('g1', alice, 'viewer')] });
     const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [new FakeScopeResolver({ types: ['file'], nodes: [{ ref: f1 }] })] });
     expect((await m.evaluate({ principal: alice, permission: 'file:read', resource: f1 }, ctx)).permitWhen).to.deep.equal(TRUE);
-    const err = await rejects(m.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file', id: 'ghost' } }, ctx));
+    const err = await rejects(Promise.resolve(m.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file', id: 'ghost' } }, ctx)));
     expect(err.message).to.contain('unknown resource file:ghost');
   });
 
