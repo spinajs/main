@@ -459,4 +459,65 @@ describe('stream replies', function () {
       expect((strmLog.aborts.get('stalled') as SocketException).code).to.equal('deadline_exceeded');
     });
   });
+
+  describe('transport backpressure', () => {
+    interface IEngineConn {
+      transport: { writable: boolean };
+      flush(): void;
+    }
+
+    /** Holds every frame in engine.io's write buffer, like a client that stopped reading its socket. */
+    const stopFlushing = (): IEngineConn => {
+      const conn = [...t.server.Io!.of('/').sockets.values()][0].conn as unknown as IEngineConn;
+      conn.transport.writable = false;
+      return conn;
+    };
+    const resumeFlushing = (conn: IEngineConn) => {
+      conn.transport.writable = true;
+      conn.flush();
+    };
+
+    beforeEach(async () => {
+      socket.close();
+      await t.close();
+      t = await startServer({ http: { socket: { streams: { maxCredits: 4, maxPerConnection: 1, stallTimeoutMs: 300 } } } });
+      socket = await open(t);
+    });
+
+    it('stops pulling while the transport does not flush, however much credit the client grants blind, and resumes once it flushes', async () => {
+      const conn = stopFlushing();
+      const s = rawStream(socket, 'strm.count', { key: 'blind' }, 4);
+      await waitFor(() => strmLog.produced.get('blind') === 4);
+
+      s.grant(4);
+      await delay(100);
+      expect(strmLog.produced.get('blind')).to.equal(4);
+
+      resumeFlushing(conn);
+      await waitFor(() => s.chunks.length === 8);
+      expect(strmLog.produced.get('blind')).to.equal(8);
+      s.cancel();
+      await s.finished;
+    });
+
+    it('fails a stream whose client never drains with deadline_exceeded and frees its slot', async () => {
+      const conn = stopFlushing();
+      const s = rawStream(socket, 'strm.count', { key: 'deaf' }, 4);
+      await waitFor(() => strmLog.produced.get('deaf') === 4);
+      s.grant(4);
+
+      await waitFor(() => strmLog.finallyRan.has('deaf'));
+      expect(strmLog.aborts.get('deaf')).to.deep.include({ code: 'deadline_exceeded' });
+      expect(strmLog.produced.get('deaf')).to.equal(4);
+
+      resumeFlushing(conn);
+      await s.finished;
+      expect(s.fail?.error.code).to.equal('deadline_exceeded');
+
+      const next = rawStream(socket, 'strm.count', { key: 'after', n: 1 }, 2);
+      await next.finished;
+      expect(next.end).to.deep.equal({ id: next.id, seq: 1 });
+    });
+  });
 });
+

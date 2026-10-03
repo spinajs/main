@@ -24,10 +24,14 @@ export interface IServerStreamInit {
   /** credit sent with the request, at most `maxCredits` */
   readonly credits: number;
   readonly maxCredits: number;
-  /** covers only the wait for credit; a next() that hangs is bounded by an abort ( cancel, disconnect, shutdown ) */
+  /** covers only the wait for credit and for a backlogged transport; a next() that hangs is bounded by an abort ( cancel, disconnect, shutdown ) */
   readonly stallTimeoutMs: number;
   /** emits one frame; throws when socket.io cannot encode it */
   send(event: StreamFrameEvent, frame: Chunk | StreamEnd | StreamFail): void;
+  /** true while the connection holds more unsent frames than it should; credit alone does not prove the client reads */
+  backlogged(): boolean;
+  /** calls the listener whenever the connection flushes frames to its transport; returns the unsubscribe */
+  onDrain(listener: () => void): () => void;
   /** runs one step of the source inside the call's AsyncLocalStorage store */
   within<T>(step: () => Promise<T>): Promise<T>;
   toWire(error: unknown): SocketError;
@@ -35,7 +39,7 @@ export interface IServerStreamInit {
 
 /**
  * The server side of one stream reply. It asks the source for the next item only while the client
- * has credit for it, so a slow consumer slows the producer instead of filling buffers.
+ * has credit for it and the connection is not backlogged, so a slow consumer slows the producer instead of filling buffers.
  *
  * Nothing bounds the source but a credit stall, cancel, disconnect and shutdown, and all of them only fire
  * its signal: a source must honour its `@Signal()`, or it keeps running ( and holds its stream slot ) until it settles.
@@ -90,7 +94,7 @@ export class ServerStream {
 
     try {
       for (;;) {
-        await this.creditAvailable();
+        await this.ready();
         const step = await untilAborted(
           this.source(() => this.init.iterator.next()),
           this.init.signal,
@@ -141,35 +145,48 @@ export class ServerStream {
     return step;
   }
 
-  protected creditAvailable(): Promise<void> {
+  protected canPull(): boolean {
+    return this.credits > 0 && !this.init.backlogged();
+  }
+
+  /** Waits for credit and for a transport that is not backlogged; one stall timer covers both. */
+  protected ready(): Promise<void> {
     const signal = this.init.signal;
 
     if (signal.aborted) {
       return Promise.reject(signal.reason);
     }
 
-    if (this.credits > 0) {
+    if (this.canPull()) {
       return Promise.resolve();
     }
 
     return new Promise<void>((resolve, reject) => {
-      const stall = setTimeout(() => this.init.abort(new SocketException('deadline_exceeded', `stream ${this.init.name} got no credit for ${this.init.stallTimeoutMs} ms`)), this.init.stallTimeoutMs);
+      const stall = setTimeout(() => {
+        const why = this.credits > 0 ? 'its client read no frames' : 'got no credit';
+        this.init.abort(new SocketException('deadline_exceeded', `stream ${this.init.name} ${why} for ${this.init.stallTimeoutMs} ms`));
+      }, this.init.stallTimeoutMs);
       stall.unref?.();
 
       const settle = () => {
         clearTimeout(stall);
         signal.removeEventListener('abort', onAbort);
+        offDrain();
         this.wake = null;
       };
       const onAbort = () => {
         settle();
         reject(signal.reason);
       };
-
-      this.wake = () => {
-        settle();
-        resolve();
+      const check = () => {
+        if (this.canPull()) {
+          settle();
+          resolve();
+        }
       };
+
+      const offDrain = this.init.onDrain(check);
+      this.wake = check;
       signal.addEventListener('abort', onAbort, { once: true });
     });
   }

@@ -106,12 +106,35 @@ function setup(iterator: AsyncIterator<unknown>, patch: Partial<IServerStreamIni
     },
     within: (step) => step(),
     toWire,
+    backlogged: () => false,
+    onDrain: () => () => undefined,
     ...patch,
   });
 
   const data = () => frames.filter((f) => f.event === WIRE_EVENTS.chunk).map((f) => f.frame.data);
   const last = () => frames[frames.length - 1];
   return { stream, frames, controller, data, last };
+}
+
+/** A transport whose write buffer the test fills and drains. */
+function transport(backlogged = false) {
+  const listeners = new Set<() => void>();
+  const state = {
+    backlogged,
+    listeners,
+    hooks: {
+      backlogged: (): boolean => state.backlogged,
+      onDrain: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    } satisfies Partial<IServerStreamInit>,
+    drain: () => {
+      state.backlogged = false;
+      [...listeners].forEach((listener) => listener());
+    },
+  };
+  return state;
 }
 
 describe('ServerStream', () => {
@@ -491,6 +514,91 @@ describe('ServerStream', () => {
       expect(await stream.run()).to.equal('ok');
       await tick();
       expect(source.returnCalls).to.equal(0);
+    });
+  });
+
+  describe('transport backpressure', () => {
+    it('pulls nothing while the transport is backlogged, though it holds credit, and resumes once it drains', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const wire = transport(true);
+      const { stream, data, controller } = setup(counter(log), { credits: 3, ...wire.hooks });
+
+      const outcome = stream.run();
+      await tick();
+      expect(log.produced).to.equal(0);
+      expect(data()).to.deep.equal([]);
+
+      wire.drain();
+      await tick();
+      expect(data()).to.deep.equal([0, 1, 2]);
+      // now waiting for credit, through a single listener
+      expect(wire.listeners.size).to.equal(1);
+
+      controller.abort(new SocketException('cancelled', 'test over'));
+      expect(await outcome).to.equal('cancelled');
+      expect(wire.listeners.size).to.equal(0);
+    });
+
+    it('stops pulling as soon as the transport backs up mid-stream', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const wire = transport();
+      const { stream, data, controller } = setup(counter(log), {
+        credits: 4,
+        ...wire.hooks,
+        send: (event, frame) => {
+          if (event === WIRE_EVENTS.chunk && (frame as { seq: number }).seq === 1) {
+            wire.backlogged = true;
+          }
+        },
+      });
+
+      const outcome = stream.run();
+      await tick();
+      expect(log.produced).to.equal(2);
+
+      wire.drain();
+      await tick();
+      expect(log.produced).to.equal(4);
+      expect(data()).to.deep.equal([]);
+
+      controller.abort(new SocketException('cancelled', 'test over'));
+      expect(await outcome).to.equal('cancelled');
+    });
+
+    it('fails with deadline_exceeded and frees the source when the transport stays backlogged for stallTimeoutMs', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const wire = transport();
+      const { stream, last, controller } = setup(counter(log), {
+        credits: 4,
+        stallTimeoutMs: 50,
+        ...wire.hooks,
+        send: () => {
+          wire.backlogged = true;
+        },
+      });
+
+      expect(await stream.run()).to.equal('deadline_exceeded');
+      expect(log.produced).to.equal(1);
+      expect(last()).to.equal(undefined);
+      expect((controller.signal.reason as SocketException).code).to.equal('deadline_exceeded');
+      await until(() => log.finallyRan);
+      expect(wire.listeners.size).to.equal(0);
+    });
+
+    it('a drain that leaves the transport backlogged keeps the stream waiting', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const wire = transport(true);
+      const { stream, controller } = setup(counter(log), { credits: 2, ...wire.hooks });
+
+      const outcome = stream.run();
+      await tick();
+      [...wire.listeners].forEach((listener) => listener());
+      await tick();
+      expect(log.produced).to.equal(0);
+
+      controller.abort(new SocketException('cancelled', 'test over'));
+      expect(await outcome).to.equal('cancelled');
+      expect(wire.listeners.size).to.equal(0);
     });
   });
 });

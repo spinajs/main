@@ -32,6 +32,11 @@ function aborted(signal: AbortSignal): Promise<never> {
   });
 }
 
+/** Packets engine.io holds for the connection's transport; it has no public gauge, so this reads its private write buffer. */
+function unsentPackets(socket: Socket): number {
+  return (socket.conn as unknown as { writeBuffer?: unknown[] }).writeBuffer?.length ?? 0;
+}
+
 @Injectable()
 export class SocketDispatcher extends AsyncService {
   @Logger('http-socket')
@@ -64,6 +69,7 @@ export class SocketDispatcher extends AsyncService {
 
   /** the socket of each runtime, which stream frames are written to */
   protected sockets = new WeakMap<IConnectionRuntime, Socket>();
+  protected drainListeners = new WeakMap<Socket, Set<() => void>>();
 
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -493,10 +499,26 @@ export class SocketDispatcher extends AsyncService {
       },
       within: (step) => this.Als.run(ctx.storage, step),
       toWire: (err) => this.Errors.toWire(err, `stream ${name}`),
+      // a client that grants credit blind but never reads its socket would otherwise grow engine.io's write buffer without bound
+      backlogged: () => unsentPackets(socket) > limits.maxCredits,
+      onDrain: (listener) => this.onDrain(socket, listener),
     });
 
     runtime.streams++;
     return stream;
+  }
+
+  /** One engine.io listener per socket, however many streams wait on it: maxPerConnection may exceed the emitter's leak warning limit. */
+  protected onDrain(socket: Socket, listener: () => void): () => void {
+    let listeners = this.drainListeners.get(socket);
+    if (!listeners) {
+      const all = new Set<() => void>();
+      socket.conn.on('drain', () => [...all].forEach((waiting) => waiting()));
+      this.drainListeners.set(socket, (listeners = all));
+    }
+
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   }
 
   protected runStream(ctx: SocketCommandContext, stream: ServerStream): void {
