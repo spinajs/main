@@ -1,14 +1,17 @@
 import { randomInt } from 'node:crypto';
 import AjvModule from 'ajv';
 import type { ValidateFunction } from 'ajv';
-import { Injectable, SyncService } from '@spinajs/di';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { Class, DI, Injectable, SyncService } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
 
 /** Bounds every password must stay within, whatever the policy says (A04). */
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
+
+/** Above this many code points `check` answers `too_long` without running the rule or the blocklist on the input. */
+export const PASSWORD_HARD_CAP = 1024;
 
 /**
  * How many draws `generate()` makes before declaring the pool and the rule incompatible. A uniform draw can miss a class the rule
@@ -88,25 +91,33 @@ export class LocalPasswordPolicy extends SyncService {
   @Config('authn.local.generator', { defaultValue: DEFAULT_GENERATOR })
   protected Generator: GeneratorConfig;
 
-  @AutoinjectService('authn.local.policy.blocklist', PasswordBlocklist)
-  protected Blocklist: PasswordBlocklist | undefined;
+  // A name read here and resolved below rather than @AutoinjectService, which logs a warning on every boot for the default null.
+  @Config('authn.local.policy.blocklist', { defaultValue: null })
+  protected BlocklistName: string | null;
 
   private _settings?: PolicySettings;
+  private _blocklistType?: Class<PasswordBlocklist> | null;
+  private _blocklist?: Promise<PasswordBlocklist>;
 
   /** With `options` the configuration is not read at all, so a test can build one without a container. */
   constructor(protected readonly Options?: LocalPasswordPolicyOptions) {
     super();
   }
 
-  /** Validates the bounds and compiles the rule, so a bad config fails at boot when resolved by DI. */
+  /** Validates the bounds, the rule and the blocklist name, so a bad config fails at boot when resolved by DI. */
   public resolve(): void {
     void this.settings;
+    void this.blocklistType;
     super.resolve();
   }
 
   public async check(password: string): Promise<PasswordViolation[]> {
+    if (codePointLength(password) > PASSWORD_HARD_CAP) {
+      return ['too_long'];
+    }
+
     const violations = this.checkSync(password);
-    const blocklist = this.Options ? this.Options.blocklist : this.Blocklist;
+    const blocklist = await this.blocklist();
     if (blocklist && (await blocklist.isBlocked(password))) {
       violations.push('blocklisted');
     }
@@ -171,6 +182,33 @@ export class LocalPasswordPolicy extends SyncService {
     }
 
     return violations;
+  }
+
+  protected async blocklist(): Promise<PasswordBlocklist | null> {
+    if (this.Options) {
+      return this.Options.blocklist ?? null;
+    }
+    const type = this.blocklistType;
+    return type ? (this._blocklist ??= Promise.resolve(DI.resolve(type))) : null;
+  }
+
+  protected get blocklistType(): Class<PasswordBlocklist> | null {
+    if (this.Options) {
+      return null;
+    }
+    if (this._blocklistType === undefined) {
+      const name = this.BlocklistName;
+      if (name === null || name === undefined || name === '') {
+        this._blocklistType = null;
+      } else {
+        const type = DI.getRegisteredTypes(PasswordBlocklist).find((t) => t.name === name);
+        if (!type) {
+          throw new InvalidOption(`authn.local.policy.blocklist names ${String(name)}, which is not registered as a PasswordBlocklist`);
+        }
+        this._blocklistType = type as Class<PasswordBlocklist>;
+      }
+    }
+    return this._blocklistType;
   }
 
   protected get settings(): PolicySettings {

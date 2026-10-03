@@ -4,7 +4,7 @@ import { DI, Injectable } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 
-import { codePointLength, isLoginLength, LocalPasswordPolicy, LocalPasswordPolicyOptions, PasswordBlocklist } from '../src/policy.js';
+import { codePointLength, isLoginLength, LocalPasswordPolicy, LocalPasswordPolicyOptions, PASSWORD_HARD_CAP, PasswordBlocklist } from '../src/policy.js';
 
 const DIGIT_RULE = { type: 'string', pattern: '[0-9]' };
 
@@ -131,6 +131,10 @@ describe('LocalPasswordPolicy', () => {
       expect(policy().policy()).to.deep.equal({ minLength: 8, maxLength: 128 });
       expect(policy({ rule: { type: 'string', minLength: 3 } }).policy()).to.deep.equal({ minLength: 8, maxLength: 128 });
     });
+
+    it('leaves out a blank description', () => {
+      expect(policy({ description: '   ' }).policy()).to.deep.equal({ minLength: 8, maxLength: 128 });
+    });
   });
 
   describe('blocklist', () => {
@@ -152,6 +156,29 @@ describe('LocalPasswordPolicy', () => {
       const p = policy({ rule: DIGIT_RULE, blocklist: new ListBlocklist(['abc', 'x'.repeat(129)]) });
       expect(await p.check('abc')).to.deep.equal(['too_short', 'rule', 'blocklisted']);
       expect(await p.check('x'.repeat(129))).to.deep.equal(['too_long', 'rule', 'blocklisted']);
+    });
+  });
+
+  describe('hard cap', () => {
+    it(`above ${PASSWORD_HARD_CAP} code points only too_long comes back, without the rule or the hook`, async () => {
+      expect(PASSWORD_HARD_CAP).to.equal(1024);
+      const hook = new ListBlocklist(['x'.repeat(PASSWORD_HARD_CAP), 'x'.repeat(PASSWORD_HARD_CAP + 1)]);
+      let ruleCalls = 0;
+      const p = policy({ rule: DIGIT_RULE, blocklist: hook });
+      const rule = (p as unknown as { settings: { rule: (x: string) => boolean } }).settings.rule;
+      (p as unknown as { settings: { rule: (x: string) => boolean } }).settings.rule = (x: string) => {
+        ruleCalls++;
+        return rule(x);
+      };
+
+      expect(await p.check('x'.repeat(PASSWORD_HARD_CAP + 1))).to.deep.equal(['too_long']);
+      expect(await p.check('😀'.repeat(PASSWORD_HARD_CAP + 1))).to.deep.equal(['too_long']);
+      expect(ruleCalls).to.equal(0);
+      expect(hook.calls).to.equal(0);
+
+      expect(await p.check('x'.repeat(PASSWORD_HARD_CAP))).to.deep.equal(['too_long', 'rule', 'blocklisted']);
+      expect(ruleCalls).to.equal(1);
+      expect(hook.calls).to.equal(1);
     });
   });
 
@@ -202,6 +229,17 @@ describe('LocalPasswordPolicy', () => {
     it('a length outside the policy bounds throws', () => {
       expect(failure(() => policy({ generator: { length: 7, characters: ['abc'] } }).generate())).to.be.instanceOf(UnexpectedServerError);
       expect(failure(() => policy({ maxLength: 20, generator: { length: 21, characters: ['abc'] } }).generate())).to.be.instanceOf(UnexpectedServerError);
+      expect((failure(() => policy({ generator: { length: 7, characters: ['abc'] } }).generate()) as Error).message).to.contain('outside');
+    });
+
+    it('counts a repeated pool character once', () => {
+      const p = policy({ generator: { length: 100, characters: ['aaaaaaaaab'] } });
+      let bs = 0;
+      for (let i = 0; i < 10; i++) {
+        bs += [...p.generate()].filter((c) => c === 'b').length;
+      }
+      // About 500 of 1000 with de-duplication, about 100 without.
+      expect(bs).to.be.greaterThan(300);
     });
 
     it('a rule the pool cannot satisfy throws after the attempts', () => {
@@ -220,42 +258,57 @@ class ConfiguredTestBlocklist extends PasswordBlocklist {
   }
 }
 
-class PolicyTestConfiguration extends FrameworkConfiguration {
-  protected onLoad(): unknown {
-    return {
-      logger: {
-        targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
-        rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-      },
-      authn: {
-        local: {
-          policy: { minLength: 10, maxLength: 40, rule: DIGIT_RULE, description: 'One digit at least', blocklist: 'ConfiguredTestBlocklist' },
-          generator: { length: 24, characters: ['xyz', '7'] },
+let configurations = 0;
+
+// The DI registry and cache key on the class name, so every configuration needs its own.
+function policyConfiguration(local: object) {
+  const cls = class extends FrameworkConfiguration {
+    protected onLoad(): unknown {
+      return {
+        logger: {
+          targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
+          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
-      },
-    };
-  }
+        authn: { local },
+      };
+    }
+  };
+  Object.defineProperty(cls, 'name', { value: `PolicyTestConfiguration${++configurations}` });
+  return cls;
 }
 
 describe('LocalPasswordPolicy config wiring', function () {
   this.timeout(30_000);
 
-  before(async () => {
-    DI.setESMModuleSupport();
-    DI.unregister(PolicyTestConfiguration);
-    DI.register(PolicyTestConfiguration).as(Configuration);
-    await DI.resolve(Configuration);
-  });
+  let registered: ReturnType<typeof policyConfiguration> | undefined;
 
-  after(() => {
-    DI.unregister(PolicyTestConfiguration);
-    DI.unregister(ConfiguredTestBlocklist);
+  async function boot(local: object): Promise<LocalPasswordPolicy> {
+    DI.setESMModuleSupport();
+    registered = policyConfiguration(local);
+    DI.register(registered).as(Configuration);
+    await DI.resolve(Configuration);
+    return DI.resolve(LocalPasswordPolicy);
+  }
+
+  afterEach(() => {
+    if (registered) {
+      DI.unregister(registered);
+      DI.uncache(registered);
+      registered = undefined;
+    }
     DI.uncache(Configuration);
     DI.uncache(LocalPasswordPolicy);
   });
 
+  after(() => {
+    DI.unregister(ConfiguredTestBlocklist);
+  });
+
   it('resolved through DI honours authn.local.policy and authn.local.generator', async () => {
-    const p = DI.resolve(LocalPasswordPolicy);
+    const p = await boot({
+      policy: { minLength: 10, maxLength: 40, rule: DIGIT_RULE, description: 'One digit at least', blocklist: 'ConfiguredTestBlocklist' },
+      generator: { length: 24, characters: ['xyz', '7'] },
+    });
     expect(p.policy()).to.deep.equal({ minLength: 10, maxLength: 40, pattern: '[0-9]', description: 'One digit at least' });
     expect(await p.check('abcdefghi')).to.deep.equal(['too_short', 'rule']);
     expect(await p.check('Blocked-123')).to.deep.equal(['blocklisted']);
@@ -266,5 +319,21 @@ describe('LocalPasswordPolicy config wiring', function () {
     const pw = p.generate();
     expect(codePointLength(pw)).to.equal(24);
     expect(await p.check(pw)).to.deep.equal([]);
+  });
+
+  it('with blocklist null nothing is blocklisted', async () => {
+    const p = await boot({ policy: { minLength: 9, blocklist: null } });
+    expect(p.policy().minLength).to.equal(9);
+    expect(await p.check('Blocked-123')).to.deep.equal([]);
+  });
+
+  it('an unknown blocklist name fails at resolve', async () => {
+    let error: unknown;
+    try {
+      await boot({ policy: { blocklist: 'NoSuchBlocklist' } });
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(InvalidOption);
   });
 });
