@@ -299,14 +299,20 @@ export class DbTokenService extends TokenService {
     if (!token) {
       return false;
     }
-    // Looked up first, so a failing lookup cannot report an error for a token that is already revoked.
-    const owner = await this.owners.refOf(token.user_id);
 
     const result = await AccessToken.update({ RevokedAt: DateTime.fromMillis(now) as DateTime<true> })
       .where('Id', token.Id)
       .whereNull('RevokedAt');
     if (this.affected(result) === 0) {
       return false;
+    }
+
+    // The owner only names the event's identity; a failing lookup must not undo or hide the revocation.
+    let owner: IdentityRef | null = null;
+    try {
+      owner = await this.owners.refOf(token.user_id);
+    } catch (err) {
+      this.Log.error(err as Error, `Owner lookup failed for revoked token ${token.Uuid}; publishing token.revoke without an identity`);
     }
 
     await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
@@ -326,7 +332,7 @@ export class DbTokenService extends TokenService {
 
     // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
     // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
-    // safe against concurrent writes.
+    // safe against concurrent writes. Only ids are read: a row that no longer hydrates must not stop the sweep.
     const doomed = await AccessToken.where(function () {
       this.where(function () {
         this.whereNotNull('ExpiresAt');
@@ -335,7 +341,9 @@ export class DbTokenService extends TokenService {
       this.orWhere(function () {
         this.whereNotNull('RevokedAt');
       });
-    });
+    })
+      .select('Id')
+      .asRaw<Array<{ Id: number }>>();
 
     let count = 0;
     for (let i = 0; i < doomed.length; i += DELETE_BATCH) {
@@ -509,7 +517,7 @@ export class DbTokenService extends TokenService {
       type,
       at: new Date(now),
       outcome: 'success',
-      // null: revokeById found a token whose owner row is gone.
+      // null: revokeById could not resolve the owner (row gone or lookup failed).
       ...(owner ? { identity: { type: owner.type, id: owner.id } } : {}),
       ...(actor ? { actor } : {}),
       ...(ctx.ip !== undefined ? { ip: ctx.ip } : {}),

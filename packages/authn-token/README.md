@@ -167,13 +167,20 @@ authn:token-delete-expired   # run cyclically from a worker
 - `-k, --kind` is `pat` (default) or `service`; agent tokens are not minted
   from the CLI.
 - `-e, --expires` takes an ISO instant, at most `authn.token.maxTtlDays`
-  ahead. Without the flag the token expires `authn.token.defaultTtlDays`
-  (30) days from now; an empty or unparsable value is refused.
+  ahead. A value without an offset is read in the machine's local time.
+  Without the flag the token expires `authn.token.defaultTtlDays` (30) days
+  from now; an empty or unparsable value is refused.
 - A refusal prints its code (`invalid_expiry`, `invalid_scope`) and creates
   nothing.
-- `authn:token-create` prints the plaintext once; it cannot be retrieved
+- `authn:token-create` writes the id, the expiry and the plaintext to
+  stdout, the plaintext once, alone on the last line. It never goes to the
+  logger, whose targets may be files or a remote store; the logger only gets
+  `Token <id> created for user <uuid>`. The plaintext cannot be retrieved
   later.
-- `authn:token-delete` revokes the token whoever owns it.
+- `authn:token-delete` revokes the token whoever owns it. Its `token.revoke`
+  event names the actor `{ type: 'system', id: 'cli' }`.
+- Every refusal and error sets the exit code to 1. An unknown or already
+  revoked token in `authn:token-delete` does not.
 - `authn:token-delete-expired` deletes expired and revoked tokens. It keeps
   tokens without an expiry, which the deprecated 2.x API still creates.
 

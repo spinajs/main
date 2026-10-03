@@ -365,7 +365,7 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
 /**
  * Deletes every token whose expiration has passed. Returns the deleted count.
  *
- * Intended for cyclic execution from a worker ( see `rbac:token-delete-expired` ).
+ * Intended for cyclic execution from a worker ( see `authn:token-delete-expired` ).
  * Expired tokens are already refused by {@link validateToken}, so this is
  * housekeeping, not enforcement.
  *

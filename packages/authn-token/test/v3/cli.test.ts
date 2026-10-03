@@ -4,6 +4,7 @@ import sinon from 'sinon';
 import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { OrmException } from '@spinajs/orm';
 import { AuthnEventSink, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
@@ -47,13 +48,29 @@ class CliTestTokenService extends DbTokenService {
   }
 }
 
-/** Every message the command's logger receives, at any level; the service logs to the same named logger. */
-function capture(cmd: object): () => string[] {
+interface Output {
+  /** Lines the command wrote to stdout. */
+  readonly out: string[];
+  /** Messages its logger received, at any level; the service logs to the same named logger. */
+  readonly logs: string[];
+  readonly all: string[];
+}
+
+const captureBox = sinon.createSandbox();
+
+function capture(cmd: object): () => Output {
   const log = (cmd as { Log: Record<(typeof LEVELS)[number], (...args: unknown[]) => void> }).Log;
   // The commands share one logger, so the previous command run of this test is unwrapped first.
-  sinon.restore();
-  const spies = LEVELS.map((level) => sinon.spy(log, level));
-  return () => spies.flatMap((s) => s.getCalls().map((c) => c.args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')));
+  captureBox.restore();
+  const spies = LEVELS.map((level) => captureBox.spy(log, level));
+  const out: string[] = [];
+  if (typeof (cmd as { write?: unknown }).write === 'function') {
+    captureBox.stub(cmd as { write(line: string): void }, 'write').callsFake((line: string) => void out.push(line));
+  }
+  return () => {
+    const logs = spies.flatMap((s) => s.getCalls().map((c) => c.args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')));
+    return { out: [...out], logs, all: [...out, ...logs] };
+  };
 }
 
 type Ok = Extract<TokenCreateResult, { ok: true }>;
@@ -63,6 +80,7 @@ describe('token cli commands', function () {
 
   let sink: CliTestSink;
   let savedDefaultTtl: unknown;
+  let savedExitCode: typeof process.exitCode;
   const config = () => DI.get(Configuration)!;
 
   function uncacheService(): void {
@@ -93,9 +111,13 @@ describe('token cli commands', function () {
     await v3Connection().del().from(TABLE);
     sink = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof CliTestSink) as CliTestSink;
     sink.clear();
+    savedExitCode = process.exitCode;
+    process.exitCode = undefined;
   });
 
   afterEach(() => {
+    process.exitCode = savedExitCode;
+    captureBox.restore();
     sinon.restore();
     config().set('authn.token.defaultTtlDays', savedDefaultTtl);
   });
@@ -139,7 +161,7 @@ describe('token cli commands', function () {
   });
 
   describe('authn:token-create', () => {
-    async function create(ownerUuid: string, options: Record<string, unknown>): Promise<string[]> {
+    async function create(ownerUuid: string, options: Record<string, unknown>): Promise<Output> {
       const cmd = await DI.resolve(CreateToken);
       const output = capture(cmd);
       await cmd.execute(ownerUuid, options as never);
@@ -150,21 +172,23 @@ describe('token cli commands', function () {
       const output = await create(ownerUuid, options);
       const label = JSON.stringify(options);
       expect(
-        output.some((m) => m.includes(code)),
+        output.all.some((m) => m.includes(code)),
         `${label}: prints ${code} in ${JSON.stringify(output)}`,
       ).to.equal(true);
       expect(
-        output.some((m) => PLAINTEXT.test(m)),
+        output.all.some((m) => PLAINTEXT.test(m)),
         `${label}: no plaintext`,
       ).to.equal(false);
       expect(await rows(), `${label}: nothing stored`).to.have.length(0);
+      expect(process.exitCode, `${label}: exit code`).to.equal(1);
+      process.exitCode = undefined;
     }
 
-    it('prints the id, the expiry and the plaintext exactly once, and never the hash', async () => {
+    it('writes the id, the expiry and the plaintext once to stdout, never to the logger, and never the hash', async () => {
       const a = await owner();
       const expires = DateTime.now().plus({ days: 2 }).toUTC().toISO()!;
 
-      const output = await create(a.ref.id, { name: 'ci', roles: 'user, editor', expires });
+      const { out, logs, all } = await create(a.ref.id, { name: 'ci', roles: 'user, editor', expires });
 
       const [token] = await rows();
       expect(token.Name).to.equal('ci');
@@ -172,16 +196,64 @@ describe('token cli commands', function () {
       expect(token.Roles).to.deep.equal(['user', 'editor']);
       expect(token.user_id).to.equal(a.rowId);
 
-      const plaintexts = output.flatMap((m) => m.match(new RegExp(PLAINTEXT.source, 'g')) ?? []);
-      expect(plaintexts, JSON.stringify(output)).to.have.length(1);
+      const plaintexts = out.flatMap((m) => m.match(new RegExp(PLAINTEXT.source, 'g')) ?? []);
+      expect(plaintexts, JSON.stringify(out)).to.have.length(1);
       expect(sha256(plaintexts[0])).to.equal(token.Token);
-      expect(output.find((m) => m.includes(plaintexts[0]))).to.match(/copy now, it will not be shown again/);
       expect(
-        output.some((m) => m.includes(token.Token)),
+        out.filter((m) => m.includes(plaintexts[0])),
+        'the plaintext stands on its own line',
+      ).to.deep.equal([plaintexts[0]]);
+      expect(out.some((m) => /copy the token now, it will not be shown again/i.test(m))).to.equal(true);
+      expect(out.some((m) => m.includes(token.Uuid))).to.equal(true);
+      expect(out.some((m) => m.includes(token.ExpiresAt!.toUTC().toISO()!) || m.includes(token.ExpiresAt!.toJSDate().toISOString()))).to.equal(true);
+
+      expect(
+        logs.some((m) => m.includes(plaintexts[0]) || PLAINTEXT.test(m)),
+        `the plaintext is logged: ${JSON.stringify(logs)}`,
+      ).to.equal(false);
+      expect(
+        logs.some((m) => m.includes(token.Uuid) && m.includes(a.ref.id)),
+        `no audit line: ${JSON.stringify(logs)}`,
+      ).to.equal(true);
+      expect(
+        all.some((m) => m.includes(token.Token)),
         'the hash is printed',
       ).to.equal(false);
-      expect(output.some((m) => m.includes(token.Uuid))).to.equal(true);
-      expect(output.some((m) => m.includes(token.ExpiresAt!.toUTC().toISO()!) || m.includes(token.ExpiresAt!.toJSDate().toISOString()))).to.equal(true);
+      expect(process.exitCode).to.equal(undefined);
+    });
+
+    it('prints neither the hash nor the plaintext when storing the token fails', async () => {
+      const a = await owner();
+      // As orm-sqlite and mysql word a failed insert: the query bindings, or the duplicate value, in the message.
+      const failures: Array<(t: AccessToken) => Error> = [(t) => new OrmException(`Failed to execute query: INSERT INTO rbac_access_tokens, bindings: ${t.Token},${t.Name}`), (t) => Object.assign(new Error(`Duplicate entry '${t.Token}' for key 'Token'`), { code: 'ER_DUP_ENTRY' })];
+
+      for (const failure of failures) {
+        let hash = '';
+        const insert = sinon.stub(AccessToken.prototype, 'insert').callsFake(function (this: AccessToken) {
+          hash = this.Token;
+          return Promise.reject(failure(this));
+        });
+
+        const { all } = await create(a.ref.id, { name: 'unstored' });
+        insert.restore();
+
+        expect(hash, 'the insert ran').to.not.equal('');
+        expect(
+          all.some((m) => m.includes(hash)),
+          `the hash is printed: ${JSON.stringify(all)}`,
+        ).to.equal(false);
+        expect(
+          all.some((m) => PLAINTEXT.test(m)),
+          `the plaintext is printed: ${JSON.stringify(all)}`,
+        ).to.equal(false);
+        expect(
+          all.some((m) => /Error while creating token/.test(m)),
+          JSON.stringify(all),
+        ).to.equal(true);
+        expect(process.exitCode).to.equal(1);
+        process.exitCode = undefined;
+      }
+      expect(await rows()).to.have.length(0);
     });
 
     // LEDGER cli row 2
@@ -296,33 +368,36 @@ describe('token cli commands', function () {
     it('prints an error for an unknown owner and creates nothing', async () => {
       const output = await create(randomUUID(), { name: 'orphan' });
       expect(
-        output.some((m) => /unknown/i.test(m)),
+        output.all.some((m) => /unknown/i.test(m)),
         JSON.stringify(output),
       ).to.equal(true);
       expect(await rows()).to.have.length(0);
+      expect(process.exitCode).to.equal(1);
     });
 
     it('prints an error for an empty name and creates nothing', async () => {
       const a = await owner();
       const output = await create(a.ref.id, { name: '   ' });
       expect(
-        output.some((m) => /name/.test(m)),
+        output.all.some((m) => /name/.test(m)),
         JSON.stringify(output),
       ).to.equal(true);
       expect(await rows()).to.have.length(0);
+      expect(process.exitCode).to.equal(1);
     });
   });
 
   describe('authn:token-delete', () => {
-    async function remove(uuid: string): Promise<string[]> {
+    async function remove(uuid: string, arrange?: () => void): Promise<string[]> {
       const cmd = await DI.resolve(DeleteToken);
       const output = capture(cmd);
+      arrange?.();
       await cmd.execute(uuid);
-      return output();
+      return output().all;
     }
 
     // LEDGER cli row 5
-    it('revokes the token whoever owns it and publishes token.revoke for the owner', async () => {
+    it('revokes the token whoever owns it and publishes token.revoke for the owner, with the cli as actor', async () => {
       const a = await owner();
       const t = await mint(a.ref);
 
@@ -335,7 +410,8 @@ describe('token cli commands', function () {
         output.some((m) => m.includes(t.record.id) && /revoked/.test(m) && !/not found/.test(m)),
         JSON.stringify(output),
       ).to.equal(true);
-      expect(sink.ofType('token.revoke').map((e) => [e.identity, e.data])).to.deep.equal([[a.ref, { token: t.record.id, kind: 'pat' }]]);
+      expect(sink.ofType('token.revoke').map((e) => [e.identity, e.actor, e.data])).to.deep.equal([[a.ref, { type: 'system', id: 'cli' }, { token: t.record.id, kind: 'pat' }]]);
+      expect(process.exitCode).to.equal(undefined);
 
       const validation = await (await service()).validate(t.plaintext, ctx(new Date()));
       expect(validation).to.deep.equal({ ok: false, reason: 'revoked' });
@@ -356,6 +432,20 @@ describe('token cli commands', function () {
         ).to.equal(true);
       }
       expect(sink.all()).to.deep.equal([]);
+      expect(process.exitCode, 'nothing left to revoke is not a failure').to.equal(undefined);
+    });
+
+    it('exits with 1 when the revocation fails', async () => {
+      const id = randomUUID();
+      const output = await remove(id, () => {
+        sinon.stub(DbTokenService.prototype, 'revokeById').rejects(new Error('connection lost'));
+      });
+
+      expect(
+        output.some((m) => m.includes(id) && /Error while revoking/.test(m)),
+        JSON.stringify(output),
+      ).to.equal(true);
+      expect(process.exitCode).to.equal(1);
     });
   });
 
@@ -376,10 +466,22 @@ describe('token cli commands', function () {
 
       expect((await rows()).map((t) => t.Uuid)).to.have.members([live.record.id, future.Uuid, legacy.Uuid]);
       expect(await row(dead.Uuid)).to.equal(undefined);
+      expect(output().all).to.include('Deleted 2 expired or revoked token(s)');
+      expect(process.exitCode).to.equal(undefined);
+    });
+
+    it('exits with 1 when the sweep fails', async () => {
+      const cmd = await DI.resolve(DeleteExpiredTokens);
+      const output = capture(cmd);
+      sinon.stub(DbTokenService.prototype, 'deleteExpired').rejects(new Error('connection lost'));
+
+      await cmd.execute();
+
       expect(
-        output().some((m) => /\b2\b/.test(m)),
+        output().all.some((m) => /Error while deleting expired tokens/.test(m)),
         JSON.stringify(output()),
       ).to.equal(true);
+      expect(process.exitCode).to.equal(1);
     });
   });
 
@@ -398,6 +500,33 @@ describe('token cli commands', function () {
 
       expect(await tokens.revokeById(t.record.id, ctx(now))).to.equal(false);
       expect(sink.all()).to.have.length(1);
+    });
+
+    it('still revokes when the owner row is gone or its lookup fails, and publishes without an identity', async () => {
+      const a = await owner();
+      const actor = { type: 'system', id: 'cli' };
+      const tokens = await service();
+
+      for (const [label, refOf] of [
+        ['owner row gone', () => Promise.resolve(null)],
+        ['lookup fails', () => Promise.reject(new Error('users table unreachable'))],
+      ] as const) {
+        const t = await mint(a.ref);
+        sink.clear();
+        const lookup = sinon.stub(UsersTableTokenOwnerResolver.prototype, 'refOf').callsFake(refOf);
+        const now = new Date();
+
+        expect(await tokens.revokeById(t.record.id, ctx(now), { actor }), label).to.equal(true);
+        lookup.restore();
+
+        expect((await row(t.record.id))!.RevokedAt!.toMillis(), label).to.equal(now.getTime());
+        const events = sink.ofType('token.revoke');
+        expect(
+          events.map((e) => [e.actor, e.data]),
+          label,
+        ).to.deep.equal([[actor, { token: t.record.id, kind: 'pat' }]]);
+        expect(events[0], label).to.not.have.property('identity');
+      }
     });
 
     it('answers false for an empty, unknown or non-string id', async () => {
@@ -439,6 +568,15 @@ describe('token cli commands', function () {
       expect(await row(wallClockExpired.Uuid)).to.not.equal(undefined);
 
       expect(await (await service()).deleteExpired(DateTime.now().plus({ days: 400 }).toJSDate())).to.equal(1);
+    });
+
+    it('deletes an expired row whose other columns no longer read back', async () => {
+      const a = await owner();
+      const broken = await stored(a.rowId, 'broken scope', { ExpiresAt: NOW.minus({ days: 1 }) });
+      await v3Connection().update().in(TABLE).update({ Scope: '{not json' }).where({ Uuid: broken.Uuid });
+
+      expect(await (await service()).deleteExpired(NOW.toJSDate())).to.equal(1);
+      expect(await v3Connection().select().from(TABLE).where({ Uuid: broken.Uuid })).to.have.length(0);
     });
 
     it('refuses a now that is not a valid Date', async () => {
