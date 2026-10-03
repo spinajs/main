@@ -90,20 +90,23 @@ export interface ITestServer {
   close(): Promise<void>;
 }
 
-/** @param prepare - runs on the fresh http server before socket.io attaches to it */
-export async function startServer(cfg: Record<string, unknown> = {}, prepare?: (host: TestHttpHost) => void): Promise<ITestServer> {
+/**
+ * @param prepare - runs on the fresh http server before socket.io attaches to it
+ * @param port - 0 picks a free port; the fault kit restart passes the previous one
+ */
+export async function startServer(cfg: Record<string, unknown> = {}, prepare?: (host: TestHttpHost) => void, port = 0): Promise<ITestServer> {
   await configure(cfg);
 
   const host = DI.resolve(SocketHttpHost) as TestHttpHost;
   prepare?.(host);
   const server = await DI.resolve(SocketServer);
-  await new Promise<void>((resolve) => host.Http.listen(0, '127.0.0.1', () => resolve()));
-  const { port } = host.Http.address() as AddressInfo;
+  await new Promise<void>((resolve) => host.Http.listen(port, '127.0.0.1', () => resolve()));
+  const { port: boundPort } = host.Http.address() as AddressInfo;
 
   return {
     server,
     host,
-    url: `http://127.0.0.1:${port}`,
+    url: `http://127.0.0.1:${boundPort}`,
     path: DI.get(Configuration)!.get<string>('http.socket.path'),
     close: async () => {
       await server.dispose();
