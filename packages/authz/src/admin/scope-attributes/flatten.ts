@@ -3,10 +3,26 @@ import { AuthzConfigError } from '../../contracts/errors.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
 
 /**
- * Column sizes of authz_scope_attribute (design §9.1), and the most leaves one node may hold: well below the
- * engine's merge limit (10 000 values), and few enough that a node is a handful of SQL statements.
+ * Column sizes of authz_scope_attribute (design §9.1), and the shape one node may have. The engine's
+ * mergeAttributes refuses objects nested deeper than 32 (the root object counts as 1) and layers of more than
+ * 10 000 keys (nested objects included), so a node stays at 31 path segments and 5000 keys, which leaves room
+ * for the schema defaults; 1000 leaves keep a node to a handful of SQL statements.
  */
-export const SCOPE_ATTRIBUTE_LIMITS = Object.freeze({ scopeType: 64, scopeId: 64, path: 160, json: 1024, leaves: 1000 });
+export const SCOPE_ATTRIBUTE_LIMITS = Object.freeze({ scopeType: 64, scopeId: 64, path: 160, json: 1024, depth: 31, leaves: 1000, keys: 5000 });
+
+/** The keys of the nested object rows form, nested objects included: the distinct prefixes of the paths. */
+export function attributeKeyCount(paths: Iterable<string>): number {
+  const prefixes = new Set<string>();
+  for (const path of paths) {
+    let at = path.indexOf('.');
+    while (at !== -1) {
+      prefixes.add(path.slice(0, at));
+      at = path.indexOf('.', at + 1);
+    }
+    prefixes.add(path);
+  }
+  return prefixes.size;
+}
 
 export type ScopeAttributeRows = Readonly<Record<string, ScopeAttributeLeaf>>;
 
@@ -49,16 +65,17 @@ export function flattenAttributes(value: unknown, opts: { readonly nulls?: boole
   const set: Record<string, ScopeAttributeLeaf> = Object.create(null);
   const remove: string[] = [];
   let count = 0;
-  const walk = (obj: Record<string, unknown>, prefix: string): void => {
+  const walk = (obj: Record<string, unknown>, prefix: string, depth: number): void => {
     for (const key of Object.keys(obj)) {
       const path = prefix === '' ? key : `${prefix}.${key}`;
       const why = badKey(key);
       if (why) fail(path, why);
       if (path.length > SCOPE_ATTRIBUTE_LIMITS.path) fail(path, `paths are at most ${SCOPE_ATTRIBUTE_LIMITS.path} characters`);
-      if (++count > SCOPE_ATTRIBUTE_LIMITS.leaves) fail('', `holds more than ${SCOPE_ATTRIBUTE_LIMITS.leaves} keys`);
+      if (depth > SCOPE_ATTRIBUTE_LIMITS.depth) fail(path, `paths are at most ${SCOPE_ATTRIBUTE_LIMITS.depth} keys deep`);
+      if (++count > SCOPE_ATTRIBUTE_LIMITS.keys) fail('', `holds more than ${SCOPE_ATTRIBUTE_LIMITS.keys} keys (nested objects included)`);
       const v = obj[key];
       if (isPlainObject(v)) {
-        walk(v, path);
+        walk(v, path, depth + 1);
         continue;
       }
       if (v === null && opts.nulls) {
@@ -70,7 +87,7 @@ export function flattenAttributes(value: unknown, opts: { readonly nulls?: boole
       set[path] = v as ScopeAttributeLeaf;
     }
   };
-  walk(value, '');
+  walk(value, '', 1);
   return { set: { ...set }, remove };
 }
 

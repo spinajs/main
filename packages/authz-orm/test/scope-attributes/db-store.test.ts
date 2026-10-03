@@ -211,6 +211,34 @@ describe('DbScopeAttributeStore on SQLite', function () {
     expect(((await db.select().from(TABLE)) as unknown[]).length).to.equal(0);
   });
 
+  it('bumps the version before it reads or changes a node, so the version row lock queues writers', async () => {
+    await inTx((tx) => store.write(o1, { set: { a: 1 }, remove: [] }, ALICE, tx));
+    const calls: string[] = [];
+    const spied = db as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const methods = ['select', 'update', 'del', 'insert'];
+    for (const m of methods) {
+      const original = spied[m];
+      spied[m] = function (this: unknown, ...args: unknown[]) {
+        calls.push(m);
+        return original.apply(this, args);
+      };
+    }
+    try {
+      await inTx((tx) => store.write(o1, { set: { a: 2, b: 1 }, remove: [] }, ALICE, tx));
+      const write = calls.splice(0);
+      await inTx((tx) => store.forget(o1, tx));
+      const forget = calls.splice(0);
+      for (const seen of [write, forget]) {
+        // The first statement on the connection is the version UPDATE (the reader lookup issues none).
+        expect(seen[0], JSON.stringify(seen)).to.equal('update');
+        expect(seen.filter((m) => m === 'update')).to.have.length(1);
+      }
+    } finally {
+      for (const m of methods) delete spied[m];
+    }
+    expect(await store.rows(o1)).to.deep.equal({});
+  });
+
   it('refuses a transaction on another connection than the reads use', async () => {
     const other = orm.Connections.get('other')!;
     const e = await rejection(other.transaction((d) => store.write(o1, { set: { a: 1 }, remove: [] }, ALICE, { driver: d })));

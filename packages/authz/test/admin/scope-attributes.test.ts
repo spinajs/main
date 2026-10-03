@@ -30,6 +30,13 @@ const PROJECT_SCHEMA = {
   additionalProperties: false,
 };
 
+/** `{ a: { a: … 1 } }` with `n` keys on the path, and that path. */
+const chain = (n: number, head = 'a'): string => [head, ...Array.from({ length: n - 1 }, () => 'a')].join('.');
+const deep = (n: number, head = 'a'): Record<string, unknown> =>
+  chain(n, head)
+    .split('.')
+    .reduceRight<unknown>((v, k) => ({ [k]: v }), 1) as Record<string, unknown>;
+
 function failure(e: unknown): AuthzAdminFailure {
   expect(e).to.be.instanceOf(AuthzAdminFailure);
   return e as AuthzAdminFailure;
@@ -114,7 +121,9 @@ describe('scope attribute paths', () => {
     expect(refusal(() => flattenAttributes({ s: 'x'.repeat(1023) })).field).to.equal('s');
     const keys = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
     expect(Object.keys(flattenAttributes(keys(SCOPE_ATTRIBUTE_LIMITS.leaves)).set)).to.have.length(1000);
-    expect(refusal(() => flattenAttributes({ t: keys(SCOPE_ATTRIBUTE_LIMITS.leaves) }, { field: 'patch' })).field).to.equal('patch');
+    expect(refusal(() => flattenAttributes({ t: keys(SCOPE_ATTRIBUTE_LIMITS.keys) }, { field: 'patch' })).field).to.equal('patch');
+    expect(Object.keys(flattenAttributes(deep(SCOPE_ATTRIBUTE_LIMITS.depth)).set)).to.deep.equal([chain(SCOPE_ATTRIBUTE_LIMITS.depth)]);
+    expect(refusal(() => flattenAttributes(deep(SCOPE_ATTRIBUTE_LIMITS.depth + 1))).field).to.equal(chain(SCOPE_ATTRIBUTE_LIMITS.depth + 1));
   });
 
   it('refuses rows that cannot form one object', () => {
@@ -403,6 +412,17 @@ describe('ScopeAttributeHandler', function () {
     expect(failed(await d.admin.execute(alice, [set({ v: 1 }, d1)]))).to.deep.include({ code: 'invalid_attributes', field: 'patch' });
     expect(failed(await d.admin.execute(alice, [replace({ ...many, a: 1, b: 2 }, d1)]))).to.deep.include({ code: 'invalid_attributes', field: 'attributes' });
     expect(Object.keys(await store.rows(d1))).to.have.length(1000);
+  });
+
+  it('refuses a path deeper than the merge allows and a node of too many keys, as invalid_attributes', async () => {
+    const { d, store } = await setup([], { schemas: [{ scopeType: 'doc', schema: { type: 'object' }, defaults: {} }] });
+    expect((await d.admin.execute(alice, [set(deep(SCOPE_ATTRIBUTE_LIMITS.depth), d1)]))[0].ok).to.equal(true);
+    expect(failed(await d.admin.execute(alice, [set(deep(SCOPE_ATTRIBUTE_LIMITS.depth + 1, 'b'), d1)]))).to.deep.include({ code: 'invalid_attributes', field: chain(SCOPE_ATTRIBUTE_LIMITS.depth + 1, 'b') });
+    // Leaves 21 keys deep under distinct heads: few leaves, many keys.
+    const tree = (from: number, to: number) => Object.assign({}, ...Array.from({ length: to - from }, (_, i) => deep(21, `l${from + i}`)));
+    expect((await d.admin.execute(alice, [set(tree(0, 200), d1)]))[0].ok).to.equal(true);
+    expect(failed(await d.admin.execute(alice, [set(tree(200, 250), d1)]))).to.deep.include({ code: 'invalid_attributes', field: 'patch' });
+    expect(Object.keys(await store.rows(d1))).to.have.length(201);
   });
 
   it('rejects with AuthzConfigError for a schema that does not compile', async () => {

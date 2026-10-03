@@ -79,6 +79,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     }
     if (!remove.every((p) => typeof p === 'string' && p !== '')) throw new AuthzConfigError('DbScopeAttributeStore: remove must list paths');
 
+    await this.bump(driver);
     const existing = (await this.select(driver, ref)).map((r) => r.path);
     const setPaths = set.map(([p]) => p);
     // A set path also drops the rows above and below it, so the node always forms one object.
@@ -90,16 +91,15 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     const by = principalKey(actor).slice(0, BY_MAX);
     const rows = set.map(([path, v]) => ({ ...key, path, value_json: JSON.stringify(v), value_text: textOf(v), value_num: typeof v === 'number' && Math.abs(v) < NUM_MAX ? v : null, updated_by: by, updated_at: now }));
     for (const part of chunks(rows, INSERT_CHUNK)) await driver.insert().into(TABLE).values(part);
-    await this.bump(driver);
     return removed.length + set.length;
   }
 
   async forget(ref: ResourceRef, tx: AuthzTx): Promise<number> {
     const driver = await this.writer(tx);
     const key = keyOf(ref);
+    await this.bump(driver);
     const count = (await this.select(driver, ref)).length;
     if (count > 0) await driver.del().from(TABLE).where(key);
-    await this.bump(driver);
     return count;
   }
 
@@ -107,7 +107,12 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     return ((await driver.select().from(TABLE).columns(['path', 'value_json']).where(keyOf(ref))) ?? []) as Row[];
   }
 
-  // One UPDATE: concurrent writers queue on the row lock instead of racing a delete and an insert.
+  /**
+   * One UPDATE of the version row, and the first statement of every write and forget: its row lock queues
+   * concurrent writers, so each one reads the node only after the one before it committed. Under PostgreSQL
+   * READ COMMITTED, reading first would let two writers delete and re-insert the same path, and the second
+   * insert would fail on the primary key.
+   */
   private async bump(driver: OrmDriver): Promise<void> {
     const values = { version: randomUUID(), updated_at: new Date() };
     const out = (await driver.update().in(VERSION_TABLE).update(values).where({ id: 1 })) as { RowsAffected?: number } | undefined;

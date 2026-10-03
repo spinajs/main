@@ -11,7 +11,7 @@ import { mergeAttributes } from '../../engine/attributes.js';
 import { adminActor, adminContainer } from '../context.js';
 import { WritableScopeAttributeStore } from '../ports.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
-import { SCOPE_ATTRIBUTE_LIMITS, flattenAttributes, underPath, unflattenAttributes } from './flatten.js';
+import { SCOPE_ATTRIBUTE_LIMITS, attributeKeyCount, flattenAttributes, underPath, unflattenAttributes } from './flatten.js';
 import { contributedSchemas, errorPath, schemaValidator } from './schemas.js';
 
 type AttributeCommand = Extract<AuthzCommand, { kind: 'scope.setAttributes' | 'scope.replaceAttributes' }>;
@@ -99,7 +99,9 @@ export class ScopeAttributeHandler extends AuthzWriteHandler {
 
     const old: Rows = { ...(await store.rows(scope)) };
     const next = replace ? change.set : nextRows(old, change.set, change.remove);
-    if (Object.keys(next).length > SCOPE_ATTRIBUTE_LIMITS.leaves) throw new AuthzAdminFailure('invalid_attributes', `a scope holds at most ${SCOPE_ATTRIBUTE_LIMITS.leaves} attribute values`, replace ? 'attributes' : 'patch');
+    const payload = replace ? 'attributes' : 'patch';
+    if (Object.keys(next).length > SCOPE_ATTRIBUTE_LIMITS.leaves) throw new AuthzAdminFailure('invalid_attributes', `a scope holds at most ${SCOPE_ATTRIBUTE_LIMITS.leaves} values`, payload);
+    if (attributeKeyCount(Object.keys(next)) > SCOPE_ATTRIBUTE_LIMITS.keys) throw new AuthzAdminFailure('invalid_attributes', `a scope holds at most ${SCOPE_ATTRIBUTE_LIMITS.keys} keys (nested objects included)`, payload);
     const validate = schemaValidator(schema.schema, scope.type);
     if (!validate(mergeAttributes([schema.defaults, unflattenAttributes(next)]))) {
       const e = validate.errors?.[0];
