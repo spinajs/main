@@ -52,6 +52,7 @@ const PUBLIC_API = [
   'SOCKET_METRIC_KEY_COMMANDS',
   'SOCKET_METRIC_KEY_CONNECTIONS',
   'SOCKET_METRIC_KEY_DURATION',
+  'SOCKET_METRIC_KEY_STREAMS',
   'SOCKET_METRIC_PREFIX',
   'SOCKET_UNKNOWN_COMMAND',
   'STAGE_ORDER',
@@ -95,6 +96,7 @@ const PUBLIC_API = [
   'fromPayload',
   'isAllowedOrigin',
   'isCancelFrame',
+  'isChunk',
   'isCommandRequest',
   'isErrorCode',
   'isEventFrame',
@@ -102,7 +104,11 @@ const PUBLIC_API = [
   'isKey',
   'isName',
   'isSocketError',
+  'isStreamCredit',
+  'isStreamEnd',
+  'isStreamFail',
   'observeCommand',
+  'observeStream',
   'payloadSize',
   'socketMetrics',
   'trackConnection',
@@ -114,7 +120,7 @@ describe('@spinajs/http-socket public surface', () => {
   });
 
   it('keeps internal helpers out of the public surface', () => {
-    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest']) {
+    for (const name of ['assertPushName', 'parseCookies', 'toHandshake', 'untilAborted', 'withSlot', 'assertLimitsConfig', 'assertHooksConfig', 'assertOrderingConfig', 'EVENT_WARN_WINDOW_MS', 'MAX_CONCURRENT_REVALIDATIONS', 'SerialQueue', 'policyRequest', 'ServerStream', 'assertStreamsConfig', 'isStreamResult']) {
       expect(api, name).to.not.have.property(name);
     }
   });

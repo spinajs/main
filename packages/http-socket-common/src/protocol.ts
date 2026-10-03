@@ -1,4 +1,4 @@
-import { SocketError } from './errors.js';
+import { SocketError, isSocketError } from './errors.js';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -71,6 +71,11 @@ export interface CommandRequest<P = unknown> {
    */
   deadline?: number;
   traceparent?: string;
+  /**
+   * Stream commands only: chunks the server may send before the client grants more. A stream
+   * command called without it is refused, so a plain `command()` never opens a stream.
+   */
+  credits?: number;
 }
 
 export interface CommandResultReply<R = unknown> {
@@ -151,12 +156,20 @@ export function isKey(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_KEY_LENGTH && ID_PATTERN.test(value);
 }
 
+function isCreditCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isSeq(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
 export function isCommandRequest(value: unknown): value is CommandRequest {
   if (!isRecord(value)) {
     return false;
   }
 
-  return isId(value.id) && isName(value.name) && (value.idempotencyKey === undefined || isKey(value.idempotencyKey)) && (value.after === undefined || isKey(value.after)) && (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) && (value.traceparent === undefined || typeof value.traceparent === 'string');
+  return isId(value.id) && isName(value.name) && (value.idempotencyKey === undefined || isKey(value.idempotencyKey)) && (value.after === undefined || isKey(value.after)) && (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) && (value.traceparent === undefined || typeof value.traceparent === 'string') && (value.credits === undefined || isCreditCount(value.credits));
 }
 
 export function isEventFrame(value: unknown): value is EventFrame {
@@ -165,4 +178,20 @@ export function isEventFrame(value: unknown): value is EventFrame {
 
 export function isCancelFrame(value: unknown): value is CancelFrame {
   return isRecord(value) && isId(value.id);
+}
+
+export function isChunk(value: unknown): value is Chunk {
+  return isRecord(value) && isId(value.id) && isSeq(value.seq);
+}
+
+export function isStreamEnd(value: unknown): value is StreamEnd {
+  return isRecord(value) && isId(value.id) && isSeq(value.seq);
+}
+
+export function isStreamFail(value: unknown): value is StreamFail {
+  return isRecord(value) && isId(value.id) && isSocketError(value.error);
+}
+
+export function isStreamCredit(value: unknown): value is StreamCredit {
+  return isRecord(value) && isId(value.id) && isCreditCount(value.credits);
 }

@@ -1,4 +1,4 @@
-import { SocketException, WIRE_EVENTS, type ContractShape, type EventFrame, type SocketContract, type SocketError } from '@spinajs/http-socket-common';
+import { WIRE_EVENTS, type ContractShape, type EventFrame, type SocketContract, type SocketError } from '@spinajs/http-socket-common';
 import { CommandDispatcher, DEFAULT_TIMEOUT_MS, type CommandOptions } from './commands.js';
 import { Connection, type AuthProvider, type ConnectionState, type IoOptions } from './connection.js';
 import type { TypedSocketClient } from './contract.js';
@@ -7,6 +7,7 @@ import { Emitter, rethrowAsync } from './emitter.js';
 import { randomId } from './ids.js';
 import { MemoryOutboxStore, type OutboxStore } from './outbox.js';
 import type { ReconnectOptions } from './reconnect.js';
+import { StreamDispatcher, type StreamOptions } from './streams.js';
 
 export interface SocketClientOptions {
   /** Server origin; a path in it selects a socket.io namespace. */
@@ -66,6 +67,7 @@ export class SocketClient {
   private readonly connection: Connection;
   private readonly commands: CommandDispatcher;
   private readonly durableQueue: DurableQueue;
+  private readonly streams: StreamDispatcher;
   private readonly lifecycle: Emitter<ClientLifecycleEvents>;
   private readonly serverEvents: Emitter<ServerEvents>;
   // set once the app calls connect(), disconnect() or close(), which then override autoConnect
@@ -103,6 +105,7 @@ export class SocketClient {
     this.durableQueue.events.on('acked', (event) => this.lifecycle.emit('acked', event));
     this.durableQueue.events.on('failed', (event) => this.lifecycle.emit('failed', event));
     this.durableQueue.events.on('held', (event) => this.lifecycle.emit('held', event));
+    this.streams = new StreamDispatcher(this.connection, () => this.commands.nextId(), options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS);
 
     this.connection.events.on('state', (state, previous) => this.lifecycle.emit('state', state, previous));
     this.connection.events.on('auth_required', (error) => this.lifecycle.emit('auth_required', error));
@@ -158,14 +161,12 @@ export class SocketClient {
     return this.durableQueue.submit(name, payload, options) as Promise<R>;
   }
 
-  /** Reserved: stream replies arrive with credit-based flow control. */
-  public stream<T = unknown>(name: string, _payload?: unknown, _options?: CommandOptions): AsyncIterable<T> {
-    const error = new SocketException('unimplemented', `stream() is not available yet (${name})`);
-    return {
-      [Symbol.asyncIterator]: () => ({
-        next: () => Promise.reject(error),
-      }),
-    };
+  /**
+   * A stream reply as an async iterator. The request goes out on the first `next()`; at most
+   * `credits` chunks are in flight or buffered; `break` cancels it on the server.
+   */
+  public stream<T = unknown>(name: string, payload?: unknown, options?: StreamOptions): AsyncIterableIterator<T> {
+    return this.streams.stream<T>(name, payload, options);
   }
 
   /** Fire-and-forget event to the server; returns false and drops it when not online. */

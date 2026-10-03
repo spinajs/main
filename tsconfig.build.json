@@ -62,6 +62,7 @@
     { "path": "packages/configuration-fs-protocol/tsconfig.mjs.json"},
     { "path": "packages/configuration-http/tsconfig.mjs.json"},
     { "path": "packages/http-socket/tsconfig.mjs.json"},
+    { "path": "packages/http-socket-example/tsconfig.mjs.json" },
     { "path": "packages/fs-ftp/tsconfig.mjs.json" },
     { "path": "packages/fs-onedrive/tsconfig.mjs.json" },
     { "path": "packages/http-lazy-file-uploader/tsconfig.mjs.json" },

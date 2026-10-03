@@ -31,6 +31,15 @@ export interface ISocketCorsConfig {
   origins: string[];
 }
 
+export interface ISocketStreamsConfig {
+  /** largest credit window a client may grant one stream; a larger request or grant fails it with invalid_argument. Also the unsent packets on a connection above which its streams pause */
+  maxCredits: number;
+  /** streams open on one connection at once; they hold no command in-flight slot */
+  maxPerConnection: number;
+  /** a stream left without credit, or with its connection backlogged, this long fails with deadline_exceeded */
+  stallTimeoutMs: number;
+}
+
 export interface ISocketAuthConfig {
   /** Refuse a handshake no SocketPrincipalSource resolves, instead of running it as UNATTENDED. */
   required: boolean;
@@ -62,6 +71,8 @@ export interface ISocketServerConfig {
    * timed-out connect hook is still running.
    */
   hooks: { connectTimeoutMs: number };
+  /** stream replies ( W4 ) */
+  streams: ISocketStreamsConfig;
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
   /**
@@ -173,7 +184,7 @@ export interface ICommandOptions {
   timeoutMs?: number;
   /** replay by principal, clientId and idempotencyKey; a durable command also needs ordered: 'client' */
   idempotent?: boolean;
-  /** serial queue per connection, or per principal and clientId across reconnects */
+  /** serial queue per connection, or per principal and clientId across reconnects; a stream handler cannot be ordered */
   ordered?: 'connection' | 'client';
 }
 
@@ -255,6 +266,8 @@ export interface IConnectionRuntime {
   inFlight: number;
   /** events counted against maxInFlightEventsPerConnection, from arrival until their handler settles */
   eventsInFlight: number;
+  /** stream replies open on this connection, from the stream reply until their end or fail frame */
+  streams: number;
   /** running commands by request id, for cancel / disconnect / shutdown */
   readonly running: Map<string, ISocketCommandContext>;
   /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */

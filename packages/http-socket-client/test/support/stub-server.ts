@@ -17,7 +17,7 @@ import {
 } from '@spinajs/http-socket-common';
 
 export type CommandHandler = (payload: any, request: CommandRequest, socket: Socket) => unknown;
-export type RawReply = (request: CommandRequest) => unknown;
+export type RawReply = (request: CommandRequest, socket: Socket) => unknown;
 export type AckFault = { kind: 'none' } | { kind: 'drop' } | { kind: 'delay'; ms: number };
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -135,7 +135,7 @@ export class StubServer {
 
   private async buildReply(request: CommandRequest, socket: Socket): Promise<unknown> {
     const raw = this.rawReplies.get(request.name);
-    if (raw) return raw(request);
+    if (raw) return raw(request, socket);
 
     const handler = this.handlers.get(request.name);
     if (!handler) {

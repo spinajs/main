@@ -10,5 +10,7 @@ export { DEFAULT_DURABLE } from './durable.js';
 export type { AckedCommand, DurableCommandOptions, DurableOptions, FailedCommand, HeldCommand } from './durable.js';
 export { MemoryOutboxStore } from './outbox.js';
 export type { FailedOutboxEntry, OutboxEntry, OutboxInput, OutboxStore } from './outbox.js';
+export { DEFAULT_STREAM_CREDITS } from './streams.js';
+export type { StreamOptions } from './streams.js';
 export { DEFAULT_RECONNECT, MAX_SERVER_HINT_MS, ReconnectPolicy } from './reconnect.js';
 export type { ReconnectOptions } from './reconnect.js';

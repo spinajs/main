@@ -4,17 +4,19 @@ import { Socket } from 'socket.io';
 import { AsyncService, Autoinject, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger, newTraceContext } from '@spinajs/log';
-import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame } from '@spinajs/http-socket-common';
+import { CommandReply, CommandRequest, ErrorCode, SocketException, WIRE_EVENTS, isCancelFrame, isCommandRequest, isEventFrame, isStreamCredit } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCallStorage, ISocketServerConfig, SocketCommandStage } from './interfaces.js';
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
+import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, assertStreamsConfig, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
-import { SOCKET_UNKNOWN_COMMAND, observeCommand } from './metrics.js';
+import { SOCKET_UNKNOWN_COMMAND, observeCommand, observeStream } from './metrics.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
+import { ServerStream, StreamOutcome, isStreamResult } from './stream.js';
+import { IN_FLIGHT_RETRY_AFTER_MS } from './stages/limits.js';
 import './stages/index.js';
 
 /** At most one warn per connection in this window about dropped events and command frames; the rest go to debug. */
@@ -30,8 +32,9 @@ function aborted(signal: AbortSignal): Promise<never> {
   });
 }
 
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
+/** Packets engine.io holds for the connection's transport; it has no public gauge, so this reads its private write buffer. */
+function unsentPackets(socket: Socket): number {
+  return (socket.conn as unknown as { writeBuffer?: unknown[] }).writeBuffer?.length ?? 0;
 }
 
 @Injectable()
@@ -64,11 +67,16 @@ export class SocketDispatcher extends AsyncService {
 
   protected runtimes = new Map<string, IConnectionRuntime>();
 
+  /** the socket of each runtime, which stream frames are written to */
+  protected sockets = new WeakMap<IConnectionRuntime, Socket>();
+  protected drainListeners = new WeakMap<Socket, Set<() => void>>();
+
   public async resolve(): Promise<void> {
     await super.resolve();
     assertLimitsConfig(this.Options);
     assertOrderingConfig(this.Options);
     assertHooksConfig(this.Options);
+    assertStreamsConfig(this.Options);
     const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
     this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
   }
@@ -80,13 +88,16 @@ export class SocketDispatcher extends AsyncService {
       bucket: new TokenBucket(this.Options.rate.perSecond, this.Options.rate.burst),
       inFlight: 0,
       eventsInFlight: 0,
+      streams: 0,
       running: new Map(),
       ready: Promise.resolve(),
     };
 
     this.runtimes.set(connection.id, runtime);
+    this.sockets.set(runtime, socket);
     socket.on(WIRE_EVENTS.command, (request: unknown, ack: unknown) => this.onCommand(runtime, request, ack));
     socket.on(WIRE_EVENTS.cancel, (frame: unknown) => this.onCancel(runtime, frame));
+    socket.on(WIRE_EVENTS.credit, (frame: unknown) => this.onCredit(runtime, frame));
     socket.on(WIRE_EVENTS.event, (frame: unknown) => {
       this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
     });
@@ -131,13 +142,21 @@ export class SocketDispatcher extends AsyncService {
       const abort = aborted(ctx.signal);
       abort.catch(() => undefined);
 
-      const result = await Promise.race([chain, abort]);
+      let result: unknown;
+      try {
+        result = await Promise.race([chain, abort]);
+      } catch (err) {
+        // the answer is out already; a stream the handler returns later is closed instead of left open
+        void chain.then((late) => this.closeStream(late), () => undefined);
+        throw err;
+      }
       reply = await this.toReply(ctx, result);
     } catch (err) {
       reply = { id: ctx.request.id, ok: false, error: this.Errors.toWire(err, `command ${ctx.request.name}`) };
     } finally {
       ctx.dispose();
-      if (runtime.running.get(ctx.request.id) === ctx) {
+      // an open stream keeps its id until it ends, so cancel, credit, disconnect and shutdown still find it
+      if (!ctx.stream && runtime.running.get(ctx.request.id) === ctx) {
         runtime.running.delete(ctx.request.id);
       }
     }
@@ -202,7 +221,13 @@ export class SocketDispatcher extends AsyncService {
       // answered by the rate stage, so the size stage still comes first ( spec §5.2 )
       ctx.rateRefusal = limited;
     }
-    void this.execute(ctx).then((answer) => this.send(reply, answer, raw.name));
+    void this.execute(ctx).then((answer) => {
+      this.send(reply, answer, raw.name);
+      // after the ack, so the client knows the id is a stream before its first chunk
+      if (ctx.stream) {
+        this.runStream(ctx, ctx.stream);
+      }
+    });
   }
 
   protected refuse(reply: (reply: CommandReply) => void, id: string, name: string | null, err: unknown): void {
@@ -236,6 +261,17 @@ export class SocketDispatcher extends AsyncService {
     }
 
     runtime.running.get(frame.id)?.abort(new SocketException('cancelled', `command ${frame.id} cancelled by the client`));
+  }
+
+  protected onCredit(runtime: IConnectionRuntime, frame: unknown): void {
+    if (!isStreamCredit(frame)) {
+      return;
+    }
+
+    const ctx = runtime.running.get(frame.id);
+    if (ctx instanceof SocketCommandContext) {
+      ctx.stream?.grant(frame.credits);
+    }
   }
 
   /** Fire-and-forget: a refused or failing event is logged and dropped, the socket stays up unless its principal check fails ( D16 ). */
@@ -392,17 +428,125 @@ export class SocketDispatcher extends AsyncService {
     return handler.controller[handler.descriptor.Method as string](...args);
   }
 
-  /** W4 replaces the stream branch with real stream replies. */
+  /** An async iterable result becomes a stream reply; its chunks follow the ack ( runStream ). */
   protected async toReply(ctx: SocketCommandContext, result: unknown): Promise<CommandReply> {
-    if (isAsyncIterable(result)) {
-      try {
-        await (result as AsyncGenerator<unknown>).return?.(undefined);
-      } catch {
-        // a failing generator cleanup does not change the answer
-      }
-      throw new SocketException('unimplemented', `command ${ctx.request.name} returned a stream; stream replies are not supported by this server version`);
+    if (!isStreamResult(result)) {
+      return { id: ctx.request.id, ok: true, result: result === undefined ? null : result };
     }
 
-    return { id: ctx.request.id, ok: true, result: result === undefined ? null : result };
+    try {
+      ctx.stream = this.openStream(ctx, result);
+    } catch (err) {
+      await this.closeStream(result);
+      throw err;
+    }
+
+    return { id: ctx.request.id, ok: true, stream: true };
+  }
+
+  /** Closes a stream result that will never be sent; a no-op for anything else. */
+  protected async closeStream(result: unknown): Promise<void> {
+    if (!isStreamResult(result)) {
+      return;
+    }
+
+    try {
+      await result[Symbol.asyncIterator]().return?.(undefined);
+    } catch {
+      // a failing cleanup does not change the answer
+    }
+  }
+
+  protected openStream(ctx: SocketCommandContext, source: AsyncIterable<unknown>): ServerStream {
+    const name = ctx.request.name;
+    const credits = ctx.request.credits;
+    const limits = this.Options.streams;
+    const runtime = ctx.runtime;
+    const socket = this.sockets.get(runtime)!;
+
+    if (ctx.signal.aborted) {
+      throw ctx.signal.reason;
+    }
+
+    // the queue place is released when the handler returns, long before the stream ends; the registry refuses async generators
+    if (ctx.handler?.descriptor.Options.ordered) {
+      throw new SocketException('failed_precondition', `ordered command ${name} cannot reply with a stream`);
+    }
+
+    if (credits === undefined) {
+      throw new SocketException('failed_precondition', `command ${name} replies with a stream; open it as a stream with credits`);
+    }
+
+    if (credits > limits.maxCredits) {
+      throw new SocketException('invalid_argument', `stream credit above the limit of ${limits.maxCredits} chunks`, { details: { limit: limits.maxCredits } });
+    }
+
+    if (runtime.streams >= limits.maxPerConnection) {
+      throw new SocketException('resource_exhausted', `more than ${limits.maxPerConnection} streams open on this connection`, { retryAfterMs: IN_FLIGHT_RETRY_AFTER_MS });
+    }
+
+    const stream = new ServerStream({
+      id: ctx.request.id,
+      name,
+      iterator: this.Als.run(ctx.storage, () => source[Symbol.asyncIterator]()),
+      signal: ctx.signal,
+      abort: (reason) => ctx.abort(reason),
+      credits,
+      maxCredits: limits.maxCredits,
+      stallTimeoutMs: limits.stallTimeoutMs,
+      send: (event, frame) => {
+        socket.emit(event, frame);
+      },
+      within: (step) => this.Als.run(ctx.storage, step),
+      toWire: (err) => this.Errors.toWire(err, `stream ${name}`),
+      // a client that grants credit blind but never reads its socket would otherwise grow engine.io's write buffer without bound
+      backlogged: () => unsentPackets(socket) > limits.maxCredits,
+      onDrain: (listener) => this.onDrain(socket, listener),
+    });
+
+    runtime.streams++;
+    return stream;
+  }
+
+  /** One engine.io listener per socket, however many streams wait on it: maxPerConnection may exceed the emitter's leak warning limit. */
+  protected onDrain(socket: Socket, listener: () => void): () => void {
+    let listeners = this.drainListeners.get(socket);
+    if (!listeners) {
+      const all = new Set<() => void>();
+      socket.conn.on('drain', () => [...all].forEach((waiting) => waiting()));
+      this.drainListeners.set(socket, (listeners = all));
+    }
+
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  }
+
+  protected runStream(ctx: SocketCommandContext, stream: ServerStream): void {
+    const runtime = ctx.runtime;
+    const started = performance.now();
+
+    void stream.run().then((outcome) => {
+      if (runtime.running.get(ctx.request.id) === ctx) {
+        runtime.running.delete(ctx.request.id);
+      }
+      this.streamEnded(ctx, stream, outcome, performance.now() - started);
+    });
+    // a source that ignores its signal still runs, so it keeps its slot until it settles
+    void stream.settled.then(() => runtime.streams--);
+  }
+
+  protected streamEnded(ctx: SocketCommandContext, stream: ServerStream, outcome: StreamOutcome, ms: number): void {
+    // observability must never break the stream bookkeeping, and a failing log must not cost the metric
+    try {
+      this.Log.debug(`socket stream ${ctx.request.name} ${outcome} ${stream.sent} chunks ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+    } catch {
+      // swallowed on purpose
+    }
+
+    try {
+      observeStream(ctx.handler?.fullName ?? SOCKET_UNKNOWN_COMMAND, outcome);
+    } catch {
+      // swallowed on purpose
+    }
   }
 }

@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, OnConnect, OnDisconnect, OnEvent, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
 import { SocketHandlerRegistry } from '../src/registry.js';
@@ -56,6 +57,13 @@ export class RegBadName extends BaseSocketController {
 export class RegLongName extends BaseSocketController {
   @Command('reg-long.' + 'x'.repeat(MAX_NAME_LENGTH))
   public async long(): Promise<void> {}
+}
+
+export class RegOrderedStream extends BaseSocketController {
+  @Command('reg-ordered.feed', { ordered: 'connection' })
+  public async *feed() {
+    yield 1;
+  }
 }
 
 @SocketController('reg-hook')
@@ -127,6 +135,15 @@ describe('socket handler registry', function () {
       } finally {
         DI.unregister(type);
       }
+    }
+  });
+
+  it('refuses an ordered command whose handler is an async generator', async () => {
+    DI.register(RegOrderedStream).as(BaseSocketController);
+    try {
+      await expect(registry.build()).to.be.rejectedWith(InvalidOperation, /reg-ordered\.feed .*ordered.*stream/);
+    } finally {
+      DI.unregister(RegOrderedStream);
     }
   });
 

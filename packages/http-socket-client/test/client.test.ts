@@ -156,15 +156,6 @@ describe('SocketClient', () => {
     expect((errors[0] as Error).message).to.equal('boom');
   });
 
-  it('reserves stream(): it rejects with unimplemented', async () => {
-    const client = makeClient(server, { autoConnect: false });
-
-    const iterator = client.stream('docs.snapshot', {})[Symbol.asyncIterator]();
-    const streamError = await rejectionOf(iterator.next());
-
-    expect(streamError.code).to.equal('unimplemented');
-  });
-
   it('generates a clientId when none is given and sends it in the handshake', async () => {
     const client = makeClient(server, { clientId: undefined });
     await waitForState(statefulClient(client), 'online');
