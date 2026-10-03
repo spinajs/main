@@ -3,20 +3,45 @@ import type { FailedOutboxEntry, OutboxEntry, OutboxInput, OutboxStore } from '.
 export interface IndexedDbOutboxOptions {
   /** The IndexedDB to use; the global `indexedDB` when omitted ( tests pass fake-indexeddb's ). */
   factory?: IDBFactory;
+  /** Refuse a second live store on the same name via `navigator.locks`. Default: on with the global IndexedDB, off with a custom `factory`. */
+  exclusive?: boolean;
 }
 
 const PENDING = 'pending';
 const FAILED = 'failed';
+// A bump needs an `onblocked` strategy for connections of other tabs that ignore `versionchange`.
 const VERSION = 1;
+
+type LocksApi = { request(name: string, options: { ifAvailable: boolean }, callback: (lock: unknown) => Promise<void>): Promise<unknown> };
+
+function explain(err: unknown, name: string): unknown {
+  const kind = (err as { name?: string } | null)?.name;
+  switch (kind) {
+    case 'QuotaExceededError':
+      return new Error('outbox is full (QuotaExceededError)', { cause: err });
+    case 'VersionError':
+      return new Error(`outbox database "${name}" was written by a newer version of this code`, { cause: err });
+    case 'NotFoundError':
+      return new Error(`outbox database "${name}" has no expected object store`, { cause: err });
+    default:
+      return err;
+  }
+}
 
 /**
  * Keeps the outbox in the IndexedDB database `spinajs-outbox:<name>`, so a reload resumes the queue
- * ( spec §6 step 5 ). `seq` comes from the object store's key generator, which never reuses a value and
+ * ( spec �6 step 5 ). `seq` comes from the object store's key generator, which never reuses a value and
  * is advanced in the transaction that stores the entry. Every method is one transaction and resolves on
  * its `complete` event, with strict durability.
+ *
+ * One live client per name: with the global IndexedDB and where `navigator.locks` exists, a second store on the same name is refused
+ * while the first is open. The app must persist and reuse its `clientId` with this store, because
+ * queued entries carry keys derived from it.
  */
 export class IndexedDbOutboxStore implements OutboxStore {
   private db: Promise<IDBDatabase> | null = null;
+  private releaseLock: (() => void) | null = null;
+  private lockDone: Promise<unknown> | null = null;
 
   constructor(public readonly name: string, private readonly options: IndexedDbOutboxOptions = {}) {}
 
@@ -68,11 +93,44 @@ export class IndexedDbOutboxStore implements OutboxStore {
     });
   }
 
-  /** Closes the database connection; the next call opens it again. */
+  /** Closes the database connection and releases the name; the next call opens it again. */
   public async close(): Promise<void> {
-    const db = this.db;
-    this.db = null;
-    (await db?.catch(() => null))?.close();
+    const opening = this.db;
+    (await opening?.catch(() => null))?.close();
+    if (this.db === opening) {
+      this.db = null;
+    }
+    this.releaseLock?.();
+    this.releaseLock = null;
+    // the lock is free once its request settled
+    await this.lockDone;
+    this.lockDone = null;
+  }
+
+  private async acquireLock(): Promise<void> {
+    const locks = (globalThis as { navigator?: { locks?: LocksApi } }).navigator?.locks;
+    const exclusive = this.options.exclusive ?? this.options.factory === undefined;
+    if (!exclusive || !locks || this.releaseLock) {
+      return;
+    }
+
+    const taken = await new Promise<boolean>((resolve) => {
+      this.lockDone = locks.request(`spinajs-outbox:${this.name}`, { ifAvailable: true }, async (lock) => {
+        if (!lock) {
+          resolve(false);
+          return;
+        }
+
+        await new Promise<void>((release) => {
+          this.releaseLock = release;
+          resolve(true);
+        });
+      });
+    });
+
+    if (!taken) {
+      throw new Error(`outbox "${this.name}" is already open in another tab or client; only one live client per name is allowed`);
+    }
   }
 
   private open(): Promise<IDBDatabase> {
@@ -80,38 +138,51 @@ export class IndexedDbOutboxStore implements OutboxStore {
       return this.db;
     }
 
-    const opening: Promise<IDBDatabase> = new Promise<IDBDatabase>((resolve, reject) => {
-      const factory = this.options.factory ?? (globalThis as { indexedDB?: IDBFactory }).indexedDB;
-      if (!factory) {
-        reject(new Error('IndexedDB is not available here; pass IndexedDbOutboxOptions.factory'));
-        return;
-      }
-
-      const request = factory.open(`spinajs-outbox:${this.name}`, VERSION);
-      request.onupgradeneeded = () => {
-        request.result.createObjectStore(PENDING, { keyPath: 'seq', autoIncrement: true });
-        request.result.createObjectStore(FAILED, { keyPath: 'seq' });
-      };
-      request.onsuccess = () => {
-        const db = request.result;
-        // A newer schema in another tab waits for this connection to go away; the next call reopens it.
-        const forget = () => {
-          db.close();
-          if (this.db === opening) {
-            this.db = null;
+    const opening: Promise<IDBDatabase> = this.acquireLock().then(
+      () =>
+        new Promise<IDBDatabase>((resolve, reject) => {
+          const factory = this.options.factory ?? (globalThis as { indexedDB?: IDBFactory }).indexedDB;
+          if (!factory) {
+            reject(new Error('IndexedDB is not available here; pass IndexedDbOutboxOptions.factory'));
+            return;
           }
-        };
-        db.onversionchange = forget;
-        db.onclose = forget;
-        resolve(db);
-      };
-      request.onerror = () => reject(request.error);
-    });
+
+          const request = factory.open(`spinajs-outbox:${this.name}`, VERSION);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore(PENDING, { keyPath: 'seq', autoIncrement: true });
+            request.result.createObjectStore(FAILED, { keyPath: 'seq' });
+          };
+          request.onsuccess = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(PENDING) || !db.objectStoreNames.contains(FAILED)) {
+              db.close();
+              reject(new Error(`database "spinajs-outbox:${this.name}" is not an outbox: missing object stores`));
+              return;
+            }
+
+            // A newer schema in another tab waits for this connection to go away; the next call reopens it.
+            const forget = () => {
+              db.close();
+              if (this.db === opening) {
+                this.db = null;
+              }
+            };
+            db.onversionchange = forget;
+            db.onclose = forget;
+            resolve(db);
+          };
+          request.onerror = () => reject(explain(request.error, this.name));
+        }),
+    );
 
     // a failed open is tried again by the next call
     opening.catch(() => {
       if (this.db === opening) {
         this.db = null;
+      }
+      if (!this.db) {
+        this.releaseLock?.();
+        this.releaseLock = null;
       }
     });
 
@@ -120,11 +191,27 @@ export class IndexedDbOutboxStore implements OutboxStore {
   }
 
   private async run(stores: string[], mode: IDBTransactionMode, work: (tx: IDBTransaction) => IDBRequest): Promise<unknown> {
-    const db = await this.open();
+    let db = await this.open();
+    let tx: IDBTransaction;
+    try {
+      tx = this.begin(db, stores, mode);
+    } catch (err) {
+      if ((err as { name?: string }).name !== 'InvalidStateError') {
+        throw explain(err, this.name);
+      }
+      // the connection was closed behind our back: reopen once
+      if (this.db) {
+        this.db = null;
+      }
+      db = await this.open();
+      try {
+        tx = this.begin(db, stores, mode);
+      } catch (again) {
+        throw explain(again, this.name);
+      }
+    }
 
     return new Promise((resolve, reject) => {
-      // strict: the commit reaches the disk before `complete`, which a durable command relies on
-      const tx = db.transaction(stores, mode, { durability: 'strict' });
       let request: IDBRequest;
       try {
         request = work(tx);
@@ -135,13 +222,18 @@ export class IndexedDbOutboxStore implements OutboxStore {
         } catch {
           // already finished
         }
-        reject(err);
+        reject(explain(err, this.name));
         return;
       }
 
       tx.oncomplete = () => resolve(request.result);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+      // `tx.error` is only set by the time of `abort`, never at `error`
+      tx.onabort = () => reject(explain(tx.error ?? request.error, this.name) ?? new Error('IndexedDB transaction aborted'));
     });
+  }
+
+  // strict: the commit reaches the disk before `complete`, which a durable command relies on
+  private begin(db: IDBDatabase, stores: string[], mode: IDBTransactionMode): IDBTransaction {
+    return db.transaction(stores, mode, { durability: 'strict' });
   }
 }
