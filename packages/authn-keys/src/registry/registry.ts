@@ -106,7 +106,8 @@ export class DefaultKeyRegistry extends KeyRegistry {
     const kid = r.kid === undefined && material ? thumbprint(material.jwk) : r.kid;
     const expiresAt = r.expiresAt;
     const badExpiry = expiresAt !== undefined && (!(expiresAt instanceof Date) || !(expiresAt.getTime() > ctx.now.getTime()));
-    const badName = r.name !== undefined && !nonEmpty(r.name, MAX_NAME);
+    // Names reach admin terminals (authn:key-list): no control characters.
+    const badName = r.name !== undefined && (!nonEmpty(r.name, MAX_NAME) || /[\u0000-\u001f\u007f-\u009f]/.test(r.name));
     const badScope = r.scope !== undefined && !isCeiling(r.scope);
     if (!material || !isValidKid(kid) || badExpiry || badName || badScope) {
       return fail('invalid_key');

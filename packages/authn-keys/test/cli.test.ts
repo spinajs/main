@@ -82,6 +82,8 @@ describe('authn:key-add, authn:key-list, authn:key-revoke', () => {
     await assert.rejects(cmd.execute('service', 's', { jwk: 'not json' }), /neither JSON nor a PEM/);
     await assert.rejects(cmd.execute('service', 's', { jwk: JSON.stringify(kp.publicJwk), expires: 'tomorrow' }), /ISO 8601/);
     await assert.rejects(cmd.execute('service', 's', { jwk: JSON.stringify(kp.publicJwk), kid: 'a b' }), /invalid_key/);
+    await assert.rejects(cmd.execute('service', 's', { jwk: JSON.stringify(kp.publicJwk), expires: '2099-01-01T00:00:00' }), /with Z or an offset/);
+    await assert.rejects(cmd.execute('service', 's', { jwk: JSON.stringify(kp.publicJwk), expires: '2099-01-01' }), /with Z or an offset/);
     await cmd.execute('service', 's', { jwk: JSON.stringify(kp.publicJwk) });
     await assert.rejects(cmd.execute('service', 's2', { jwk: JSON.stringify(kp.publicJwk) }), /duplicate/);
   });

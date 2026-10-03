@@ -208,6 +208,14 @@ describe('DefaultKeyRegistry', () => {
     assert.deepStrictEqual(ok.key.scope?.expiresAt, new Date(2_000_000_000_000));
   });
 
+  it('refuses key names with control characters', async () => {
+    const w = world();
+    for (const name of ['a\nb', 'a\u001b[31m', 'a\u0085']) {
+      assert.deepStrictEqual(await w.registry.register({ owner: SVC, actor: ADMIN, jwk: generateKeyPair('EdDSA').publicJwk, name }, w.ctx()), { ok: false, code: 'invalid_key' }, JSON.stringify(name));
+    }
+    assert.ok((await w.registry.register({ owner: SVC, actor: ADMIN, jwk: generateKeyPair('EdDSA').publicJwk, name: 'Zażółć runner 1' }, w.ctx())).ok);
+  });
+
   it('resolves from DI with its dependencies registered', async () => {
     class TestThrottle extends FakeBackoffThrottle {
       constructor() {

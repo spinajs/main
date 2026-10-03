@@ -7,7 +7,7 @@ import { dummyVerify } from '../jwk/signature.js';
 import { configuredKeysOptions } from '../options/options.js';
 import type { KeysOptions } from '../options/options.js';
 import { loginChallengeIdentity } from '../registry/registry.js';
-import { failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
+import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
 
 /**
  * Challenge-response login for CLIs that want a session (design §22.10): `POST /auth/keys/challenge` gives a
@@ -47,13 +47,13 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
       return failure('unsupported_credentials');
     }
     const { keyId, challengeId, signature } = c as { keyId?: unknown; challengeId?: unknown; signature?: unknown };
-    if (typeof keyId !== 'string' || typeof signature !== 'string') {
+    if (typeof keyId !== 'string' || typeof signature !== 'string' || typeof challengeId !== 'string' || keyId.length + challengeId.length + signature.length > MAX_CREDENTIAL_LENGTH) {
       return failure('invalid_credentials');
     }
     const parsed = parseChallengeId(challengeId);
     const found = await usableKey(this.registry, keyId, ctx);
     if (!found.key || !parsed) {
-      this.unknownKeyWork('EdDSA', challengeSigningInput({ nonce: parsed?.nonce ?? '' }, 'login', this.audience), decodeB64url(signature) ?? Buffer.alloc(0));
+      this.unknownKeyWork((found.key ? found.key.alg : found.alg) ?? 'EdDSA', challengeSigningInput({ nonce: parsed?.nonce ?? '' }, 'login', this.audience), decodeB64url(signature) ?? Buffer.alloc(0));
       return failure(found.key ? 'invalid_credentials' : found.reason);
     }
     if (!verifyChallengeSignature(found.key, parsed.nonce, 'login', this.audience, signature)) {

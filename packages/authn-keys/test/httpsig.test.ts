@@ -129,6 +129,22 @@ describe('HttpSignatureStrategy', () => {
     assert.strictEqual((await strict.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok, false, '@authority not covered');
   });
 
+  it('requires content-digest with a body even when the config does not list it; the method and window edges hold', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    const lax = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptions({ httpSignature: { requiredComponents: ['@method', '@target-uri'] } }));
+    assert.strictEqual((await lax.verify(w.cred(w.signed(kp, kid, { components: ['@method', '@target-uri'] })), w.ctx())).ok, false, 'a body without a covered digest');
+    assert.ok((await lax.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok);
+    const post = w.signed(kp, kid);
+    assert.strictEqual((await w.strategy.verify(w.cred({ ...post, method: 'PUT' }), w.ctx())).ok, false, 'method changed after signing');
+    const t = w.nowS();
+    assert.ok((await w.strategy.verify(w.cred(w.signed(kp, kid, { created: t, expires: t + 1 })), w.ctx())).ok, 'a one-second window');
+    assert.ok((await w.strategy.verify(w.cred(w.signed(kp, kid, { created: t - 299, expires: t + 1 })), w.ctx())).ok, 'exactly maxAgeSeconds');
+    const mixed = w.signed(kp, kid);
+    const upper = Object.fromEntries(Object.entries(mixed.headers).map(([k, v]) => [k.replace(/^./, (c) => c.toUpperCase()), v]));
+    assert.ok((await w.strategy.verify(w.cred({ ...mixed, headers: upper }), w.ctx())).ok, 'header names in any case');
+  });
+
   it('a nonce is single use per key; revoked keys fail with their reason; throttle keys come from keyid', async () => {
     const w = await world();
     const a = await w.add();

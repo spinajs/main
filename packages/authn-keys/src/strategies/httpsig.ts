@@ -118,7 +118,7 @@ export class HttpSignatureStrategy extends AuthenticationStrategy {
     const data = Buffer.from(base, 'utf8');
     const found = await usableKey(this.registry, checked.kid, ctx);
     if (!found.key) {
-      this.unknownKeyWork(checked.alg ?? 'EdDSA', data, checked.signature);
+      this.unknownKeyWork(found.alg ?? checked.alg ?? 'EdDSA', data, checked.signature);
       return failure(found.reason);
     }
     const key = found.key;

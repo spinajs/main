@@ -1,4 +1,4 @@
-import type { AuthnContext, AuthnFailure, IdentityRef, KeyOwner, KeyRecord, KeyRegistry, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFailure, KeyAlgorithm, IdentityRef, KeyOwner, KeyRecord, KeyRegistry, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { isValidKid } from '../jwk/keys.js';
 import { DefaultKeyRegistry, isUsableKey } from '../registry/registry.js';
 
@@ -17,7 +17,8 @@ export function keyThrottleKeys(kid: string | null, ctx: AuthnContext): readonly
   ];
 }
 
-export type KeyLookup = { readonly key: KeyRecord } | { readonly key: null; readonly reason: AuthnFailure };
+/** `alg`: the algorithm of a revoked or expired key, so the dummy verification costs what its real one would. */
+export type KeyLookup = { readonly key: KeyRecord } | { readonly key: null; readonly reason: AuthnFailure; readonly alg?: KeyAlgorithm };
 
 /** byId for verifiers: only a key that is neither revoked nor expired at ctx.now is usable; the reason goes to audit. */
 export async function usableKey(registry: KeyRegistry, kid: string, ctx: AuthnContext): Promise<KeyLookup> {
@@ -26,7 +27,7 @@ export async function usableKey(registry: KeyRegistry, kid: string, ctx: AuthnCo
     return { key: null, reason: 'invalid_credentials' };
   }
   if (!isUsableKey(key, ctx.now)) {
-    return { key: null, reason: key.revokedAt ? 'revoked' : 'expired' };
+    return { key: null, reason: key.revokedAt ? 'revoked' : 'expired', alg: key.alg };
   }
   return { key };
 }

@@ -21,7 +21,7 @@ interface AddKeyOptions {
 @Option('--file <path>', false, 'a file with the public JWK (JSON) or a PEM public key')
 @Option('--kid <kid>', false, 'key id, 1-64 of [A-Za-z0-9._-]; default: the RFC 7638 thumbprint')
 @Option('--name <name>', false, 'label, up to 128 characters')
-@Option('--expires <iso>', false, 'ISO 8601 expiry instant')
+@Option('--expires <iso>', false, 'ISO 8601 expiry instant with Z or an offset')
 export class AddKey extends CliCommand {
   @Logger('authn-keys')
   protected Log: Log;
@@ -35,8 +35,9 @@ export class AddKey extends CliCommand {
       throw new Error('a user registers a key with a proof of possession, through POST /user/keys');
     }
     const expiresAt = options.expires === undefined ? undefined : new Date(options.expires);
-    if (expiresAt !== undefined && Number.isNaN(expiresAt.getTime())) {
-      throw new Error(`--expires is not an ISO 8601 instant: ${options.expires}`);
+    // Without a zone, Date reads the time as local, which differs per host.
+    if (expiresAt !== undefined && (Number.isNaN(expiresAt.getTime()) || !/T.*(Z|[+-]\d{2}:?\d{2})$/i.test(options.expires!))) {
+      throw new Error(`--expires is not an ISO 8601 instant with Z or an offset: ${options.expires}`);
     }
     const reg = {
       owner,

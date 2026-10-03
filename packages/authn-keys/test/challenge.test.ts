@@ -83,7 +83,7 @@ describe('KeyChallengeStrategy', () => {
     const fresh = await w.challenge(a.kid);
     await w.p.registry.revoke(ALICE, a.kid, w.ctx());
     assert.deepStrictEqual(await w.strategy.verify(w.login(a.kid, fresh, a.kp), w.ctx()), { ok: false, reason: 'revoked' });
-    assert.deepStrictEqual(await w.strategy.verify({ kind: 'key-challenge', keyId: a.kid, challengeId: 7, signature: 'x' } as never, w.ctx()), { ok: false, reason: 'revoked' });
+    assert.deepStrictEqual(await w.strategy.verify({ kind: 'key-challenge', keyId: a.kid, challengeId: 7, signature: 'x' } as never, w.ctx()), { ok: false, reason: 'invalid_credentials' });
     assert.deepStrictEqual(await w.strategy.verify({ kind: 'key-challenge', keyId: 7 } as never, w.ctx()), { ok: false, reason: 'invalid_credentials' });
   });
 
@@ -112,6 +112,13 @@ describe('KeyChallengeStrategy', () => {
     assert.strictEqual(work, 0);
     await s.verify(w.login('kit-unknown', await w.challenge('kit-unknown'), kp), w.ctx());
     assert.strictEqual(work, 1);
+  });
+
+  it('refuses credentials over 8 KiB', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    const c = w.login(kid, await w.challenge(kid), kp);
+    assert.deepStrictEqual(await w.strategy.verify({ ...c, signature: `${(c as { signature: string }).signature}${'A'.repeat(9000)}` }, w.ctx()), { ok: false, reason: 'invalid_credentials' });
   });
 
   it('is interactive and throttles by kid', async () => {
