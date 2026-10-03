@@ -4,7 +4,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
@@ -25,7 +25,7 @@ export interface StrategySpec {
 }
 
 /** Neighbours a test may leave unregistered. */
-export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'PrincipalFactory';
+export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'PrincipalFactory' | 'PasswordCredentialStore';
 
 export interface CoreOptions {
   /** Replaces the kit strategies. */
@@ -163,9 +163,9 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
       ['IdentityLinkStore', IdentityLinkStore, links],
       ['SessionIssuer', SessionIssuer, sessions],
       ['PrincipalFactory', PrincipalFactory, principals],
+      ['PasswordCredentialStore', PasswordCredentialStore, passwords],
     ];
     for (const [name, base, value] of neighbours) if (!omit.has(name)) bind(child, base, `Kit${name}`, value);
-    bind(child, PasswordCredentialStore, 'KitPasswordCredentialStore', passwords);
     bind(child, MfaStep, KIT_MFA_STEP, step);
     for (const s of strategies) if (s.instance) bind(child, AuthenticationStrategy, s.service, s.instance);
     bind(child, AuthnEventSink, 'KitEvents', events);
@@ -218,6 +218,10 @@ export function coreHarnessOf(parts: CoreParts): Harness {
     mfa: { step: parts.step, enrol: async (id) => parts.step.enrol(id), code: async (id) => parts.step.nextCode(id) },
     passwordStore: parts.passwords,
     links: parts.links,
+    accountLinks: {
+      link: async (session, external, ctx) => (await parts.child.resolve(AccountLinkService)).link(session, external, ctx),
+      unlink: async (session, linkId, ctx) => (await parts.child.resolve(AccountLinkService)).unlink(session, linkId, ctx),
+    },
     external: {
       provider: 'kit-idp',
       credentialsFor: async (subject) => {

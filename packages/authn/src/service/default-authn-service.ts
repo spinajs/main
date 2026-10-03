@@ -75,6 +75,8 @@ const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) 
 
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
+const sameEmail = (stored: unknown, verified: string): boolean => nonEmpty(stored) && stored.toLowerCase() === verified.toLowerCase();
+
 /** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
@@ -443,8 +445,9 @@ export class DefaultAuthnService extends AuthnService {
     const found = await this.links.find(external.provider, external.subject);
     if (found) return { id: found.identity };
     if (this.linking.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+      // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
-      if (id) return { id, link: external, provisioned: false };
+      if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
     }
     if (this.linking.jit && typeof this.identities.provision === 'function') {
       return { id: await this.identities.provision(external), link: external, provisioned: true };

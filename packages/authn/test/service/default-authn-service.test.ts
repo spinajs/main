@@ -135,7 +135,7 @@ describe('DefaultAuthnService', function () {
   }
 
   const seedAlice = async (p: CoreParts, status = {}): Promise<IdentityRef> => {
-    const id = p.identities.add({ login: ALICE.login, status });
+    const id = p.identities.add({ login: ALICE.login, email: ALICE.login, status });
     await p.passwords.set(id, fakeHash(ALICE.password));
     return id;
   };
@@ -556,6 +556,39 @@ describe('DefaultAuthnService', function () {
       assert.deepStrictEqual(success(await p.service.authenticate(external, ctx())).identity, a);
       assert.strictEqual(p.links.links.length, 1);
       assert.ok(p.events.all().some((e) => e.type === 'identity.link' && e.outcome === 'success'));
+    });
+
+    it('matches a verified email against the stored email, never a login name (I1)', async () => {
+      const p = await bootLinking({ byVerifiedEmail: true }, subject({ email: 'boss@corp.test' }));
+      p.identities.add({ login: 'boss@corp.test', email: 'real-boss@other.test' });
+      failure(await p.service.authenticate(external, ctx()), 'not_linked');
+      assert.strictEqual(p.links.links.length, 0);
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+    });
+
+    it('matches the stored email without regard to case', async () => {
+      const p = await bootLinking({ byVerifiedEmail: true }, subject({ email: 'alice@example.test' }));
+      const a = p.identities.add({ login: 'alice', email: 'Alice@Example.test' });
+      assert.deepStrictEqual(success(await p.service.authenticate(external, ctx())).identity, a);
+      assert.strictEqual(p.links.links.length, 1);
+    });
+
+    it('does not match an identity that has no stored email', async () => {
+      const p = await bootLinking({ byVerifiedEmail: true });
+      p.identities.add({ login: ALICE.login });
+      failure(await p.service.authenticate(external, ctx()), 'not_linked');
+      assert.strictEqual(p.links.links.length, 0);
+    });
+
+    it('fails closed when the stored email cannot be read', async () => {
+      const p = await bootLinking({ byVerifiedEmail: true });
+      await seedAlice(p);
+      p.identities.display = async () => {
+        throw new RangeError('store down');
+      };
+      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+      assert.strictEqual(p.links.links.length, 0);
+      assert.ok(loginFailures(p).some((e) => e.reason === 'store_error' && (e.data as { error?: string } | undefined)?.error === 'RangeError'));
     });
 
     it('creates no link for an identity whose status refuses the login', async () => {

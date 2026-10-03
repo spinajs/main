@@ -6,3 +6,4 @@ export * from './audit/index.js';
 export * from './service/index.js';
 export * from './flow/index.js';
 export * from './freshauth/index.js';
+export * from './link/index.js';
