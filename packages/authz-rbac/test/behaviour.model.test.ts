@@ -1,7 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 
-import { AuthzConfigError, CORE_FILTER_OPS } from '@spinajs/authz';
+import { AuthzConfigError, CORE_FILTER_OPS, GLOBAL } from '@spinajs/authz';
 import { BEHAVIOUR_FIXTURES, fixtureDsl, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { World } from '@spinajs/authz-testing';
 
@@ -57,7 +57,37 @@ const nativeWorld: World = {
   },
 };
 
+const globalWorld: World = {
+  permissions: ['user:delete'],
+  principals: { alice, bob, carol },
+  scopes: [{ nodes: [{ ref: O1 }] }],
+  combine: combine('deny-overrides', 'rbac'),
+  rbac: {
+    roles: [role('orgAdmin', ['user:delete']), role('oneUser', [{ permission: 'user:delete', on: [{ type: 'user', id: 'u1' }] }])],
+    assignments: [assignment('a1', alice, 'orgAdmin', O1), assignment('b1', bob, 'orgAdmin'), assignment('c1', carol, 'oneUser')],
+  },
+};
+
 const LOCAL = [
+  extension('B13', [
+    {
+      name: 'rbac-global',
+      facets: ['engine', 'rbac'],
+      lanes: ['L1'],
+      note: 'A check on $global is concrete: only GLOBAL assignments and grants without patterns hold there, never a scoped holder.',
+      cases: [
+        {
+          name: 'a role held at org:o1, or a grant limited to one user, does not pass a GLOBAL check',
+          world: globalWorld,
+          steps: [
+            { check: { as: 'alice', permission: 'user:delete', resource: GLOBAL }, expect: { allowed: false } },
+            { check: { as: 'carol', permission: 'user:delete', resource: GLOBAL }, expect: { allowed: false } },
+            { check: { as: 'bob', permission: 'user:delete', resource: GLOBAL }, expect: { allowed: true } },
+          ],
+        },
+      ],
+    },
+  ]),
   extension('B06', [
     {
       name: 'rbac-native',
@@ -159,6 +189,7 @@ const throwingHarness = () =>
   });
 
 runBehaviour(['B06.rbac-native'], () => rbacHarness({ extensions: (_host, options) => [rbacAssignmentExtension(options)] }), { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
+runBehaviour(['B13.rbac-global'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B01.rbac-combine'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B12.rbac-extension'], throwingHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 

@@ -33,7 +33,7 @@ export class MemoryRoleStore extends RoleStore {
   }
 }
 
-/** Assignments held in memory, for tests and for the lanes that reuse the model without a database. */
+/** Assignments held in memory, for tests and for hosts that run the model without a database. */
 export class MemoryAssignmentStore extends AssignmentStore {
   readonly name = 'memory';
   private readonly rows = new Map<string, Assignment>();

@@ -1,4 +1,4 @@
-import { AuthzConfigError, FALSE, TRUE, matchGlob, or, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, FALSE, GLOBAL, TRUE, matchGlob, or, resourceKey } from '@spinajs/authz';
 import type { Principal, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import type { ResourcePattern } from '../contracts.js';
@@ -24,13 +24,16 @@ export interface PatternContext {
 }
 
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
-// The engine's glob reads only `*`; `?` and `[` are refused too, so a SQL or fs dialect that reads them cannot widen.
+// The engine's glob reads only `*`. `?` and `[` are refused in literal parts (at compile) and in
+// substituted values, so a SQL or fs dialect that reads them cannot widen.
 const GLOB_META = /[*?[]/;
+const OTHER_GLOB_META = /[?[]/;
 
 /**
  * Parses one pattern. `where` names the grant (`rbac role 'r' grant 'p'`) and starts every error.
  * This is the one place that reads a pattern's syntax; boot checks on globs (§6.5 rule 11) read `id` and `glob`.
- * @throws AuthzConfigError for a pattern that is not `{ type, id? }` (unknown keys included), an empty id, or a malformed template
+ * @throws AuthzConfigError for a pattern that is not `{ type, id? }` (unknown keys included), an
+ *   empty id, a `?` or `[` outside a template, or a malformed template
  */
 export function compilePattern(pattern: ResourcePattern, where: string): CompiledPattern {
   const fail = (problem: string) => new AuthzConfigError(`${where}: ${problem}`);
@@ -51,6 +54,7 @@ export function compilePattern(pattern: ResourcePattern, where: string): Compile
     const open = id.indexOf('{', i);
     const literal = id.slice(i, open < 0 ? id.length : open);
     if (literal.includes('}')) throw fail(`pattern id '${id}' has a '}' without '{'`);
+    if (OTHER_GLOB_META.test(literal)) throw fail(`pattern id '${id}' holds '?' or '['; only '*' is a glob, and a SQL or fs glob dialect would read these`);
     if (literal !== '') {
       parts.push(literal);
       if (literal.includes('*')) glob = true;
@@ -121,21 +125,30 @@ function principalValue(principal: Principal, path: readonly string[]): string |
 }
 
 /**
+ * A request for every row of a type (B06), answered with a row filter. A request on `$global` is
+ * not one: GLOBAL has no rows, so only GLOBAL assignments and grants without patterns hold there
+ * (B11, B13).
+ */
+export function isTypeLevel(resource: ResourceRef): boolean {
+  return resource.id == null && resource.type !== GLOBAL.type;
+}
+
+/**
  * The rows of the request one pattern admits (§6.1.2, B16). A type-only pattern admits its type. An
  * exact id admits that node and every resource below it, of any type (`under`). A glob admits the ids
- * of its own type it matches (`cmp glob` on `id`). A concrete request is decided here, from its id
- * and path.
+ * of its own type it matches (`cmp glob` on `id`). A concrete request, `$global` included, is decided
+ * here, from its id and path.
  */
 export function patternFilter(p: CompiledPattern, at: PatternContext): ResourceFilter {
   const { resource } = at;
-  const typeLevel = resource.id == null;
+  const typeLevel = isTypeLevel(resource);
   if (!p.id) return resource.type === p.type ? TRUE : FALSE;
   const id = patternId(p, at.principal);
   if (id === undefined) return FALSE;
   if (p.glob) {
     if (resource.type !== p.type) return FALSE;
     if (typeLevel) return { op: 'cmp', field: 'id', cmp: 'glob', value: id };
-    return matchGlob(id, resource.id!) === true ? TRUE : FALSE;
+    return resource.id != null && matchGlob(id, resource.id) === true ? TRUE : FALSE;
   }
   const node: ResourceRef = { type: p.type, id };
   if (typeLevel) return { op: 'under', scopes: [node] };

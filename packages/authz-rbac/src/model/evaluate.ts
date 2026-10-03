@@ -8,18 +8,19 @@ import { compileFieldSet, intersectFieldGlobs, voteFieldGlobs } from './fields.j
 import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
-import { patternsFilter } from './patterns.js';
+import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
 import { rbacAssignmentArgs, scopeMatcher } from './native.js';
-import type { CompileRolesOptions, RoleGraph } from './roles.js';
+import { assignmentProblem } from './roles.js';
+import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
  * The RBAC evaluation of design §6.1.2. An async gathering phase does all the IO and yields an
  * RbacInput; nine named steps then run synchronously over one RbacState, in RBAC_STEP_NAMES order,
  * and the state becomes the Vote. Hook contract:
  * - RBAC_STEPS maps every step name to `(state) => void`, plus `noGrantReason` (the step 5 reason
- *   when no grant of the permission is reachable, `no_access` by default). A lane fills a step by
- *   changing its entry. Steps never do IO and write only their own part of the state.
+ *   when no grant of the permission is reachable, `no_access` by default). Replacing an entry
+ *   fills that step. Steps never do IO and write only their own part of the state.
  * - Everything outside the steps goes through an RbacExtension (model init, role edges, compile at
  *   boot, gathering, boot refs, native ops). DEFAULT_RBAC_EXTENSIONS lists their factories; a model
  *   creates its own instances, so an extension may keep per-model state.
@@ -29,8 +30,9 @@ import type { CompileRolesOptions, RoleGraph } from './roles.js';
  *   permit-overrides. A deny entry (step 8) goes to `state.denies`, which feeds Vote.denies and
  *   denyWhen only: the engine reads each entry's reason where its `when` holds.
  * - On a type-level request `collect` puts live assignments off the path `[type, GLOBAL]` in
- *   `state.scoped`; `residual` turns each grant they reach into a row filter (`under` their scopes,
- *   or `native:rbac.assignment`) ANDed with the grant's own residual. Scoped grants never become
+ *   `state.scoped`; `residual` turns each grant they reach into a row filter (`under` their
+ *   scopes, or `native:rbac.assignment`) ANDed with the grant's own residual. A request on
+ *   `$global` is not type-level (isTypeLevel): its path is `[GLOBAL]` and it has no rows. Scoped grants never become
  *   `candidates`, so steps 5–8 do not see them. Steps that drop or clamp assignments (restrict,
  *   cap, implies) must treat `state.scoped` as they treat `state.live`. A scoped grant with
  *   `requiresTag`, `grantedAt` or a threshold rule depends on which holder applies to each row, so
@@ -70,6 +72,8 @@ export interface RbacInput {
   readonly grants: GrantIndex;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
+  /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
+  readonly onRefusedAssignment?: (assignment: Assignment, problem: Exclude<AssignmentProblem, 'unknown_role'>) => void;
 }
 
 export interface LiveAssignment {
@@ -106,7 +110,7 @@ export interface RbacState {
   readonly ceilingRoles?: ReadonlySet<string>;
   /** collect, restrict, cap */
   live: LiveAssignment[];
-  /** collect, type-level requests only: live assignments off the path, which permit the rows below their scopes. */
+  /** collect, type-level requests only (`$global` is not one): live assignments off the path, which permit the rows below their scopes. */
   scoped: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
@@ -128,9 +132,9 @@ export interface RbacState {
 const noop: RbacStep = () => undefined;
 
 const collect: RbacStep = (s) => {
-  const { assignments, path, roles, now, onUnknownRole } = s.input;
+  const { assignments, path, roles, now, onUnknownRole, onRefusedAssignment } = s.input;
   const onPath = scopeMatcher(s.input.request.resource.type, path);
-  const typeLevel = s.input.request.resource.id == null;
+  const typeLevel = isTypeLevel(s.input.request.resource);
   for (const a of assignments) {
     const here = onPath(a.scope);
     // Off the path only a scope with an id can reach rows of a type-level request (state.scoped).
@@ -140,10 +144,11 @@ const collect: RbacStep = (s) => {
     // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
     if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
     if (expires !== undefined && expires <= now.getTime()) continue;
-    if (!roles.has(a.role)) {
-      onUnknownRole?.(a);
-      continue;
-    }
+    const problem = assignmentProblem(roles, a.role, a.scope);
+    if (problem === 'unknown_role') onUnknownRole?.(a);
+    // A row stored before its role was narrowed would reach the scopes scopeTypes exists to keep it from.
+    else if (problem) onRefusedAssignment?.(a, problem);
+    if (problem) continue;
     (here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
@@ -151,7 +156,7 @@ const collect: RbacStep = (s) => {
 /**
  * Whether `role` passes the principal's `ceiling.roles` (§6.1.2 step 1, B07): the assigned role's
  * own name, never a role it extends, so a ceiling of a lower role does not keep a higher role's
- * assignment. Every contribution `collect` adds must pass it, implied roles (L1b) included (D19).
+ * assignment. Every contribution `collect` adds must pass it, implied roles included (D19).
  */
 export function withinCeiling(s: RbacState, role: string): boolean {
   return s.ceilingRoles === undefined || s.ceilingRoles.has(role);
@@ -298,7 +303,8 @@ function newState(input: RbacInput, ceiling: boolean): RbacState {
   return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
 }
 
-// OR is order-free, but the residual enters the L2 key and SQL statement caches: equal states must give equal JSON.
+// OR is order-free, but the residual enters the cross-request decision cache key and SQL statement
+// caches: equal states must give equal JSON.
 function canonicalOrder(terms: readonly ResourceFilter[]): ResourceFilter[] {
   return terms
     .map((t) => [JSON.stringify(t), t] as const)
@@ -338,6 +344,7 @@ export interface RbacSources {
   /** Reads the subjects' assignments in place of `assignments.forSubjects(subjects, ctx.now)` (the model's cache). */
   readonly load?: (subjects: readonly AssignmentSubject[], ctx: EvaluationContext) => readonly Assignment[] | Promise<readonly Assignment[]>;
   readonly onUnknownRole?: (assignment: Assignment) => void;
+  readonly onRefusedAssignment?: RbacInput['onRefusedAssignment'];
 }
 
 type Maybe<T> = T | PromiseLike<T>;
@@ -349,14 +356,10 @@ function after<T, U>(value: Maybe<T>, next: (value: T) => Maybe<U>): Maybe<U> {
   return isThenable(value) ? Promise.resolve(value).then(next) : next(value);
 }
 
-/** The IO phase: subjects, their assignments, the path, then what the extensions gather. */
-export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): Promise<RbacInput> {
-  return readRbacInput(request, ctx, sources);
-}
-
 /**
- * gatherRbacInput, answered synchronously when no source needs IO: the subjects and assignments
- * come back as values (a type-level request after preload, B22), and so do the extensions' gathers.
+ * The IO phase: subjects, their assignments, the path, then what the extensions gather. Answered
+ * synchronously when no source needs IO: the subjects and assignments come back as values (a
+ * type-level request after preload, B22), and so do the extensions' gathers.
  */
 export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources): RbacInput | Promise<RbacInput> {
   const subjects = sources.subjects ? sources.subjects.subjects(request.principal) : defaultSubjects(request.principal);
@@ -372,6 +375,7 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
           roles: sources.roles,
           grants: sources.grants,
           ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}),
+          ...(sources.onRefusedAssignment ? { onRefusedAssignment: sources.onRefusedAssignment } : {}),
         }),
       ),
     ),
@@ -399,7 +403,8 @@ function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: 
  * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its
  * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]` (§6.1.2),
  * without IO: an assignment at the bare type ref permits every row of the type; any other scoped
- * assignment needs a row filter, which `residual` builds from `state.scoped`.
+ * assignment needs a row filter, which `residual` builds from `state.scoped`. A request on `$global`
+ * gets `[GLOBAL]`.
  */
 export function resourcePath(resource: ResourceRef, ctx: EvaluationContext): readonly ResourceRef[] | Promise<readonly ResourceRef[]> {
   if (resource.id == null) return resource.type === GLOBAL.type ? [GLOBAL] : [{ type: resource.type }, GLOBAL];
@@ -444,7 +449,7 @@ export interface RbacExtension {
 
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
-/** One factory per extension, so every model gets its own instances; a lane adds its factory here. */
+/** One factory per extension, so every model gets its own instances. */
 export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */

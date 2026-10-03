@@ -6,14 +6,17 @@ import type { AssignmentStore } from '../contracts.js';
 import { expiryTime, subjectKey } from './assignments.js';
 import type { RbacExtension } from './evaluate.js';
 import type { RbacModelOptions } from './model.js';
+import { assignmentProblem } from './roles.js';
+import type { RoleGraph } from './roles.js';
 
 /*
  * The args of `native:rbac.assignment` (design §6.1.3 "Lists", §12.4): the contract between the RBAC
- * model and the compilers of lanes L2/L4b.
+ * model and the SQL compilers.
  *
  * Meaning: the row is permitted by this term when one of `subjects` holds a live assignment
- * (`expiresAt` absent or after now) of one of `roles` whose scope is on the row's path: the row
- * itself, one of its ancestors, GLOBAL, or the type-only scope `{ type }` of the row's own type (a
+ * (`expiresAt` absent or after now) of one of `roles`, which the role's definition accepts at
+ * that scope (`assignable`, `scopeTypes`: assignmentProblem), and whose scope is on the row's
+ * path: the row itself, one of its ancestors, GLOBAL, or the type-only scope `{ type }` of the row's own type (a
  * role over every row of that type; it reaches no other type). Live means at the time the filter runs (`ctx.now`, SQL `:now`), read from the
  * assignment store, so the term holds no copy of the assignments.
  *
@@ -23,9 +26,10 @@ import type { RbacModelOptions } from './model.js';
  * ANDed around the term, never inside it.
  *
  * Canonical: `subjects` sorted by subjectKey and `roles` by code point, both without duplicates, so
- * equal terms are equal JSON (the L2 cache key, SQL statement caches). A compiler must refuse args
- * it does not fully understand (another `v`, an unknown key): L1b adds rule parts (restrict, cap,
- * tags, provenance) as new keys or a new version, and ignoring them would widen the list.
+ * equal terms are equal JSON (the cross-request decision cache key, SQL statement caches). A
+ * compiler must refuse args it does not fully understand (another `v`, an unknown key): implied
+ * roles and rule parts (restrict, cap, tags, provenance) will come as new keys or a new version,
+ * and ignoring them would widen the list.
  */
 export interface RbacAssignmentArgs {
   readonly v: 1;
@@ -77,24 +81,29 @@ export function parseRbacAssignmentArgs(args: unknown): RbacAssignmentArgs {
   return parsed;
 }
 
-/** In-memory evaluator of `native:rbac.assignment` (B06): reads the subjects' assignments from the store. */
+/**
+ * In-memory evaluator of `native:rbac.assignment` (B06): reads the subjects' assignments from the
+ * store and checks them against the role graph `roles` gives (the model's current one).
+ */
 export class RbacAssignmentFilter extends NativeFilter {
   readonly op = RBAC_ASSIGNMENT_OP;
 
-  constructor(private readonly assignments: AssignmentStore) {
+  constructor(private readonly assignments: AssignmentStore, private readonly roles: () => RoleGraph | undefined) {
     super();
   }
 
   async matches(args: unknown, _subject: unknown, ref: ResourceRef, ctx: EvaluationContext): Promise<boolean> {
     const { subjects, roles } = parseRbacAssignmentArgs(args);
     if (roles.length === 0 || subjects.length === 0) return false;
+    const graph = this.roles();
+    if (!graph) throw new Error(`${RBAC_ASSIGNMENT_OP}: the role definitions are not compiled yet`);
     const ancestors = await ctx.ancestors(ref);
     if (ancestors === null) throw new Error(`${RBAC_ASSIGNMENT_OP}: unknown resource ${resourceKey(ref)}`);
     const onPath = scopeMatcher(ref.type, [ref, ...ancestors]);
     const wanted = new Set(roles);
     const now = ctx.now.getTime();
     for (const a of await this.held(subjects, ctx)) {
-      if (!wanted.has(a.role) || !onPath(a.scope)) continue;
+      if (!wanted.has(a.role) || !onPath(a.scope) || assignmentProblem(graph, a.role, a.scope)) continue;
       const expires = expiryTime(a);
       if (Number.isNaN(expires)) throw new Error(`${RBAC_ASSIGNMENT_OP}: assignment '${a.id}' (source: ${a.source}) has an unreadable expiresAt`);
       if (expires === undefined || expires > now) return true;
@@ -133,9 +142,13 @@ export function scopeMatcher(type: ResourceType, path: readonly ResourceRef[]): 
  * it on any list-scoped type routed to this model whose adapter does not compile it.
  */
 export const rbacAssignmentExtension = (opts: RbacModelOptions, config: { readonly types?: readonly ResourceType[] } = {}): RbacExtension => {
-  const filter = new RbacAssignmentFilter(opts.assignments);
+  let graph: RoleGraph | undefined;
+  const filter = new RbacAssignmentFilter(opts.assignments, () => graph);
   const types = config.types ? new Set(config.types) : undefined;
   return Object.freeze({
+    compile: (compiled: RoleGraph) => {
+      graph = compiled;
+    },
     residuals: Object.freeze([RBAC_ASSIGNMENT_OP]),
     nativeFilters: () => [filter],
     gather: (request: DecisionRequest) => (types && !types.has(request.resource.type) ? {} : { scopedResidual: 'native' as const }),

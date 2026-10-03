@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import * as fc from 'fast-check';
 import 'mocha';
 
-import { MAX_ARGS_ROLES, MAX_ARGS_SUBJECTS, MemoryAssignmentStore, MemoryRoleStore, RbacAssignmentFilter, compileGrants, compileRoles, gatherRbacInput, parseRbacAssignmentArgs, rbacAssignmentArgs, rbacAssignmentExtension, runRbacPipeline } from '../../src/index.js';
+import { MAX_ARGS_ROLES, MAX_ARGS_SUBJECTS, MemoryAssignmentStore, MemoryRoleStore, RbacAssignmentFilter, compileGrants, compileRoles, parseRbacAssignmentArgs, rbacAssignmentArgs, rbacAssignmentExtension, readRbacInput, runRbacPipeline } from '../../src/index.js';
 import type { AssignmentStore, RbacExtension, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -89,7 +89,9 @@ describe('authz-rbac model: native:rbac.assignment', () => {
   });
 
   describe('RbacAssignmentFilter', () => {
-    const matches = (store: AssignmentStore, a: unknown, ref: ResourceRef, ctx = context()) => new RbacAssignmentFilter(store).matches(a, undefined, ref, ctx);
+    const role = (name: string, extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:read' }], ...extra });
+    const graph = compileRoles([role('viewer'), role('editor'), role('orgOnly', { scopeTypes: ['org'] }), role('fixed', { assignable: false })]);
+    const matches = (store: AssignmentStore, a: unknown, ref: ResourceRef, ctx = context()) => new RbacAssignmentFilter(store, () => graph).matches(a, undefined, ref, ctx);
 
     it('holds when a subject has a live assignment of a listed role on the row path', async () => {
       const store = new MemoryAssignmentStore([assignment('a1', 'viewer', P1), assignment('a2', 'editor', P2), assignment('a3', 'viewer', FILES[3]), assignment('b1', 'viewer', P2, { subject: bot })]);
@@ -126,6 +128,18 @@ describe('authz-rbac model: native:rbac.assignment', () => {
       expect(reads).to.equal(1);
     });
 
+    it('skips a row its role definition refuses (scopeTypes, assignable), as collect does', async () => {
+      const store = new MemoryAssignmentStore([assignment('a1', 'orgOnly', GLOBAL), assignment('a2', 'fixed', P1), assignment('a3', 'orgOnly', O1)]);
+      expect(await matches(store, args(['fixed', 'orgOnly']), FILES[2])).to.equal(true);
+      expect(await matches(new MemoryAssignmentStore([assignment('a1', 'orgOnly', GLOBAL), assignment('a2', 'fixed', P1)]), args(['fixed', 'orgOnly']), FILES[0])).to.equal(false);
+    });
+
+    it('throws before the role definitions are compiled (fail closed)', async () => {
+      let error: unknown;
+      await new RbacAssignmentFilter(new MemoryAssignmentStore([assignment('a1', 'viewer', GLOBAL)]), () => undefined).matches(args(['viewer']), undefined, FILES[0], context()).catch((e: unknown) => (error = e));
+      expect(String(error)).to.match(/not compiled/);
+    });
+
     it('refuses malformed args and an unknown resource', async () => {
       const store = new MemoryAssignmentStore([]);
       let error: unknown;
@@ -144,6 +158,8 @@ describe('authz-rbac model: native:rbac.assignment', () => {
       { name: 'limited', extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:read', on: [{ type: 'file', id: 'f1' }] }] },
       { name: 'writer', extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:write' }] },
       { name: 'owner', extends: [], assignable: true, source: 'test', grants: [{ permission: 'file:read', relation: 'owner' }] },
+      { name: 'orgOnly', extends: [], assignable: true, scopeTypes: ['org'], source: 'test', grants: [{ permission: 'file:read' }] },
+      { name: 'fixed', extends: [], assignable: false, source: 'test', grants: [{ permission: 'file:read' }] },
     ];
     const ROLE_NAMES = ROLES.map((r) => r.name);
     const OWNERS: Record<string, string> = { f1: 'alice', f2: 'bob', f3: 'alice', f4: 'carol' };
@@ -165,7 +181,7 @@ describe('authz-rbac model: native:rbac.assignment', () => {
 
     async function vote(principal: Principal, store: AssignmentStore, resource: ResourceRef, extensions: readonly RbacExtension[]) {
       const ctx = relational();
-      return runRbacPipeline(await gatherRbacInput({ principal, permission: 'file:read', resource }, ctx, { roles: graph, grants, assignments: store, extensions }));
+      return runRbacPipeline(await readRbacInput({ principal, permission: 'file:read', resource }, ctx, { roles: graph, grants, assignments: store, extensions }));
     }
 
     const holds = async (residual: ResourceFilter, principal: Principal, f: ResourceRef, filters: readonly NativeFilter[]) => (await evaluateFilter(residual, row(f), { principal, ref: f, context: relational(), nativeFilters: filters })) === true;
@@ -188,6 +204,7 @@ describe('authz-rbac model: native:rbac.assignment', () => {
           const principal = roles === undefined ? withCompanions(alice, [bot]) : withCeiling(withCompanions(alice, [bot]), { roles });
           const options = { roles: new MemoryRoleStore(ROLES), assignments: store };
           for (const extensions of [[], [rbacAssignmentExtension(options)]]) {
+            for (const e of extensions) e.compile?.(graph, grants, registry);
             const filters = extensions.flatMap((e) => e.nativeFilters?.() ?? []);
             const typeLevel = (await vote(principal, store, { type: 'file' }, extensions)).permitWhen;
             const got = await listed(typeLevel, principal, filters);

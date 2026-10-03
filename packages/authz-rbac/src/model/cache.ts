@@ -44,8 +44,8 @@ const IGNORED_PREFIXES = ['policy:', 'rule:'];
 const SET_PREFIX = '%set:';
 
 /*
- * The assignments of a principal's subjects (design §6.1.2 preload, §10.3): per request in ctx.cache
- * (L1), across requests per subject key (L2, TTL and LRU bound). Rules that keep it correct:
+ * The assignments of a principal's subjects (design §6.1.2 preload, §10.3): per request in ctx.cache,
+ * and per subject key across requests (TTL and LRU bound). Rules that keep it correct:
  * - The store answers the rows live at `at`, and rows only ever expire (an Assignment has no start
  *   time; new rows arrive with an invalidate). So rows read for `at` serve any request whose now is
  *   at or after it, and `collect` re-checks expiry against ctx.now; a request before `at` reads anew.

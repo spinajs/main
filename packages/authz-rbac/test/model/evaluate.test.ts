@@ -4,7 +4,7 @@ import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, w
 import * as chai from 'chai';
 import 'mocha';
 
-import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, gatherRbacInput, rbacAssignmentExtension, runRbacPipeline } from '../../src/index.js';
+import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, rbacAssignmentExtension, readRbacInput, runRbacPipeline } from '../../src/index.js';
 import type { RbacExtension, RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -100,6 +100,23 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       const vote = runRbacPipeline(input([assignment('g1', 'ghost'), assignment('a1', 'viewer')], 'file:read', { onUnknownRole: (a) => unknown.push(a) }));
       expect(vote.permitWhen).to.deep.equal(TRUE);
       expect(unknown.map((a) => a.id)).to.deep.equal(['g1']);
+    });
+
+    it('an assignment the role definition refuses (not assignable, outside scopeTypes) is ignored and reported', () => {
+      const roles = [...ROLES, role('package', ['file:read'], { assignable: false }), role('orgAdmin', ['file:read'], { scopeTypes: ['org'] })];
+      const O1: ResourceRef = { type: 'org', id: 'o1' };
+      const refused: [string, string][] = [];
+      const onRefusedAssignment = (a: Assignment, problem: string) => void refused.push([a.id, problem]);
+      const vote = runRbacPipeline({ ...input([assignment('p1', 'package'), assignment('o1', 'orgAdmin')], 'file:read', { roles }), onRefusedAssignment });
+      expect(vote.permitWhen).to.deep.equal(FALSE);
+      expect(refused).to.deep.equal([
+        ['p1', 'not_assignable'],
+        ['o1', 'wrong_scope_type'],
+      ]);
+      const atOrg = { ...input([assignment('o1', 'orgAdmin', { scope: O1 })], 'file:read', { roles }), path: [f1, O1, GLOBAL] };
+      expect(runRbacPipeline(atOrg).permitWhen).to.deep.equal(TRUE);
+      const typeLevel = { ...input([assignment('o1', 'orgAdmin', { scope: { type: 'project', id: 'p1' } })], 'file:read', { roles }), request: { principal: alice, permission: 'file:read', resource: { type: 'file' } }, path: [{ type: 'file' }, GLOBAL], onRefusedAssignment };
+      expect(runRbacPipeline(typeLevel).permitWhen).to.deep.equal(FALSE);
     });
 
     it('one candidate per grant, with every live assignment that reaches it', () => {
@@ -547,7 +564,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       registry.freeze();
       const roles = compileRoles(ROLES);
       const store = new MemoryAssignmentStore(assignments);
-      const gathered = await gatherRbacInput({ principal: opts.principal ?? alice, permission: 'file:read', resource }, ctx, { roles, grants: compileGrants(roles, registry), assignments: store, extensions: opts.extensions });
+      const gathered = await readRbacInput({ principal: opts.principal ?? alice, permission: 'file:read', resource }, ctx, { roles, grants: compileGrants(roles, registry), assignments: store, extensions: opts.extensions });
       return { input: gathered, vote: runRbacPipeline(gathered), ctx, store };
     }
 
@@ -635,7 +652,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         registry.freeze();
         const graph = compileRoles(roles);
         const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] });
-        const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource: FILES }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore([assignment('a1', 'owner-viewer', { scope: P1 })]) });
+        const gathered = await readRbacInput({ principal: alice, permission: 'file:read', resource: FILES }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore([assignment('a1', 'owner-viewer', { scope: P1 })]) });
         const under = { op: 'under', scopes: [P1] };
         expect(runRbacPipeline(gathered).permitWhen).to.deep.equal({
           op: 'or',
@@ -655,7 +672,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         const rows = [assignment('a1', 'owners', { scope: P2 }), assignment('a2', 'members', { scope: P1 }), assignment('a3', 'all'), assignment('a4', 'owners')];
         const permitWhen = async (list: readonly Assignment[], resource: ResourceRef) => {
           const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] });
-          return JSON.stringify(runRbacPipeline(await gatherRbacInput({ principal: alice, permission: 'file:read', resource }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore(list) })).permitWhen);
+          return JSON.stringify(runRbacPipeline(await readRbacInput({ principal: alice, permission: 'file:read', resource }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore(list) })).permitWhen);
         };
         for (const resource of [FILES, f1]) expect(await permitWhen([...rows].reverse(), resource)).to.equal(await permitWhen(rows, resource));
       });
@@ -706,6 +723,43 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       it('a list of scopes past MAX_UNDER_SCOPES throws (fail closed)', async () => {
         const many = Array.from({ length: MAX_UNDER_SCOPES + 1 }, (_, i) => assignment(`a${i}`, 'viewer', { scope: { type: 'project', id: `p${i}` } }));
         await rejects(evaluate(many, FILES), /MAX_UNDER_SCOPES|exceed/);
+      });
+    });
+
+    describe('a request on $global is concrete (B11, B13)', () => {
+      const ON_GLOBAL: ResourceRef = { type: '$global' };
+
+      it('an assignment at a scope with an id, or at a bare type, gives nothing on $global', async () => {
+        const v = await evaluate([at(O1), at(P1, 'a2'), at({ type: 'file' }, 'a3')], ON_GLOBAL);
+        expect(v.vote.permitWhen).to.deep.equal(FALSE);
+        expect(v.vote.reason).to.deep.equal(NO_ACCESS);
+        expect(v.input.path).to.deep.equal([GLOBAL]);
+      });
+
+      it('no native term on $global either', async () => {
+        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
+        expect((await evaluate([at(O1)], ON_GLOBAL, undefined, { extensions: [rbacAssignmentExtension(opts)] })).vote.permitWhen).to.deep.equal(FALSE);
+      });
+
+      it('a GLOBAL assignment permits $global; a relation grant held at GLOBAL stays conditional', async () => {
+        expect((await evaluate([assignment('g1', 'viewer'), at(O1, 'a2')], ON_GLOBAL)).vote.permitWhen).to.deep.equal(TRUE);
+        const registry = new PermissionRegistryImpl();
+        registry.register([{ name: 'file:read' }], 'test');
+        registry.freeze();
+        const graph = compileRoles([withGrantsOf('owner', [{ permission: 'file:read', relation: 'owner' }])]);
+        const gathered = await readRbacInput({ principal: alice, permission: 'file:read', resource: ON_GLOBAL }, fakeEvaluationContext({ now: NOW }), { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore([assignment('g1', 'owner')]) });
+        expect(runRbacPipeline(gathered).permitWhen).to.deep.equal({ op: 'relation', relation: 'owner' });
+      });
+
+      it('a grant limited to one resource, or to a type, permits nothing on $global', async () => {
+        const registry = new PermissionRegistryImpl();
+        registry.register([{ name: 'file:read' }], 'test');
+        registry.freeze();
+        const graph = compileRoles([withGrantsOf('one', [{ permission: 'file:read', on: [{ type: 'file', id: 'f1' }] }]), withGrantsOf('some', [{ permission: 'file:read', on: [{ type: 'file', id: 'f*' }] }]), withGrantsOf('typed', [{ permission: 'file:read', on: [{ type: 'file' }] }])]);
+        for (const name of ['one', 'some', 'typed']) {
+          const gathered = await readRbacInput({ principal: alice, permission: 'file:read', resource: ON_GLOBAL }, fakeEvaluationContext({ now: NOW }), { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore([assignment('g1', name)]) });
+          expect(runRbacPipeline(gathered).permitWhen, name).to.deep.equal(FALSE);
+        }
       });
     });
   });
@@ -791,7 +845,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       registry.freeze();
       const roles = compileRoles([role('viewer', ['file:read'])]);
       const store = new MemoryAssignmentStore([expiring('a1', 'viewer', 'tomorrow'), assignment('a2', 'viewer')]);
-      const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now: NOW }), { roles, grants: compileGrants(roles, registry), assignments: store });
+      const gathered = await readRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now: NOW }), { roles, grants: compileGrants(roles, registry), assignments: store });
       expect(gathered.assignments.map((a) => a.id)).to.deep.equal(['a1', 'a2']);
       expect(() => runRbacPipeline(gathered)).to.throw(Error, "assignment 'a1'");
       expect(await store.holders('viewer', GLOBAL, NOW)).to.deep.equal([{ type: 'user', id: 'alice' }]);
@@ -808,7 +862,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       registry.freeze();
       const roles = compileRoles([role('viewer', ['file:read'])]);
       const sources = { roles, grants: compileGrants(roles, registry), assignments: new Unfiltered([expiring('a1', 'viewer', after(HOUR))]) };
-      const at = (now: Date) => gatherRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now }), sources).then(runRbacPipeline);
+      const at = async (now: Date) => runRbacPipeline(await readRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now }), sources));
       // NOW lies before the real clock, so a model reading Date.now() would see a1 as expired here.
       expect((await at(NOW)).validUntil).to.deep.equal(after(HOUR));
       expect((await at(after(HOUR))).reason).to.deep.equal(NO_ACCESS);

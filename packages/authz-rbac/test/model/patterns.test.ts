@@ -55,6 +55,16 @@ describe('authz-rbac model: resource patterns (B16)', () => {
           .that.contains("rbac role 'r' grant 'doc:read'");
       }
     });
+
+    it('refuses ? and [ in the literal parts of an id, which a SQL or fs glob dialect would read', () => {
+      for (const id of ['doc?', 'a[bc]', 'x-{principal.id}-?', 'pub-*[']) {
+        expect(() => compilePattern({ type: 'doc', id }, "rbac role 'r' grant 'doc:read'"), id)
+          .to.throw(AuthzConfigError)
+          .with.property('message')
+          .that.contains("rbac role 'r' grant 'doc:read'")
+          .and.contains(id);
+      }
+    });
   });
 
   describe('a concrete request', () => {
@@ -82,6 +92,18 @@ describe('authz-rbac model: resource patterns (B16)', () => {
       expect(on({ type: 'file', id: 'shared/*' }, { type: 'file', id: 'shared/sub/c.txt' })).to.deep.equal(FALSE);
       expect(on({ type: 'file', id: 'public/**' }, { type: 'file', id: 'public/x/y.txt' })).to.deep.equal(TRUE);
       expect(on({ type: 'dir', id: 'home/*' }, FILE_IN_ALICE)).to.deep.equal(FALSE);
+    });
+  });
+
+  describe('a request on $global', () => {
+    it('is concrete: every pattern of another type is FALSE, an exact id included', () => {
+      for (const p of [{ type: 'dir', id: 'home' }, { type: 'dir', id: 'home/{principal.id}' }, { type: 'doc', id: 'pub-*' }, { type: 'doc' }]) expect(on(p, GLOBAL), JSON.stringify(p)).to.deep.equal(FALSE);
+    });
+
+    it('a pattern on $global itself admits only the bare $global', () => {
+      expect(on({ type: '$global' }, GLOBAL)).to.deep.equal(TRUE);
+      expect(on({ type: '$global', id: 'x' }, GLOBAL)).to.deep.equal(FALSE);
+      expect(on({ type: '$global', id: 'x*' }, GLOBAL)).to.deep.equal(FALSE);
     });
   });
 

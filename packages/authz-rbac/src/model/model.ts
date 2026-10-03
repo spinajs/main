@@ -1,4 +1,4 @@
-import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, unionFieldGlobs } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, GLOBAL, engineLog, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, PermissionRegistry, Principal, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -53,6 +53,7 @@ export class RbacModel extends AuthorizationModel {
   private loaded?: Loaded;
   private grants?: GrantIndex;
   private readonly warnedRoles = new Set<string>();
+  private readonly warnedAssignments = new Set<string>();
   /*
    * Role reload (§6.1.2 "compile on RoleStore version change"): every stale mark bumps roleMarks; the
    * roles are fresh while rolesFreshAt has caught up. A reload records the mark it started at, so a
@@ -147,9 +148,9 @@ export class RbacModel extends AuthorizationModel {
    * agrees with the votes: `conditional` unless every vote permits every row and denies none.
    * - At `$global` each permission is judged per type T of its `types`, on `{ type: T }` (path
    *   `[{ type: T }, GLOBAL]`), so type and glob patterns and bare-type and scoped assignments count;
-   *   a request on `$global` itself would miss them (Critical 1 of the task 12 review). Listed when
-   *   some T permits and does not deny everything; `fields` is the union over the permitting Ts, so
-   *   the entry never shows fewer fields than some type gives.
+   *   a request on `$global` itself is concrete and would miss them. Listed when some T permits
+   *   and does not deny everything; `fields` is the union over the permitting Ts, so the entry
+   *   never shows fewer fields than some type gives.
    * - At any other `at`, the permission is judged at `at`, if its `types` hold `at`'s type.
    * - `roles` lists only the assignments that hold at `at` (at `$global`: GLOBAL ones); permissions
    *   from bare-type or scoped assignments appear without their roles.
@@ -215,7 +216,7 @@ export class RbacModel extends AuthorizationModel {
     if (rows === undefined) throw new AuthzConfigError(`rbac: the assignments of ${principal.type}:${principal.id} are not preloaded (or their cache entry expired); preload the principal first`);
     const request: DecisionRequest = { principal, permission: ROLES_PROBE, resource: at };
     const path = at.id == null ? (resourcePath(at, NO_CONTEXT) as readonly ResourceRef[]) : [at, GLOBAL];
-    const base: RbacInput = { request, now, path, subjects: subjects as readonly AssignmentSubject[], assignments: [...rows, ...configAssignments(loaded, subjects as readonly AssignmentSubject[])], roles: sources.roles, grants: sources.grants, ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}) };
+    const base: RbacInput = { request, now, path, subjects: subjects as readonly AssignmentSubject[], assignments: [...rows, ...configAssignments(loaded, subjects as readonly AssignmentSubject[])], roles: sources.roles, grants: sources.grants, ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}), ...(sources.onRefusedAssignment ? { onRefusedAssignment: sources.onRefusedAssignment } : {}) };
     const input = extendRbacInput(request, NO_CONTEXT, sources, base);
     if (input instanceof Promise) {
       input.catch(() => undefined);
@@ -247,6 +248,7 @@ export class RbacModel extends AuthorizationModel {
       configAssignments: (subjects) => configAssignments(loaded, subjects),
       load: (subjects, c) => loaded.assignments.read(subjects, c),
       onUnknownRole: (a) => this.unknownRole(a),
+      onRefusedAssignment: (a, problem) => this.refusedAssignment(a, problem),
     };
   }
 
@@ -375,6 +377,13 @@ export class RbacModel extends AuthorizationModel {
     if (this.warnedRoles.has(a.role)) return;
     this.warnedRoles.add(a.role);
     this.log.warn(`rbac: assignment '${a.id}' (source: ${a.source}) names unknown role '${a.role}'; assignments of this role are ignored`);
+  }
+
+  private refusedAssignment(a: Assignment, problem: Exclude<AssignmentProblem, 'unknown_role'>): void {
+    if (this.warnedAssignments.has(a.id)) return;
+    this.warnedAssignments.add(a.id);
+    const why = problem === 'not_assignable' ? `role '${a.role}' is not assignable` : `the scopeTypes of role '${a.role}' leave out '${a.scope.type}'`;
+    this.log.warn(`rbac: assignment '${a.id}' (source: ${a.source}) at ${resourceKey(a.scope)} is ignored: ${why}`);
   }
 }
 

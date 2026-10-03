@@ -157,6 +157,21 @@ describe('authz-rbac model: RbacModel', () => {
       expect(warnings.filter((w) => w.includes("'ghost'"))).to.have.length(1);
     });
 
+    it('ignores a stored assignment the role definition refuses, warning once per assignment', async () => {
+      const roles = [...ROLES, role('orgAdmin', ['file:read'], { scopeTypes: ['org'] })];
+      const { model: m } = await model({ roles, assignments: [assignment('p1', alice, 'package'), assignment('o1', alice, 'orgAdmin'), assignment('o2', bob, 'orgAdmin')] });
+      for (let i = 0; i < 2; i++) {
+        expect((await check(m, alice, 'file:read')).reason?.code).to.equal('no_access');
+        expect((await check(m, bob, 'file:read')).reason?.code).to.equal('no_access');
+      }
+      const about = (id: string) => warnings.filter((w) => w.includes(`assignment '${id}'`));
+      expect(about('p1')).to.have.length(1);
+      expect(about('p1')[0]).to.contain('is not assignable');
+      expect(about('o1')).to.have.length(1);
+      expect(about('o1')[0]).to.contain('scopeTypes');
+      expect(about('o2')).to.have.length(1);
+    });
+
     it('does not count expired assignments', async () => {
       const { model: m } = await model({ assignments: [assignment('a1', alice, 'viewer', { expiresAt: new Date(NOW.getTime() - 1) })] });
       expect((await check(m, alice, 'file:read')).reason?.code).to.equal('no_access');
