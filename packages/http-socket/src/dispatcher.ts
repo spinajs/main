@@ -473,6 +473,10 @@ export class SocketDispatcher extends AsyncService {
       throw new SocketException('failed_precondition', `ordered command ${name} cannot reply with a stream`);
     }
 
+    if (ctx.handler?.descriptor.Options.idempotent) {
+      throw new SocketException('failed_precondition', `idempotent command ${name} cannot reply with a stream`);
+    }
+
     if (credits === undefined) {
       throw new SocketException('failed_precondition', `command ${name} replies with a stream; open it as a stream with credits`);
     }

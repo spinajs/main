@@ -118,7 +118,7 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `streams.maxCredits` or `streams.maxPerConnection` is not an integer above 0;
 - `streams.stallTimeoutMs` is not an integer within 1 and 2^31-1.
 
-The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`, and when an `ordered` command's handler is an async generator (W4): its queue place would be released when the generator is returned, long before the stream ends. An `ordered` handler that returns another async iterable is answered `failed_precondition` at run time. Socket.io is not attached in either case.
+The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`, and when an `ordered` or `idempotent` command's handler is an async generator (W4): its queue place would be released when the generator is returned, long before the stream ends, and its reply is never stored. An `ordered` or `idempotent` handler that returns another async iterable is answered `failed_precondition` at run time. Socket.io is not attached in either case.
 
 ## Behaviour notes
 
@@ -147,3 +147,4 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - A principal switch mid-queue changes the key scope: an anonymous command whose ack was lost runs again after login.
 - Unauthenticated connections share one principal key, so their idempotency keys and `after` fences are scoped by `clientId` only.
 - The `after` fence and the `ordered: 'client'` queues are per instance; several instances need sticky sessions.
+- A stream command cannot be `idempotent` (refused at startup for an async generator, answered `failed_precondition` for another async iterable), cannot take `after`, and is never a fence predecessor: its reply is never stored.

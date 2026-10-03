@@ -182,7 +182,7 @@ export interface ICommandOptions {
   schema?: object;
   /** server-side deadline; the earlier of this and the client's `deadline` applies */
   timeoutMs?: number;
-  /** replay by principal, clientId and idempotencyKey; a durable command also needs ordered: 'client' */
+  /** replay by principal, clientId and idempotencyKey; a durable command also needs ordered: 'client'; a stream handler cannot be idempotent */
   idempotent?: boolean;
   /** serial queue per connection, or per principal and clientId across reconnects; a stream handler cannot be ordered */
   ordered?: 'connection' | 'client';

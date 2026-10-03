@@ -7,6 +7,7 @@ import type { CommandOutcome, IdempotentReply, ISocketIdempotencyClaim, ISocketI
 import type { SocketConnection } from './connection.js';
 import { SocketErrorMapper } from './errors.js';
 import { untilAborted } from './limits.js';
+import { isStreamResult } from './stream.js';
 
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const DEFAULT_MAX_ENTRIES = 100_000;
@@ -160,10 +161,6 @@ export function assertIdempotencyConfig(options: ISocketIdempotencyConfig): void
 
 /** Retry hint when another instance runs the key: this one cannot join it. */
 export const ELSEWHERE_RETRY_AFTER_MS = 1_000;
-
-function isAsyncIterable(value: unknown): boolean {
-  return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
-}
 
 function isBinary(value: unknown): boolean {
   return value instanceof ArrayBuffer || ArrayBuffer.isView(value) || (typeof Blob !== 'undefined' && value instanceof Blob);
@@ -326,7 +323,7 @@ export class SocketIdempotency {
   protected async record(scoped: string, name: string, signal: AbortSignal, outcome: CommandOutcome): Promise<IdempotentReply | null> {
     if ('result' in outcome) {
       // a stream reply cannot be replayed
-      if (isAsyncIterable(outcome.result)) {
+      if (isStreamResult(outcome.result)) {
         return this.forgo(scoped, name);
       }
 

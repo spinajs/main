@@ -101,6 +101,11 @@ export class StrmSocket extends BaseSocketController {
     return plainIterable(p.key, async () => ({ done: true, value: undefined }));
   }
 
+  @Command('idempotent-plain', { idempotent: true })
+  public idempotentPlain(@Payload() p: { key: string }) {
+    return plainIterable(p.key, async () => ({ done: true, value: undefined }));
+  }
+
   @Command('late')
   public async late(@Payload() p: { key: string }) {
     // ignores its signal, so it returns its stream after the command was answered
@@ -282,6 +287,14 @@ describe('stream replies', function () {
     expect(error.code).to.equal('failed_precondition');
     expect(error.message).to.match(/ordered/);
     await waitFor(() => strmLog.closed.has('ordered'));
+  });
+
+  it('refuses a stream from an idempotent command the registry could not see as one, and closes it', async () => {
+    const error = errorOf(await command(socket, 'strm.idempotent-plain', { key: 'idempotent' }, { credits: 1, idempotencyKey: 'k1' }));
+
+    expect(error.code).to.equal('failed_precondition');
+    expect(error.message).to.match(/idempotent/);
+    await waitFor(() => strmLog.closed.has('idempotent'));
   });
 
   it('closes a stream the handler returns after its command was already answered', async () => {

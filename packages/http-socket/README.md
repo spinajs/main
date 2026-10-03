@@ -203,6 +203,7 @@ public async *snapshot(@Payload() req: { docId: string; fromChunk?: number }, @S
   - More than `streams.maxPerConnection` (8) open streams on a connection answers `resource_exhausted` with `retryAfterMs: 100`. A stream holds its slot until its source has settled.
   - An open stream holds no `maxInFlightPerConnection` slot.
 - **Ordering.** A stream handler cannot be `ordered`: the server refuses to start with it, because its queue place would be released when the generator is returned, long before the stream ends. An `ordered` handler that returns some other async iterable is answered `failed_precondition`.
+- **Idempotency.** A stream handler cannot be `idempotent` either, since a stream reply is never stored: an async generator is refused at startup and any other async iterable is answered `failed_precondition`. A stream command cannot take `after` and is never a fence predecessor.
 - **Timeouts.** `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only.
 - **Plain calls.** A stream command called with `client.command()` (no `credits`) answers `failed_precondition`, and its generator never starts.
 - **Resume.** A dropped connection ends the stream on both sides. To resume, put the position in the payload (`fromChunk` above), and let the client restart from the first chunk it has not applied. `loadSnapshot` in [`packages/http-socket-example/src/client.ts`](../http-socket-example/src/client.ts) is a complete client.

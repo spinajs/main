@@ -66,6 +66,13 @@ export class RegOrderedStream extends BaseSocketController {
   }
 }
 
+export class RegIdempotentStream extends BaseSocketController {
+  @Command('reg-idempotent.feed', { idempotent: true })
+  public async *feed() {
+    yield 1;
+  }
+}
+
 @SocketController('reg-hook')
 export class RegBadHookName extends BaseSocketController {
   @OnConnect()
@@ -144,6 +151,15 @@ describe('socket handler registry', function () {
       await expect(registry.build()).to.be.rejectedWith(InvalidOperation, /reg-ordered\.feed .*ordered.*stream/);
     } finally {
       DI.unregister(RegOrderedStream);
+    }
+  });
+
+  it('refuses an idempotent command whose handler is an async generator', async () => {
+    DI.register(RegIdempotentStream).as(BaseSocketController);
+    try {
+      await expect(registry.build()).to.be.rejectedWith(InvalidOperation, /reg-idempotent\.feed .*idempotent.*stream/);
+    } finally {
+      DI.unregister(RegIdempotentStream);
     }
   });
 

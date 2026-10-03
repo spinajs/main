@@ -73,9 +73,16 @@ export class SocketHandlerRegistry {
       throw new InvalidOperation(`Socket ${handler.Kind} ${fullName} ( ${controllerName}::${String(handler.Method)} ) is not a valid socket ${handler.Kind} name: at most ${MAX_NAME_LENGTH} characters of ${NAME_PATTERN.source}`);
     }
 
-    // its queue place would be released when the generator is returned, long before the stream ends
-    if (handler.Kind === 'command' && handler.Options.ordered && Object.prototype.toString.call(controller[handler.Method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]') {
-      throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is ordered and replies with a stream; ordered commands cannot stream`);
+    if (handler.Kind === 'command' && Object.prototype.toString.call(controller[handler.Method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]') {
+      // its queue place would be released when the generator is returned, long before the stream ends
+      if (handler.Options.ordered) {
+        throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is ordered and replies with a stream; ordered commands cannot stream`);
+      }
+
+      // a stream reply is never stored, so a resend would run it again
+      if (handler.Options.idempotent) {
+        throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is idempotent and replies with a stream; idempotent commands cannot stream`);
+      }
     }
 
     // http's resolver reads only Policies and Method, so the socket descriptors pass structurally
