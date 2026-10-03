@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, ID_PATTERN, MAX_ID_LENGTH, MAX_KEY_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isKey, isSocketError } from '../src/index.js';
+import { isChunk, isStreamCredit, isStreamEnd, isStreamFail } from '../src/index.js';
 
 type DocsContract = {
   commands: { 'docs.open': [{ id: string }, { title: string }] };
@@ -142,6 +143,44 @@ describe('http-socket-common', () => {
     it('accepts a request without after, and after without a key ( the server refuses that one )', () => {
       expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 'k1' })).to.be.true;
       expect(isCommandRequest({ id: 'r1', name: 'x', after: 'k0' })).to.be.true;
+    });
+  });
+
+  describe('stream frames', () => {
+    it('accepts a credits field on a command request only as an integer above 0', () => {
+      expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits: 8 })).to.be.true;
+      for (const credits of [0, -1, 1.5, '8', Number.NaN, Number.POSITIVE_INFINITY, null]) {
+        expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits }), String(credits)).to.be.false;
+      }
+    });
+
+    it('checks chunk and end frames: an id and a sequence number of at least 0', () => {
+      expect(isChunk({ id: 'r1', seq: 0, data: { a: 1 } })).to.be.true;
+      // an undefined item travels without its data field
+      expect(isChunk({ id: 'r1', seq: 3 })).to.be.true;
+      for (const frame of [{ id: 'r1', seq: -1, data: 1 }, { id: 'r1', seq: 0.5, data: 1 }, { id: 'r 1', seq: 0, data: 1 }, { seq: 0 }, null, 'chunk']) {
+        expect(isChunk(frame), JSON.stringify(frame)).to.be.false;
+      }
+
+      expect(isStreamEnd({ id: 'r1', seq: 0 })).to.be.true;
+      expect(isStreamEnd({ id: 'r1', seq: 12 })).to.be.true;
+      expect(isStreamEnd({ id: 'r1' })).to.be.false;
+      expect(isStreamEnd({ id: 'r1', seq: '1' })).to.be.false;
+    });
+
+    it('checks fail frames: an id and a wire error', () => {
+      expect(isStreamFail({ id: 'r1', error: { code: 'internal', message: 'x', retryable: false } })).to.be.true;
+      expect(isStreamFail({ id: 'r1', error: { code: 'teapot', message: 'x', retryable: false } })).to.be.false;
+      expect(isStreamFail({ id: 'r1' })).to.be.false;
+    });
+
+    it('checks credit frames: an id and an integer above 0', () => {
+      expect(isStreamCredit({ id: 'r1', credits: 4 })).to.be.true;
+      for (const credits of [0, -2, 1.5, '4', Number.NaN]) {
+        expect(isStreamCredit({ id: 'r1', credits }), String(credits)).to.be.false;
+      }
+      expect(isStreamCredit({ credits: 4 })).to.be.false;
+      expect(isStreamCredit(null)).to.be.false;
     });
   });
 
