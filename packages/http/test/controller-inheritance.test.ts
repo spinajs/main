@@ -164,6 +164,13 @@ describe('controller descriptor inheritance', () => {
     DI.register(MinimalTestConfiguration).as(Configuration);
   });
 
+  // The registry keeps the first position of a re-registered type, so a later
+  // suite's `register(TestConfiguration)` would not override this one.
+  after(() => {
+    DI.unregister(MinimalTestConfiguration);
+    DI.uncache(MinimalTestConfiguration);
+  });
+
   beforeEach(async () => {
     await DI.resolve(Configuration);
   });

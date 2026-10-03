@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import chai from 'chai';
 import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
-import { TestConfiguration } from './common.js';
+import { releaseHttpServer, TestConfiguration } from './common.js';
 import chaiSubset from 'chai-subset';
 import chaiLike from 'chai-like';
 import chaiThings from 'chai-things';
@@ -45,9 +45,9 @@ describe('HTTP Server Memory Management Tests', () => {
       }
     }
     startedServers = [];
-
-    
   });
+
+  after(releaseHttpServer);
 
   describe('Server Shutdown Memory Management', () => {
     it('should properly close server without hanging connections', async () => {

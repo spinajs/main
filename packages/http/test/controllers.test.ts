@@ -11,7 +11,7 @@ import '@spinajs/templates-pug';
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
 import { SamplePolicy2 } from './policies/SamplePolicy2.js';
-import { req, TestConfiguration } from './common.js';
+import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
@@ -52,6 +52,7 @@ describe('http & controller tests', function () {
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
+    uncacheControllers();
 
     DI.setESMModuleSupport();
 
@@ -65,8 +66,7 @@ describe('http & controller tests', function () {
   });
 
   after(async () => {
-    const server = await DI.resolve(HttpServer);
-    server.stop();
+    await releaseHttpServer();
 
     middlewareSandbox.restore();
   });

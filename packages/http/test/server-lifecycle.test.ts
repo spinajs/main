@@ -6,7 +6,7 @@ import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { HttpServer } from '../src/server.js';
 import { LifecycleState } from '../src/interfaces.js';
-import { TestConfiguration } from './common.js';
+import { releaseHttpServer, TestConfiguration } from './common.js';
 
 /**
  * Fire one request through a keep-alive agent and wait for the full response,
@@ -53,6 +53,8 @@ describe('HttpServer lifecycle', () => {
       /* stop must not throw; swallow just in case so teardown never masks a test */
     }
   });
+
+  after(releaseHttpServer);
 
   describe('shutdown (bugs 1, 2, 3)', () => {
     it('stop() then dispose() both resolve without rejecting (bug 2)', async () => {
