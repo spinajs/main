@@ -12,3 +12,4 @@ export * from './swagger.js';
 export { Access, AllowAnonymous, Unscoped } from './access/decorators.js';
 export { fromBody, fromModel, fromParam, fromQuery } from './access/extractors.js';
 export { CurrentPrincipal } from './principals/current-principal.js';
+export { LinkPrincipalSource } from './principals/link-source.js';

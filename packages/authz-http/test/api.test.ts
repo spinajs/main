@@ -14,7 +14,6 @@ const expect = chai.expect;
 
 const req = {} as Request;
 const model = class Fake {} as unknown as Class<ModelBase>;
-const notImplemented = (name: string) => new RegExp(`^@spinajs/authz-http: ${name} is not implemented yet$`);
 
 class FakeSource extends PrincipalSource {
   readonly name = 'fake';
@@ -25,12 +24,8 @@ class FakeSource extends PrincipalSource {
 }
 
 describe('authz-http api', () => {
-  it('the stubs not implemented yet throw not implemented', () => {
-    expect(() => new LinkPrincipalSource().authenticate(req)).to.throw(Error, notImplemented('LinkPrincipalSource.authenticate'));
-  });
-
   it('the package root exports the implementations in place of the api.ts stubs', () => {
-    for (const name of ['Access', 'AllowAnonymous', 'Unscoped', 'fromParam', 'fromBody', 'fromQuery', 'fromModel', 'CurrentPrincipal'] as const) {
+    for (const name of ['Access', 'AllowAnonymous', 'Unscoped', 'fromParam', 'fromBody', 'fromQuery', 'fromModel', 'CurrentPrincipal', 'LinkPrincipalSource'] as const) {
       expect(root[name], name).to.be.a('function').and.not.equal(api[name]);
     }
     expect(() => Access('file:read')).to.not.throw();

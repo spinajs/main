@@ -8,6 +8,7 @@ import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
 import { PrincipalSource } from '../api.js';
+import { LinkPrincipalSource } from './link-source.js';
 import '../storage.js';
 
 /** The principal of a request no source recognised, while `authz.principals.anonymous.enabled` is on. */
@@ -50,6 +51,7 @@ export class PrincipalMiddleware extends ServerMiddleware {
 
   public async dispose(): Promise<void> {
     DI.RootContainer.removeListener('http.server.listening', this.onListening);
+    await super.dispose();
   }
 
   // The server swallows a listener's errors, so a root that cannot boot stops it: a bad authz config must not serve.
@@ -90,19 +92,38 @@ export class PrincipalMiddleware extends ServerMiddleware {
     }
   }
 
+  /**
+   * First non-null of the plain sources; then a link source may replace it, with it as the link's
+   * companion (left in req.storage.Principal for the link source to read).
+   */
   protected async authenticate(req: Request): Promise<Principal | null> {
-    for (const source of await this.sources()) {
-      const principal = await source.authenticate(req);
-      if (principal) {
-        // SYSTEM and UNATTENDED come only from runAs, @Job and @Unscoped (design §14.1).
-        if (principal.type === 'system' || principal.type === 'unattended') {
-          throw new AuthzConfigError(`principal source ${source.name} returned a ${principal.type} principal`);
-        }
-        return principal;
+    const sources = await this.sources();
+    let principal: Principal | null = null;
+
+    for (const source of sources.filter((s) => !(s instanceof LinkPrincipalSource))) {
+      principal = await this.ask(source, req);
+      if (principal) break;
+    }
+
+    if (principal) req.storage.Principal = principal;
+    for (const source of sources.filter((s) => s instanceof LinkPrincipalSource)) {
+      const link = await this.ask(source, req);
+      if (link) {
+        principal = link;
+        break;
       }
     }
 
-    return this.anonymousEnabled() ? ANONYMOUS : null;
+    return principal ?? (this.anonymousEnabled() ? ANONYMOUS : null);
+  }
+
+  protected async ask(source: PrincipalSource, req: Request): Promise<Principal | null> {
+    const principal = await source.authenticate(req);
+    // SYSTEM and UNATTENDED come only from runAs, @Job and @Unscoped (design §14.1).
+    if (principal && (principal.type === 'system' || principal.type === 'unattended')) {
+      throw new AuthzConfigError(`principal source ${source.name} returned a ${principal.type} principal`);
+    }
+    return principal;
   }
 
   protected async sources(): Promise<PrincipalSource[]> {
