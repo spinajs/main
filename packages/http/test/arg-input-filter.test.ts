@@ -212,11 +212,11 @@ describe('ArgInputFilter', function () {
     expect(calls).to.deep.eq([]);
   });
 
-  it('a primitive argument is not filtered', async () => {
+  it('a primitive argument reaches the filters as it came', async () => {
     const res = await req().post('params/input-filter/primitive?n=5').send({});
 
     expect(res.status).to.eq(200);
     expect(res.body.n).to.eq(5);
-    expect(calls).to.deep.eq([]);
+    expect(calls.map((c) => c.input)).to.deep.eq(['5', '5']);
   });
 });

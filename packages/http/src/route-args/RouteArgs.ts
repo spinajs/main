@@ -71,7 +71,7 @@ export abstract class RouteArgs implements IRouteArgs {
       ]);
     }
 
-    if (!this.isRuntimeType(routeParameter) && arg !== null && arg !== undefined) {
+    if (arg !== null && arg !== undefined) {
       arg = await this.filterInput(arg, routeParameter, route);
     }
 
@@ -125,7 +125,7 @@ export abstract class RouteArgs implements IRouteArgs {
     // for DateTimeHydrator, bad JSON) reaches the filters and the hydrator as it came.
     let input = arg;
     let parsedFromString = false;
-    if (_.isString(input)) {
+    if (_.isString(input) && !this.isRuntimeType(routeParameter)) {
       try {
         const parsed = JSON.parse(input);
         if (parsed !== null && typeof parsed === 'object') {

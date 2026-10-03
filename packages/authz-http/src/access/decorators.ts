@@ -11,6 +11,7 @@ import { auditUnscoped } from '../domains.js';
 import { ACCESS_CLASS, ownAccessDescriptor, routeAccess, routeDomain } from './descriptor.js';
 import type { AccessKey, IAccessRule } from './descriptor.js';
 import { AccessPolicy } from './policy.js';
+import { AuthzFieldsMiddleware } from '../fields.js';
 import '../storage.js';
 
 // Keys each class declared itself, to tell a second @Access on one member from an override of an inherited one.
@@ -56,6 +57,11 @@ export function Access(permission: Permission | readonly Permission[], opts?: Ac
     // The policy reads the rule from the descriptor at request time, so swagger, the boot refs and the check agree.
     const group: IPolicyGroup = [{ Type: AccessPolicy, Options: [route ? 'route' : 'class'] }, ...(rule.options.also ?? []).map((Type) => ({ Type: Type as Constructor<BasePolicy>, Options: [] }))];
     groups.push(group);
+
+    const middlewares = route ? route.Middlewares : controller.Middlewares;
+    if (rule.options.fields === 'filter' && !middlewares.some((m) => m.Type === AuthzFieldsMiddleware)) {
+      middlewares.push({ Type: AuthzFieldsMiddleware, Options: [] });
+    }
   }) as ClassDecorator & MethodDecorator;
 }
 
