@@ -95,6 +95,16 @@ describe('stream observability', function () {
     expect(streamLines()[0]).to.match(/^socket stream strmobs\.two ok 2 chunks \d+ms connection /);
   });
 
+  it('still counts a stream whose debug line throws', async () => {
+    const dispatcher = await DI.resolve(SocketDispatcher);
+    sinon.stub((dispatcher as unknown as DebugLog).Log, 'debug').throws(new Error('log down'));
+
+    const s = rawStream(socket, 'strmobs.two', null, 4);
+    await s.finished;
+
+    await untilMetric('socket_streams_total{command="strmobs.two",code="ok"} 1');
+  });
+
   it('counts a throwing source as internal', async () => {
     const s = rawStream(socket, 'strmobs.broken', null, 4);
     await s.finished;

@@ -536,9 +536,14 @@ export class SocketDispatcher extends AsyncService {
   }
 
   protected streamEnded(ctx: SocketCommandContext, stream: ServerStream, outcome: StreamOutcome, ms: number): void {
-    // observability must never break the stream bookkeeping
+    // observability must never break the stream bookkeeping, and a failing log must not cost the metric
     try {
       this.Log.debug(`socket stream ${ctx.request.name} ${outcome} ${stream.sent} chunks ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+    } catch {
+      // swallowed on purpose
+    }
+
+    try {
       observeStream(ctx.handler?.fullName ?? SOCKET_UNKNOWN_COMMAND, outcome);
     } catch {
       // swallowed on purpose
