@@ -1,5 +1,6 @@
 export * from './contracts/index.js';
 export * from './conditions/contracts.js';
+export * from './conditions/index.js';
 export * from './engine/index.js';
 export * from './host/config/index.js';
 export * from './host/index.js';
