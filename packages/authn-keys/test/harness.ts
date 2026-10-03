@@ -10,7 +10,7 @@ import { keysOptions } from '../src/options/index.js';
 import type { KeysOptions } from '../src/options/index.js';
 import { DefaultKeyRegistry, MemoryKeyStore, OrmKeyStore } from '../src/registry/index.js';
 import type { KeyStore } from '../src/registry/index.js';
-import { JwsAssertionStrategy, assertionIssuer } from '../src/strategies/index.js';
+import { HttpSignatureStrategy, JwsAssertionStrategy, assertionIssuer } from '../src/strategies/index.js';
 import { bootSqlite, clearKeys } from './db.js';
 
 export type StoreKind = 'memory' | 'sqlite';
@@ -78,7 +78,7 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   const sessions = new MemorySessionIssuer();
   const registry = new DefaultKeyRegistry(store, secrets, throttle, sinks, options);
   const verifier = new StrictJwsVerifier();
-  const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options)];
+  const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options), new HttpSignatureStrategy(registry, nonces, options)];
   const service = new FakeAuthnService({
     strategies,
     throttle,
