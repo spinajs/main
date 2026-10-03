@@ -588,3 +588,12 @@ Ownership enforcement on UPDATE and DELETE, a 2.x IDOR regression. All rewrite (
 |---|---|---|---|---|---|
 | 1 | 82 | Ownership enforcement on write queries (IDOR regression) > UPDATE with :own scope cannot touch another user's row via an OR lookup | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
 | 2 | 99 | Ownership enforcement on write queries (IDOR regression) > DELETE with :own scope cannot delete another user's row in a multi-key destroy | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
+
+## N2 status (session rows)
+
+N2 copied the session code into `@spinajs/authn-session` (C1 deletes the
+users copies and these test files). Where each N2 row landed:
+`.authz-sdd/N2-tasks-1-3-report.md` ("Users ledger rows → authn-session
+tests"); the cookie rows 4–13 were adapted for `'auto'` in N2 task 5
+(`authn-session/test/session-cookie.test.ts`), the `hashSessionId` rows
+14–15 became the session-handle tests of `authn-session/test/issuer.test.ts`.
