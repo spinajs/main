@@ -12,6 +12,11 @@ export interface DurableOptions {
   window?: number;
   /** A command unanswered this long on a live connection is sent again; the server replays or joins it. */
   ackTimeoutMs?: number;
+  /**
+   * Largest JSON-encoded payload, binary parts counted by length; the server's default limit. Checked
+   * before the command is persisted: one the server refuses for size would otherwise sit in the outbox.
+   */
+  maxPayloadBytes?: number;
 }
 
 export interface DurableCommandOptions {
@@ -22,7 +27,7 @@ export interface DurableCommandOptions {
   key?: string;
 }
 
-export const DEFAULT_DURABLE: Readonly<Required<DurableOptions>> = Object.freeze({ window: 16, ackTimeoutMs: 60_000 });
+export const DEFAULT_DURABLE: Readonly<Required<DurableOptions>> = Object.freeze({ window: 16, ackTimeoutMs: 60_000, maxPayloadBytes: 1024 * 1024 });
 
 export interface AckedCommand {
   entry: OutboxEntry;
@@ -53,6 +58,7 @@ export interface DurableQueueOptions {
 const CLOSED: SocketError = { code: 'unavailable', message: 'the client is closed; the command stays in the outbox', retryable: false };
 const STREAM_REPLY: SocketError = { code: 'failed_precondition', message: 'a durable command cannot reply with a stream', retryable: false };
 const MALFORMED_REPLY: SocketError = { code: 'internal', message: 'malformed reply', retryable: false };
+const UNENCODABLE: SocketError = { code: 'invalid_argument', message: 'the payload cannot be serialized', retryable: false };
 
 type Timer = ReturnType<typeof setTimeout>;
 type Outcome = { ok: true; result: unknown } | { ok: false; failed: FailedOutboxEntry };
@@ -61,6 +67,8 @@ interface Item {
   readonly entry: OutboxEntry;
   readonly key: string;
   state: 'queued' | 'sent' | 'done';
+  /** sent while the queue probed with its head alone */
+  probe: boolean;
   /** the request whose reply counts; null while queued */
   requestId: string | null;
   timer: Timer | undefined;
@@ -80,6 +88,7 @@ export class DurableQueue {
   private readonly policy: ReconnectPolicy;
   private readonly window: number;
   private readonly ackTimeoutMs: number;
+  private readonly maxPayloadBytes: number;
   private readonly onStoreError: (error: unknown) => void;
   private readonly unsubscribe: () => void;
   /** generated keys start with it; app keys must not */
@@ -89,12 +98,20 @@ export class DurableQueue {
   private attempt = 0;
   private pausedUntil = 0;
   private pauseTimer: Timer | undefined;
+  // after a retryable refusal only the head goes out: its successors would only be fenced
+  private probing = false;
+  // the credentials ran out: nothing goes out before the next connection, which a re-login opens
+  private heldUntilOnline = false;
   private closed = false;
 
   constructor(private readonly options: DurableQueueOptions) {
-    const { window, ackTimeoutMs } = { ...DEFAULT_DURABLE, ...options.durable };
+    const { window, ackTimeoutMs, maxPayloadBytes } = { ...DEFAULT_DURABLE, ...options.durable };
     if (!(Number.isInteger(window) && window >= 1)) {
       throw new RangeError(`durable.window must be an integer of at least 1, got ${window}`);
+    }
+
+    if (!(Number.isInteger(maxPayloadBytes) && maxPayloadBytes >= 1)) {
+      throw new RangeError(`durable.maxPayloadBytes must be an integer of at least 1, got ${maxPayloadBytes}`);
     }
 
     // `${clientId}:${seq}` must stay a key the server accepts
@@ -104,6 +121,7 @@ export class DurableQueue {
 
     this.keyPrefix = `${options.clientId}:`;
     this.window = window;
+    this.maxPayloadBytes = maxPayloadBytes;
     this.ackTimeoutMs = assertTimeoutMs('durable.ackTimeoutMs', ackTimeoutMs);
     this.policy = new ReconnectPolicy(options.reconnect);
     this.onStoreError = options.onListenerError ?? rethrowAsync;
@@ -125,6 +143,17 @@ export class DurableQueue {
 
     if (options.key !== undefined && (!isKey(options.key) || options.key.startsWith(this.keyPrefix))) {
       return Promise.reject(new RangeError(`a durable command key must be 1-${MAX_KEY_LENGTH} printable ASCII characters and must not start with '${this.keyPrefix}'`));
+    }
+
+    let size: number;
+    try {
+      size = payloadSize(payload);
+    } catch {
+      return Promise.reject(SocketException.fromWire(UNENCODABLE));
+    }
+
+    if (size > this.maxPayloadBytes) {
+      return Promise.reject(SocketException.fromWire({ code: 'invalid_argument', message: `payload of ${size} bytes exceeds the limit of ${this.maxPayloadBytes} bytes`, retryable: false, details: { size, limit: this.maxPayloadBytes } }));
     }
 
     let resolve!: (result: unknown) => void;
@@ -192,7 +221,7 @@ export class DurableQueue {
 
   private item(entry: OutboxEntry): Item {
     // only an entry another writer added has no key; createdAt keeps it apart from a reused seq
-    return { entry, key: entry.key ?? `${this.keyPrefix}${entry.seq}.${entry.createdAt}`, state: 'queued', requestId: null, timer: undefined };
+    return { entry, key: entry.key ?? `${this.keyPrefix}${entry.seq}.${entry.createdAt}`, state: 'queued', probe: false, requestId: null, timer: undefined };
   }
 
   private onState(state: ConnectionState, previous: ConnectionState): void {
@@ -211,15 +240,17 @@ export class DurableQueue {
     }
 
     if (state === 'online') {
+      this.heldUntilOnline = false;
       this.pump();
     }
   }
 
   private pump(): void {
-    if (this.closed || !this.options.connection.connected || Date.now() < this.pausedUntil) {
+    if (this.closed || this.heldUntilOnline || !this.options.connection.connected || Date.now() < this.pausedUntil) {
       return;
     }
 
+    const window = this.probing ? 1 : this.window;
     let unanswered = this.items.filter((item) => item.state === 'sent').length;
     let previous: Item | undefined;
 
@@ -229,7 +260,7 @@ export class DurableQueue {
       }
 
       if (item.state === 'queued') {
-        if (unanswered >= this.window || !this.transmit(item, previous)) {
+        if (unanswered >= window || !this.transmit(item, previous)) {
           return;
         }
         unanswered++;
@@ -247,6 +278,7 @@ export class DurableQueue {
     }
 
     item.state = 'sent';
+    item.probe = this.probing;
     item.requestId = request.id;
     item.timer = setTimeout(() => this.onAckTimeout(item, request.id), this.ackTimeoutMs);
 
@@ -274,8 +306,14 @@ export class DurableQueue {
 
     if (!reply.ok) {
       const error = isSocketError(reply.error) ? reply.error : MALFORMED_REPLY;
-      // unauthenticated: the credentials ran out, not the command; it waits for the next connection
-      return error.retryable || error.code === 'unauthenticated' ? this.retry(item, error) : this.fail(item, error);
+      // the credentials ran out, not the command
+      if (error.code === 'unauthenticated') {
+        this.requeue(item);
+        this.heldUntilOnline = true;
+        return;
+      }
+
+      return error.retryable ? this.retry(item, error) : this.fail(item, error);
     }
 
     if ('stream' in reply) {
@@ -301,10 +339,17 @@ export class DurableQueue {
     item.state = 'queued';
   }
 
-  /** One backoff for the whole queue: its commands are refused for shared reasons ( overload, shutdown, a predecessor ). */
+  /** One backoff for the whole queue: its commands are refused for shared reasons ( overload, shutdown ). */
   private retry(item: Item, error: SocketError): void {
     this.requeue(item);
 
+    // fenced: its predecessor had not completed; it goes again right behind it
+    if (isFenceRefusal(error)) {
+      this.pump();
+      return;
+    }
+
+    this.probing = true;
     const now = Date.now();
     if (now < this.pausedUntil) {
       return;
@@ -319,7 +364,11 @@ export class DurableQueue {
   }
 
   private succeed(item: Item, result: unknown): void {
-    this.attempt = 0;
+    this.endProbe(item);
+    if (!this.probing) {
+      this.attempt = 0;
+    }
+
     item.state = 'done';
     item.outcome = { ok: true, result };
     this.options.store.remove(item.entry.seq).catch(this.onStoreError);
@@ -329,11 +378,19 @@ export class DurableQueue {
 
   private fail(item: Item, error: SocketError): void {
     const failed: FailedOutboxEntry = { ...item.entry, error, failedAt: Date.now() };
+    this.endProbe(item);
     item.state = 'done';
     item.outcome = { ok: false, failed };
     this.options.store.fail(failed).catch(this.onStoreError);
     this.settle();
     this.pump();
+  }
+
+  /** The probed head has its final answer: the window opens again. */
+  private endProbe(item: Item): void {
+    if (item.probe) {
+      this.probing = false;
+    }
   }
 
   /** Callers and listeners hear about commands in send order, whatever order their replies came in. */
@@ -351,4 +408,23 @@ export class DurableQueue {
       }
     }
   }
+}
+
+function isFenceRefusal(error: SocketError): boolean {
+  return typeof error.details === 'object' && error.details !== null && 'after' in error.details;
+}
+
+/** What the server's size limit measures: the JSON text in UTF-8, binary parts by their length. */
+function payloadSize(payload: unknown): number {
+  let binary = 0;
+  const json = JSON.stringify(payload, function (this: Record<string, unknown>, key: string, value: unknown) {
+    // `value` has been through toJSON already; binary parts are detected on the raw holder value
+    const raw = this[key];
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+      binary += raw.byteLength;
+      return null;
+    }
+    return value;
+  });
+  return binary + (json === undefined ? 0 : new TextEncoder().encode(json).length);
 }

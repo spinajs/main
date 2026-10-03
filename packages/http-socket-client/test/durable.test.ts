@@ -31,7 +31,7 @@ describe('DurableQueue', () => {
   };
 
   it('ships the spec defaults', () => {
-    expect(DEFAULT_DURABLE).to.deep.equal({ window: 16, ackTimeoutMs: 60_000 });
+    expect(DEFAULT_DURABLE).to.deep.equal({ window: 16, ackTimeoutMs: 60_000, maxPayloadBytes: 1024 * 1024 });
   });
 
   it('sends in order, keyed clientId:nonce, each after the previous unacknowledged command, without a deadline', async () => {
@@ -133,6 +133,7 @@ describe('DurableQueue', () => {
     expect(stub.order.map((key) => numberOf.get(key))).to.deep.equal(Array.from({ length: 500 }, (_, n) => n));
     expect([...stub.runs.values()].every((runs) => runs === 1)).to.be.true;
     expect(server.requests.length).to.be.above(500);
+    expect(stub.aborted).to.not.be.empty;
   }).timeout(20_000);
 
   it('retries a retryable refusal after a backoff that honours retryAfterMs', async () => {
@@ -149,6 +150,58 @@ describe('DurableQueue', () => {
     expect(await queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
     expect(server.requests).to.have.length(3);
     expect(Date.now() - started).to.be.at.least(60);
+  });
+
+  it('after a retryable refusal sends only the head until it succeeds, then reopens the window', async () => {
+    let refusals = 2;
+    serveDurable(server, 'docs.submit', (payload: { n: number }) => {
+      if (payload.n === 1 && refusals-- > 0) {
+        throw { code: 'resource_exhausted', message: 'busy', retryable: true, retryAfterMs: 30 } as SocketError;
+      }
+      return payload;
+    });
+    const { queue } = await onlineQueue(server);
+
+    const results = await Promise.all([1, 2, 3, 4, 5].map((n) => queue.submit('docs.submit', { n })));
+
+    expect(results).to.deep.equal([1, 2, 3, 4, 5].map((n) => ({ n })));
+    expect(server.requests.map((r) => (r.payload as { n: number }).n)).to.deep.equal([1, 2, 3, 4, 5, 1, 1, 2, 3, 4, 5]);
+  });
+
+  it('sends a fenced command again right away, without a backoff', async () => {
+    let fenced = false;
+    server.rawReplies.set('docs.fenced', async (request: CommandRequest) => {
+      if ((request.payload as { n: number }).n === 2 && !fenced) {
+        fenced = true;
+        return { id: request.id, ok: false, error: { code: 'unavailable', message: 'the predecessor has not completed', retryable: true, details: { after: request.after } } };
+      }
+      return { id: request.id, ok: true, result: request.payload };
+    });
+    const { queue } = await onlineQueue(server, { reconnect: { minMs: 5_000, maxMs: 5_000, jitter: 0 } });
+
+    const results = await Promise.all([1, 2, 3].map((n) => queue.submit('docs.fenced', { n })));
+
+    expect(results).to.deep.equal([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(server.requests.map((r) => (r.payload as { n: number }).n)).to.deep.equal([1, 2, 3, 2]);
+  }).timeout(2_000);
+
+  it('refuses a payload above maxPayloadBytes, or one that cannot be encoded, before it reaches the store', async () => {
+    serveDurable(server, 'docs.submit');
+    const { queue, store } = await onlineQueue(server, { durable: { maxPayloadBytes: 100 } });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+
+    const big = await rejectionOf(queue.submit('docs.submit', { text: 'x'.repeat(100) }));
+    expect(big.code).to.equal('invalid_argument');
+    expect(big.retryable).to.be.false;
+    // 56 characters, 104 bytes of UTF-8
+    expect((await rejectionOf(queue.submit('docs.submit', { t: '\u017c'.repeat(48) }))).code).to.equal('invalid_argument');
+    expect((await rejectionOf(queue.submit('docs.submit', cyclic))).code).to.equal('invalid_argument');
+    expect((await rejectionOf(queue.submit('docs.submit', { n: BigInt(1) }))).code).to.equal('invalid_argument');
+    expect(await store.pending()).to.deep.equal([]);
+
+    expect(await queue.submit('docs.submit', { text: 'x'.repeat(80) })).to.deep.equal({ text: 'x'.repeat(80) });
+    expect(server.requests).to.have.length(1);
   });
 
   it('moves a command refused for good to the failed list, emits failed, and goes on with the next one', async () => {
@@ -177,7 +230,7 @@ describe('DurableQueue', () => {
     expect(await store.pending()).to.deep.equal([]);
   });
 
-  it('keeps a command whose credentials ran out queued instead of failing it', async () => {
+  it('holds a command whose credentials ran out until the connection comes back, instead of failing it', async () => {
     let expired = true;
     const stub = serveDurable(server, 'docs.submit', undefined, { refuse: () => (expired ? { code: 'unauthenticated', message: 'credentials expired', retryable: false } : undefined) });
     const { queue } = await onlineQueue(server);
@@ -186,8 +239,12 @@ describe('DurableQueue', () => {
 
     const done = queue.submit('docs.submit', { n: 1 });
     await until(() => server.requests.length >= 1);
-    await sleep(50);
+    await sleep(150);
+    expect(server.requests).to.have.length(1);
+
+    // a re-login reconnects
     expired = false;
+    server.killConnections();
 
     expect(await done).to.deep.equal({ n: 1 });
     expect(failed).to.deep.equal([]);
@@ -302,6 +359,8 @@ describe('DurableQueue', () => {
     expect(() => new DurableQueue({ ...base, durable: { window: 0 } })).to.throw(RangeError);
     expect(() => new DurableQueue({ ...base, durable: { window: 1.5 } })).to.throw(RangeError);
     expect(() => new DurableQueue({ ...base, durable: { ackTimeoutMs: 0 } })).to.throw(RangeError);
+    expect(() => new DurableQueue({ ...base, durable: { maxPayloadBytes: 0 } })).to.throw(RangeError);
+    expect(() => new DurableQueue({ ...base, durable: { maxPayloadBytes: 1.5 } })).to.throw(RangeError);
     expect(() => new DurableQueue({ ...base, clientId: 'a b' })).to.throw(RangeError);
   });
 
