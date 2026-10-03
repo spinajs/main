@@ -340,6 +340,7 @@ for (const kind of DB_KINDS) {
         await expect(other((tx) => store.revokeWhere({ scope: P1 }, tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
         await expect(other((tx) => store.forgetScope(P1, tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
         await expect(other((tx) => store.setTags('w1', ['x'], tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
+        await expect(other((tx) => store.revokeSubjects([alice], tx))).to.be.rejectedWith(AuthzConfigError, /connection/);
 
         expect(await rawQuery(db.second!, 'SELECT id FROM authz_assignment')).to.deep.eq([]);
         expect(await rawQuery(db.second!, 'SELECT domain FROM authz_version')).to.deep.eq([]);
@@ -562,9 +563,37 @@ for (const kind of DB_KINDS) {
         expect(await version()).to.eq('0');
       });
 
+      it('revokeSubjects deletes every row of the subjects at any scope, expired too, with one bump', async () => {
+        const gone = await inTx((tx) => store.revokeSubjects([bob, g1Members, bob], tx));
+
+        expect(gone.map((a) => a.id).sort()).to.deep.eq(['w3', 'w4', 'w7']);
+        expect((await rows()).map((r) => r.id)).to.deep.eq(['w1', 'w2', 'w5', 'w6']);
+        expect(await version()).to.eq('1');
+      });
+
+      it('revokeSubjects batches the subjects', async () => {
+        class Small extends DbAssignmentStore {
+          protected readonly subjectBatch = 1;
+        }
+        const small = new Small(db.container);
+
+        const gone = await inTx((tx) => small.revokeSubjects([alice, bob, g1Members], tx));
+
+        expect(gone.map((a) => a.id).sort()).to.deep.eq(['w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7']);
+        expect(await rows()).to.deep.eq([]);
+        expect(await version()).to.eq('1');
+      });
+
+      it('revokeSubjects with no subjects deletes nothing and still bumps once', async () => {
+        expect(await inTx((tx) => store.revokeSubjects([], tx))).to.deep.eq([]);
+        expect(await rows()).to.have.length(7);
+        expect(await version()).to.eq('1');
+      });
+
       it('refuse to write outside a transaction', async () => {
         await expect(store.revokeWhere({ scope: P1 }, { driver: db.driver })).to.be.rejectedWith(/transaction/);
         await expect(store.forgetScope(P1, { driver: db.driver })).to.be.rejectedWith(/transaction/);
+        await expect(store.revokeSubjects([alice], { driver: db.driver })).to.be.rejectedWith(/transaction/);
         expect(await rows()).to.have.length(7);
       });
     });

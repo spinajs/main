@@ -164,6 +164,21 @@ export class DbAssignmentStore extends AssignmentStore {
     return this.deleteWhere(driver, (query) => whereFilter(query, filter));
   }
 
+  /** Deletes every row of `subjects` at any scope, expired ones too (a revoked share link); returns them. */
+  async revokeSubjects(subjects: readonly AssignmentSubject[], tx: AuthzTx): Promise<readonly Assignment[]> {
+    const driver = await this.writeDriver(tx, `${this.name}.revokeSubjects`);
+    const keys = uniqueSubjects(subjects);
+    const rows: AssignmentRow[] = [];
+
+    for (let i = 0; i < keys.length; i += this.subjectBatch) {
+      const query = driver.select().from(AUTHZ_ASSIGNMENT_TABLE);
+      whereSubjects(query, keys.slice(i, i + this.subjectBatch));
+      rows.push(...(await rowsOf(query)));
+    }
+
+    return this.deleteRows(driver, rows);
+  }
+
   /**
    * `scope.forget`: deletes every row AT `scope` (not below it) and every grant whose subject is a
    * set living at `scope`, wherever it is held, so a later scope with the same id inherits nothing.
@@ -256,8 +271,10 @@ export class DbAssignmentStore extends AssignmentStore {
   private async deleteWhere(driver: OrmDriver, where: (query: IWhereBuilder<unknown>) => void): Promise<readonly Assignment[]> {
     const query = driver.select().from(AUTHZ_ASSIGNMENT_TABLE);
     where(query);
-    const rows = await rowsOf(query);
+    return this.deleteRows(driver, await rowsOf(query));
+  }
 
+  private async deleteRows(driver: OrmDriver, rows: readonly AssignmentRow[]): Promise<readonly Assignment[]> {
     for (let i = 0; i < rows.length; i += ID_BATCH) {
       await driver
         .del()
