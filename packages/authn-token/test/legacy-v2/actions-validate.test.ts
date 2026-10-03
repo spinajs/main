@@ -82,12 +82,6 @@ describe('access token actions - validate & cleanup', function () {
     expect(result.EffectiveRoles).to.deep.equal(['user']);
   });
 
-  it('infinite token (null expiry) validates', async () => {
-    const owner = await activeUser('v3@spinajs.com', 'v3', ['user']);
-    const { Plaintext } = await createToken(owner, 'infinite', ['user'], null);
-    await expect(validateToken(Plaintext)).to.be.fulfilled;
-  });
-
   it('effective roles shrink when user loses a role', async () => {
     const owner = await activeUser('v6@spinajs.com', 'v6', ['user', 'admin']);
     const { Plaintext } = await createToken(owner, 'shrink', ['user', 'admin'], null);

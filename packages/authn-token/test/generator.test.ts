@@ -37,12 +37,31 @@ describe('SecureRandomTokenProvider', () => {
     expect(p.hash(t.Plaintext)).to.equal(t.Hash);
     expect(p.hash(t.Plaintext)).to.equal(p.hash(t.Plaintext));
   });
+
+  it('refuses to mint with an empty prefix or fewer than 32 bytes', async () => {
+    const rows: Array<[unknown, unknown]> = [
+      ['', 32],
+      ['spt_', 31],
+      ['spt_', 0],
+      [undefined, 32],
+      ['spt_', undefined],
+      ['spt_', 32.5],
+    ];
+
+    for (const [prefix, length] of rows) {
+      const p = make();
+      Object.defineProperty(p, 'Prefix', { value: prefix, writable: true });
+      Object.defineProperty(p, 'Length', { value: length, writable: true });
+      const err = await p.generate().catch((e: unknown) => e);
+      expect(err, `prefix ${String(prefix)}, length ${String(length)}`).to.be.instanceOf(Error);
+    }
+  });
 });
 
 /**
- * Configuration whose `authn.token.prefix` deliberately DIFFERS from the
- * `@Config` default baked into `SecureRandomTokenProvider`, so a token built
- * with the defaults cannot pass the assertion below.
+ * Configuration whose `authn.token.prefix` and `authn.token.length` differ
+ * from the `@Config` defaults baked into `SecureRandomTokenProvider`, so a
+ * token built with the defaults cannot pass the assertion below.
  */
 class TokenConfigTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
@@ -55,7 +74,7 @@ class TokenConfigTestConfiguration extends FrameworkConfiguration {
         token: {
           generation: { service: 'SecureRandomTokenProvider' },
           prefix: 'tst_',
-          length: 32,
+          length: 48,
         },
       },
     };
@@ -94,10 +113,8 @@ describe('SecureRandomTokenProvider config wiring', function () {
 
     const token = await provider.generate();
 
-    // 32 random bytes base64url-encoded is 43 characters ( ceil(256 / 6) ). The
-    // length equals the default because A14 sets 32 as the floor, so only the
-    // `tst_` prefix proves the configured block is read.
-    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{43}$/);
+    // 48 random bytes base64url-encoded is 64 characters.
+    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{64}$/);
     expect(token.Hash).to.equal(createHash('sha256').update(token.Plaintext).digest('hex'));
   });
 });

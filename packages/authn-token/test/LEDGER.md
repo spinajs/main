@@ -43,6 +43,12 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 | 12 | 239 | access token actions - crud > R5: revoking a role the token does not carry emits no event and keeps the row | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role revoke event on a token |
 
 Status (N6): rows 1, 3, 8, 9, 10 moved to `legacy-v2/actions-crud.test.ts`; rows 6, 7, 11, 12 deleted (N6 task 0).
+N6 task 2: `test/actions-crud.test.ts` deleted; its rows now live in `v3/token-service.test.ts`:
+row 2 → `create` "stores the given expiry and CreatedAt from ctx.now, not the db default";
+row 4 → `create` "binds the token to the owner row found by users.Uuid";
+row 5 → `revoke` "revokes the token with that uuid and stamps RevokedAt from ctx.now".
+Row 1 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" and
+"mints a prefixed token and stores only its hash", and by the kit case "A14 the plaintext is shown once" (`v3/behaviour.test.ts`).
 
 ## test/actions-validate.test.ts
 
@@ -67,6 +73,12 @@ Status (N6): rows 1, 3, 8, 9, 10 moved to `legacy-v2/actions-crud.test.ts`; rows
 | 15 | 278 | access token actions - validate & cleanup > profiles > leaves a legacy token without a profile untouched by the profile gate | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): a token without a profile ignores the profile gate |
 
 Status (N6): rows 1, 5, 9, 10, 13, 14, 15 moved to `legacy-v2/actions-validate.test.ts` (N6 task 0).
+N6 task 2: rows 2, 3, 4, 6, 7, 8 deleted from `test/actions-validate.test.ts`; they now live in `v3/token-service.test.ts` (`validate`):
+rows 2, 3 → "answers invalid_credentials for unknown and degenerate input without throwing";
+row 4 → "answers expired at and after the expiry";
+rows 6, 7, 8 → "answers invalid_credentials for a deactivated / soft-deleted / banned owner, on every use" (owner status through `FakeIdentityStore`).
+Row 5 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" (a null-expiry row answers `expired`).
+Rows 11, 12 stay in `test/actions-validate.test.ts` (2.x housekeeping API).
 
 ## test/cli.test.ts
 
@@ -96,6 +108,8 @@ Status (N6): row 1 moved to `legacy-v2/cli.test.ts`; rows 7, 8 deleted (N6 task 
 | 2 | 27 | SecureRandomTokenProvider > generates unique tokens | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) |
 | 3 | 34 | SecureRandomTokenProvider > hash() is deterministic and matches generate() | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) |
 | 4 | 90 | SecureRandomTokenProvider config wiring > resolved through DI honours authn.token.prefix / authn.token.length | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`). The fixture sets `authn.token.length: 16` (128 bits), below the 256-bit floor of A14; if N6 enforces the floor, the fixture value and the expected 22-char length change |
+
+Status (N6): row 4's fixture sets `length: 48` (64 chars), so the test proves the configured length is read (N6 task 2). New: "refuses to mint with an empty prefix or fewer than 32 bytes".
 
 ## test/model.test.ts
 

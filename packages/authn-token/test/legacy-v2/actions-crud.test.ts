@@ -65,22 +65,6 @@ describe('access token actions - crud', function () {
     DI.clearCache();
   });
 
-  it('creates token for user, returns plaintext once, stores only hash', async () => {
-    const { User: owner } = await create('c1@spinajs.com', 'c1', ['user', 'admin'], { password: 'password123' });
-
-    const { Token, Plaintext } = await createToken(owner, 'ci token', ['user'], null);
-
-    expect(Plaintext).to.match(/^spt_/);
-    expect(Token.Uuid).to.be.a('string');
-    expect(Token.Roles).to.deep.equal(['user']);
-    expect(Token.ExpiresAt).to.be.null;
-
-    const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
-    expect(row.Token).to.have.length(64);
-    expect(row.Token).to.not.contain(Plaintext);
-    expect(row.user_id).to.equal(owner.Id);
-  });
-
   it('rejects roles the owner does not hold', async () => {
     const { User: owner } = await create('c3@spinajs.com', 'c3', ['user'], { password: 'password123' });
 

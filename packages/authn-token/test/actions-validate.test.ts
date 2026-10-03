@@ -4,8 +4,8 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, ban, create, deactivate, deleteUser } from '@spinajs/users';
-import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid } from '../src/legacy/exceptions.js';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, create } from '@spinajs/users';
+import { AccessTokenNotFound } from '../src/legacy/exceptions.js';
 import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
@@ -50,34 +50,6 @@ describe('access token actions - validate & cleanup', function () {
     return u;
   }
 
-  it('rejects unknown token', async () => {
-    const err = await validateToken('spt_does-not-exist').catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(AccessTokenNotFound);
-  });
-
-  it('rejects degenerate input as an unknown token', async () => {
-    // empty / whitespace / nil must not escape as InvalidArgument or TypeError -
-    // callers catch AccessTokenException and would let a raw throw become a 500 instead of
-    // a 401. The code is deliberately the same as for a wrong token.
-    for (const bad of ['', '   ', undefined, null]) {
-      const err = await validateToken(bad as unknown as string).catch((e: unknown) => e);
-      expect(err, `input: ${JSON.stringify(bad)}`).to.be.instanceOf(AccessTokenNotFound);
-    }
-  });
-
-  it('rejects expired token', async () => {
-    const owner = await activeUser('v2@spinajs.com', 'v2', ['user']);
-    const { Token, Plaintext } = await createToken(owner, 'expired', ['user'], DateTime.now().plus({ minutes: 5 }));
-
-    // move expiry into the past directly in db
-    const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
-    row.ExpiresAt = DateTime.now().minus({ minutes: 5 });
-    await row.update();
-
-    const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(AccessTokenExpired);
-  });
-
   // Both look like an unknown token, so a caller cannot probe which rows exist.
   it('rejects a revoked token as an unknown token', async () => {
     const owner = await activeUser('v11@spinajs.com', 'v11', ['user']);
@@ -103,38 +75,6 @@ describe('access token actions - validate & cleanup', function () {
     const err = await validateToken(Plaintext).catch((e: unknown) => e);
     expect(err).to.be.instanceOf(AccessTokenNotFound);
     expect((err as Error).message).to.equal('Access token not found');
-  });
-
-  it('rejects token of deactivated owner', async () => {
-    const owner = await activeUser('v4@spinajs.com', 'v4', ['user']);
-    const { Plaintext } = await createToken(owner, 'inactive owner', ['user'], null);
-    await deactivate(owner.Id);
-
-    const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
-  });
-
-  it('rejects token of soft-deleted owner', async () => {
-    const owner = await activeUser('v10@spinajs.com', 'v10', ['user']);
-    const { Plaintext } = await createToken(owner, 'deleted owner', ['user'], null);
-
-    // `deleteUser` soft-deletes, so the token row outlives its owner - the owner
-    // lookup has to refuse it rather than hand back a tombstoned account
-    await deleteUser(owner.Id);
-
-    const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
-  });
-
-  it('rejects token of banned owner', async () => {
-    const owner = await activeUser('v5@spinajs.com', 'v5', ['user']);
-    const { Plaintext } = await createToken(owner, 'banned owner', ['user'], null);
-    await ban(owner.Id, 'test', 3600);
-
-    // a ban lives in user metadata, so this also proves validation loads the
-    // owner with Metadata populated - without it IsBanned is always false
-    const err = await validateToken(Plaintext).catch((e: unknown) => e);
-    expect(err).to.be.instanceOf(AccessTokenOwnerInvalid);
   });
 
   /**

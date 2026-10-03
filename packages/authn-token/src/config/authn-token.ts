@@ -69,6 +69,22 @@ const authnToken = {
       length: 32,
 
       /**
+       * Longest expiry a personal or service token may get. Expiry is mandatory (SR-08).
+       */
+      maxTtlDays: 90,
+
+      /**
+       * Expiry a client (HTTP route, CLI) proposes when the caller gives none.
+       * TokenService itself never fills in an expiry.
+       */
+      defaultTtlDays: 30,
+
+      /**
+       * Longest expiry an agent token may get.
+       */
+      agentMaxTtlMinutes: 1440,
+
+      /**
        * Fallback header checked when no `Authorization: Bearer` is present.
        */
       headerName: 'x-api-key',
