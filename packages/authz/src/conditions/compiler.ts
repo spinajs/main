@@ -77,9 +77,10 @@ export class DefaultConditionCompiler extends ConditionCompiler {
       const name = f.name;
       if (typeof name !== 'string' || name === '') throw new AuthzConfigError('a condition function needs a name');
       if (map.has(name)) {
-        // The ESM and CJS copies of this package each register the built-ins.
+        // Two copies of this package sharing one DI root each register the built-ins.
         if (isBuiltinConditionFunction(f) && isBuiltinConditionFunction(map.get(name))) continue;
-        throw new AuthzConfigError(`two condition functions are named ${JSON.stringify(name)}`);
+        const builtin = isBuiltinConditionFunction(f) || isBuiltinConditionFunction(map.get(name));
+        throw new AuthzConfigError(`two condition functions are named ${JSON.stringify(name)}${builtin ? ' (one is the built-in; an override must use another name)' : ''}`);
       }
       map.set(name, f);
     }
@@ -103,24 +104,30 @@ export class DefaultConditionCompiler extends ConditionCompiler {
       if (hit) return hit;
     }
     const p = parseCondition(c, { functions: this.functions, ...(where === undefined ? {} : { where }) });
-    this.checkArgs(p, where ?? 'condition');
+    this.checkArgs(p, where ?? 'condition', '');
     if (memo) this.parsed.set(c, p);
     return p;
   }
 
-  private checkArgs(p: ParsedCondition, where: string): void {
+  private checkArgs(p: ParsedCondition, where: string, at: string): void {
     switch (p.kind) {
       case 'all':
       case 'any':
-        for (const item of p.items) this.checkArgs(item, where);
+        p.items.forEach((item, i) => this.checkArgs(item, where, `${at}.${p.kind}[${i}]`));
         return;
       case 'not':
-        this.checkArgs(p.item, where);
+        this.checkArgs(p.item, where, `${at}.not`);
         return;
       case 'fn': {
         const f = this.functions.get(p.name);
         const check = (f as Partial<KleeneConditionFunction> | undefined)?.checkArgs;
-        if (typeof check === 'function') check.call(f, p.args, where);
+        if (typeof check !== 'function') return;
+        try {
+          check.call(f, p.args, where);
+        } catch (e) {
+          if (e instanceof AuthzConfigError) throw new AuthzConfigError(`${e.message} at ${at}.args`, { cause: e });
+          throw e;
+        }
         return;
       }
     }

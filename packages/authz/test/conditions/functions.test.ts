@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import { DI } from '@spinajs/di';
 import { fakeEvaluationContext } from '@spinajs/authz-testing';
 
-import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionCompiler, DefaultConditionCompiler, FALSE, GlobMatch, IpIn, TRUE, TimeBetween, WildcardMatch, matchGlob, matchWildcard } from '../../src/index.js';
+import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionCompiler, DefaultConditionCompiler, FALSE, GlobMatch, IpIn, TRUE, TimeBetween, WildcardMatch, conditionFunctionCaches, isBuiltinConditionFunction, matchGlob, matchWildcard } from '../../src/index.js';
 import type { Condition, DecisionRequest, Principal } from '../../src/index.js';
 import { principal } from '../engine/fakes.js';
 
@@ -31,7 +31,31 @@ describe('conditions: built-in functions', () => {
       expect(between('08:00', '18:00', '2026-01-15T06:30:00.000Z', 'Europe/Warsaw')).to.equal(false);
     });
 
+    it('reads the wall clock across daylight saving changes', () => {
+      // Warsaw, 2026-10-25: 00:30Z and 01:30Z both show 02:30 (the repeated hour counts twice).
+      expect(between('02:00', '03:00', '2026-10-25T00:30:00.000Z', 'Europe/Warsaw')).to.equal(true);
+      expect(between('02:00', '03:00', '2026-10-25T01:30:00.000Z', 'Europe/Warsaw')).to.equal(true);
+      // Warsaw, 2026-03-29: 01:00Z is already 03:00, so 02:00-03:00 never comes.
+      expect(between('02:00', '03:00', '2026-03-29T00:59:00.000Z', 'Europe/Warsaw')).to.equal(false);
+      expect(between('02:00', '03:00', '2026-03-29T01:00:00.000Z', 'Europe/Warsaw')).to.equal(false);
+    });
+
+    it('takes offset zones, and keeps one formatter per zone whatever the spelling', () => {
+      expect(between('08:00', '18:00', '2026-10-01T07:30:00.000Z', '+01:00')).to.equal(true);
+      const before = conditionFunctionCaches.zones();
+      for (let i = 0; i < 2000; i++) between('08:00', '18:00', '2026-10-01T12:00:00.000Z', [...'europe/warsaw'].map((c, j) => ((i >> j) & 1 ? c.toUpperCase() : c)).join(''));
+      const after = conditionFunctionCaches.zones();
+      expect(after.spellings).to.be.at.most(256);
+      expect(after.zones - before.zones).to.be.at.most(1);
+    });
+
+    it('is UNKNOWN when refs give an empty range', () => {
+      expect(f.evaluateKleene({ from: '08:00', to: '08:00' }, at('2026-10-01T08:00:00.000Z'))).to.equal(undefined);
+    });
+
     it('wraps past midnight when from is after to', () => {
+      expect(between('22:00', '00:00', '2026-10-01T23:59:00.000Z')).to.equal(true);
+      expect(between('22:00', '00:00', '2026-10-01T00:00:00.000Z')).to.equal(false);
       expect(between('22:00', '06:00', '2026-10-01T23:30:00.000Z')).to.equal(true);
       expect(between('22:00', '06:00', '2026-10-01T05:59:00.000Z')).to.equal(true);
       expect(between('22:00', '06:00', '2026-10-01T12:00:00.000Z')).to.equal(false);
@@ -51,7 +75,7 @@ describe('conditions: built-in functions', () => {
       expect(check({ from: '8:00', to: '18:00' })).to.throw(AuthzConfigError, /abac policy p: time.between from must be "HH:MM"/);
       expect(check({ from: '08:00', to: '24:00' })).to.throw(AuthzConfigError, /to must be/);
       expect(check({ from: '08:00', to: '08:00' })).to.throw(AuthzConfigError, /an empty range/);
-      expect(check({ from: '08:00', to: '18:00', tz: 'Mars/Base' })).to.throw(AuthzConfigError, /not an IANA time zone/);
+      expect(check({ from: '08:00', to: '18:00', tz: 'Mars/Base' })).to.throw(AuthzConfigError, /is not a time zone/);
       expect(check({ from: '08:00', to: '18:00', days: [] })).to.throw(AuthzConfigError, /takes from, to, tz, not "days"/);
     });
   });
@@ -69,6 +93,23 @@ describe('conditions: built-in functions', () => {
       expect(inRanges(['2001:db8::/32'], '2001:db9::1')).to.equal(false);
       expect(inRanges(['10.0.0.0/8'], '::ffff:10.1.2.3')).to.equal(true);
       expect(inRanges(['0.0.0.0/0'], '8.8.8.8')).to.equal(true);
+      expect(inRanges(['::ffff:10.0.0.0/104'], '10.1.2.3')).to.equal(true);
+      // An IPv6 range over the mapped block takes IPv4 clients too (documented).
+      expect(inRanges(['::/0'], '8.8.8.8')).to.equal(true);
+    });
+
+    it('refuses host bits and zone ids, at boot and at run time', () => {
+      expect(inRanges(['10.0.0.1/8'], '10.9.9.9')).to.equal(undefined);
+      expect(inRanges(['2001:db8::1/32'], '2001:db8::5')).to.equal(undefined);
+      expect(inRanges(['fe80::/10'], 'fe80::1%eth0')).to.equal(undefined);
+      expect(() => f.checkArgs({ cidrs: ['192.168.1.10/24'] }, 'w')).to.throw(AuthzConfigError, /no host bits/);
+      expect(() => f.checkArgs({ cidrs: ['fe80::%eth0/10'] }, 'w')).to.throw(AuthzConfigError, /no zone id/);
+      expect(() => f.checkArgs({ cidrs: ['10.0.0.0/8'], ip: 'fe80::1%eth0' }, 'w')).to.throw(AuthzConfigError, /is not an IP address/);
+      expect(() => f.checkArgs({ cidrs: ['2001:db8::/32', '::ffff:10.0.0.0/104', '192.168.1.0/24', '10.0.0.7'] }, 'w')).not.to.throw();
+    });
+
+    it('treats only a one-key { ref } as a ref', () => {
+      expect(() => f.checkArgs({ cidrs: { ref: 'scope.org.cidrs', x: 1 } }, 'w')).to.throw(AuthzConfigError, /non-empty list or a \{ref\}/);
     });
 
     it('takes the address from args.ip before env.ip', () => {
@@ -144,12 +185,38 @@ describe('conditions: built-in functions', () => {
       expect((await compile({ not: { fn: 'ip.in', args: { cidrs: ['10.0.0.0/8'] } } })).filter).to.deep.equal({ op: 'not', arg: CONDITION_UNKNOWN });
     });
 
-    it('reject bad literal args when the condition is parsed', () => {
-      expect(() => compiler.parse({ any: [{ fn: 'time.between', args: { from: '25:00', to: '18:00' } }] }, 'abac policy hours when')).to.throw(AuthzConfigError, /^abac policy hours when: time.between from must be/);
-      expect(() => compiler.parse({ not: { fn: 'ip.in', args: { cidrs: ['x'] } } })).to.throw(AuthzConfigError, /^condition: ip.in cidrs\[0\]/);
+    it('reject bad literal args when the condition is parsed, naming the path', () => {
+      expect(() =>
+        compiler.parse(
+          {
+            any: [
+              { attr: 'resource.a', eq: 1 },
+              { fn: 'time.between', args: { from: '25:00', to: '18:00' } },
+            ],
+          },
+          'abac policy hours when',
+        ),
+      ).to.throw(AuthzConfigError, /^abac policy hours when: time.between from must be .* at \.any\[1\]\.args$/);
+      expect(() => compiler.parse({ not: { fn: 'ip.in', args: { cidrs: ['x'] } } })).to.throw(AuthzConfigError, /^condition: ip.in cidrs\[0\].* at \.not\.args$/);
     });
 
-    it('are registered in DI, so a resolved compiler has them, also with two copies of the package loaded', async () => {
+    it('a literal ip keeps the result cacheable; a tz from a ref is read', async () => {
+      expect(await compile({ fn: 'ip.in', args: { cidrs: ['10.0.0.0/8'], ip: '10.0.0.1' } })).to.deep.include({ filter: TRUE, cacheable: true });
+      const r: DecisionRequest = { ...req(), principal: { ...alice, attributes: { ...alice.attributes, tz: 'Asia/Tokyo' } } };
+      // 12:00Z is 21:00 in Tokyo.
+      expect((await compiler.compile({ fn: 'time.between', args: { from: '20:00', to: '22:00', tz: { ref: 'principal.attributes.tz' } } }, r, ctx())).filter).to.equal(TRUE);
+    });
+
+    it('skip the second copy of a built-in, but refuse a subclass or any other function under its name', () => {
+      expect(() => new DefaultConditionCompiler([...BUILTIN_CONDITION_FUNCTIONS, new TimeBetween()])).not.to.throw();
+      class TrustingIpIn extends IpIn {}
+      expect(isBuiltinConditionFunction(new IpIn())).to.equal(true);
+      expect(isBuiltinConditionFunction(new TrustingIpIn())).to.equal(false);
+      expect(() => new DefaultConditionCompiler([...BUILTIN_CONDITION_FUNCTIONS, new TrustingIpIn()])).to.throw(AuthzConfigError, /two condition functions are named "ip\.in" \(one is the built-in/);
+      expect(() => new DefaultConditionCompiler([new TrustingIpIn(), ...BUILTIN_CONDITION_FUNCTIONS])).to.throw(AuthzConfigError, /two condition functions are named "ip\.in"/);
+    });
+
+    it('are registered in DI, so a resolved compiler has them', async () => {
       const c = (await DI.resolve(ConditionCompiler)) as DefaultConditionCompiler;
       expect([...c.functionNames()]).to.include.members(['glob', 'ip.in', 'time.between', 'wildcard']);
     });

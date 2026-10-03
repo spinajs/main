@@ -52,7 +52,7 @@ export function condition(opts: ConditionArbOptions = {}): fc.Arbitrary<Conditio
 
   const leaf: fc.Arbitrary<Condition> = fc.oneof(fc.record({ attr, op: fc.constantFrom('eq', 'ne'), v: operand(fc.oneof({ weight: 9, arbitrary: scalar }, { weight: 1, arbitrary: fc.constant(null) })) }), fc.record({ attr, op: fc.constantFrom('in', 'nin'), v: operand(fc.array(fc.constantFrom('a', 'b', 'open', '1', 1, 2), { maxLength: 3 })) }), fc.record({ attr, op: fc.constantFrom(...ORDER_OPS), v: operand(fc.constantFrom(...SCALARS.filter((x) => typeof x !== 'boolean'))) }), fc.record({ attr, op: fc.constantFrom(...PATTERN_OPS), v: operand(fc.constantFrom(...PATTERNS)) }), fc.record({ attr, op: fc.constant('null'), v: fc.boolean() })).map(({ attr: a, op, v }) => ({ attr: a, [op]: v } as Condition));
 
-  const fn: fc.Arbitrary<Condition> = fc.oneof(fc.record({ fn: fc.constant('glob'), args: fc.record({ value: attrsAsRef(attrs), pattern: fc.constantFrom(...PATTERNS) }) }), fc.record({ fn: fc.constant('time.between'), args: fc.record({ from: fc.constant('08:00'), to: fc.constant('18:00') }) })) as fc.Arbitrary<Condition>;
+  const fn: fc.Arbitrary<Condition> = fc.oneof(fc.record({ fn: fc.constant('glob'), args: fc.record({ value: attrsAsRef(attrs), pattern: fc.constantFrom(...PATTERNS) }) }), fc.record({ fn: fc.constant('time.between'), args: fc.record({ from: fc.constant('08:00'), to: fc.constant('18:00') }) }), fc.record({ fn: fc.constant('ip.in'), args: fc.record({ cidrs: fc.constantFrom(['10.0.0.0/8'], ['2001:db8::/32', '8.8.8.0/24']) }) })) as fc.Arbitrary<Condition>;
 
   const base = opts.functions === false ? leaf : fc.oneof({ weight: 6, arbitrary: leaf }, { weight: 1, arbitrary: fn });
   const { tree } = fc.letrec<{ tree: Condition }>((tie) => ({

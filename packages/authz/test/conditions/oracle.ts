@@ -139,7 +139,10 @@ async function evaluate(c: Condition, w: OracleWorld): Promise<boolean | null> {
     };
     const args = resolve(n.args ?? {});
     if (unknown) return null;
-    return w.functions.get(n.fn)!.evaluate(args, { principal: w.principal, ...(w.actor ? { actor: w.actor } : {}), env: w.env });
+    const f = w.functions.get(n.fn)! as ConditionFunction & { evaluateKleene?: (a: unknown, c: unknown) => boolean | undefined };
+    const ctx = { principal: w.principal, ...(w.actor ? { actor: w.actor } : {}), env: w.env };
+    if (typeof f.evaluateKleene === 'function') return f.evaluateKleene(args, ctx) ?? null;
+    return f.evaluate(args, ctx);
   }
   const op = OPS.find((o) => Object.hasOwn(n, o))!;
   const raw = n[op];

@@ -5,7 +5,7 @@ import fc from 'fast-check';
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { LruDecisionCache } from '../../src/engine/cache.js';
 import { defaultAttribute, evaluateResidual } from '../../src/engine/evaluate.js';
-import { AuthorizationModel, CONDITION_UNKNOWN, CORE_FILTER_OPS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, not } from '../../src/index.js';
+import { AuthorizationModel, CONDITION_UNKNOWN, CORE_FILTER_OPS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, GlobMatch, IpIn, TRUE, WildcardMatch, not } from '../../src/index.js';
 import type { Condition, Decision, DecisionRequest, EvaluationContext, ModelCapabilities, PermissionDef, Principal, ResourceFilter, ResourceRef, Vote } from '../../src/index.js';
 import { FakeAdapter, FakeRow, FakeScopeResolver, fakeClock, principal, registryOf } from '../engine/fakes.js';
 import { FAULT, oracle } from './oracle.js';
@@ -23,7 +23,8 @@ class TestFn extends ConditionFunction {
     return this.impl(args as Record<string, unknown>, ctx.env);
   }
 }
-const FUNCTIONS = [new TestFn('glob', (a) => typeof a.value === 'string' && typeof a.pattern === 'string' && a.value.startsWith(a.pattern.replace(/[*%_\\].*$/, ''))), new TestFn('time.between', (_a, env) => env.flag === true), new TestFn('ip.in', () => false), new TestFn('wildcard', () => true)];
+// The real built-ins, but time.between reads a flag the second env may flip (its clock is fixed here).
+const FUNCTIONS = [new GlobMatch(), new IpIn(), new WildcardMatch(), new TestFn('time.between', (_a, env) => env.flag === true)];
 const FUNCTION_MAP = new Map(FUNCTIONS.map((f) => [f.name, f as ConditionFunction]));
 
 type Form = 'permit' | 'deny';
@@ -89,8 +90,8 @@ const world: fc.Arbitrary<WorldSpec> = fc
   .record({
     principal: fc.record({ id: fc.constantFrom('alice', 'a', '1'), attributes: record(['pool', 'n', 'team']) }).map((p) => principal('user', p.id, { attributes: p.attributes })),
     agentAttributes: fc.option(record(['team']), { nil: undefined, freq: 2 }),
-    env: record(['region', 'n', 'flag'], fc.oneof(scalar, fc.boolean())),
-    env2: record(['region', 'n', 'flag'], fc.oneof(scalar, fc.boolean())),
+    env: record(['region', 'n', 'flag', 'ip'], fc.oneof(scalar, fc.boolean(), fc.constantFrom('10.1.2.3', '8.8.8.8', '::ffff:10.0.0.1'))),
+    env2: record(['region', 'n', 'flag', 'ip'], fc.oneof(scalar, fc.boolean(), fc.constantFrom('10.1.2.3', '8.8.8.8', '::ffff:10.0.0.1'))),
     orgs: fc.record({ o1: fc.oneof(fc.constant({}), fc.record({ policies: record(['level', 'open']) })), o2: fc.constantFrom<Record<string, unknown> | null>({}, { policies: { level: 'b', open: false } }) }),
     global: fc.record({ flags: record(['on']) }),
     rows: nodes('f'),
