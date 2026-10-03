@@ -81,6 +81,9 @@ row 4 → "answers expired at and after the expiry";
 rows 6, 7, 8 → "answers invalid_credentials for a deactivated / soft-deleted / banned owner, on every use" (owner status through `FakeIdentityStore`).
 Row 5 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" (a null-expiry row answers `expired`).
 Row 11 stays in `test/actions-validate.test.ts` (2.x housekeeping API).
+N6 task 6: row 11 deleted from `test/actions-validate.test.ts`; it now lives in `v3/cli.test.ts` (`DbTokenService.deleteExpired`):
+"deletes rows expired at or before now and revoked rows, keeps live and null-expiry rows" and
+"compares against the given now, not the clock of the database".
 N6 task 3: row 12 deleted from `test/actions-validate.test.ts`; it now lives in `v3/token-strategy.test.ts`:
 `TokenStrategy` > `last-used stamp` (first use stamps, a use inside the interval writes nothing, a use after it writes again;
 racing requests write once; a throwing stamp still answers ok) and `DbTokenService.touch`.
@@ -102,6 +105,15 @@ racing requests write once; a throwing stamp still answers ok) and `DbTokenServi
 | 9 | 152 | access token cli commands > rbac:token-delete-expired removes only expired tokens | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) |
 
 Status (N6): row 1 moved to `legacy-v2/cli.test.ts`; rows 7, 8 deleted (N6 task 0).
+N6 task 6: `test/cli.test.ts` and `legacy-v2/cli.test.ts` deleted; the commands are `authn:token-*` on `TokenService`
+and their rows live in `v3/cli.test.ts`:
+row 1 → `authn:token-create` "applies authn.token.defaultTtlDays from now when --expires is not given" (decision: default TTL, never infinite);
+row 2 → "honours --expires"; row 3 → "refuses an unparseable --expires without creating anything";
+row 4 → "refuses an empty --expires instead of applying the default";
+row 5 → `authn:token-delete` "revokes the token whoever owns it and publishes token.revoke for the owner" (3.0 revokes, it does not delete the row);
+row 6 → "reports an unknown or already revoked token instead of rejecting";
+row 9 → `authn:token-delete-expired` "removes only expired and revoked tokens and prints the count" (the never-expiring fixture is a pre-back-fill row inserted through the model).
+`test/cli-orm-boot.test.ts` checks all three commands against `TokenCliCommand`.
 
 ## test/generator.test.ts
 

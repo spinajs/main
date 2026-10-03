@@ -157,21 +157,25 @@ token the caller does not own.
 ## CLI
 
 ```
-rbac:token-create <userIdOrUuid> -n <name> -r <roles> [-e <iso>]
-rbac:token-delete <uuid>
-rbac:token-grant <uuid> <role>
-rbac:token-revoke <uuid> <role>
-rbac:token-delete-expired   # run cyclically from a worker
+authn:token-create <ownerUuid> -n <name> [-r <roles>] [-k pat|service] [-p <profile>] [-e <iso>]
+authn:token-delete <uuid>
+authn:token-delete-expired   # run cyclically from a worker
 ```
 
-- `-r, --roles` is a comma separated list, and must be allowed for the owner
-  by the configured role policy (see [Token role policy](#token-role-policy)).
-- `-e, --expires` takes an ISO instant. Omitting the flag entirely means the
-  token never expires; an empty or unparsable value is refused rather than
-  silently treated as "no expiration".
-- `rbac:token-create` prints the plaintext once - it cannot be retrieved later.
-- `rbac:token-delete-expired` is housekeeping only; expired tokens are already
-  refused at authentication time.
+- `-r, --roles` is a comma separated list; it becomes the token's role
+  ceiling. Without it the token has no role ceiling.
+- `-k, --kind` is `pat` (default) or `service`; agent tokens are not minted
+  from the CLI.
+- `-e, --expires` takes an ISO instant, at most `authn.token.maxTtlDays`
+  ahead. Without the flag the token expires `authn.token.defaultTtlDays`
+  (30) days from now; an empty or unparsable value is refused.
+- A refusal prints its code (`invalid_expiry`, `invalid_scope`) and creates
+  nothing.
+- `authn:token-create` prints the plaintext once; it cannot be retrieved
+  later.
+- `authn:token-delete` revokes the token whoever owns it.
+- `authn:token-delete-expired` deletes expired and revoked tokens. It keeps
+  tokens without an expiry, which the deprecated 2.x API still creates.
 
 ## Configuration
 

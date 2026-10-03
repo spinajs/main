@@ -15,6 +15,7 @@ export * from './generator.js';
 export * from './service/index.js';
 export * from './strategy/TokenStrategy.js';
 export * from './jwt/JwtBearerStrategy.js';
+export * from './cli/TokenCliCommand.js';
 export * from './cli/CreateToken.js';
 export * from './cli/DeleteToken.js';
 export * from './cli/DeleteExpiredTokens.js';

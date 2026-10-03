@@ -11,7 +11,7 @@ import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
-import { createToken, deleteExpiredTokens, validateToken } from '../src/legacy/actions.js';
+import { createToken, validateToken } from '../src/legacy/actions.js';
 import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../src/service/index.js';
 import '../src/generator.js';
 import '../src/legacy/role-policy.js';
@@ -136,37 +136,5 @@ describe('access token actions - validate & cleanup', function () {
 
     const listed = await tokens.list(ref);
     expect(listed.map((r) => [r.id, r.kind])).to.deep.equal([[Token.Uuid, 'pat']]);
-  });
-
-  /**
-   * The sweep is a bulk DELETE driven by two predicates that are easy to get
-   * wrong in opposite directions: dropping `whereNotNull` would take every
-   * never-expiring token with it, and comparing the wrong way round would take
-   * every token that is still valid. Both survivors are therefore asserted
-   * explicitly - a null expiry AND a future one.
-   *
-   * The db is shared with the rest of this file, so the deleted COUNT cannot be
-   * pinned exactly; the three rows this test owns can be, and are.
-   */
-  it('deleteExpiredTokens removes only expired rows', async () => {
-    const owner = await activeUser('v8@spinajs.com', 'v8', ['user']);
-    const { Token: live } = await createToken(owner, 'live', ['user'], null);
-    const { Token: future } = await createToken(owner, 'future', ['user'], DateTime.now().plus({ days: 30 }));
-    const { Token: dead } = await createToken(owner, 'dead', ['user'], DateTime.now().plus({ minutes: 5 }));
-
-    const row = await AccessToken.where('Uuid', dead.Uuid).firstOrFail();
-    row.ExpiresAt = DateTime.now().minus({ minutes: 5 });
-    await row.update();
-
-    const count = await deleteExpiredTokens();
-    expect(count).to.be.gte(1);
-    expect(await AccessToken.where('Uuid', live.Uuid).first(), 'a never-expiring token was swept away').to.not.be.undefined;
-    expect(await AccessToken.where('Uuid', future.Uuid).first(), 'a token expiring in the future was swept away').to.not.be.undefined;
-    expect(await AccessToken.where('Uuid', dead.Uuid).first()).to.be.undefined;
-
-    // and this owner is left with exactly the two survivors - nothing of theirs
-    // was taken beyond the one expired row
-    const remaining = await AccessToken.where('user_id', owner.Id);
-    expect(remaining.map((t) => t.Name)).to.have.members(['live', 'future']);
   });
 });

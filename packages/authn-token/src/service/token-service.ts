@@ -21,6 +21,8 @@ const MAX_IP_LENGTH = 64;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+/** Ids per DELETE, well under the bound-parameter limits of the drivers. */
+const DELETE_BATCH = 500;
 
 type Refusal = Extract<TokenCreateResult, { ok: false }>;
 type Failure = Extract<TokenValidation, { ok: false }>;
@@ -283,6 +285,65 @@ export class DbTokenService extends TokenService {
     return true;
   }
 
+  /**
+   * Revokes a token whoever owns it, for operator tools such as `authn:token-delete`. Not part of the TokenService
+   * contract, which only revokes on behalf of an owner.
+   */
+  public async revokeById(id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
+    const now = this.nowOf(ctx);
+    if (!isNonEmptyString(id)) {
+      return false;
+    }
+
+    const token = await AccessToken.where('Uuid', id).whereNull('RevokedAt').first();
+    if (!token) {
+      return false;
+    }
+    // Looked up first, so a failing lookup cannot report an error for a token that is already revoked.
+    const owner = await this.owners.refOf(token.user_id);
+
+    const result = await AccessToken.update({ RevokedAt: DateTime.fromMillis(now) as DateTime<true> })
+      .where('Id', token.Id)
+      .whereNull('RevokedAt');
+    if (this.affected(result) === 0) {
+      return false;
+    }
+
+    await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
+    return true;
+  }
+
+  /**
+   * Housekeeping: deletes tokens that expired at or before `now` and revoked ones; returns how many. Keeps rows
+   * without an expiry, because the deprecated 2.x API still writes them and treats them as live.
+   */
+  public async deleteExpired(now: Date): Promise<number> {
+    const at = instant(now);
+    if (!Number.isFinite(at)) {
+      throw new Error('now must be a valid Date');
+    }
+    const cutoff = DateTime.fromMillis(at);
+
+    // Selected through the model, so the cutoff is written in the column's stored format; a bare DELETE on the
+    // connection would convert it by value type only. A selected row cannot become live again, so deleting by id is
+    // safe against concurrent writes.
+    const doomed = await AccessToken.where(function () {
+      this.where(function () {
+        this.whereNotNull('ExpiresAt');
+        this.where('ExpiresAt', '<=', cutoff);
+      });
+      this.orWhere(function () {
+        this.whereNotNull('RevokedAt');
+      });
+    });
+
+    let count = 0;
+    for (let i = 0; i < doomed.length; i += DELETE_BATCH) {
+      count += this.affected(await AccessToken.destroy(doomed.slice(i, i + DELETE_BATCH).map((t) => t.Id)));
+    }
+    return count;
+  }
+
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
     const now = this.nowOf(ctx);
     const rowId = await this.owners.rowIdOf(owner);
@@ -443,12 +504,13 @@ export class DbTokenService extends TokenService {
     return roles.every((r) => held.has(r));
   }
 
-  protected async publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+  protected async publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef | null, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
     const event: AuthnEvent = {
       type,
       at: new Date(now),
       outcome: 'success',
-      identity: { type: owner.type, id: owner.id },
+      // null: revokeById found a token whose owner row is gone.
+      ...(owner ? { identity: { type: owner.type, id: owner.id } } : {}),
       ...(actor ? { actor } : {}),
       ...(ctx.ip !== undefined ? { ip: ctx.ip } : {}),
       ...(ctx.userAgent !== undefined ? { userAgent: ctx.userAgent } : {}),

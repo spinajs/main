@@ -230,6 +230,8 @@ describe('JwtBearerStrategy', function () {
         ['a key whose alg does not fit its type', () => [without(remote({ keys: [{ ...jwkOf(kp1), alg: 'ES256' }] }), 'jwksUri')]],
         ['an encryption key', () => [without(remote({ keys: [{ ...jwkOf(kp1), use: 'enc' }] }), 'jwksUri')]],
         ['key_ops without verify', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['encrypt'] }] }), 'jwksUri')]],
+        ['key_ops with sign and verify', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['sign', 'verify'] }] }), 'jwksUri')]],
+        ['key_ops with verify and encrypt', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify', 'encrypt'] }] }), 'jwksUri')]],
         ['key_ops with a duplicate', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify', 'verify'] }] }), 'jwksUri')]],
         ['a non-boolean ext', () => [without(remote({ keys: [{ ...jwkOf(kp1), ext: 'true' }] }), 'jwksUri')]],
         ['key_ops that are not an array', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: 'verify' }] }), 'jwksUri')]],

@@ -254,8 +254,9 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
         throw new Error(`${atKey}.use must be sig`);
       }
       const ops = key.key_ops;
-      if (ops !== undefined && !(Array.isArray(ops) && ops.every((op) => typeof op === 'string') && new Set(ops).size === ops.length && ops.includes('verify'))) {
-        throw new Error(`${atKey}.key_ops must be distinct strings that include verify`);
+      // A key that may also sign or encrypt is shared with another use (RFC 7517 §4.3 advises against mixing).
+      if (ops !== undefined && !(Array.isArray(ops) && ops.length === 1 && ops[0] === 'verify')) {
+        throw new Error(`${atKey}.key_ops must be exactly ["verify"]`);
       }
       if (key.ext !== undefined && typeof key.ext !== 'boolean') {
         throw new Error(`${atKey}.ext must be a boolean`);
