@@ -132,7 +132,7 @@ describe('http-socket-common', () => {
         expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: key, after: key }), key).to.be.true;
       }
 
-      for (const key of ['', longest + 'k', 'a b', 'a\n', 'ż', 5, null]) {
+      for (const key of ['', longest + 'k', 'a b', 'a\n', '017c', 5, null]) {
         expect(isKey(key), JSON.stringify(key)).to.be.false;
         expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: key }), JSON.stringify(key)).to.be.false;
         expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 'k1', after: key }), JSON.stringify(key)).to.be.false;
