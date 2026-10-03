@@ -13,6 +13,9 @@ export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
 
 export const PG_SERVER = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres', Database: 'test' };
 
+/** The shared server can be slow to answer while other lanes load it. */
+const PG_ACQUIRE_TIMEOUT = 15000;
+
 export interface TestDb {
   kind: DbKind;
   orm: Orm;
@@ -53,7 +56,7 @@ export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [
 
 async function adminDriver(): Promise<OrmDriver> {
   const container = DI.child();
-  const driver = await container.resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'l2-pg-admin', Driver: 'orm-driver-postgres', ...PG_SERVER, Pool: { Max: 1, AcquireTimeout: 3000 } }]);
+  const driver = await container.resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'l2-pg-admin', Driver: 'orm-driver-postgres', ...PG_SERVER, Pool: { Max: 1, AcquireTimeout: PG_ACQUIRE_TIMEOUT } }]);
   await driver.connect();
   return driver;
 }
@@ -112,7 +115,7 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   if (kind === 'postgres') {
     await requirePostgres(ctx);
     database = await createPgDatabase(suite);
-    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration };
+    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration, Pool: { AcquireTimeout: PG_ACQUIRE_TIMEOUT } };
   } else {
     connection = { Name: `l2-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
   }

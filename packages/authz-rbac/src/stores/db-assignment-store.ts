@@ -11,6 +11,7 @@ import type { AssignmentRow } from './assignment-row.js';
 import { scopeToColumns, subjectToColumns } from './columns.js';
 import type { SubjectColumns } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
+import { isUniqueViolation, pageWindow, whereLive } from './queries.js';
 import { normaliseTags, parseTags } from './tags.js';
 import { bumpVersion } from './version.js';
 
@@ -191,13 +192,7 @@ export class DbAssignmentStore extends AssignmentStore {
    * fractional `limit` or `offset` is `invalid_page`.
    */
   async list(q: AssignmentListQuery, at: Date): Promise<{ items: readonly Assignment[]; total: number }> {
-    for (const [name, value] of Object.entries(q.page ?? {})) {
-      if (!Number.isInteger(value) || value < 0) {
-        throw new AuthzAdminFailure('invalid_page', `${this.name}.list: page.${name} must be a non-negative integer, got ${String(value)}`, 'page');
-      }
-    }
-    const limit = Math.min(q.page?.limit ?? this.maxListLimit, this.maxListLimit);
-    const offset = q.page?.offset ?? 0;
+    const { limit, offset } = pageWindow(q.page, this.maxListLimit, `${this.name}.list`);
 
     const driver = await this.connection();
     const filtered = () => {
@@ -306,12 +301,6 @@ function whereSubjects(query: IWhereBuilder<unknown>, subjects: readonly Subject
   });
 }
 
-function whereLive(query: IWhereBuilder<unknown>, at: Date): void {
-  query.where(function () {
-    this.whereNull('expires_at').orWhere('expires_at', '>', at);
-  });
-}
-
 function whereFilter(query: IWhereBuilder<unknown>, filter: { scope?: ResourceRef; subject?: AssignmentSubject; role?: string }): void {
   if (filter.scope) query.where(scopeToColumns(filter.scope));
   if (filter.subject) query.where(subjectToColumns(filter.subject));
@@ -335,15 +324,4 @@ async function requireRow(driver: OrmDriver, id: string): Promise<AssignmentRow>
 
 function rowsAffected(result: unknown): number {
   return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
-}
-
-/** Postgres 23505, or SQLite's UNIQUE failure (which the SQLite driver wraps in ResourceDuplicated). */
-function isUniqueViolation(err: unknown): boolean {
-  let e = err as { code?: unknown; message?: unknown; inner?: unknown; cause?: unknown } | undefined;
-  for (let depth = 0; e && depth < 5; depth++) {
-    // not ResourceDuplicated: the sqlite driver wraps every constraint failure (NOT NULL, CHECK) in it
-    if (e.code === '23505' || /UNIQUE constraint failed/.test(String(e.message))) return true;
-    e = (e.inner ?? e.cause) as typeof e;
-  }
-  return false;
 }

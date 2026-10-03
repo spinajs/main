@@ -44,8 +44,19 @@ export class AuthzRbac_2026_10_01_00_00_00 extends OrmMigration {
       table.string('resource_types', 255);
       table.string('subject_types', 255);
       table.string('scope_types', 255);
+      // Not in the §9.1 DDL: subjects.principalTypes and subjects.rank of D24 need their own columns.
+      table.string('principal_types', 255);
+      table.string('rank_ladder', 64);
+      table.string('rank_at', 64);
+      table.int('rank_min');
+      table.int('rank_max');
       table.string('resource_field', 64);
       table.string('resource_like', 512);
+      // A glob ending in one '*' must not cross '/': LIKE resource_like AND NOT LIKE resource_not_like.
+      table.string('resource_not_like', 512);
+      // The same two patterns as case-sensitive GLOBs: SQLite's LIKE ignores case.
+      table.string('resource_glob', 512);
+      table.string('resource_not_glob', 512);
       table.string('when_path', 160);
       table.string('when_op', 8);
       table.string('when_value', 255);

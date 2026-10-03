@@ -15,7 +15,7 @@ const TABLES = ['authz_assignment', 'authz_rule', 'authz_rule_subject', 'authz_l
 
 type ColumnKind = 'string' | 'text' | 'int' | 'bigint' | 'boolean' | 'datetime';
 
-/** [name, kind, varchar length, nullable] in design §9.1 order. */
+/** [name, kind, varchar length, nullable] in design §9.1 order, with authz_rule's selector columns that §9.1 lacks. */
 type ColumnSpec = [string, ColumnKind, number | null, boolean];
 
 const SCHEMA: Record<string, ColumnSpec[]> = {
@@ -51,8 +51,16 @@ const SCHEMA: Record<string, ColumnSpec[]> = {
     ['resource_types', 'string', 255, true],
     ['subject_types', 'string', 255, true],
     ['scope_types', 'string', 255, true],
+    ['principal_types', 'string', 255, true],
+    ['rank_ladder', 'string', 64, true],
+    ['rank_at', 'string', 64, true],
+    ['rank_min', 'int', null, true],
+    ['rank_max', 'int', null, true],
     ['resource_field', 'string', 64, true],
     ['resource_like', 'string', 512, true],
+    ['resource_not_like', 'string', 512, true],
+    ['resource_glob', 'string', 512, true],
+    ['resource_not_glob', 'string', 512, true],
     ['when_path', 'string', 160, true],
     ['when_op', 'string', 8, true],
     ['when_value', 'string', 255, true],
@@ -247,7 +255,7 @@ for (const kind of DB_KINDS) {
       expect([0, false]).to.include(r.strip_tags);
       expect(r.scope_type).to.eq('$global');
       expect(r.scope_id).to.eq('');
-      for (const name of ['ladder', 'max_rank', 'max_ref', 'min_rank', 'min_ref', 'at_type', 'permissions', 'resource_types', 'subject_types', 'scope_types', 'resource_field', 'resource_like', 'when_path', 'when_op', 'when_value', 'reason_code', 'priority', 'sort_key', 'expires_at', 'created_by']) {
+      for (const name of ['ladder', 'max_rank', 'max_ref', 'min_rank', 'min_ref', 'at_type', 'permissions', 'resource_types', 'subject_types', 'scope_types', 'principal_types', 'rank_ladder', 'rank_at', 'rank_min', 'rank_max', 'resource_field', 'resource_like', 'resource_not_like', 'resource_glob', 'resource_not_glob', 'when_path', 'when_op', 'when_value', 'reason_code', 'priority', 'sort_key', 'expires_at', 'created_by']) {
         expect(r[name], name).to.eq(null);
       }
     });
