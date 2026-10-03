@@ -1,6 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
+import { Readable } from 'node:stream';
 import { DI } from '@spinajs/di';
+import { META_ARGUMENT, META_OPTION } from '@spinajs/cli';
+import type { IArgument, IOption } from '@spinajs/cli';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -12,6 +15,7 @@ import { LocalPasswordPolicy } from '../src/policy.js';
 import { LocalPasswordService } from '../src/service.js';
 import { PasswordAgeSource, PasswordExpirationJob } from '../src/expiration.js';
 import { ExpirePasswords } from '../src/cli/ExpirePasswords.js';
+import { SetUserPassword } from '../src/cli/SetUserPassword.js';
 
 const OLD = 'Old-Password-1';
 const DAY = 86_400_000;
@@ -123,6 +127,112 @@ describe('authn-local cli commands', function () {
       expect(await passwords.get(stale)).to.equal(EXPIRED_PASSWORD_MARKER);
       expect(await passwords.get(recent)).to.equal(hash);
       expect(mailer.mails.map((m) => m.identity)).to.deep.equal([stale]);
+    });
+  });
+
+  describe('authn:password (D17)', () => {
+    class ScriptedSetUserPassword extends SetUserPassword {
+      public readonly printed: string[] = [];
+      constructor(private readonly stdin: readonly (string | Buffer)[] = []) {
+        super();
+      }
+      protected input(): NodeJS.ReadableStream {
+        return Readable.from(this.stdin);
+      }
+      protected print(text: string): void {
+        this.printed.push(text);
+      }
+    }
+
+    async function seed(login: string) {
+      const identities = DI.resolve(IdentityStore) as FakeIdentityStore;
+      const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
+      const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
+      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const id = identities.add({ login });
+      const hash = await hasher.hash(OLD);
+      await passwords.set(id, hash);
+      return { id, hash, passwords, hasher, sink };
+    }
+
+    it('takes the login as its only argument and no password argument', () => {
+      const args = Reflect.getMetadata(META_ARGUMENT, SetUserPassword) as IArgument[];
+      const opts = Reflect.getMetadata(META_OPTION, SetUserPassword) as IOption[];
+      expect(args.map((a) => a.name)).to.deep.equal(['login']);
+      expect(opts.map((o) => o.flags)).to.deep.equal(['-g, --generate']);
+    });
+
+    it('sets the first stdin line, untrimmed, through PasswordService.set with the cli actor', async () => {
+      const x = await seed('frank@example.com');
+      const events = x.sink.ofType('password.change').length;
+      const command = new ScriptedSetUserPassword(['  Typed-', 'Password-9 \r\nsecond line\n']);
+      await command.execute('frank@example.com', {});
+
+      const stored = await x.passwords.get(x.id);
+      expect(await x.hasher.verify(stored, '  Typed-Password-9 ')).to.equal(true);
+      expect(await x.hasher.verify(stored, 'Typed-Password-9')).to.equal(false);
+      expect(await x.hasher.verify(stored, OLD)).to.equal(false);
+      expect(command.printed).to.deep.equal([]);
+      const [e] = x.sink.ofType('password.change').slice(events);
+      expect(e.identity).to.deep.equal(x.id);
+      expect(e.actor).to.deep.equal({ type: 'service', id: 'cli' });
+      expect(e.data).to.deep.equal({ cause: 'set' });
+    });
+
+    it('decodes a character split across stdin chunks', async () => {
+      const x = await seed('gina@example.com');
+      const bytes = Buffer.from('Zażółć-Gęślą-1\n', 'utf8');
+      await new ScriptedSetUserPassword([bytes.subarray(0, 3), bytes.subarray(3)]).execute('gina@example.com', {});
+      expect(await x.hasher.verify(await x.passwords.get(x.id), 'Zażółć-Gęślą-1')).to.equal(true);
+    });
+
+    it('with --generate prints a generated password once, which passes check and verifies', async () => {
+      const x = await seed('hank@example.com');
+      const command = new ScriptedSetUserPassword(['ignored-Stdin-1\n']);
+      await command.execute('hank@example.com', { generate: true });
+
+      expect(command.printed).to.have.length(1);
+      const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
+      const stored = await x.passwords.get(x.id);
+      const generated = command.printed[0].trim().split(/\s+/).pop()!;
+      expect(generated).to.have.length(16);
+      expect(await service.check(generated)).to.deep.equal([]);
+      expect(await x.hasher.verify(stored, generated)).to.equal(true);
+      expect(await x.hasher.verify(stored, 'ignored-Stdin-1')).to.equal(false);
+    });
+
+    it('a policy violation leaves the stored hash unchanged and never echoes the password', async () => {
+      const x = await seed('ivy@example.com');
+      const writes = x.passwords.writes.length;
+      const command = new ScriptedSetUserPassword(['Short-7\n']);
+      await command.execute('ivy@example.com', {});
+      expect(await x.passwords.get(x.id)).to.equal(x.hash);
+      expect(x.passwords.writes.length).to.equal(writes);
+      expect(command.printed.join('')).to.not.contain('Short-7');
+    });
+
+    it('an unknown login does not call set', async () => {
+      const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
+      const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
+      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const writes = passwords.writes.length;
+      const events = sink.all().length;
+      const original = service.set;
+      let calls = 0;
+      service.set = async (...args) => {
+        calls++;
+        return original.apply(service, args);
+      };
+      try {
+        const command = new ScriptedSetUserPassword(['Valid-Password-5\n']);
+        await command.execute('nobody@example.com', {});
+        expect(command.printed).to.deep.equal([]);
+      } finally {
+        service.set = original;
+      }
+      expect(calls).to.equal(0);
+      expect(passwords.writes.length).to.equal(writes);
+      expect(sink.all().length).to.equal(events);
     });
   });
 });
