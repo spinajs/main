@@ -75,7 +75,10 @@ const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) 
 
 const sameRef = (a: IdentityRef, b: IdentityRef): boolean => a.type === b.type && a.id === b.id;
 
-const sameEmail = (stored: unknown, verified: string): boolean => nonEmpty(stored) && stored.toLowerCase() === verified.toLowerCase();
+// ASCII letters only: toLowerCase maps some non-ASCII letters to ASCII ones (the Kelvin sign U+212A to "k").
+const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+
+const sameEmail = (stored: unknown, verified: string): boolean => nonEmpty(stored) && foldAscii(stored) === foldAscii(verified);
 
 /** Strategies vouch for these through their own record checks (revocation, expiry, owner status); D4b. */
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
@@ -284,6 +287,11 @@ export class DefaultAuthnService extends AuthnService {
     }
     const id = stored.identity;
     const about = { identity: id, ...(nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {}) };
+    // The target's password must not let an impersonator act as the target (M6).
+    if (stored.facts.impersonator !== undefined) {
+      await this.audit(ctx, { type: 'reauth', outcome: 'failure', reason: 'impersonation', ...about });
+      return false;
+    }
     // A login method shows the user is present; a token or key the client holds does not.
     const candidates = this.registry.candidates(c).filter((s) => s.interactive);
     if (candidates.length === 0) {

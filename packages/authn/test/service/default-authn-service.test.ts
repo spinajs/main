@@ -573,6 +573,13 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(p.links.links.length, 1);
     });
 
+    it('folds ASCII letters only: the Kelvin sign does not match k (task 6 R2)', async () => {
+      const p = await bootLinking({ byVerifiedEmail: true }, subject({ email: 'Kim@corp.test' }));
+      p.identities.add({ login: 'kim', email: 'kim@corp.test' });
+      failure(await p.service.authenticate(external, ctx()), 'not_linked');
+      assert.strictEqual(p.links.links.length, 0);
+    });
+
     it('does not match an identity that has no stored email', async () => {
       const p = await bootLinking({ byVerifiedEmail: true });
       p.identities.add({ login: ALICE.login });
@@ -946,6 +953,18 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(await again(p, pending, pw(ALICE.login, ALICE.password)), false);
       assert.strictEqual(await again(p, { id: 'no-such-session', state: 'active' }, pw(ALICE.login, ALICE.password)), false);
       assert.deepStrictEqual(flowCalls(throttle!.attempts, 'reauth'), []);
+    });
+
+    it("answers false on an impersonation session, even for the target's own password, without counting (M6)", async () => {
+      const p = await boot(undefined);
+      const a = await seedAlice(p);
+      const admin = p.identities.add({ login: 'admin@example.test' });
+      const session = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['fake'], authenticatedAt: new Date(), impersonator: admin });
+      const local = p.strategies[0].instance as FakeStrategy;
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password)), false);
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'reauth'), []);
+      assert.strictEqual(local.verifyCalls.length, 0);
+      assert.ok(p.events.all().some((e) => e.type === 'reauth' && e.outcome === 'failure' && e.reason === 'impersonation' && e.identity?.id === a.id));
     });
 
     it('answers false when the identity status now refuses', async () => {

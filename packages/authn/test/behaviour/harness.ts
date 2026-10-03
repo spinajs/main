@@ -1,15 +1,15 @@
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
-export const CORE_SUPPORTED: readonly string[] = ['authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth'];
+export const CORE_SUPPORTED: readonly string[] = ['authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation'];
 
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';
@@ -25,7 +25,7 @@ export interface StrategySpec {
 }
 
 /** Neighbours a test may leave unregistered. */
-export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'PrincipalFactory' | 'PasswordCredentialStore';
+export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'PrincipalFactory' | 'PasswordCredentialStore' | 'ImpersonationGuard';
 
 export interface CoreOptions {
   /** Replaces the kit strategies. */
@@ -52,6 +52,7 @@ export interface CoreParts {
   readonly principals: RecordingPrincipalFactory;
   readonly links: MemoryLinkStore;
   readonly step: FakeMfaStep;
+  readonly guard: FakeImpersonationGuard;
   /** Bearer tokens the kit token strategy accepts: raw token → identity. */
   readonly tokens: Map<string, IdentityRef>;
   /** Subjects the kit external strategy (provider 'kit-idp') accepts. */
@@ -144,6 +145,7 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();
+  const guard = new FakeImpersonationGuard();
   const tokens = new Map<string, IdentityRef>();
   const externalSubjects = new Map<string, ExternalSubject>();
   const strategies = opts.strategies ?? kitStrategies(identities, passwords, tokens, externalSubjects);
@@ -164,6 +166,7 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
       ['SessionIssuer', SessionIssuer, sessions],
       ['PrincipalFactory', PrincipalFactory, principals],
       ['PasswordCredentialStore', PasswordCredentialStore, passwords],
+      ['ImpersonationGuard', ImpersonationGuard, guard],
     ];
     for (const [name, base, value] of neighbours) if (!omit.has(name)) bind(child, base, `Kit${name}`, value);
     bind(child, MfaStep, KIT_MFA_STEP, step);
@@ -172,7 +175,7 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
     bind(child, AuthnEventSink, 'KitEvents2', second);
     opts.register?.(child);
     const service = await child.resolve(AuthnService);
-    return { child, configuration, service, identities, passwords, sessions, throttle, events, second, principals, links, step, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
+    return { child, configuration, service, identities, passwords, sessions, throttle, events, second, principals, links, step, guard, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
   } catch (e) {
     await child.dispose();
     throw e;
@@ -222,6 +225,12 @@ export function coreHarnessOf(parts: CoreParts): Harness {
       link: async (session, external, ctx) => (await parts.child.resolve(AccountLinkService)).link(session, external, ctx),
       unlink: async (session, linkId, ctx) => (await parts.child.resolve(AccountLinkService)).unlink(session, linkId, ctx),
     },
+    impersonation: {
+      start: async (session, target, ctx, reauth) => (await parts.child.resolve(AuthnImpersonationService)).start(session, target, ctx, reauth),
+      stop: async (session, ctx) => (await parts.child.resolve(AuthnImpersonationService)).stop(session, ctx),
+      principalOf: async (session, ctx) => (await parts.child.resolve(AuthnImpersonationService)).principalOf(session, ctx),
+    },
+    guard: parts.guard,
     external: {
       provider: 'kit-idp',
       credentialsFor: async (subject) => {

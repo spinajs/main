@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { fakeHash } from '@spinajs/authn-testing';
 
-import { DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, FreshAuth, isFresh } from '../../src/index.js';
+import { DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, FreshAuthCheck, isFresh } from '../../src/index.js';
 import type { AuthnContext, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
 import { buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
@@ -39,7 +39,7 @@ describe('fresh auth', function () {
     });
   });
 
-  describe('FreshAuth', () => {
+  describe('FreshAuthCheck', () => {
     let parts: CoreParts | undefined;
 
     afterEach(async () => {
@@ -47,15 +47,25 @@ describe('fresh auth', function () {
       parts = undefined;
     });
 
-    async function boot(freshAuth?: unknown): Promise<{ p: CoreParts; fresh: FreshAuth; a: IdentityRef }> {
+    async function boot(freshAuth?: unknown): Promise<{ p: CoreParts; fresh: FreshAuthCheck; a: IdentityRef }> {
       parts = await buildCore({}, freshAuth === undefined ? {} : { raw: { authn: { freshAuth } } });
       const a = parts.identities.add({ login: ALICE.login });
       await parts.passwords.set(a, fakeHash(ALICE.password));
-      return { p: parts, fresh: await parts.child.resolve(FreshAuth), a };
+      return { p: parts, fresh: await parts.child.resolve(FreshAuthCheck), a };
     }
 
     const issue = (p: CoreParts, a: IdentityRef, opts?: { pending?: { steps: readonly string[] } }): Promise<SessionHandle> => p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: T0 }, opts);
     const ctx = (now: Date, session: SessionHandle): AuthnContext => ({ now, session, ip: '192.0.2.10', purpose: 'reauth' });
+
+    it("does not collide in DI with authn-http's FreshAuth policy (I3)", async () => {
+      // DI keys registrations and instances by class name; authn-http's route policy is a class named FreshAuth.
+      const Policy = { FreshAuth: class {} }.FreshAuth;
+      parts = await buildCore({}, { register: (c) => c.register(Policy).asSelf() });
+      const policy = await parts.child.resolve(Policy);
+      const fresh = await parts.child.resolve(FreshAuthCheck);
+      assert.ok(fresh instanceof FreshAuthCheck);
+      assert.ok(policy instanceof Policy);
+    });
 
     it('reads authn.freshAuth.maxAgeSeconds, 300 when unset', async () => {
       assert.strictEqual(DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, 300);

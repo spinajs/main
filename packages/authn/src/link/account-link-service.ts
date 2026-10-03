@@ -13,7 +13,7 @@ import type { IdentityStatus } from '../contracts/identity.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
-import { FreshAuth } from '../freshauth/fresh-auth.js';
+import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
 
 export type LinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
@@ -82,7 +82,7 @@ export class AccountLinkService extends AsyncService {
   private links!: IdentityLinkStore;
   private identities!: IdentityStore;
   private sessions!: SessionIssuer;
-  private fresh!: FreshAuth;
+  private fresh!: FreshAuthCheck;
   private auditor!: AuthnAudit;
   private passwords: PasswordCredentialStore | undefined;
   private keys: KeyRegistry | undefined;
@@ -99,7 +99,7 @@ export class AccountLinkService extends AsyncService {
     this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
     this.passwords = await this.neighbour(PasswordCredentialStore, 'PasswordCredentialStore', false);
     this.keys = await this.neighbour(KeyRegistry, 'KeyRegistry', false);
-    this.fresh = await this.container.resolve(FreshAuth);
+    this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
     this.ready = true;
     await super.resolve();
