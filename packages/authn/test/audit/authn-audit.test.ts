@@ -90,6 +90,14 @@ class AuditTestConfiguration extends FrameworkConfiguration {
   }
 }
 
+class ChildAuditConfiguration extends FrameworkConfiguration {
+  protected onLoad(): unknown {
+    return { authn: { audit: {} } };
+  }
+}
+
+class ChildSink extends Recording {}
+
 class CapturingLog implements AuditLog {
   readonly lines: string[] = [];
   info(m: string): void {
@@ -436,6 +444,22 @@ describe('AuthnAudit', function () {
       expect(await bootFails({ hashKey: 'hunter2-hunter2-hunter2-hunter2-hunter2' }, 'authn.audit.hashKey')).to.not.contain('hunter2');
       expect(await bootFails({ sampleUse: 'hunter2' }, 'authn.audit.sampleUse')).to.not.contain('hunter2');
       expect(await bootFails('hunter2', 'authn.audit')).to.not.contain('hunter2');
+    });
+
+    it('keeps the root sinks when a child container registers its own sink', async () => {
+      const child = DI.RootContainer.child();
+      child.register(ChildAuditConfiguration).as(Configuration);
+      child.register(ChildSink).as(AuthnEventSink);
+      try {
+        await child.resolve(Configuration);
+        const a = await child.resolve(AuthnAudit);
+        await a.publish(ev('login'));
+        expect(calls).to.have.members(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'ChildSink:login']);
+        expect(sinkNames(a)).to.include('LogAuthnAuditSink');
+        expect(a.sinks()).to.include(await DI.resolve(FirstSink));
+      } finally {
+        await child.dispose();
+      }
     });
 
     it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {

@@ -270,6 +270,16 @@ describe('MemoryAuthnThrottle', function () {
       expectRefused(await at(DAVE.login), 1, 'the ip key still holds bob and carol');
     });
 
+    it('takes the largest account-ip count off the ip key, not the sum, when an attempt carries several', async () => {
+      const t = real(tuned({ authn: { throttle: { login: { ip: { free: 6, baseDelayMs: 1000, maxDelayMs: 300000 } } } } }));
+      const aliceKeys: ThrottleKey[] = [...pwKeys(ALICE.login, IP_A), { kind: 'account-ip', value: `${IP_A}/${ALICE.login}` }];
+      for (let i = 0; i < 3; i++) expectAllowed(await t.attempt(pwKeys(BOB.login, IP_A), 'login', ctx()), `bob ${i + 1}`);
+      for (let i = 0; i < 2; i++) expectAllowed(await t.attempt(aliceKeys, 'login', ctx()), `alice ${i + 1}`);
+      await t.succeed(aliceKeys, 'login');
+      for (let i = 0; i < 3; i++) expectAllowed(await t.attempt(pwKeys(CAROL.login, IP_A), 'login', ctx()), `carol ${i + 1}`);
+      expectRefused(await t.attempt(pwKeys(DAVE.login, IP_A), 'login', ctx()), 1, 'the ip key still holds bob and carol');
+    });
+
     it('recomputes the ip delay from its last attempt', async () => {
       const t = real(tuned({ authn: { throttle: { login: { ip: { free: 2, baseDelayMs: 1000, maxDelayMs: 300000 } } } } }));
       const at = (login: string) => t.attempt(pwKeys(login, IP_A), 'login', ctx());

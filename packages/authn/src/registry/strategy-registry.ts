@@ -1,4 +1,4 @@
-import { AsyncService, Container, Inject, Singleton, isFactory } from '@spinajs/di';
+import { AsyncService, Container, Inject, PerChildInstance, isFactory } from '@spinajs/di';
 import type { Class, Factory, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
@@ -75,15 +75,6 @@ function check(e: StrategyEntry, s: unknown): Listed {
   return { strategy, kinds: Object.freeze([...kinds]), selector: isCredentialSelector(strategy) };
 }
 
-function assertReachable(listed: readonly Listed[]): void {
-  listed.forEach((l, i) => {
-    const earlier = listed.slice(0, i).filter((p) => !p.selector);
-    if (!l.kinds.every((k) => earlier.some((p) => p.kinds.includes(k)))) return;
-    const shadows = [...new Set(earlier.filter((p) => p.kinds.some((k) => l.kinds.includes(k))).map((p) => q(p.strategy.name)))];
-    throw new InvalidOption(`authn.strategies entry ${q(l.strategy.name)} can never run: ${shadows.join(', ')}, listed before it without accepts(), takes every credential of its kinds ${q(l.kinds)}`);
-  });
-}
-
 function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
   try {
     return (s as AuthenticationStrategy & CredentialSelector).accepts(c) === true;
@@ -94,12 +85,12 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
 
 /**
  * The strategies of `authn.strategies`, in list order (A01). The list comes from the resolving container's Configuration, and
- * services are looked up by name among the types registered there as AuthenticationStrategy; registered but unlisted
- * strategies never run. Boot fails on an
- * unknown service, a duplicate name, an entry name that differs from the strategy's own `name`, and a strategy that can
- * never be selected.
+ * services are looked up by name among the AuthenticationStrategy types registered there or in its ancestors; registered but unlisted
+ * strategies never run. Boot fails on an unknown service, a duplicate name, and an entry name that differs from the
+ * strategy's own `name`. Strategies may share kinds: the service falls through on `unsupported_credentials` (D1). One
+ * per container, so a child boot reads its own list.
  */
-@Singleton()
+@PerChildInstance()
 @Inject(Container)
 export class StrategyRegistry extends AsyncService {
   private listed: readonly Listed[] | undefined;
@@ -116,7 +107,8 @@ export class StrategyRegistry extends AsyncService {
       throw new InvalidOperation('StrategyRegistry: the resolved Configuration has no get()');
     }
     const entries = readEntries(configuration.get('authn.strategies'));
-    const registered = this.container.getRegisteredTypes(AuthenticationStrategy) ?? [];
+    // The whole lineage, nearest registration first: a child may list a root strategy next to its own.
+    const registered = [...(this.container.getRegisteredTypesChain(AuthenticationStrategy) ?? [])].reverse();
     const listed: Listed[] = [];
     for (const e of entries) {
       const type = registered.find((t) => t.name === e.service);
@@ -126,7 +118,6 @@ export class StrategyRegistry extends AsyncService {
       const strategy: unknown = isFactory(type) ? await (type as Factory<unknown>)(this.container) : await this.container.resolve(type as Class<unknown>);
       listed.push(check(e, strategy));
     }
-    assertReachable(listed);
     this.listed = Object.freeze(listed);
     this.all = Object.freeze(listed.map((l) => l.strategy));
     await super.resolve();
@@ -138,12 +129,12 @@ export class StrategyRegistry extends AsyncService {
     return this.all!;
   }
 
-  /** The first listed strategy for `c.kind` whose optional `accepts(c)` returns true; undefined when none. */
-  public select(c: Credentials): AuthenticationStrategy | undefined {
+  /** Listed strategies for `c.kind`, in list order, minus those whose optional `accepts(c)` declines (D1). */
+  public candidates(c: Credentials): readonly AuthenticationStrategy[] {
     const listed = this.state();
     const kind = c !== null && typeof c === 'object' ? (c as { kind?: unknown }).kind : undefined;
-    if (typeof kind !== 'string') return undefined;
-    return listed.find((l) => l.kinds.includes(kind) && (!l.selector || accepts(l.strategy, c)))?.strategy;
+    if (typeof kind !== 'string') return Object.freeze([]);
+    return Object.freeze(listed.filter((l) => l.kinds.includes(kind) && (!l.selector || accepts(l.strategy, c))).map((l) => l.strategy));
   }
 
   private state(): readonly Listed[] {

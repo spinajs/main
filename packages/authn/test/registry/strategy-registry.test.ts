@@ -116,6 +116,19 @@ class ChildTestConfiguration extends FrameworkConfiguration {
   }
 }
 
+class ChildMixedConfiguration extends FrameworkConfiguration {
+  protected onLoad(): unknown {
+    return {
+      authn: {
+        strategies: [
+          { name: 'child', service: 'ChildOnly' },
+          { name: 'local', service: 'LocalPassword' },
+        ],
+      },
+    };
+  }
+}
+
 const entry = (name: string, service: string) => ({ name, service });
 const LOCAL = entry('local', 'LocalPassword');
 const PLAIN = entry('plain', 'PlainBearer');
@@ -245,9 +258,10 @@ describe('StrategyRegistry', function () {
       await bootFails([entry('bad-kinds', 'BadKinds')], '"bad-kinds"');
     });
 
-    it('fails on a strategy an earlier one without accepts always shadows', async () => {
-      await bootFails([PLAIN, TOKEN], '"token"', '"plain"');
-      await bootFails([entry('keys', 'KeysMulti'), entry('keys-jws', 'KeysJws')], '"keys-jws"', '"keys"');
+    it('boots a strategy listed after one without accepts for the same kinds (D1: fall-through)', async () => {
+      expect(names(await boot([PLAIN, TOKEN]))).to.deep.equal(['plain', 'token']);
+      DI.uncache(StrategyRegistry);
+      expect(names(await boot([entry('keys', 'KeysMulti'), entry('keys-jws', 'KeysJws')]))).to.deep.equal(['keys', 'keys-jws']);
     });
 
     it('boots when every listed strategy can run for some kind', async () => {
@@ -282,7 +296,7 @@ describe('StrategyRegistry', function () {
         await child.resolve(Configuration);
         const inChild = await child.resolve(StrategyRegistry);
         expect(names(inChild)).to.deep.equal(['child']);
-        expect(inChild.select(password)).to.be.instanceOf(ChildOnly);
+        expect(inChild.candidates(password)[0]).to.be.instanceOf(ChildOnly);
         const inRoot = await DI.resolve(StrategyRegistry);
         expect(inRoot).to.not.equal(inChild);
         expect(names(inRoot)).to.deep.equal(['local']);
@@ -291,53 +305,93 @@ describe('StrategyRegistry', function () {
       }
     });
 
+    it('gives a child with its own Configuration its own registry after the root resolved one', async () => {
+      cfg.set('authn.strategies', [LOCAL]);
+      const inRoot = await DI.resolve(StrategyRegistry);
+      const child = DI.RootContainer.child();
+      child.register(ChildTestConfiguration).as(Configuration);
+      child.register(ChildOnly).as(AuthenticationStrategy);
+      try {
+        await child.resolve(Configuration);
+        const inChild = await child.resolve(StrategyRegistry);
+        expect(inChild).to.not.equal(inRoot);
+        expect(names(inChild)).to.deep.equal(['child']);
+        expect(names(inRoot)).to.deep.equal(['local']);
+      } finally {
+        await child.dispose();
+      }
+    });
+
+    it('lets a child list a root strategy next to one it registers itself', async () => {
+      const child = DI.RootContainer.child();
+      child.register(ChildMixedConfiguration).as(Configuration);
+      child.register(ChildOnly).as(AuthenticationStrategy);
+      try {
+        await child.resolve(Configuration);
+        const inChild = await child.resolve(StrategyRegistry);
+        expect(names(inChild)).to.deep.equal(['child', 'local']);
+        expect(inChild.strategies()[1]).to.be.instanceOf(LocalPassword);
+      } finally {
+        await child.dispose();
+      }
+    });
+
     it('throws when used before it is resolved', () => {
       const r = new StrategyRegistry(DI.RootContainer);
       expect(() => r.strategies()).to.throw(Error);
-      expect(() => r.select(password)).to.throw(Error);
+      expect(() => r.candidates(password)).to.throw(Error);
     });
   });
 
-  describe('select', () => {
-    it('picks the listed strategy for the credential kind', async () => {
-      const r = await boot([LOCAL, PLAIN]);
-      expect(r.select(password)?.name).to.equal('local');
-      expect(r.select(bearer('abc'))?.name).to.equal('plain');
+  describe('candidates', () => {
+    const cand = (r: StrategyRegistry, c: Credentials): string[] => r.candidates(c).map((s) => s.name);
+
+    it('lists the listed strategies for the credential kind, in list order', async () => {
+      const r = await boot([LOCAL, PLAIN, entry('keys', 'KeysMulti'), entry('keys-jws', 'KeysJws')]);
+      expect(cand(r, password)).to.deep.equal(['local']);
+      expect(cand(r, bearer('abc'))).to.deep.equal(['plain']);
+      expect(cand(r, { kind: 'jws-assertion', jws: 'x' })).to.deep.equal(['keys', 'keys-jws']);
+      expect(Object.isFrozen(r.candidates(password))).to.equal(true);
     });
 
-    it('returns undefined when no listed strategy takes the kind', async () => {
+    it('is empty when no listed strategy takes the kind', async () => {
       const r = await boot([LOCAL]);
-      expect(r.select(bearer('abc'))).to.equal(undefined);
-      expect(r.select({ kind: 'kit-unknown' })).to.equal(undefined);
+      expect(cand(r, bearer('abc'))).to.deep.equal([]);
+      expect(cand(r, { kind: 'kit-unknown' })).to.deep.equal([]);
     });
 
-    it('never selects a registered strategy that is not listed', async () => {
+    it('never lists a registered strategy that is not listed', async () => {
       const r = await boot([LOCAL]);
-      expect(r.select(bearer('spt_x'))).to.equal(undefined);
+      expect(cand(r, bearer('spt_x'))).to.deep.equal([]);
     });
 
-    it('asks the next candidate when accepts returns false', async () => {
+    it('leaves out a strategy whose accepts declines and keeps those without accepts', async () => {
       const r = await boot([TOKEN, JWT, PLAIN]);
-      expect(r.select(bearer('spt_abc'))?.name).to.equal('token');
-      expect(r.select(bearer('a.b.c'))?.name).to.equal('jwt');
-      expect(r.select(bearer('opaque'))?.name).to.equal('plain');
+      expect(cand(r, bearer('spt_abc'))).to.deep.equal(['token', 'plain']);
+      expect(cand(r, bearer('a.b.c'))).to.deep.equal(['jwt', 'plain']);
+      expect(cand(r, bearer('opaque'))).to.deep.equal(['plain']);
     });
 
-    it('returns undefined when every candidate declines', async () => {
+    it('keeps the list order when a strategy without accepts comes first', async () => {
+      const r = await boot([PLAIN, TOKEN]);
+      expect(cand(r, bearer('spt_abc'))).to.deep.equal(['plain', 'token']);
+    });
+
+    it('is empty when every candidate declines', async () => {
       const r = await boot([TOKEN, JWT]);
-      expect(r.select(bearer('opaque'))).to.equal(undefined);
+      expect(cand(r, bearer('opaque'))).to.deep.equal([]);
     });
 
     it('treats a throwing or non-boolean accepts as a decline', async () => {
       const r = await boot([entry('throwing', 'ThrowingBearer'), entry('truthy', 'TruthyBearer'), PLAIN]);
-      expect(r.select(bearer('x'))?.name).to.equal('plain');
+      expect(cand(r, bearer('x'))).to.deep.equal(['plain']);
     });
 
-    it('returns undefined for malformed credentials', async () => {
+    it('is empty for malformed credentials', async () => {
       const r = await boot([LOCAL, PLAIN]);
-      expect(r.select(null as unknown as Credentials)).to.equal(undefined);
-      expect(r.select({} as unknown as Credentials)).to.equal(undefined);
-      expect(r.select({ kind: 1 } as unknown as Credentials)).to.equal(undefined);
+      expect(cand(r, null as unknown as Credentials)).to.deep.equal([]);
+      expect(cand(r, {} as unknown as Credentials)).to.deep.equal([]);
+      expect(cand(r, { kind: 1 } as unknown as Credentials)).to.deep.equal([]);
     });
   });
 

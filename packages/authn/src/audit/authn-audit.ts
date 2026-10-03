@@ -1,5 +1,5 @@
-import { AsyncService, Container, Inject, PerChildInstance, isFactory } from '@spinajs/di';
-import type { Class, Factory, IContainer } from '@spinajs/di';
+import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
@@ -71,21 +71,24 @@ export class AuthnAudit extends AsyncService {
       throw new InvalidOperation('AuthnAudit: the resolved Configuration has no get()');
     }
     const config = readAuditConfig(configuration.get('authn.audit'));
-    const registered = [...new Set(this.container.getRegisteredTypes(AuthnEventSink) ?? [])];
+    // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. resolveChain builds each sink
+    // where it was registered (a root singleton stays the root's), per-child sinks here; both lists share one order.
+    const types = this.container.getRegisteredTypesChain(AuthnEventSink) ?? [];
+    const built = (await this.container.resolveChain(AuthnEventSink as unknown as Class<AuthnEventSink>)) as unknown[];
+    const registered = types.map((type, i) => ({ type, sink: built[i] }));
 
-    const order: { name: string; type: unknown }[] = [];
+    const order: { name: string; sink: unknown }[] = [];
     for (const name of new Set(config.sinks ?? [])) {
-      const type = registered.find((t) => typeName(t) === name);
-      if (!type) throw new InvalidOption(`authn.audit.sinks: no AuthnEventSink is registered as service ${q(name)}`);
-      order.push({ name, type });
+      const found = [...registered].reverse().find((r) => typeName(r.type) === name);
+      if (!found) throw new InvalidOption(`authn.audit.sinks: no AuthnEventSink is registered as service ${q(name)}`);
+      order.push({ name, sink: found.sink });
     }
-    for (const type of registered) {
-      if (!order.some((o) => o.type === type)) order.push({ name: typeName(type) || '(unnamed factory)', type });
+    for (const r of registered) {
+      if (!order.some((o) => o.sink === r.sink)) order.push({ name: typeName(r.type) || '(unnamed factory)', sink: r.sink });
     }
 
     const active: Active[] = [];
-    for (const { name, type } of order) {
-      const sink: unknown = isFactory(type) ? await (type as Factory<unknown>)(this.container) : await this.container.resolve(type as Class<unknown>);
+    for (const { name, sink } of order) {
       // Duck-typed: sinks built against another copy of the contracts (cjs/mjs, the kit) fail instanceof.
       if (sink === null || typeof sink !== 'object' || typeof (sink as AuthnEventSink).publish !== 'function') {
         throw new InvalidOption(`authn.audit: the service ${q(name)} is not an AuthnEventSink`);

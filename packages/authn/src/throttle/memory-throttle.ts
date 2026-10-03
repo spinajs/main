@@ -149,8 +149,9 @@ export class MemoryAuthnThrottle extends AuthnThrottle {
         const id = this.keyId(flow, k);
         const row = rows.get(id);
         if (!row) continue;
-        // An account-ip run that began before this ip run has attempts the ip row never counted.
-        const taken = spent.reduce((n, a) => (a.run > row.run ? n + a.attempts : n), 0);
+        // An account-ip run that began before this ip run has attempts the ip row never counted. Several account-ip
+        // rows of one success counted the same attempts, so the largest is taken, never the sum (D8).
+        const taken = spent.reduce((n, a) => (a.run > row.run ? Math.max(n, a.attempts) : n), 0);
         row.attempts = Math.max(0, row.attempts - taken);
         if (row.attempts === 0) {
           rows.delete(id);
