@@ -52,7 +52,7 @@ Every task's requirements include this section.
   - `defaultTimeoutMs: 15_000`
 - **Spec §5.2 step 5, verbatim:** "Idempotency (`idempotent: true` with an `idempotencyKey`): a completed key replays the stored reply; a running key awaits the same promise. The handler never runs twice for one `(clientId, key)`." W3 keys by `(principalKey, clientId, key)` (W1 release notes): a `clientId` is not a secret.
 - **Spec §5.5 shutdown, verbatim:** "1. stop accepting connections; 2. emit `sys.shutdown {retryAfterMs}`; 3. let running commands finish for up to `drainMs` (5 s); 4. abort the rest with `unavailable`; 5. close."
-- **Spec §6 durable, verbatim:** "1. A command is written to the `OutboxStore` before it is sent, with `idempotencyKey = clientId:seq`. 2. Commands go out in order, pipelined up to a window (default 16). The server must declare the command `idempotent` and `ordered: 'client'`. 3. After any drop, everything not acked is resent in order. The server's idempotency store makes the resend safe. 4. On `ok`, the entry is removed. On a retryable error, it is retried with backoff. On a non-retryable error, it moves to the store's `failed` list and `failed` is emitted. The entry is never dropped silently. 5. The store survives reloads (IndexedDB), so a closed tab resumes its queue on the next start."
+- **Spec §6 durable, verbatim:** "1. A command is written to the `OutboxStore` before it is sent, with `idempotencyKey = clientId:<random nonce persisted with the entry>` (amended from `clientId:seq`; see `packages/http-socket/RELEASE_NOTES.md`, "W3 resilience (spec amendments)"). 2. Commands go out in order, pipelined up to a window (default 16). The server must declare the command `idempotent` and `ordered: 'client'`. 3. After any drop, everything not acked is resent in order. The server's idempotency store makes the resend safe. 4. On `ok`, the entry is removed. On a retryable error, it is retried with backoff. On a non-retryable error, it moves to the store's `failed` list and `failed` is emitted. The entry is never dropped silently. 5. The store survives reloads (IndexedDB), so a closed tab resumes its queue on the next start."
 - **Spec §7 rows W3 must show:**
   - Idempotency: a replay of a finished key returns the stored reply, and concurrent replays run the handler once.
   - Ordering: `ordered: 'client'` runs a client's commands in send order across a reconnect.
@@ -93,7 +93,7 @@ Every task's requirements include this section.
   - Disconnect hooks are awaited (up to `drainMs`) before `Hub.detach()`, so they can still push.
   - The test harness sets `drainMs: 0`, which keeps W1's tests as fast as before.
 - **D7. Durable client details.**
-  - `idempotencyKey` is `${clientId}:${seq}`, or an app key passed as `durable(name, payload, { key })`; the editor uses opIds.
+  - `idempotencyKey` is `clientId:<random nonce persisted with the entry>` (see `packages/http-socket/RELEASE_NOTES.md`, "W3 resilience (spec amendments)"), or an app key passed as `durable(name, payload, { key })`; the editor uses opIds.
   - Durable requests carry no `deadline`.
   - An entry unanswered for `ackTimeoutMs` (default 60 s) on a live connection is resent; the server joins or replays it.
   - `unauthenticated` keeps the entry queued, because it is the credential that failed, not the command. W2's kick handling emits `auth_required`.
@@ -245,7 +245,7 @@ Expected: FAIL to compile with `Module '"../src/index.js"' has no exported membe
 In `packages/http-socket-common/src/protocol.ts`, insert after the `NAME_PATTERN` constant:
 
 ```ts
-/** Longest accepted idempotency key: a clientId ( MAX_ID_LENGTH ), a separator and a sequence number fit. */
+/** Longest accepted idempotency key: a clientId ( MAX_ID_LENGTH ), a separator and a nonce fit. */
 export const MAX_KEY_LENGTH = 256;
 ```
 
@@ -2607,7 +2607,7 @@ export interface OutboxEntry<P = unknown> {
   readonly seq: number;
   readonly name: string;
   readonly payload: P;
-  /** Idempotency key chosen by the app; `${clientId}:${seq}` when absent. */
+  /** Idempotency key chosen by the app; `clientId:<random nonce persisted with the entry>` when absent ( spec amendment, RELEASE_NOTES ). */
   readonly key?: string;
   /** ms epoch */
   readonly createdAt: number;
@@ -2863,7 +2863,7 @@ describe('DurableQueue', () => {
     expect(DEFAULT_DURABLE).to.deep.equal({ window: 16, ackTimeoutMs: 60_000 });
   });
 
-  it('sends in order, keyed clientId:seq, each after the previous unacknowledged command, without a deadline', async () => {
+  it('sends in order, keyed clientId:nonce, each after the previous unacknowledged command, without a deadline', async () => {
     serveDurable(server, 'docs.submit');
     server.ackFault = { kind: 'delay', ms: 100 };
     const { queue } = await onlineQueue(server);
@@ -3126,7 +3126,7 @@ export interface DurableOptions {
 }
 
 export interface DurableCommandOptions {
-  /** Idempotency key, eg. an op id; `${clientId}:${seq}` when omitted. 1-MAX_KEY_LENGTH printable ASCII characters. */
+  /** Idempotency key, eg. an op id; `clientId:<random nonce persisted with the entry>` when omitted ( spec amendment, RELEASE_NOTES ). 1-MAX_KEY_LENGTH printable ASCII characters. */
   key?: string;
 }
 
@@ -4644,7 +4644,7 @@ Replace the whole `## Notes for W3 (resilience)` section (its heading and its th
 ### Durable commands
 
 - **Wire.** `CommandRequest.after` names the idempotency key of the durable command sent before. The ordering stage runs the command only once that one has completed (a result or a final error), and otherwise answers a retryable `unavailable`. The outcome of an ordered command is stored before its queue place is released.
-- **Client.** `client.durable(name, payload, { key? })` writes the command to the `outbox` store before it sends it, with `idempotencyKey = clientId:seq` or the app's key. It then:
+- **Client.** `client.durable(name, payload, { key? })` writes the command to the `outbox` store before it sends it, with `idempotencyKey = clientId:<random nonce persisted with the entry>` (see `packages/http-socket/RELEASE_NOTES.md`, "W3 resilience (spec amendments)") or the app's key. It then:
   - sends up to `durable.window` (16) commands at once, each `after` the previous unacknowledged one, with no deadline;
   - resends everything unacknowledged after any drop, and resends a command unanswered after `durable.ackTimeoutMs` (60 s);
   - retries retryable errors and `unauthenticated` with the reconnect backoff, honouring `retryAfterMs`;
@@ -4705,7 +4705,7 @@ git commit -m "docs(http-socket): W3 resilience release notes"
 | §5.5 graceful shutdown, steps 1–5, `drainMs` | 6 |
 | §5.5 recovery (2 min, configured in W1) + W1 deferred `recovered` flag and flattened identity | 7 |
 | §5.6 `idempotency { service, ttlMs }`, `drainMs` | 3, 6 |
-| §6 durable steps 1–5: persist first, `clientId:seq`, window 16, resend after drops, retry/backoff, `failed` list + event | 1, 5, 8, 9, 10 |
+| §6 durable steps 1–5: persist first, `clientId:<random nonce persisted with the entry>` (spec amendment, RELEASE_NOTES), window 16, resend after drops, retry/backoff, `failed` list + event | 1, 5, 8, 9, 10 |
 | §6 stores: memory, IndexedDB (`/browser`, `fake-indexeddb`), file (Node) | 8, 11, 12 |
 | §6 `sys.shutdown` waits `retryAfterMs` (W2, unchanged); refused handshake carries the hint | 6 |
 | §7 fault kit: kill the engine connection, delay or drop acks, restart on the same port | 2 |
