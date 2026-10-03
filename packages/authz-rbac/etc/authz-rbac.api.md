@@ -61,6 +61,8 @@ export declare abstract class AssignmentStore {
     abstract readonly name: string;
     abstract forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
     abstract holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;
+    /** Expired rows too. AdminGuard and the RBAC write handlers resolve id-only commands (assignment.revoke, tags, expiry) with it. */
+    abstract byId(id: string): Promise<Assignment | null>;
     assign?(a: Omit<Assignment, "id" | "source">, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
     revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
 }

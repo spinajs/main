@@ -6,6 +6,7 @@ import * as root from '../src/index.js';
 import type { Initiator, JobOptions } from '../src/index.js';
 import type { Ceiling, PrincipalType } from '@spinajs/authz';
 import type { IQueueMessage } from '@spinajs/queue';
+import { QueueMessageHook as QueuePackageHook } from '@spinajs/queue';
 
 const expect = chai.expect;
 
@@ -29,6 +30,11 @@ describe('authz-queue api', () => {
     const message = {} as IQueueMessage;
     expect(await new SyncHook().aroundHandle(message, async () => 1)).to.equal(1);
     expect(await new AsyncHook().aroundHandle(message, async () => 'x')).to.equal('x');
+  });
+
+  it('QueueMessageHook is the @spinajs/queue class, not a copy', () => {
+    expect(QueueMessageHook).to.equal(QueuePackageHook);
+    expect(new SyncHook()).to.be.instanceOf(QueuePackageHook);
   });
 
   it('JobOptions and Initiator accept the design literals', () => {

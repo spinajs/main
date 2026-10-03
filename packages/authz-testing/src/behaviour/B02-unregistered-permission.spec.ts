@@ -107,8 +107,8 @@ export const B02 = fixture('B02', [
   {
     name: 'adapter',
     facets: ['fs'],
-    lanes: [],
-    note: "An adapter's operations() naming an unregistered permission fails at boot; no kit fake has operations(), so L7 (fs operation table) proposes the case.",
+    lanes: ['L7'],
+    note: "An adapter's operations() naming an unregistered permission fails at boot. Only the fs adapter declares an operation table (design §13), so L7 proposes the case; no kit fake has operations().",
     cases: [],
   },
 ]);
