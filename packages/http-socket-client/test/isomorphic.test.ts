@@ -2,12 +2,16 @@ import 'mocha';
 import { expect } from 'chai';
 import { builtinModules } from 'node:module';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageDir = fileURLToPath(new URL('../', import.meta.url));
 const ALLOWED_PACKAGES = ['@spinajs/http-socket-common', 'socket.io-client'];
 const NODE_GLOBAL = /\b(?:process|Buffer|__dirname|__filename|require|setImmediate|global)\s*[.(]/;
+
+/** Reachable only through the `./node` subpath. */
+const NODE_ONLY = join(packageDir, 'src', 'node') + sep;
+const NODE_IMPORT = /(^|\/)node\//;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -33,7 +37,7 @@ describe('isomorphic main entry', () => {
 
   it('src imports only relative modules and the allowed packages, and uses no Node globals', () => {
     const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
-    const files = sourceFiles(join(packageDir, 'src'));
+    const files = sourceFiles(join(packageDir, 'src')).filter((file) => !file.startsWith(NODE_ONLY));
     expect(files).to.not.be.empty;
 
     for (const file of files) {
@@ -43,6 +47,16 @@ describe('isomorphic main entry', () => {
         expect(specifier.startsWith('.') || ALLOWED_PACKAGES.includes(specifier), `${file} imports ${specifier}`).to.equal(true);
       }
       expect(NODE_GLOBAL.test(source), `${file} uses a Node global`).to.equal(false);
+    }
+  });
+
+  it('keeps Node-only code behind the ./node subpath', () => {
+    const files = sourceFiles(join(packageDir, 'src')).filter((file) => !file.startsWith(NODE_ONLY));
+
+    for (const file of files) {
+      for (const specifier of specifiers(readFileSync(file, 'utf8'))) {
+        expect(NODE_IMPORT.test(specifier), `${file} imports ${specifier}`).to.equal(false);
+      }
     }
   });
 });

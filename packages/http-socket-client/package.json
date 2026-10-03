@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./node": {
+      "types": "./lib/mjs/node/index.d.ts",
+      "import": "./lib/mjs/node/index.js",
+      "require": "./lib/cjs/node/index.js"
     }
   },
   "type": "module",
