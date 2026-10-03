@@ -3,7 +3,7 @@ import type { Assignment, AssignmentSubject, ResourceRef } from '@spinajs/authz'
 
 import { AssignmentStore, RoleStore } from '../contracts.js';
 import type { LadderDef, RoleDef } from '../contracts.js';
-import { isLive, subjectKey } from './assignments.js';
+import { expiryTime, isLive, subjectKey } from './assignments.js';
 
 /** Role definitions held in memory; `set` replaces them and changes the version. */
 export class MemoryRoleStore extends RoleStore {
@@ -58,7 +58,8 @@ export class MemoryAssignmentStore extends AssignmentStore {
 
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
     const keys = new Set(subjects.map(subjectKey));
-    return this.all().filter((a) => keys.has(subjectKey(a.subject)) && isLive(a, at));
+    // A row with an unreadable expiresAt goes to the model, which refuses it, rather than vanishing here.
+    return this.all().filter((a) => keys.has(subjectKey(a.subject)) && (isLive(a, at) || Number.isNaN(expiryTime(a))));
   }
 
   async holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]> {

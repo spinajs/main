@@ -2,7 +2,7 @@ import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, compareDenyReasons, or, pri
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
-import { isLive } from './assignments.js';
+import { expiryTime } from './assignments.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
 import type { CompileRolesOptions, RoleGraph } from './roles.js';
@@ -104,12 +104,16 @@ const collect: RbacStep = (s) => {
   const { assignments, path, roles, now, onUnknownRole } = s.input;
   const scopes = new Set(path.map(resourceKey));
   for (const a of assignments) {
-    if (!isLive(a, now) || !scopes.has(resourceKey(a.scope))) continue;
+    if (!scopes.has(resourceKey(a.scope))) continue;
+    const expires = expiryTime(a);
+    // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
+    if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
+    if (expires !== undefined && expires <= now.getTime()) continue;
     if (!roles.has(a.role)) {
       onUnknownRole?.(a);
       continue;
     }
-    s.live.push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}), bypass: new Set() });
+    s.live.push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
 
@@ -125,8 +129,19 @@ const grant: RbacStep = (s) => {
   s.candidates = [...holders].map(([g, h]) => ({ grant: g, holders: h, failed: false }));
 };
 
+/*
+ * validUntil bounds the vote by the earliest expiry among the holders of every candidate, refused
+ * ones included: such an expiry can end a permit or change the reason. An assignment whose roles
+ * do not reach the permission cannot change this vote, so its expiry is left out. Steps that read
+ * other assignments (aggregate for Vote.roles) lower state.validUntil themselves.
+ */
 const residual: RbacStep = (s) => {
-  for (const c of s.candidates) if (!c.failed) s.permit.push(TRUE);
+  const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
+  for (const c of s.candidates) {
+    if (!c.failed) s.permit.push(TRUE);
+    for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
+  }
+  if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
 };
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({
@@ -204,9 +219,9 @@ export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationC
 }
 
 /**
- * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its ancestors
- * in order, GLOBAL last, each once. A type-level request gets GLOBAL only: a scoped assignment must never permit every row,
- * it needs a row filter (`native:rbac.assignment`).
+ * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its
+ * ancestors in order, GLOBAL last, each once. A type-level request gets GLOBAL only: a scoped
+ * assignment must never permit every row, it needs a row filter (`native:rbac.assignment`).
  */
 export async function resourcePath(resource: ResourceRef, ctx: EvaluationContext): Promise<readonly ResourceRef[]> {
   if (resource.id == null) return [GLOBAL];

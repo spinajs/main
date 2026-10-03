@@ -278,4 +278,109 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect((await evaluate([assignment('g1', 'viewer')], typeLevel)).vote.permitWhen).to.deep.equal(TRUE);
     });
   });
+
+  describe('expiry and validUntil (B14)', () => {
+    const after = (ms: number) => new Date(NOW.getTime() + ms);
+    const HOUR = 3_600_000;
+    const expiring = (id: string, roleName: string, expiresAt: unknown) => assignment(id, roleName, { expiresAt: expiresAt as Date });
+
+    it('an assignment expiring exactly at now is expired; one a millisecond later is live until then', () => {
+      expect(runRbacPipeline(input([expiring('a1', 'viewer', after(0))], 'file:read')).reason).to.deep.equal(NO_ACCESS);
+      const vote = runRbacPipeline(input([expiring('a1', 'viewer', after(1))], 'file:read'));
+      expect(vote.permitWhen).to.deep.equal(TRUE);
+      expect(vote.validUntil).to.deep.equal(after(1));
+    });
+
+    it('validUntil is the earliest expiry among the assignments that reach the permission', () => {
+      const vote = runRbacPipeline(input([expiring('a1', 'viewer', after(2 * HOUR)), expiring('a2', 'editor', after(HOUR)), expiring('a3', 'viewer', after(3 * HOUR))], 'file:read'));
+      expect(vote.validUntil).to.deep.equal(after(HOUR));
+    });
+
+    it('an expiring assignment whose roles do not reach the permission leaves validUntil alone', () => {
+      const vote = runRbacPipeline(input([assignment('a1', 'viewer'), expiring('a2', 'writer', after(60_000))], 'file:read'));
+      expect(vote.permitWhen).to.deep.equal(TRUE);
+      expect(vote.validUntil).to.equal(undefined);
+      expect(runRbacPipeline(input([expiring('a2', 'writer', after(60_000))], 'file:read')).validUntil).to.equal(undefined);
+    });
+
+    it('a null or absent expiresAt never expires and sets no validUntil', () => {
+      const vote = runRbacPipeline(input([expiring('a1', 'viewer', null), assignment('a2', 'viewer')], 'file:read'));
+      expect(vote.permitWhen).to.deep.equal(TRUE);
+      expect(vote.validUntil).to.equal(undefined);
+      expect(vote.cacheable).to.equal(true);
+    });
+
+    it('a holder of a grant that a step refused still bounds validUntil: its expiry changes the reason', () => {
+      const vote = runRbacPipeline(
+        input([expiring('a1', 'viewer', after(HOUR))], 'file:read'),
+        withSteps({
+          tag: (s) => {
+            s.candidates[0].failed = true;
+            s.reasons.push({ code: 'tag_missing', tag: 'x', priority: DEFAULT_DENY_PRIORITY.tag_missing });
+          },
+        }),
+      );
+      expect(vote.permitWhen).to.deep.equal(FALSE);
+      expect(vote.validUntil).to.deep.equal(after(HOUR));
+    });
+
+    it('an earlier step may set validUntil; the vote keeps the earlier of it and the holders', () => {
+      const steps = (until: Date) => withSteps({ aggregate: (s) => void (s.validUntil = until) });
+      expect(runRbacPipeline(input([expiring('a1', 'viewer', after(HOUR))], 'file:read'), steps(after(60_000))).validUntil).to.deep.equal(after(60_000));
+      expect(runRbacPipeline(input([expiring('a1', 'viewer', after(HOUR))], 'file:read'), steps(after(2 * HOUR))).validUntil).to.deep.equal(after(HOUR));
+    });
+
+    it('an unreadable expiresAt (invalid Date, string, number) on the path throws, naming the assignment', () => {
+      for (const bad of [new Date(NaN), after(HOUR).toISOString(), after(HOUR).getTime()]) {
+        const corrupt = { ...expiring('a1', 'viewer', bad), source: 'db' };
+        expect(() => runRbacPipeline(input([corrupt, assignment('a2', 'viewer')], 'file:read')), String(bad)).to.throw(Error, "assignment 'a1' (source: db, role 'viewer') has an unreadable expiresAt");
+      }
+    });
+
+    it('an unreadable expiresAt off the path is not read', () => {
+      const offPath = expiring('a1', 'viewer', 'soon');
+      expect(runRbacPipeline(input([{ ...offPath, scope: { type: 'project', id: 'p1' } }, assignment('a2', 'viewer')], 'file:read')).permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('validUntil ignores expiring assignments off the path and of unknown roles', () => {
+      const vote = runRbacPipeline(
+        input(
+          [assignment('a1', 'viewer'), expiring('a2', 'viewer', after(60_000)), expiring('a3', 'ghost', after(60_000))].map((a) => (a.id === 'a2' ? { ...a, scope: { type: 'project', id: 'p1' } } : a)),
+          'file:read',
+          { onUnknownRole: () => undefined },
+        ),
+      );
+      expect(vote.permitWhen).to.deep.equal(TRUE);
+      expect(vote.validUntil).to.equal(undefined);
+    });
+
+    it('a corrupt row in the memory store reaches the model, which throws; holders leaves it out', async () => {
+      const registry = new PermissionRegistryImpl();
+      registry.register([{ name: 'file:read' }], 'test');
+      registry.freeze();
+      const roles = compileRoles([role('viewer', ['file:read'])]);
+      const store = new MemoryAssignmentStore([expiring('a1', 'viewer', 'tomorrow'), assignment('a2', 'viewer')]);
+      const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now: NOW }), { roles, grants: compileGrants(roles, registry), assignments: store });
+      expect(gathered.assignments.map((a) => a.id)).to.deep.equal(['a1', 'a2']);
+      expect(() => runRbacPipeline(gathered)).to.throw(Error, "assignment 'a1'");
+      expect(await store.holders('viewer', GLOBAL, NOW)).to.deep.equal([{ type: 'user', id: 'alice' }]);
+    });
+
+    it('the gathering re-checks expiry against ctx.now, whatever the store returned', async () => {
+      class Unfiltered extends MemoryAssignmentStore {
+        override async forSubjects(): Promise<readonly Assignment[]> {
+          return this.all();
+        }
+      }
+      const registry = new PermissionRegistryImpl();
+      registry.register([{ name: 'file:read' }], 'test');
+      registry.freeze();
+      const roles = compileRoles([role('viewer', ['file:read'])]);
+      const sources = { roles, grants: compileGrants(roles, registry), assignments: new Unfiltered([expiring('a1', 'viewer', after(HOUR))]) };
+      const at = (now: Date) => gatherRbacInput({ principal: alice, permission: 'file:read', resource: f1 }, fakeEvaluationContext({ now }), sources).then(runRbacPipeline);
+      // NOW lies before the real clock, so a model reading Date.now() would see a1 as expired here.
+      expect((await at(NOW)).validUntil).to.deep.equal(after(HOUR));
+      expect((await at(after(HOUR))).reason).to.deep.equal(NO_ACCESS);
+    });
+  });
 });
