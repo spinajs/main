@@ -7,6 +7,7 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import type { OrmScopePolicy } from './api.js';
 import { columnOf, dialectOf, idMode, idText } from './columns.js';
 import { classesOf, entryOf, registeredTypes, scopePolicyOf, scopeRelationsOf } from './registry.js';
+import { assertSynchronous } from './compile/sync.js';
 import { findRow, pkOf } from './rows.js';
 import type { Row } from './rows.js';
 
@@ -70,7 +71,7 @@ async function scopedExists(policy: OrmScopePolicy, principal: Principal, row: R
     model
       .where(pk, id)
       .where(function (this: IWhereBuilder<ModelBase>) {
-        policy.scope(this, principal, 'read');
+        assertSynchronous(policy.scope(this, principal, 'read'), `the @OrmScope policy ${policy.constructor.name}.scope`);
       })
       .first() as Promise<unknown>;
   return (await runWithPrincipal(SYSTEM, query)) instanceof ModelBase;
