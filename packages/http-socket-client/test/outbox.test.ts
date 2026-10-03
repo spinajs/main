@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { MemoryOutboxStore } from '../src/outbox.js';
 import { describeOutboxStore } from './support/outbox-contract.js';
 
-describeOutboxStore('MemoryOutboxStore', () => ({ create: async () => new MemoryOutboxStore() }), { reopens: false });
+describeOutboxStore('MemoryOutboxStore', () => ({ create: async () => new MemoryOutboxStore() }), { reopens: false, binary: 'keeps' });
 
 describe('MemoryOutboxStore', () => {
   it('hands out copies of its lists, so a caller cannot reorder the queue', async () => {

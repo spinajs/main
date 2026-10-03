@@ -17,7 +17,7 @@ describeOutboxStore(
     const path = nextPath();
     return { create: async () => new FileOutboxStore(path), reopen: async () => new FileOutboxStore(path) };
   },
-  { reopens: true },
+  { reopens: true, binary: 'refuses' },
 );
 
 describe('FileOutboxStore', () => {

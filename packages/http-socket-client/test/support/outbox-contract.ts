@@ -16,7 +16,13 @@ function failedOf(entry: OutboxEntry): FailedOutboxEntry {
 }
 
 /** Every OutboxStore passes this suite; `fixture` is called once per test. */
-export function describeOutboxStore(title: string, fixture: () => OutboxStoreFixture, options: { reopens: boolean }): void {
+export interface OutboxStoreTraits {
+  reopens: boolean;
+  /** `refuses`: a store that keeps JSON rejects a payload JSON would change, and writes nothing. */
+  binary: 'keeps' | 'refuses';
+}
+
+export function describeOutboxStore(title: string, fixture: () => OutboxStoreFixture, options: OutboxStoreTraits): void {
   describe(`${title} (OutboxStore contract)`, () => {
     let f: OutboxStoreFixture;
     let store: OutboxStore;
@@ -146,6 +152,44 @@ export function describeOutboxStore(title: string, fixture: () => OutboxStoreFix
       expect((await store.pending()).map((e) => e.seq)).to.deep.equal([c.seq, d.seq]);
       expect((await store.failed()).map((e) => e.seq)).to.deep.equal([b.seq]);
     });
+
+    if (options.binary === 'keeps') {
+      it('keeps a binary payload byte for byte', async () => {
+        await store.add({ name: 'blob.put', payload: { bytes: new Uint8Array([1, 2, 255]) } });
+        const reread = options.reopens ? await f.reopen!() : store;
+
+        const [entry] = await reread.pending();
+
+        expect(Array.from((entry.payload as { bytes: Uint8Array }).bytes)).to.deep.equal([1, 2, 255]);
+      });
+    } else {
+      for (const [label, payload] of [
+        ['a Uint8Array', { bytes: new Uint8Array([1, 2, 255]) }],
+        ['an ArrayBuffer', new Uint8Array([1]).buffer],
+        ['a Date', { at: new Date(0) }],
+        ['a Map', { m: new Map([['a', 1]]) }],
+        ['NaN', { n: NaN }],
+        ['undefined in an array', [1, undefined]],
+      ] as const) {
+        it(`refuses ${label} as a payload JSON would change, and writes nothing`, async () => {
+          const error = await store.add({ name: 'blob.put', payload }).catch((e: unknown) => e);
+
+          expect(error).to.be.instanceOf(TypeError);
+          expect((error as Error).message).to.contain('JSON');
+          expect(await store.pending()).to.deep.equal([]);
+          if (options.reopens) {
+            expect(await (await f.reopen!()).pending()).to.deep.equal([]);
+          }
+        });
+      }
+
+      it('accepts plain JSON, and an undefined property, which the wire drops as well', async () => {
+        await store.add({ name: 'x', payload: { a: [1, 'two', null, { b: true }], gone: undefined } });
+        const reread = options.reopens ? await f.reopen!() : store;
+
+        expect((await reread.pending())[0].payload).to.deep.equal({ a: [1, 'two', null, { b: true }] });
+      });
+    }
 
     if (options.reopens) {
       it('keeps pending entries, failed entries and the seq counter across a reopen', async () => {

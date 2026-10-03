@@ -30,10 +30,54 @@ const TRANSIENT = new Set(['EPERM', 'EBUSY', 'EACCES']);
 const empty = (): IFileOutbox => ({ version: 1, seq: 0, pending: [], failed: [] });
 const isEntry = (value: unknown): value is { seq: number } => typeof value === 'object' && value !== null && typeof (value as { seq?: unknown }).seq === 'number';
 
+/** Where JSON would change the value, eg. `payload.bytes is a Uint8Array`; null when it survives a JSON round trip. */
+function jsonChange(value: unknown, path: string): string | null {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? null : `${path} is ${value}`;
+  }
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const changed = value[i] === undefined ? `${path}[${i}] is undefined` : jsonChange(value[i], `${path}[${i}]`);
+      if (changed !== null) {
+        return changed;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value) as object | null;
+    if (proto !== Object.prototype && proto !== null) {
+      return `${path} is a ${(proto.constructor as { name?: string } | undefined)?.name || 'class instance'}`;
+    }
+
+    for (const [key, item] of Object.entries(value)) {
+      // dropped from the file as from the wire, so the command is sent the same
+      if (item === undefined) {
+        continue;
+      }
+      const changed = jsonChange(item, `${path}.${key}`);
+      if (changed !== null) {
+        return changed;
+      }
+    }
+    return null;
+  }
+
+  // a top-level undefined payload stays undefined; a function or symbol inside is dropped
+  return path === 'payload' && value === undefined ? null : `${path} is a ${typeof value}`;
+}
+
 /**
  * The outbox of a Node service, in one JSON file. Every write goes through a temp file, fsync and rename,
  * so a crash leaves the old queue or the new one, never a torn one. Changes that queue up while a write
- * is in flight are committed together by the next one. Payloads must be JSON. One process at a time per file.
+ * is in flight are committed together by the next one. Payloads must survive a JSON round trip unchanged:
+ * `add` refuses binary, Dates, Maps, class instances and non-finite numbers. One process at a time per file.
  *
  * The whole queue is rewritten on every commit, so the cost of a write grows with the queue size: meant
  * for queues of up to some thousands of entries.
@@ -57,6 +101,11 @@ export class FileOutboxStore implements OutboxStore {
     try {
       // A payload that cannot be serialized must fail its own caller, not the batch it would share a write with.
       JSON.stringify(input.payload);
+      // The cache holds the payload itself and the file its JSON form: a payload JSON changes would be sent differently after a restart.
+      const changed = jsonChange(input.payload, 'payload');
+      if (changed !== null) {
+        throw new TypeError(`FileOutboxStore keeps payloads as JSON, which would change ${changed}: encode it as JSON first, eg. bytes as base64`);
+      }
     } catch (err) {
       return Promise.reject(err);
     }

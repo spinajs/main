@@ -185,7 +185,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - Stores, all passing one contract suite (`add` durable before the send, a `seq` that is never reused, a `failed` list kept until `clearFailed`):
   - `MemoryOutboxStore`, the default; it does not survive a reload;
   - `IndexedDbOutboxStore(name, { factory?, exclusive? })` from `@spinajs/http-socket-client/browser`; with the global IndexedDB it refuses a second live store on the same name through `navigator.locks`;
-  - `FileOutboxStore(path)` from `@spinajs/http-socket-client/node`; one JSON file written through a temp file, fsync and rename, one process per file.
+  - `FileOutboxStore(path)` from `@spinajs/http-socket-client/node`; one JSON file written through a temp file, fsync and rename, one process per file. Its `add` rejects with a `TypeError`, writing nothing, a payload a JSON round trip would change (binary, `Date`, `Map`, class instances, non-finite numbers, `undefined` in an array): after a restart the command would be sent with different bytes. `undefined` properties are allowed, as the wire drops them too.
 
 ### Graceful shutdown
 

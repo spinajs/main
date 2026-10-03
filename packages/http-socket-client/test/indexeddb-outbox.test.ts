@@ -29,7 +29,7 @@ describeOutboxStore(
     const factory = freshIndexedDb();
     return { create: async () => new IndexedDbOutboxStore('contract', { factory }), reopen: async () => new IndexedDbOutboxStore('contract', { factory }) };
   },
-  { reopens: true },
+  { reopens: true, binary: 'keeps' },
 );
 
 describe('IndexedDbOutboxStore', () => {

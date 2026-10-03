@@ -74,6 +74,7 @@ await client.durable('docs.edit', { id, op }, { key: opId }).catch(() => undefin
 - A persistent `outbox` requires an explicit `clientId`, stored by the app: a new random id after a reload would break exactly-once and ordering. The default `MemoryOutboxStore` does not survive a reload.
 - `durable()` rejects when the server refuses the command for good and when the client closes (the entry stays in the outbox). Attach a `catch` or follow `acked` / `failed`.
 - `acked` and `failed` fire in send order, also for entries resumed from the outbox after a reload.
+- `FileOutboxStore` keeps payloads as JSON, so its `add` (and `durable()`) rejects with a `TypeError` a payload that a JSON round trip would change: `Uint8Array`, `Buffer`, `ArrayBuffer`, `Date`, `Map`, `Set`, class instances, `NaN`/`Infinity`, `undefined` inside an array. Nothing is written. Encode such values yourself (bytes as base64, dates as ISO strings). An `undefined` property is allowed: the wire drops it too. `IndexedDbOutboxStore` and `MemoryOutboxStore` keep binary.
 
 ## Streams
 
