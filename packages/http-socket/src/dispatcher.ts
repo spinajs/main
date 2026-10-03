@@ -11,11 +11,11 @@ import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
 import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, assertStreamsConfig, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
-import { SOCKET_UNKNOWN_COMMAND, observeCommand } from './metrics.js';
+import { SOCKET_UNKNOWN_COMMAND, observeCommand, observeStream } from './metrics.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
-import { ServerStream, isStreamResult } from './stream.js';
+import { ServerStream, StreamOutcome, isStreamResult } from './stream.js';
 import { IN_FLIGHT_RETRY_AFTER_MS } from './stages/limits.js';
 import './stages/index.js';
 
@@ -501,13 +501,25 @@ export class SocketDispatcher extends AsyncService {
 
   protected runStream(ctx: SocketCommandContext, stream: ServerStream): void {
     const runtime = ctx.runtime;
+    const started = performance.now();
 
-    void stream.run().then(() => {
+    void stream.run().then((outcome) => {
       if (runtime.running.get(ctx.request.id) === ctx) {
         runtime.running.delete(ctx.request.id);
       }
+      this.streamEnded(ctx, stream, outcome, performance.now() - started);
     });
     // a source that ignores its signal still runs, so it keeps its slot until it settles
     void stream.settled.then(() => runtime.streams--);
+  }
+
+  protected streamEnded(ctx: SocketCommandContext, stream: ServerStream, outcome: StreamOutcome, ms: number): void {
+    // observability must never break the stream bookkeeping
+    try {
+      this.Log.debug(`socket stream ${ctx.request.name} ${outcome} ${stream.sent} chunks ${Math.round(ms)}ms connection ${ctx.connection.id}`);
+      observeStream(ctx.handler?.fullName ?? SOCKET_UNKNOWN_COMMAND, outcome);
+    } catch {
+      // swallowed on purpose
+    }
   }
 }

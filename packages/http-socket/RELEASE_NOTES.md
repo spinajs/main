@@ -73,12 +73,28 @@ Live connections re-check their principal, so a revoked or expired credential st
 - The services of named domains (`AuthzDomains.service(name)`) read the same AsyncLocalStorage store, so their `current()` and `runAs` behave the same in socket handlers.
 - `ISocketCallStorage` now extends authz's `IAuthzAsyncStorage`, so `AuthzCache` and `Unscoped` are typed keys of the call store. This is a type-only change; the runtime exports are unchanged.
 
+### Stream replies (W4)
+
+- A command handler that returns an async iterable (an `async *` method) answers with a stream reply. The ack is `{ id, ok: true, stream: true }`. Then come `chunk { id, seq, data }` frames numbered from 0, and finally `end { id, seq }` (`seq` = the number of chunks) or `fail { id, error }`. An `undefined` item is sent as `null`. Binary parts travel as attachments, as in commands.
+- Flow control is by credit. The request carries `credits`, the client's window. The server asks the source for the next item only while it holds credit, so a slow consumer slows the producer. The end frame costs one credit, so the client always keeps one in hand. The client grants more with `credit { id, credits }` as it reads.
+- The stream source is bounded only by credit stall, `cancel`, disconnect and shutdown, and it must honour `@Signal`. `cancel`, a disconnect and shutdown abort the signal (`cancelled` / `unavailable`) and run the generator's `finally`. A stream that gets no credit for `streams.stallTimeoutMs` fails with `deadline_exceeded`.
+- Stream handlers cannot be `ordered`: such a handler is refused at startup, and an `ordered` handler that returns another async iterable is answered `failed_precondition`.
+- The generator runs inside the call's AsyncLocalStorage store for every item, so `AuthzService.current()` is the connection principal there too.
+- A stream command called without `credits` (a plain `client.command()`) is answered `failed_precondition`, and its source never starts. W1 answered stream handlers with `unimplemented`.
+- `streams.maxCredits` is enforced on the request, on each grant and on the running total of granted credits; a breach fails with `invalid_argument` and `details { limit }`. More than `streams.maxPerConnection` open streams on one connection answers `resource_exhausted` with `retryAfterMs: 100`. A stream holds its `maxPerConnection` slot until its source has settled, and no `maxInFlightPerConnection` slot.
+- `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only.
+- Streams are never idempotent or stored: W3's idempotency stage passes a stream result through unrecorded via `isStreamResult`.
+- An open stream keeps its request id in flight until its `end` or `fail` frame.
+- Metrics: `socket_streams_total{command, code}` counts ended streams by outcome (`ok` or the error code). One debug line per stream: `socket stream <name> <outcome> <n> chunks <ms>ms connection <id>`.
+- Public additions: `SOCKET_METRIC_KEY_STREAMS`, `observeStream`.
+
 ### Configuration
 
 - `http.socket.transports` (default `['websocket', 'polling']`): the engine.io transports. Prefer `['websocket']` when a principal source reads cookies.
 - `http.socket.maxInFlightEventsPerConnection` (default `128`). It must be at least `rate.burst`. Events have their own in-flight cap, separate from `maxInFlightPerConnection`.
 - `http.socket.ordering.abortGraceMs` (default `30_000`): how long an aborted `ordered` command whose handler is still running keeps its queue place.
 - `http.socket.hooks.connectTimeoutMs` (default `10_000`): a connect hook still running after it is logged and commands stop waiting for it, so a disconnect hook may start while the connect hook is still running.
+- `http.socket.streams` (default `{ maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 60_000 }`): the largest window a client may grant one stream, the open streams per connection, and how long a stream may wait for credit.
 - Limit refusals read "more than N commands in flight on this connection" and "more than N events in flight on this connection".
 
 ### SocketHub
@@ -97,7 +113,9 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `auth.revalidateMs` is not a finite number of at least 0;
 - `transports` is empty or holds anything but `'websocket'` and `'polling'`;
 - `hooks.connectTimeoutMs` is not a positive number;
-- `ordering.abortGraceMs` is not a positive number.
+- `ordering.abortGraceMs` is not a positive number;
+- `streams.maxCredits` or `streams.maxPerConnection` is not an integer above 0;
+- `streams.stallTimeoutMs` is not an integer within 1 and 2^31-1.
 
 The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`, and when an `ordered` command's handler is an async generator (W4): its queue place would be released when the generator is returned, long before the stream ends. An `ordered` handler that returns another async iterable is answered `failed_precondition` at run time. Socket.io is not attached in either case.
 
