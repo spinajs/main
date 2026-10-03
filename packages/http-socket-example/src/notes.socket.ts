@@ -74,7 +74,10 @@ export class BlobSocket extends BaseSocketController {
   @Autoinject()
   protected Store: NotesStore;
 
-  /** Binary payload parts arrive as a Buffer, which is a Uint8Array. */
+  /**
+   * Binary payload parts arrive as a Buffer, which is a Uint8Array. A blob must fit one frame:
+   * `http.socket.maxPayloadBytes`, and socket.io's maxHttpBufferSize ( twice that ) drops the connection above it.
+   */
   @Command('put')
   public async put(@Payload() req: In<'blob.put'>) {
     if (!(req?.bytes instanceof Uint8Array)) {

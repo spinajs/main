@@ -129,6 +129,33 @@ describe('notes example ( server and client end to end )', function () {
     expect(server.store.snapshotStarts[1]).to.be.greaterThan(5);
   });
 
+  it('starts the snapshot over when the document changed while the connection was down', async () => {
+    const alice = connect('alice-token');
+    const bob = connect('bob-token');
+    await Promise.all([online(alice), online(bob)]);
+    const edited = { id: 'doc-1-0', text: 'edited while alice was away' };
+
+    let dropped = false;
+    const snapshot = await loadSnapshot(alice, 'doc-1', {
+      credits: 2,
+      onChunk: (index) => {
+        if (index === 5 && !dropped) {
+          dropped = true;
+          // alice stays offline until bob's edit is stored, so her retry always sees version 2
+          alice.disconnect();
+          void bob.command('notes.edit', { docId: 'doc-1', entity: edited }).then(() => alice.connect());
+        }
+      },
+    });
+
+    expect(snapshot.attempts).to.equal(2);
+    expect(snapshot.version).to.equal(2);
+    expect(server.store.snapshotStarts).to.deep.equal([0, 0]);
+    expect(snapshot.entities).to.have.length(100);
+    expect(snapshot.entities[0]).to.deep.equal(edited);
+    expect(snapshot.entities.slice(1).map((e) => e.id)).to.deep.equal(Array.from({ length: 99 }, (_, i) => `doc-1-${i + 1}`));
+  });
+
   it('pushes an edit to the clients in the document room', async () => {
     const alice = connect('alice-token');
     const bob = connect('bob-token');

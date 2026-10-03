@@ -34,6 +34,8 @@ export interface ILoadSnapshotOptions {
   maxAttempts?: number;
   /** after each applied chunk */
   onChunk?: (index: number) => void;
+  /** pause before retrying a retryable failure that left the client online; the error's retryAfterMs wins */
+  retryDelayMs?: number;
 }
 
 /**
@@ -73,6 +75,10 @@ export async function loadSnapshot(notes: NotesClient, docId: string, options: I
     } catch (error) {
       if (!(error instanceof SocketException) || !error.retryable || attempt >= maxAttempts) {
         throw error;
+      }
+      // offline, the next stream waits for the connection; online ( resource_exhausted, deadline_exceeded ) an immediate retry would hammer the server
+      if (notes.state === 'online') {
+        await new Promise((resolve) => setTimeout(resolve, error.retryAfterMs ?? options.retryDelayMs ?? 100));
       }
     }
   }

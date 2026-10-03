@@ -28,6 +28,7 @@ export interface INotesServerOptions {
   socket?: Record<string, unknown>;
 }
 
+// one notes server per process: DI and this configuration are process-wide, so a second start replaces the first one's options
 let current: INotesServerOptions = {};
 
 /** The example's settings, merged over the package defaults ( `http.socket` of @spinajs/http-socket ). */
