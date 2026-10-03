@@ -251,12 +251,18 @@ export class LocalPasswordService extends PasswordService {
 
   /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
   public async expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
-    await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
-    await this.sessions().revokeAll(id, { includeImpersonations: true });
-    const actor = opts.cause === 'admin' ? opts.actor : undefined;
-    if (opts.cause === 'admin') {
+    const sessions = this.sessions();
+    // The job skips marked identities, so for `aged` the marker goes after the revoke: a failed revoke leaves the identity
+    // unmarked for the next run. An admin sees the error and retries, so there the password dies first.
+    if (opts.cause === 'aged') {
+      await sessions.revokeAll(id, { includeImpersonations: true });
+      await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
+    } else {
+      await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
+      await sessions.revokeAll(id, { includeImpersonations: true });
       await this.revokeTokensOf(id, ctx, opts.actor);
     }
+    const actor = opts.cause === 'admin' ? opts.actor : undefined;
     // No password.expire event type exists.
     await this.audit(ctx, { type: 'password.change', outcome: 'success', identity: id, ...(actor ? { actor } : {}), data: { cause: opts.cause, expired: true } });
 

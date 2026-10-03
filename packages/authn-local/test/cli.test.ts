@@ -2,8 +2,9 @@ import 'mocha';
 import { expect } from 'chai';
 import { Readable } from 'node:stream';
 import { DI } from '@spinajs/di';
-import { META_ARGUMENT, META_OPTION } from '@spinajs/cli';
-import type { IArgument, IOption } from '@spinajs/cli';
+import { META_ARGUMENT, META_COMMAND, META_OPTION } from '@spinajs/cli';
+import type { IArgument, ICommand, IOption } from '@spinajs/cli';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -133,14 +134,28 @@ describe('authn-local cli commands', function () {
   describe('authn:password (D17)', () => {
     class ScriptedSetUserPassword extends SetUserPassword {
       public readonly printed: string[] = [];
-      constructor(private readonly stdin: readonly (string | Buffer)[] = []) {
+      public readonly prompted: string[] = [];
+      public readonly logged: string[] = [];
+      constructor(
+        private readonly stdin: readonly (string | Buffer)[] = [],
+        private readonly tty = false,
+      ) {
         super();
+        const record = (...args: unknown[]) => {
+          this.logged.push(args.map(String).join(' '));
+        };
+        // The @Logger getter lives on the prototype; an own property shadows it.
+        Object.defineProperty(this, 'Log', { value: { error: record, success: record, info: record, warn: record, debug: record, trace: record } });
       }
       protected input(): NodeJS.ReadableStream {
-        return Readable.from(this.stdin);
+        const stream = Readable.from(this.stdin);
+        return Object.assign(stream, { isTTY: this.tty });
       }
       protected print(text: string): void {
         this.printed.push(text);
+      }
+      protected prompt(text: string): void {
+        this.prompted.push(text);
       }
     }
 
@@ -155,11 +170,23 @@ describe('authn-local cli commands', function () {
       return { id, hash, passwords, hasher, sink };
     }
 
-    it('takes the login as its only argument and no password argument', () => {
+    async function rejection(run: () => Promise<void>): Promise<Error> {
+      try {
+        await run();
+      } catch (e) {
+        return e as Error;
+      }
+      throw new Error('the command did not fail');
+    }
+
+    it('takes the login as its only argument, no password argument, and refuses excess arguments', () => {
       const args = Reflect.getMetadata(META_ARGUMENT, SetUserPassword) as IArgument[];
       const opts = Reflect.getMetadata(META_OPTION, SetUserPassword) as IOption[];
+      const command = Reflect.getMetadata(META_COMMAND, SetUserPassword) as ICommand;
       expect(args.map((a) => a.name)).to.deep.equal(['login']);
       expect(opts.map((o) => o.flags)).to.deep.equal(['-g, --generate']);
+      expect(command.nameAndArgs).to.equal('authn:password');
+      expect(command.allowExcessArguments).to.equal(false);
     });
 
     it('sets the first stdin line, untrimmed, through PasswordService.set with the cli actor', async () => {
@@ -173,10 +200,22 @@ describe('authn-local cli commands', function () {
       expect(await x.hasher.verify(stored, 'Typed-Password-9')).to.equal(false);
       expect(await x.hasher.verify(stored, OLD)).to.equal(false);
       expect(command.printed).to.deep.equal([]);
+      expect(command.prompted).to.deep.equal([]);
+      expect(command.logged).to.have.length(1);
+      expect(command.logged.join('\n')).to.not.contain('Typed-Password-9');
       const [e] = x.sink.ofType('password.change').slice(events);
       expect(e.identity).to.deep.equal(x.id);
       expect(e.actor).to.deep.equal({ type: 'service', id: 'cli' });
       expect(e.data).to.deep.equal({ cause: 'set' });
+    });
+
+    it('prompts on stderr when stdin is a terminal', async () => {
+      const x = await seed('jill@example.com');
+      const command = new ScriptedSetUserPassword(['Typed-Password-8\n'], true);
+      await command.execute('jill@example.com', {});
+      expect(command.prompted).to.have.length(1);
+      expect(command.prompted[0]).to.contain('--generate');
+      expect(await x.hasher.verify(await x.passwords.get(x.id), 'Typed-Password-8')).to.equal(true);
     });
 
     it('decodes a character split across stdin chunks', async () => {
@@ -186,7 +225,7 @@ describe('authn-local cli commands', function () {
       expect(await x.hasher.verify(await x.passwords.get(x.id), 'Zażółć-Gęślą-1')).to.equal(true);
     });
 
-    it('with --generate prints a generated password once, which passes check and verifies', async () => {
+    it('with --generate prints a generated password once, which passes check and verifies, and never logs it', async () => {
       const x = await seed('hank@example.com');
       const command = new ScriptedSetUserPassword(['ignored-Stdin-1\n']);
       await command.execute('hank@example.com', { generate: true });
@@ -199,19 +238,25 @@ describe('authn-local cli commands', function () {
       expect(await service.check(generated)).to.deep.equal([]);
       expect(await x.hasher.verify(stored, generated)).to.equal(true);
       expect(await x.hasher.verify(stored, 'ignored-Stdin-1')).to.equal(false);
+      expect(command.logged).to.have.length(1);
+      expect(command.logged.join('\n')).to.not.contain(generated);
     });
 
-    it('a policy violation leaves the stored hash unchanged and never echoes the password', async () => {
+    it('a policy violation fails the command, leaves the stored hash unchanged and never echoes the password', async () => {
       const x = await seed('ivy@example.com');
       const writes = x.passwords.writes.length;
       const command = new ScriptedSetUserPassword(['Short-7\n']);
-      await command.execute('ivy@example.com', {});
+      const error = await rejection(() => command.execute('ivy@example.com', {}));
+      expect(error).to.be.instanceOf(InvalidArgument);
+      expect(error.message).to.contain('too_short');
       expect(await x.passwords.get(x.id)).to.equal(x.hash);
       expect(x.passwords.writes.length).to.equal(writes);
-      expect(command.printed.join('')).to.not.contain('Short-7');
+      expect(command.logged).to.have.length(1);
+      expect(command.logged[0]).to.contain('too_short');
+      expect([...command.printed, ...command.logged, error.message].join('\n')).to.not.contain('Short-7');
     });
 
-    it('an unknown login does not call set', async () => {
+    it('an unknown login fails the command without calling set or naming the login', async () => {
       const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
       const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
@@ -223,13 +268,16 @@ describe('authn-local cli commands', function () {
         calls++;
         return original.apply(service, args);
       };
+      const command = new ScriptedSetUserPassword(['Valid-Password-5\n']);
+      let error: Error;
       try {
-        const command = new ScriptedSetUserPassword(['Valid-Password-5\n']);
-        await command.execute('nobody@example.com', {});
-        expect(command.printed).to.deep.equal([]);
+        error = await rejection(() => command.execute('nobody@example.com', {}));
       } finally {
         service.set = original;
       }
+      expect(error).to.be.instanceOf(InvalidArgument);
+      expect(command.printed).to.deep.equal([]);
+      expect([...command.logged, error.message].join('\n')).to.not.contain('nobody');
       expect(calls).to.equal(0);
       expect(passwords.writes.length).to.equal(writes);
       expect(sink.all().length).to.equal(events);

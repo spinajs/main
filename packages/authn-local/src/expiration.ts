@@ -19,7 +19,7 @@ export interface PasswordExpirationResult {
   /** Set when the job did nothing: it is disabled, or no `PasswordAgeSource` is registered. */
   readonly idle?: 'disabled' | 'no_source';
   readonly expired: number;
-  /** Already holding the expiry marker. */
+  /** Already holding the expiry marker, or no password at all. */
   readonly skipped: number;
   readonly failed: number;
 }
@@ -74,7 +74,9 @@ export class PasswordExpirationJob {
     const counts = { expired: 0, skipped: 0, failed: 0 };
     for (const id of await ages.passwordsSetBefore(new Date(now.getTime() - maxAgeDays * DAY_MS))) {
       try {
-        if ((await passwords.get(id)) === EXPIRED_PASSWORD_MARKER) {
+        const stored = await passwords.get(id);
+        // null: no password to expire (an OIDC-only or service identity listed by mistake); it must get no reset mail.
+        if (stored === null || stored === EXPIRED_PASSWORD_MARKER) {
           counts.skipped++;
           continue;
         }

@@ -1,6 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHash } from 'node:crypto';
+import { DI } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFacts, IdentityRef, PasswordExpiry } from '@spinajs/authn/contracts';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
@@ -34,7 +36,7 @@ class ExpiryRecordingMailer extends PasswordMailer {
 async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
   const identities = new FakeIdentityStore();
   const passwords = new MemoryPasswordCredentialStore();
-  const sessions = new MemorySessionIssuer();
+  const sessions = (over.sessions as MemorySessionIssuer | undefined) ?? new MemorySessionIssuer();
   const events = new RecordingEventSink();
   const tokens = new RecordingTokenService();
   const secrets = new MemorySecretStore();
@@ -241,7 +243,9 @@ class RecordingExpiryService extends PasswordService {
   }
 }
 
-describe('PasswordExpirationJob (D16)', () => {
+describe('PasswordExpirationJob (D16)', function () {
+  this.timeout(60_000);
+
   const old1: IdentityRef = { type: 'user', id: 'old-1' };
   const old2: IdentityRef = { type: 'user', id: 'old-2' };
   const marked: IdentityRef = { type: 'user', id: 'marked' };
@@ -338,5 +342,92 @@ describe('PasswordExpirationJob (D16)', () => {
     expect((await x.login(OLD)).ok).to.equal(false);
     expect(x.mailer.mails.map((m) => m.purpose)).to.deep.equal(['reset']);
     expect(await job.run(NOW)).to.deep.equal({ expired: 0, skipped: 1, failed: 0 });
+  });
+  it('skips an identity without a password: no marker and no mail', async () => {
+    const x = await setup();
+    const oidc = x.identities.add({ login: 'oidc@example.com', email: 'oidc@example.com' });
+    const ages = new MapAgeSource(new Map([[oidc, new Date(NOW.getTime() - 40 * DAY)]]));
+    const job = new PasswordExpirationJob({ ages, passwords: x.passwords, service: x.service, enabled: true });
+    expect(await job.run(NOW)).to.deep.equal({ expired: 0, skipped: 1, failed: 0 });
+    expect(await x.passwords.get(oidc)).to.equal(null);
+    expect(x.mailer.mails).to.have.length(0);
+  });
+
+  it('retries an aged expiry whose session revoke failed, on the next run', async () => {
+    class FlakySessionIssuer extends MemorySessionIssuer {
+      public failures = 1;
+      public async revokeAll(...args: Parameters<MemorySessionIssuer['revokeAll']>) {
+        if (this.failures-- > 0) {
+          throw new Error('session store down');
+        }
+        return super.revokeAll(...args);
+      }
+    }
+    const sessions = new FlakySessionIssuer();
+    const x = await setup({ sessions });
+    const session = await sessions.issue(x.alice, facts());
+    const ages = new MapAgeSource(new Map([[x.alice, new Date(NOW.getTime() - 40 * DAY)]]));
+    const job = new PasswordExpirationJob({ ages, passwords: x.passwords, service: x.service, enabled: true });
+
+    expect(await job.run(NOW)).to.deep.equal({ expired: 0, skipped: 0, failed: 1 });
+    expect(await x.passwords.get(x.alice)).to.not.equal(EXPIRED_PASSWORD_MARKER);
+    expect(await job.run(NOW)).to.deep.equal({ expired: 1, skipped: 0, failed: 0 });
+    expect(await x.passwords.get(x.alice)).to.equal(EXPIRED_PASSWORD_MARKER);
+    expect(await sessions.restore(session.id)).to.equal(null);
+    expect(x.mailer.mails.map((m) => m.purpose)).to.deep.equal(['reset']);
+  });
+});
+
+class DefaultsAgeSource extends PasswordAgeSource {
+  public calls = 0;
+  public async passwordsSetBefore(): Promise<readonly IdentityRef[]> {
+    this.calls++;
+    return [];
+  }
+}
+
+/**
+ * Holds no value at all. A FrameworkConfiguration would not do: it merges every installed package's config, and
+ * @spinajs/users ships `authn.local.expiration.enabled: true`, which hides the code default.
+ */
+class ExpiryDefaultsConfiguration extends Configuration {
+  public get RootConfig() {
+    return { onConfigLoad: () => undefined };
+  }
+  protected onLoad(): unknown {
+    return {};
+  }
+  public get<T>(_path: string[] | string, defaultValue?: T): T {
+    return defaultValue as T;
+  }
+  public set(): void {}
+  public merge(): void {}
+  public async mergeSource(): Promise<void> {}
+  public async load(): Promise<void> {}
+}
+
+describe('PasswordExpirationJob from the container', function () {
+  this.timeout(60_000);
+
+  before(async () => {
+    DI.setESMModuleSupport();
+    DI.register(ExpiryDefaultsConfiguration).as(Configuration);
+    DI.register(DefaultsAgeSource).as(PasswordAgeSource);
+    await DI.resolve(Configuration);
+  });
+
+  after(() => {
+    DI.unregister(ExpiryDefaultsConfiguration);
+    DI.unregister(DefaultsAgeSource);
+    DI.uncache(Configuration);
+    DI.uncache(PasswordAgeSource);
+    DI.uncache(DefaultsAgeSource);
+    DI.uncache(PasswordExpirationJob);
+  });
+
+  it('is disabled when the config has no authn.local.expiration', async () => {
+    const job = await DI.resolve(PasswordExpirationJob);
+    expect(await job.run(NOW)).to.deep.equal({ idle: 'disabled', expired: 0, skipped: 0, failed: 0 });
+    expect((DI.resolve(PasswordAgeSource) as DefaultsAgeSource).calls).to.equal(0);
   });
 });
