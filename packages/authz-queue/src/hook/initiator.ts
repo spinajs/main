@@ -14,6 +14,7 @@ export abstract class InitiatorPrincipalFactory {
 
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
+// null counts as absent, as in the engine's ceiling reader.
 function reviveDate(v: unknown): Date | undefined {
   const d = v instanceof Date ? v : typeof v === 'string' || typeof v === 'number' ? new Date(v) : undefined;
   return d !== undefined && !Number.isNaN(d.getTime()) ? d : undefined;
@@ -22,7 +23,7 @@ function reviveDate(v: unknown): Date | undefined {
 /** Rebuilds a Ceiling that went through a JSON broker (`expiresAt` is a string there); undefined when the shape is wrong. */
 export function reviveCeiling(raw: unknown): Ceiling | undefined {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const c = raw as Record<string, unknown>;
+  const c: Record<string, unknown> = Object.fromEntries(Object.entries(raw as object).filter(([, v]) => v !== null));
   const out: { -readonly [K in keyof Ceiling]: Ceiling[K] } = {};
   if (c.roles !== undefined) {
     if (!isStrings(c.roles)) return undefined;
@@ -58,7 +59,13 @@ export function reviveCeiling(raw: unknown): Ceiling | undefined {
 /** Trusts the stamp: type, id and ceiling are all the principal has. A malformed stamp yields `UNATTENDED`. */
 @Injectable(InitiatorPrincipalFactory)
 export class StampedInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
+  private warned = false;
+
   async principalOf(initiator: Initiator): Promise<Principal> {
+    if (!this.warned) {
+      this.warned = true;
+      console.warn('authz-queue: jobs run as their initiator from the stamp alone; register an InitiatorPrincipalFactory that reloads the user so deactivated users stop acting');
+    }
     if (initiator === null || typeof initiator !== 'object') return UNATTENDED;
     const { type, id, ceiling } = initiator as { type?: unknown; id?: unknown; ceiling?: unknown };
     if (typeof type !== 'string' || type === '' || typeof id !== 'string' || id === '') return UNATTENDED;

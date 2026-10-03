@@ -15,7 +15,8 @@ export interface IEventOption {
  */
 export function Job(opts?: JobOptions) {
   return (target: any) => {
-    if (!Reflect.hasMetadata('queue:options', target)) {
+    // Own metadata only: a subclass must not inherit its parent's runAs.
+    if (!Reflect.hasOwnMetadata('queue:options', target)) {
       Reflect.defineMetadata(
         'queue:options',
         {

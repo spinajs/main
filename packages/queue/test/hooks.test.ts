@@ -310,3 +310,19 @@ describe('queue without message hooks', function () {
     expect(row.InitiatorId ?? null).to.equal(null);
   });
 });
+
+describe('@Job inheritance', () => {
+  it('a subclass does not inherit its parent runAs', () => {
+    @Job({ runAs: 'system' })
+    class Parent extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+    @Job()
+    class Child extends Parent {}
+
+    expect(jobOptions(new Parent())).to.deep.equal({ runAs: 'system' });
+    expect(jobOptions(new Child())).to.deep.equal({});
+  });
+});

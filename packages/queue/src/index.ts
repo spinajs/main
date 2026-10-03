@@ -222,7 +222,8 @@ export class DefaultQueueService extends QueueService {
                 // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
                 // the hook must never mask the original error, so its own failure is only logged.
                 try {
-                  await (ev as QueueJob).onFailed(err, { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId });
+                  const failure = { attempt: jModel.Attempt, maxAttempts: jModel.MaxAttempts ?? maxRetries + 1, isFinal: jModel.Status === 'dead', jobId: ev.JobId };
+                  await runAroundHandle(ev, () => (ev as QueueJob).onFailed(err, failure));
                 } catch (hookErr) {
                   this.Log.error(hookErr, `onFailed hook for job ${event.name} threw`);
                 }
@@ -269,7 +270,7 @@ export class DefaultQueueService extends QueueService {
             this.Log.trace(`Queue message ${event.name} processed`);
 
             if (callback) {
-              return callback(ev as T);
+              return runAroundHandle(ev, () => callback(ev as T));
             }
           }
         },

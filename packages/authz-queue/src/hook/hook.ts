@@ -5,7 +5,9 @@ import type { AuthzService, Principal } from '@spinajs/authz';
 import { QueueMessageHook, jobOptions } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { Initiator } from '../api.js';
-import { InitiatorPrincipalFactory } from './initiator.js';
+import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
+
+const isPlain = (v: unknown): boolean => v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
 
 /**
  * Stamps who emitted a message and decides whose authority its handler has (design §14.2, B30).
@@ -26,7 +28,17 @@ export class AuthzQueueHook extends QueueMessageHook {
     // A system-typed principal that is not the singleton is forged; stamping it would later become SYSTEM.
     if (principal.type === 'system' && principal !== SYSTEM) return;
 
-    message.Initiator = principal.ceiling ? { type: principal.type, id: principal.id, ceiling: { ...principal.ceiling } } : { type: principal.type, id: principal.id };
+    // The stamp cannot carry these; rebuilding without them would widen the job's authority.
+    if (principal.onBehalfOf !== undefined || principal.delegation !== undefined || principal.authn?.impersonator !== undefined) return;
+
+    const stamp: Initiator = { type: principal.type, id: principal.id };
+    if (principal.ceiling === undefined) {
+      message.Initiator = stamp;
+      return;
+    }
+    // A ceiling that is not a plain, well-formed one is stamped as deny-all, never as no restriction.
+    const ceiling = isPlain(principal.ceiling) ? reviveCeiling(principal.ceiling) : undefined;
+    message.Initiator = { ...stamp, ceiling: ceiling ?? { permissions: [] } };
   }
 
   async aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T> {

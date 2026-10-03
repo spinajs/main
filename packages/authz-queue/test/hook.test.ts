@@ -216,3 +216,33 @@ describe('StampedInitiatorPrincipalFactory', () => {
     expect(p.authenticated).to.equal(false);
   });
 });
+
+describe('AuthzQueueHook.beforeEmit, principals the stamp cannot carry', () => {
+  const stamped = async (p: Principal) => {
+    const hook = new TestHook();
+    hook.ambient = p;
+    const m = { Name: 'x' } as IQueueMessage;
+    await hook.beforeEmit(m);
+    return m.Initiator;
+  };
+
+  it('stamps nothing for a delegated principal', async () => {
+    expect(await stamped(user('agent', { onBehalfOf: user('alice') }))).to.equal(undefined);
+    expect(await stamped(user('agent', { delegation: 'inherit' }))).to.equal(undefined);
+  });
+
+  it('stamps nothing for an impersonating principal', async () => {
+    expect(await stamped(user('alice', { authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(), impersonator: { type: 'user', id: 'admin' } } }))).to.equal(undefined);
+  });
+
+  it('stamps a malformed ceiling as deny-all', async () => {
+    for (const bad of [['x'], 'x', new (class C { permissions = ['a']; })(), { permissions: 'a' }, { expiresAt: 'soon' }]) {
+      const s = await stamped(user('alice', { ceiling: bad as never }));
+      expect(s?.ceiling, JSON.stringify(bad)).to.deep.equal({ permissions: [] });
+    }
+  });
+
+  it('treats null ceiling fields as absent', () => {
+    expect(reviveCeiling({ roles: null, permissions: ['a'] })).to.deep.equal({ permissions: ['a'] });
+  });
+});
