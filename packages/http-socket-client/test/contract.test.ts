@@ -64,6 +64,14 @@ function typeChecks(api: TypedSocketClient<DocsContract>): void {
   const opened: Promise<{ title: string }> = api.command('docs.open', { id: '1' });
   const touched: Promise<void> = api.command('docs.touch', { id: '1' });
   const parts: AsyncIterable<{ part: number }> = api.stream('docs.snapshot', { id: '1' });
+  // @ts-expect-error stream items of the wrong type
+  const badItems: AsyncIterable<string> = api.stream('docs.snapshot', { id: '1' });
+  // @ts-expect-error stream payload of the wrong shape
+  void api.stream('docs.snapshot', { id: 1 });
+  // @ts-expect-error credits must be a number
+  void api.stream('docs.snapshot', { id: '1' }, { credits: 'x' });
+  // @ts-expect-error unknown command name
+  void api.stream('docs.nope', {});
   // @ts-expect-error unknown event name
   api.on('docs.nope', () => undefined);
   api.on('docs.committed', (event) => {
@@ -80,6 +88,6 @@ function typeChecks(api: TypedSocketClient<DocsContract>): void {
     const known: 'connecting' | 'online' | 'offline' | 'closed' = state;
     void known;
   });
-  void [opened, touched, parts];
+  void [opened, touched, parts, badItems];
 }
 void typeChecks;

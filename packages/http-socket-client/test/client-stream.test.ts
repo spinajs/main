@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { closeAll } from './support/cleanup.js';
 import { makeClient, statefulClient } from './support/client.js';
 import { serveStream } from './support/stream-stub.js';
+import { rejectionOf } from './support/commands.js';
 import { collect } from './support/streams.js';
 import { StubServer } from './support/stub-server.js';
 import { waitForState } from './support/wait.js';
@@ -59,5 +60,44 @@ describe('SocketClient.stream', () => {
       () => expect.fail('expected a rejection'),
       (error: { code: string; retryable: boolean }) => expect(error).to.include({ code: 'unavailable', retryable: false }),
     );
+  });
+
+  it('rejects with unavailable on a closed client', async () => {
+    const client = makeClient(server, { autoConnect: false });
+    client.close();
+
+    expect((await rejectionOf(client.stream('n.list').next())).code).to.equal('unavailable');
+  });
+
+  it('rejects with unavailable while offline by default', async () => {
+    const client = makeClient(server, { autoConnect: false });
+
+    expect((await rejectionOf(client.stream('n.list').next())).code).to.equal('unavailable');
+  });
+
+  it('rejects with cancelled for an aborted signal', async () => {
+    serveStream(server, 'n.list', () => [1]);
+    const client = makeClient(server);
+    await waitForState(statefulClient(client), 'online');
+    const controller = new AbortController();
+    controller.abort();
+
+    expect((await rejectionOf(client.stream('n.list', null, { signal: controller.signal }).next())).code).to.equal('cancelled');
+  });
+
+  it('rejects stream() against a plain command with failed_precondition', async () => {
+    server.handlers.set('ping', () => 'pong');
+    const client = makeClient(server);
+    await waitForState(statefulClient(client), 'online');
+
+    expect((await rejectionOf(client.stream('ping').next())).code).to.equal('failed_precondition');
+  });
+
+  it('rejects command() against a stream with failed_precondition', async () => {
+    serveStream(server, 'n.list', () => [1]);
+    const client = makeClient(server);
+    await waitForState(statefulClient(client), 'online');
+
+    expect((await rejectionOf(client.command('n.list'))).code).to.equal('failed_precondition');
   });
 });
