@@ -253,10 +253,14 @@ export type AuthzAdminQuery = {
 export declare abstract class AuthzWriteHandler {
     abstract readonly kinds: readonly AuthzCommand["kind"][];
     abstract validate(c: AuthzCommand, ctx: AdminContext): Promise<void>;
-    abstract permission(c: AuthzCommand): {
+    /** What the actor must hold. Id-only commands (revoke, tags, expiry) carry no scope, so the handler may load the row to find it. */
+    abstract permission(c: AuthzCommand, ctx: AdminContext): {
         permission: Permission;
         resource: ResourceRef;
-    };
+    } | Promise<{
+        permission: Permission;
+        resource: ResourceRef;
+    }>;
     abstract apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{
         id?: string;
         token?: string;
@@ -265,7 +269,7 @@ export declare abstract class AuthzWriteHandler {
         events: readonly AuthzEvent[];
     }>;
 }
-/** DefaultAdminGuard implements it; was RoleGuard. */
+/** DefaultAdminGuard in @spinajs/authz-rbac implements it; was RoleGuard. AuthzAdmin runs the one named in authz.admin.guard.service. */
 export declare abstract class AdminGuard {
     abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;
 }

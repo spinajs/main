@@ -132,6 +132,16 @@ describe('handler, guard, validator, sink', () => {
         return { affected: 1, tags: ['t'], events };
       }
     }
+    class AsyncH extends AuthzWriteHandler {
+      readonly kinds = ['assignment.revoke' as const];
+      async validate(): Promise<void> {}
+      async permission(_c: AuthzCommand, x: AdminContext) {
+        return { permission: 'authz:assignments.manage', resource: { type: 'file', id: x.domain } };
+      }
+      async apply() {
+        return { affected: 1, tags: [], events: [] };
+      }
+    }
     class G extends AdminGuard {
       async check(): Promise<void> {}
     }
@@ -147,7 +157,8 @@ describe('handler, guard, validator, sink', () => {
     const c: AuthzCommand = { kind: 'assignment.revoke', id: '1' };
     const h: AuthzWriteHandler = new H();
     await h.validate(c, ctx);
-    expect(h.permission(c).permission).to.eq('authz:assignments.manage');
+    expect((await h.permission(c, ctx)).permission).to.eq('authz:assignments.manage');
+    expect((await (new AsyncH() as AuthzWriteHandler).permission(c, ctx)).resource).to.deep.eq({ type: 'file', id: 'root' });
     expect((await h.apply(c, ctx, tx)).affected).to.eq(1);
     await (new G() as AdminGuard).check({} as Principal, c, ctx);
     await (new V() as AuthzCommandValidator).validate({} as Principal, c, ctx);
@@ -336,7 +347,7 @@ describe('pinned shapes (copies of design 6.6.1 and 5.8)', () => {
     yes<Equal<keyof AuthzWriteHandler, 'kinds' | 'validate' | 'permission' | 'apply'>>();
     yes<Equal<Pick<AuthzWriteHandler, 'kinds'>, { readonly kinds: readonly DCommand['kind'][] }>>();
     yes<Equal<AuthzWriteHandler['validate'], (c: DCommand, ctx: AdminContext) => Promise<void>>>();
-    yes<Equal<AuthzWriteHandler['permission'], (c: DCommand) => { permission: Permission; resource: ResourceRef }>>();
+    yes<Equal<AuthzWriteHandler['permission'], (c: DCommand, ctx: AdminContext) => { permission: Permission; resource: ResourceRef } | Promise<{ permission: Permission; resource: ResourceRef }>>>();
     yes<Equal<AuthzWriteHandler['apply'], (c: DCommand, ctx: AdminContext, tx: AuthzTx) => Promise<{ id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }>>>();
 
     yes<Equal<keyof AdminGuard, 'check'>>();

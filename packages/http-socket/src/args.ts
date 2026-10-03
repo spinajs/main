@@ -1,10 +1,11 @@
 import { Autoinject, Class, DI, Injectable } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { ArgHydrator, IRouteParameter, extractSchemaFromRuntimeType } from '@spinajs/http';
+import { ArgHydrator, ArgInputFilter, IRouteParameter, ParameterType, extractSchemaFromRuntimeType } from '@spinajs/http';
 import { DataValidator } from '@spinajs/validation';
 import { ISocketCallContext, ISocketParameter, SocketArg } from './interfaces.js';
 
 const PLAIN_TYPES = new Set<unknown>([Object, Array, String, Number, Boolean]);
+const PRIMITIVE_TYPES = new Set<unknown>([String, Number, Boolean, BigInt]);
 
 interface IHydratorMetadata {
   hydrator: Class<ArgHydrator>;
@@ -21,7 +22,7 @@ export class PayloadArg extends SocketArg {
   protected Validator: DataValidator;
 
   public async extract(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown> {
-    const payload = ctx.payload;
+    const payload = await this.filter(ctx, param);
     const schema = ctx.handler?.descriptor.Options.schema ?? param.Schema ?? this.schemaOfType(param.RuntimeType);
 
     if (schema) {
@@ -34,6 +35,24 @@ export class PayloadArg extends SocketArg {
     }
 
     return this.hydrate(payload, param);
+  }
+
+  /** http's `ArgInputFilter`s, as `RouteArgs` runs them on a body; the payload is the body. */
+  protected async filter(ctx: ISocketCallContext, param: ISocketParameter): Promise<unknown> {
+    const payload = ctx.payload;
+    if (payload === null || typeof payload !== 'object' || PRIMITIVE_TYPES.has(param.RuntimeType)) {
+      return payload;
+    }
+
+    const filters = (await DI.resolve(Array.ofType(ArgInputFilter))) as ArgInputFilter[];
+    const parameter: IRouteParameter = { Index: param.Index, Name: 'payload', Type: ParameterType.FromBody, RuntimeType: param.RuntimeType, Schema: ctx.handler?.descriptor.Options.schema ?? param.Schema, Options: param.Options };
+
+    let input: unknown = payload;
+    for (const f of filters) {
+      input = await f.filter(input, parameter);
+    }
+
+    return input;
   }
 
   protected schemaOfType(type: unknown): object | null {

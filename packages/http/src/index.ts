@@ -3,6 +3,7 @@ export * from './response-methods/index.js';
 export * from './decorators.js';
 export * from './responses.js';
 export * from './route-args/index.js';
+export * from './arg-input-filter.js';
 export * from './exceptions.js';
 export * from './base-controller.js';
 export * from './controller-sources.js';

@@ -64,9 +64,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.548",
-    "@spinajs/di": "2.0.548",
-    "@spinajs/exceptions": "2.0.548",
-    "@spinajs/log-common": "2.0.548"
+    "@spinajs/configuration": "2.0.549",
+    "@spinajs/di": "2.0.549",
+    "@spinajs/exceptions": "2.0.549",
+    "@spinajs/log-common": "2.0.549"
   }
 }

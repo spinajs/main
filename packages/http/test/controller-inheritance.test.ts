@@ -164,6 +164,13 @@ describe('controller descriptor inheritance', () => {
     DI.register(MinimalTestConfiguration).as(Configuration);
   });
 
+  // The registry keeps the first position of a re-registered type, so a later
+  // suite's `register(TestConfiguration)` would not override this one.
+  after(() => {
+    DI.unregister(MinimalTestConfiguration);
+    DI.uncache(MinimalTestConfiguration);
+  });
+
   beforeEach(async () => {
     await DI.resolve(Configuration);
   });
@@ -294,7 +301,7 @@ describe('controller descriptor inheritance', () => {
 
     it('stays quiet for controllers with no scanned base', async () => {
       // LoaderPkgController is deliberately NOT scanned - the shape of a shared
-      // base living outside the controllers dir ( eg. abstract Crud in orm-api ).
+      // base living outside the controllers dir.
       const { calls } = await runLoader([LoaderAppController, LoaderSoloController]);
 
       const noisy = calls.filter((c) => (c.level === 'warn' || c.level === 'info') && /Loader\w+Controller/.test(c.message));

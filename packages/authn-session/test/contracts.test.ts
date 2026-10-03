@@ -12,6 +12,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js';
 import type { ISession } from '../src/contracts.js';
+import * as contracts from '../src/contracts.js';
 import * as index from '../src/index.js';
 
 const expect = chai.expect;
@@ -194,14 +195,73 @@ function probe(inputType: 'module' | 'commonjs', body: string): Probe {
 
 const EXPECTED_META = [{ autoinject: true, key: 'Expiration', inject: 'SessionExpirationProvider', data: KEY }];
 
+/** The package's public runtime surface; contracts plus the session building blocks. */
+const PUBLIC_EXPORTS = [
+  'AbsoluteExpiration',
+  'DefaultSessionIssuer',
+  'LEGACY_IDENTITY_KEYS',
+  'MemorySessionStore',
+  'PUBLIC_DEFAULT_COOKIE_SECRET',
+  'SESSION_COOKIE_BASE_NAME',
+  'SESSION_IP_KEY',
+  'SESSION_PENDING_STEPS_KEY',
+  'SESSION_USER_AGENT_KEY',
+  'SessionExpirationProvider',
+  'SessionProvider',
+  'SlidingCappedExpiration',
+  'SlidingExpiration',
+  'UserSession',
+  'adaptLegacySession',
+  'appEnvOf',
+  'assertSessionCookieSecret',
+  'clearSessionCookie',
+  'cookieMaxAge',
+  'decodeSessionData',
+  'encodeSessionData',
+  'isLegacySessionId',
+  'sessionCookie',
+  'sessionCookieMaxAge',
+  'sessionCookieName',
+  'sessionCookieOptions',
+  'sessionHandleOf',
+  'storageKeyOf',
+];
+
+/** What loading the package may add to the root registry: the issuer, the store and the strategies under their types. */
+const EXPECTED_REGISTRATIONS: Record<string, string[]> = {
+  SessionProvider: ['MemorySessionStore'],
+  SessionIssuer: ['DefaultSessionIssuer'],
+  DefaultSessionIssuer: ['DefaultSessionIssuer'],
+  MemorySessionStore: ['MemorySessionStore'],
+  SessionExpirationProvider: ['AbsoluteExpiration', 'SlidingExpiration', 'SlidingCappedExpiration'],
+  AbsoluteExpiration: ['AbsoluteExpiration'],
+  SlidingExpiration: ['SlidingExpiration'],
+  SlidingCappedExpiration: ['SlidingCappedExpiration'],
+};
+
+type Entries = [string, string[]][];
+type Snapshot = { registry: Entries; cache: Entries; events: string[] };
+
+/** Entries the import added: new keys, or the values appended to an existing key. */
+function delta(before: Entries, after: Entries): Record<string, string[]> {
+  const was = new Map(before);
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of after) {
+    const prev = was.get(k) ?? [];
+    if (JSON.stringify(prev) !== JSON.stringify(v)) out[k] = v.slice(prev.length);
+  }
+  return out;
+}
+
 describe('@spinajs/authn-session contracts', function () {
   this.timeout(60000);
 
   describe('runtime', () => {
-    it('exports the two classes from the package index', () => {
+    it('contracts.ts exports the two classes and the package index re-exports them', () => {
+      expect(Object.keys(contracts).sort()).to.deep.eq(['SessionExpirationProvider', 'SessionProvider']);
       expect(index.SessionProvider).to.eq(SessionProvider);
       expect(index.SessionExpirationProvider).to.eq(SessionExpirationProvider);
-      expect(Object.keys(index).sort()).to.deep.eq(['SessionExpirationProvider', 'SessionProvider']);
+      expect(Object.keys(index).sort()).to.deep.eq(PUBLIC_EXPORTS);
       expect(Object.getPrototypeOf(SessionProvider)).to.eq(AsyncService);
       expect(Object.getPrototypeOf(SessionExpirationProvider)).to.eq(Function.prototype);
     });
@@ -414,7 +474,7 @@ describe('@spinajs/authn-session contracts', function () {
       expect(meta.inject[0].serviceFunc!(KEY, container)).to.deep.eq({ service: 'SlidingCappedExpiration', options: cfg[KEY] });
     });
 
-    describe('loading the built package registers nothing', () => {
+    describe('loading the built package registers only the issuer, the memory store and the expiration strategies', () => {
       let esm: Probe;
       let cjs: Probe;
 
@@ -450,13 +510,22 @@ describe('@spinajs/authn-session contracts', function () {
         );
       });
 
+      const expectOnlyOwnRegistrations = (p: Probe) => {
+        const before = p.before as Snapshot;
+        const after = p.after as Snapshot;
+        expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
+        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the pending TTL
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'] });
+        expect(after.events).to.deep.eq(before.events);
+      };
+
       it('ESM', () => {
-        expect(esm.after).to.deep.eq(esm.before);
-        expect(esm.exercise).to.deep.eq({ keys: ['SessionExpirationProvider', 'SessionProvider'], provider: EXPECTED_META, expiration: null, asyncService: true });
+        expectOnlyOwnRegistrations(esm);
+        expect(esm.exercise).to.deep.eq({ keys: PUBLIC_EXPORTS, provider: EXPECTED_META, expiration: null, asyncService: true });
       });
 
       it('CJS', () => {
-        expect(cjs.after).to.deep.eq(cjs.before);
+        expectOnlyOwnRegistrations(cjs);
         expect(cjs.exercise).to.deep.eq(esm.exercise);
       });
     });

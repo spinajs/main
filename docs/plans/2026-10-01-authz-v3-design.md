@@ -4,7 +4,8 @@ Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
 2026-10-02; r5 syncs the text with the code merged by F0b, F1a, F1 and
 F2). The r1 to r4 text was design only; r5 changes no decision, only
 names, shapes and locations that the merged code fixed. r6 (2026-10-02)
-does the same for what F3, F5, F6, F7 and F7b built and decided.
+does the same for what F3, F4 (host), F5, F6, F7 and F7b built
+and decided.
 
 - **Source of truth for code facts:** this checkout (`packages/*/package.json` say
   2.0.546; head `f1604f4`; canvas pins 2.0.548 with the same RBAC code paths).
@@ -27,7 +28,7 @@ does the same for what F3, F5, F6, F7 and F7b built and decided.
 ## Changes in this revision (r6, as built after F3–F7)
 
 The code on `feat/authz-v3` and the reports of F3 (engine, decisions 1–30
-of `F3-conventions.md`), F5 (authz test kit, D-F5-1 to D-F5-11), F6 (authn
+of `F3-conventions.md`), (r6, F4) F4 (host, `F4-report.md`), F5 (authz test kit, D-F5-1 to D-F5-11), F6 (authn
 contracts, `F6-final-review.md`), F7 and F7b (authn test kit, rules A01–A32,
 C8 tickets) are authoritative for everything below. r6 settles open
 points and fixes text; it adds no feature. Each item names the section it
@@ -92,6 +93,15 @@ changed.
     written only in a doc comment is frozen after G1 and changes only by
     RFC (D3 changed the snapshot tool to keep them). Open: a last-holder
     check on `deactivate`; B26 covers `AuthzAdmin` commands only (plan C2).
+17. **Host as built (§5.7, §6.6.1, §10.3, §13, §15.3; r6, F4).**
+    `AuthzDomains.service(name)` returns a `Promise`; `create`,
+    `container` and `names` stay synchronous instance methods (§15.3's
+    static call was an erratum). `authz()` is synchronous and throws until
+    the domain's service has booted. Each domain has its own `Authorizer`
+    and at most one `DecisionCache`, merges models level by level and
+    subscribes to the `ChangeBus` its container resolves; `AuthzDomains`
+    forwards no change. §15.3 lists the per-domain config keys. This
+    settles the first two r5 open items (r5 item 9).
 
 ## Changes in this revision (r5, as built after F1)
 
@@ -140,7 +150,11 @@ changed.
    and `service` are synchronous while `AuthzService` resolves
    asynchronously; §15.3 calls `AuthzDomains.create` as a static; the L2
    key omits delegation and authn facts; `DefaultAdminGuard` needs RBAC
-   data that its dependency list lacks. None is decided here.
+   data that its dependency list lacks. None is decided here. (r6, F4)
+   F4 settled the first two: `service` is async, and `create` is an
+   instance method (§5.7). (r6, F3) The L2 key is settled in §10.1.
+   (G1b) The last is settled: `DefaultAdminGuard` lives in
+   `@spinajs/authz-rbac`, next to the RBAC data it reads (§4.1, §6.6.2).
 
 ## Changes in revision r4 (2026-10-02)
 
@@ -491,14 +505,14 @@ the install adds no package that authz does not already pull in.
 
 | Package | New? | Contents | Runtime deps |
 |---|---|---|---|
-| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per child container, F4, r5), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
+| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per domain (root and `AuthzDomains.create` containers), F4, r5; r6, F4), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
 | `@spinajs/authz-testing` | new (dev) | fake models (incl. `FakeTupleModel`), fake adapters and scope resolvers with attributes, model and adapter conformance suites, behaviour fixtures B01–B46, fast-check properties, bench harness, the canvas C6 conformance suite (vendored fixtures plus the two r3 cases, lane K1) | authz |
-| `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
+| `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); (G1b) `DefaultAdminGuard` (§6.6.2); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
 | `@spinajs/authz-abac` | new | ABAC model (uses the core condition compiler), `actorTypes`, `ConfigPolicyStore`, `DbPolicyStore`, policy write handler, migration `authz_policy`, `summarize` for the impersonation rule | authz, orm |
 | `@spinajs/authz-convert` | new (dev tool) | `spinajs-authz-convert` bin: 2.x `rbac.*` config → `authz.*`, `users.*` and (r3) `authn.*` | configuration |
 | `@spinajs/authz-orm` | new | ORM adapter: `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` + `OrmScopePolicy`, scope attributes from scope rows, query middleware, filter compiler, field filtering helpers, `DbDecisionAudit` + `authz_audit`, (r3) `DbScopeAttributeStore` + `authz_scope_attribute` | authz, orm, di (r5) |
 | `@spinajs/authz-http` | new | `PrincipalSource`, principal middleware, `ServicePrincipalSource`, (r4) `AuthnPrincipalSource`, `LinkPrincipalSource`, `@Access`, `AccessPolicy`, `@AllowAnonymous`, `@Unscoped`, resource extractors, `@CurrentPrincipal`, `AccessController` (`/user/access`, `/user/access/check`), explain route (dev/test only, H19), `ACCESS_DESCRIPTOR`, input/output field filters | authz, http, orm (r5: `fromModel`), di (r5) |
-| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); `DefaultAdminGuard` (was `RoleGuard`); (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz (r5: `DefaultAdminGuard` reads holders and ladders from RBAC data, which this list lacks; open) |
+| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); (G1b) no guard of its own: `AuthzAdmin` runs whichever `AdminGuard` DI provides; (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz |
 | `@spinajs/authz-queue` | new | `Initiator` stamping, handler `runAs`, `job` adapter with `initiator` relation, queue-backed `ChangeBus`, (r3) `QueueAuthzEventSink` (`RoleAssigned`, `RoleRevoked`, `AuthzDataChanged`) | authz, queue |
 | `@spinajs/authz-fs` | new, in the 3.0 gate (H20) | fs adapter, guarded-fs proxy, `FsDecorator` impl, `FileMetadataStore`, `fs-inherit` model, upload middleware, `fromFsPath` | authz, fs |
 | `@spinajs/authz-rebac` | reserved, not in 3.0 | §6.3 | — |
@@ -514,7 +528,7 @@ the install adds no package that authz does not already pull in.
 | `@spinajs/http` | `ArgInputFilter` hook in `RouteArgs.tryHydrateParam` (+ http-socket copy); (r3) `RealIp` reads `X-Forwarded-For` only from trusted proxies (`http.trustProxy`); CORS with an empty origin list allows no cross-origin request (§23 SR-03, SR-12) |
 | `@spinajs/orm` | `QueryMiddleware.order` (authz before intl-orm) |
 | `@spinajs/fs`, `fs-s3` | `FsDecorator` hook; `signedUrl(path, { until })` |
-| `@spinajs/queue` | `QueueMessageHook`; `JobModel.Initiator*` columns |
+| `@spinajs/queue` | `QueueMessageHook` and `JobOptions` (`src/hooks.ts`, G1b); `JobModel.Initiator*` columns |
 | `configuration-http`, `configuration-db-source`, `telemetry`, `http-swagger`, `queue-http-progress`, `email`, `http-lazy-file-uploader` | migrated (§11–§14); imports follow the renames |
 | `@spinajs/orm-api` | **removed** (H5) |
 
@@ -529,7 +543,7 @@ dropped.
 | `@spinajs/rbac` | `@spinajs/users` (identity), `@spinajs/authn-local`, `@spinajs/authn-session`, `@spinajs/authz-rbac` | **users:** `User`, `UserMetadata`, lifecycle actions, mails, templates, profile, user CLI (create, ban, activate, delete, find), cron, migrations. **authn-local:** `auth.ts` (`SimpleDbAuthProvider` → `LocalPasswordStrategy`), `password.ts` (hasher, generator, policy), `login`, `confirmPasswordReset`, `issuePasswordResetToken`, `changeUserPassword`, lockout helpers, CLI `user:password`. **authn-session:** `session.ts`, `session-codec.ts`, `session-expiration.ts`, `regenerateSession`, `revokeUserSessions`. **authz-rbac:** `grant`/`revoke` → `AuthzAdmin.assign/revoke`, CLI `rbac:user-grant/revoke` → `authz:assign/revoke`, default grants → `authz.rbac.roles` fragment. **Deleted (R1):** `permission-service.ts`, `orm-permission.ts`, `middleware.ts`, `ownership.ts`, `util.ts`, `impersonation.ts` (rule now `AuthzService.covers`), the `AccessControl` bootstrap, `User.can*`, `User.Role` (H13) |
 | `@spinajs/rbac-http` | `@spinajs/authn-http` (+ `authz-http` replacements) | **authn-http:** session middleware (`RbacMiddleware` → `AuthnMiddleware` + the session principal resolver; r4: handed to authz-http through `req.storage.AuthnPrincipal`), session policies (`AuthorizedPolicy` → `Authenticated`, `LoggedPolicy`, `NotLoggedPolicy`, `NoSessionPolicy`, `AllowGuest`, `BlockGuest`), route args, session context. (r5, F0b) The `TwoFactorAuthProvider` abstract class (→ `MfaStep`) went to `authn-totp`, not `authn-http`, to avoid an `authn-totp` ↔ `authn-http` cycle. **Replaced by authz-http:** `RbacPolicy`, `@Permission`, `@Resource`, `GrantsController`, `AttributeFilter`, `UserDataTransformer` (deleted in R1) |
 | `@spinajs/rbac-http-user` | `@spinajs/authn-http`, `@spinajs/authn-totp`, `@spinajs/users-http` | **authn-http:** `LoginController`, `PasswordResetController`, `SessionsController`, `TwoFactorAuth*Controller`s, `ActiveRoleController`, `ImpersonationController` + `ImpersonationService` (→ authn core), logout handlers, `SessionCookies`. (r4) **users:** `services/grants.ts` → `AccessResponseExtension`, the impersonation rule → `AuthzImpersonationGuard`, the role list for the switch → `RbacRoleSource` (D26; F0b parks them in `authn-http`, plan C3 moves them). **authn-totp:** `2fa/Default2FaToken.ts`, `2fa/otpUrl.ts`, `actions/2fa.ts`, 2FA CLI, (r5, F0b) the `User2Fa*` events (not `authn-http/account`, to avoid a cycle). **users-http:** `UserController` (profile part), `UserMetadataController`, `UserMetadataService`, `FilterableUserMetadata` |
-| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard`/`DefaultAdminGuard`. (r5, F0b) Until C4, the 2.x `Roles` controller, the abstract `RoleGuard` (`interfaces.ts`) and `DefaultRoleGuard` sit in `authz-http-admin/src/legacy/`, not in `users-http`, to avoid a cycle; `users-http` imports `RoleGuard` from there |
+| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard` (core) and `DefaultAdminGuard` (authz-rbac, G1b). (r5, F0b) Until C4, the 2.x `Roles` controller, the abstract `RoleGuard` (`interfaces.ts`) and `DefaultRoleGuard` sit in `authz-http-admin/src/legacy/`, not in `users-http`, to avoid a cycle; `users-http` imports `RoleGuard` from there |
 | `@spinajs/rbac-http-token` | `@spinajs/authn-token`, `@spinajs/authn-http` | **authn-token:** model, generator, validation, role policy (→ ceiling builder), CLI, migrations (class names kept). **authn-http** (r5, F0b: the whole token HTTP layer, i.e. controllers, `middlewares.ts`, `policies/**` and `dto/**`, sits in `authn-http/src/token/`; leaving policies and middleware in `authn-token` made an `authn-token` ↔ `authn-http` cycle)**:** `AccessTokenController` (`/user/tokens`), `TokenAuthMiddleware` → the token principal resolver (r4: handed over through `req.storage.AuthnPrincipal`), `NoTokenAuthPolicy`, `NoImpersonationPolicy`. **Deleted:** `TokenPolicy` |
 | `@spinajs/session-provider-*` | same names | now implement the `authn-session` contract |
 | `@spinajs/orm-api` | — | removed (H5) |
@@ -1031,8 +1045,8 @@ export abstract class ScopeResolver {              // for types without an adapt
   attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
 }
 // Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
-// A condition or rule that reads a missing scope attribute makes the vote indeterminate (B04, fail closed; B39).
-// (r6, F3) A vote whose permitWhen, denyWhen or denies hold a scope.* ref that cannot be resolved (attribute absent, node unknown, or a type-level request for a type other than $global) is indeterminate: model_error, and the error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
+// (r6, G1b) A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
+// (r6, F3) The model_error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
 
 /** (r3, D23) Scope attributes as authz data. ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
@@ -1056,8 +1070,8 @@ export abstract class RelationResolver {           // ownership and every other 
 
 (r5, F1) `AuthzService` and `AuthzDomains` are abstract DI tokens in
 `contracts/service.ts`; F4 implements them as `@Injectable` subclasses
-(`@PerChildInstance()` for the service) and adds `export const authz`,
-which sits outside the API snapshot unless added to its config.
+(`@PerChildInstance()` for the service) and adds `authz()`, which sits
+outside the API snapshot ((r6, F4) it stays out).
 
 ```ts
 export abstract class AuthzService extends AsyncService {   // the implementation is @PerChildInstance()
@@ -1078,15 +1092,16 @@ export abstract class AuthzService extends AsyncService {   // the implementatio
   preload(principal: Principal): Promise<void>;
   invalidate(tags: readonly string[]): void;
   models(): readonly AuthorizationModel[];
-  admin(): AuthzAdmin;                             // (r5) this domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1)
+  admin(): AuthzAdmin;                             // (r5) this domain's AuthzAdmin; (r6, F4) (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1)
 }
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
-export const authz: (domain?: string) => AuthzService;   // F4, not in the F1 contracts
+export function authz(domain?: string): AuthzService;   // (r6, F4) default 'root'; host, not in the API snapshot; synchronous: the booted service, else throws AuthzConfigError
 
 export abstract class AuthzDomains {               // root singleton; abstract token (r5)
-  abstract create(name: string, parent?: string): IContainer;   // child of 'root' by default
+  abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
   abstract container(name: string): IContainer;
-  abstract service(name: string): AuthzService;
+  // Async: a domain's models are registered after create(), and AuthzService is an AsyncService.
+  abstract service(name: string): Promise<AuthzService>;   // (r6, F4)
   abstract names(): readonly string[];
 }
 
@@ -1118,11 +1133,25 @@ export class Unauthenticated extends AuthenticationFailed {}                  //
 export class NeedsAsync extends Error {}           // filterNow could not answer synchronously
 ```
 
-Open for F4 or before G1 (F1 report): `AuthzDomains.service()` and
-`create()` are synchronous, while `AuthzService` resolves asynchronously.
-F4 must resolve the child service in `create()` and read it child-only, or
-the signatures turn async. §15.3 calls `AuthzDomains.create` as a static
-function, while this block declares an instance method.
+(r6, F4; settles the F1 open point) `service()` is async: a domain's
+models are registered on its container after `create()`, and
+`AuthzService` is an `AsyncService`. `create()`, `container()` and
+`names()` stay synchronous instance methods; resolve `AuthzDomains` from
+DI to call them. `create()` needs `Configuration` resolved first.
+Register a child's models before its first `service()` call; a booted
+domain does not see later registrations.
+
+- `authz(domain = 'root')` never resolves anything. It returns the
+  domain's booted service, or throws `AuthzConfigError` telling the caller
+  to await `DI.resolve(AuthzService)` or `AuthzDomains.service(name)`
+  first. Code outside a request injects or resolves `AuthzService` at boot.
+- Only the root container and containers made by `AuthzDomains.create`
+  are domains. Resolving `AuthzService` in any other child throws.
+- Each domain has one `Authorizer` and at most one `DecisionCache`. The default
+  `DecisionCache` is a root factory: each domain gets a fresh
+  `LruDecisionCache`. Boot fails when the resolved cache was already used
+  by an `Authorizer`. `authz.cache.maxEntries: 0` means no L2 and keeps
+  L1; `ttlSeconds: 0` turns off L1 as well.
 
 ### 5.8 Model-package store contracts (frozen with the core)
 
@@ -1207,6 +1236,7 @@ export abstract class AssignmentStore {
   abstract readonly name: string;
   abstract forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
   abstract holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;   // AdminGuard last-holder
+  abstract byId(id: string): Promise<Assignment | null>;   // (G1b) AdminGuard, id-only commands; expired rows too
   // (r3) the write methods below are called only by the RBAC write handlers of AuthzAdmin (§6.6), inside its transaction
   assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
   revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
@@ -1596,7 +1626,7 @@ export interface AuthzAdminOptions {
   readonly dryRun?: boolean;                       // validate and guard, then roll back (admin UIs)
 }
 
-export abstract class AuthzAdmin {                 // root singleton; per-domain variants via AuthzDomains.service(name).admin()
+export abstract class AuthzAdmin {                 // root singleton; per-domain variants via (await AuthzDomains.service(name)).admin() (r6, F4)
   /** All commands in one transaction; the first failure rolls back the batch and is reported with its index. */
   abstract execute(actor: Principal, commands: readonly AuthzCommand[], opts?: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]>;
   // typed sugar over execute([one command])
@@ -1623,10 +1653,11 @@ export type AuthzAdminQuery =
 export abstract class AuthzWriteHandler {
   abstract readonly kinds: readonly AuthzCommand['kind'][];
   abstract validate(c: AuthzCommand, ctx: AdminContext): Promise<void>;          // throws AuthzAdminFailure(code)
-  abstract permission(c: AuthzCommand): { permission: Permission; resource: ResourceRef };   // what the actor must hold
+  /** What the actor must hold. Id-only commands (revoke, tags, expiry) carry no scope, so the handler may load the row to find it (G1b). */
+  abstract permission(c: AuthzCommand, ctx: AdminContext): { permission: Permission; resource: ResourceRef } | Promise<{ permission: Permission; resource: ResourceRef }>;
   abstract apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{ id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }>;
 }
-export abstract class AdminGuard {                 // DefaultAdminGuard; was RoleGuard (r2)
+export abstract class AdminGuard {                 // DefaultAdminGuard in @spinajs/authz-rbac (G1b); was RoleGuard (r2)
   abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;   // escalation, last holder, self-lockout, protected roles
 }
 export abstract class AuthzCommandValidator {      // app hook, Array.ofType; canvas: refuse external invites when its product rule says so
@@ -1649,7 +1680,7 @@ execute(actor, commands, opts):
                                         # rule in SQL form (D24), policy and rule conditions compile, attribute patch
                                         # matches the scope type's ScopeAttributeSchema, tags non-empty strings
     AuthzCommandValidator[*].validate   # app rules
-    { permission, resource } = h.permission(c)
+    { permission, resource } = await h.permission(c, ctx)   # (G1b) may load the row of an id-only command
     authz().check(actor, permission, resource) must allow (SYSTEM passes, audited)
     AdminGuard.check(actor, c)          # B26 RoleGuard part, generalised to every kind
   begin transaction
@@ -1682,6 +1713,25 @@ scope (no escalation; for ladder roles, rank ≤ the actor's rank there); a
 system role is never granted through the API; no self-lockout; the last
 holder of `privilegedPermission` at GLOBAL keeps it; links and rules may
 not grant or require a role above the actor's own at that scope.
+
+(G1b) `DefaultAdminGuard` lives in `@spinajs/authz-rbac`, which registers
+it: it reads roles and ladders (`RoleStore`), assignments by subject and
+by id and the holders of a role (`AssignmentStore`), subject sets
+(`SubjectResolver`) and `RbacService.covers`/`rolesOf`. `authz-http-admin`
+and the core know only `AdminGuard`. authz-rbac's config fragment ships
+the `authz.admin.guard` defaults of §8.2; without it the key is absent,
+which fails closed like an unregistered name (below): an app without
+authz-rbac that uses `AuthzAdmin` registers its own guard. Boot never depends on a guard: the host resolves
+`AuthzAdmin` during its own boot, and apps without authz-rbac must still
+boot. `AuthzAdmin` resolves the service named in
+`authz.admin.guard.service` lazily, on its first call (`execute`, a sugar
+method or `list`), and keeps it. When no service is registered under that
+name, that call and every later one fail closed with an
+`AuthzConfigError` naming `authz.admin.guard.service`; no command runs
+unguarded and there is no permissive fallback. The guard must not inject
+`AuthzService` eagerly: the service resolves `AuthzAdmin` during its own
+boot, which would deadlock (F4). It reads `ctx.authz` or resolves the
+service lazily.
 
 #### 6.6.3 Data kinds and storage
 
@@ -2272,12 +2322,18 @@ authn, or dual ESM and CJS loading, would otherwise let a foreign
 also adds `scope:*`). Any other tag (`role:`, `policy:`, `rule:`, unknown)
 flushes the whole domain L2, because votes carry no tags. Host rule (F4):
 one `Authorizer` and one `DecisionCache` per domain; a rebuilt `Authorizer`
-gets a fresh cache.
+gets a fresh cache. (r6, F4) A cache instance an `Authorizer` has used is
+never adopted again (§5.7).
 
 Stores publish `AuthzChange { domain?, tags }` on the `ChangeBus` after
-commit. Every `AuthzService` in every domain subscribes (via `AuthzDomains`)
-and calls `invalidate(tags)` on its L2 and its models (B27). The
-queue-backed bus (authz-queue) carries changes to other nodes.
+commit. (r6, F4) Every `AuthzService` in every domain subscribes to the
+`ChangeBus` its container resolves and calls `invalidate(tags)` on its L2
+and its models (B27). `AuthzDomains` forwards nothing. A change with
+domain `d` reaches `d` and its descendants; one without a domain reaches
+all. A domain buffers the changes that arrive during its boot and applies
+them once it ends. A domain that registers its own bus does not hear the
+root bus. The queue-backed bus (authz-queue) carries changes to other
+nodes; one registered in root reaches every domain.
 
 ---
 
@@ -2362,6 +2418,13 @@ production, when `authz.engine.explain` is on and the caller holds
   (design from `2026-09-28-rbac-field-filtering-on-deserialization.md`, built
   on `decision.fields.write` instead of `accesscontrol` attributes);
   `strip` or `reject` mode (B17).
+  (L5) A body arg holding a value or a list that is not all records is one
+  field, checked by its parameter name; an object or a list of records is a
+  record, checked against the root field globs, so a named object param such
+  as `@Body() settings: object` is matched as a record, not as `settings.*`
+  (by design: `fields.neverRead` must hold for record DTOs next to other
+  body args). Routes without `@Access` are not filtered;
+  `@UnfilteredInput(reason)` opts a route out.
 - **Output:** `AuthzFieldTransformer` registered as `DataTransformer`
   (resolved at `http/src/responses.ts:217`) filters models of the decided
   type with `decision.fields.read`; replaces `UserDataTransformer`'s manual
@@ -2561,8 +2624,9 @@ these changes:
   fsNative`, `http/src/route-args/FromForm.ts:115`, and `Options.basePath`,
   `http/src/response-methods/file.ts:94`).
 - Each filesystem may name a domain: `authz.fs.uploads.domain: 'fs'`. The
-  authz-fs bootstrap creates it with `AuthzDomains.create('fs')` and registers
-  there `FsInheritModel` (name `fs-inherit`: permits `fs:<op>` on a file when
+  authz-fs bootstrap creates it with `create('fs')` on the resolved
+  `AuthzDomains` and registers there, (r6, F4) before the first
+  `service('fs')` call, `FsInheritModel` (name `fs-inherit`: permits `fs:<op>` on a file when
   `ctx.check(principal, '<parent type>:<mapped op>', parent)` permits for the
   domain parent from `FsPathResolver`) and, if configured, an ABAC model with
   fs-only policies (`authz.fs.policies`, model name `fs-abac`). Root never
@@ -2624,10 +2688,11 @@ export abstract class QueueMessageHook {
 export interface JobOptions { runAs?: 'initiator' | 'system' }               // @Job(opts?); today @Job() takes none (queue/src/decorators.ts:14)
 ```
 
-(r5, F1) Until lane L6 adds these types to `@spinajs/queue`, authz-queue
-declares mirrors of `QueueMessageHook` and `JobOptions`, plus an
-`Initiator` interface (`{ type, id, ceiling? }`); L6 replaces the mirrors
-with re-exports (integrator approval at G1, or an RFC). After a JSON
+(G1b) Both types live in `@spinajs/queue` (`src/hooks.ts`, exported from
+its barrel); authz-queue re-exports them from its frozen `api.ts`
+(approved at G1), so their signatures are frozen through the authz-queue
+snapshot. authz-queue declares only the `Initiator` interface
+(`{ type, id, ceiling? }`), which needs authz types. After a JSON
 broker, `Initiator.ceiling.expiresAt` must be revived to a `Date`.
 
 - `beforeEmit`: stamps `message.Initiator = { type, id, ceiling? }` from
@@ -2741,12 +2806,25 @@ registered as arrow functions with `register(fn).as(name)` (e.g.
   from `resolveChain(ResourceAdapter)`, relations, native filters and
   combinators likewise. A model listed in `authz.domains.<name>.disable` is
   dropped.
+- (r6, F4) Model merge, level by level, root first: drop the level's
+  `disable` names, then add its own models. A model with an ancestor's
+  `name` replaces it in place; two models with one name in one level go
+  to `validateBoot` (rule 2). `disable` is cumulative; a name that no
+  ancestor registers logs a warning. `validateBoot` runs per domain on the
+  merged list. A model's `init` runs once per instance; the host records
+  what it registered and replays it in every other domain that lists the
+  model. The last domain that lists a model disposes it.
 - `AuthzDomains` (root singleton) creates named children, keeps
-  `name → container`, resolves their `AuthzService`, forwards `AuthzChange`
-  to all of them, and disposes them with the root.
+  `name → container`, resolves their `AuthzService` ((r6, F4) async), and
+  disposes them with the root. (r6, F4) It forwards no `AuthzChange`: each
+  domain subscribes to the `ChangeBus` its container resolves (§10.3).
 - Config per domain: `authz.domains.<name>.combine` overrides
   `authz.combine`; model sections stay under `authz.<model>.*` unless the
-  domain's owner passes a different path to its model.
+  domain's owner passes a different path to its model. (r6, F4)
+  `authz.domains.<name>.*` also overrides `engine`, `fields`, `cache` and
+  `audit`, adds to `permissions`, and drops models by `disable`. A domain
+  inherits its parent's values. `bus` and `principals` come from the root
+  only.
 - Examples:
   - **fs:** §13 (`fs-inherit`, `fs-abac` in domain `fs`).
   - **canvas (r2):** no child domain and no canvas model are needed; canvas
@@ -2755,8 +2833,9 @@ registered as arrow functions with `register(fn).as(name)` (e.g.
     `@Access('file:edit', { resource: fromParam('id', 'file') })`. A child
     domain stays possible if canvas wants its rules isolated from instance
     roles later.
-  - **tests:** `const c = AuthzDomains.create('test'); c.register(FakeModel).as(AuthorizationModel)`;
-    dispose after the test; nothing leaks into root.
+  - **tests:** (r6, F4) `await DI.resolve(Configuration); const domains = await DI.resolve(AuthzDomains); const c = domains.create('test'); c.register(FakeModel).as(AuthorizationModel); const svc = await domains.service('test');`
+    (register before the first `service()` call); dispose after the test;
+    nothing leaks into root.
   - **tenants:** possible (one domain per tenant) but not built; per-org
     roles and policies already cover the known cases (§6.1.3, `authz_policy.scope_*`).
 

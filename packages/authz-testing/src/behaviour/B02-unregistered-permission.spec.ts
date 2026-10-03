@@ -58,8 +58,8 @@ export const B02 = fixture('B02', [
   {
     name: 'abac',
     facets: ['engine', 'abac'],
-    lanes: [],
-    note: "No lane names it: L3's runBehaviour list lacks B02; L3 should add B02.abac.",
+    lanes: ['L3'],
+    note: 'A policy names a permission (L3 tasks 4 and 6).',
     cases: [
       {
         name: 'a policy naming an unregistered permission fails at boot',
@@ -77,8 +77,8 @@ export const B02 = fixture('B02', [
   {
     name: 'rules',
     facets: ['engine', 'rbac', 'ladders', 'rules'],
-    lanes: [],
-    note: "No lane names it: L1b's runBehaviour list lacks B02; L1b should add B02.rules.",
+    lanes: ['L1b'],
+    note: 'A rule names a permission (L1b task 6).',
     cases: [
       {
         name: 'a rule naming an unregistered permission fails at boot',
@@ -100,15 +100,15 @@ export const B02 = fixture('B02', [
   {
     name: 'http',
     facets: ['http'],
-    lanes: [],
-    note: 'An @Access naming an unregistered permission fails at boot; L5 proposes the case with its own route setup (no lane lists B02 for HTTP yet).',
+    lanes: ['L5'],
+    note: 'An @Access naming an unregistered permission fails at boot; L5 adds the case with its own route setup (L5 task 12).',
     cases: [],
   },
   {
     name: 'adapter',
     facets: ['fs'],
-    lanes: [],
-    note: "An adapter's operations() naming an unregistered permission fails at boot; no kit fake has operations(), so L7 (fs operation table) proposes the case.",
+    lanes: ['L7'],
+    note: "An adapter's operations() naming an unregistered permission fails at boot. Only the fs adapter declares an operation table (design §13), so L7 proposes the case; no kit fake has operations().",
     cases: [],
   },
 ]);

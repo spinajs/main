@@ -12,6 +12,8 @@ const o3 = ref('org', 'o3');
 const f1 = ref('file', 'f1');
 const f2 = ref('file', 'f2');
 const f3 = ref('file', 'f3');
+const o9 = ref('org', 'o9');
+const f9 = ref('file', 'f9');
 
 // o2 is a sub-org of o1; o3 has no `level`.
 const SCOPES: World['scopes'] = [
@@ -67,6 +69,27 @@ const core: Case[] = [
     steps: [{ ...read(f3, { id: 'f3', tier: 'gold' }), expect: { allowed: true } }],
   },
   {
+    name: 'a ref to an ancestor node no resolver knows makes the vote indeterminate: deny model_error',
+    world: {
+      ...world(),
+      // Files come from the adapter; the org resolver knows o1 only, so o9 is an unknown node.
+      scopes: [{ nodes: [{ ref: o1, attributes: { policies: { level: 'gold' } } }] }],
+      adapters: [{ types: ['file'], rows: { file: [{ id: 'f1', tier: 'gold' }, { id: 'f9', tier: 'gold' }] }, parents: [[f1, o1] as const, [f9, o9] as const] }],
+    },
+    steps: [
+      { check: { as: 'alice', permission: 'file:read', resource: f1, subject: 'row' }, expect: { allowed: true } },
+      { check: { as: 'alice', permission: 'file:read', resource: f9, subject: 'row' }, expect: { allowed: false, reason: { code: 'model_error', model: 'm1' } } },
+    ],
+  },
+  {
+    name: 'a type-level request reading scope.<type>.* for a type other than $global makes the vote indeterminate: deny model_error',
+    world: world(),
+    steps: [
+      { check: { as: 'alice', permission: 'file:read' }, expect: { allowed: false, residual: 'FALSE', reason: { code: 'model_error', model: 'm1' } } },
+      { filter: { as: 'alice', permission: 'file:read', type: 'file' }, expect: 'FALSE' },
+    ],
+  },
+  {
     name: 'scope.<type>.* reads adapter scope attributes for adapter types',
     world: {
       permissions: ['file:read'],
@@ -79,9 +102,11 @@ const core: Case[] = [
             file: [
               { id: 'f1', tier: 'gold' },
               { id: 'f2', tier: 'silver' },
+              { id: 'f9', tier: 'gold' },
             ],
           },
-          parents: [[f1, o1] as const, [f2, o1] as const],
+          // o9 is no org row, so the adapter cannot resolve it: an unknown node.
+          parents: [[f1, o1] as const, [f2, o1] as const, [f9, o9] as const],
           attributes: [[o1, { policies: { level: 'gold' } }] as const],
         },
       ],
@@ -91,6 +116,7 @@ const core: Case[] = [
     steps: [
       { check: { as: 'alice', permission: 'file:read', resource: f1, subject: 'row' }, expect: { allowed: true } },
       { check: { as: 'alice', permission: 'file:read', resource: f2, subject: 'row' }, expect: { allowed: false } },
+      { check: { as: 'alice', permission: 'file:read', resource: f9, subject: 'row' }, expect: { allowed: false, reason: { code: 'model_error', model: 'm1' } } },
     ],
   },
   {
@@ -130,6 +156,19 @@ export const B39 = fixture('B39', [
     cases: [
       { name: 'a condition on scope.org.* reads the nearest org', steps: [{ check: { as: 'alice', permission: 'file:read', resource: f1 }, expect: { allowed: true } }] },
       { name: 'a condition reading a missing attribute is indeterminate: deny model_error', steps: [{ check: { as: 'alice', permission: 'file:read', resource: f2 }, expect: { allowed: false, reason: { code: 'model_error', model: 'abac' } } }] },
+      {
+        name: 'a condition reading scope.org.* of an ancestor node no resolver knows is indeterminate: deny model_error',
+        world: {
+          ...abacWorld,
+          scopes: [{ nodes: [{ ref: o1, attributes: { policies: { open: true } } }] }],
+          adapters: [{ types: ['file'], rows: { file: [{ id: 'f1' }, { id: 'f9' }] }, parents: [[f1, o1] as const, [f9, o9] as const] }],
+        },
+        steps: [
+          { check: { as: 'alice', permission: 'file:read', resource: f1 }, expect: { allowed: true } },
+          { check: { as: 'alice', permission: 'file:read', resource: f9 }, expect: { allowed: false, reason: { code: 'model_error', model: 'abac' } } },
+        ],
+      },
+      { name: 'a condition reading scope.org.* in a type-level request is indeterminate: deny model_error', steps: [{ check: { as: 'alice', permission: 'file:read' }, expect: { allowed: false, reason: { code: 'model_error', model: 'abac' } } }] },
     ],
   },
   { name: 'orm', facets: ['orm'], lanes: ['L4'], note: 'Scope attributes from @AccessResource(type, { attributes }); L4 proposes the cases.', cases: [] },

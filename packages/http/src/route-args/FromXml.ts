@@ -1,5 +1,5 @@
 import { RouteArgs, IRouteArgsResult } from './RouteArgs.js';
-import { IRouteParameter, ParameterType, IRouteCall, Request } from '../interfaces.js';
+import { IRouteParameter, ParameterType, IRouteCall, IRoute, Request } from '../interfaces.js';
 import { Injectable } from '@spinajs/di';
 import { BadRequest } from '@spinajs/exceptions';
 import { XMLParser, XMLValidator, X2jOptions } from 'fast-xml-parser';
@@ -19,7 +19,7 @@ export class FromXmlRouteArgs extends RouteArgs {
     return ParameterType.FromXml;
   }
 
-  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Partial<X2jOptions>>, req: Request): Promise<IRouteArgsResult> {
+  public async extract(callData: IRouteCall, _args: unknown[], param: IRouteParameter<Partial<X2jOptions>>, req: Request, _res?: unknown, route?: IRoute): Promise<IRouteArgsResult> {
     const body = req.body;
 
     // No body -> nothing to parse (keep optional params optional).
@@ -29,7 +29,7 @@ export class FromXmlRouteArgs extends RouteArgs {
 
     // Already an object (some upstream parser handled it) -> pass through.
     if (typeof body !== 'string') {
-      return { CallData: callData, Args: body };
+      return { CallData: callData, Args: await this.filterInput(body, param, route) };
     }
 
     const valid = XMLValidator.validate(body);
@@ -38,10 +38,12 @@ export class FromXmlRouteArgs extends RouteArgs {
     }
 
     const parser = new XMLParser({ ignoreAttributes: false, ...(param.Options ?? {}) });
+    let parsed: unknown;
     try {
-      return { CallData: callData, Args: parser.parse(body) };
+      parsed = parser.parse(body);
     } catch (err) {
       throw new BadRequest(`Invalid XML body: ${(err as Error).message}`);
     }
+    return { CallData: callData, Args: await this.filterInput(parsed, param, route) };
   }
 }

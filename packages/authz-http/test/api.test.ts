@@ -3,6 +3,7 @@ import 'mocha';
 
 import { ACCESS_DESCRIPTOR, Access, AllowAnonymous, CurrentPrincipal, LinkPrincipalSource, PrincipalSource, Unscoped, fromBody, fromModel, fromParam, fromQuery } from '../src/index.js';
 import * as root from '../src/index.js';
+import * as api from '../src/api.js';
 import type { AccessOptions, ResourceExtractor } from '../src/index.js';
 import type { Permission, Principal, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
@@ -13,7 +14,6 @@ const expect = chai.expect;
 
 const req = {} as Request;
 const model = class Fake {} as unknown as Class<ModelBase>;
-const notImplemented = (name: string) => new RegExp(`^@spinajs/authz-http: ${name} is not implemented yet$`);
 
 class FakeSource extends PrincipalSource {
   readonly name = 'fake';
@@ -24,18 +24,14 @@ class FakeSource extends PrincipalSource {
 }
 
 describe('authz-http api', () => {
-  it('every stub throws not implemented', () => {
-    expect(() => Access('file:read')).to.throw(Error, notImplemented('Access'));
-    expect(() => Access(['file:read', 'file:update'], { resource: () => ({ type: 'file' }), subject: 'load', fields: 'filter' })).to.throw(Error, notImplemented('Access'));
-    expect(() => AllowAnonymous()).to.throw(Error, notImplemented('AllowAnonymous'));
-    expect(() => Unscoped('report export')).to.throw(Error, notImplemented('Unscoped'));
-    expect(() => fromParam('id', 'file')).to.throw(Error, notImplemented('fromParam'));
-    expect(() => fromParam('uuid', 'user', { by: 'Uuid' })).to.throw(Error, notImplemented('fromParam'));
-    expect(() => fromBody('project.id', 'project')).to.throw(Error, notImplemented('fromBody'));
-    expect(() => fromQuery('org', 'org')).to.throw(Error, notImplemented('fromQuery'));
-    expect(() => fromModel(model, 'id')).to.throw(Error, notImplemented('fromModel'));
-    expect(() => CurrentPrincipal()).to.throw(Error, notImplemented('CurrentPrincipal'));
-    expect(() => new LinkPrincipalSource().authenticate(req)).to.throw(Error, notImplemented('LinkPrincipalSource.authenticate'));
+  it('the package root exports the implementations in place of the api.ts stubs', () => {
+    for (const name of ['Access', 'AllowAnonymous', 'Unscoped', 'fromParam', 'fromBody', 'fromQuery', 'fromModel', 'CurrentPrincipal', 'LinkPrincipalSource'] as const) {
+      expect(root[name], name).to.be.a('function').and.not.equal(api[name]);
+    }
+    expect(() => Access('file:read')).to.not.throw();
+    expect(() => AllowAnonymous()).to.not.throw();
+    expect(() => Unscoped('report export')).to.not.throw();
+    expect(() => fromModel(model, 'id')).to.not.throw();
   });
 
   it('ACCESS_DESCRIPTOR is the registered authz:access symbol', () => {

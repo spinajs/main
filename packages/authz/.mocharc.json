@@ -6,7 +6,8 @@
     "test/**/*.test.ts"
   ],
   "ignore": [
-    "test/host/**"
+    "test/host/**",
+    "test/admin/**"
   ],
   "node-option": [
     "experimental-specifier-resolution=node",

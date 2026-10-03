@@ -10,10 +10,10 @@ export class BodyFieldRouteArgs extends RouteArgs {
     return ParameterType.BodyField;
   }
 
-  public async extract(callData: IRouteCall,_args : unknown [],  _param: IRouteParameter, req: express.Request, _res: express.Response, _route: IRoute) {
+  public async extract(callData: IRouteCall,_args : unknown [],  param: IRouteParameter, req: express.Request, _res: express.Response, route: IRoute) {
     return {
       CallData: callData,
-      Args: req.body,
+      Args: req.body === undefined || req.body === null ? req.body : await this.filterInput(req.body, param, route),
     };
   }
 }

@@ -97,10 +97,11 @@ class Engine implements BehaviourAuthz {
     const def = this.s.kit.permissions.require(permission);
     if (principal === SYSTEM) return TRUE;
     if (principal === UNATTENDED) return FALSE;
-    if (principal.onBehalfOf) return undefined;
     const c = principal.ceiling;
     if (c?.permissions && !c.permissions.some((g) => compilePermissionGlob(g)(permission))) return FALSE;
     if (c?.expiresAt && this.s.kit.clock.now().getTime() >= c.expiresAt.getTime()) return FALSE;
+    // Under inherit the models run with the delegate, so the delegate's preload is what counts (B22).
+    if (principal.onBehalfOf) return principal.delegation === 'inherit' ? this.filterNow(principal.onBehalfOf, permission, type) : undefined;
     const ref = { type };
     const { models, route } = this.routed(def, type);
     const ctx = this.s.kit.context({ domain: this.domain });
@@ -119,15 +120,26 @@ class Engine implements BehaviourAuthz {
         v.catch(() => undefined);
         return undefined;
       }
-      votes.push(effective(v.error !== undefined ? indeterminate(m.name, v.error) : v));
+      if (v.error !== undefined) {
+        votes.push(effective(indeterminate(m.name, v.error)));
+        continue;
+      }
+      // A type-level request has no path: scope.$global needs a load, any other scope type resolves missing (B39).
+      const refs = scopeRefs(v);
+      if (refs.some((r) => r.split('.')[1] === GLOBAL.type)) return undefined;
+      votes.push(effective(refs.length > 0 ? indeterminate(m.name, `missing scope attribute ${refs[0]}`) : v));
     }
     return simplify(bindRefs(combineVotes(route.algorithm, votes), { principal, env: {} }));
   }
 
+  /** Preloads the principals the models run with: never an inherit agent, but its delegate, and each intersect delegate. */
   async preload(principal: Principal): Promise<void> {
-    this.s.preloaded.add(principalKey(principal));
     const ctx = this.s.kit.context({ domain: this.domain });
-    for (const m of this.list) await m.preload?.(principal, ctx);
+    for (let p: Principal | undefined = principal; p; p = p.onBehalfOf) {
+      if (p.onBehalfOf && p.delegation === 'inherit') continue;
+      this.s.preloaded.add(principalKey(p));
+      for (const m of this.list) await m.preload?.(p, ctx);
+    }
   }
 
   invalidate(tags: readonly string[]): void {
@@ -237,7 +249,7 @@ class Engine implements BehaviourAuthz {
         }),
       ]);
       if (v.error !== undefined) return indeterminate(m.name, v.error);
-      const missing = req.resource.id == null ? undefined : await missingScopeRef(v, req.resource, ctx);
+      const missing = await missingScopeRef(v, req.resource, ctx);
       return missing ? indeterminate(m.name, `missing scope attribute ${missing}`) : v;
     } catch (e) {
       return indeterminate(m.name, e instanceof Error ? e.message : String(e));
@@ -341,8 +353,8 @@ function validUntil(votes: readonly Vote[]): { validUntil?: Date } {
   return times.length ? { validUntil: new Date(Math.min(...times)) } : {};
 }
 
-/** The first `scope.<type>.<path>` ref of the vote whose attribute is missing on the resource's path. */
-async function missingScopeRef(v: Vote, resource: ResourceRef, ctx: EvaluationContext): Promise<string | undefined> {
+/** The `scope.<type>.<path>` refs the vote's filters compare with. */
+function scopeRefs(v: Vote): string[] {
   const refs: string[] = [];
   const walk = (f: ResourceFilter): void => {
     if (f.op === 'and' || f.op === 'or') (f as { args: readonly ResourceFilter[] }).args.forEach(walk);
@@ -355,9 +367,14 @@ async function missingScopeRef(v: Vote, resource: ResourceRef, ctx: EvaluationCo
   walk(v.permitWhen);
   walk(v.denyWhen);
   for (const d of v.denies ?? []) walk(d.when);
-  for (const r of refs) {
+  return refs;
+}
+
+/** The first scope ref of the vote whose attribute is missing on the resource's path; a type-level request has only $global. */
+async function missingScopeRef(v: Vote, resource: ResourceRef, ctx: EvaluationContext): Promise<string | undefined> {
+  for (const r of scopeRefs(v)) {
     const [, type, ...path] = r.split('.');
-    const nearest = (await ctx.ancestors(resource))?.find((a) => a.type === type);
+    const nearest = resource.id == null ? (type === GLOBAL.type ? GLOBAL : undefined) : (await ctx.ancestors(resource))?.find((a) => a.type === type);
     const attributes = nearest ? await ctx.attributes(nearest) : null;
     if (readPath(attributes, path) == null) return r;
   }

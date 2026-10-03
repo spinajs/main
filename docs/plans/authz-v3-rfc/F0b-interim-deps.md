@@ -15,8 +15,8 @@ breaks §4.2.
 | `authn-http` | `users` | Account controllers, `services/grants.ts`, impersonation and session-cookie code use `User`, `AccessControl`, `SessionProvider` and the user actions directly. | N8a (principal handed over through `req.storage.AuthnPrincipal`), C3 (`grants.ts`, impersonation and role-list code move to `users`) |
 | `authn-http` | `authn-token` | `src/token/**` (controllers, policies, middleware) use `AccessToken`, `createToken` and the token actions. | N8b (strategy routes call `TokenService` through the `@spinajs/authn` contract), N6 |
 | `authn-http` | `authn-totp` | `LoginController` and the two 2FA controllers call the 2FA actions and read `TWO_FA_METATADATA_KEYS`. | N8b (`src/mfa/**` over the `MfaStep` contract), N5 |
-| `authn-token` | `users` | Token actions and `AccessTokenRolePolicy` use `User`, `UserEvent` and role helpers. | N6 (owner resolved through links), C1 |
-| `authn-totp` | `users` | 2FA actions and `Default2FaToken` read and write user metadata and emit user events. | N5 (`TotpMfaStep` on the `MfaStore` contract) |
+| `authn-token` | `users` | Token actions and `AccessTokenRolePolicy` use `User`, `UserEvent` and role helpers. (G1b) The token CLI commands extend `RbacCliCommand` from `users` (master 228090a22). | N6 (owner resolved through links), C1 |
+| `authn-totp` | `users` | 2FA actions and `Default2FaToken` read and write user metadata and emit user events. (G1b) `EnableUser2Fa` extends `RbacCliCommand` from `users` (master 228090a22). | N5 (`TotpMfaStep` on the `MfaStore` contract) |
 | `authn-totp` | `http`, `queue` | `auth2Fa` throws `Unauthorized` from `@spinajs/http`; the 2FA events extend `Event` from `@spinajs/queue`. | N5 |
 | `authn-token` | `http`, `queue` | `src/interfaces.ts` augments `@spinajs/http`'s request storage with `TokenAuth`; token actions emit `AccessToken*` events on `@spinajs/queue`. | N6 |
 | `authn-http` | `queue` | `ImpersonationService` and `ImpersonationController` emit the impersonation events on `@spinajs/queue`. | N8a (events go through the authn audit and event sinks) |

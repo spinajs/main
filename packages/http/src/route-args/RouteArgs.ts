@@ -2,6 +2,7 @@ import { DI, Autoinject, TypedArray, isClass } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces.js';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
+import { ArgInputFilter } from '../arg-input-filter.js';
 import _ from 'lodash';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -54,6 +55,11 @@ export abstract class RouteArgs implements IRouteArgs {
   public abstract extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
+    // Filtered first, so an input filter that removes a required value fails the check below.
+    if (arg !== null && arg !== undefined) {
+      arg = await this.filterInput(arg, routeParameter, route);
+    }
+
     // Enforce presence for params explicitly marked `{ required: true }` BEFORE
     // the null/undefined skip below (absent optional params are intentionally
     // not validated). Params without the flag keep the old optional behavior.
@@ -107,6 +113,34 @@ export abstract class RouteArgs implements IRouteArgs {
     }
 
     return result;
+  }
+
+  protected async filterInput(arg: unknown, routeParameter: IRouteParameter, route?: IRoute): Promise<unknown> {
+    const filters = (await DI.resolve(Array.ofType(ArgInputFilter))) as ArgInputFilter[];
+    if (filters.length === 0) {
+      return arg;
+    }
+
+    // Filters see JSON objects and arrays parsed, and their output goes on as a string again: hydrators
+    // that parse their input themselves keep getting what they got before. Any other string (an ISO date
+    // for DateTimeHydrator, bad JSON) reaches the filters and the hydrator as it came.
+    let input = arg;
+    let parsedFromString = false;
+    if (_.isString(input) && !this.isRuntimeType(routeParameter)) {
+      try {
+        const parsed = JSON.parse(input);
+        if (parsed !== null && typeof parsed === 'object') {
+          input = parsed;
+          parsedFromString = true;
+        }
+      } catch {}
+    }
+
+    for (const filter of filters) {
+      input = await filter.filter(input, routeParameter, route);
+    }
+
+    return parsedFromString && input !== null && typeof input === 'object' ? JSON.stringify(input) : input;
   }
 
   protected async tryHydrateObject(arg: any, route: IRouteParameter, hydrator: any) {

@@ -14,10 +14,12 @@ replaces them and deletes the legacy file.
 | Class | Count |
 |---|---|
 | move | 42 |
-| adapt | 115 |
+| adapt | 117 |
 | rewrite | 180 |
 | drop | 26 |
-| **total** | 363 |
+| **total** | 365 |
+
+`test/cli.test.ts` came later, from master `228090a22` (2.0.549), merged in G1b.
 
 Mixed files: in `actions`, `actions-fundamentals`, `auth` and `user`, C1 splits the file. Kept (move/adapt) rows stay or move as classed; rewrite rows go to `test/legacy-v2/<same file name>`. T1 deletes every `users/test/legacy-v2/` file once the replacements named in the Target column exist, whichever lane writes them (plan §5 gives T lanes the deletion of `legacy-v2`). Drop rows use lane T1 throughout.
 
@@ -181,6 +183,15 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 | 7 | 120 | Authorization provider tests > should auth fail on banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Banned: same opaque failure as every other login failure. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
 | 8 | 125 | Authorization provider tests > should auth fail on user not active | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Inactive account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
 | 9 | 130 | Authorization provider tests > Should auth fail on user deleted | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Deleted account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
+
+## test/cli.test.ts
+
+CLI commands that must boot the Orm themselves (`RbacCliCommand`). Both adapt: the password command moves to N3 as `authn:password` (N3 task 7), the find command stays with C1.
+
+| # | Line | Test | Class | Lane | Target |
+|---|---|---|---|---|---|
+| 1 | 51 | rbac cli commands > rbac:user-change-password brings the Orm up and changes the password | adapt | C1 → N3 | `authn-local/test/ported/` (A03) Command becomes `authn:password <login>`; keep the Orm-boot assertion. `authn-local` may not import `RbacCliCommand` from `users` (rule 10), so it needs its own base. |
+| 2 | 61 | rbac cli commands > rbac:user-find brings the Orm up and reports the user | adapt | C1 | users/test/ |
 
 ## test/clone-rbac.test.ts
 
@@ -577,3 +588,22 @@ Ownership enforcement on UPDATE and DELETE, a 2.x IDOR regression. All rewrite (
 |---|---|---|---|---|---|
 | 1 | 82 | Ownership enforcement on write queries (IDOR regression) > UPDATE with :own scope cannot touch another user's row via an OR lookup | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
 | 2 | 99 | Ownership enforcement on write queries (IDOR regression) > DELETE with :own scope cannot delete another user's row in a multi-key destroy | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
+
+## N2 status (session rows)
+
+N2 copied the session code into `@spinajs/authn-session` (C1 deletes the
+users copies and these test files). Where each N2 row landed, all under
+`packages/authn-session/test/`:
+
+| users file (rows) | authn-session test |
+|---|---|
+| session-codec.test.ts (1–8) | `session-codec.test.ts`, same titles |
+| session-cookie.test.ts (1–11) | `session-cookie.test.ts`, same titles; rows 4, 6, 8, 9, 11 adapted for `'auto'` (task 5) |
+| session-cookie.test.ts (12–13) | `session-cookie.test.ts` › shipped session cookie configuration, per app env |
+| session-cookie.test.ts (14–15) | `issuer.test.ts` › "the session handle is neither the id nor the storage key …" |
+| session-expiration.test.ts (1–7) | `session-expiration.test.ts`, same titles |
+| session-regenerate.test.ts (1, 4) | `issuer.test.ts` › "SR-session fixation: rotate gives a new id …" |
+| session-regenerate.test.ts (2) | `issuer.test.ts` › "keeps Creation and Expiration …", "keeps the impersonator and the facts" |
+| session-regenerate.test.ts (3) | moot: rotate deletes the old row and copies Data into a new Map |
+| session.test.ts (1–2) | `session.test.ts`, same titles |
+| conformance/session-provider-conformance.ts (1–11) | `conformance/session-provider-conformance.ts` (Subject/State; deleteBySubject/listBySubject) |

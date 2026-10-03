@@ -1,65 +1,28 @@
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { join, normalize, resolve } from 'path';
-import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI } from '@spinajs/di';
-import '../src';
-import { DynamoDbSessionProvider } from '../src/index.js';
-import { UserSession as Session } from '@spinajs/users';
+import { UserSession as Session } from '@spinajs/authn-session';
+import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
+import { bootStore, disposeStore } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        authn: {
-          session: {
-            aws: {
-              table: 'rbac_sessions',
-              config: {
-                region: 'local',
-                endpoint: 'http://localhost:8000',
-              },
-            },
-          },
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '{datetime} {level} {message} {error} duration: {duration} ({logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-      },
-      mergeArrays,
-    );
-  }
-}
-
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
-export function dir(path: string) {
-  return resolve(normalize(join(process.cwd(), 'test', path)));
-}
+const LOCAL_DYNAMO = {
+  aws: {
+    table: 'rbac_sessions',
+    config: {
+      region: 'local',
+      endpoint: 'http://localhost:8000',
+    },
+  },
+};
 
 async function session() {
-  return DI.resolve(DynamoDbSessionProvider);
+  return bootStore(LOCAL_DYNAMO);
 }
+
+const make = (over: Partial<ISession>) => new Session({ Subject: { type: 'user', id: 'u-1' }, State: 'active', ...over });
 
 // Live-DynamoDB integration test. Requires a local DynamoDB on http://localhost:8000,
 // so it is skipped by default. Run it explicitly with DYNAMO_INTEGRATION=1. The
@@ -69,24 +32,22 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
 (RUN_INTEGRATION ? describe : describe.skip)('dynamodb session provider (integration)', function () {
   this.timeout(10000);
 
-  beforeEach(async () => {
-    DI.clearCache();
-    DI.register(ConnectionConf).as(Configuration);
-    await DI.resolve(Configuration);
-  });
-
   afterEach(async () => {
     const s = await session();
     await s.truncate();
   });
 
+  after(async () => {
+    await disposeStore();
+  });
+
   it('should insert session', async () => {
     const s = await session();
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
     await s.save(
-      new Session({
+      make({
         Data: d,
         SessionId: 'a',
         Expiration: DateTime.now().plus({ second: 10 }),
@@ -103,10 +64,10 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
 
   it('should update session', async () => {
     const s = await session();
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
-    const sS = new Session({
+    const sS = make({
       Data: d,
       SessionId: 'a',
       Expiration: DateTime.now().plus({ second: 10 }),
@@ -126,11 +87,11 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
 
   it('should delete session', async () => {
     const s = await session();
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
     await s.save(
-      new Session({
+      make({
         Data: d,
         SessionId: 'a',
         Expiration: DateTime.now().plus({ second: 10 }),
@@ -146,41 +107,39 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
 
     expect(r).to.be.null;
   });
+
   it('should touch session', async () => {
     const s = await session();
 
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
     const date = DateTime.now().plus({ second: 10 });
-    const date2 = date.plus({ second: 100 });
-    const sI = new Session({
-      Data: d,
-      SessionId: 'a',
-      Expiration: date,
-    });
-
-    await s.save(sI);
+    await s.save(
+      make({
+        Data: d,
+        SessionId: 'a',
+        Expiration: date,
+      }),
+    );
 
     const sR = await s.restore('a');
+    expect(sR!.Expiration!.toMillis()).to.eq(date.toMillis());
 
-    sI.Expiration = date2;
-    await s.touch(sI);
+    expect(await s.touch(sR!)).to.be.true;
 
     const sR2 = await s.restore('a');
-
-    expect(sR2!.Expiration!.toMillis() === date2.toMillis());
-    expect(sR!.Expiration!.toMillis() === date.toMillis());
-    expect(sR2!.Expiration!.toMillis() > sR!.Expiration!.toMillis());
+    expect(sR2!.Expiration!.toMillis()).to.be.greaterThan(date.toMillis());
   });
+
   it('should return null when session expired', async () => {
     const s = await session();
 
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
     await s.save(
-      new Session({
+      make({
         Data: d,
         SessionId: 'a',
         Expiration: DateTime.now().plus({ second: 2 }),
@@ -188,7 +147,7 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
     );
 
     await s.save(
-      new Session({
+      make({
         Data: d,
         SessionId: 'b',
         Expiration: DateTime.now().plus({ second: 10 }),
@@ -211,11 +170,11 @@ const RUN_INTEGRATION = process.env.DYNAMO_INTEGRATION === '1';
   it('should return null if session not exist', async () => {
     const s = await session();
 
-    const d = new Map<string, string>();
+    const d = new Map<string, unknown>();
     d.set('foo', 'bar');
 
     await s.save(
-      new Session({
+      make({
         Data: d,
         SessionId: 'a',
         Expiration: DateTime.now().plus({ second: 10 }),

@@ -29,5 +29,15 @@ export class DbSession extends ModelBase {
    */
   public Data: string;
 
-  public UserId: number;
+  /** 2.x owner (users.Id); null on 3.0 rows, which carry Subject instead. */
+  public UserId: number | null;
+
+  /** principalKey of the owner; null on a row written by 2.x. */
+  public Subject: string | null;
+
+  /** principalKey of the impersonator. */
+  public ImpersonatorId: string | null;
+
+  /** 'active' | 'pending'; null on a row written by 2.x. */
+  public State: string | null;
 }

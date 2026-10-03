@@ -40,6 +40,11 @@ export function isMySqlDialect(connection: OrmDriver): boolean {
   return MYSQL_DRIVERS.includes(connection.Options?.Driver);
 }
 
+/** True on the sqlite driver, which has no MODIFY and needs a table rebuild to change a constraint. */
+export function isSqliteDialect(connection: OrmDriver): boolean {
+  return connection.Options?.Driver === 'orm-driver-sqlite';
+}
+
 /**
  * Reduces a driver-reported `NativeType` to its bare type name, lower-cased.
  *

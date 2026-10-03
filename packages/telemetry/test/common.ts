@@ -19,8 +19,8 @@ export function srcDir(path: string) {
 
 /**
  * Port for the test HTTP server. Deliberately NOT one of the common ones —
- * `@spinajs/orm-api`'s harness also binds 1337, so a concurrent test run in
- * another checkout of this monorepo makes these tests fail with connection
+ * common ports such as 1337 collide with a concurrent test run in
+ * another checkout of this monorepo and fail these tests with connection
  * errors. Keep this distinctive.
  */
 export const TEST_PORT = 34871;

@@ -320,7 +320,7 @@ export class FromJsonFile extends FromFile {
 
     return {
       ...data,
-      Args: parsed,
+      Args: parsed === null || parsed === undefined ? parsed : await this.filterInput(parsed, param, route),
     };
   }
 }
