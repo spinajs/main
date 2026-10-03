@@ -133,7 +133,7 @@ export class AuditStage extends SocketCommandStage {
 }
 ```
 
-`audit` stands for your own code.
+`audit` stands for your own code. For a stream handler, `await next()` returns the handler's async iterable at the stream reply, before the ack and the first chunk, not when the stream ends.
 
 ## Errors
 
