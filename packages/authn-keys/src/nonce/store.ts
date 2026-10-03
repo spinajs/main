@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { AuthnNonce } from '../models/AuthnNonce.js';
+import { toUtcColumn } from '../models/utc.js';
 
 /** Single-use values (assertion jti, HTTP signature nonces) until they expire. */
 export abstract class KeyNonceStore {
@@ -46,17 +47,17 @@ export class DbKeyNonceStore extends KeyNonceStore {
   private claims = 0;
 
   async claim(key: string, expiresAt: Date, now: Date): Promise<boolean> {
-    const nowDt = DateTime.fromJSDate(now);
+    const nowDt = toUtcColumn(now);
     this.claims += 1;
     if (this.claims % PURGE_EVERY === 0) {
       await this.purge(nowDt);
     }
     try {
-      await new AuthnNonce({ k: key, expires_at: DateTime.fromJSDate(expiresAt) }).insert();
+      await new AuthnNonce({ k: key, expires_at: toUtcColumn(expiresAt) }).insert();
       return true;
     } catch (e) {
       // Taken: only an expired row may be taken over, and the conditional update lets one claimant win.
-      const r = (await AuthnNonce.update({ expires_at: DateTime.fromJSDate(expiresAt) })
+      const r = (await AuthnNonce.update({ expires_at: toUtcColumn(expiresAt) })
         .where('k', key)
         .where('expires_at', '<=', nowDt)) as unknown as { RowsAffected?: number };
       if ((r?.RowsAffected ?? 0) === 1) {

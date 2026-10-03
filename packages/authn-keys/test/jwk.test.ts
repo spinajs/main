@@ -1,6 +1,6 @@
 import 'mocha';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { checkPublicJwk, decodeB64url, isCanonicalPoint, isSmallOrder, isValidKid, publicKeyObject, SMALL_ORDER, thumbprint, verifySignature } from '../src/jwk/index.js';
 
 const RFC8037_X = '11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo';
@@ -147,5 +147,32 @@ describe('jwk: kid and key objects', () => {
     assert.strictEqual(verifySignature(material as never, data, sig.subarray(0, 63)), false);
     const smallR = Buffer.concat([Buffer.from(SMALL_ORDER[0], 'hex'), Buffer.alloc(32)]);
     assert.strictEqual(verifySignature(material as never, data, smallR), false);
+  });
+});
+
+describe('jwk: the small-order R check', () => {
+  it('refuses a signature with R = identity that OpenSSL accepts (the key holder can make one for any message)', () => {
+    const L = 2n ** 252n + 27742317777372353535851937790883648493n;
+    const le2n = (b: Buffer): bigint => BigInt(`0x${Buffer.from(b).reverse().toString('hex')}`);
+    const n2le = (n: bigint): Buffer => Buffer.from(n.toString(16).padStart(64, '0'), 'hex').reverse();
+    const pair = generateKeyPairSync('ed25519');
+    const jwk = pair.privateKey.export({ format: 'jwk' }) as { x: string; d: string };
+    const h = createHash('sha512').update(Buffer.from(jwk.d, 'base64url')).digest();
+    h[0] &= 248;
+    h[31] &= 127;
+    h[31] |= 64;
+    const a = le2n(h.subarray(0, 32));
+    const R = Buffer.from(SMALL_ORDER[0], 'hex');
+    const A = Buffer.from(jwk.x, 'base64url');
+    const message = Buffer.from('forged');
+    const k =
+      le2n(
+        createHash('sha512')
+          .update(Buffer.concat([R, A, message]))
+          .digest(),
+      ) % L;
+    const forged = Buffer.concat([R, n2le((k * a) % L)]);
+    assert.ok(verify(null, message, pair.publicKey, forged), 'OpenSSL accepts it');
+    assert.strictEqual(verifySignature({ alg: 'EdDSA', jwk: okp(jwk.x) } as never, message, forged), false);
   });
 });

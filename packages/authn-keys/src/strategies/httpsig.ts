@@ -8,7 +8,7 @@ import type { SignatureInput } from '../httpsig/fields.js';
 import { KeyNonceStore, nonceKey } from '../nonce/store.js';
 import { configuredKeysOptions } from '../options/options.js';
 import type { KeysOptions } from '../options/options.js';
-import { failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
+import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
 
 /** RFC 9421 algorithm names; the `alg` parameter is optional and, when sent, must name the key's algorithm. */
 const ALG_PARAM: Readonly<Record<string, KeyAlgorithm>> = { ed25519: 'EdDSA', 'ecdsa-p256-sha256': 'ES256' };
@@ -48,15 +48,24 @@ export class HttpSignatureStrategy extends AuthenticationStrategy {
     this.options = options ?? configuredKeysOptions();
   }
 
+  /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */
+  protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {
+    dummyVerify(alg, data, signature);
+  }
+
   throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
     const req = c.kind === 'http-signature' && isRequest(c.request) ? c.request : null;
-    const keyid = req ? parseSignatureInput(lowerCaseHeaders(req.headers)['signature-input'])?.params.get('keyid') : undefined;
+    const input = req ? lowerCaseHeaders(req.headers)['signature-input'] : undefined;
+    const keyid = typeof input === 'string' && input.length <= MAX_CREDENTIAL_LENGTH ? parseSignatureInput(input)?.params.get('keyid') : undefined;
     return keyThrottleKeys(typeof keyid === 'string' ? keyid : null, ctx);
   }
 
   /** Everything that needs no key: the headers' form, the parameters, coverage, the digest and the time window. */
   protected check(req: SignedRequest, ctx: AuthnContext): Checked | null {
     const headers = lowerCaseHeaders(req.headers);
+    if ([headers['signature-input'], headers.signature].some((v) => typeof v !== 'string' || v.length > MAX_CREDENTIAL_LENGTH)) {
+      return null;
+    }
     const input = parseSignatureInput(headers['signature-input']);
     const signatures = parseByteSequenceDictionary(headers.signature);
     if (!input || !signatures || signatures.size !== 1 || !signatures.has(input.label)) {
@@ -109,7 +118,7 @@ export class HttpSignatureStrategy extends AuthenticationStrategy {
     const data = Buffer.from(base, 'utf8');
     const found = await usableKey(this.registry, checked.kid, ctx);
     if (!found.key) {
-      dummyVerify(checked.alg ?? 'EdDSA', data, checked.signature);
+      this.unknownKeyWork(checked.alg ?? 'EdDSA', data, checked.signature);
       return failure(found.reason);
     }
     const key = found.key;

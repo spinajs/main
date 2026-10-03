@@ -6,7 +6,11 @@ import { KEY_ALGORITHMS } from '../jwk/keys.js';
 /** `authn.keys` (design §22.5) after defaults. */
 export interface KeysOptions {
   readonly algorithms: readonly KeyAlgorithm[];
-  readonly challenge: { readonly ttlSeconds: number };
+  readonly challenge: {
+    readonly ttlSeconds: number;
+    /** What clients put in a challenge's signing input; default: assertion.audience. Challenges need one of them. */
+    readonly audience: string | null;
+  };
   readonly assertion: {
     readonly typ: string;
     /** Required once a strategy that reads assertions is listed. */
@@ -26,7 +30,7 @@ export const MAX_LIFETIME_SECONDS = 300;
 
 export const DEFAULT_KEYS_OPTIONS: KeysOptions = Object.freeze({
   algorithms: KEY_ALGORITHMS,
-  challenge: Object.freeze({ ttlSeconds: 120 }),
+  challenge: Object.freeze({ ttlSeconds: 120, audience: null }),
   assertion: Object.freeze({ typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: MAX_LIFETIME_SECONDS, skewSeconds: 30 }),
   httpSignature: Object.freeze({ maxAgeSeconds: MAX_LIFETIME_SECONDS, skewSeconds: 30, requiredComponents: Object.freeze(['@method', '@target-uri', 'content-digest']) }),
 });
@@ -53,18 +57,24 @@ export function keysOptions(input: KeysOptionsInput = {}): KeysOptions {
   }
   const assertion = { ...d.assertion, ...input.assertion };
   const httpSignature = { ...d.httpSignature, ...input.httpSignature };
+  const challenge = { ...d.challenge, ...input.challenge };
   if (typeof assertion.typ !== 'string' || assertion.typ.length === 0) {
     fail('assertion.typ must be a non-empty string');
   }
-  if (assertion.audience !== null && (typeof assertion.audience !== 'string' || assertion.audience.length === 0)) {
-    fail('assertion.audience must be a non-empty string or null');
+  for (const [name, v] of [
+    ['assertion.audience', assertion.audience],
+    ['challenge.audience', challenge.audience],
+  ] as const) {
+    if (v !== null && (typeof v !== 'string' || v.length === 0)) {
+      fail(`${name} must be a non-empty string or null`);
+    }
   }
   if (!Array.isArray(httpSignature.requiredComponents) || httpSignature.requiredComponents.some((c) => typeof c !== 'string')) {
     fail('httpSignature.requiredComponents must be a list of strings');
   }
   return Object.freeze({
     algorithms: Object.freeze([...new Set(algorithms)]),
-    challenge: Object.freeze({ ttlSeconds: seconds({ ...d.challenge, ...input.challenge }.ttlSeconds, 'challenge.ttlSeconds', 1, 3600) }),
+    challenge: Object.freeze({ ttlSeconds: seconds(challenge.ttlSeconds, 'challenge.ttlSeconds', 1, 3600), audience: challenge.audience ?? assertion.audience }),
     assertion: Object.freeze({
       typ: assertion.typ,
       audience: assertion.audience,

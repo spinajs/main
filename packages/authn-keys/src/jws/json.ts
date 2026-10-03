@@ -1,8 +1,9 @@
 const LONE_SURROGATE = /\p{Surrogate}/u;
 // serde_json refuses the 128th nested array or object (its recursion limit); canvas C8 refuses it on both sides.
 const MAX_DEPTH = 127;
-// On text JSON.parse accepted, these are exactly its strings, brackets and numbers.
+// On text JSON.parse accepted, these are exactly its strings, brackets and numbers (literals are skipped).
 const TOKENS = /"[^"\\]*(?:\\.[^"\\]*)*"|[[\]{}]|-?[0-9][0-9.eE+-]*/g;
+const KEY_FOLLOWS = /\s*:/y;
 const UINT_TEXT = /^(0|[1-9][0-9]*)$/;
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -16,19 +17,17 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export function parseStrictJson(bytes: Uint8Array, uintKeys: readonly string[] = []): unknown {
   try {
     const text = decoder.decode(bytes);
-    const loose = new Set<unknown>();
-    const value: unknown = JSON.parse(text, function (this: unknown, key: string, v: unknown, context?: { source?: string }) {
-      // context.source needs Node 21+; older runtimes still get the safe-integer checks of the caller.
-      if (uintKeys.includes(key) && typeof v === 'number' && typeof context?.source === 'string' && !UINT_TEXT.test(context.source)) {
-        loose.add(this);
-      }
-      return v;
-    });
-    if (loose.has(value)) {
-      return undefined;
-    }
+    const value: unknown = JSON.parse(text);
+    // The number text of each top-level key, the last occurrence winning as in JSON.parse; read from the tokens
+    // because the reviver's source text needs Node 21+.
+    const numberText = new Map<string, string>();
+    const topLevelObject = text.trimStart().startsWith('{');
     let depth = 0;
-    for (const [token] of text.matchAll(TOKENS)) {
+    let key: string | null = null;
+    for (const m of text.matchAll(TOKENS)) {
+      const token = m[0];
+      const pending = key;
+      key = null;
       if (token === '[' || token === '{') {
         depth += 1;
         if (depth > MAX_DEPTH) {
@@ -37,10 +36,25 @@ export function parseStrictJson(bytes: Uint8Array, uintKeys: readonly string[] =
       } else if (token === ']' || token === '}') {
         depth -= 1;
       } else if (token.startsWith('"')) {
-        if (LONE_SURROGATE.test(JSON.parse(token) as string)) {
+        const s = JSON.parse(token) as string;
+        if (LONE_SURROGATE.test(s)) {
           return undefined;
         }
+        if (topLevelObject && depth === 1) {
+          KEY_FOLLOWS.lastIndex = m.index! + token.length;
+          if (KEY_FOLLOWS.test(text)) {
+            key = s;
+          }
+        }
       } else if (!Number.isFinite(Number(token))) {
+        return undefined;
+      } else if (pending !== null) {
+        numberText.set(pending, token);
+      }
+    }
+    for (const k of uintKeys) {
+      const t = numberText.get(k);
+      if (t !== undefined && !UINT_TEXT.test(t)) {
         return undefined;
       }
     }

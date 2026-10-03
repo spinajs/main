@@ -2,6 +2,9 @@ import type { AuthnContext, AuthnFailure, IdentityRef, KeyOwner, KeyRecord, KeyR
 import { isValidKid } from '../jwk/keys.js';
 import { DefaultKeyRegistry, isUsableKey } from '../registry/registry.js';
 
+/** Credentials longer than this are refused before any parsing (a header is parsed before its signature is checked). */
+export const MAX_CREDENTIAL_LENGTH = 8192;
+
 /** An assertion's `iss`: the key owner as `<type>:<id>` (lane notes D8), e.g. `user:<uuid>` or `service:runner-1`. */
 export const assertionIssuer = (owner: KeyOwner | IdentityRef): string => `${owner.type}:${owner.id}`;
 

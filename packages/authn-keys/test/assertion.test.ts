@@ -1,7 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import type { AuthnContext, Credentials, KeyOwner } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, KeyAlgorithm, KeyOwner } from '@spinajs/authn/contracts';
 import { FakeClock, generateKeyPair, runStrategyConformance, signCompactJws } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { DbKeyNonceStore, MemoryKeyNonceStore } from '../src/nonce/index.js';
@@ -112,6 +112,64 @@ describe('JwsAssertionStrategy', () => {
     assert.strictEqual((await w.p.registry.byId(kid))!.lastUsedAt!.getTime(), first + 60_000);
   });
 
+  it('keeps a jti until exp plus the skew: a replay just before then fails', async () => {
+    const w = await world();
+    w.clock.install();
+    try {
+      const { kp, kid } = await w.add();
+      const c = w.assertion(kp, kid);
+      const exp = w.nowS() + 60;
+      w.clock.tick((60 + 29) * 1000);
+      assert.strictEqual(Math.floor(w.clock.now().getTime() / 1000), exp + 29);
+      assert.ok((await w.strategy.verify(c, w.ctx())).ok, 'still inside the skew');
+      assert.strictEqual((await w.strategy.verify(c, w.ctx())).ok, false, 'the replay one second later in the same window');
+    } finally {
+      w.clock.uninstall();
+    }
+  });
+
+  it('does the signature work for unknown, revoked and expired keys, and only for them', async () => {
+    const clock = new FakeClock();
+    const p = await keysParts({}, 'memory');
+    let work = 0;
+    class Counting extends JwsAssertionStrategy {
+      protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {
+        work += 1;
+        super.unknownKeyWork(alg, data, signature);
+      }
+    }
+    const strategy = new Counting(p.registry, p.verifier, p.nonces, p.options);
+    const add = async (over: object = {}) => {
+      const kp = generateKeyPair('EdDSA');
+      const r = await p.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk, ...over }, clock.ctx());
+      assert.ok(r.ok);
+      return { kp, kid: r.key.kid };
+    };
+    const s = Math.floor(clock.now().getTime() / 1000);
+    const c = (kp: KitKeyPair, kid: string): Credentials => ({ kind: 'jws-assertion', jws: signCompactJws({ alg: 'EdDSA', kid, typ: TYP }, { iss: assertionIssuer(SVC), aud: KIT_AUDIENCE, iat: s, exp: s + 60, jti: randomUUID() }, kp) });
+    const known = await add();
+    await strategy.verify(c(generateKeyPair('EdDSA'), known.kid), clock.ctx());
+    assert.strictEqual(work, 0, 'a known key does the real verification');
+    await strategy.verify(c(known.kp, 'kit-unknown'), clock.ctx());
+    assert.strictEqual(work, 1, 'unknown kid');
+    const revoked = await add();
+    await p.registry.revoke(SVC, revoked.kid, clock.ctx());
+    await strategy.verify(c(revoked.kp, revoked.kid), clock.ctx());
+    assert.strictEqual(work, 2, 'revoked key');
+    const expired = await add({ expiresAt: new Date(clock.now().getTime() + 1000) });
+    clock.tick(1000);
+    await strategy.verify(c(expired.kp, expired.kid), clock.ctx());
+    assert.strictEqual(work, 3, 'expired key');
+  });
+
+  it('refuses a token over 8 KiB before parsing it', async () => {
+    const w = await world();
+    const { kp, kid } = await w.add();
+    const big = w.assertion(kp, kid, { pad: 'x'.repeat(9000) });
+    assert.deepStrictEqual(await w.strategy.verify(big, w.ctx()), { ok: false, reason: 'invalid_credentials' });
+    assert.deepStrictEqual(w.strategy.throttleKeys(big, w.ctx()).map((k) => k.value)[0], 'key:?');
+  });
+
   it('cannot be built without an audience', async () => {
     const p = await keysParts({}, 'memory');
     assert.throws(() => new JwsAssertionStrategy(p.registry, p.verifier, new MemoryKeyNonceStore(), keysOptions()), /audience/);
@@ -139,6 +197,23 @@ for (const kind of ['memory', 'sqlite'] as const) {
       assert.strictEqual(await store.claim('jti:b', later(60_000), t0), true);
       assert.strictEqual(await store.claim('jti:a', later(120_000), later(60_000)), true, 'expired at expiresAt');
       assert.strictEqual(await store.claim('jti:a', later(180_000), later(61_000)), false);
+    });
+
+    const zoned = kind === 'sqlite' ? it : null;
+    zoned?.('keeps a live value whatever the process time zone (UTC columns)', async () => {
+      const before = process.env.TZ;
+      const t0 = new Date();
+      try {
+        process.env.TZ = 'America/New_York';
+        assert.strictEqual(await store.claim('jti:tz', new Date(t0.getTime() + 60_000), t0), true);
+        process.env.TZ = 'Asia/Tokyo';
+        assert.strictEqual(await store.claim('jti:tz', new Date(t0.getTime() + 120_000), new Date(t0.getTime() + 30_000)), false);
+      } finally {
+        process.env.TZ = before ?? '';
+        if (before === undefined) {
+          delete process.env.TZ;
+        }
+      }
     });
 
     it('lets one of many parallel claims win', async () => {

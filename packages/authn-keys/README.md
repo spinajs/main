@@ -28,12 +28,17 @@ challenge-response login. Design: `docs/plans/2026-10-01-authz-v3-design.md`
 the UTF-8 bytes of
 
 ```
-spinajs-key-<purpose>:<nonce>
+spinajs-key-<purpose>:<nonce>:<audience>
 ```
 
 where `<purpose>` is `register` (proof of possession when a user adds a
-key) or `login` (challenge-response login), and `<nonce>` is the `nonce`
-exactly as received. It sends the raw signature as unpadded base64url:
+key) or `login` (challenge-response login), `<nonce>` is the `nonce`
+exactly as received (base64url, so it holds no `:`), and `<audience>` is
+the service's `authn.keys.challenge.audience` (default: its
+`authn.keys.assertion.audience`). The client knows the audience from its
+own configuration of the service, never from the challenge answer: a
+service that relays another one's challenge then gets a signature the
+other one refuses. It sends the raw signature as unpadded base64url:
 64 bytes for Ed25519, and for P-256 an ECDSA SHA-256 signature as
 IEEE P1363 `r || s` (64 bytes, not DER). It names the challenge by its
 `id`, unchanged: the id carries the nonce back to the server, so treat it
@@ -49,11 +54,11 @@ counts against the `login` flow's IP throttle key.
 With OpenSSL 3, for an Ed25519 key in `key.pem`:
 
 ```sh
-printf 'spinajs-key-login:%s' "$NONCE" > input.bin
+printf 'spinajs-key-login:%s:%s' "$NONCE" "$AUDIENCE" > input.bin
 openssl pkeyutl -sign -inkey key.pem -rawin -in input.bin | basenc --base64url | tr -d '=\n'
 ```
 
-From Node: `signChallenge(challenge, 'login', privateKey, 'EdDSA')`.
+From Node: `signChallenge(challenge, 'login', audience, privateKey, 'EdDSA')`.
 
 ## JWS
 
@@ -115,7 +120,8 @@ Content-Digest: sha-256=:<standard base64 of SHA-256(body)>:
 | `keys-httpsig` (`HttpSignatureStrategy`) | `http-signature` | no |
 | `keys-challenge` (`KeyChallengeStrategy`) | `key-challenge` | yes |
 
-Each verifies only usable keys (not revoked, not expired), answers an
+Each refuses credentials over 8 KiB before parsing them, verifies only
+usable keys (not revoked, not expired), answers an
 unknown key with the same work and result as a bad signature, throttles by
 `key:<kid>`, and returns the key owner as the identity with the key's
 `scope` as the ceiling.
@@ -126,6 +132,7 @@ unknown key with the same work and result as a bad signature, throttles by
 |---|---|
 | `algorithms` | `['EdDSA', 'ES256']` |
 | `challenge.ttlSeconds` | `120` |
+| `challenge.audience` | `null` (then `assertion.audience`; challenges need one) |
 | `assertion.typ` | `'spinajs-client+jwt'` |
 | `assertion.audience` | `null` (required for `keys-jws`) |
 | `assertion.maxLifetimeSeconds` | `300` (at most 300) |

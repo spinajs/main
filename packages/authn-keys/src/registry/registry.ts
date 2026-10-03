@@ -2,16 +2,18 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@spinajs/di';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
-import { challengeId, challengeSecretPurpose, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
+import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
 import { configuredKeysOptions } from '../options/options.js';
 import type { KeysOptions } from '../options/options.js';
-import { decodeCeiling, encodeCeiling, KeyStore } from './store.js';
+import { decodeCeiling, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
 const OWNER_TYPES: readonly string[] = ['user', 'service', 'agent'];
 const MAX_OWNER_ID = 64;
 const MAX_NAME = 128;
 const TOUCH_INTERVAL_MS = 60_000;
+const MAX_CREATED_BY = 100;
+const CEILING_KEYS = ['roles', 'permissions', 'resources', 'expiresAt', 'reason'];
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -24,8 +26,24 @@ function ownerOf(v: unknown): KeyOwner {
   return Object.freeze({ type: v.type as KeyOwner['type'], id: v.id });
 }
 
+/** An actor that fits authn_key.created_by (varchar 100). */
 function principalRefOf(v: unknown): PrincipalRef | null {
-  return isPlainObject(v) && nonEmpty(v.type, 64) && nonEmpty(v.id, 255) ? Object.freeze({ type: v.type, id: v.id }) : null;
+  if (!isPlainObject(v) || !nonEmpty(v.type, MAX_CREATED_BY) || !nonEmpty(v.id, MAX_CREATED_BY)) {
+    return null;
+  }
+  const ref = Object.freeze({ type: v.type, id: v.id });
+  return encodePrincipalRef(ref).length <= MAX_CREATED_BY ? ref : null;
+}
+
+const strings = (v: unknown): boolean => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** The Ceiling shape (design §5), so a malformed scope never reaches storage. */
+function isCeiling(v: unknown): v is Ceiling {
+  if (!isPlainObject(v) || Object.keys(v).some((k) => !CEILING_KEYS.includes(k))) {
+    return false;
+  }
+  const resources = v.resources;
+  return (v.roles === undefined || strings(v.roles)) && (v.permissions === undefined || strings(v.permissions)) && (resources === undefined || (Array.isArray(resources) && resources.every((r) => isPlainObject(r) && typeof r.type === 'string' && (r.id === undefined || typeof r.id === 'string')))) && (v.expiresAt === undefined || (v.expiresAt instanceof Date && !Number.isNaN(v.expiresAt.getTime()))) && (v.reason === undefined || typeof v.reason === 'string');
 }
 
 /** Usable for verification: neither revoked nor expired at `now`. */
@@ -69,7 +87,8 @@ export class DefaultKeyRegistry extends KeyRegistry {
       return false;
     }
     const parsed = parseChallengeId(proof.challengeId);
-    if (!parsed || !verifyChallengeSignature(key, parsed.nonce, 'register', proof.signature)) {
+    const audience = this.options.challenge.audience;
+    if (!parsed || audience === null || !verifyChallengeSignature(key, parsed.nonce, 'register', audience, proof.signature)) {
       return false;
     }
     return this.secrets.redeem({ type: 'user', id: owner.id }, challengeSecretPurpose(parsed.rid), parsed.nonce);
@@ -88,7 +107,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
     const expiresAt = r.expiresAt;
     const badExpiry = expiresAt !== undefined && (!(expiresAt instanceof Date) || !(expiresAt.getTime() > ctx.now.getTime()));
     const badName = r.name !== undefined && !nonEmpty(r.name, MAX_NAME);
-    const badScope = r.scope !== undefined && !isPlainObject(r.scope);
+    const badScope = r.scope !== undefined && !isCeiling(r.scope);
     if (!material || !isValidKid(kid) || badExpiry || badName || badScope) {
       return fail('invalid_key');
     }
@@ -131,8 +150,12 @@ export class DefaultKeyRegistry extends KeyRegistry {
   }
 
   async revoke(owner: IdentityRef, kid: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
-    if (!isValidKid(kid) || !(await this.store.revoke(owner, kid, ctx.now))) {
+    const done = isValidKid(kid) ? await this.store.revoke(owner, kid, ctx.now) : 'none';
+    if (done === 'none') {
       return false;
+    }
+    if (done === 'already') {
+      return true;
     }
     await this.publish(ctx, { type: 'key.revoke', outcome: 'success', identity: owner, ...(opts?.actor ? { actor: opts.actor } : {}), data: { kid } });
     return true;
@@ -172,9 +195,15 @@ export class DefaultKeyRegistry extends KeyRegistry {
     } else {
       throw new TypeError('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
     }
-    const ttl = this.options.challenge.ttlSeconds;
+    const { ttlSeconds: ttl, audience } = this.options.challenge;
+    if (audience === null) {
+      throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set to issue key challenges');
+    }
     const rid = newChallengeRid();
     const nonce = await this.secrets.issue(identity, challengeSecretPurpose(rid), ttl);
+    if (!isChallengeNonce(nonce)) {
+      throw new Error('the SecretStore must issue base64url secrets of at least 128 bits for key challenges');
+    }
     return { ok: true, challenge: Object.freeze({ id: challengeId(rid, nonce), nonce, expiresAt: new Date(ctx.now.getTime() + ttl * 1000) }) };
   }
 }

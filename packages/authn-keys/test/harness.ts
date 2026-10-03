@@ -78,7 +78,7 @@ export async function keysParts(config: ConfigOverrides, kind: StoreKind): Promi
   const sessions = new MemorySessionIssuer();
   const registry = new DefaultKeyRegistry(store, secrets, throttle, sinks, options);
   const verifier = new StrictJwsVerifier();
-  const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options), new HttpSignatureStrategy(registry, nonces, options), new KeyChallengeStrategy(registry, secrets)];
+  const strategies = [new JwsAssertionStrategy(registry, verifier, nonces, options), new HttpSignatureStrategy(registry, nonces, options), new KeyChallengeStrategy(registry, secrets, options)];
   const service = new FakeAuthnService({
     strategies,
     throttle,
@@ -104,7 +104,7 @@ export async function keysHarness(ctx: HarnessContext, kind: StoreKind = 'memory
     events: p.events,
     secrets: p.secrets,
     keys: p.registry,
-    keyProofs: { sign: async (challenge, purpose, key) => signChallenge(challenge, purpose, key.privateKey, key.alg) },
+    keyProofs: { sign: async (challenge, purpose, key) => signChallenge(challenge, purpose, KIT_AUDIENCE, key.privateKey, key.alg) },
     assertion: { audience: KIT_AUDIENCE, issuerOf: assertionIssuer },
     jws: { verifier: p.verifier, signer: new LocalJwsSigner([privateJwkOf(generateKeyPair('EdDSA'))]) },
   };

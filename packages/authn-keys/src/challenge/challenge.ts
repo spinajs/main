@@ -13,6 +13,7 @@ const RID_BYTES = 12;
 const RID_LENGTH = 16;
 const RID = /^[A-Za-z0-9_-]{16}$/;
 const MAX_NONCE_LENGTH = 512;
+const NONCE = /^[A-Za-z0-9_-]{22,512}$/;
 
 export const newChallengeRid = (): string => randomBytes(RID_BYTES).toString('base64url');
 
@@ -27,20 +28,28 @@ export function parseChallengeId(id: unknown): { rid: string; nonce: string } | 
     return null;
   }
   const rid = id.slice(0, RID_LENGTH);
-  return RID.test(rid) ? { rid, nonce: id.slice(RID_LENGTH + 1) } : null;
+  const nonce = id.slice(RID_LENGTH + 1);
+  return RID.test(rid) && isChallengeNonce(nonce) ? { rid, nonce } : null;
 }
 
-/** The bytes a key signs to answer a challenge: UTF-8 of `spinajs-key-<purpose>:<nonce>` (the purpose separates domains). */
-export function challengeSigningInput(challenge: Pick<KeyChallenge, 'nonce'>, purpose: ChallengePurpose): Buffer {
-  return Buffer.from(`spinajs-key-${purpose}:${challenge.nonce}`, 'utf8');
+/** Nonces are base64url, so the first ':' after one ends it and the signing input has exactly one reading. */
+export const isChallengeNonce = (nonce: unknown): nonce is string => typeof nonce === 'string' && NONCE.test(nonce);
+
+/**
+ * The bytes a key signs to answer a challenge: UTF-8 of `spinajs-key-<purpose>:<nonce>:<audience>`. The purpose keeps
+ * a login signature from proving a registration; the audience is the service as the client knows it (never taken from
+ * the challenge answer), so a service that relays another one's challenge gets a signature the other one refuses.
+ */
+export function challengeSigningInput(challenge: Pick<KeyChallenge, 'nonce'>, purpose: ChallengePurpose, audience: string): Buffer {
+  return Buffer.from(`spinajs-key-${purpose}:${challenge.nonce}:${audience}`, 'utf8');
 }
 
 /** The answer a client sends: the raw signature (64 bytes; ES256 as IEEE P1363) as unpadded base64url. */
-export function signChallenge(challenge: Pick<KeyChallenge, 'nonce'>, purpose: ChallengePurpose, privateKey: KeyObject, alg: KeyAlgorithm): string {
-  return encodeB64url(signRaw(alg, privateKey, challengeSigningInput(challenge, purpose)));
+export function signChallenge(challenge: Pick<KeyChallenge, 'nonce'>, purpose: ChallengePurpose, audience: string, privateKey: KeyObject, alg: KeyAlgorithm): string {
+  return encodeB64url(signRaw(alg, privateKey, challengeSigningInput(challenge, purpose, audience)));
 }
 
-export function verifyChallengeSignature(key: KeyMaterial, nonce: string, purpose: ChallengePurpose, signature: unknown): boolean {
+export function verifyChallengeSignature(key: KeyMaterial, nonce: string, purpose: ChallengePurpose, audience: string, signature: unknown): boolean {
   const raw = decodeB64url(signature);
-  return raw !== null && verifySignature(key, challengeSigningInput({ nonce }, purpose), raw);
+  return raw !== null && isChallengeNonce(nonce) && verifySignature(key, challengeSigningInput({ nonce }, purpose, audience), raw);
 }

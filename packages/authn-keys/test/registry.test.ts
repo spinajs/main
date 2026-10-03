@@ -14,7 +14,9 @@ const BOB: KeyOwner & { type: 'user' } = { type: 'user', id: 'bob' };
 const SVC: KeyOwner & { type: 'service' } = { type: 'service', id: 'svc' };
 const ADMIN = { type: 'user', id: 'admin' };
 
-function world(options = keysOptions()) {
+const AUD = 'https://keys.kit.test';
+
+function world(options = keysOptions({ assertion: { audience: AUD } })) {
   const clock = new FakeClock();
   const secrets = new MemorySecretStore();
   const events = new RecordingEventSink();
@@ -27,7 +29,7 @@ function world(options = keysOptions()) {
   };
   const proofFor = async (kp: KitKeyPair, owner = ALICE, ch?: KeyChallenge, purpose: 'register' | 'login' = 'register') => {
     const c = ch ?? (await challenge(owner));
-    return { challengeId: c.id, signature: signChallenge(c, purpose, kp.privateKey, kp.alg) };
+    return { challengeId: c.id, signature: signChallenge(c, purpose, AUD, kp.privateKey, kp.alg) };
   };
   return { clock, secrets, events, registry, ctx, challenge, proofFor };
 }
@@ -36,7 +38,7 @@ const userReg = (kp: KitKeyPair, proof: unknown, owner = ALICE, over: object = {
 
 describe('DefaultKeyRegistry', () => {
   it('refuses a kid outside the grammar and keys outside the configured algorithms', async () => {
-    const w = world(keysOptions({ algorithms: ['EdDSA'] }));
+    const w = world(keysOptions({ algorithms: ['EdDSA'], assertion: { audience: AUD } }));
     const kp = generateKeyPair('EdDSA');
     for (const kid of ['', 'a b', 'x'.repeat(65), 'ä']) {
       assert.deepStrictEqual(await w.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk, kid }, w.ctx()), { ok: false, code: 'invalid_key' }, kid);
@@ -107,7 +109,7 @@ describe('DefaultKeyRegistry', () => {
     const w = world();
     const kp = generateKeyPair('EdDSA');
     const ch = await w.challenge();
-    const bad = { challengeId: ch.id, signature: signChallenge(ch, 'register', generateKeyPair('EdDSA').privateKey, 'EdDSA') };
+    const bad = { challengeId: ch.id, signature: signChallenge(ch, 'register', AUD, generateKeyPair('EdDSA').privateKey, 'EdDSA') };
     assert.deepStrictEqual(await w.registry.register(userReg(kp, bad), w.ctx()), { ok: false, code: 'invalid_proof' });
     assert.ok((await w.registry.register(userReg(kp, await w.proofFor(kp, ALICE, ch)), w.ctx())).ok);
     const parsed = parseChallengeId(ch.id)!;
@@ -138,7 +140,7 @@ describe('DefaultKeyRegistry', () => {
     assert.ok(w.secrets.rows().every((row) => row.identity.id.length <= 64));
   });
 
-  it('revoke is owner-bound, keeps the first revocation time and emits events without key material', async () => {
+  it('revoke is owner-bound, keeps the first revocation time and emits one event without key material', async () => {
     const w = world();
     const kp = generateKeyPair('ES256');
     const r = await w.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk }, w.ctx());
@@ -157,7 +159,6 @@ describe('DefaultKeyRegistry', () => {
       [
         ['key.register', 'success', ADMIN],
         ['key.revoke', 'success', ADMIN],
-        ['key.revoke', 'success', undefined],
       ],
     );
   });
@@ -168,6 +169,43 @@ describe('DefaultKeyRegistry', () => {
     await assert.rejects(w.registry.register({ owner: { type: 'group', id: 'g' }, actor: ADMIN, jwk: kp.publicJwk } as never, w.ctx()), TypeError);
     await assert.rejects(w.registry.register({ owner: SVC, jwk: kp.publicJwk } as never, w.ctx()), TypeError);
     await assert.rejects(w.registry.challenge({ purpose: 'register', owner: SVC } as never, w.ctx()), TypeError);
+  });
+
+  it('binds challenge signatures to this service: a proof signed for another audience fails', async () => {
+    const w = world();
+    const kp = generateKeyPair('EdDSA');
+    const ch = await w.challenge();
+    const relayed = { challengeId: ch.id, signature: signChallenge(ch, 'register', 'https://other.example', kp.privateKey, kp.alg) };
+    assert.deepStrictEqual(await w.registry.register(userReg(kp, relayed), w.ctx()), { ok: false, code: 'invalid_proof' });
+    assert.ok((await w.registry.register(userReg(kp, await w.proofFor(kp, ALICE, ch)), w.ctx())).ok, 'the challenge was not burnt');
+  });
+
+  it('issues no challenge without an audience, or with a SecretStore whose secrets are not base64url', async () => {
+    const noAudience = world(keysOptions());
+    await assert.rejects(noAudience.registry.challenge({ purpose: 'register', owner: ALICE }, noAudience.ctx()), /audience/);
+    const kp = generateKeyPair('EdDSA');
+    assert.deepStrictEqual(await noAudience.registry.register(userReg(kp, { challengeId: 'x', signature: 'y' }), noAudience.ctx()), { ok: false, code: 'invalid_proof' });
+    class ColonSecrets extends MemorySecretStore {
+      async issue(identity: Parameters<MemorySecretStore['issue']>[0], purpose: string, ttl: number): Promise<string> {
+        await super.issue(identity, purpose, ttl);
+        return 'abc:def:ghi-jkl-mno-pqr-stu';
+      }
+    }
+    const registry = new DefaultKeyRegistry(new MemoryKeyStore(), new ColonSecrets(), new FakeBackoffThrottle(throttleParams()), [], keysOptions({ assertion: { audience: AUD } }));
+    await assert.rejects(registry.challenge({ purpose: 'login', kid: 'k' }, new FakeClock().ctx()), /base64url/);
+  });
+
+  it('refuses an actor longer than created_by and a scope that is not a Ceiling', async () => {
+    const w = world();
+    const jwk = () => generateKeyPair('EdDSA').publicJwk;
+    await assert.rejects(w.registry.register({ owner: SVC, actor: { type: 'user', id: 'a'.repeat(96) }, jwk: jwk() }, w.ctx()), TypeError);
+    assert.ok((await w.registry.register({ owner: SVC, actor: { type: 'user', id: 'a'.repeat(95) }, jwk: jwk() }, w.ctx())).ok, '100 characters fit');
+    for (const scope of [{ roles: 'admin' }, { roles: [1] }, { permissions: [null] }, { resources: [{ id: 'x' }] }, { expiresAt: 'tomorrow' }, { expiresAt: new Date(NaN) }, { reason: 7 }, { extra: true }]) {
+      assert.deepStrictEqual(await w.registry.register({ owner: SVC, actor: ADMIN, jwk: jwk(), scope } as never, w.ctx()), { ok: false, code: 'invalid_key' }, JSON.stringify(scope));
+    }
+    const ok = await w.registry.register({ owner: SVC, actor: ADMIN, jwk: jwk(), scope: { roles: ['r'], permissions: ['file:*'], resources: [{ type: 'file', id: '1' }, { type: 'dir' }], expiresAt: new Date(2_000_000_000_000), reason: 'out_of_scope' } }, w.ctx());
+    assert.ok(ok.ok);
+    assert.deepStrictEqual(ok.key.scope?.expiresAt, new Date(2_000_000_000_000));
   });
 
   it('resolves from DI with its dependencies registered', async () => {

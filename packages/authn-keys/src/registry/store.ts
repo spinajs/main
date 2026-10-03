@@ -7,8 +7,8 @@ export abstract class KeyStore {
   abstract insert(key: KeyRecord): Promise<'inserted' | 'duplicate'>;
   abstract get(kid: string): Promise<KeyRecord | null>;
   abstract listByOwner(owner: IdentityRef): Promise<readonly KeyRecord[]>;
-  /** Sets revokedAt unless already set; false when the key does not exist or belongs to another owner (type and id). */
-  abstract revoke(owner: IdentityRef, kid: string, at: Date): Promise<boolean>;
+  /** Sets revokedAt unless already set ('already'); 'none' when the key does not exist or belongs to another owner (type and id). */
+  abstract revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'>;
   abstract touch(kid: string, at: Date): Promise<void>;
 }
 
@@ -54,15 +54,16 @@ export class MemoryKeyStore extends KeyStore {
     return [...this.rows.values()].filter((r) => sameOwner(r.owner, owner));
   }
 
-  async revoke(owner: IdentityRef, kid: string, at: Date): Promise<boolean> {
+  async revoke(owner: IdentityRef, kid: string, at: Date): Promise<'revoked' | 'already' | 'none'> {
     const row = this.rows.get(kid);
     if (!row || !sameOwner(row.owner, owner)) {
-      return false;
+      return 'none';
     }
-    if (!row.revokedAt) {
-      this.rows.set(kid, freeze({ ...row, revokedAt: at }));
+    if (row.revokedAt) {
+      return 'already';
     }
-    return true;
+    this.rows.set(kid, freeze({ ...row, revokedAt: at }));
+    return 'revoked';
   }
 
   async touch(kid: string, at: Date): Promise<void> {
