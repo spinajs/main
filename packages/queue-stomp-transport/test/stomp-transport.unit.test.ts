@@ -347,7 +347,7 @@ describe('stomp queue transport - unit', function () {
       expect(sub!.headers['activemq.prefetchSize']).to.eq('3');
     });
 
-    for (const bad of [0, -2, 1.5, 'many', null]) {
+    for (const bad of [0, -2, 1.5, 'many', null, '', '  ', '1e1', '0x10']) {
       it(`rejects resolve() for an invalid prefetch ( ${String(bad)} )`, async () => {
         const c = new TestableStompClient(options({ options: { prefetch: bad } }));
         await expect(c.resolve()).to.be.rejectedWith(InvalidArgument, /prefetch/i);
@@ -460,7 +460,7 @@ describe('stomp queue transport - unit', function () {
     });
 
     it('rejects when the broker never confirms the publish ( receipt timeout )', async () => {
-      const c = await connected({ options: { receiptTimeout: 30 } });
+      const c = await connected({ options: { receiptTimeout: 30, emitRetries: 0 } });
       c.fake.autoReceipt = false;
 
       await expect(c.emit(qMessage())).to.be.rejectedWith(UnexpectedServerError, /receipt/i);
@@ -576,7 +576,10 @@ describe('stomp queue transport - unit', function () {
       await tick();
 
       expect(second.ack.calledOnce).to.be.true;
-      expect(c.fake.published.some((p) => p.destination === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
+      const dlq = c.fake.published.find((p) => p.destination === '/queue/retry-dlq');
+      expect(dlq, 'second failure dead-letters').to.exist;
+      expect(dlq!.headers['x-retry-count']).to.eq('1');
+      expect(c.fake.published.filter((p) => p.destination === '/queue/retry-src'), 'no second republish').to.have.length(1);
     });
 
     it('prefers an explicit RetryCount on the job over the routing default', async () => {

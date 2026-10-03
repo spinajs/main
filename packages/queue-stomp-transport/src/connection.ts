@@ -194,14 +194,14 @@ export class StompQueueClient extends QueueClient {
     return new WebSocket(this.Options.host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
   }
 
-  /** The broker never hands this connection more unacked messages than the prefetch; same key as queue-amqp-transport. */
+  /** Reads `options.prefetch`; same key as queue-amqp-transport. */
   protected readPrefetch(): number {
     const raw = this.Options.options?.prefetch;
     if (raw === undefined) {
       return DEFAULT_PREFETCH;
     }
 
-    const value = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw;
+    const value = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
       throw new InvalidArgument(`Queue connection ${this.Options.name}: options.prefetch must be a positive integer, got ${JSON.stringify(raw)}`);
     }
