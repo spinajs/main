@@ -119,6 +119,7 @@ export class DbSessionStore extends SessionProvider {
     const current = session.Expiration;
     this.applyRenewedExpiration(session);
 
+    const now = DateTime.now();
     const result = await DbSession.update({
       Expiration: (session.Expiration ?? null) as DateTime,
       Data: encodeSessionData(session.Data),
@@ -126,6 +127,9 @@ export class DbSessionStore extends SessionProvider {
       .where('SessionId', session.SessionId)
       .where(function () {
         this.whereNull('State').orWhere('State', session.State);
+      })
+      .where(function () {
+        this.whereNull('Expiration').orWhere('Expiration', '>', now);
       });
 
     if (rowsAffected(result) === 0) {
@@ -190,16 +194,31 @@ export class DbSessionStore extends SessionProvider {
     });
     const legacy = await DbSession.where('Subject', null);
 
-    return [...rows, ...legacy].map((r) => this.toSession(r)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
+    return [...rows, ...legacy].map((r) => this.toSession(r, true)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
   }
 
-  /** The 3.0 view of a row; null for a 2.x row without an owner. */
-  protected toSession(row: DbSession): ISession | null {
+  /**
+   * The 3.0 view of a row; null for a 2.x row without an owner. `lenient`
+   * (revocation and listing): a row whose Data does not decode keeps the owner
+   * its columns give and an empty Data, so one bad row cannot make a
+   * revokeAll throw for everybody; a 2.x row then has no owner and is skipped.
+   */
+  protected toSession(row: DbSession, lenient = false): ISession | null {
+    let data: Map<string, unknown>;
+    try {
+      data = decodeSessionData(sessionDataFromColumn(row.Data));
+    } catch (err) {
+      if (!lenient) {
+        throw err;
+      }
+      this.Log.warn(`Session row with undecodable Data skipped in a subject lookup`);
+      data = new Map();
+    }
     const session = new UserSession({
       SessionId: row.SessionId,
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
-      Data: decodeSessionData(sessionDataFromColumn(row.Data)),
+      Data: data,
     });
 
     const subject = refOf(row.Subject);

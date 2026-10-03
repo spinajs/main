@@ -126,7 +126,14 @@ export class UserSessionIdHash_2026_10_02_00_00_00 extends OrmMigration {
     const rows = (await connection.select().from(TABLE).whereNull('Subject')) as Array<{ SessionId: string; Data: unknown }>;
 
     for (const row of rows) {
-      const session = adaptLegacySession(new UserSession({ SessionId: row.SessionId, Data: decodeSessionData(sessionDataFromColumn(row.Data)) }));
+      let data: Map<string, unknown>;
+      try {
+        data = decodeSessionData(sessionDataFromColumn(row.Data));
+      } catch {
+        // An undecodable row has no readable owner; leave it for expiry rather than fail the migration.
+        continue;
+      }
+      const session = adaptLegacySession(new UserSession({ SessionId: row.SessionId, Data: data }));
       if (!session) {
         continue;
       }

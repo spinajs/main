@@ -115,6 +115,22 @@ describe('UserSessionIdHash_2026_10_02_00_00_00', function () {
     expect((await provider.restore(key))!.SessionId).to.equal(key);
   });
 
+  it('a 2.x row whose Data does not decode neither fails the migration nor blocks the backfill of the others', async () => {
+    await bootStore();
+    connection = await sessionConnection();
+    await connection.schema().raw('DROP TABLE user_sessions');
+    await new UserSessionDBSqlMigration_2022_06_28_01_20_00().up(connection);
+    const creation = DateTime.now().minus({ minutes: 1 });
+    const expiration = creation.plus({ minutes: 30 });
+    await connection.insert().into('user_sessions').values({ SessionId: NO_USER, CreatedAt: creation, Expiration: expiration, Data: '{not json', UserId: 1 });
+    await seedLegacyRow({ rawId: ACTIVE, user: 'u-a', authorized: true, creation, expiration });
+
+    await new UserSessionIdHash_2026_10_02_00_00_00().up(connection);
+
+    expect((await rowOf(connection, ACTIVE)).Subject).to.equal('user:u-a');
+    expect((await rowOf(connection, NO_USER)).Subject ?? null).to.equal(null);
+  });
+
   it('runs twice without failing', async () => {
     await upgradeA2xTable();
     await new UserSessionIdHash_2026_10_02_00_00_00().up(connection);

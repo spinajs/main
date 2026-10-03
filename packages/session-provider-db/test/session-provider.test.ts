@@ -8,7 +8,7 @@ import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
 import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
-import { bootStore, disposeStore, seedLegacyRow } from './support.js';
+import { bootStore, disposeStore, seedLegacyRow, sessionConnection } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -190,6 +190,33 @@ describe('db session provider', function () {
 
       expect(await store.deleteBySubject(user('u-1'))).to.equal(1);
       expect(await DbSession.where({ SessionId: 'k-dead' }).first()).to.not.exist;
+    });
+
+    it('one row whose Data does not decode cannot make revocation throw for everybody', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const conn = await sessionConnection();
+      const exp = DateTime.now().plus({ minutes: 10 });
+      await conn.insert().into('user_sessions').values({ SessionId: '0b8f3c1e-2a4d-4e6f-9a1b-3c5d7e9f1a2b', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', UserId: 1 });
+      await conn.insert().into('user_sessions').values({ SessionId: 'k-corrupt', CreatedAt: DateTime.now(), Expiration: exp, Data: '{not json', UserId: 1, Subject: 'user:u-1', State: 'active' });
+      await store.save(new Session({ SessionId: 'k-other', Subject: user('u-2'), State: 'active', Data: new Map() }));
+
+      expect(await store.deleteBySubject(user('u-2'))).to.equal(1);
+      expect(await store.deleteBySubject(user('u-1')), "the subject's own undecodable row is still revoked").to.equal(1);
+      expect(await DbSession.where({ SessionId: 'k-corrupt' }).first()).to.not.exist;
+    });
+
+    it('SR-session revocation: touch never extends a row that has already expired', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const past = DateTime.now().minus({ seconds: 1 });
+      await store.save(new Session({ SessionId: 'k-expired', Subject: user('u-1'), State: 'active', Expiration: past, Data: new Map() }));
+      const view = new Session({ SessionId: 'k-expired', Subject: user('u-1'), State: 'active', Expiration: past, Data: new Map() });
+
+      expect(await store.touch(view)).to.be.false;
+      expect(await store.restore('k-expired')).to.be.null;
     });
   });
 

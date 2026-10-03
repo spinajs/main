@@ -68,7 +68,8 @@ export class MemorySessionStore extends SessionProvider<ISession> {
 
   /** Update-only: writes Expiration and Data of a row that still exists, never re-creates a deleted one. */
   public async touch(session: ISession): Promise<boolean> {
-    if (!this.Sessions.has(session.SessionId)) {
+    const stored = this.Sessions.get(session.SessionId);
+    if (!stored || this.isExpired(stored)) {
       return false;
     }
 

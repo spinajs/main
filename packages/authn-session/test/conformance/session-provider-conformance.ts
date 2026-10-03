@@ -309,7 +309,7 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         const provider = await makeProvider(SLIDING);
         await provider.truncate();
 
-        const old = DateTime.now();
+        const old = DateTime.now().plus({ seconds: 30 });
         const session = makeSession({ Expiration: old });
         await provider.save(session);
 
@@ -343,7 +343,7 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         // Created 119 min ago; cap = Creation + 120min = now + 1min.
         // Slide = now + 60min would exceed the cap and must be clamped.
         const creation = DateTime.now().minus({ minutes: 119 });
-        const session = makeSession({ Creation: creation, Expiration: DateTime.now() });
+        const session = makeSession({ Creation: creation, Expiration: DateTime.now().plus({ seconds: 30 }) });
         await provider.save(session);
 
         const changed = await provider.touch(session);
@@ -392,6 +392,18 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         await provider.save(session);
 
         closeTo((await provider.restore(session.SessionId))!.Expiration, creation.plus({ minutes: 120 }));
+      });
+
+      it('SR-session revocation: touch never extends a row that has already expired', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const past = DateTime.now().minus({ seconds: 1 });
+        const session = makeSession({ Expiration: past });
+        await provider.save(session);
+
+        expect(await provider.touch(makeSession({ SessionId: session.SessionId, Expiration: past }))).to.be.false;
+        expect(await provider.restore(session.SessionId)).to.be.null;
       });
 
       it('SR-session revocation: touch never revives a deleted session', async () => {
