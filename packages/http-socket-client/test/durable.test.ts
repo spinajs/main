@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import type { CommandRequest, SocketError } from '@spinajs/http-socket-common';
 import { CommandDispatcher } from '../src/commands.js';
-import { DEFAULT_DURABLE, DurableQueue, type AckedCommand, type FailedCommand } from '../src/durable.js';
+import { DEFAULT_DURABLE, DurableQueue, type AckedCommand, type FailedCommand, type HeldCommand } from '../src/durable.js';
 import { MemoryOutboxStore, type OutboxInput, type OutboxStore } from '../src/outbox.js';
 import { closeAll, track } from './support/cleanup.js';
 import { rejectionOf } from './support/commands.js';
@@ -167,7 +167,29 @@ describe('DurableQueue', () => {
     expect(server.requests.map((r) => (r.payload as { n: number }).n)).to.deep.equal([1, 2, 3, 4, 5, 1, 1, 2, 3, 4, 5]);
   });
 
-  it('sends a fenced command again right away, without a backoff', async () => {
+  it('parks fenced commands until their predecessor answers, however long it runs', async () => {
+    let running = true;
+    server.rawReplies.set('docs.stuck', async (request: CommandRequest) => {
+      if ((request.payload as { n: number }).n === 1) {
+        // still running server-side, but no longer holding the queue place its successors wait behind
+        await sleep(300);
+        running = false;
+        return { id: request.id, ok: true, result: request.payload };
+      }
+      if (running) {
+        return { id: request.id, ok: false, error: { code: 'unavailable', message: 'the predecessor has not completed', retryable: true, details: { after: request.after } } };
+      }
+      return { id: request.id, ok: true, result: request.payload };
+    });
+    const { queue } = await onlineQueue(server);
+
+    const results = await Promise.all([1, 2, 3].map((n) => queue.submit('docs.stuck', { n })));
+
+    expect(results).to.deep.equal([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(server.requests.map((r) => (r.payload as { n: number }).n)).to.deep.equal([1, 2, 3, 2, 3]);
+  });
+
+  it('sends a fenced command whose predecessor already answered again after a short floor, without a backoff', async () => {
     let fenced = false;
     server.rawReplies.set('docs.fenced', async (request: CommandRequest) => {
       if ((request.payload as { n: number }).n === 2 && !fenced) {
@@ -177,11 +199,13 @@ describe('DurableQueue', () => {
       return { id: request.id, ok: true, result: request.payload };
     });
     const { queue } = await onlineQueue(server, { reconnect: { minMs: 5_000, maxMs: 5_000, jitter: 0 } });
+    const started = Date.now();
 
     const results = await Promise.all([1, 2, 3].map((n) => queue.submit('docs.fenced', { n })));
 
     expect(results).to.deep.equal([{ n: 1 }, { n: 2 }, { n: 3 }]);
     expect(server.requests.map((r) => (r.payload as { n: number }).n)).to.deep.equal([1, 2, 3, 2]);
+    expect(Date.now() - started).to.be.at.least(45);
   }).timeout(2_000);
 
   it('refuses a payload above maxPayloadBytes, or one that cannot be encoded, before it reaches the store', async () => {
@@ -233,12 +257,17 @@ describe('DurableQueue', () => {
     const stub = serveDurable(server, 'docs.submit', undefined, { refuse: () => (expired ? { code: 'unauthenticated', message: 'credentials expired', retryable: false } : undefined) });
     const { queue } = await onlineQueue(server);
     const failed: FailedCommand[] = [];
+    const held: HeldCommand[] = [];
     queue.events.on('failed', (event) => failed.push(event));
+    queue.events.on('held', (event) => held.push(event));
 
     const done = queue.submit('docs.submit', { n: 1 });
     await until(() => server.requests.length >= 1);
     await sleep(150);
     expect(server.requests).to.have.length(1);
+    expect(held).to.have.length(1);
+    expect(held[0].entry.payload).to.deep.equal({ n: 1 });
+    expect(held[0].error.code).to.equal('unauthenticated');
 
     // a re-login reconnects
     expired = false;
@@ -478,6 +507,34 @@ describe('DurableQueue', () => {
     expect(await queue.submit('docs.late', {})).to.equal('first');
     expect(server.requests).to.have.length(2);
   }).timeout(1_000);
+
+  it('keeps settling when onListenerError throws on a store failure', async () => {
+    serveDurable(server, 'docs.submit');
+    const store = new MemoryOutboxStore();
+    store.remove = async () => {
+      throw new Error('disk full');
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { queue } = await onlineQueue(server, {
+        store,
+        onListenerError: () => {
+          throw new Error('the handler broke');
+        },
+      });
+
+      expect(await queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
+      expect(await queue.submit('docs.submit', { n: 2 })).to.deep.equal({ n: 2 });
+      await sleep(50);
+      expect(unhandled).to.deep.equal([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
 
   it('ignores a reply that arrives after close, so the entry resumes on the next start', async () => {
     serveDurable(server, 'docs.submit');

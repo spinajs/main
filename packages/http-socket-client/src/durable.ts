@@ -39,9 +39,20 @@ export interface FailedCommand {
   error: SocketError;
 }
 
+export interface HeldCommand {
+  entry: OutboxEntry;
+  error: SocketError;
+}
+
 export interface DurableEvents {
   acked: (event: AckedCommand) => void;
   failed: (event: FailedCommand) => void;
+  /**
+   * The server refused a command as unauthenticated: the queue sends nothing until the connection
+   * comes online again. After a re-login the app reconnects ( disconnect() and connect() ) when the
+   * server has not closed the connection itself.
+   */
+  held: (event: HeldCommand) => void;
 }
 
 export interface DurableQueueOptions {
@@ -60,6 +71,9 @@ const STREAM_REPLY: SocketError = { code: 'failed_precondition', message: 'a dur
 const MALFORMED_REPLY: SocketError = { code: 'internal', message: 'malformed reply', retryable: false };
 const UNENCODABLE: SocketError = { code: 'invalid_argument', message: 'the payload cannot be serialized', retryable: false };
 
+/** A fenced command whose predecessor already answered waits this long; the server may still be finishing it. */
+const FENCE_FLOOR_MS = 50;
+
 type Timer = ReturnType<typeof setTimeout>;
 type Outcome = { ok: true; result: unknown } | { ok: false; failed: FailedOutboxEntry };
 
@@ -69,6 +83,10 @@ interface Item {
   state: 'queued' | 'sent' | 'done';
   /** sent while the queue probed with its head alone */
   probe: boolean;
+  /** fenced behind this predecessor: not sent again before the predecessor's final answer */
+  parkedOn: Item | undefined;
+  /** fenced after its predecessor answered: not sent again before this time */
+  notBefore: number;
   /** requests whose final reply counts: the latest send, and those an ack timeout sent again on this connection */
   readonly outstanding: Set<string>;
   timer: Timer | undefined;
@@ -126,7 +144,14 @@ export class DurableQueue {
     this.maxPayloadBytes = maxPayloadBytes;
     this.ackTimeoutMs = assertTimeoutMs('durable.ackTimeoutMs', ackTimeoutMs);
     this.policy = new ReconnectPolicy(options.reconnect);
-    this.onStoreError = options.onListenerError ?? rethrowAsync;
+    const onListenerError = options.onListenerError ?? rethrowAsync;
+    this.onStoreError = (error) => {
+      try {
+        onListenerError(error);
+      } catch {
+        // a throwing handler must not stop the queue from settling, nor leave a rejection unhandled
+      }
+    };
     this.events = new Emitter<DurableEvents>(options.onListenerError);
     this.unsubscribe = options.connection.events.on('state', (state, previous) => this.onState(state, previous));
     this.load().catch(this.onStoreError);
@@ -240,7 +265,7 @@ export class DurableQueue {
 
   private item(entry: OutboxEntry): Item {
     // only an entry another writer added has no key; createdAt keeps it apart from a reused seq
-    return { entry, key: entry.key ?? `${this.keyPrefix}${entry.seq}.${entry.createdAt}`, state: 'queued', probe: false, outstanding: new Set(), timer: undefined, stored: false };
+    return { entry, key: entry.key ?? `${this.keyPrefix}${entry.seq}.${entry.createdAt}`, state: 'queued', probe: false, parkedOn: undefined, notBefore: 0, outstanding: new Set(), timer: undefined, stored: false };
   }
 
   private onState(state: ConnectionState, previous: ConnectionState): void {
@@ -252,8 +277,11 @@ export class DurableQueue {
     // their replies can no longer arrive; the server joins or replays the resend
     if (previous === 'online') {
       for (const item of this.items) {
-        item.outstanding.clear();
-        if (item.state === 'sent') {
+        if (item.state !== 'done') {
+          item.outstanding.clear();
+          // the new connection resends in order, so the fences start over
+          item.parkedOn = undefined;
+          item.notBefore = 0;
           this.requeue(item);
         }
       }
@@ -280,7 +308,7 @@ export class DurableQueue {
       }
 
       if (item.state === 'queued') {
-        if (unanswered >= window || !this.transmit(item, previous)) {
+        if (unanswered >= window || item.parkedOn !== undefined || Date.now() < item.notBefore || !this.transmit(item, previous)) {
           return;
         }
         unanswered++;
@@ -297,6 +325,7 @@ export class DurableQueue {
       request.after = previous.key;
     }
 
+    clearTimeout(item.timer);
     item.state = 'sent';
     item.probe = this.probing;
     item.outstanding.add(request.id);
@@ -336,6 +365,7 @@ export class DurableQueue {
     if (error.code === 'unauthenticated') {
       this.requeue(item);
       this.heldUntilOnline = true;
+      this.events.emit('held', { entry: item.entry, error });
       return;
     }
 
@@ -362,9 +392,23 @@ export class DurableQueue {
   private retry(item: Item, error: SocketError): void {
     this.requeue(item);
 
-    // fenced: its predecessor had not completed; it goes again right behind it
-    if (isFenceRefusal(error)) {
-      this.pump();
+    // fenced: its predecessor had not completed, and may have lost its queue place while it still runs
+    const after = fencedBehind(error);
+    if (after !== undefined) {
+      const predecessor = this.items.find((other) => other.key === after && other.state !== 'done');
+      if (predecessor) {
+        item.parkedOn = predecessor;
+        // its answer freed a window slot
+        this.pump();
+        return;
+      }
+
+      // no backoff step: nothing is overloaded
+      item.notBefore = Date.now() + FENCE_FLOOR_MS;
+      item.timer = setTimeout(() => {
+        item.timer = undefined;
+        this.pump();
+      }, FENCE_FLOOR_MS);
       return;
     }
 
@@ -409,6 +453,12 @@ export class DurableQueue {
 
     item.state = 'done';
     item.outcome = outcome;
+
+    for (const other of this.items) {
+      if (other.parkedOn === item) {
+        other.parkedOn = undefined;
+      }
+    }
   }
 
   /** The caller hears of an outcome only once the store holds it, so a reload cannot undo what it was told. */
@@ -455,8 +505,10 @@ function replyError(reply: CommandReply): SocketError | undefined {
   return 'stream' in reply ? STREAM_REPLY : undefined;
 }
 
-function isFenceRefusal(error: SocketError): boolean {
-  return typeof error.details === 'object' && error.details !== null && 'after' in error.details;
+/** The predecessor's key of a fence refusal; undefined for any other refusal. */
+function fencedBehind(error: SocketError): string | undefined {
+  const details = error.details as { after?: unknown } | null | undefined;
+  return typeof details === 'object' && details !== null && typeof details.after === 'string' ? details.after : undefined;
 }
 
 /** What the server's size limit measures: the JSON text in UTF-8, binary parts by their length. */
