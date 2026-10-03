@@ -8,6 +8,7 @@ import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { UserSession } from './session.js';
 import { sameRef } from './match.js';
+import { LEGACY_IDENTITY_KEYS, isLegacySessionId } from './legacy.js';
 
 /** Client IP shown by `list`; set by the HTTP layer through `set` (the issuer takes no request context). */
 export const SESSION_IP_KEY = 'Ip';
@@ -97,7 +98,10 @@ export class DefaultSessionIssuer extends SessionIssuer {
       return null;
     }
 
-    const session = await this.Store.restore(storageKeyOf(rawId));
+    let session = await this.Store.restore(storageKeyOf(rawId));
+    if (!session && isLegacySessionId(rawId)) {
+      session = await this.migrate(rawId);
+    }
     if (!session) {
       return null;
     }
@@ -161,6 +165,9 @@ export class DefaultSessionIssuer extends SessionIssuer {
 
   public async revoke(h: SessionHandle): Promise<void> {
     await this.Store.delete(storageKeyOf(h.id));
+    if (isLegacySessionId(h.id)) {
+      await this.Store.delete(h.id);
+    }
   }
 
   public async revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number> {
@@ -205,8 +212,50 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return out;
   }
 
+  /** An unmigrated 2.x row is listed under the handle of its future key, so the handle survives migration. */
   protected handleOfRow(session: ISession): string {
-    return sessionHandleOf(session.SessionId);
+    return sessionHandleOf(isLegacySessionId(session.SessionId) ? storageKeyOf(session.SessionId) : session.SessionId);
+  }
+
+  /**
+   * Re-saves a 2.x row (raw uuid key) under sha256(raw) and deletes the raw
+   * row (A07). 2.x data cannot show that MFA passed, so the facts are aal1
+   * with authenticatedAt = Creation; a row that never passed 2FA stays
+   * pending and lives at most pendingTtlSeconds more.
+   */
+  protected async migrate(rawId: string): Promise<ISession | null> {
+    const legacy = await this.Store.restore(rawId);
+    if (!legacy) {
+      // A parallel request may have migrated it a moment ago.
+      return this.Store.restore(storageKeyOf(rawId));
+    }
+
+    const now = DateTime.now();
+    const data = new Map(legacy.Data);
+    for (const k of LEGACY_IDENTITY_KEYS) {
+      data.delete(k);
+    }
+    data.set(FACTS_KEY, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: legacy.Creation.toMillis() } satisfies StoredFacts);
+
+    let expiration = legacy.Expiration;
+    if (legacy.State === 'pending') {
+      data.set(PENDING_KEY, { steps: [] });
+      const cap = now.plus({ seconds: this.PendingTtlSeconds });
+      expiration = !expiration || cap < expiration ? cap : expiration;
+    }
+
+    const migrated = new UserSession({
+      SessionId: storageKeyOf(rawId),
+      Subject: ref(legacy.Subject),
+      Impersonator: legacy.Impersonator ? ref(legacy.Impersonator) : undefined,
+      State: legacy.State,
+      Creation: legacy.Creation,
+      Expiration: expiration,
+      Data: data,
+    });
+    await this.Store.save(migrated);
+    await this.Store.delete(rawId);
+    return migrated;
   }
 
   protected factsOf(session: ISession, stored: StoredFacts): AuthnFacts {

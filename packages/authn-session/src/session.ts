@@ -4,6 +4,7 @@ import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { SessionProvider } from './contracts.js';
 import type { ISession } from './contracts.js';
 import { belongsTo, expirationEquals } from './match.js';
+import { adaptLegacySession } from './legacy.js';
 
 /**
  * A stored session row. `SessionId` is the storage key the issuer gives it
@@ -53,7 +54,7 @@ export class MemorySessionStore extends SessionProvider<ISession> {
       return null;
     }
 
-    return session;
+    return adaptLegacySession(session);
   }
 
   public async save(session: ISession): Promise<void> {
@@ -83,8 +84,9 @@ export class MemorySessionStore extends SessionProvider<ISession> {
 
   public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
     let count = 0;
-    for (const [key, session] of [...this.Sessions.entries()]) {
-      if (key !== opts?.except && belongsTo(session, subject, opts?.includeImpersonations)) {
+    for (const [key, row] of [...this.Sessions.entries()]) {
+      const session = adaptLegacySession(row);
+      if (session && key !== opts?.except && belongsTo(session, subject, opts?.includeImpersonations)) {
         this.Sessions.delete(key);
         if (!this.isExpired(session)) {
           count++;
@@ -95,7 +97,9 @@ export class MemorySessionStore extends SessionProvider<ISession> {
   }
 
   public async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
-    return [...this.Sessions.values()].filter((s) => !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
+    return [...this.Sessions.values()]
+      .map((row) => adaptLegacySession(row))
+      .filter((s): s is ISession => !!s && !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
   }
 
   public async truncate(): Promise<void> {
