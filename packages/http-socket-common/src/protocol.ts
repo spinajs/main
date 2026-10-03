@@ -14,7 +14,7 @@ export const MAX_NAME_LENGTH = 128;
 /** Characters a command / event name may use: names end up in log lines and metric labels. */
 export const NAME_PATTERN = /^[\w.:-]+$/;
 
-/** Longest accepted idempotency key: a clientId ( MAX_ID_LENGTH ), a separator and a sequence number fit. */
+/** Longest accepted idempotency key: a clientId ( MAX_ID_LENGTH ), a separator and a nonce fit. */
 export const MAX_KEY_LENGTH = 256;
 
 export const WIRE_EVENTS = {
