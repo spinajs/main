@@ -6,6 +6,8 @@ const ref = {
 };
 
 const scalar = { type: ['string', 'number', 'boolean'] };
+// The engine has no order on booleans (a boolean lt is always UNKNOWN), so they are refused here.
+const orderable = { type: ['string', 'number'] };
 const literalList = { type: 'array', items: { type: ['string', 'number'] } };
 
 const attrNode = {
@@ -16,10 +18,10 @@ const attrNode = {
     ne: { anyOf: [scalar, { type: 'null' }, ref] },
     in: { anyOf: [literalList, ref] },
     nin: { anyOf: [literalList, ref] },
-    lt: { anyOf: [scalar, ref] },
-    lte: { anyOf: [scalar, ref] },
-    gt: { anyOf: [scalar, ref] },
-    gte: { anyOf: [scalar, ref] },
+    lt: { anyOf: [orderable, ref] },
+    lte: { anyOf: [orderable, ref] },
+    gt: { anyOf: [orderable, ref] },
+    gte: { anyOf: [orderable, ref] },
     like: { anyOf: [{ type: 'string' }, ref] },
     glob: { anyOf: [{ type: 'string' }, ref] },
     wildcard: { anyOf: [{ type: 'string' }, ref] },

@@ -3,9 +3,9 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import { fakeEvaluationContext } from '@spinajs/authz-testing';
 
-import { AuthzConfigError, CONDITION_UNKNOWN, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, FALSE, TRUE } from '../../src/index.js';
+import { AuthzConfigError, CONDITION_UNKNOWN, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, FALSE, ScopeResolver, TRUE } from '../../src/index.js';
 import type { Condition, DecisionRequest, EvaluationContext, Principal, ResourceFilter } from '../../src/index.js';
-import { FakeScopeResolver, principal } from '../engine/fakes.js';
+import { FakeAdapter, FakeRow, FakeScopeResolver, principal } from '../engine/fakes.js';
 
 const expect = chai.expect;
 
@@ -37,9 +37,10 @@ const throws = new Fn('throws', () => {
 });
 const seen = new Fn('seen', () => true);
 
-const compiler = new DefaultConditionCompiler([echo, envFlag, nonBool, throws, seen]);
-
 const resolver = (): FakeScopeResolver => new FakeScopeResolver(['org', 'project', 'file', 'branch'], { 'org:o1': null, 'org:o2': null, 'project:p1': O1, 'file:f1': P1, 'file:f2': null, 'branch:b1': P1 }, { 'org:o1': { policies: { level: 'gold', open: true, nil: null, obj: { a: 1 } } }, 'org:o2': {}, 'branch:b1': { name: 'release/1' }, 'project:p1': { prefix: 'rel' } });
+
+// Every type here comes from the scope resolver and none from an adapter, so resource.* may bind from attributes.
+const compiler = new DefaultConditionCompiler([echo, envFlag, nonBool, throws, seen], [resolver()]);
 
 const ctxFor = (): EvaluationContext => fakeEvaluationContext({ now: NOW, scopeResolvers: [resolver()] as never, permissions: [{ name: 'file:read', types: ['file', 'branch', 'project'] }] });
 
@@ -198,10 +199,10 @@ describe('conditions: DefaultConditionCompiler', () => {
       echo.calls.length = 0;
       expect(await filterOf({ fn: 'echo', args: { ok: true, who: { ref: 'principal.id' }, list: [{ ref: 'env.region' }] } }, { actor: agent })).to.equal(TRUE);
       expect(echo.calls[0].args).to.deep.equal({ ok: true, who: 'alice', list: ['eu'] });
-      expect(echo.calls[0].ctx.principal).to.equal(alice);
-      expect(echo.calls[0].ctx.actor).to.equal(agent);
+      expect(echo.calls[0].ctx.principal.id).to.equal('alice');
+      expect(echo.calls[0].ctx.actor?.id).to.equal('ag1');
       expect(echo.calls[0].ctx.env.region).to.equal('eu');
-      expect(echo.calls[0].ctx.env.now).to.equal(NOW);
+      expect((echo.calls[0].ctx.env.now as Date).getTime()).to.equal(NOW.getTime());
       expect(await filterOf({ fn: 'echo', args: { ok: false } })).to.equal(FALSE);
     });
 
@@ -238,6 +239,79 @@ describe('conditions: DefaultConditionCompiler', () => {
     });
   });
 
+  describe('resource attributes', () => {
+    it('bind resource.* only for a type with a scope resolver and no adapter', async () => {
+      const row = new FakeRow('file', 'f1', { status: 'closed' });
+      const adapter = new FakeAdapter(['file'], { rows: [row], scopeAttributes: { 'file:f1': { status: 'open' } } });
+      const ctx = fakeEvaluationContext({ now: NOW, adapters: [adapter] as never });
+      const withAdapter = new DefaultConditionCompiler([], [resolver()], [adapter]);
+      // The adapter's scopeAttributes serve scope.* refs; the row, not they, decides resource.*.
+      expect((await withAdapter.compile({ attr: 'resource.status', eq: 'open' }, req({ resource: F1 }), ctx)).filter).to.deep.equal(cmp('status', 'eq', 'open'));
+      const noResolver = new DefaultConditionCompiler();
+      expect((await noResolver.compile({ attr: 'resource.name', eq: 'main' }, req({ resource: B1 }), ctxFor())).filter).to.deep.equal(cmp('name', 'eq', 'main'));
+    });
+  });
+
+  describe('operand kinds', () => {
+    it('a ref value of the wrong kind for the operator is UNKNOWN, never a residual', async () => {
+      expect(await filterOf({ attr: 'resource.team', in: { ref: 'principal.id' } })).to.equal(CONDITION_UNKNOWN);
+      expect(await filterOf({ attr: 'resource.team', eq: { ref: 'principal.attributes.teams' } })).to.equal(CONDITION_UNKNOWN);
+      expect(await filterOf({ attr: 'resource.team', like: { ref: 'principal.attributes.n' } })).to.equal(CONDITION_UNKNOWN);
+      expect(await filterOf({ attr: 'resource.n', lt: { ref: 'env.flag' } }, { env: { now: NOW, flag: true } })).to.equal(CONDITION_UNKNOWN);
+      expect(await filterOf({ attr: 'resource.n', lt: { ref: 'principal.attributes.n' } })).to.deep.equal(cmp('n', 'lt', 2));
+    });
+  });
+
+  describe('unresolvedScope', () => {
+    it('is set when a request without id leaves a scope.* ref unread, and only then', async () => {
+      expect(await compile({ attr: 'scope.org.policies.open', eq: true })).to.deep.include({ needsSubject: true, unresolvedScope: true });
+      expect(await compile({ fn: 'echo', args: { n: { ref: 'resource.name' } } })).to.deep.include({ needsSubject: true, unresolvedScope: false });
+      expect(await compile({ attr: 'scope.org.policies.open', eq: true }, { resource: F1 })).to.deep.include({ needsSubject: false, unresolvedScope: false });
+    });
+  });
+
+  describe('function views', () => {
+    it('track the principal and actor paths a function reads for caching', async () => {
+      const id = new Fn('reads.identity', (_a, ctx) => (ctx.principal as unknown as { identity?: { secret?: unknown } }).identity?.secret === 'x');
+      const attrs = new Fn('reads.attributes', (_a, ctx) => ctx.principal.attributes.pool === 'gold' && ctx.principal.id === 'alice');
+      const keys = new Fn('reads.keys', (_a, ctx) => Object.keys(ctx.principal).length > 0);
+      const actor = new Fn('reads.actor', (_a, ctx) => ctx.actor?.onBehalfOf?.id === 'alice');
+      const c = new DefaultConditionCompiler([id, attrs, keys, actor]);
+      const who = { ...alice, identity: { secret: 'x' } } as Principal;
+      expect(await c.compile({ fn: 'reads.identity' }, req({ principal: who }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
+      expect(await c.compile({ fn: 'reads.attributes' }, req(), ctxFor())).to.deep.include({ filter: TRUE, cacheable: true });
+      expect(await c.compile({ fn: 'reads.keys' }, req(), ctxFor())).to.deep.include({ cacheable: false });
+      expect(await c.compile({ fn: 'reads.actor' }, req({ actor: { ...agent, onBehalfOf: alice } }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
+    });
+
+    it('are read-only, and hand out copies of Dates', async () => {
+      const now = new Date(NOW.getTime());
+      const writes = new Fn('writes.env', (_a, ctx) => {
+        (ctx.env as Record<string, unknown>).region = 'us';
+        return true;
+      });
+      const moves = new Fn('moves.now', (_a, ctx) => {
+        (ctx.env.now as Date).setTime(0);
+        (ctx.principal.attributes.born as Date).setTime(0);
+        return true;
+      });
+      const c = new DefaultConditionCompiler([writes, moves]);
+      let error: unknown;
+      await c.compile({ fn: 'writes.env' }, req(), ctxFor()).catch((e) => (error = e));
+      expect(error).to.be.instanceOf(TypeError);
+      const r = req({ env: { now } });
+      expect((await c.compile({ all: [{ fn: 'moves.now' }, { attr: 'env.now', eq: NOW.toISOString() }] }, r, ctxFor())).filter).to.equal(TRUE);
+      expect(now.getTime()).to.equal(NOW.getTime());
+      expect((alice.attributes.born as Date).getTime()).to.not.equal(0);
+    });
+
+    it('work on a frozen principal', async () => {
+      const frozen = Object.freeze({ ...alice, attributes: Object.freeze({ ...alice.attributes }) }) as Principal;
+      const c = new DefaultConditionCompiler([new Fn('pool', (_a, ctx) => ctx.principal.attributes.pool === 'gold')]);
+      expect((await c.compile({ fn: 'pool' }, req({ principal: frozen }), ctxFor())).filter).to.equal(TRUE);
+    });
+  });
+
   describe('cacheable', () => {
     it('is false when env is read, or a principal path outside the L2 key', async () => {
       expect((await compile({ attr: 'resource.owner', eq: { ref: 'principal.id' } })).cacheable).to.equal(true);
@@ -259,9 +333,14 @@ describe('conditions: DefaultConditionCompiler', () => {
       expect(error).to.be.instanceOf(AuthzConfigError);
     });
 
-    it('parses a condition object once', () => {
-      const c: Condition = { attr: 'resource.a', eq: 1 };
-      expect(compiler.parse(c)).to.equal(compiler.parse(c));
+    it('parses a frozen condition object once, an unfrozen one each time', () => {
+      const frozen: Condition = Object.freeze({ attr: 'resource.a', eq: 1 });
+      expect(compiler.parse(frozen)).to.equal(compiler.parse(frozen));
+      const open = { attr: 'resource.a', eq: 1 } as { attr: string; eq: unknown };
+      const first = compiler.parse(open);
+      open.eq = 2;
+      expect(compiler.parse(open)).to.not.equal(first);
+      expect(compiler.parse(open)).to.deep.include({ operand: { kind: 'literal', value: 2 } });
     });
 
     it('refuses two functions with one name, or one without a name', () => {
@@ -270,13 +349,33 @@ describe('conditions: DefaultConditionCompiler', () => {
       expect([...compiler.functionNames()].sort()).to.deep.equal(['echo', 'env.flag', 'non.bool', 'seen', 'throws']);
     });
 
-    it('is the ConditionCompiler registered in DI', async () => {
-      try {
-        // The kit loads the lib copy of the core next to this src copy, so the class is matched by name.
-        expect((await DI.resolve(ConditionCompiler)).constructor.name).to.equal(DefaultConditionCompiler.name);
-      } finally {
-        DI.uncache(ConditionCompiler);
+    it('is the ConditionCompiler registered in DI, a fresh one per resolve', async () => {
+      // The kit loads the lib copy of the core next to this src copy, so the class is matched by name.
+      const a = await DI.resolve(ConditionCompiler);
+      expect(a.constructor.name).to.equal(DefaultConditionCompiler.name);
+      expect(await DI.resolve(ConditionCompiler)).to.not.equal(a);
+    });
+
+    it('built for a child container, sees the functions and resolvers registered along its lineage by then', async () => {
+      class Late extends ConditionFunction {
+        readonly name = 'late.fn';
+        evaluate(): boolean {
+          return true;
+        }
       }
+      class BranchResolver extends ScopeResolver {
+        readonly types = ['branch'];
+        async ancestors() {
+          return null;
+        }
+      }
+      const child = DI.child();
+      child.register(Late).as(ConditionFunction);
+      child.register(BranchResolver).as(ScopeResolver);
+      const c = (await child.resolve(ConditionCompiler)) as DefaultConditionCompiler;
+      expect([...c.functionNames()]).to.include('late.fn');
+      const out = await c.compile({ attr: 'resource.name', eq: 'release/1' }, req({ resource: B1 }), ctxFor());
+      expect(out.filter).to.deep.equal(TRUE);
     });
   });
 });

@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@spinajs/di';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 
 import { ConditionCompiler, ConditionFunction } from './contracts.js';
 import type { Condition } from './contracts.js';
@@ -7,6 +8,7 @@ import { FALSE, TRUE, and, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter, Value } from '../contracts/filter.js';
 import type { DecisionRequest } from '../contracts/decision.js';
 import type { EvaluationContext } from '../contracts/model.js';
+import { ResourceAdapter, ScopeResolver } from '../contracts/adapter.js';
 import type { Principal, ResourceRef } from '../contracts/principal.js';
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import { cacheSafeRef } from '../engine/cache-key.js';
@@ -20,7 +22,8 @@ import type { ConditionOp, ConditionPath, ParsedCondition } from './parse.js';
  * comparison against a ref that never resolves (`__proto__` is a reserved segment): the engine
  * binds a missing ref FALSE or TRUE by its polarity in the final allow residual, which is
  * exactly what Kleene UNKNOWN decides there, and the bound residual never reaches SQL with it.
- * The path is cache-safe, so it does not make a decision uncacheable.
+ * The path is cache-safe, so it does not make a decision uncacheable. A model whose votes may
+ * carry it lists 'cmp' in `capabilities.residuals`; explain traces show it as a `$unknown` cmp.
  */
 export const CONDITION_UNKNOWN: ResourceFilter = Object.freeze({ op: 'cmp', field: '$unknown', cmp: 'eq', value: Object.freeze({ ref: 'principal.attributes.__proto__' }) });
 
@@ -28,6 +31,8 @@ export interface CompiledCondition {
   readonly filter: ResourceFilter;
   readonly cacheable: boolean;
   readonly needsSubject: boolean;
+  /** Some `scope.<type>.*` ref could not be read on a request without id (B19 needs the subject, B39 calls it indeterminate; the model decides). */
+  readonly unresolvedScope: boolean;
 }
 
 const NEEDS_SUBJECT = Symbol('needs-subject');
@@ -39,18 +44,31 @@ const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 /**
  * The core `ConditionCompiler` (design §5.9). `principal.*`, `actor.*`, `env.*` and `scope.*`
  * are read now; `resource.*` becomes a residual `cmp`, or a constant when the request has an id,
- * no subject and the resource's own attributes hold the field. The result agrees with the
- * Kleene evaluation of the condition row by row (`evaluateResidual`, and SQL after it).
- * Registered in root with every `ConditionFunction` the container knows when it is first resolved.
+ * no subject, its type has a scope resolver and no adapter, and the attributes hold the field.
+ * The result agrees with the Kleene evaluation of the condition row by row (`evaluateResidual`,
+ * and SQL after it).
+ *
+ * Importing `@spinajs/authz` registers a factory for it (below), so every domain gets it instead
+ * of the engine's `NoConditionCompiler`.
  */
-@Injectable(ConditionCompiler)
-@Inject(Array.ofType(ConditionFunction))
 export class DefaultConditionCompiler extends ConditionCompiler {
+  /** Built from what a domain sees along its container lineage, the way the host reads its models and adapters. */
+  static fromContainer(container: IContainer): DefaultConditionCompiler | Promise<DefaultConditionCompiler> {
+    const lists = [container.resolveChain(ConditionFunction), container.resolveChain(ScopeResolver), container.resolveChain(ResourceAdapter)] as const;
+    if (lists.some((l) => l instanceof Promise)) return Promise.all(lists).then(([f, r, a]) => new DefaultConditionCompiler(f, r, a));
+    return new DefaultConditionCompiler(...(lists as unknown as [ConditionFunction[], ScopeResolver[], ResourceAdapter[]]));
+  }
+
   private readonly functions: ReadonlyMap<string, ConditionFunction>;
+  private readonly resourceAttributeTypes: ReadonlySet<string>;
   private readonly parsed = new WeakMap<object, ParsedCondition>();
 
-  constructor(functions: readonly ConditionFunction[] = []) {
+  constructor(functions: readonly ConditionFunction[] = [], resolvers: readonly ScopeResolver[] = [], adapters: readonly ResourceAdapter[] = []) {
     super();
+    // Only a scope resolver's attributes describe the resource itself (canvas branch → { name });
+    // an adapter has rows, and its scopeAttributes serve scope.* refs, not resource.* (design §5.9).
+    const adapterTypes = new Set((adapters ?? []).flatMap((a) => typesOf(a)));
+    this.resourceAttributeTypes = new Set((resolvers ?? []).flatMap((r) => typesOf(r)).filter((t) => !adapterTypes.has(t)));
     const map = new Map<string, ConditionFunction>();
     for (const f of functions ?? []) {
       if (!(f instanceof ConditionFunction) && (typeof f !== 'object' || f === null || typeof (f as ConditionFunction).evaluate !== 'function')) throw new AuthzConfigError('a condition function must extend ConditionFunction');
@@ -67,14 +85,19 @@ export class DefaultConditionCompiler extends ConditionCompiler {
     return new Set(this.functions.keys());
   }
 
-  /** `parseCondition` with this compiler's functions; memoised per condition object. */
+  /**
+   * `parseCondition` with this compiler's functions. Memoised per frozen condition object, since
+   * an unfrozen one may change. Models parse at boot with `where` (`compile` parses without it,
+   * so its errors only say "condition").
+   */
   parse(c: Condition, where?: string): ParsedCondition {
-    if (c !== null && typeof c === 'object') {
+    const memo = c !== null && typeof c === 'object' && Object.isFrozen(c);
+    if (memo) {
       const hit = this.parsed.get(c);
       if (hit) return hit;
     }
     const p = parseCondition(c, { functions: this.functions, ...(where === undefined ? {} : { where }) });
-    if (c !== null && typeof c === 'object') this.parsed.set(c, p);
+    if (memo) this.parsed.set(c, p);
     return p;
   }
 
@@ -87,21 +110,27 @@ export class DefaultConditionCompiler extends ConditionCompiler {
   }
 
   async compileParsed(p: ParsedCondition, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
-    const run = new Run(req, ctx, this.functions);
+    const run = new Run(req, ctx, this.functions, this.resourceAttributeTypes);
     const filter = simplify(await run.node(p));
-    return Object.freeze({ filter, cacheable: run.cacheable, needsSubject: run.needsSubject });
+    return Object.freeze({ filter, cacheable: run.cacheable, needsSubject: run.needsSubject, unresolvedScope: run.unresolvedScope });
   }
 }
+
+// A factory, never cached: each domain's resolve builds a compiler from the functions, scope
+// resolvers and adapters registered along its lineage by then (a class registration would be one
+// root instance holding the lists of its first resolve).
+DI.register((container: IContainer) => DefaultConditionCompiler.fromContainer(container)).as(ConditionCompiler);
 
 class Run {
   cacheable = true;
   needsSubject = false;
+  unresolvedScope = false;
   private readonly env: Readonly<Record<string, unknown>>;
   private readonly actor: Principal;
   private resourceAttributes?: Promise<Readonly<Record<string, unknown>> | null>;
 
-  constructor(private readonly req: DecisionRequest, private readonly ctx: EvaluationContext, private readonly functions: ReadonlyMap<string, ConditionFunction>) {
-    this.env = { now: ctx.now, ...(req.env ?? {}) };
+  constructor(private readonly req: DecisionRequest, private readonly ctx: EvaluationContext, private readonly functions: ReadonlyMap<string, ConditionFunction>, private readonly resourceAttributeTypes: ReadonlySet<string>) {
+    this.env = Object.freeze({ now: ctx.now, ...(req.env ?? {}) });
     this.actor = req.actor ?? req.principal;
   }
 
@@ -133,6 +162,9 @@ class Run {
     if (operand === NEEDS_SUBJECT || value === NEEDS_SUBJECT) return this.unknownForSubject();
     // A comparison with a value that does not exist is UNKNOWN for every row; a null test has no value.
     if (operand === MISSING && op !== 'null') return CONDITION_UNKNOWN;
+    // A ref's value of the wrong kind for the operator (a list for eq, a scalar for in) is UNKNOWN in
+    // the engine; it never reaches the residual, where an SQL compiler would have to guess.
+    if (!operandFits(op, operand)) return CONDITION_UNKNOWN;
     if (attr.root === 'resource' && value === MISSING) return simplify(residualCmp(attr.path.join('.'), op, operand));
     return truthFilter(await constantTruth(op, value === MISSING ? undefined : value, operand, this.req, this.ctx));
   }
@@ -164,8 +196,15 @@ class Run {
     if (subject) return this.unknownForSubject();
     if (unknown) return CONDITION_UNKNOWN;
 
-    const env = this.trackedEnv();
-    const result: unknown = f.evaluate(resolved, { principal: this.req.principal, ...(this.req.actor ? { actor: this.req.actor } : {}), env });
+    const view = (value: unknown, root: string) =>
+      readOnlyView(value, root, (path) => {
+        if (!cacheSafeRef(path)) this.cacheable = false;
+      });
+    const result: unknown = f.evaluate(resolved, {
+      principal: view(this.req.principal, 'principal') as Principal,
+      ...(this.req.actor ? { actor: view(this.req.actor, 'actor') as Principal } : {}),
+      env: view(this.env, 'env') as Readonly<Record<string, unknown>>,
+    });
     if (typeof result !== 'boolean') throw new AuthzConfigError(`condition function ${JSON.stringify(name)} returned ${result === null ? 'null' : typeof result}, not a boolean`);
     return result ? TRUE : FALSE;
   }
@@ -175,36 +214,12 @@ class Run {
     return CONDITION_UNKNOWN;
   }
 
-  // Reads mark the result uncacheable; a function that never looks at env keeps it cacheable.
-  private trackedEnv(): Readonly<Record<string, unknown>> {
-    const target = this.env;
-    const touch = () => {
-      this.cacheable = false;
-    };
-    return new Proxy(target, {
-      get(t, k, r) {
-        touch();
-        return Reflect.get(t, k, r);
-      },
-      has(t, k) {
-        touch();
-        return Reflect.has(t, k);
-      },
-      ownKeys(t) {
-        touch();
-        return Reflect.ownKeys(t);
-      },
-      getOwnPropertyDescriptor(t, k) {
-        touch();
-        return Reflect.getOwnPropertyDescriptor(t, k);
-      },
-    });
-  }
-
   private async readArgRef(text: string): Promise<Resolved> {
     const parts = text.split('.');
     if (parts[0] === 'resource') {
       const path = parts.slice(1);
+      // defaultAttribute, not the adapter's reader (the context does not expose it): a getter on the
+      // prototype reads as missing, so the function is UNKNOWN, never wrongly true.
       if (this.req.subject !== undefined) {
         const v = defaultAttribute(this.req.subject, path.join('.'));
         return v === undefined ? MISSING : valueOf(v);
@@ -259,7 +274,10 @@ class Run {
       node = GLOBAL;
     } else {
       const res = this.req.resource;
-      if (res.id === undefined || res.id === null) return NEEDS_SUBJECT;
+      if (res.id === undefined || res.id === null) {
+        this.unresolvedScope = true;
+        return NEEDS_SUBJECT;
+      }
       const ancestors = await this.ctx.ancestors(res);
       if (ancestors === null) throw new Error(`scope ref ${JSON.stringify(path.text)}: ${resourceKey(res)} is an unknown resource`);
       const nearest = ancestors.find((a) => a?.type === type);
@@ -274,10 +292,10 @@ class Run {
     return v;
   }
 
-  /** The field from the resource's own attributes (scope resolver, adapter, store), when the request has an id and no subject. */
+  /** The field from the attributes of a resolver-only resource, when the request has an id and no subject. */
   private async ownAttribute(attr: ConditionPath): Promise<unknown> {
     const res = this.req.resource;
-    if (this.req.subject !== undefined || res.id === undefined || res.id === null) return MISSING;
+    if (this.req.subject !== undefined || res.id === undefined || res.id === null || !this.resourceAttributeTypes.has(res.type)) return MISSING;
     this.resourceAttributes ??= this.ctx.attributes(res);
     const attrs = await this.resourceAttributes;
     if (attrs === null) return MISSING;
@@ -317,6 +335,86 @@ function valueOf(v: unknown): Value | typeof MISSING {
     return Object.freeze(out);
   }
   return MISSING;
+}
+
+function typesOf(x: unknown): string[] {
+  try {
+    const types = (x as { types?: unknown } | null)?.types;
+    return Array.isArray(types) ? types.filter((t): t is string => typeof t === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function operandFits(op: ConditionOp, v: unknown): boolean {
+  switch (op) {
+    case 'null':
+      return true;
+    case 'in':
+    case 'nin':
+      return Array.isArray(v);
+    case 'like':
+    case 'glob':
+    case 'wildcard':
+      return typeof v === 'string';
+    case 'lt':
+    case 'lte':
+    case 'gt':
+    case 'gte':
+      return typeof v === 'string' || typeof v === 'number';
+    default:
+      return v === null || typeof v !== 'object';
+  }
+}
+
+const READ_ONLY = (): never => {
+  throw new TypeError('condition functions get read-only views of the principal, the actor and env');
+};
+
+/**
+ * A read-only view for a ConditionFunction that reports the dotted path of every leaf it reads
+ * (and of every object it enumerates), so the compiler can tell whether the answer may be cached.
+ * Lists are handed out as frozen copies and read as a whole; Dates as fresh copies. The proxy
+ * target is an empty object: on a frozen principal a get trap that returns a wrapper would break
+ * the Proxy invariants.
+ */
+function readOnlyView(value: unknown, path: string, onRead: (path: string) => void): unknown {
+  if (value instanceof Date) {
+    onRead(path);
+    return new Date(Date.prototype.getTime.call(value));
+  }
+  if (value === null || typeof value !== 'object') {
+    onRead(path);
+    return value;
+  }
+  if (Array.isArray(value)) {
+    onRead(path);
+    return Object.freeze(value.map((x) => readOnlyView(x, path, onRead)));
+  }
+  const source = value as Record<string, unknown>;
+  const child = (k: string): unknown => readOnlyView(Object.hasOwn(source, k) ? source[k] : undefined, `${path}.${k}`, onRead);
+  return new Proxy(Object.create(null) as object, {
+    get: (_t, k) => (typeof k === 'string' ? child(k) : undefined),
+    has: (_t, k) => {
+      onRead(path);
+      return typeof k === 'string' && Object.hasOwn(source, k);
+    },
+    ownKeys: () => {
+      onRead(path);
+      return Object.keys(source);
+    },
+    getOwnPropertyDescriptor: (_t, k) => {
+      onRead(path);
+      if (typeof k !== 'string' || !Object.hasOwn(source, k)) return undefined;
+      return { value: child(k), writable: false, enumerable: true, configurable: true };
+    },
+    getPrototypeOf: () => Object.prototype,
+    set: READ_ONLY,
+    defineProperty: READ_ONLY,
+    deleteProperty: READ_ONLY,
+    setPrototypeOf: READ_ONLY,
+    preventExtensions: READ_ONLY,
+  });
 }
 
 function residualCmp(field: string, op: ConditionOp, operand: unknown): ResourceFilter {

@@ -92,7 +92,7 @@ describe('conditions: parseCondition', () => {
         { attr: 'resource.a', nin: { ref: 'principal.attributes.teams' } },
         { attr: 'resource.a', lt: 1 },
         { attr: 'resource.a', lte: 'b' },
-        { attr: 'resource.a', gt: true },
+        { attr: 'resource.a', gt: 3 },
         { attr: 'resource.a', gte: { ref: 'env.now' } },
         { attr: 'resource.a', like: 'a%' },
         { attr: 'resource.a', glob: 'x/**' },
@@ -123,7 +123,8 @@ describe('conditions: parseCondition', () => {
       fails({ attr: 'resource.a', in: 'a' }, /'in' takes a list of strings and numbers or \{ref\} at \.in/);
       fails({ attr: 'resource.a', nin: [true] }, /'nin' takes/);
       fails({ attr: 'resource.a', in: [null] }, /'in' takes/);
-      fails({ attr: 'resource.a', lt: null }, /'lt' takes a string, number, boolean or \{ref\}/);
+      fails({ attr: 'resource.a', lt: null }, /'lt' takes a string, number or \{ref\}/);
+      fails({ attr: 'resource.a', gte: true }, /'gte' takes a string, number or \{ref\}/);
       fails({ attr: 'resource.a', like: 1 }, /'like' takes a string or \{ref\}/);
       fails({ attr: 'resource.a', glob: null }, /'glob' takes/);
       fails({ attr: 'resource.a', wildcard: ['a'] }, /'wildcard' takes/);
