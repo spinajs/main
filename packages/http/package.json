@@ -28,6 +28,7 @@
     "copy": "cpx \"src/views/**/*.{pug,js}\" lib/views/ && cpx \"src/static/**/*\" lib/static/",
     "rimraf": "./node_modules/rimraf/bin.js",
     "clean": "rimraf lib/ && rimraf tsconfig.tsbuildinfo",
+    "pretest": "node ../../node_modules/typescript-7/lib/tsc.js -b tsconfig.mjs.json",
     "test": "ts-mocha -p tsconfig.json test/**/*.test.ts",
     "coverage": "nyc npm run test",
     "build-docs": "rimraf docs && typedoc --options typedoc.json src/",
