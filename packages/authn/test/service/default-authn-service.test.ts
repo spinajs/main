@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import 'mocha';
-import { FakeStrategy, fakeHash } from '@spinajs/authn-testing';
+import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, MemoryAuthnThrottle } from '../../src/index.js';
-import type { AuthenticationResult, AuthnContext, AuthnEvent, Credentials, ExternalSubject, IdentityRef, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
-import { bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
+import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
+import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
 
 const IP = '192.0.2.10';
@@ -38,6 +38,47 @@ const keyId = (k: ThrottleKey): string => `${k.kind}=${k.value}`;
 
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
+type Pending = Extract<AuthenticationResult, { status: 'mfa_required' }>;
+
+/** An MFA step with fixed answers; `accepts` is the one code verify takes. */
+class StubStep extends MfaStep {
+  readonly verifyCalls: string[] = [];
+  declare verifyRecovery?: (id: IdentityRef, code: string) => Promise<boolean>;
+
+  constructor(readonly name: string, private readonly opts: { enrolled: boolean; accepts?: string; recovery?: string }) {
+    super();
+    if (opts.recovery !== undefined) this.verifyRecovery = async (_id, code) => code === opts.recovery;
+  }
+
+  async enrolled(): Promise<boolean> {
+    return this.opts.enrolled;
+  }
+
+  async beginEnrolment(): Promise<{ provisioning: string }> {
+    return { provisioning: 'stub://' };
+  }
+
+  async confirmEnrolment(): Promise<{ recoveryCodes?: readonly string[] }> {
+    return {};
+  }
+
+  async verify(_id: IdentityRef, response: string): Promise<boolean> {
+    this.verifyCalls.push(response);
+    return response === this.opts.accepts;
+  }
+
+  async disable(): Promise<void> {}
+}
+
+/** The kit step first, then `extra` registered under their names. */
+const withSteps = (extra: readonly StubStep[], order: 'kit-first' | 'kit-last' = 'kit-first'): CoreOptions => {
+  const kit = { name: 'fake', service: KIT_MFA_STEP };
+  const listed = extra.map((s) => ({ name: s.name, service: `Step_${s.name}` }));
+  return {
+    register: (c) => extra.forEach((s) => bind(c, MfaStep, `Step_${s.name}`, s)),
+    raw: { authn: { mfa: { steps: order === 'kit-first' ? [kit, ...listed] : [...listed, kit] } } },
+  };
+};
 
 function failure(r: AuthenticationResult, reason: string): Failure {
   assert.strictEqual(r.status, 'failure', JSON.stringify(r));
@@ -291,7 +332,38 @@ describe('DefaultAuthnService', function () {
         ]),
         [20, 20, 20],
       );
-      assert.ok(!throttle!.attempts[0].keys.some((k) => k.value === `victim0|${IP}`), 'no account-ip added next to the strategy own one');
+      const keys = throttle!.attempts[0].keys.map(keyId);
+      assert.ok(!keys.includes(`account-ip=${IP}/victim0`), 'the strategy own account-ip is ignored (D8b)');
+      assert.ok(keys.includes(`account-ip=victim0|${IP}`), 'the service builds account-ip itself (D8b)');
+    });
+
+    it('builds account-ip itself, so a strategy account-ip without the ip clears nothing on another ip (D8b)', async () => {
+      const s = passwordLike(
+        'local',
+        (l) => l,
+        (a) => `acct:${a}`,
+        true,
+      );
+      const p = await boot([s]);
+      p.identities.add({ id: 'mallory', login: 'mallory' });
+      const OTHER_IP = '203.0.113.9';
+      let now = Date.parse('2026-10-03T10:00:00Z');
+      const run = async (login: string, password: string, ip: string): Promise<AuthenticationResult> => {
+        for (;;) {
+          const r = await p.service.authenticate(pw(login, password), ctx({ now: new Date(now), ip }));
+          if (r.status === 'failure' && r.reason === 'throttled') {
+            now += r.retryAfterSeconds! * 1000;
+            continue;
+          }
+          now += 1;
+          return r;
+        }
+      };
+      for (let i = 0; i < 20; i++) failure(await run(`victim${i}`, 'guess', IP), 'invalid_credentials');
+      for (let i = 0; i < 5; i++) failure(await run('mallory', 'wrong', OTHER_IP), 'invalid_credentials');
+      success(await run('mallory', 'right', IP));
+      assert.strictEqual(throttle!.ipAttempts(IP), 20);
+      assert.ok(!throttle!.attempts.some((a) => a.keys.some((k) => k.value.startsWith('acct:'))));
     });
 
     it('keeps the failures with two password candidates, the first answering', async () => {
@@ -429,6 +501,19 @@ describe('DefaultAuthnService', function () {
       assert.deepStrictEqual(p.identities.calls.status, []);
     });
 
+    it('asks the status of every subject type but service and agent, so an unknown type fails closed (D4b)', async () => {
+      const p = await boot([strategy('odd', { verify: (c) => ({ ok: true, identity: { type: tokenOf(c), id: 'u-1' }, method: 'token' }) })]);
+      p.identities.add({ id: 'u-1', login: 'u' });
+      p.identities.add({ type: 'customer', id: 'u-1', login: 'c' });
+      failure(await p.service.authenticate(bearer('User'), ctx({ purpose: 'request' })), 'invalid_credentials');
+      assert.ok(loginFailures(p).some((e) => e.reason === 'unknown_identity'));
+      success(await p.service.authenticate(bearer('customer'), ctx({ purpose: 'request' })));
+      assert.deepStrictEqual(p.identities.calls.status, [
+        { type: 'User', id: 'u-1' },
+        { type: 'customer', id: 'u-1' },
+      ]);
+    });
+
     it('issues sessions only to user identities (D12)', async () => {
       const svc: IdentityRef = { type: 'service', id: 'svc-1' };
       const p = await boot([strategy('svc-login', { kinds: ['password'], interactive: true, verify: () => ({ ok: true, identity: svc, method: 'password' }) })]);
@@ -559,6 +644,342 @@ describe('DefaultAuthnService', function () {
       assert.ok(challenge?.session && challenge.session !== (r as { pending: { id: string } }).pending.id);
       assert.ok(!p.events.all().some((e) => e.type === 'login' && e.outcome === 'success'));
     });
+
+    it('answers invalid_credentials, not a rejection, when the MFA policy fails after the password verified (A02)', async () => {
+      const broken = new StubStep('broken', { enrolled: false });
+      broken.enrolled = async () => {
+        throw new RangeError('mfa store down');
+      };
+      const p = await boot(undefined, withSteps([broken]));
+      await seedAlice(p);
+      failure(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()), 'invalid_credentials');
+      const e = p.events.all().find((x) => x.outcome === 'failure');
+      assert.deepStrictEqual({ type: e?.type, reason: e?.reason, data: e?.data }, { type: 'login', reason: 'policy_error', data: { error: 'RangeError' } });
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+    });
+
+    it('answers invalid_credentials and false, not a rejection, when a store fails after the credentials verified (A02)', async () => {
+      const p = await boot(undefined);
+      const a = await seedAlice(p);
+      const session = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+      p.identities.status = async () => {
+        throw new RangeError('users store down');
+      };
+      failure(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()), 'invalid_credentials');
+      assert.strictEqual(await p.service.reauthenticate(session, pw(ALICE.login, ALICE.password), ctx({ purpose: 'reauth', session })), false);
+      assert.deepStrictEqual(
+        p.events
+          .all()
+          .filter((x) => x.outcome === 'failure')
+          .map((x) => `${x.type}:${x.reason}:${String(x.data?.error)}`),
+        ['login:store_error:RangeError', 'reauth:store_error:RangeError'],
+      );
+    });
+  });
+
+  /** The identity keys of the mfa and reauth flows (D14). */
+  const identityKeys = (id: IdentityRef, ip: string | undefined): string[] => [`account=${id.id}`, `account-ip=${id.id}|${ip ?? ''}`, ...(ip ? [`ip=${ip}`] : [])];
+  const flowCalls = (calls: { keys: ThrottleKey[]; flow: ThrottleFlow }[], flow: ThrottleFlow): string[][] => calls.filter((x) => x.flow === flow).map((x) => x.keys.map(keyId));
+
+  describe('completeMfa', () => {
+    const NOW = new Date('2026-10-03T10:00:00Z');
+
+    async function pendingAlice(p: CoreParts): Promise<{ a: IdentityRef; pending: SessionHandle }> {
+      const a = await seedAlice(p);
+      p.step.enrol(a);
+      const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      assert.strictEqual(r.status, 'mfa_required', JSON.stringify(r));
+      return { a, pending: (r as Pending).pending };
+    }
+
+    it('elevates the pending session to aal2 with the passed step, rotates it, and audits mfa.verify and login', async () => {
+      const p = await boot(undefined);
+      const { a, pending } = await pendingAlice(p);
+      p.events.clear();
+      const r = success(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()));
+      assert.deepStrictEqual(r.identity, a);
+      assert.strictEqual(r.facts.assurance, 'aal2');
+      assert.deepStrictEqual([...r.facts.mfa], [p.step.name]);
+      assert.strictEqual(r.facts.method, 'password');
+      assert.strictEqual(r.facts.strategy, 'local');
+      assert.ok(r.session && r.session.state === 'active' && r.session.id !== pending.id, 'a new active id');
+      assert.strictEqual(await p.sessions.restore(pending.id), null, 'the pending id is dead');
+      const stored = await p.sessions.restore(r.session.id);
+      assert.strictEqual(stored?.facts.assurance, 'aal2');
+      assert.ok(r.facts.sessionHandle && r.facts.sessionHandle === stored.facts.sessionHandle);
+      assert.ok(!('authenticatedAt' in r.facts));
+      assert.deepStrictEqual(
+        p.events.all().map((e) => `${e.type}:${e.outcome}`),
+        ['mfa.verify:success', 'login:success'],
+      );
+      assert.ok(p.events.all().every((e) => e.session === r.facts.sessionHandle && e.identity?.id === a.id && e.strategy === 'local'));
+    });
+
+    it('counts the mfa flow with the identity keys before verifying, and gives them back on success (D14)', async () => {
+      const p = await boot(undefined);
+      const { a, pending } = await pendingAlice(p);
+      success(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()));
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'mfa'), [identityKeys(a, IP)]);
+      assert.deepStrictEqual(flowCalls(throttle!.succeeds, 'mfa'), [identityKeys(a, IP)]);
+    });
+
+    it('builds the mfa keys without an ip as `<id>|` and no ip key (D14)', async () => {
+      const p = await boot(undefined);
+      const { a, pending } = await pendingAlice(p);
+      failure(await p.service.completeMfa(pending, p.step.name, 'wrong', ctx({ ip: undefined })), 'invalid_credentials');
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'mfa'), [identityKeys(a, undefined)]);
+    });
+
+    it('refuses once the mfa account key is spent, verifying nothing, and audits throttle.block', async () => {
+      const p = await boot(undefined);
+      const { a, pending } = await pendingAlice(p);
+      for (let i = 0; i < 3; i++) failure(await p.service.completeMfa(pending, p.step.name, 'wrong', ctx({ now: NOW })), 'invalid_credentials');
+      const calls = p.step.verifyCalls.length;
+      const r = failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx({ now: NOW })), 'throttled');
+      assert.strictEqual(r.retryAfterSeconds, 1);
+      assert.strictEqual(p.step.verifyCalls.length, calls, 'nothing verified');
+      const blocks = p.events.all().filter((e) => e.type === 'throttle.block');
+      assert.strictEqual(blocks.length, 1);
+      assert.deepStrictEqual(blocks[0].identity, a);
+      assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending');
+      success(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx({ now: new Date(NOW.getTime() + 1000) })));
+    });
+
+    it('fails a wrong code, keeps the session pending, and audits mfa.verify without the code', async () => {
+      const p = await boot(undefined);
+      const { pending } = await pendingAlice(p);
+      failure(await p.service.completeMfa(pending, p.step.name, 'wrong-code-123', ctx()), 'invalid_credentials');
+      assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending');
+      const verify = p.events.all().filter((e) => e.type === 'mfa.verify');
+      assert.deepStrictEqual(
+        verify.map((e) => `${e.outcome}:${e.reason}`),
+        ['failure:invalid_code'],
+      );
+      const json = JSON.stringify(p.events.all());
+      for (const secret of ['wrong-code-123', pending.id]) assert.ok(!json.includes(secret), secret);
+      assert.strictEqual(throttle!.succeeds.filter((x) => x.flow === 'mfa').length, 0);
+    });
+
+    it('refuses a step the pending session does not require, verifying nothing', async () => {
+      const second = new StubStep('second', { enrolled: false, accepts: 'x' });
+      const p = await boot(undefined, withSteps([second]));
+      const { pending } = await pendingAlice(p);
+      failure(await p.service.completeMfa(pending, 'second', 'x', ctx()), 'invalid_credentials');
+      failure(await p.service.completeMfa(pending, 'kit-no-step', 'x', ctx()), 'invalid_credentials');
+      assert.deepStrictEqual(second.verifyCalls, []);
+      assert.deepStrictEqual(
+        p.events
+          .all()
+          .filter((e) => e.type === 'mfa.verify')
+          .map((e) => e.reason),
+        ['unknown_step', 'unknown_step'],
+      );
+      assert.strictEqual((await p.sessions.restore(pending.id))?.handle.state, 'pending');
+    });
+
+    it('refuses an expired pending session without counting', async () => {
+      const clock = new FakeClock();
+      clock.install();
+      try {
+        const p = await boot(undefined, {}, { authn: { session: { pendingTtlSeconds: 300 } } });
+        const { a, pending } = await pendingAlice(p);
+        clock.tick(301_000);
+        failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx({ now: clock.now() })), 'invalid_credentials');
+        assert.deepStrictEqual(flowCalls(throttle!.attempts, 'mfa'), []);
+        assert.strictEqual(p.step.verifyCalls.length, 0);
+      } finally {
+        clock.uninstall();
+      }
+    });
+
+    it('under force refuses the forced step for an identity not enrolled in it, without verifying', async () => {
+      const forced = new StubStep('forced', { enrolled: false, accepts: 'x' });
+      const p = await boot(undefined, withSteps([forced], 'kit-last'), { authn: { mfa: { policy: { force: true } } } });
+      await seedAlice(p);
+      const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      assert.deepStrictEqual([...(r as Pending).steps], ['forced']);
+      failure(await p.service.completeMfa((r as Pending).pending, 'forced', 'x', ctx()), 'invalid_credentials');
+      assert.deepStrictEqual(forced.verifyCalls, []);
+      assert.ok(p.events.all().some((e) => e.type === 'mfa.verify' && e.reason === 'not_enrolled'));
+      assert.strictEqual(flowCalls(throttle!.attempts, 'mfa').length, 1, 'still counted');
+    });
+
+    it('refuses an active or an unknown session without counting', async () => {
+      const p = await boot(undefined);
+      const a = await seedAlice(p);
+      const r = success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
+      p.step.enrol(a);
+      failure(await p.service.completeMfa(r.session!, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      failure(await p.service.completeMfa({ id: 'no-such-session', state: 'pending' }, p.step.name, '000000', ctx()), 'invalid_credentials');
+      assert.strictEqual((await p.sessions.restore(r.session!.id))?.facts.assurance, 'aal1', 'the active session is unchanged');
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'mfa'), []);
+      assert.strictEqual(p.step.verifyCalls.length, 0);
+    });
+
+    it('completes with a recovery code through the first enrolled step that takes them (D6)', async () => {
+      const early = new StubStep('early', { enrolled: false, recovery: 'stub-recovery' });
+      const plain = new StubStep('plain', { enrolled: true });
+      const p = await boot(undefined, withSteps([early, plain], 'kit-last'));
+      const { a, pending } = await pendingAlice(p);
+      const [c1] = await p.step.regenerateRecoveryCodes!(a);
+      failure(await p.service.completeMfa(pending, 'recovery', 'stub-recovery', ctx()), 'invalid_credentials');
+      failure(await p.service.completeMfa(pending, 'recovery', p.step.nextCode(a), ctx()), 'invalid_credentials');
+      const r = success(await p.service.completeMfa(pending, 'recovery', c1, ctx()));
+      assert.strictEqual(r.facts.assurance, 'aal2');
+      assert.deepStrictEqual([...r.facts.mfa], ['recovery']);
+      assert.strictEqual(flowCalls(throttle!.attempts, 'mfa').length, 3, 'recovery codes count in the mfa flow');
+      const again = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      assert.strictEqual(again.status, 'mfa_required');
+      failure(await p.service.completeMfa((again as Pending).pending, 'recovery', c1, ctx()), 'invalid_credentials');
+    });
+
+    it('refuses an identity banned between the two steps and ends its pending session', async () => {
+      const p = await boot(undefined);
+      const { a, pending } = await pendingAlice(p);
+      p.identities.setStatus(a, { banned: true });
+      failure(await p.service.completeMfa(pending, p.step.name, p.step.nextCode(a), ctx()), 'invalid_credentials');
+      assert.ok(p.events.all().some((e) => e.outcome === 'failure' && e.reason === 'banned'));
+      assert.ok(!p.events.all().some((e) => e.outcome === 'success' && (e.type === 'login' || e.type === 'mfa.verify')));
+      assert.strictEqual(await p.sessions.restore(pending.id), null);
+      assert.strictEqual(throttle!.succeeds.filter((x) => x.flow === 'mfa').length, 0);
+    });
+
+    it('refuses a pending session for which the policy now requires no step (D15)', async () => {
+      const p = await boot(undefined);
+      const a = await seedAlice(p);
+      const facts: AuthnFacts = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() };
+      const pending = await p.sessions.issue(a, facts, { pending: { steps: [] } });
+      failure(await p.service.completeMfa(pending, p.step.name, '000000', ctx()), 'invalid_credentials');
+      assert.strictEqual(p.step.verifyCalls.length, 0);
+      assert.ok(p.events.all().some((e) => e.type === 'mfa.verify' && e.reason === 'no_steps'));
+    });
+  });
+
+  describe('reauthenticate', () => {
+    const NOW = new Date('2026-10-03T10:00:00Z');
+
+    async function signedIn(p: CoreParts): Promise<{ a: IdentityRef; session: SessionHandle }> {
+      const a = await seedAlice(p);
+      const r = success(await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx()));
+      return { a, session: r.session! };
+    }
+
+    const again = (p: CoreParts, session: SessionHandle, c: Credentials, over: Partial<AuthnContext> = {}) => p.service.reauthenticate(session, c, ctx({ purpose: 'reauth', session, ...over }));
+
+    it('answers true for the session identity, counts the reauth flow and changes no session (D14)', async () => {
+      const p = await boot(undefined);
+      const { a, session } = await signedIn(p);
+      const before = await p.sessions.restore(session.id);
+      p.events.clear();
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password)), true);
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'reauth'), [identityKeys(a, IP)]);
+      assert.deepStrictEqual(flowCalls(throttle!.succeeds, 'reauth'), [identityKeys(a, IP)]);
+      assert.deepStrictEqual((await p.sessions.restore(session.id))?.facts, before!.facts);
+      assert.deepStrictEqual(
+        p.events.all().map((e) => `${e.type}:${e.outcome}:${e.identity?.id}`),
+        [`reauth:success:${a.id}`],
+      );
+      assert.ok(!JSON.stringify(p.events.all()).includes(ALICE.password));
+    });
+
+    it("answers false for another identity's correct password", async () => {
+      const p = await boot(undefined);
+      const { session } = await signedIn(p);
+      const bob = p.identities.add({ login: 'bob@example.test' });
+      await p.passwords.set(bob, fakeHash('Bob-Pass-2345x'));
+      assert.strictEqual(await again(p, session, pw('bob@example.test', 'Bob-Pass-2345x')), false);
+      assert.ok(p.events.all().some((e) => e.type === 'reauth' && e.outcome === 'failure' && e.reason === 'other_identity'));
+      assert.deepStrictEqual(flowCalls(throttle!.succeeds, 'reauth'), []);
+    });
+
+    it('answers false once the reauth account key is spent, verifying nothing, and audits throttle.block', async () => {
+      const p = await boot(undefined);
+      const { session } = await signedIn(p);
+      const local = p.strategies[0].instance as FakeStrategy;
+      for (let i = 0; i < 3; i++) assert.strictEqual(await again(p, session, pw(ALICE.login, WRONG), { now: NOW }), false);
+      const calls = local.verifyCalls.length;
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password), { now: NOW }), false);
+      assert.strictEqual(local.verifyCalls.length, calls, 'nothing verified');
+      assert.strictEqual(p.events.all().filter((e) => e.type === 'throttle.block').length, 1);
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password), { now: new Date(NOW.getTime() + 1000) }), true);
+    });
+
+    it('answers false for a pending, a revoked or an unknown session without counting', async () => {
+      const p = await boot(undefined);
+      const a = await seedAlice(p);
+      p.step.enrol(a);
+      const r = await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx());
+      const pending = (r as Pending).pending;
+      assert.strictEqual(await again(p, pending, pw(ALICE.login, ALICE.password)), false);
+      assert.strictEqual(await again(p, { id: 'no-such-session', state: 'active' }, pw(ALICE.login, ALICE.password)), false);
+      assert.deepStrictEqual(flowCalls(throttle!.attempts, 'reauth'), []);
+    });
+
+    it('answers false when the identity status now refuses', async () => {
+      const p = await boot(undefined);
+      const { a, session } = await signedIn(p);
+      p.identities.setStatus(a, { banned: true });
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password)), false);
+      assert.ok(p.events.all().some((e) => e.type === 'reauth' && e.reason === 'banned'));
+      assert.deepStrictEqual(flowCalls(throttle!.succeeds, 'reauth'), []);
+    });
+
+    it('takes no per-request credential as a re-authentication', async () => {
+      const p = await boot(undefined);
+      const { a, session } = await signedIn(p);
+      p.tokens.set('kit-token', a);
+      assert.strictEqual(await again(p, session, bearer('kit-token')), false);
+      assert.strictEqual((p.strategies[1].instance as FakeStrategy).verifyCalls.length, 0);
+    });
+
+    it('binds a delegation or an external outcome to the session identity only through its own link', async () => {
+      let alice: IdentityRef | undefined;
+      const outcomes: Record<string, StrategyOutcome> = {
+        linked: { ok: true, external: { provider: 'kit-idp', subject: 'sub-alice' }, method: 'oidc' },
+        unlinked: { ok: true, external: { provider: 'kit-idp', subject: 'sub-none' }, method: 'oidc' },
+        other: { ok: true, external: { provider: 'kit-idp', subject: 'sub-bob' }, method: 'oidc' },
+      };
+      const s = strategy('pwstub', {
+        kinds: ['password'],
+        interactive: true,
+        verify: (c) => {
+          const which = String((c as { password?: unknown }).password);
+          if (which === 'delegation') return { ok: true, identity: alice!, method: 'password', delegation: { onBehalfOf: alice!, mode: 'inherit' } };
+          return outcomes[which] ?? { ok: false, reason: 'invalid_credentials' };
+        },
+      });
+      const p = await boot([s]);
+      alice = await seedAlice(p);
+      const bob = p.identities.add({ login: 'bob@example.test' });
+      await p.links.link(alice, { provider: 'kit-idp', subject: 'sub-alice' });
+      await p.links.link(bob, { provider: 'kit-idp', subject: 'sub-bob' });
+      const session = await p.sessions.issue(alice, { method: 'password', strategy: 'pwstub', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+      assert.strictEqual(await again(p, session, pw(ALICE.login, 'linked')), true);
+      for (const which of ['delegation', 'unlinked', 'other']) assert.strictEqual(await again(p, session, pw(ALICE.login, which)), false, which);
+      assert.deepStrictEqual(
+        p.events
+          .all()
+          .filter((e) => e.type === 'reauth')
+          .map((e) => `${e.outcome}:${e.reason}`),
+        ['success:undefined', 'failure:other_identity', 'failure:other_identity', 'failure:other_identity'],
+      );
+    });
+
+    it('answers false when the strategy throws, auditing the error class only', async () => {
+      const boom = strategy('local', {
+        kinds: ['password'],
+        interactive: true,
+        verify: () => {
+          throw new TypeError(`bad ${ALICE.password}`);
+        },
+      });
+      const p = await boot([boom]);
+      const a = await seedAlice(p);
+      const session = await p.sessions.issue(a, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+      assert.strictEqual(await again(p, session, pw(ALICE.login, ALICE.password)), false);
+      const e = p.events.all().find((x) => x.type === 'reauth');
+      assert.deepStrictEqual({ reason: e?.reason, data: e?.data }, { reason: 'strategy_error', data: { error: 'TypeError' } });
+    });
   });
 
   describe('principalOf', () => {
@@ -633,13 +1054,26 @@ describe('DefaultAuthnService', function () {
       await bootFails([failing()], { omit: ['PrincipalFactory'] }, 'PrincipalFactory');
     });
 
-    it('needs a SessionIssuer and an MfaPolicy only when an interactive strategy is listed', async () => {
-      await boot([failing()], { omit: ['SessionIssuer', 'MfaPolicy'] });
+    it('needs a SessionIssuer, the MfaPolicy and the MFA steps only when an interactive strategy is listed', async () => {
+      const broken = { authn: { mfa: { policy: { service: 'NoSuchPolicy' }, steps: [{ name: 'gone', service: 'NoSuchStep' }] } } };
+      await boot([failing()], { omit: ['SessionIssuer'], raw: broken });
       await parts!.dispose();
       parts = undefined;
       const interactive = strategy('i', { kinds: ['password'], interactive: true, verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
       await bootFails([interactive], { omit: ['SessionIssuer'] }, 'SessionIssuer');
-      await bootFails([interactive], { omit: ['MfaPolicy'] }, 'MfaPolicy');
+      await bootFails([interactive], { raw: { authn: { mfa: { policy: { service: 'NoSuchPolicy' } } } } }, 'authn.mfa.policy.service', 'NoSuchPolicy', 'DefaultMfaPolicy');
+      await bootFails([interactive], { raw: { authn: { mfa: { steps: [{ name: 'gone', service: 'NoSuchStep' }] } } } }, 'authn.mfa.steps', 'NoSuchStep');
+    });
+
+    it('uses the MfaPolicy named by authn.mfa.policy.service', async () => {
+      class Always extends MfaPolicy {
+        async required(): Promise<readonly string[]> {
+          return ['fake'];
+        }
+      }
+      const p = await boot(undefined, { raw: { authn: { mfa: { policy: { service: 'AlwaysPolicy' } } } }, register: (c) => bind(c, MfaPolicy, 'AlwaysPolicy', new Always()) });
+      await seedAlice(p);
+      assert.strictEqual((await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx())).status, 'mfa_required');
     });
 
     it('is one instance per container (D11)', async () => {
@@ -652,12 +1086,6 @@ describe('DefaultAuthnService', function () {
       } finally {
         await other.dispose();
       }
-    });
-
-    it('leaves completeMfa and reauthenticate to task 3', async () => {
-      const p = await boot([failing()]);
-      await assert.rejects(p.service.completeMfa({ id: 'x', state: 'pending' }, 'fake', '000000', ctx()), /not implemented/);
-      await assert.rejects(p.service.reauthenticate({ id: 'x', state: 'active' }, bearer('x'), ctx()), /not implemented/);
     });
   });
 });

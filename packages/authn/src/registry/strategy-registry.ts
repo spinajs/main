@@ -1,56 +1,21 @@
-import { AsyncService, Container, Inject, PerChildInstance, isFactory } from '@spinajs/di';
-import type { Class, Factory, IContainer } from '@spinajs/di';
+import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
 import type { Credentials } from '../contracts/credentials.js';
+import { instantiate, kindOf, nearestRegistration, nonEmpty, q, readNamedEntries } from './named.js';
+import type { NamedEntry } from './named.js';
 import { isCredentialSelector } from './selector.js';
 import type { CredentialSelector } from './selector.js';
 
-export interface StrategyEntry {
-  readonly name: string;
-  readonly service: string;
-}
+export type StrategyEntry = NamedEntry;
 
 interface Listed {
   readonly strategy: AuthenticationStrategy;
   readonly kinds: readonly string[];
   readonly selector: boolean;
-}
-
-const q = (v: unknown): string => JSON.stringify(v) ?? String(v);
-
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
-
-const kindOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
-
-// Config files merge arrays by concat, so a file that repeats the package default lists an entry twice.
-// Errors name indexes, names and services only: a malformed entry may carry options with secrets.
-function readEntries(raw: unknown): StrategyEntry[] {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw)) throw new InvalidOption(`authn.strategies must be a list of { name, service } entries, got ${kindOf(raw)}`);
-  const services = new Map<string, string>();
-  const entries: StrategyEntry[] = [];
-  raw.forEach((item: unknown, i) => {
-    const e = item as Partial<StrategyEntry> | null;
-    if (e === null || typeof e !== 'object' || Array.isArray(e)) {
-      throw new InvalidOption(`authn.strategies[${i}] must be a { name, service } object, got ${kindOf(item)}`);
-    }
-    const { name, service } = e;
-    if (!nonEmpty(name) || !nonEmpty(service)) {
-      const bad = Object.entries({ name, service }).filter(([, v]) => !nonEmpty(v));
-      throw new InvalidOption(`authn.strategies[${i}]: ${bad.map(([k]) => k).join(' and ')} must be a non-empty string`);
-    }
-    const known = services.get(name);
-    if (known === service) return;
-    if (known !== undefined) {
-      throw new InvalidOption(`authn.strategies: duplicate strategy name ${q(name)} with services ${q(known)} and ${q(service)}`);
-    }
-    services.set(name, service);
-    entries.push({ name, service });
-  });
-  return entries;
 }
 
 // Duck-typed: strategies built against another copy of the contracts (cjs/mjs, the kit) fail instanceof.
@@ -106,17 +71,15 @@ export class StrategyRegistry extends AsyncService {
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('StrategyRegistry: the resolved Configuration has no get()');
     }
-    const entries = readEntries(configuration.get('authn.strategies'));
-    // The whole lineage, nearest registration first: a child may list a root strategy next to its own.
-    const registered = [...(this.container.getRegisteredTypesChain(AuthenticationStrategy) ?? [])].reverse();
+    const entries = readNamedEntries(configuration.get('authn.strategies'), 'authn.strategies', 'strategy');
     const listed: Listed[] = [];
     for (const e of entries) {
-      const type = registered.find((t) => t.name === e.service);
+      // The whole lineage: a child may list a root strategy next to its own.
+      const type = nearestRegistration(this.container, AuthenticationStrategy, e.service);
       if (!type) {
         throw new InvalidOption(`authn.strategies entry ${q(e.name)}: no AuthenticationStrategy is registered as service ${q(e.service)}`);
       }
-      const strategy: unknown = isFactory(type) ? await (type as Factory<unknown>)(this.container) : await this.container.resolve(type as Class<unknown>);
-      listed.push(check(e, strategy));
+      listed.push(check(e, await instantiate(this.container, type)));
     }
     this.listed = Object.freeze(listed);
     this.all = Object.freeze(listed.map((l) => l.strategy));

@@ -1,15 +1,18 @@
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { EnrolledMfaPolicy, FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
-export const CORE_SUPPORTED: readonly string[] = ['authn.throttle', 'authn.linking', 'authn.session'];
+export const CORE_SUPPORTED: readonly string[] = ['authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth'];
+
+/** The service name of the kit MFA step, listed in authn.mfa.steps. */
+export const KIT_MFA_STEP = 'KitMfaStep';
 
 /** Registers a capturing DI Log for the `logs` port; call inside the describe that runs the harness. */
 export const useHarnessLog = useTestLog;
@@ -22,7 +25,7 @@ export interface StrategySpec {
 }
 
 /** Neighbours a test may leave unregistered. */
-export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'MfaPolicy' | 'PrincipalFactory';
+export type Neighbour = 'IdentityStore' | 'IdentityLinkStore' | 'SessionIssuer' | 'PrincipalFactory';
 
 export interface CoreOptions {
   /** Replaces the kit strategies. */
@@ -49,7 +52,6 @@ export interface CoreParts {
   readonly principals: RecordingPrincipalFactory;
   readonly links: MemoryLinkStore;
   readonly step: FakeMfaStep;
-  readonly policy: MfaPolicy;
   /** Bearer tokens the kit token strategy accepts: raw token → identity. */
   readonly tokens: Map<string, IdentityRef>;
   /** Subjects the kit external strategy (provider 'kit-idp') accepts. */
@@ -125,10 +127,11 @@ function kitStrategies(identities: FakeIdentityStore, passwords: MemoryPasswordC
 }
 
 /**
- * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink and MemoryAuthnThrottle, resolved in a
- * fresh child container with its own Configuration (all of them are per container, D11), over kit fakes for the
- * neighbours N1 does not own. The throttle is built from the child's Configuration and registered there under the
- * name `MemoryAuthnThrottle`, so each case gets its own rows and parameters.
+ * The real DefaultAuthnService, StrategyRegistry, AuthnAudit, LogAuthnAuditSink, MfaStepRegistry, DefaultMfaPolicy and
+ * MemoryAuthnThrottle, resolved in a fresh child container with its own Configuration (all of them are per container,
+ * D11), over kit fakes for the neighbours N1 does not own. The kit MFA step (`fake`) is listed in `authn.mfa.steps`.
+ * The throttle is built from the child's Configuration and registered there under the name `MemoryAuthnThrottle`, so
+ * each case gets its own rows and parameters.
  */
 export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions = {}): Promise<CoreParts> {
   checkConfig(config);
@@ -141,12 +144,11 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();
-  const policy = new EnrolledMfaPolicy([step]);
   const tokens = new Map<string, IdentityRef>();
   const externalSubjects = new Map<string, ExternalSubject>();
   const strategies = opts.strategies ?? kitStrategies(identities, passwords, tokens, externalSubjects);
 
-  const authn = { ...(config.authn ?? {}), strategies: strategies.filter((s) => s.listed).map((s) => ({ name: s.name, service: s.service })) };
+  const authn = deepMerge({ mfa: { steps: [{ name: step.name, service: KIT_MFA_STEP }] } }, { ...(config.authn ?? {}), strategies: strategies.filter((s) => s.listed).map((s) => ({ name: s.name, service: s.service })) });
   const values = deepMerge({ authn }, opts.raw ?? {});
 
   const child = DI.RootContainer.child();
@@ -160,17 +162,17 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
       ['IdentityStore', IdentityStore, identities],
       ['IdentityLinkStore', IdentityLinkStore, links],
       ['SessionIssuer', SessionIssuer, sessions],
-      ['MfaPolicy', MfaPolicy, policy],
       ['PrincipalFactory', PrincipalFactory, principals],
     ];
     for (const [name, base, value] of neighbours) if (!omit.has(name)) bind(child, base, `Kit${name}`, value);
     bind(child, PasswordCredentialStore, 'KitPasswordCredentialStore', passwords);
+    bind(child, MfaStep, KIT_MFA_STEP, step);
     for (const s of strategies) if (s.instance) bind(child, AuthenticationStrategy, s.service, s.instance);
     bind(child, AuthnEventSink, 'KitEvents', events);
     bind(child, AuthnEventSink, 'KitEvents2', second);
     opts.register?.(child);
     const service = await child.resolve(AuthnService);
-    return { child, configuration, service, identities, passwords, sessions, throttle, events, second, principals, links, step, policy, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
+    return { child, configuration, service, identities, passwords, sessions, throttle, events, second, principals, links, step, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
   } catch (e) {
     await child.dispose();
     throw e;
@@ -200,7 +202,7 @@ const spyOf = (strategies: readonly StrategySpec[]) => ({
   verifyCalls: () => strategies.reduce((n, s) => n + ((s.instance as { verifyCalls?: unknown[] } | undefined)?.verifyCalls?.length ?? 0), 0),
 });
 
-/** Every port the core service has today; `mfa` arrives with completeMfa (task 3). */
+/** Every port the core service has today. */
 export function coreHarnessOf(parts: CoreParts): Harness {
   const logStart = TestLog.lines.length;
   return {
@@ -213,6 +215,7 @@ export function coreHarnessOf(parts: CoreParts): Harness {
     sinks: [parts.events, parts.second],
     logs: { lines: () => TestLog.lines.slice(logStart).filter((l) => l.includes(' authn audit ')) },
     spy: spyOf(parts.strategies),
+    mfa: { step: parts.step, enrol: async (id) => parts.step.enrol(id), code: async (id) => parts.step.nextCode(id) },
     passwordStore: parts.passwords,
     links: parts.links,
     external: {
