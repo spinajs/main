@@ -3,7 +3,7 @@ import type { AdminContext, AppliedRow, AuthzCommand, AuthzEvent, AuthzTx, Permi
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { LinkDef } from '../contracts.js';
-import { actorRef, assignmentStore, checkGrantable, event, linkStore, linkTags, quote, readAttributes, readExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
+import { actorRef, assignmentStore, checkGrantable, event, linkStore, linkTags, quote, readAttributes, readFutureExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;
 type Applied = { id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] } & AppliedRow;
@@ -49,6 +49,7 @@ export class RbacLinkHandler extends AuthzWriteHandler {
       case 'link.update': {
         const link = await this.link(c, ctx);
         const u = await this.updateOf(c, ctx, link);
+        if (Object.values(u).every((v) => v === undefined)) return { id: link.id, affected: 0, tags: [], events: [] };
         let next = link;
         if (u.expiresAt !== undefined || u.attributes !== undefined) next = await links.update(link.id, { expiresAt: u.expiresAt, attributes: u.attributes }, actor, tx);
         const grant = await this.regrant(link, u, ctx, tx);
@@ -67,12 +68,12 @@ export class RbacLinkHandler extends AuthzWriteHandler {
   private async createOf(c: Cmd<'link.create'>, ctx: AdminContext): Promise<{ scope: ResourceRef; role: string; tags: string[]; expiresAt: Date | null; attributes: Record<string, unknown> }> {
     const scope = readNode(c.scope, 'scope');
     const role = checkGrantable(await roleIndex(ctx), c.role, scope).name;
-    return { scope, role, tags: readOptionalTags(c.tags) ?? [], expiresAt: readExpiry(c.expiresAt) ?? null, attributes: readAttributes(c.attributes) ?? {} };
+    return { scope, role, tags: readOptionalTags(c.tags) ?? [], expiresAt: readFutureExpiry(c.expiresAt, ctx) ?? null, attributes: readAttributes(c.attributes) ?? {} };
   }
 
   private async updateOf(c: Cmd<'link.update'>, ctx: AdminContext, link: LinkDef): Promise<{ role?: string; tags?: string[]; expiresAt?: Date | null; attributes?: Record<string, unknown> }> {
     const role = c.role === undefined ? undefined : checkGrantable(await roleIndex(ctx), c.role, link.scope).name;
-    return { role, tags: readOptionalTags(c.tags), expiresAt: readExpiry(c.expiresAt), attributes: readAttributes(c.attributes) };
+    return { role, tags: readOptionalTags(c.tags), expiresAt: readFutureExpiry(c.expiresAt, ctx), attributes: readAttributes(c.attributes) };
   }
 
   /** A new role replaces the link's assignment (role is part of its identity); new tags update it in place. */

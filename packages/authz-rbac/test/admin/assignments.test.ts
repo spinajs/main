@@ -3,7 +3,9 @@ import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
 import { AuthzAdminFailure, AuthzConfigError, SYSTEM } from '@spinajs/authz';
-import type { AuthzCommand, PrincipalRef } from '@spinajs/authz';
+import type { AdminCallContext, AuthzCommand, PrincipalRef } from '@spinajs/authz';
+
+import { plannedRemovals } from '../../src/index.js';
 
 import type { AssignmentSubject } from '../../src/index.js';
 import { G, GR, HOUR, LADDERS, O1, P1, P2, ROLES, START, StaticRoleStore, failure, installHost, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
@@ -91,6 +93,9 @@ describe('RBAC assignment and subject set commands', function () {
       ['an invalid date', grant('viewer', P1, DAVE, { expiresAt: new Date(NaN) }), { code: 'invalid_command', field: 'expiresAt' }],
       ['no subject', { kind: 'assignment.grant', role: 'viewer', scope: P1 } as unknown as AuthzCommand, { code: 'invalid_command', field: 'subject' }],
       ['no scope', { kind: 'assignment.grant', subject: DAVE, role: 'viewer' } as unknown as AuthzCommand, { code: 'invalid_command', field: 'scope' }],
+      ['a type-level scope', grant('viewer', { type: 'project' }), { code: 'invalid_command', field: 'scope' }],
+      ['an expiry that is not after now', grant('viewer', P1, DAVE, { expiresAt: START }), { code: 'invalid_command', field: 'expiresAt' }],
+      ['a share link as the subject', grant('viewer', P1, { type: 'link', id: 'l1' }), { code: 'conflict', field: 'subject' }],
     ];
     for (const [what, c, expected] of refusals) {
       it(`refuses ${what}`, async () => {
@@ -125,7 +130,8 @@ describe('RBAC assignment and subject set commands', function () {
 
   describe('assignment.revoke and revokeWhere', () => {
     it('revoke removes the row, at the row scope, expired rows too', async () => {
-      const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1, expiresAt: new Date(START.getTime() - 1) });
+      const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1, expiresAt: new Date(START.getTime() + 1) });
+      d.clock.advance(HOUR);
       d.bus.published.length = 0;
       const [r] = ok(await d.admin.execute(bob, [{ kind: 'assignment.revoke', id: a.id }]));
       expect(r).to.deep.equal({ ok: true, kind: 'assignment.revoke', id: a.id, affected: 1 });
@@ -142,7 +148,9 @@ describe('RBAC assignment and subject set commands', function () {
     });
 
     it('revokeWhere revokes every live match at the scope', async () => {
-      const keepExpired = await d.admin.assign(alice, { subject: ERIN, role: 'editor', scope: P1, expiresAt: new Date(START.getTime() - 1) });
+      const keepExpired = await d.admin.assign(alice, { subject: ERIN, role: 'editor', scope: P1, expiresAt: new Date(START.getTime() + 1) });
+      const { link } = await d.admin.createLink(alice, { scope: P1, role: 'viewer' });
+      d.clock.advance(HOUR);
       await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1 });
       await d.admin.assign(alice, { subject: DAVE, role: 'plain', scope: P1 });
       await d.admin.assign(alice, { subject: ERIN, role: 'viewer', scope: P1 });
@@ -153,7 +161,15 @@ describe('RBAC assignment and subject set commands', function () {
       const [all] = ok(await d.admin.execute(alice, [{ kind: 'assignment.revokeWhere', scope: P1 }]));
       expect(all.affected).to.equal(2);
       expect([...d.bus.published[0].tags].sort()).to.deep.equal(['subject:user:dave', 'subject:user:erin']);
-      expect((await d.assignments.find({ at: START, includeExpired: true })).items.map((a) => a.id).sort()).to.deep.equal([keepExpired.id, p2.id].sort());
+      const left = (await d.assignments.find({ at: START, includeExpired: true })).items;
+      expect(
+        left
+          .filter((a) => (a.subject as PrincipalRef).type !== 'link')
+          .map((a) => a.id)
+          .sort(),
+      ).to.deep.equal([keepExpired.id, p2.id].sort());
+      // The link's grant goes with its link, never through revokeWhere.
+      expect(await d.assignments.forSubjects([{ type: 'link', id: link.id }], START)).to.have.length(1);
       const [none] = ok(await d.admin.execute(alice, [{ kind: 'assignment.revokeWhere', scope: P1 }]));
       expect(none.affected).to.equal(0);
     });
@@ -161,6 +177,25 @@ describe('RBAC assignment and subject set commands', function () {
     it('revokeWhere needs a scope and the permission there', async () => {
       expect(failure(await d.admin.execute(alice, [{ kind: 'assignment.revokeWhere' } as unknown as AuthzCommand]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'scope' });
       expect(failure(await d.admin.execute(bob, [{ kind: 'assignment.revokeWhere', scope: P2 }])).code).to.equal('forbidden');
+      expect(failure(await d.admin.execute(alice, [{ kind: 'assignment.revokeWhere', scope: P1, subject: { type: 'link', id: 'l1' } }]))).to.deep.equal({ at: 0, code: 'conflict', field: 'subject' });
+    });
+
+    it('revokeWhere of a set subject checks its shape only, so rows of a role dropped from config can go', async () => {
+      const [r] = ok(await d.admin.execute(alice, [{ kind: 'assignment.revokeWhere', scope: P1, subject: { set: { role: 'ghost', scope: O1 } } }]));
+      expect(r.affected).to.equal(0);
+    });
+
+    it("id-only commands refuse a share link's grant", async () => {
+      const { link } = await d.admin.createLink(alice, { scope: P1, role: 'viewer' });
+      const [grant] = await d.assignments.forSubjects([{ type: 'link', id: link.id }], START);
+      for (const c of [
+        { kind: 'assignment.revoke', id: grant.id },
+        { kind: 'assignment.setTags', id: grant.id, tags: ['x'] },
+        { kind: 'assignment.setExpiry', id: grant.id, expiresAt: null },
+      ] as AuthzCommand[]) {
+        expect(failure(await d.admin.execute(alice, [c]))).to.deep.equal({ at: 0, code: 'conflict', field: 'id' });
+      }
+      expect(await d.assignments.byId(grant.id)).to.not.equal(null);
     });
   });
 
@@ -193,12 +228,13 @@ describe('RBAC assignment and subject set commands', function () {
       expect((await d.assignments.byId(a.id))?.expiresAt).to.equal(null);
       expect(failure(await d.admin.execute(alice, [{ kind: 'assignment.setExpiry', id: a.id } as unknown as AuthzCommand]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'expiresAt' });
       expect(failure(await d.admin.execute(alice, [{ kind: 'assignment.setExpiry', id: 'nope', expiresAt: null }])).code).to.equal('not_found');
+      expect(failure(await d.admin.execute(alice, [{ kind: 'assignment.setExpiry', id: a.id, expiresAt: START }]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'expiresAt' });
     });
 
     it('an expired assignment no longer counts for forSubjects', async () => {
       const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1 });
-      ok(await d.admin.execute(alice, [{ kind: 'assignment.setExpiry', id: a.id, expiresAt: START }]));
-      expect(await live()).to.deep.equal([]);
+      ok(await d.admin.execute(alice, [{ kind: 'assignment.setExpiry', id: a.id, expiresAt: new Date(START.getTime() + 1) }]));
+      expect(await d.assignments.forSubjects([DAVE], new Date(START.getTime() + HOUR))).to.deep.equal([]);
       expect(await d.assignments.byId(a.id)).to.not.equal(null);
     });
   });
@@ -237,6 +273,9 @@ describe('RBAC assignment and subject set commands', function () {
       expect(failure(await d.admin.execute(alice, [add(DAVE, 'group.member', P1)]))).to.deep.equal({ at: 0, code: 'wrong_scope_type', field: 'set.role' });
       expect(failure(await d.admin.execute(alice, [{ kind: 'set.addMember', set: { role: 'group.member', scope: GR } } as unknown as AuthzCommand]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'member' });
       expect(failure(await d.admin.execute(alice, [{ kind: 'set.removeMember', set: { role: 'group.member', scope: GR }, member: DAVE }]))).to.deep.equal({ at: 0, code: 'not_found', field: 'member' });
+      expect(failure(await d.admin.execute(alice, [{ kind: 'set.removeMember', set: { role: 'ghost', scope: GR }, member: DAVE }]))).to.deep.equal({ at: 0, code: 'not_found', field: 'member' });
+      expect(failure(await d.admin.execute(alice, [add({ type: 'link', id: 'l1' })]))).to.deep.equal({ at: 0, code: 'conflict', field: 'member' });
+      expect(failure(await d.admin.execute(alice, [{ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE, expiresAt: START }]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'expiresAt' });
     });
 
     it('the permission is checked at the set scope', async () => {
@@ -270,15 +309,40 @@ describe('RBAC assignment and subject set commands', function () {
     });
   });
 
+  describe('plannedRemovals', () => {
+    const ctx = (): AdminCallContext => ({ domain: 'test', now: START, authz: d.service, actor: alice, container: d.container, dryRun: false });
+
+    it('names the ladder rows a replaceLadder grant revokes', async () => {
+      const viewer = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1 });
+      await d.admin.assign(alice, { subject: DAVE, role: 'plain', scope: P1 });
+      const planned = await plannedRemovals(grant('editor', P1, DAVE, { replaceLadder: true }), ctx());
+      expect(planned.revoke.map((a) => a.id)).to.deep.equal([viewer.id]);
+      expect(planned.expire).to.deep.equal([]);
+      expect((await plannedRemovals(grant('editor', P1, DAVE), ctx())).revoke).to.deep.equal([]);
+    });
+
+    it('names the existing row whose expiry a grant or addMember moves to another date', async () => {
+      const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1 });
+      const later = new Date(START.getTime() + HOUR);
+      expect((await plannedRemovals(grant('viewer', P1, DAVE, { expiresAt: later }), ctx())).expire.map((r) => r.id)).to.deep.equal([a.id]);
+      expect((await plannedRemovals(grant('viewer', P1, DAVE), ctx())).expire).to.deep.equal([]);
+      const m = await d.admin.execute(alice, [{ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE }]);
+      expect((await plannedRemovals({ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE, expiresAt: later }, ctx())).expire.map((r) => r.id)).to.deep.equal([ok(m)[0].id]);
+      expect(await plannedRemovals({ kind: 'assignment.revoke', id: a.id }, ctx())).to.deep.equal({ revoke: [], expire: [] });
+    });
+  });
+
   it('a batch that fails in apply leaves every store as it was', async () => {
     const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1, tags: ['t'] });
+    await d.admin.assign(alice, { subject: ERIN, role: 'viewer', scope: P1 });
     const { link } = await d.admin.createLink(alice, { scope: P1, role: 'viewer' });
+    const second = await d.admin.createLink(alice, { scope: P1, role: 'viewer', tags: ['k'] });
     await d.admin.putRule(alice, { id: 'r1', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'editor' });
     const snapshot = async () => JSON.stringify([await d.assignments.find({ at: START, includeExpired: true }), await d.links.find({}), await d.rules.find({})]);
     const before = await snapshot();
     const published = d.bus.published.length;
-    const results = await d.admin.execute(alice, [grant('editor', P1, ERIN), { kind: 'assignment.setTags', id: a.id, tags: ['x'] }, { kind: 'link.create', scope: P2, role: 'viewer' }, { kind: 'link.revoke', id: link.id }, { kind: 'rule.put', rule: { id: 'r2', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer' } }, { kind: 'rule.delete', id: 'r1' }, { kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE }, { kind: 'assignment.revoke', id: a.id }, { kind: 'assignment.addTags', id: a.id, tags: ['late'] }]);
-    expect(failure(results)).to.deep.equal({ at: 8, code: 'not_found', field: 'id' });
+    const results = await d.admin.execute(alice, [grant('editor', P1, ERIN, { replaceLadder: true }), { kind: 'link.update', id: second.link.id, role: 'editor', expiresAt: new Date(START.getTime() + HOUR) }, { kind: 'assignment.setTags', id: a.id, tags: ['x'] }, { kind: 'link.create', scope: P2, role: 'viewer' }, { kind: 'link.revoke', id: link.id }, { kind: 'rule.put', rule: { id: 'r2', kind: 'cap', scope: P1, ladder: 'project', maxRole: 'viewer' } }, { kind: 'rule.delete', id: 'r1' }, { kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE }, { kind: 'assignment.revoke', id: a.id }, { kind: 'assignment.addTags', id: a.id, tags: ['late'] }]);
+    expect(failure(results)).to.deep.equal({ at: 9, code: 'not_found', field: 'id' });
     expect(await snapshot()).to.equal(before);
     expect(d.bus.published.length).to.equal(published);
   });

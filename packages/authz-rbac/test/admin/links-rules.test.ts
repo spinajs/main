@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthzAdminFailure, ConditionCompiler, SYSTEM, TRUE } from '@spinajs/authz';
+import { AuthzAdminFailure, ConditionCompiler, ConditionFunction, SYSTEM, TRUE } from '@spinajs/authz';
 import type { AuthzCommand, Condition, EvaluationContext, PrincipalRef, ResourceFilter } from '@spinajs/authz';
 
 import { AdminRuleStore, MemoryRuleStore, RuleStore } from '../../src/index.js';
@@ -20,17 +20,24 @@ type Rule = Omit<RuleDef, 'source'>;
 const threshold = (r: Partial<Rule> = {}): Rule => ({ id: 'r1', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'editor', ...r });
 const put = (r: Rule): AuthzCommand => ({ kind: 'rule.put', rule: r });
 
-/** Compiles anything but { attr: 'bad' }; { attr: 'scope.x' } reads the scope attributes first. */
+/** Compiles anything but { attr: 'principal.bad' }; { attr: 'scope.x' } reads the scope attributes first. */
 class FakeCompiler extends ConditionCompiler {
   async compile(c: Condition, _req: unknown, ctx: EvaluationContext): Promise<{ filter: ResourceFilter; cacheable: boolean; needsSubject: boolean }> {
     const attr = (c as { attr?: string }).attr;
-    if (attr === 'bad') throw new Error('unknown operator bogus');
+    if (attr === 'principal.bad') throw new Error('principal.bad cannot be bound');
     if (attr?.startsWith('scope.')) await ctx.attributes(O1);
     return { filter: TRUE, cacheable: true, needsSubject: false };
   }
 }
 
 /** Holds only rules without a resource condition (what a DB store refuses outside SQL form). */
+class Weekday extends ConditionFunction {
+  readonly name = 'time.weekday';
+  evaluate(): boolean {
+    return true;
+  }
+}
+
 class PickyRuleStore extends MemoryRuleStore {
   assertStorable(rule: Rule): void {
     if (rule.resource !== undefined) throw new AuthzAdminFailure('rule_not_compilable', 'not in SQL form', 'rule.resource');
@@ -82,6 +89,7 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect(failure(await d.admin.execute(SYSTEM, [create('package')]))).to.deep.equal({ at: 0, code: 'not_assignable', field: 'role' });
       expect(failure(await d.admin.execute(SYSTEM, [create('org.admin')]))).to.deep.equal({ at: 0, code: 'wrong_scope_type', field: 'role' });
       expect(failure(await d.admin.execute(SYSTEM, [create('viewer', G)]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'scope' });
+      expect(failure(await d.admin.execute(SYSTEM, [{ kind: 'link.create', scope: P1, role: 'viewer', expiresAt: START }]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'expiresAt' });
       expect(failure(await d.admin.execute(SYSTEM, [{ kind: 'link.create', scope: P1, role: 'viewer', attributes: [] as never }]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'attributes' });
       expect(failure(await d.admin.execute(bob, [create('viewer', P2)])).code).to.equal('forbidden');
       expect((await d.links.find({})).total).to.equal(0);
@@ -110,6 +118,16 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect(failure(await d.admin.execute(alice, [{ kind: 'link.update', id: 'nope', role: 'viewer' }]))).to.deep.equal({ at: 0, code: 'not_found', field: 'id' });
       expect(failure(await d.admin.execute(alice, [{ kind: 'link.update', id: link.id, role: 'org.admin' }]))).to.deep.equal({ at: 0, code: 'wrong_scope_type', field: 'role' });
       expect(failure(await d.admin.execute(bob, [{ kind: 'link.update', id: link.id, expiresAt: null }])).code).to.equal('forbidden');
+      expect(failure(await d.admin.execute(alice, [{ kind: 'link.update', id: link.id, expiresAt: new Date(START.getTime() - 1) }]))).to.deep.equal({ at: 0, code: 'invalid_command', field: 'expiresAt' });
+    });
+
+    it('link.update with nothing to change changes nothing', async () => {
+      const { link } = await d.admin.createLink(alice, { scope: P1, role: 'viewer' });
+      const events = d.sink.events.length;
+      const [r] = ok(await d.admin.execute(alice, [{ kind: 'link.update', id: link.id }]));
+      expect(r.affected).to.equal(0);
+      expect(d.sink.events.length).to.equal(events);
+      expect(d.bus.published.at(-1)!.tags).to.deep.equal([]);
     });
 
     it('link.revoke removes the link and its assignment', async () => {
@@ -155,6 +173,11 @@ describe('RBAC link, rule, reader and forget commands', function () {
       ['an unknown kind', threshold({ kind: 'other' as never }), { code: 'invalid_command', field: 'rule.kind' }],
       ['no id', threshold({ id: '' }), { code: 'invalid_command', field: 'rule.id' }],
       ['no scope', threshold({ scope: undefined as never }), { code: 'invalid_command', field: 'rule.scope' }],
+      ['a type-level scope', threshold({ scope: { type: 'project' } }), { code: 'invalid_command', field: 'rule.scope' }],
+      ['a threshold without minRole', threshold({ minRole: undefined }), { code: 'invalid_command', field: 'rule.minRole' }],
+      ['a threshold naming a ladder without at', threshold({ ladder: 'project' }), { code: 'invalid_command', field: 'rule.at' }],
+      ['a cap that neither clamps nor strips', { id: 'c', kind: 'cap', scope: P1, ladder: 'project' }, { code: 'invalid_command', field: 'rule.maxRole' }],
+      ['a condition with an unknown operator', threshold({ when: { attr: 'scope.org.policies.x', equals: false } }), { code: 'rule_not_compilable', field: 'rule.when' }],
     ];
     for (const [what, rule, expected] of refusals) {
       it(`rule.put refuses ${what}`, async () => {
@@ -168,8 +191,64 @@ describe('RBAC link, rule, reader and forget commands', function () {
       d = await rbacDomain('test', { register: (c) => c.register(FakeCompiler).as(ConditionCompiler) });
       ok(await d.admin.execute(SYSTEM, [put(threshold({ when: { attr: 'scope.org.policies.x', eq: false }, resource: { attr: 'resource.name', wildcard: 'release/*' } }))]));
       ok(await d.admin.execute(SYSTEM, [put({ id: 'c', kind: 'cap', scope: P1, stripTags: true, subjects: { when: { attr: 'principal.id', eq: 'x' } } })]));
-      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ id: 'r2', when: { attr: 'bad' } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
-      expect(failure(await d.admin.execute(SYSTEM, [put({ id: 'c2', kind: 'cap', scope: P1, subjects: { when: { attr: 'bad' } } })]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.subjects.when' });
+      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ id: 'r2', when: { attr: 'principal.bad', eq: 1 } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
+      expect(failure(await d.admin.execute(SYSTEM, [put({ id: 'c2', kind: 'cap', scope: P1, stripTags: true, subjects: { when: { attr: 'principal.bad', eq: 1 } } })]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.subjects.when' });
+    });
+
+    it('checks the condition grammar before the probe, where a scope read would hide the fault', async () => {
+      await resetHost();
+      d = await rbacDomain('test', { register: (c) => c.register(FakeCompiler).as(ConditionCompiler) });
+      const refused = async (when: unknown, field: string) => expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ when: when as Condition }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field });
+      await refused({ attr: 'scope.org.policies.x', equals: false }, 'rule.when');
+      await refused({ attr: 'scope.org.policies.x', eq: false, ne: true }, 'rule.when');
+      await refused(
+        {
+          any: [
+            { attr: 'scope.org.policies.x', eq: false },
+            { attr: 'scope.org.policies.y', bogus: 1 },
+          ],
+        },
+        'rule.when.any.1',
+      );
+      await refused({ all: [{ not: { attr: 'scope.org', eq: 1 } }] }, 'rule.when.all.0.not');
+      await refused({ attr: 'session.id', eq: 1 }, 'rule.when');
+      await refused({ attr: 'resource.name', wildcard: 3 }, 'rule.when');
+      await refused({ attr: 'principal.id', in: 'alice' }, 'rule.when');
+      await refused({ any: [] }, 'rule.when');
+      await refused({ fn: 'time.weekday' }, 'rule.when');
+      ok(
+        await d.admin.execute(SYSTEM, [
+          put(
+            threshold({
+              when: {
+                any: [
+                  { attr: 'scope.org.policies.x', eq: false },
+                  { attr: 'principal.attributes.org_only', eq: { ref: 'env.flag' } },
+                  { attr: 'principal.id', in: ['a', 'b'] },
+                  { attr: 'resource.owner', null: true },
+                ],
+              },
+            }),
+          ),
+        ]),
+      );
+    });
+
+    it('a fn condition must name a registered ConditionFunction', async () => {
+      await resetHost();
+      d = await rbacDomain('test', {
+        register: (c) => {
+          c.register(FakeCompiler).as(ConditionCompiler);
+          c.register(Weekday).as(ConditionFunction);
+        },
+      });
+      ok(await d.admin.execute(SYSTEM, [put(threshold({ when: { fn: 'time.weekday', args: { days: [1] } } }))]));
+      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ id: 'r2', when: { fn: 'time.ghost' } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
+    });
+
+    it('stores only RuleDef keys', async () => {
+      ok(await d.admin.execute(alice, [put({ ...threshold(), extra: 'x', source: 'forged' } as unknown as Rule)]));
+      expect(await d.rules.byId('r1')).to.deep.equal({ ...threshold(), source: 'memory' });
     });
 
     it('AdminRuleStore.assertStorable has the last word', async () => {
@@ -208,8 +287,9 @@ describe('RBAC link, rule, reader and forget commands', function () {
   describe('readers', () => {
     it('lists assignments with filters and pages', async () => {
       for (const id of ['u1', 'u2', 'u3']) await d.admin.assign(alice, { subject: { type: 'user', id }, role: 'viewer', scope: P1 });
-      await d.admin.assign(alice, { subject: DAVE, role: 'editor', scope: P1, expiresAt: new Date(START.getTime() - 1) });
+      await d.admin.assign(alice, { subject: DAVE, role: 'editor', scope: P1, expiresAt: new Date(START.getTime() + 1) });
       await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P2 });
+      d.clock.advance(HOUR);
       const all = await d.admin.list(alice, { kind: 'assignments' });
       expect(all.total).to.equal(4);
       const page = await d.admin.list(alice, { kind: 'assignments', scope: P1, page: { limit: 2, offset: 1 } });

@@ -1,9 +1,9 @@
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
-import type { AdminContext, AuthzEvent, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
-import type { AssignmentSubject, LadderDef, RoleDef } from '../contracts.js';
+import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../contracts.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore } from './ports.js';
 import { copyPrincipalRef, copyRef, isSetSubject, normaliseTags } from './rows.js';
 
@@ -88,6 +88,13 @@ export function readRef(v: unknown, field: string): ResourceRef {
   return copyRef(v as unknown as ResourceRef);
 }
 
+/** Where an assignment, set or rule lives: GLOBAL or one node (a type-level ref is on no ancestor chain). */
+export function readScope(v: unknown, field: string): ResourceRef {
+  const ref = readRef(v, field);
+  if (ref.type !== GLOBAL.type && ref.id === undefined) throw invalid(field, `${field} must be GLOBAL or name one resource (a type and an id)`);
+  return ref.type === GLOBAL.type ? { type: GLOBAL.type } : ref;
+}
+
 /** One node: a ref with an id, not GLOBAL. */
 export function readNode(v: unknown, field: string): ResourceRef {
   const ref = readRef(v, field);
@@ -106,11 +113,20 @@ export function readSubject(v: unknown, field: string, roles?: RoleIndex): Assig
     const set = v.set;
     if (!isObject(set)) throw invalid(`${field}.set`, `${field}.set must be { role, scope }`);
     const role = readId(set.role, `${field}.set.role`);
-    const scope = readRef(set.scope, `${field}.set.scope`);
+    const scope = readScope(set.scope, `${field}.set.scope`);
     if (roles && roles.roles.get(role)?.subjectSet !== true) throw new AuthzAdminFailure('unknown_role', `${q(role)} is not a subject set role`, `${field}.set.role`);
     return { set: { role, scope } };
   }
   return readPrincipal(v, field);
+}
+
+export const LINK_TYPE = 'link';
+
+export const isLinkSubject = (s: AssignmentSubject): boolean => !isSetSubject(s) && s.type === LINK_TYPE;
+
+/** A link's grant belongs to the link: only link.* (authz:links.manage) writes it. */
+export function refuseLinkSubject(s: AssignmentSubject, field: string): void {
+  if (isLinkSubject(s)) throw new AuthzAdminFailure('conflict', `${field} is a share link; its grant changes through link.update and link.revoke`, field);
 }
 
 export function readTags(v: unknown, field = 'tags'): string[] {
@@ -129,6 +145,13 @@ export function readExpiry(v: unknown, field = 'expiresAt'): Date | null | undef
   return new Date(v.getTime());
 }
 
+/** As readExpiry, but a date at or before now is refused: it would be a revoke the guard does not see as one. */
+export function readFutureExpiry(v: unknown, ctx: AdminContext, field = 'expiresAt'): Date | null | undefined {
+  const at = readExpiry(v, field);
+  if (at && at.getTime() <= ctx.now.getTime()) throw invalid(field, `${field} must lie after now; revoke instead`);
+  return at;
+}
+
 export function readAttributes(v: unknown, field = 'attributes'): Record<string, unknown> | undefined {
   if (v === undefined) return undefined;
   if (!isObject(v)) throw invalid(field, `${field} must be an object`);
@@ -144,6 +167,50 @@ export function checkGrantable(roles: RoleIndex, role: unknown, scope: ResourceR
   const types: readonly ResourceType[] | undefined = def.scopeTypes;
   if (types !== undefined && !types.includes(scope.type)) throw new AuthzAdminFailure('wrong_scope_type', `role ${q(name)} is held at ${types.join(', ')}, not at ${scope.type}`, field);
   return def;
+}
+
+// ---- removals hidden in grants ----
+
+export interface PlannedRemovals {
+  /** Rows the command revokes (assignment.grant with replaceLadder: the subject's other roles of that ladder at that scope). */
+  readonly revoke: readonly Assignment[];
+  /** The existing row of the same (subject, role, scope) whose expiry the command sets to another non-null date. */
+  readonly expire: readonly Assignment[];
+}
+
+const NONE: PlannedRemovals = Object.freeze({ revoke: [], expire: [] });
+
+/**
+ * What an assignment.grant or set.addMember removes besides what it grants, read inside the batch
+ * transaction. The handler revokes exactly these rows, and an AdminGuard runs its removal checks
+ * (self-lockout, last holder, protected roles) on the same rows. Other kinds remove nothing this way.
+ */
+export async function plannedRemovals(c: AuthzCommand, ctx: AdminContext): Promise<PlannedRemovals> {
+  if (c.kind !== 'assignment.grant' && c.kind !== 'set.addMember') return NONE;
+  const roles = await roleIndex(ctx);
+  const store = await assignmentStore(ctx);
+  let subject: AssignmentSubject;
+  let role: string;
+  let scope: ResourceRef;
+  let replaceLadder = false;
+  if (c.kind === 'assignment.grant') {
+    subject = readSubject(c.subject, 'subject');
+    role = readId(c.role, 'role');
+    scope = readScope(c.scope, 'scope');
+    replaceLadder = c.replaceLadder === true;
+  } else {
+    const set = (isObject(c.set) ? c.set : {}) as Record<string, unknown>;
+    subject = readPrincipal(c.member, 'member');
+    role = readId(set.role, 'set.role');
+    scope = readScope(set.scope, 'set.scope');
+  }
+  const expiresAt = readExpiry(c.expiresAt) ?? null;
+  const { items } = await store.find({ scope, subject, includeExpired: true, at: ctx.now });
+  const ladder = roles.ladderOf(role);
+  const revoke = replaceLadder && ladder !== undefined ? items.filter((a) => a.role !== role && roles.ladderOf(a.role) === ladder) : [];
+  const same = items.find((a) => a.role === role);
+  const expire = same && expiresAt !== null && same.expiresAt?.getTime() !== expiresAt.getTime() ? [same] : [];
+  return { revoke, expire };
 }
 
 // ---- permissions ----

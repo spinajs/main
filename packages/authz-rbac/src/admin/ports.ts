@@ -34,7 +34,7 @@ export abstract class AdminLinkStore extends LinkStore {
   abstract revoke(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
   abstract update(id: string, patch: { readonly expiresAt?: Date | null; readonly attributes?: Readonly<Record<string, unknown>> }, actor: PrincipalRef, tx: AuthzTx): Promise<LinkDef>;
   abstract find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly LinkDef[]; total: number }>;
-  /** Removes the links AT the scope and their assignments; returns the removed live links. */
+  /** Removes the links AT the scope (expired ones too) and their assignments; returns the removed links. */
   abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly LinkDef[]>;
 }
 

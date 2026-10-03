@@ -1,9 +1,10 @@
-import { AuthzAdminFailure, AuthzWriteHandler, ConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, ConditionCompiler, ConditionFunction, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { RuleDef } from '../contracts.js';
-import { actorRef, checkPermissionName, event, invalid, isPlainObject, quote, readExpiry, readId, readPrincipal, readRef, readSubject, roleIndex, ruleStore } from './common.js';
+import { actorRef, checkPermissionName, event, invalid, isPlainObject, quote, readExpiry, readId, readPrincipal, readScope, readSubject, roleIndex, ruleStore } from './common.js';
+import { checkCondition } from './conditions.js';
 import type { RoleIndex } from './common.js';
 import { sameRef } from './rows.js';
 
@@ -11,6 +12,8 @@ type Rule = Omit<RuleDef, 'source'>;
 
 const MANAGE: Permission = 'authz:rules.manage';
 const KINDS = ['restrict', 'cap', 'threshold'];
+// What a stored rule may hold: the RuleDef keys but source.
+const RULE_KEYS = ['id', 'kind', 'scope', 'resourceTypes', 'subjects', 'when', 'expiresAt', 'allow', 'ladder', 'maxRole', 'stripTags', 'assignments', 'permissions', 'resource', 'minRole', 'at', 'reason'] as const;
 
 /** Thrown by every read of the probe context: a condition that needs data to compile is not refused for it. */
 class ProbeRead extends Error {}
@@ -87,6 +90,9 @@ export class RbacRuleHandler extends AuthzWriteHandler {
       if (role !== undefined) roleOnLadder(roles, role, ladder, `rule.${key}`);
     }
     if (rule.at !== undefined) readId(rule.at, 'rule.at');
+    if (rule.kind === 'threshold' && rule.minRole === undefined) throw invalid('rule.minRole', 'a threshold rule needs minRole');
+    if (rule.kind === 'threshold' && rule.ladder !== undefined && rule.at === undefined) throw invalid('rule.at', 'a threshold rule names a ladder only with at');
+    if (rule.kind === 'cap' && rule.maxRole === undefined && rule.stripTags !== true) throw invalid('rule.maxRole', 'a cap rule needs maxRole (null drops the assignment) or stripTags');
     stringList(rule.resourceTypes, 'rule.resourceTypes');
     if (rule.permissions !== undefined) {
       if (!Array.isArray(rule.permissions)) throw invalid('rule.permissions', 'rule.permissions must be a list');
@@ -111,7 +117,7 @@ export class RbacRuleHandler extends AuthzWriteHandler {
   }
 
   async permission(c: AuthzCommand, ctx: AdminContext): Promise<{ permission: Permission; resource: ResourceRef }> {
-    if (c.kind === 'rule.put') return { permission: MANAGE, resource: readRef((c.rule as { scope?: unknown } | undefined)?.scope, 'rule.scope') };
+    if (c.kind === 'rule.put') return { permission: MANAGE, resource: readScope((c.rule as { scope?: unknown } | undefined)?.scope, 'rule.scope') };
     return { permission: MANAGE, resource: (await this.row(c as Extract<AuthzCommand, { kind: 'rule.delete' }>, ctx)).scope };
   }
 
@@ -134,9 +140,11 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     if (!isPlainObject(rule)) throw invalid('rule', 'rule must be an object');
     readId(rule.id, 'rule.id');
     if (typeof rule.kind !== 'string' || !KINDS.includes(rule.kind)) throw invalid('rule.kind', `rule.kind must be one of ${KINDS.join(', ')}`);
-    const scope = readRef(rule.scope, 'rule.scope');
+    const scope = readScope(rule.scope, 'rule.scope');
     const expiresAt = readExpiry(rule.expiresAt, 'rule.expiresAt');
-    return { ...(rule as unknown as Rule), scope, ...(expiresAt !== undefined ? { expiresAt } : {}) };
+    const known: Record<string, unknown> = {};
+    for (const k of RULE_KEYS) if (rule[k] !== undefined) known[k] = rule[k];
+    return { ...(known as unknown as Rule), scope, ...(expiresAt !== undefined ? { expiresAt } : {}) };
   }
 
   private subjectsOf(v: unknown, roles: RoleIndex): void {
@@ -166,7 +174,12 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     if (rule.subjects?.when !== undefined) conditions.push(['rule.subjects.when', rule.subjects.when]);
     if (conditions.length === 0) return;
     const container = adminContainer(ctx);
-    if (!container.hasRegistered(ConditionCompiler)) throw new AuthzAdminFailure('rule_not_compilable', `authz domain ${quote(ctx.domain)} has no ConditionCompiler, so a rule condition cannot be evaluated`, conditions[0][0]);
+    const hasCompiler = container.hasRegistered(ConditionCompiler);
+    const functions = container.hasRegistered(ConditionFunction) ? [...(await container.resolveChain(ConditionFunction))].map((f) => (f as ConditionFunction).name) : [];
+    // No function registered: every fn is unknown, which matters only where conditions compile at all.
+    const fnKnown = (name: string) => (functions.length > 0 ? functions.includes(name) : !hasCompiler);
+    for (const [field, condition] of conditions) checkCondition(condition, field, fnKnown);
+    if (!hasCompiler) throw new AuthzAdminFailure('rule_not_compilable', `authz domain ${quote(ctx.domain)} has no ConditionCompiler, so a rule condition cannot be evaluated`, conditions[0][0]);
     const compiler = (await container.resolve(ConditionCompiler)) as ConditionCompiler;
     const literal = rule.permissions?.find((p) => !p.includes('*'));
     const req: DecisionRequest = { principal: adminActor(ctx), permission: literal ?? MANAGE, resource: GLOBAL };
