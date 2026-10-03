@@ -6,6 +6,7 @@ import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
+import { runAroundHandle, runBeforeEmit } from './hook-runner.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
@@ -62,6 +63,8 @@ export class DefaultQueueService extends QueueService {
   }
 
   public async emit(event: IQueueMessage | QueueEvent | QueueJob): Promise<string | undefined> {
+    await runBeforeEmit(event);
+
     const connections = this.getConnectionsForMessage(event);
     let jobId: string | undefined;
 
@@ -189,7 +192,7 @@ export class DefaultQueueService extends QueueService {
                 // update executing state
                 await jModel.update();
 
-                jobResult = await ev.execute(onProgress);
+                jobResult = await runAroundHandle(ev, () => ev.execute(onProgress));
 
                 jModel.Result = jobResult;
                 jModel.Status = 'success';

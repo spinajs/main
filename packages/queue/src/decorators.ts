@@ -1,3 +1,5 @@
+import type { JobOptions } from './hooks.js';
+
 export interface IEventOption {
   /**
    * Should event survive consumer restart ?
@@ -9,14 +11,15 @@ export interface IEventOption {
  *
  * Mark class as job
  *
- * @param connection - job connection name for use, if not set default connection is used
+ * @param opts - `runAs` selects whose authority the handler runs with; a `QueueMessageHook` interprets it
  */
-export function Job() {
+export function Job(opts?: JobOptions) {
   return (target: any) => {
     if (!Reflect.hasMetadata('queue:options', target)) {
       Reflect.defineMetadata(
         'queue:options',
         {
+          ...opts,
           type: 'job',
         },
         target,
