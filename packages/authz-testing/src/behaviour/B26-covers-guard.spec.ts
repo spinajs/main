@@ -83,9 +83,9 @@ const people: Record<string, Principal> = {
   v: userPrincipal('v'),
 };
 
-const abacWorld = (policies: readonly Omit<Policy, 'source'>[]): World => ({
+const abacWorld = (policies: readonly Omit<Policy, 'source'>[], principals: Record<string, Principal> = people): World => ({
   permissions: DOC,
-  principals: people,
+  principals,
   combine: combine('deny-overrides', 'rbac', 'abac'),
   models: [
     fakeRbac('rbac', ROLES, [
@@ -104,11 +104,18 @@ const abacWorld = (policies: readonly Omit<Policy, 'source'>[]): World => ({
   abac: { policies: policies.map((p) => ({ ...p, source: 'test' })) },
 });
 
+const OPS_NO_DELETE: Omit<Policy, 'source'> = { id: 'ops-no-delete', effect: 'deny', permissions: ['doc:delete'], when: { attr: 'principal.attributes.dept', eq: 'ops' } };
+
 const abacCases: Case[] = [
   {
     name: "an ABAC deny policy takes a permission out of the holder's set",
-    world: abacWorld([{ id: 'ops-no-delete', effect: 'deny', permissions: ['doc:delete'], when: { attr: 'principal.attributes.dept', eq: 'ops' } }]),
+    world: abacWorld([OPS_NO_DELETE], { ...people, t: userPrincipal('t', { attributes: { dept: 'dev' } }) }),
     steps: [covers('ops', 't', false), covers('root2', 't', true)],
+  },
+  {
+    name: 'a deny policy on an attribute the target lacks is UNKNOWN for it, which denies (RFC L3-1)',
+    world: abacWorld([OPS_NO_DELETE]),
+    steps: [{ check: { as: 't', permission: 'doc:delete' }, expect: { allowed: false } }, covers('ops', 't', true), covers('root2', 't', true)],
   },
   {
     name: "an ABAC permit policy adds to the target's set",
