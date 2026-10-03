@@ -2418,6 +2418,13 @@ production, when `authz.engine.explain` is on and the caller holds
   (design from `2026-09-28-rbac-field-filtering-on-deserialization.md`, built
   on `decision.fields.write` instead of `accesscontrol` attributes);
   `strip` or `reject` mode (B17).
+  (L5) A body arg holding a value or a list that is not all records is one
+  field, checked by its parameter name; an object or a list of records is a
+  record, checked against the root field globs, so a named object param such
+  as `@Body() settings: object` is matched as a record, not as `settings.*`
+  (by design: `fields.neverRead` must hold for record DTOs next to other
+  body args). Routes without `@Access` are not filtered;
+  `@UnfilteredInput(reason)` opts a route out.
 - **Output:** `AuthzFieldTransformer` registered as `DataTransformer`
   (resolved at `http/src/responses.ts:217`) filters models of the decided
   type with `decision.fields.read`; replaces `UserDataTransformer`'s manual

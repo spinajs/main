@@ -41,6 +41,7 @@ export function decisionFields(decision: Decision | undefined, domain: string = 
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
+const isPlainRecord = (v: unknown): boolean => isObject(v) && !Array.isArray(v);
 
 /** Dotted leaf paths present in `before` (JSON-shaped) and missing from `after`; array elements share their array's path. */
 function removedPaths(before: unknown, after: unknown, prefix = ''): string[] {
@@ -77,8 +78,9 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
 
     const { write, writeMode } = decisionFields(decision, decision?.domain ?? mark?.domain);
 
-    // Primitives and lists of primitives are a field of the record: checked by the parameter name. Objects and lists of objects are records.
-    const field = !isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '') || (Array.isArray(input) && input.every((v) => !isObject(v)));
+    // A list holding anything but records is a field of the record, checked by the parameter name (a client
+    // must not turn ['admin'] into a record list by adding {}). Objects and lists of records are records.
+    const field = !isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '') || (Array.isArray(input) && (input.length === 0 || input.some((v) => !isPlainRecord(v))));
     if (field) {
       if (compileFieldGlobs(write).allows(parameter.Name)) return input;
       if (writeMode === 'reject') throw notWritable([parameter.Name]);

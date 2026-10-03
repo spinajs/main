@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import type { DecisionRequest } from '@spinajs/authz';
-import { BaseController, BasePath, BasePolicy, Body, BodyField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
+import { BaseController, BasePath, BasePolicy, Body, BodyField, FormField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
@@ -69,6 +69,18 @@ class FieldRoutes extends BaseController {
   @Access('user:update', { domain: D, resource: USER })
   public multi(@Body() name: string, @Body() roles: string[], @Body() user: object) {
     return new Ok({ name: name ?? null, roles: roles ?? null, user: user ?? null });
+  }
+
+  @Patch('form-roles/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  public formRoles(@FormField() name: string, @FormField() roles: string[]) {
+    return new Ok({ name: name ?? null, roles: roles ?? null });
+  }
+
+  @Patch('whole/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  public whole(@BodyField() all: object, @Body() name: string) {
+    return new Ok({ all, name: name ?? null });
   }
 
   @Patch('roles/:id')
@@ -240,6 +252,29 @@ describe('field filters (B17 http)', function () {
       const res = await app.request().patch('/fld/multi/u1').set('x-user', 'alice').send({ name: 'M', user: { name: 'M', Password: 'p' } });
 
       expect(res.body.user).to.deep.eq({ name: 'M' });
+    });
+
+    it('checks a list mixing values and records by its name', async () => {
+      const send = () => app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin', {}] });
+      expect((await send()).body.roles).to.eq(null);
+
+      reject();
+      expect((await send()).status).to.eq(400);
+    });
+
+    it('checks a @FormField() list by its name', async () => {
+      const res = await app.request().patch('/fld/form-roles/u1').set('x-user', 'alice').field('name', 'M').field('roles', ['admin', 'root']);
+
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq({ name: 'M', roles: null });
+    });
+
+    it('a whole-body arg next to another body arg keeps the record and loses neverRead', async () => {
+      script.write = ['*'];
+      const res = await app.request().patch('/fld/whole/u1').set('x-user', 'alice').send({ name: 'M', salary: 1, Password: 'p' });
+
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq({ all: { name: 'M', salary: 1 }, name: 'M' });
     });
 
     it('checks a list of primitives by its name when it is the only body param too', async () => {
