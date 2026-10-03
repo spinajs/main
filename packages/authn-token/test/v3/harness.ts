@@ -1,9 +1,10 @@
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { FakeIdentityStore, MemoryPasswordCredentialStore, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort, throttleParams } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, SeedPort } from '@spinajs/authn-testing';
 
 import '../../src/generator.js';
+import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
 import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
 import { insertUserRow, v3Connection } from './db.js';
 
@@ -60,6 +61,62 @@ export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
       for (const [path, value] of saved) {
         configuration.set(path, value);
       }
+    },
+  };
+}
+
+const JWT_ISSUERS = 'authn.jwt.issuers';
+const JWT_SUPPORTED = [JWT_ISSUERS, 'authn.linking.jit', 'authn.linking.byVerifiedEmail'];
+
+/**
+ * A `service` over the kit's fakes with a fresh JwtBearerStrategy, built after `authn.jwt.issuers` is
+ * applied; `dispose()` puts the issuers back.
+ */
+export async function jwtHarness(ctx: HarnessContext): Promise<Harness> {
+  const unsupported = leafKeys(ctx.config).filter((k) => k !== '' && !JWT_SUPPORTED.includes(k) && !k.startsWith('authn.throttle.'));
+  if (unsupported.length > 0) {
+    throw new UnsupportedConfig(unsupported);
+  }
+
+  const configuration = DI.get(Configuration)!;
+  const saved = configuration.get(JWT_ISSUERS);
+  const restore = () => configuration.set(JWT_ISSUERS, saved);
+  const issuers = leafValue(ctx.config, JWT_ISSUERS);
+  if (issuers !== undefined) {
+    configuration.set(JWT_ISSUERS, issuers);
+  }
+
+  let strategy: JwtBearerStrategy;
+  try {
+    strategy = new JwtBearerStrategy();
+    await strategy.resolve();
+  } catch (err) {
+    restore();
+    throw err;
+  }
+
+  const linking = { jit: ctx.config.authn?.linking?.jit ?? false, byVerifiedEmail: ctx.config.authn?.linking?.byVerifiedEmail ?? false };
+  const identities = new FakeIdentityStore({ jit: linking.jit });
+  const links = new MemoryLinkStore();
+  const service = new FakeAuthnService({
+    strategies: [strategy],
+    throttle: new FakeBackoffThrottle(throttleParams(ctx.config)),
+    identities,
+    links,
+    linking,
+    policy: new EnrolledMfaPolicy([]),
+    steps: [],
+    sessions: new MemorySessionIssuer(),
+    sinks: [new RecordingEventSink()],
+    principals: new RecordingPrincipalFactory(),
+  });
+
+  return {
+    service,
+    links,
+    seed: fakeSeedPort(identities, new MemoryPasswordCredentialStore()),
+    async dispose() {
+      restore();
     },
   };
 }
