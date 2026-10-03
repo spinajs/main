@@ -54,6 +54,8 @@ class CoreConnectionConf extends FrameworkConfiguration {
           RoutedRetryJob: { channel: '/queue/retry', maxRetries: 2 },
           RoutedArrayJob: ['/queue/a', { channel: '/queue/b', maxRetries: 4 }],
           RoutedBadJob: { channel: '/queue/bad', maxRetries: -1 },
+          RoutedZeroJob: { channel: '/queue/zero', maxRetries: 0 },
+          RoutedFractionJob: { channel: '/queue/fraction', maxRetries: 1.5 },
         },
         connections: [{ service: 'InMemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test' }],
         retention: { service: 'DefaultJobRetentionService', enabled: false },
@@ -99,6 +101,20 @@ class RoutedArrayJob extends QueueJob {
 
 @Job()
 class RoutedBadJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedZeroJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedFractionJob extends QueueJob {
   public async execute() {
     return 'ok';
   }
@@ -282,11 +298,32 @@ describe('queue core - routing maxRetries', function () {
     expect(queue.get('memory').getMaxRetriesForMessage(RoutedArrayJob)).to.eq(4);
   });
 
-  it('returns undefined for unrouted jobs and for invalid values', async () => {
-    const queue = await q();
-    const client = queue.get('memory');
+  it('returns undefined for unrouted jobs without warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
     expect(client.getMaxRetriesForMessage(SampleJob)).to.be.undefined;
+    expect(warn.called).to.be.false;
+  });
+
+  it('ignores a negative maxRetries with one warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
     expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
+    expect(warn.calledOnce).to.be.true;
+  });
+
+  it('accepts maxRetries 0', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(RoutedZeroJob)).to.eq(0);
+    expect(warn.called).to.be.false;
+  });
+
+  it('ignores a fractional maxRetries with one warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(RoutedFractionJob)).to.be.undefined;
+    expect(warn.calledOnce).to.be.true;
   });
 
   it('defaults RetryCount from routing when the message carries none ( MaxAttempts = maxRetries + 1 )', async () => {
