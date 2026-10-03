@@ -7,7 +7,7 @@ import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
 import type { AdminAssignmentStore, Page } from '../ports.js';
 import { copyDate, copyPrincipalRef, copyRef, deepFreeze, normaliseTags, paged, sameRef } from '../rows.js';
-import { MemoryAssignmentStore } from './assignment-store.js';
+import { MemoryAdminAssignmentStore } from './assignment-store.js';
 
 interface Row {
   readonly link: LinkDef;
@@ -30,7 +30,7 @@ export interface MemoryLinkStoreOptions {
   readonly name?: string;
   /**
    * Links to start with, under fixed tokens (K1 and test worlds); each gets its link:<id> assignment in the
-   * given store, which must then be a MemoryAssignmentStore.
+   * given store, which must then be a MemoryAdminAssignmentStore.
    */
   readonly links?: readonly { readonly link: LinkDef; readonly token: string; readonly role: string; readonly tags?: readonly string[] }[];
 }
@@ -48,7 +48,7 @@ export class MemoryLinkStore extends AdminLinkStore {
     super();
     this.name = opts.name ?? 'memory';
     if (!opts.links?.length) return;
-    if (!(assignments instanceof MemoryAssignmentStore)) throw new AuthzConfigError(`MemoryLinkStore: preloaded links need a MemoryAssignmentStore for their grants, got ${assignments?.constructor?.name ?? String(assignments)}`);
+    if (!(assignments instanceof MemoryAdminAssignmentStore)) throw new AuthzConfigError(`MemoryLinkStore: preloaded links need a MemoryAdminAssignmentStore for their grants, got ${assignments?.constructor?.name ?? String(assignments)}`);
     for (const { link, token, role, tags } of opts.links) {
       if (this.rows.has(link.id)) throw new AuthzConfigError(`MemoryLinkStore: link ${JSON.stringify(link.id)} is preloaded twice`);
       if (typeof token !== 'string' || token === '') throw new AuthzConfigError(`MemoryLinkStore: preloaded link ${JSON.stringify(link.id)} needs a non-empty token`);

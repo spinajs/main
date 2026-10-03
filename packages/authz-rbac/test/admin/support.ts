@@ -4,7 +4,7 @@ import { ManualClock, RecordingAudit, RecordingChangeBus, StaticModel, testHost 
 import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, AuthzClock, AuthzEventSink, ChangeBus, DecisionAudit, MemoryAuthzAdminBackend, TRUE, resourceKey } from '@spinajs/authz';
 import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
 
-import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
+import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
 import type { Assignment, LadderDef, MemoryLinkStoreOptions, RoleDef } from '../../src/index.js';
 
 export const { config, installHost, uninstallHost, resetHost, domains, instance } = testHost;
@@ -80,7 +80,7 @@ export interface RbacDomain {
   readonly container: IContainer;
   readonly service: AuthzService;
   readonly admin: AuthzAdmin;
-  readonly assignments: MemoryAssignmentStore;
+  readonly assignments: MemoryAdminAssignmentStore;
   readonly links: MemoryLinkStore;
   readonly rules: MemoryRuleStore;
   readonly bus: RecordingChangeBus;
@@ -112,7 +112,7 @@ export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): P
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);
-  const assignments = new MemoryAssignmentStore({ assignments: opts.assignments });
+  const assignments = new MemoryAdminAssignmentStore({ assignments: opts.assignments });
   const links = new MemoryLinkStore(assignments, { links: opts.links });
   const rules = new MemoryRuleStore();
   const bus = new RecordingChangeBus();

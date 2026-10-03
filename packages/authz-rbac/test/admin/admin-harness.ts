@@ -5,7 +5,7 @@ import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink
 import type { AuthzEvent, AuthzService } from '@spinajs/authz';
 
 import adminConfig from '../../src/config/admin.js';
-import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
+import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
 import type { LadderDef, RoleDef } from '../../src/index.js';
 import { TestRbacModel } from './test-rbac-model.js';
 
@@ -41,7 +41,7 @@ export class HarnessRoleStore extends RoleStore {
 
 /** The stores one case runs on, for tests that look past AuthzAdmin. */
 export interface HarnessStores {
-  readonly assignments: MemoryAssignmentStore;
+  readonly assignments: MemoryAdminAssignmentStore;
   readonly links: MemoryLinkStore;
   readonly rules: MemoryRuleStore;
   readonly attributes?: MemoryScopeAttributeStore;
@@ -88,7 +88,7 @@ export function adminHarness(opts: AdminHarnessOptions = {}): BehaviourHarness {
       const roles = (rbac.roles ?? []) as readonly RoleDef[];
       const ladders = (rbac.ladders ?? []) as readonly LadderDef[];
 
-      const assignments = new MemoryAssignmentStore({ assignments: rbac.assignments });
+      const assignments = new MemoryAdminAssignmentStore({ assignments: rbac.assignments });
       const links = new MemoryLinkStore(assignments, {
         links: (rbac.links ?? []).filter((l) => !l.revoked).map((l) => ({ link: { id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes ?? {}, ...(l.createdBy ? { createdBy: l.createdBy } : {}) }, token: l.token, role: l.role, tags: l.tags })),
       });

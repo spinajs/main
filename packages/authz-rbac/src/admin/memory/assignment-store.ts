@@ -8,7 +8,7 @@ import { AdminAssignmentStore } from '../ports.js';
 import type { AssignmentQuery, Page } from '../ports.js';
 import { copyDate, copyPrincipalRef, copyRef, copySubject, deepFreeze, isLive, normaliseTags, paged, sameRef, subjectKey } from '../rows.js';
 
-export interface MemoryAssignmentStoreOptions {
+export interface MemoryAdminAssignmentStoreOptions {
   readonly name?: string;
   /** Rows to start with; their ids are kept. */
   readonly assignments?: readonly Assignment[];
@@ -33,13 +33,13 @@ function copy(a: Assignment): Assignment {
  * Assignments in a map, written inside a MemoryAuthzAdminBackend transaction. Not registered: tests and K1
  * register one instance under AdminAssignmentStore and AssignmentStore.
  */
-export class MemoryAssignmentStore extends AdminAssignmentStore {
+export class MemoryAdminAssignmentStore extends AdminAssignmentStore {
   readonly name: string;
   // Insertion order is the listing order; a re-grant keeps its place.
   private readonly rows = new Map<string, Assignment>();
   private revision = 0;
 
-  constructor(opts: MemoryAssignmentStoreOptions = {}) {
+  constructor(opts: MemoryAdminAssignmentStoreOptions = {}) {
     super();
     this.name = opts.name ?? 'memory';
     for (const a of opts.assignments ?? []) this.rows.set(a.id, copy(a));

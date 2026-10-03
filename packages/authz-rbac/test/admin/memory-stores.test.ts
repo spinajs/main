@@ -4,7 +4,7 @@ import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, MemoryAuthzAdminBackend } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-import { AdminAssignmentStore, MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore } from '../../src/index.js';
+import { AdminAssignmentStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore } from '../../src/index.js';
 import type { Assignment, RuleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -47,14 +47,14 @@ async function failure(p: Promise<unknown>): Promise<AuthzAdminFailure> {
   throw new Error('expected a rejection');
 }
 
-describe('MemoryAssignmentStore', () => {
+describe('MemoryAdminAssignmentStore', () => {
   let backend: MemoryAuthzAdminBackend;
-  let store: MemoryAssignmentStore;
+  let store: MemoryAdminAssignmentStore;
   const grant = (a: Partial<Omit<Assignment, 'id' | 'source'>> = {}) => inTx(backend, (tx) => store.assign({ subject: ALICE, role: 'viewer', scope: P1, ...a }, ROOT, tx)) as Promise<Assignment>;
 
   beforeEach(() => {
     backend = new MemoryAuthzAdminBackend();
-    store = new MemoryAssignmentStore();
+    store = new MemoryAdminAssignmentStore();
   });
 
   it('assign returns a frozen row with an id, normalised tags, the actor and the memory source', async () => {
@@ -98,7 +98,7 @@ describe('MemoryAssignmentStore', () => {
     const set = await grant({ subject: MEMBERS, role: 'editor' });
     await grant({ subject: BOB, role: 'viewer', expiresAt: T0 });
     const future = await grant({ subject: BOB, role: 'editor', expiresAt: later(1) });
-    const ids = async (s: Parameters<MemoryAssignmentStore['forSubjects']>[0]) => (await store.forSubjects(s, T0)).map((r) => r.id).sort();
+    const ids = async (s: Parameters<MemoryAdminAssignmentStore['forSubjects']>[0]) => (await store.forSubjects(s, T0)).map((r) => r.id).sort();
     expect(await ids([{ type: 'user', id: 'alice' }])).to.deep.equal([live.id]);
     expect(await ids([{ set: { role: 'org.member', scope: { type: 'org', id: 'o1' } } }])).to.deep.equal([set.id]);
     expect(await ids([{ set: { role: 'org.member', scope: { type: 'org', id: 'o2' } } }])).to.deep.equal([]);
@@ -208,13 +208,13 @@ describe('MemoryAssignmentStore', () => {
 
 describe('MemoryLinkStore', () => {
   let backend: MemoryAuthzAdminBackend;
-  let assignments: MemoryAssignmentStore;
+  let assignments: MemoryAdminAssignmentStore;
   let links: MemoryLinkStore;
   const create = (scope: ResourceRef = P1, role = 'viewer', extra: { tags?: string[]; expiresAt?: Date | null } = {}) => inTx(backend, (tx) => links.create({ scope, expiresAt: extra.expiresAt ?? null, attributes: { org_only: true }, createdBy: ROOT }, { role, tags: extra.tags }, ROOT, tx)) as Promise<{ link: { id: string; scope: ResourceRef }; token: string }>;
 
   beforeEach(() => {
     backend = new MemoryAuthzAdminBackend();
-    assignments = new MemoryAssignmentStore();
+    assignments = new MemoryAdminAssignmentStore();
     links = new MemoryLinkStore(assignments);
   });
 
@@ -335,7 +335,7 @@ describe('MemoryLinkStore', () => {
 
   it('refuses preloaded links it cannot hold', () => {
     const link = { id: 'l1', scope: P1, attributes: {} };
-    const other = new (class extends MemoryAssignmentStore {})();
+    const other = new (class extends MemoryAdminAssignmentStore {})();
     expect(
       () =>
         new MemoryLinkStore(assignments, {
@@ -348,7 +348,7 @@ describe('MemoryLinkStore', () => {
     expect(() => new MemoryLinkStore(assignments, { links: [{ link, token: '', role: 'viewer' }] })).to.throw(AuthzConfigError, /token/);
     expect(() => new MemoryLinkStore(other, { links: [{ link, token: 't', role: 'viewer' }] })).to.not.throw();
     const foreign = Object.create(AdminAssignmentStore.prototype) as AdminAssignmentStore;
-    expect(() => new MemoryLinkStore(foreign, { links: [{ link, token: 't', role: 'viewer' }] })).to.throw(AuthzConfigError, /MemoryAssignmentStore/);
+    expect(() => new MemoryLinkStore(foreign, { links: [{ link, token: 't', role: 'viewer' }] })).to.throw(AuthzConfigError, /MemoryAdminAssignmentStore/);
   });
 
   it('version changes on every write', async () => {
