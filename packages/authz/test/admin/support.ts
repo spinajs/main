@@ -27,6 +27,7 @@ export const PERMISSIONS: Record<string, { types?: string[] }> = {
   'authz:policies.read': { types: ['project', 'doc'] },
   'app:grants.read': { types: ['project', 'doc'] },
   'authz:scope.manage': { types: ['project', 'doc'] },
+  'authz:scope.forget': { types: ['project', 'doc'] },
   'authz:attributes.read': { types: ['project', 'doc'] },
   'app:settings.manage': { types: ['project', 'doc'] },
 };

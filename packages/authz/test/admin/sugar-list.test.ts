@@ -18,7 +18,7 @@ const ALICE = { type: 'user', id: 'alice' };
 /** Every kind neither the fake assignment handler nor the core's ScopeAttributeHandler claims: records the command, fails on id 'missing'. */
 class EchoHandler extends AuthzWriteHandler {
   static seen: AuthzCommand[] = [];
-  readonly kinds = ['link.revoke', 'assignment.setTags', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.forget'] as const;
+  readonly kinds = ['link.revoke', 'assignment.setTags', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete'] as const;
 
   async validate(c: AuthzCommand): Promise<void> {
     if ('id' in c && c.id === 'missing') throw new AuthzAdminFailure('not_found', 'no such row', 'id');
@@ -224,7 +224,6 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
         { kind: 'rule.delete', id: 'r1' },
         { kind: 'policy.put', policy },
         { kind: 'policy.delete', id: 'pol1' },
-        { kind: 'scope.forget', scope: p1 },
       ]);
     });
 
@@ -380,7 +379,7 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
 
     it('an event that cannot be prepared does not fail a committed batch (M4)', async () => {
       class CyclicEvents extends AuthzWriteHandler {
-        readonly kinds = ['scope.forget'] as const;
+        readonly kinds = ['policy.delete'] as const;
         async validate(): Promise<void> {}
         permission(): { permission: Permission; resource: ResourceRef } {
           return { permission: 'authz:assignments.manage', resource: GLOBAL };
@@ -392,7 +391,7 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
         }
       }
       const d = await adminDomain('cyclic', { register: (c) => c.register(CyclicEvents).as(AuthzWriteHandler) });
-      const out = await d.admin.execute(alice, [{ kind: 'scope.forget', scope: p1 }]);
+      const out = await d.admin.execute(alice, [{ kind: 'policy.delete', id: 'x' }]);
       expect(out[0].ok).to.equal(true);
       expect(d.bus.published).to.have.length(1);
     });
