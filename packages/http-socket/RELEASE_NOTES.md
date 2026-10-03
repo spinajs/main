@@ -69,7 +69,8 @@ Live connections re-check their principal, so a revoked or expired credential st
 ### `AuthzService.current()` and `runAs` in socket handlers (G1)
 
 - With the authz-v3 host (F4) merged, `AuthzService.current()` returns the connection principal in commands, events and connect hooks, and `UNATTENDED` for a connection without credentials. The socket layer calls no `runAs` itself.
-- A handler's own `runAs(principal, reason, fn)` switches the principal for `fn` only and is audited as on http. The outer principal is current again after it returns.
+- A handler's own `runAs(principal, reason, fn)` switches the principal for `fn` only, also while other commands of the same connection run concurrently. It is audited when the domain's `audit.runAs` is enabled. The outer principal is current again after it returns.
+- The services of named domains (`AuthzDomains.service(name)`) read the same AsyncLocalStorage store, so their `current()` and `runAs` behave the same in socket handlers.
 - `ISocketCallStorage` now extends authz's `IAuthzAsyncStorage`, so `AuthzCache` and `Unscoped` are typed keys of the call store. This is a type-only change; the runtime exports are unchanged.
 
 ### Configuration

@@ -4,11 +4,20 @@ import { Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
 import { AuthzService, SYSTEM, principalKey } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
-import { Command, Connection, OnConnect, SocketController } from '../src/decorators.js';
+import { WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { Command, Connection, OnConnect, OnEvent, SocketController } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
 import { ITestServer, command, open, resultOf, startServer, waitFor } from './harness.js';
 
-export const hostSeen = new Map<string, string>();
+const hostSeen = new Map<string, string>();
+const hostEventSeen = new Map<string, string>();
+
+const gate = { entered: false, release: (): void => undefined, opened: Promise.resolve() };
+
+function closeGate(): void {
+  gate.entered = false;
+  gate.opened = new Promise<void>((resolve) => (gate.release = resolve));
+}
 
 const authz = async (): Promise<AuthzService> => (await DI.resolve(AuthzService)) as AuthzService;
 
@@ -26,6 +35,21 @@ export class HostSocket extends BaseSocketController {
     return { inside, after: principalKey(service.current()) };
   }
 
+  @Command('held')
+  public async held() {
+    const service = await authz();
+    return service.runAs(SYSTEM, 'socket-test', async () => {
+      gate.entered = true;
+      await gate.opened;
+      return principalKey(service.current());
+    });
+  }
+
+  @OnEvent('probe')
+  public async probe(@Connection() conn: SocketConnection) {
+    hostEventSeen.set(conn.id, principalKey((await authz()).current()));
+  }
+
   @OnConnect()
   public async joined(@Connection() conn: SocketConnection) {
     hostSeen.set(conn.id, principalKey((await authz()).current()));
@@ -40,12 +64,14 @@ describe('authz-v3 host in socket handlers', function () {
   let anonymous: ClientSocket;
 
   beforeEach(async () => {
+    closeGate();
     t = await startServer();
     alice = await open(t, { auth: { clientId: 'host-alice', token: 'good' } });
     anonymous = await open(t, { auth: { clientId: 'host-anon' } });
   });
 
   afterEach(async () => {
+    gate.release();
     alice.close();
     anonymous.close();
     await t.close();
@@ -63,8 +89,27 @@ describe('authz-v3 host in socket handlers', function () {
     expect(resultOf(await command(alice, 'host.system'))).to.deep.equal({ inside: 'system:system', after: 'user:1' });
   });
 
+  it('a runAs held open by one command does not leak into a concurrent command on the same connection', async () => {
+    const held = command(alice, 'host.held');
+    await waitFor(() => gate.entered);
+
+    expect(resultOf(await command(alice, 'host.me'))).to.equal('user:1');
+
+    gate.release();
+    expect(resultOf(await held)).to.equal('system:system');
+  });
+
   it('connect hooks see the connection principal', async () => {
     await waitFor(() => hostSeen.has(alice.id!));
     expect(hostSeen.get(alice.id!)).to.equal('user:1');
+  });
+
+  it('event handlers see the connection principal', async () => {
+    alice.emit(WIRE_EVENTS.event, { name: 'host.probe', payload: null });
+    anonymous.emit(WIRE_EVENTS.event, { name: 'host.probe', payload: null });
+    await waitFor(() => hostEventSeen.has(alice.id!) && hostEventSeen.has(anonymous.id!));
+
+    expect(hostEventSeen.get(alice.id!)).to.equal('user:1');
+    expect(hostEventSeen.get(anonymous.id!)).to.equal('unattended:unattended');
   });
 });
