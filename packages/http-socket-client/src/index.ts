@@ -6,5 +6,7 @@ export type { CommandOptions, WhenOffline } from './commands.js';
 export { DEFAULT_CONNECT_TIMEOUT_MS } from './connection.js';
 export type { AuthPayload, AuthProvider, ConnectionState, IoOptions } from './connection.js';
 export type { StreamItem, TypedSocketClient } from './contract.js';
+export { DEFAULT_STREAM_CREDITS } from './streams.js';
+export type { StreamOptions } from './streams.js';
 export { DEFAULT_RECONNECT, MAX_SERVER_HINT_MS, ReconnectPolicy } from './reconnect.js';
 export type { ReconnectOptions } from './reconnect.js';
