@@ -90,7 +90,6 @@ describe('DurableQueue', () => {
 
     release();
     expect(await done).to.deep.equal({ n: 1 });
-    await sleep(20);
     expect(await store.pending()).to.deep.equal([]);
   });
 
@@ -225,7 +224,6 @@ describe('DurableQueue', () => {
     expect(failed).to.have.length(1);
     expect(failed[0].entry).to.include({ seq: 2, name: 'docs.submit' });
     expect(failed[0].error.code).to.equal('invalid_argument');
-    await sleep(20);
     expect((await store.failed()).map((e) => e.seq)).to.deep.equal([2]);
     expect(await store.pending()).to.deep.equal([]);
   });
@@ -271,7 +269,6 @@ describe('DurableQueue', () => {
     expect(stub.order[0]).to.match(/^client-1:/);
     expect(stub.order[1]).to.equal('op-2');
     expect(server.requests[1].after).to.equal(stub.order[0]);
-    await sleep(20);
     expect(await store.pending()).to.deep.equal([]);
   });
 
@@ -396,6 +393,91 @@ describe('DurableQueue', () => {
     expect([...stub.runs.values()]).to.deep.equal([1]);
     second.queue.close();
   });
+
+  it('settles a command only once the store has applied its outcome', async () => {
+    serveDurable(server, 'docs.submit', (payload: { n: number }) => {
+      if (payload.n === 2) {
+        throw { code: 'invalid_argument', message: 'malformed op', retryable: false } as SocketError;
+      }
+      return payload;
+    });
+    const store = new MemoryOutboxStore();
+    const remove = store.remove.bind(store);
+    const fail = store.fail.bind(store);
+    store.remove = async (seq) => {
+      await sleep(50);
+      return remove(seq);
+    };
+    store.fail = async (entry) => {
+      await sleep(50);
+      return fail(entry);
+    };
+    const { queue } = await onlineQueue(server, { store });
+
+    expect(await queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
+    expect(await store.pending()).to.deep.equal([]);
+    await rejectionOf(queue.submit('docs.submit', { n: 2 }));
+    expect((await store.failed()).map((e) => (e.payload as { n: number }).n)).to.deep.equal([2]);
+  });
+
+  it('reports on close the commands that were answered but waited for an earlier one', async () => {
+    server.rawReplies.set('docs.slow', async (request: CommandRequest) => {
+      if ((request.payload as { n: number }).n === 1) {
+        await sleep(300);
+      }
+      return { id: request.id, ok: true, result: request.payload };
+    });
+    const { queue } = await onlineQueue(server);
+    const acked: AckedCommand[] = [];
+    queue.events.on('acked', (event) => acked.push(event));
+
+    const one = queue.submit('docs.slow', { n: 1 });
+    const two = queue.submit('docs.slow', { n: 2 });
+    await until(() => server.requests.length === 2);
+    await sleep(100);
+    queue.close();
+
+    expect((await rejectionOf(one)).code).to.equal('unavailable');
+    expect(await two).to.deep.equal({ n: 2 });
+    expect(acked.map((a) => a.result)).to.deep.equal([{ n: 2 }]);
+  });
+
+  it('loads the store again on the next submit when the first load failed', async () => {
+    serveDurable(server, 'docs.submit');
+    const store = new MemoryOutboxStore();
+    await store.add({ name: 'docs.submit', payload: { n: 0 }, key: 'op-0' });
+    const pending = store.pending.bind(store);
+    let failures = 1;
+    store.pending = async () => {
+      if (failures-- > 0) {
+        throw new Error('storage is busy');
+      }
+      return pending();
+    };
+    const errors: unknown[] = [];
+    const { queue } = await onlineQueue(server, { store, onListenerError: (error) => errors.push(error) });
+    const acked: AckedCommand[] = [];
+    queue.events.on('acked', (event) => acked.push(event));
+
+    expect(await queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
+    expect(acked.map((a) => a.result)).to.deep.equal([{ n: 0 }, { n: 1 }]);
+    expect(errors.map((e) => (e as Error).message)).to.deep.equal(['storage is busy']);
+  });
+
+  it('takes the first final reply of any request still out for a command an ack timeout sent again', async () => {
+    server.rawReplies.set('docs.late', async (request: CommandRequest) => {
+      if (server.requests.indexOf(request) > 0) {
+        // the resend hangs: only the first request answers
+        return new Promise(() => undefined);
+      }
+      await sleep(150);
+      return { id: request.id, ok: true, result: 'first' };
+    });
+    const { queue } = await onlineQueue(server, { durable: { ackTimeoutMs: 100 } });
+
+    expect(await queue.submit('docs.late', {})).to.equal('first');
+    expect(server.requests).to.have.length(2);
+  }).timeout(1_000);
 
   it('ignores a reply that arrives after close, so the entry resumes on the next start', async () => {
     serveDurable(server, 'docs.submit');
