@@ -225,6 +225,52 @@ describe('DbAuthzAdminBackend on SQLite', function () {
       expect(await rejection(backend.transaction('d1', async () => undefined))).to.be.instanceOf(AuthzConfigError);
     });
 
+    it('a missing idempotency table names its migration', async () => {
+      config().set(['authz', 'admin', 'connection'], 'other');
+      const e = await rejection(backend.recall('d1', 'user:alice', 'k', new Date()));
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(e.message).to.include(IDEM).and.include(AuthzAdminIdempotency_2026_10_02_00_01_00.name);
+    });
+
+    it('a failed read of a table that exists is passed on, not blamed on a migration', async () => {
+      const down = new Error('connection lost');
+      const select = db.select;
+      db.select = (() => {
+        throw down;
+      }) as unknown as typeof db.select;
+      try {
+        expect(await rejection(backend.transaction(dom, async () => undefined))).to.equal(down);
+      } finally {
+        db.select = select;
+      }
+    });
+
+    it('refuses to run inside a transaction already open on the connection', async () => {
+      const inOuter = (fn: () => Promise<unknown>) => rejection(db.transaction(fn));
+      const e = await inOuter(() => backend.transaction(dom, async (tx) => attributes.write(P1, { set: { a: 1 }, remove: [] }, ALICE, tx)));
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(e.message).to.include('db.transaction');
+      expect(await inOuter(() => backend.recall(dom, 'user:alice', 'k', new Date()))).to.be.instanceOf(AuthzConfigError);
+      expect(await attributes.rows(P1)).to.deep.equal({});
+      expect(await versionOf(dom)).to.equal(undefined);
+    });
+
+    it('a lock that finds no row inserts the row first and takes the lock on it', async () => {
+      await backend.transaction(dom, async () => undefined);
+      await db.del().from(VERSION).where({ domain: dom });
+      const seen = await backend.transaction(dom, () => versionOf(dom));
+      expect(seen).to.equal(0);
+      expect(await versionOf(dom)).to.equal(0);
+    });
+
+    it('recall sweeps expired rows of its own domain only', async () => {
+      const now = new Date();
+      await backend.transaction(dom, (tx) => backend.remember(dom, 'user:alice', 'k', batch(), new Date(now.getTime() + HOUR), tx));
+      await backend.transaction(other, (tx) => backend.remember(other, 'user:alice', 'k', batch(), new Date(now.getTime() + HOUR), tx));
+      expect(await backend.recall(dom, 'user:alice', 'nothing', new Date(now.getTime() + 2 * HOUR))).to.equal(undefined);
+      expect((await idemRows()).map((r) => r.domain)).to.deep.equal([other]);
+    });
+
     it('bumpVersion and remember refuse a tx that is not an ORM transaction on the connection', async () => {
       expect(await rejection(backend.bumpVersion('d1', { driver: db }))).to.be.instanceOf(AuthzConfigError);
       expect(await rejection(backend.bumpVersion('d1', { driver: {} }))).to.be.instanceOf(AuthzConfigError);
@@ -389,6 +435,48 @@ describe('DbAuthzAdminBackend on SQLite', function () {
       ok(b);
       expect((await policyIds()).sort()).to.deep.equal(['c-1', 'c-2']);
       expect(await versionOf(dom)).to.equal(2);
+    });
+
+    it('refuses a batch inside an open transaction and writes nothing', async () => {
+      const d = await domain();
+      const e = await rejection(db.transaction(() => d.admin.execute(alice, [setAttrs(), putPolicy('nested')])));
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(await attributes.rows(P1)).to.deep.equal({});
+      expect(await policyIds()).to.deep.equal([]);
+      expect(d.bus.published).to.deep.equal([]);
+    });
+
+    it('a dry run returns the results and commits nothing', async () => {
+      const d = await domain();
+      const results = ok(await d.admin.execute(alice, [setAttrs(), putPolicy('dry')], { dryRun: true }));
+      expect(results.map((r) => r.kind)).to.deep.equal(['scope.setAttributes', 'policy.put']);
+      expect(await attributes.rows(P1)).to.deep.equal({});
+      expect(await policyIds()).to.deep.equal([]);
+      expect(await versionOf(dom)).to.equal(0);
+      expect(await idemRows()).to.deep.equal([]);
+    });
+
+    it('a key another batch stored after the recall rolls the batch back and replays the stored results', async () => {
+      const d = await domain();
+      const stored = [{ ok: true, kind: 'scope.setAttributes', affected: 9 }];
+      await db
+        .insert()
+        .into(IDEM)
+        .values({ domain: dom, actor: 'user:alice', idem_key: 'k1', results: JSON.stringify(stored), rows: '[null]', expires_at: new Date(Date.now() + HOUR), created_at: new Date() });
+      const shared = (await DI.resolve(DbAuthzAdminBackend)) as DbAuthzAdminBackend;
+      const recall = shared.recall;
+      let calls = 0;
+      shared.recall = function (this: DbAuthzAdminBackend, ...args: Parameters<DbAuthzAdminBackend['recall']>) {
+        return calls++ === 0 ? Promise.resolve(undefined) : recall.apply(this, args);
+      };
+      try {
+        expect(await d.admin.execute(alice, [setAttrs()], { idempotencyKey: 'k1' })).to.deep.equal(stored);
+      } finally {
+        shared.recall = recall;
+      }
+      expect(calls).to.equal(2);
+      expect(await attributes.rows(P1)).to.deep.equal({});
+      expect(await versionOf(dom)).to.equal(0);
     });
 
     it('without authz.admin.backend the memory backend runs the batch', async () => {
