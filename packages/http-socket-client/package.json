@@ -23,7 +23,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=16.11"
+    "node": ">=17"
   },
   "scripts": {
     "build": "npm run clean && npm run compile",

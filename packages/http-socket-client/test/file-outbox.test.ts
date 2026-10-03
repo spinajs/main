@@ -113,3 +113,123 @@ describe('FileOutboxStore', () => {
     expect(node).to.have.property('SocketClient');
   });
 });
+
+describe('FileOutboxStore resilience', () => {
+  const noDelay = { retryDelayMs: 1 };
+  const busy = () => Object.assign(new Error('busy'), { code: 'EBUSY' });
+
+  it('retries a rename the OS refuses for a moment', async () => {
+    const path = nextPath();
+    let calls = 0;
+    const store = new FileOutboxStore(path, {
+      ...noDelay,
+      rename: async (from, to) => {
+        if (++calls <= 2) throw busy();
+        return (await import('node:fs/promises')).rename(from, to);
+      },
+    });
+
+    await store.add({ name: 'x', payload: 1 });
+
+    expect(calls).to.equal(3);
+    expect((await new FileOutboxStore(path).pending()).map((e) => e.seq)).to.deep.equal([1]);
+  });
+
+  it('keeps the old queue, removes the temp file and throws when the rename never succeeds', async () => {
+    const path = nextPath();
+    await new FileOutboxStore(path).add({ name: 'x', payload: 1 });
+    const store = new FileOutboxStore(path, {
+      ...noDelay,
+      rename: async () => {
+        throw busy();
+      },
+    });
+
+    const error = await store.add({ name: 'x', payload: 2 }).catch((e: unknown) => e);
+
+    expect((error as NodeJS.ErrnoException).code).to.equal('EBUSY');
+    expect(existsSync(`${path}.tmp`)).to.be.false;
+    expect((await store.pending()).map((e) => e.seq)).to.deep.equal([1]);
+    expect((await new FileOutboxStore(path).pending()).map((e) => e.seq)).to.deep.equal([1]);
+  });
+
+  it('does not retry an error that is not a transient rename failure', async () => {
+    let calls = 0;
+    const store = new FileOutboxStore(nextPath(), {
+      ...noDelay,
+      rename: async () => {
+        calls++;
+        throw Object.assign(new Error('gone'), { code: 'ENOSPC' });
+      },
+    });
+
+    await store.add({ name: 'x', payload: 1 }).catch(() => undefined);
+
+    expect(calls).to.equal(1);
+  });
+
+  it('commits queued changes together: 100 parallel adds make far fewer writes', async () => {
+    let writes = 0;
+    const store = new FileOutboxStore(nextPath(), {
+      rename: async (from, to) => {
+        writes++;
+        return (await import('node:fs/promises')).rename(from, to);
+      },
+    });
+
+    const entries = await Promise.all(Array.from({ length: 100 }, (_, i) => store.add({ name: 'x', payload: i })));
+
+    expect(entries.map((e) => e.seq)).to.deep.equal(Array.from({ length: 100 }, (_, i) => i + 1));
+    expect(writes).to.be.below(20);
+    expect(await store.pending()).to.have.length(100);
+  });
+
+  it('fails every change of a batch when its write fails, and recovers afterwards', async () => {
+    const path = nextPath();
+    let fail = true;
+    const store = new FileOutboxStore(path, {
+      ...noDelay,
+      rename: async (from, to) => {
+        if (fail) throw busy();
+        return (await import('node:fs/promises')).rename(from, to);
+      },
+    });
+
+    const results = await Promise.allSettled([store.add({ name: 'x', payload: 1 }), store.add({ name: 'x', payload: 2 })]);
+    fail = false;
+
+    expect(results.map((r) => r.status)).to.deep.equal(['rejected', 'rejected']);
+    expect(await store.pending()).to.deep.equal([]);
+    expect((await store.add({ name: 'x', payload: 3 })).seq).to.equal(1);
+  });
+
+  it('refuses a file whose entries are malformed or whose seq counter is behind them', async () => {
+    const bad = [
+      { version: 1, seq: 1, pending: [null], failed: [] },
+      { version: 1, seq: 1, pending: [{ name: 'x' }], failed: [] },
+      { version: 1, seq: 1, pending: [{ seq: 5, name: 'x', payload: 1, createdAt: 1 }], failed: [] },
+      { version: 1, seq: 1, pending: [], failed: [{ seq: 5 }] },
+    ];
+
+    for (const state of bad) {
+      const path = nextPath();
+      await new FileOutboxStore(path).add({ name: 'x', payload: 1 });
+      writeFileSync(path, JSON.stringify(state));
+
+      const error = await new FileOutboxStore(path).pending().catch((e: unknown) => e);
+
+      expect(error, JSON.stringify(state)).to.be.instanceOf(Error);
+      expect((error as Error).message).to.contain(path);
+    }
+  });
+
+  it('keeps counting after the newest entry was removed and the store reopened', async () => {
+    const path = nextPath();
+    const store = new FileOutboxStore(path);
+    await store.add({ name: 'x', payload: 1 });
+    const newest = await store.add({ name: 'x', payload: 2 });
+    await store.remove(newest.seq);
+
+    expect((await new FileOutboxStore(path).add({ name: 'x', payload: 3 })).seq).to.be.above(newest.seq);
+  });
+});
