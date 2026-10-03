@@ -149,8 +149,20 @@ describe('http-socket-common', () => {
   describe('stream frames', () => {
     it('accepts a credits field on a command request only as an integer above 0', () => {
       expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits: 8 })).to.be.true;
-      for (const credits of [0, -1, 1.5, '8', Number.NaN, Number.POSITIVE_INFINITY, null]) {
+      for (const credits of [0, -1, 1.5, '8', Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, null]) {
         expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits }), String(credits)).to.be.false;
+      }
+    });
+
+    it('accepts a command request without credits, also with the field present but undefined', () => {
+      expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot' })).to.be.true;
+      expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits: undefined })).to.be.true;
+    });
+
+    it('accepts a huge integer credit: the shape is valid, the server bounds it with maxCredits', () => {
+      for (const credits of [Number.MAX_SAFE_INTEGER + 2, 1e300]) {
+        expect(isCommandRequest({ id: 'r1', name: 'docs.snapshot', credits }), String(credits)).to.be.true;
+        expect(isStreamCredit({ id: 'r1', credits }), String(credits)).to.be.true;
       }
     });
 
@@ -172,11 +184,12 @@ describe('http-socket-common', () => {
       expect(isStreamFail({ id: 'r1', error: { code: 'internal', message: 'x', retryable: false } })).to.be.true;
       expect(isStreamFail({ id: 'r1', error: { code: 'teapot', message: 'x', retryable: false } })).to.be.false;
       expect(isStreamFail({ id: 'r1' })).to.be.false;
+      expect(isStreamFail({ id: 'r1', error: null })).to.be.false;
     });
 
     it('checks credit frames: an id and an integer above 0', () => {
       expect(isStreamCredit({ id: 'r1', credits: 4 })).to.be.true;
-      for (const credits of [0, -2, 1.5, '4', Number.NaN]) {
+      for (const credits of [0, -2, 1.5, '4', Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, null]) {
         expect(isStreamCredit({ id: 'r1', credits }), String(credits)).to.be.false;
       }
       expect(isStreamCredit({ credits: 4 })).to.be.false;
