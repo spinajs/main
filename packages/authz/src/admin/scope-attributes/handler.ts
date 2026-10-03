@@ -4,13 +4,14 @@ import { AuthzAdminFailure, AuthzWriteHandler } from '../../contracts/admin.js';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx } from '../../contracts/admin.js';
 import { AuthzConfigError } from '../../contracts/errors.js';
 import type { Permission } from '../../contracts/permission.js';
-import type { PrincipalRef, ResourceRef } from '../../contracts/principal.js';
+import type { PrincipalRef, ResourceRef, ResourceType } from '../../contracts/principal.js';
+import type { ScopeAttributeSchema } from '../../contracts/adapter.js';
 import { GLOBAL, resourceKey } from '../../contracts/resource.js';
 import { mergeAttributes } from '../../engine/attributes.js';
 import { adminActor, adminContainer } from '../context.js';
 import { WritableScopeAttributeStore } from '../ports.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
-import { flattenAttributes, underPath, unflattenAttributes } from './flatten.js';
+import { SCOPE_ATTRIBUTE_LIMITS, flattenAttributes, underPath, unflattenAttributes } from './flatten.js';
 import { contributedSchemas, errorPath, schemaValidator } from './schemas.js';
 
 type AttributeCommand = Extract<AuthzCommand, { kind: 'scope.setAttributes' | 'scope.replaceAttributes' }>;
@@ -25,12 +26,17 @@ interface Plan {
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
 
+// One AdminCallContext per batch: its commands share the contributors' answer, in validate and in apply.
+const batchSchemas = new WeakMap<AdminContext, Promise<ReadonlyMap<ResourceType, ScopeAttributeSchema>>>();
+
 function scopeOf(c: AttributeCommand): ResourceRef {
   const scope: unknown = c.scope;
   if (!isObject(scope) || typeof scope.type !== 'string' || scope.type === '' || (scope.id !== undefined && typeof scope.id !== 'string')) throw new AuthzAdminFailure('invalid_attributes', 'scope must be a resource ref', 'scope');
   if (scope.type === GLOBAL.type) throw new AuthzAdminFailure('invalid_attributes', 'GLOBAL has no scope attributes', 'scope');
   if (scope.id === undefined || scope.id === '') throw new AuthzAdminFailure('invalid_attributes', `scope attributes belong to one node; ${JSON.stringify(scope.type)} names no id`, 'scope');
-  return { type: scope.type, id: scope.id as string };
+  const id = scope.id as string;
+  if (scope.type.length > SCOPE_ATTRIBUTE_LIMITS.scopeType || id.length > SCOPE_ATTRIBUTE_LIMITS.scopeId) throw new AuthzAdminFailure('invalid_attributes', `a scope type and id are at most ${SCOPE_ATTRIBUTE_LIMITS.scopeType} characters each`, 'scope');
+  return { type: scope.type, id };
 }
 
 /** The rows after the change: a removed path takes its subtree; a set path replaces its ancestors' and descendants' rows. */
@@ -64,7 +70,9 @@ export class ScopeAttributeHandler extends AuthzWriteHandler {
     const actor = adminActor(ctx);
     const by: PrincipalRef = { type: actor.type, id: actor.id };
     const paths = [...Object.keys(p.set), ...p.remove].sort();
-    const affected = paths.length === 0 ? 0 : await p.store.write(p.scope, { set: p.set, remove: p.remove }, by, tx);
+    // Nothing changed: no write, no version change, nothing to invalidate or announce.
+    if (paths.length === 0) return { affected: 0, tags: [], events: [] };
+    const affected = await p.store.write(p.scope, { set: p.set, remove: p.remove }, by, tx);
     return {
       affected,
       tags: [`scope:${resourceKey(p.scope)}`],
@@ -81,7 +89,9 @@ export class ScopeAttributeHandler extends AuthzWriteHandler {
 
     const where = `Authz domain ${JSON.stringify(ctx.domain)}`;
     const container = adminContainer(ctx);
-    const schema = (await contributedSchemas(container, ctx.domain, where)).get(scope.type);
+    let schemas = batchSchemas.get(ctx);
+    if (!schemas) batchSchemas.set(ctx, (schemas = contributedSchemas(container, ctx.domain, where)));
+    const schema = (await schemas).get(scope.type);
     if (!schema) throw new AuthzAdminFailure('invalid_attributes', `no scope attribute schema for type ${JSON.stringify(scope.type)}`, 'scope');
     if (!container.hasRegistered(WritableScopeAttributeStore)) throw new AuthzConfigError(`${where}: no WritableScopeAttributeStore is registered; scope attributes cannot be written`);
     const store = (await container.resolve(WritableScopeAttributeStore)) as WritableScopeAttributeStore;
@@ -89,6 +99,7 @@ export class ScopeAttributeHandler extends AuthzWriteHandler {
 
     const old: Rows = { ...(await store.rows(scope)) };
     const next = replace ? change.set : nextRows(old, change.set, change.remove);
+    if (Object.keys(next).length > SCOPE_ATTRIBUTE_LIMITS.leaves) throw new AuthzAdminFailure('invalid_attributes', `a scope holds at most ${SCOPE_ATTRIBUTE_LIMITS.leaves} attribute values`, replace ? 'attributes' : 'patch');
     const validate = schemaValidator(schema.schema, scope.type);
     if (!validate(mergeAttributes([schema.defaults, unflattenAttributes(next)]))) {
       const e = validate.errors?.[0];

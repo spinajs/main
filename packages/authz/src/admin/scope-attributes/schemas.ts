@@ -24,6 +24,9 @@ const q = (v: unknown): string => {
 const describeError = (e: unknown): string => (e instanceof Error ? e.message : q(e));
 
 /**
+ * Schemas are JSON schemas for ajv 8 in strict mode: an unknown keyword or any `format` makes them fail to
+ * compile (AuthzConfigError), because no formats are registered.
+ *
  * Contributes `authz.scopes.attributes` (`{ [scopeType]: { schema, defaults } }`) as scope attribute schemas
  * of every domain, so the engine's defaults and AuthzAdmin's validation read the same schemas. It reads the
  * configuration on every call and never touches AuthzService (it runs during the service's boot).
@@ -95,8 +98,9 @@ const compiled = new WeakMap<object, ValidateFunction>();
 export function schemaValidator(schema: object, scopeType: string): ValidateFunction {
   let fn = compiled.get(schema);
   if (fn) return fn;
-  // strict off: app schemas may carry keywords ajv does not know (titles, UI hints).
-  ajv ??= new Ajv({ strict: false, allErrors: false, addUsedSchema: false, validateSchema: true });
+  // strictSchema stays on, so a misspelled keyword or a format ajv does not know (none are bundled) fails
+  // the compile instead of passing every value; the other strict checks are style and stay quiet.
+  ajv ??= new Ajv({ logger: false, allErrors: false, addUsedSchema: false, validateSchema: true });
   try {
     fn = ajv.compile(schema);
   } catch (e) {

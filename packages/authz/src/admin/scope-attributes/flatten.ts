@@ -2,8 +2,11 @@ import { AuthzAdminFailure } from '../../contracts/admin.js';
 import { AuthzConfigError } from '../../contracts/errors.js';
 import type { ScopeAttributeLeaf } from '../ports.js';
 
-/** Column sizes of authz_scope_attribute (design §9.1): `path` and `value_json`. */
-export const SCOPE_ATTRIBUTE_LIMITS = Object.freeze({ path: 160, json: 1024 });
+/**
+ * Column sizes of authz_scope_attribute (design §9.1), and the most leaves one node may hold: well below the
+ * engine's merge limit (10 000 values), and few enough that a node is a handful of SQL statements.
+ */
+export const SCOPE_ATTRIBUTE_LIMITS = Object.freeze({ scopeType: 64, scopeId: 64, path: 160, json: 1024, leaves: 1000 });
 
 export type ScopeAttributeRows = Readonly<Record<string, ScopeAttributeLeaf>>;
 
@@ -45,12 +48,14 @@ export function flattenAttributes(value: unknown, opts: { readonly nulls?: boole
 
   const set: Record<string, ScopeAttributeLeaf> = Object.create(null);
   const remove: string[] = [];
+  let count = 0;
   const walk = (obj: Record<string, unknown>, prefix: string): void => {
     for (const key of Object.keys(obj)) {
       const path = prefix === '' ? key : `${prefix}.${key}`;
       const why = badKey(key);
       if (why) fail(path, why);
       if (path.length > SCOPE_ATTRIBUTE_LIMITS.path) fail(path, `paths are at most ${SCOPE_ATTRIBUTE_LIMITS.path} characters`);
+      if (++count > SCOPE_ATTRIBUTE_LIMITS.leaves) fail('', `holds more than ${SCOPE_ATTRIBUTE_LIMITS.leaves} keys`);
       const v = obj[key];
       if (isPlainObject(v)) {
         walk(v, path);

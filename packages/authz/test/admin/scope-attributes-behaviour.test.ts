@@ -38,7 +38,7 @@ runBehaviour(
         c.register(testHost.instance(sink)).as(AuthzEventSink);
         host.setConfig(['authz', 'admin', 'guard', 'service'], 'PermissiveScopeGuard');
         // B39.store declares authz:scope.manage without types, so it only applies to type 'authz', yet the
-        // command is checked at the scope (lane design §3.2). Give it the world's scope types (report hand-off).
+        // command is checked at the scope (lane design §3.2). Give it the world's scope types until RFC L9-1 lands.
         if (host.world.permissions.includes('authz:scope.manage')) {
           const types = [...new Set((host.world.scopes ?? []).flatMap((s) => (s.nodes ?? []).map((n) => n.ref.type)))];
           host.setConfig(['authz', 'domains', host.domain, 'permissions', 'authz:scope.manage'], { types });

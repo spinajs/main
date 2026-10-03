@@ -2,8 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthzAdminFailure, AuthzConfigError, AuthzContributor, ConfigScopeAttributeSchemas, GLOBAL, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, SCOPE_ATTRIBUTE_LIMITS, SYSTEM, ScopeAttributeStore, WritableScopeAttributeStore, flattenAttributes, unflattenAttributes } from '@spinajs/authz';
-import type { AuthzCommand, AuthzCommandResult, AuthzTx, ResourceRef, ScopeAttributeSchema } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, AuthzContributor, ConfigScopeAttributeSchemas, GLOBAL, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, SCOPE_ATTRIBUTE_LIMITS, SYSTEM, ScopeAttributeReader, ScopeAttributeStore, WritableScopeAttributeStore, flattenAttributes, unflattenAttributes } from '@spinajs/authz';
+import type { AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzTx, ResourceRef, ScopeAttributeSchema } from '@spinajs/authz';
 import { adminConfig, adminDomain, installHost, instance, rejection, resetHost, setConfig, uninstallHost } from './support.js';
 import type { AdminDomain } from './support.js';
 
@@ -112,6 +112,9 @@ describe('scope attribute paths', () => {
     expect(refusal(() => flattenAttributes({ a: { [at(159)]: 1 } })).field).to.equal(`a.${at(159)}`);
     expect(flattenAttributes({ s: 'x'.repeat(1022) }).set.s).to.have.length(1022);
     expect(refusal(() => flattenAttributes({ s: 'x'.repeat(1023) })).field).to.equal('s');
+    const keys = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, i]));
+    expect(Object.keys(flattenAttributes(keys(SCOPE_ATTRIBUTE_LIMITS.leaves)).set)).to.have.length(1000);
+    expect(refusal(() => flattenAttributes({ t: keys(SCOPE_ATTRIBUTE_LIMITS.leaves) }, { field: 'patch' })).field).to.equal('patch');
   });
 
   it('refuses rows that cannot form one object', () => {
@@ -157,17 +160,31 @@ describe('MemoryScopeAttributeStore', () => {
     expect(await store.version()).to.not.equal(v1);
   });
 
-  it('a rollback restores the rows and the version', async () => {
+  it('a rollback restores the rows and moves the version on, never back', async () => {
     const store = new MemoryScopeAttributeStore({ values: [{ scope: p1, attributes: { a: 1 } }] });
     const v0 = await store.version();
+    let inside = '';
     await inTx(async (tx) => {
       await store.write(p1, { set: { b: 2 }, remove: ['a'] }, ALICE, tx);
       await store.write(p2, { set: { c: 3 }, remove: [] }, ALICE, tx);
       await store.forget(p1, tx);
+      inside = await store.version();
     }, true);
     expect(await store.rows(p1)).to.deep.equal({ a: 1 });
     expect(await store.rows(p2)).to.deep.equal({});
-    expect(await store.version()).to.equal(v0);
+    const after = await store.version();
+    expect(after).to.not.equal(v0);
+    expect(after).to.not.equal(inside);
+    await inTx((tx) => store.write(p1, { set: { z: 1 }, remove: [] }, ALICE, tx));
+    expect([v0, inside, after]).to.not.include(await store.version());
+  });
+
+  it('a set path drops the rows above and below it', async () => {
+    const store = new MemoryScopeAttributeStore({ values: [{ scope: p1, attributes: { a: { b: 1, c: 2 }, x: 1 } }] });
+    let n = 0;
+    await inTx(async (tx) => (n = await store.write(p1, { set: { a: 5, 'x.y': 2 }, remove: [] }, ALICE, tx)));
+    expect(await store.get(p1)).to.deep.equal({ a: 5, x: { y: 2 } });
+    expect(n).to.equal(5);
   });
 
   it('forget removes every row of the node', async () => {
@@ -365,6 +382,29 @@ describe('ScopeAttributeHandler', function () {
     expect(await rejection(d.admin.execute(alice, [set({ policies: { level: 'gold' } })]))).to.be.instanceOf(AuthzConfigError);
   });
 
+  it('rejects with AuthzConfigError for a schema with an unknown keyword or format', async () => {
+    for (const schema of [
+      { type: 'object', requried: ['a'] },
+      { type: 'object', properties: { a: { type: 'string', format: 'email' } } },
+    ]) {
+      await resetHost();
+      adminConfig();
+      const { d } = await setup([], { schemas: [{ scopeType: 'doc', schema, defaults: {} }] });
+      expect(await rejection(d.admin.execute(alice, [set({ a: 'x' }, d1)])), JSON.stringify(schema)).to.be.instanceOf(AuthzConfigError);
+    }
+  });
+
+  it('refuses a scope type or id longer than 64 characters and a node over the leaf cap', async () => {
+    const many = Object.fromEntries(Array.from({ length: 999 }, (_, i) => [`k${i}`, i]));
+    const { d, store } = await setup([{ scope: d1, attributes: { t: many } }], { schemas: [{ scopeType: 'doc', schema: { type: 'object' }, defaults: {} }] });
+    expect(failed(await d.admin.execute(SYSTEM, [set({ a: 1 }, { type: 'doc', id: 'i'.repeat(65) })]))).to.deep.include({ code: 'invalid_attributes', field: 'scope' });
+    expect(failed(await d.admin.execute(SYSTEM, [set({ a: 1 }, { type: 't'.repeat(65), id: 'x' })]))).to.deep.include({ code: 'invalid_attributes', field: 'scope' });
+    expect((await d.admin.execute(alice, [set({ u: 1 }, d1)]))[0].ok).to.equal(true);
+    expect(failed(await d.admin.execute(alice, [set({ v: 1 }, d1)]))).to.deep.include({ code: 'invalid_attributes', field: 'patch' });
+    expect(failed(await d.admin.execute(alice, [replace({ ...many, a: 1, b: 2 }, d1)]))).to.deep.include({ code: 'invalid_attributes', field: 'attributes' });
+    expect(Object.keys(await store.rows(d1))).to.have.length(1000);
+  });
+
   it('rejects with AuthzConfigError for a schema that does not compile', async () => {
     const { d } = await setup([], { schemas: [{ scopeType: 'doc', schema: { type: 'nonsense' }, defaults: {} }] });
     expect(await rejection(d.admin.execute(alice, [set({ a: 1 }, d1)]))).to.be.instanceOf(AuthzConfigError);
@@ -402,7 +442,8 @@ describe('ScopeAttributeHandler', function () {
     const dry = await d.admin.execute(alice, [set({ policies: { level: 'silver', limit: 1 } })], { dryRun: true });
     expect(dry).to.deep.equal([{ ok: true, kind: 'scope.setAttributes', affected: 2 }]);
     expect(await store.rows(p1)).to.deep.equal({ 'policies.level': 'gold' });
-    expect(await store.version()).to.equal(v0);
+    // the memory store moves its version on after a rollback (it never reuses one)
+    expect(await store.version()).to.not.equal(v0);
     expect(d.sink.events).to.deep.equal([]);
   });
 
@@ -414,11 +455,13 @@ describe('ScopeAttributeHandler', function () {
     expect(await store.rows(d1)).to.deep.equal({});
   });
 
-  it('an unchanged value writes nothing', async () => {
+  it('an unchanged value writes nothing and announces nothing', async () => {
     const { d, store } = await setup([{ scope: p1, attributes: { policies: { level: 'gold' } } }]);
     const v0 = await store.version();
     expect(await d.admin.execute(alice, [set({ policies: { level: 'gold' } })])).to.deep.equal([{ ok: true, kind: 'scope.setAttributes', affected: 0 }]);
     expect(await store.version()).to.equal(v0);
+    expect(d.bus.published.at(-1)?.tags).to.deep.equal([]);
+    expect(d.sink.events).to.deep.equal([]);
   });
 
   it('setScopeAttributes is the sugar for one setAttributes', async () => {
@@ -459,5 +502,16 @@ describe('the attributes reader', function () {
   it('answers an empty object without a store', async () => {
     const d = await adminDomain();
     expect(await d.admin.list(alice, { kind: 'attributes', scope: p1 })).to.deep.equal({ items: [{}], total: 1 });
+  });
+
+  it('refuses a query without a scope', async () => {
+    const d = await adminDomain();
+    const reader = new ScopeAttributeReader();
+    const ctx = { domain: 'test', now: new Date(), authz: d.service, actor: alice, container: d.container, dryRun: false };
+    for (const scope of [undefined, null, {}, { type: '' }]) {
+      const e = failure(await rejection(reader.list({ kind: 'attributes', scope } as unknown as AuthzAdminQuery, ctx)));
+      expect(e.code).to.equal('invalid_query');
+      expect(e.field).to.equal('scope');
+    }
   });
 });

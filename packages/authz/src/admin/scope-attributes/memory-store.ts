@@ -69,7 +69,8 @@ export class MemoryScopeAttributeStore extends WritableScopeAttributeStore {
 
     let removed = 0;
     for (const path of [...node.keys()]) {
-      if (remove.some((p) => underPath(path, p))) {
+      // A set path also drops the rows above and below it, so the node always forms one object.
+      if (remove.some((p) => underPath(path, p)) || set.some(([p]) => p !== path && (underPath(path, p) || underPath(p, path)))) {
         node.delete(path);
         removed++;
       }
@@ -87,13 +88,15 @@ export class MemoryScopeAttributeStore extends WritableScopeAttributeStore {
     return count;
   }
 
-  /** Undoes the change to one node and the version bump that comes with every write. */
+  /**
+   * Undoes the change to one node. The version moves on again instead of going back: a reader may have seen
+   * the rolled back rows under the bumped version, so no version is ever reused.
+   */
   private remember(undo: MemoryTx, key: string): void {
     const node = this.nodes.get(key);
     const before = node ? new Map(node) : undefined;
-    const counter = this.counter;
     undo.onRollback(() => {
-      this.counter = counter;
+      this.counter++;
       if (before) this.nodes.set(key, before);
       else this.nodes.delete(key);
     });

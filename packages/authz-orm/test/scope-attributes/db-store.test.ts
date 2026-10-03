@@ -14,6 +14,7 @@ import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore } from '
 const expect = chai.expect;
 
 const TABLE = 'authz_scope_attribute';
+const VERSION_TABLE = 'authz_scope_attribute_version';
 const ALICE = { type: 'user', id: 'alice' };
 const o1: ResourceRef = { type: 'org', id: 'o1' };
 const o2: ResourceRef = { type: 'org', id: 'o2' };
@@ -27,7 +28,10 @@ class DbConfig extends FrameworkConfiguration {
       },
       db: {
         DefaultConnection: 'sqlite',
-        Connections: [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } }],
+        Connections: [
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite', Migration: { Table: 'orm_migrations', OnStartup: true } },
+          { Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'other' },
+        ],
       },
     };
   }
@@ -96,6 +100,7 @@ describe('DbScopeAttributeStore on SQLite', function () {
     const info = await db.tableInfo(TABLE);
     expect(info.map((c) => c.Name).sort()).to.deep.equal(['path', 'scope_id', 'scope_type', 'updated_at', 'updated_by', 'value_json', 'value_num', 'value_text']);
     expect(info.filter((c) => c.PrimaryKey).map((c) => c.Name)).to.deep.equal(['scope_type', 'scope_id', 'path']);
+    expect(((await db.select().from(VERSION_TABLE)) as unknown[]).length).to.equal(1);
   });
 
   it('is a WritableScopeAttributeStore', () => {
@@ -104,16 +109,44 @@ describe('DbScopeAttributeStore on SQLite', function () {
   });
 
   it('writes, reads rows and rebuilds the nested object, with typed copies', async () => {
-    const n = await inTx((tx) => store.write(o1, { set: { 'policies.level': 'gold', 'policies.limit': 3.5, 'policies.on': false }, remove: [] }, ALICE, tx));
-    expect(n).to.equal(3);
+    const n = await inTx((tx) => store.write(o1, { set: { 'policies.level': 'gold', 'policies.limit': 3.5, 'policies.on': false, 'n.neg': -2, 'n.big': 1e15 }, remove: [] }, ALICE, tx));
+    expect(n).to.equal(5);
+    await inTx((tx) => store.write(o1, { set: {}, remove: ['n'] }, ALICE, tx));
     expect(await store.rows(o1)).to.deep.equal({ 'policies.level': 'gold', 'policies.limit': 3.5, 'policies.on': false });
     expect(await store.get(o1)).to.deep.equal({ policies: { level: 'gold', limit: 3.5, on: false } });
     expect(await store.get(o2)).to.deep.equal({});
     const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path, r]));
     expect(rows['policies.level']).to.deep.include({ value_json: '"gold"', value_text: 'gold', value_num: null, updated_by: 'user:alice' });
-    expect(rows['policies.limit']).to.deep.include({ value_json: '3.5', value_text: null, value_num: 3.5 });
-    expect(rows['policies.on']).to.deep.include({ value_json: 'false', value_text: null, value_num: null });
+    expect(rows['policies.limit']).to.deep.include({ value_json: '3.5', value_text: '3.5', value_num: 3.5 });
+    expect(rows['policies.on']).to.deep.include({ value_json: 'false', value_text: 'false', value_num: null });
     expect(rows['policies.on'].updated_at).to.not.equal(null);
+  });
+
+  it('numbers keep value_num only while decimal(20,6) holds them', async () => {
+    await inTx((tx) => store.write(o1, { set: { neg: -2.25, big: 1e15, edge: 99999999999999 }, remove: [] }, ALICE, tx));
+    const rows = Object.fromEntries((await raw(o1)).map((r) => [r.path, r]));
+    expect(rows.neg).to.deep.include({ value_text: '-2.25', value_num: -2.25 });
+    expect(rows.big).to.deep.include({ value_text: '1000000000000000', value_num: null });
+    expect(rows.edge).to.deep.include({ value_text: '99999999999999', value_num: 99999999999999 });
+    expect(await store.rows(o1)).to.deep.equal({ neg: -2.25, big: 1e15, edge: 99999999999999 });
+  });
+
+  it('a set path drops the rows above and below it', async () => {
+    await inTx((tx) => store.write(o1, { set: { 'a.b': 1, 'a.c': 2, x: 1 }, remove: [] }, ALICE, tx));
+    const n = await inTx((tx) => store.write(o1, { set: { a: 5, 'x.y': 2 }, remove: [] }, ALICE, tx));
+    expect(n).to.equal(5);
+    expect(await store.get(o1)).to.deep.equal({ a: 5, x: { y: 2 } });
+  });
+
+  it('writes and removes a node of many rows in chunks', async () => {
+    const set = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`k.${i}`, `value ${i}`]));
+    expect(await inTx((tx) => store.write(o1, { set, remove: [] }, ALICE, tx))).to.equal(1000);
+    expect(Object.keys(await store.rows(o1))).to.have.length(1000);
+    const again = Object.fromEntries(Object.keys(set).map((k) => [k, 1]));
+    expect(await inTx((tx) => store.write(o1, { set: again, remove: [] }, ALICE, tx))).to.equal(1000);
+    expect((await store.rows(o1))['k.999']).to.equal(1);
+    expect(await inTx((tx) => store.write(o1, { set: {}, remove: ['k'] }, ALICE, tx))).to.equal(1000);
+    expect(await raw(o1)).to.deep.equal([]);
   });
 
   it('a string longer than value_text keeps only its JSON', async () => {
@@ -173,7 +206,16 @@ describe('DbScopeAttributeStore on SQLite', function () {
     await inTx((tx) => store.forget(o1, tx));
     seen.add(await store.version());
     expect(seen.size).to.equal(4);
-    expect(await store.rows({ type: '$version', id: '' }).catch((e: Error) => e)).to.be.instanceOf(AuthzConfigError);
+    // The counter lives in its own one-row table, updated in place; the data table holds data only.
+    expect(((await db.select().from(VERSION_TABLE)) as unknown[]).length).to.equal(1);
+    expect(((await db.select().from(TABLE)) as unknown[]).length).to.equal(0);
+  });
+
+  it('refuses a transaction on another connection than the reads use', async () => {
+    const other = orm.Connections.get('other')!;
+    const e = await rejection(other.transaction((d) => store.write(o1, { set: { a: 1 }, remove: [] }, ALICE, { driver: d })));
+    expect(e).to.be.instanceOf(AuthzConfigError);
+    expect(e.message).to.contain('authz.admin.connection');
   });
 
   it('writes only inside an ORM transaction', async () => {
