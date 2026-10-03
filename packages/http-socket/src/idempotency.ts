@@ -197,7 +197,7 @@ function toWireValue(value: unknown): unknown {
   }
 
   const text = JSON.stringify(value);
-  return text === undefined ? null : JSON.parse(text);
+  return text === undefined ? undefined : JSON.parse(text);
 }
 
 /** Libraries reject with their own AbortError, or wrap the reason as `cause`, rather than rethrowing it. */
@@ -327,8 +327,7 @@ export class SocketIdempotency {
     if ('result' in outcome) {
       // a stream reply cannot be replayed
       if (isAsyncIterable(outcome.result)) {
-        await this.Store.release(scoped);
-        return null;
+        return this.forgo(scoped, name);
       }
 
       const reply: IdempotentReply = { ok: true, result: toWireValue(outcome.result) };
@@ -338,18 +337,16 @@ export class SocketIdempotency {
 
     // the call's own deadline, cancel, disconnect or shutdown: the command produced no outcome
     if (isAbortOf(outcome.error, signal)) {
-      await this.Store.release(scoped);
-      return null;
+      return this.forgo(scoped, name);
     }
 
     const error = this.Errors.toWire(outcome.error, `command ${name}`);
     // unauthenticated refuses the credential, not the command: the client keeps it queued and resends after a login
     if (error.retryable || error.code === 'unauthenticated') {
-      await this.Store.release(scoped);
-      return null;
+      return this.forgo(scoped, name);
     }
 
-    const reply: IdempotentReply = { ok: false, error };
+    const reply: IdempotentReply = { ok: false, error: error.details === undefined ? error : { ...error, details: toWireValue(error.details) } };
     await this.keep(scoped, name, reply);
     return reply;
   }
@@ -360,7 +357,17 @@ export class SocketIdempotency {
       await this.Store.complete(scoped, reply, this.Options.ttlMs);
     } catch (err) {
       this.Log.error(err as Error, `Socket command ${name}: storing its idempotent reply failed, releasing its key`);
-      await this.Store.release(scoped).catch((releaseErr: Error) => this.Log.error(releaseErr, `Socket command ${name}: releasing its idempotency key failed`));
+      await this.forgo(scoped, name);
     }
+  }
+
+  /** Frees a key without a reply to keep. A failed release leaves it running in the store: no store has a lease yet. */
+  protected async forgo(scoped: string, name: string): Promise<null> {
+    try {
+      await this.Store.release(scoped);
+    } catch (err) {
+      this.Log.error(err as Error, `Socket command ${name}: releasing its idempotency key failed`);
+    }
+    return null;
   }
 }

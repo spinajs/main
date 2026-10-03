@@ -91,6 +91,12 @@ export class IdempotencySocket extends BaseSocketController {
     return { tag: p.tag, price: new IdemMoney(500) };
   }
 
+  @Command('failPriced', { idempotent: true })
+  public async failPriced(@Payload() p: { tag: string }) {
+    run(p.tag);
+    throw new SocketException('conflict', 'price changed', { details: { price: new IdemMoney(500) } });
+  }
+
   @Command('bytes', { idempotent: true })
   public async bytes(@Payload() p: { tag: string }) {
     run(p.tag);
@@ -323,6 +329,16 @@ describe('socket idempotent commands', function () {
     expect(idemRuns.get('x')).to.equal(1);
   });
 
+  it('replays error details as they were sent', async () => {
+    const s = await connect('idem-details');
+    const live = errorOf(await command(s, 'idem.failPriced', { tag: 'pd' }, { idempotencyKey: 'k1' }));
+    const replayed = errorOf(await command(s, 'idem.failPriced', { tag: 'pd' }, { idempotencyKey: 'k1' }));
+
+    expect(live.details).to.deep.equal({ price: { amount: '5.00' } });
+    expect(replayed).to.deep.equal(live);
+    expect(idemRuns.get('pd')).to.equal(1);
+  });
+
   it('keeps binary data binary in the replay', async () => {
     const s = await connect('idem-bytes');
     const live = resultOf(await command<{ data: Uint8Array }>(s, 'idem.bytes', { tag: 'b' }, { idempotencyKey: 'k1' }));
@@ -521,6 +537,34 @@ describe('SocketIdempotency', () => {
     expect(await joiner).to.have.property('claim');
   });
 
+  async function* aStream() {
+    yield 1;
+  }
+
+  const releasing: Array<[string, (signal: AbortController) => unknown]> = [
+    ['a retryable error', () => ({ error: new SocketException('unavailable', 'try again') })],
+    ['the call abort', (c) => (c.abort(new SocketException('cancelled', 'gave up')), { error: c.signal.reason })],
+    ['a stream result', () => ({ result: aStream() })],
+  ];
+
+  for (const [what, outcome] of releasing) {
+    it(`answers no outcome for ${what} and logs it when the store cannot release the key`, async () => {
+      const idem = idempotency(new IdemBrokenReleaseStore());
+      const controller = new AbortController();
+      const owner = (await idem.begin('k', 'idem.norelease', controller.signal)) as Claim;
+
+      expect(await owner.claim.settle(outcome(controller))).to.equal(null);
+      expect(logged).to.have.length(1);
+    });
+  }
+
+  it('answers undefined, as the wire does, for a result JSON cannot represent', async () => {
+    const idem = idempotency(new MemoryIdempotencyStore());
+    const owner = (await idem.begin('k', 'idem.undefined', live())) as Claim;
+
+    expect(await owner.claim.settle({ result: undefined })).to.deep.equal({ ok: true, result: undefined });
+  });
+
   it('releases the key of a run that failed with an error caused by its abort', async () => {
     const store = new MemoryIdempotencyStore();
     const idem = idempotency(store);
@@ -553,6 +597,12 @@ export class IdemStaleClaimStore extends MemoryIdempotencyStore {
     this.beforeAnswer = null;
     await hook?.();
     return record;
+  }
+}
+
+export class IdemBrokenReleaseStore extends MemoryIdempotencyStore {
+  public async release(): Promise<void> {
+    throw new Error('store unreachable');
   }
 }
 
