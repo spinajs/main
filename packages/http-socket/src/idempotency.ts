@@ -165,6 +165,51 @@ function isAsyncIterable(value: unknown): boolean {
   return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
 }
 
+function isBinary(value: unknown): boolean {
+  return value instanceof ArrayBuffer || ArrayBuffer.isView(value) || (typeof Blob !== 'undefined' && value instanceof Blob);
+}
+
+/** Mirrors socket.io-parser's check, which decides between JSON and binary attachments. */
+function hasBinary(value: unknown, seen = new Set<unknown>()): boolean {
+  if (value === null || typeof value !== 'object' || seen.has(value)) {
+    return false;
+  }
+  if (isBinary(value)) {
+    return true;
+  }
+
+  seen.add(value);
+  const toJSON = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJSON === 'function') {
+    return hasBinary(toJSON.call(value), seen);
+  }
+
+  return Object.values(value).some((item) => hasBinary(item, seen));
+}
+
+/**
+ * The value as socket.io sends it, so the live reply and every replay are the same payload: a toJSON
+ * class becomes its JSON, a function property disappears. Throws for a value the wire cannot carry ( BigInt, a cycle ).
+ */
+function toWireValue(value: unknown): unknown {
+  if (hasBinary(value)) {
+    return structuredClone(value);
+  }
+
+  const text = JSON.stringify(value);
+  return text === undefined ? null : JSON.parse(text);
+}
+
+/** Libraries reject with their own AbortError, or wrap the reason as `cause`, rather than rethrowing it. */
+function isAbortOf(error: unknown, signal: AbortSignal): boolean {
+  if (!signal.aborted) {
+    return false;
+  }
+
+  const err = error as { name?: unknown; cause?: unknown } | null | undefined;
+  return error === signal.reason || err?.name === 'AbortError' || err?.cause === signal.reason;
+}
+
 /** The idempotency stage and the ordering stage's `after` fence share this: one store, one key scheme, one set of local runs. */
 @Injectable()
 export class SocketIdempotency {
@@ -193,6 +238,8 @@ export class SocketIdempotency {
   }
 
   public async begin(scoped: string, name: string, signal: AbortSignal): Promise<{ reply: IdempotentReply } | { claim: ISocketIdempotencyClaim }> {
+    let lookedAgain = false;
+
     for (;;) {
       const held = await this.Store.claim(scoped);
 
@@ -206,6 +253,11 @@ export class SocketIdempotency {
 
       const running = this.local.get(scoped);
       if (!running) {
+        // the store may have answered just before a local run of the key finished and left `local`
+        if (!lookedAgain) {
+          lookedAgain = true;
+          continue;
+        }
         throw new SocketException('unavailable', `command ${name} with this idempotency key is running on another server instance`, { retryAfterMs: ELSEWHERE_RETRY_AFTER_MS });
       }
 
@@ -240,14 +292,16 @@ export class SocketIdempotency {
           return reply;
         },
         // a key left running would refuse every resend for good
-        (err: unknown) =>
-          this.Store.release(scoped)
+        (err: unknown) => {
+          this.Log.error(err as Error, `Socket command ${name}: recording its idempotent outcome failed, releasing its key`);
+          return this.Store.release(scoped)
             .catch((releaseErr: Error) => this.Log.error(releaseErr, `Socket command ${name}: releasing its idempotency key failed`))
             .then(() => {
               forget();
               publish(null);
               throw err;
-            }),
+            });
+        },
       ));
 
     return {
@@ -263,7 +317,8 @@ export class SocketIdempotency {
             (result) => finish({ result }),
             (error: unknown) => finish({ error }),
           )
-          .catch((err: Error) => this.Log.error(err, `Socket command ${name}: recording the outcome of its detached handler failed`));
+          // logged by finish
+          .catch(() => undefined);
       },
     };
   }
@@ -276,13 +331,13 @@ export class SocketIdempotency {
         return null;
       }
 
-      const reply: IdempotentReply = { ok: true, result: outcome.result === undefined ? null : outcome.result };
-      await this.Store.complete(scoped, reply, this.Options.ttlMs);
+      const reply: IdempotentReply = { ok: true, result: toWireValue(outcome.result) };
+      await this.keep(scoped, name, reply);
       return reply;
     }
 
     // the call's own deadline, cancel, disconnect or shutdown: the command produced no outcome
-    if (signal.aborted && outcome.error === signal.reason) {
+    if (isAbortOf(outcome.error, signal)) {
       await this.Store.release(scoped);
       return null;
     }
@@ -295,7 +350,17 @@ export class SocketIdempotency {
     }
 
     const reply: IdempotentReply = { ok: false, error };
-    await this.Store.complete(scoped, reply, this.Options.ttlMs);
+    await this.keep(scoped, name, reply);
     return reply;
+  }
+
+  /** The command ran, so its reply is answered even when the store cannot keep it; only a later resend runs it again. */
+  protected async keep(scoped: string, name: string, reply: IdempotentReply): Promise<void> {
+    try {
+      await this.Store.complete(scoped, reply, this.Options.ttlMs);
+    } catch (err) {
+      this.Log.error(err as Error, `Socket command ${name}: storing its idempotent reply failed, releasing its key`);
+      await this.Store.release(scoped).catch((releaseErr: Error) => this.Log.error(releaseErr, `Socket command ${name}: releasing its idempotency key failed`));
+    }
   }
 }

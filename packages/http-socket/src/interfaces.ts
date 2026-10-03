@@ -316,6 +316,7 @@ export interface ISocketIdempotencyClaim {
   /**
    * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
    * abort releases the key. Later calls get the first answer. Null: released, or detached.
+   * A result is answered in its wire ( JSON ) form, and still answered when the store cannot keep it.
    */
   settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
   /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */

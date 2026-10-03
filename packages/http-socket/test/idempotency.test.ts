@@ -6,9 +6,10 @@ import { SocketException } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Unauthenticated } from '@spinajs/authz';
 import { BasePolicy } from '@spinajs/http';
-import { Command, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
+import { Command, Payload, Signal, SocketController, SocketPolicy } from '../src/decorators.js';
 import type { ISocketPolicyRequest } from '../src/policies.js';
-import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from '../src/idempotency.js';
+import { ELSEWHERE_RETRY_AFTER_MS, IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from '../src/idempotency.js';
+import type { IdempotentReply } from '../src/interfaces.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 
 export const idemRuns = new Map<string, number>();
@@ -27,6 +28,15 @@ function run(tag: string): number {
 }
 
 export const idemLogin = { checks: 0 };
+
+/** Sent as its toJSON form, as socket.io encodes it. */
+export class IdemMoney {
+  constructor(public cents: number) {}
+
+  public toJSON() {
+    return { amount: (this.cents / 100).toFixed(2) };
+  }
+}
 
 /** Refuses an anonymous principal as `@SocketAccess` does, without an AuthzService to ask. */
 export class IdemNeedsLogin extends BasePolicy {
@@ -75,6 +85,42 @@ export class IdempotencySocket extends BaseSocketController {
     return { tag: p.tag, cannotClone: () => undefined };
   }
 
+  @Command('money', { idempotent: true })
+  public async money(@Payload() p: { tag: string }) {
+    run(p.tag);
+    return { tag: p.tag, price: new IdemMoney(500) };
+  }
+
+  @Command('bytes', { idempotent: true })
+  public async bytes(@Payload() p: { tag: string }) {
+    run(p.tag);
+    return { tag: p.tag, data: Buffer.from([1, 2, 3]) };
+  }
+
+  @Command('bigint', { idempotent: true })
+  public async bigint(@Payload() p: { tag: string }) {
+    run(p.tag);
+    return { tag: p.tag, n: BigInt(1) };
+  }
+
+  @Command('abortable', { idempotent: true })
+  public async abortable(@Payload() p: { tag: string; cause?: boolean }, @Signal() signal: AbortSignal) {
+    const n = run(p.tag);
+    if (n > 1) {
+      return { tag: p.tag, run: n };
+    }
+    // a library that wraps the abort reason instead of rethrowing it
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(p.cause ? new Error('the request was aborted', { cause: signal.reason }) : new DOMException('This operation was aborted', 'AbortError')), { once: true });
+    });
+  }
+
+  @Command('orderedFail', { idempotent: true, ordered: 'client' })
+  public async orderedFail(@Payload() p: { tag: string }) {
+    run(p.tag);
+    throw new SocketException('unavailable', 'try again');
+  }
+
   @Command('guarded', { idempotent: true })
   @SocketPolicy(IdemNeedsLogin)
   public async guarded(@Payload() p: { tag: string }) {
@@ -95,6 +141,27 @@ export class IdemCountingStore extends MemoryIdempotencyStore {
   public async claim(key: string): Promise<IdempotencyRecord | null> {
     IdemCountingStore.claims++;
     return super.claim(key);
+  }
+}
+
+/** Fails the store writes a test switches on. */
+@Injectable(IdempotencyStore)
+export class IdemFailingStore extends MemoryIdempotencyStore {
+  public static failComplete = false;
+  public static failRelease = false;
+
+  public async complete(key: string, reply: IdempotentReply, ttlMs: number): Promise<void> {
+    if (IdemFailingStore.failComplete) {
+      throw new Error('store unreachable');
+    }
+    return super.complete(key, reply, ttlMs);
+  }
+
+  public async release(key: string): Promise<void> {
+    if (IdemFailingStore.failRelease) {
+      throw new Error('store unreachable');
+    }
+    return super.release(key);
   }
 }
 
@@ -236,13 +303,98 @@ describe('socket idempotent commands', function () {
     expect(idemRuns.get('h')).to.equal(1);
   });
 
-  it('releases a key whose outcome the store could not keep, so a resend is not refused for good', async () => {
-    const s = await connect('idem-unstorable');
-    await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
-    const resent = await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
+  it('replays the reply as it was sent: a toJSON class gives the same payload live and replayed', async () => {
+    const s = await connect('idem-tojson');
+    const live = resultOf(await command(s, 'idem.money', { tag: 'm' }, { idempotencyKey: 'k1' }));
+    const replayed = resultOf(await command(s, 'idem.money', { tag: 'm' }, { idempotencyKey: 'k1' }));
 
-    expect(resent.ok || resent.error.code).to.not.equal('unavailable');
-    expect(idemRuns.get('x')).to.equal(2);
+    expect(live).to.deep.equal({ tag: 'm', price: { amount: '5.00' } });
+    expect(replayed).to.deep.equal(live);
+    expect(idemRuns.get('m')).to.equal(1);
+  });
+
+  it('drops a function property as the wire does, instead of failing the call', async () => {
+    const s = await connect('idem-function');
+    const live = await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
+    const replayed = await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
+
+    expect(resultOf(live)).to.deep.equal({ tag: 'x' });
+    expect(resultOf(replayed)).to.deep.equal({ tag: 'x' });
+    expect(idemRuns.get('x')).to.equal(1);
+  });
+
+  it('keeps binary data binary in the replay', async () => {
+    const s = await connect('idem-bytes');
+    const live = resultOf(await command<{ data: Uint8Array }>(s, 'idem.bytes', { tag: 'b' }, { idempotencyKey: 'k1' }));
+    const replayed = resultOf(await command<{ data: Uint8Array }>(s, 'idem.bytes', { tag: 'b' }, { idempotencyKey: 'k1' }));
+
+    expect([...new Uint8Array(live.data)]).to.deep.equal([1, 2, 3]);
+    expect([...new Uint8Array(replayed.data)]).to.deep.equal([1, 2, 3]);
+    expect(idemRuns.get('b')).to.equal(1);
+  });
+
+  it('answers internal for a result that cannot be encoded and releases its key, so a resend is not refused for good', async () => {
+    const s = await connect('idem-unencodable');
+    const first = errorOf(await command(s, 'idem.bigint', { tag: 'z' }, { idempotencyKey: 'k1' }));
+    const resent = errorOf(await command(s, 'idem.bigint', { tag: 'z' }, { idempotencyKey: 'k1' }));
+
+    expect(first.code).to.equal('internal');
+    expect(resent.code).to.equal('internal');
+    expect(idemRuns.get('z')).to.equal(2);
+  });
+
+  for (const cause of [false, true]) {
+    it(`releases the key of a handler that rejects with ${cause ? 'an error caused by the abort reason' : 'an AbortError'} after a disconnect`, async () => {
+      const first = await connect(`idem-abort-${cause}`);
+      void command(first, 'idem.abortable', { tag: `ab-${cause}`, cause }, { idempotencyKey: 'k1' }).catch(() => undefined);
+      await waitFor(() => idemRuns.get(`ab-${cause}`) === 1);
+      first.close();
+      await delay(100);
+
+      const second = await connect(`idem-abort-${cause}`);
+      expect(resultOf(await command(second, 'idem.abortable', { tag: `ab-${cause}`, cause }, { idempotencyKey: 'k1' }))).to.deep.equal({ tag: `ab-${cause}`, run: 2 });
+    });
+  }
+
+  describe('with a failing store', () => {
+    beforeEach(async () => {
+      await t.close();
+      t = await startServer({ http: { socket: { idempotency: { service: 'IdemFailingStore' } } } });
+    });
+
+    afterEach(() => {
+      IdemFailingStore.failComplete = false;
+      IdemFailingStore.failRelease = false;
+    });
+
+    it('answers the result to the caller and its joiners when the store cannot keep it, and releases the key', async () => {
+      IdemFailingStore.failComplete = true;
+      const s = await connect('idem-store-down');
+      const replies = await Promise.all([1, 2, 3].map(() => command(s, 'idem.count', { tag: 'd', ms: 100 }, { idempotencyKey: 'k1' })));
+
+      expect(replies.map((r) => resultOf(r))).to.deep.equal([1, 2, 3].map(() => ({ tag: 'd', run: 1 })));
+      expect(idemRuns.get('d')).to.equal(1);
+
+      // nothing was kept, so a later resend runs again
+      IdemFailingStore.failComplete = false;
+      expect(resultOf(await command(s, 'idem.count', { tag: 'd' }, { idempotencyKey: 'k1' }))).to.deep.equal({ tag: 'd', run: 2 });
+    });
+
+    it('answers the final error to the caller when the store cannot keep it', async () => {
+      IdemFailingStore.failComplete = true;
+      const s = await connect('idem-store-down-error');
+
+      expect(errorOf(await command(s, 'idem.fail', { tag: 'de', code: 'conflict' }, { idempotencyKey: 'k1' })).code).to.equal('conflict');
+    });
+
+    for (const name of ['idem.fail', 'idem.orderedFail']) {
+      it(`answers the handler's own error, not the store's, when ${name} cannot release its key`, async () => {
+        IdemFailingStore.failRelease = true;
+        const s = await connect(`idem-release-down-${name}`);
+
+        expect(errorOf(await command(s, name, { tag: `rd-${name}`, code: 'unavailable' }, { idempotencyKey: 'k1' })).code).to.equal('unavailable');
+      });
+    }
   });
 
   it('uses the store class named in http.socket.idempotency.service', async () => {
@@ -270,30 +422,142 @@ export class IdemReleaseHookStore extends MemoryIdempotencyStore {
 }
 
 describe('SocketIdempotency', () => {
+  let logged: unknown[][];
+
   // the decorated properties are getters, so the collaborators are defined over them
   const idempotency = (store: IdempotencyStore) =>
     Object.defineProperties(new SocketIdempotency(), {
       Store: { value: store },
       Options: { value: { service: 'IdemReleaseHookStore', ttlMs: 60_000, maxEntries: 10 } },
-      Errors: { value: { toWire: (err: SocketException) => err.toWire() } },
-      Log: { value: { error: () => undefined } },
+      Errors: { value: { toWire: (err: unknown) => (err instanceof SocketException ? err : new SocketException('internal', String(err), { retryable: false })).toWire() } },
+      Log: { value: { error: (...args: unknown[]) => void logged.push(args) } },
     });
+
+  type Claim = { claim: { settle(o: unknown): Promise<unknown> } };
+  const live = () => new AbortController().signal;
+
+  beforeEach(() => (logged = []));
 
   it('keeps a newer claim joinable when an older claim of the key cleans up after it', async () => {
     const store = new IdemReleaseHookStore();
     const idem = idempotency(store);
-    const signal = new AbortController().signal;
+    const signal = live();
 
     const first = await idem.begin('k', 'idem.race', signal);
     let second: ReturnType<typeof idem.begin> | undefined;
     store.onRelease = () => (second = idem.begin('k', 'idem.race', signal));
 
-    await (first as { claim: { settle(o: unknown): Promise<unknown> } }).claim.settle({ error: new SocketException('unavailable', 'try again') });
-    const claim = ((await second!) as { claim: { settle(o: unknown): Promise<unknown> } }).claim;
+    await (first as Claim).claim.settle({ error: new SocketException('unavailable', 'try again') });
+    const claim = ((await second!) as Claim).claim;
 
     const joined = idem.begin('k', 'idem.race', signal);
     await claim.settle({ result: 'second' });
 
     expect(await joined).to.deep.equal({ reply: { ok: true, result: 'second' } });
   });
+
+  it('answers a retryable unavailable when another instance runs the key', async () => {
+    const store = new IdemClaimCountingStore();
+    const idem = idempotency(store);
+    await store.claim('k');
+
+    const error = await idem.begin('k', 'idem.elsewhere', live()).then(
+      () => null,
+      (err: SocketException) => err,
+    );
+
+    expect(error).to.include({ code: 'unavailable', retryable: true, retryAfterMs: ELSEWHERE_RETRY_AFTER_MS });
+    // the second look rules out a local run that finished while the store answered
+    expect(store.claims).to.equal(3);
+  });
+
+  it('claims again a key released by its local run while the store still reported it running', async () => {
+    const store = new IdemStaleClaimStore();
+    const idem = idempotency(store);
+    const first = (await idem.begin('k', 'idem.stale', live())) as Claim;
+
+    store.beforeAnswer = () => first.claim.settle({ error: new SocketException('unavailable', 'try again') });
+    const second = await idem.begin('k', 'idem.stale', live());
+
+    expect(second).to.have.property('claim');
+  });
+
+  it('lets a joiner give up at its own abort while the run goes on', async () => {
+    const idem = idempotency(new MemoryIdempotencyStore());
+    const owner = (await idem.begin('k', 'idem.join', live())) as Claim;
+    const controller = new AbortController();
+    const joiner = idem.begin('k', 'idem.join', controller.signal);
+
+    const reason = new SocketException('cancelled', 'gave up');
+    controller.abort(reason);
+    await expect(joiner).to.be.rejectedWith(reason);
+
+    await owner.claim.settle({ result: 'done' });
+    expect(await idem.begin('k', 'idem.join', live())).to.deep.equal({ reply: { ok: true, result: 'done' } });
+  });
+
+  it('publishes the reply to joiners when the store cannot keep it, logs it and releases the key', async () => {
+    const store = new IdemBrokenCompleteStore();
+    const idem = idempotency(store);
+    const owner = (await idem.begin('k', 'idem.broken', live())) as Claim;
+    const joiner = idem.begin('k', 'idem.broken', live());
+
+    expect(await owner.claim.settle({ result: 'r' })).to.deep.equal({ ok: true, result: 'r' });
+    expect(await joiner).to.deep.equal({ reply: { ok: true, result: 'r' } });
+    expect(await store.get('k')).to.equal(null);
+    expect(logged).to.have.length(1);
+  });
+
+  it('releases a stream result, so a joiner claims the key again', async () => {
+    const idem = idempotency(new MemoryIdempotencyStore());
+    const owner = (await idem.begin('k', 'idem.stream', live())) as Claim;
+    const joiner = idem.begin('k', 'idem.stream', live());
+
+    async function* stream() {
+      yield 1;
+    }
+
+    expect(await owner.claim.settle({ result: stream() })).to.equal(null);
+    expect(await joiner).to.have.property('claim');
+  });
+
+  it('releases the key of a run that failed with an error caused by its abort', async () => {
+    const store = new MemoryIdempotencyStore();
+    const idem = idempotency(store);
+    const controller = new AbortController();
+    const owner = (await idem.begin('k', 'idem.cause', controller.signal)) as Claim;
+
+    controller.abort(new SocketException('unavailable', 'connection closed'));
+
+    expect(await owner.claim.settle({ error: new Error('wrapped', { cause: controller.signal.reason }) })).to.equal(null);
+    expect(await store.get('k')).to.equal(null);
+  });
 });
+
+export class IdemClaimCountingStore extends MemoryIdempotencyStore {
+  public claims = 0;
+
+  public async claim(key: string): Promise<IdempotencyRecord | null> {
+    this.claims++;
+    return super.claim(key);
+  }
+}
+
+/** Answers a claim as it saw it before `beforeAnswer` changed it, as a slow shared store would. */
+export class IdemStaleClaimStore extends MemoryIdempotencyStore {
+  public beforeAnswer: (() => Promise<unknown>) | null = null;
+
+  public async claim(key: string): Promise<IdempotencyRecord | null> {
+    const record = await super.claim(key);
+    const hook = this.beforeAnswer;
+    this.beforeAnswer = null;
+    await hook?.();
+    return record;
+  }
+}
+
+export class IdemBrokenCompleteStore extends MemoryIdempotencyStore {
+  public async complete(): Promise<void> {
+    throw new Error('store unreachable');
+  }
+}

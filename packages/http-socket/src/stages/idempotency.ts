@@ -48,7 +48,8 @@ export class IdempotencyStage extends SocketCommandStage {
     try {
       result = await next();
     } catch (err) {
-      const reply = await claim.settle({ error: err });
+      // a failure to record is logged there; the caller still gets what the handler threw
+      const reply = await claim.settle({ error: err }).catch(() => null);
       // the stored error, so this reply and every replay carry the same errorId
       if (reply && !reply.ok) {
         throw SocketException.fromWire(reply.error);
@@ -56,7 +57,8 @@ export class IdempotencyStage extends SocketCommandStage {
       throw err;
     }
 
-    await claim.settle({ result });
-    return result;
+    const reply = await claim.settle({ result });
+    // the wire form, so this reply and every replay carry the same payload; null for a stream
+    return reply?.ok ? reply.result : result;
   }
 }

@@ -84,11 +84,14 @@ export class OrderingStage extends SocketCommandStage {
         throw ctx.signal.reason;
       }
 
-      // recorded before this place is released: the next command's after check must see it
-      await running.then(
-        (result) => ctx.idempotency?.settle({ result }),
-        (error: unknown) => ctx.idempotency?.settle({ error }),
-      );
+      // recorded before this place is released: the next command's after check must see it. A failed
+      // record is answered by the idempotency stage, whose settle gets the same answer.
+      await running
+        .then(
+          (result) => ctx.idempotency?.settle({ result }),
+          (error: unknown) => ctx.idempotency?.settle({ error }),
+        )
+        .catch(() => undefined);
 
       return running;
     });
