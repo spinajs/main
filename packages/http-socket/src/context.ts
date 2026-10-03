@@ -1,6 +1,7 @@
 import { CommandRequest, SocketException } from '@spinajs/http-socket-common';
 import { IConnectionRuntime, IRegisteredHandler, ISocketCallStorage, ISocketCommandContext } from './interfaces.js';
 import { SocketConnection } from './connection.js';
+import type { ServerStream } from './stream.js';
 
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
@@ -10,6 +11,8 @@ export class SocketCommandContext implements ISocketCommandContext {
   public handler?: IRegisteredHandler;
   public args?: unknown[];
   public rateRefusal?: unknown;
+  /** set when the handler returned an async iterable: the reply is a stream and this sends it */
+  public stream?: ServerStream;
 
   protected readonly controller = new AbortController();
   protected timer: ReturnType<typeof setTimeout> | null = null;

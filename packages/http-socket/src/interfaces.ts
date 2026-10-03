@@ -28,6 +28,15 @@ export interface ISocketCorsConfig {
   origins: string[];
 }
 
+export interface ISocketStreamsConfig {
+  /** largest credit window a client may grant one stream; a larger request or grant fails it with invalid_argument */
+  maxCredits: number;
+  /** streams open on one connection at once; they hold no command in-flight slot */
+  maxPerConnection: number;
+  /** a stream left without credit this long fails with deadline_exceeded */
+  stallTimeoutMs: number;
+}
+
 export interface ISocketAuthConfig {
   /** Refuse a handshake no SocketPrincipalSource resolves, instead of running it as UNATTENDED. */
   required: boolean;
@@ -59,6 +68,8 @@ export interface ISocketServerConfig {
    * timed-out connect hook is still running.
    */
   hooks: { connectTimeoutMs: number };
+  /** stream replies ( W4 ) */
+  streams: ISocketStreamsConfig;
   /** socket.io adapter constructor for several instances; unset = in memory */
   adapter?: unknown;
   /**
@@ -252,6 +263,8 @@ export interface IConnectionRuntime {
   inFlight: number;
   /** events counted against maxInFlightEventsPerConnection, from arrival until their handler settles */
   eventsInFlight: number;
+  /** stream replies open on this connection, from the stream reply until their end or fail frame */
+  streams: number;
   /** running commands by request id, for cancel / disconnect / shutdown */
   readonly running: Map<string, ISocketCommandContext>;
   /** settles, never rejects, when the connect hooks are done or `hooks.connectTimeoutMs` has passed */

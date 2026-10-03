@@ -1,0 +1,306 @@
+import 'mocha';
+import { expect } from 'chai';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { Socket as ClientSocket } from 'socket.io-client';
+import { DI } from '@spinajs/di';
+import { ResourceNotFound } from '@spinajs/exceptions';
+import { SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
+import { BaseSocketController } from '../src/controller.js';
+import { Command, Payload, Signal, SocketController } from '../src/decorators.js';
+import { ITestServer, command, delay, errorOf, open, startServer, waitFor } from './harness.js';
+import { rawStream } from './stream-client.js';
+
+export const strmLog = {
+  produced: new Map<string, number>(),
+  finallyRan: new Set<string>(),
+  aborts: new Map<string, unknown>(),
+  reset(): void {
+    this.produced.clear();
+    this.finallyRan.clear();
+    this.aborts.clear();
+  },
+};
+
+@SocketController('strm')
+export class StrmSocket extends BaseSocketController {
+  @Command('count')
+  public async *count(@Payload() p: { key: string; n?: number }, @Signal() signal: AbortSignal) {
+    signal.addEventListener('abort', () => strmLog.aborts.set(p.key, signal.reason), { once: true });
+    try {
+      for (let i = 0; i < (p.n ?? Number.POSITIVE_INFINITY); i++) {
+        strmLog.produced.set(p.key, i + 1);
+        yield i;
+      }
+    } finally {
+      strmLog.finallyRan.add(p.key);
+    }
+  }
+
+  @Command('broken')
+  public async *broken() {
+    yield 'first';
+    throw new ResourceNotFound('the rest is gone');
+  }
+
+  @Command('store')
+  public async *store() {
+    const als = DI.resolve(AsyncLocalStorage) as AsyncLocalStorage<Record<string, unknown>>;
+    for (let i = 0; i < 2; i++) {
+      await delay(5);
+      yield als.getStore()?.requestId ?? null;
+    }
+  }
+
+  @Command('binary')
+  public async *binary() {
+    yield new Uint8Array([1, 2, 3]);
+    yield { part: new Uint8Array([4, 5]) };
+  }
+
+  @Command('bigint')
+  public async *bigint() {
+    yield 1n;
+  }
+
+  @Command('empty')
+  public async *empty() {
+    // ends without an item
+  }
+
+  @Command('void')
+  public async *nothing() {
+    yield undefined;
+  }
+
+  @Command('idle')
+  public async *idle(@Signal() signal: AbortSignal) {
+    // never yields, so every credit granted stays outstanding
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+  }
+}
+
+describe('stream replies', function () {
+  this.timeout(15000);
+
+  let t: ITestServer;
+  let socket: ClientSocket;
+
+  beforeEach(async () => {
+    strmLog.reset();
+    t = await startServer();
+    socket = await open(t);
+  });
+
+  afterEach(async () => {
+    socket.close();
+    await t.close();
+  });
+
+  it('acks a stream reply, then sends only as many chunks as the client granted', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'slow' }, 2);
+
+    expect(await s.reply).to.deep.equal({ id: s.id, ok: true, stream: true });
+    await waitFor(() => s.chunks.length === 2);
+    await delay(100);
+
+    expect(s.chunks).to.deep.equal([
+      { id: s.id, seq: 0, data: 0 },
+      { id: s.id, seq: 1, data: 1 },
+    ]);
+    // spec §7: the slow consumer has no more chunks in flight than its credit, and the generator was not asked for more
+    expect(strmLog.produced.get('slow')).to.equal(2);
+  });
+
+  it('sends more chunks as credit arrives and ends with the chunk count', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'five', n: 5 }, 2);
+    await waitFor(() => s.chunks.length === 2);
+
+    // three for the remaining chunks, one to find the end
+    s.grant(4);
+    await s.finished;
+
+    expect(s.chunks.map((c) => c.data)).to.deep.equal([0, 1, 2, 3, 4]);
+    expect(s.end).to.deep.equal({ id: s.id, seq: 5 });
+    await waitFor(() => strmLog.finallyRan.has('five'));
+  });
+
+  it('ends an empty stream at once and sends undefined items as null', async () => {
+    const empty = rawStream(socket, 'strm.empty', null, 1);
+    await empty.finished;
+    expect(empty.end).to.deep.equal({ id: empty.id, seq: 0 });
+
+    const nothing = rawStream(socket, 'strm.void', null, 2);
+    await nothing.finished;
+    expect(nothing.chunks).to.deep.equal([{ id: nothing.id, seq: 0, data: null }]);
+    expect(nothing.end).to.deep.equal({ id: nothing.id, seq: 1 });
+  });
+
+  it('cancel runs the generator finally block and fires its signal with cancelled', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'cancel' }, 1);
+    await waitFor(() => s.chunks.length === 1);
+
+    s.cancel();
+    await s.finished;
+
+    expect(s.fail?.error.code).to.equal('cancelled');
+    await waitFor(() => strmLog.finallyRan.has('cancel'));
+    expect((strmLog.aborts.get('cancel') as SocketException).code).to.equal('cancelled');
+  });
+
+  it('a disconnect stops the stream with unavailable and runs the generator finally block', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'gone' }, 1);
+    await waitFor(() => s.chunks.length === 1);
+
+    socket.close();
+
+    await waitFor(() => strmLog.finallyRan.has('gone'));
+    expect((strmLog.aborts.get('gone') as SocketException).code).to.equal('unavailable');
+  });
+
+  it('sends the mapped error as a fail frame after the chunks before it', async () => {
+    const s = rawStream(socket, 'strm.broken', null, 4);
+    await s.finished;
+
+    expect(s.chunks.map((c) => c.data)).to.deep.equal(['first']);
+    expect(s.fail?.error).to.deep.include({ code: 'not_found', message: 'the rest is gone', retryable: false });
+  });
+
+  it('fails with internal when a chunk cannot be encoded', async () => {
+    const s = rawStream(socket, 'strm.bigint', null, 1);
+    await s.finished;
+
+    expect(s.chunks).to.deep.equal([]);
+    expect(s.fail?.error.code).to.equal('internal');
+  });
+
+  it('pulls every chunk inside the call store, after the ack', async () => {
+    const s = rawStream(socket, 'strm.store', null, 4, { id: 'store-stream-1' });
+    await s.finished;
+
+    expect(s.chunks.map((c) => c.data)).to.deep.equal(['store-stream-1', 'store-stream-1']);
+  });
+
+  it('carries binary chunk parts as attachments', async () => {
+    const s = rawStream(socket, 'strm.binary', null, 4);
+    await s.finished;
+
+    expect(Array.from(new Uint8Array(s.chunks[0].data as ArrayBuffer))).to.deep.equal([1, 2, 3]);
+    expect(Array.from(new Uint8Array((s.chunks[1].data as { part: ArrayBuffer }).part))).to.deep.equal([4, 5]);
+  });
+
+  it('answers a stream command sent without credits with failed_precondition and never starts the generator', async () => {
+    const error = errorOf(await command(socket, 'strm.count', { key: 'plain' }));
+
+    expect(error.code).to.equal('failed_precondition');
+    expect(error.message).to.match(/open it as a stream/);
+    expect(strmLog.produced.has('plain')).to.be.false;
+  });
+
+  it('keeps an open stream id in flight until the stream ends', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'dup' }, 1, { id: 'dup-stream' });
+    await s.reply;
+
+    expect(errorOf(await command(socket, 'strm.count', { key: 'dup2' }, { id: 'dup-stream', credits: 1 }))).to.deep.equal({ code: 'invalid_argument', message: 'request id already in flight', retryable: false });
+
+    s.cancel();
+    await s.finished;
+    await delay(20);
+
+    const again = rawStream(socket, 'strm.count', { key: 'dup3', n: 1 }, 2, { id: 'dup-stream' });
+    await again.finished;
+    expect(again.end).to.deep.equal({ id: 'dup-stream', seq: 1 });
+  });
+
+  it('ignores credit for unknown ids and malformed credit frames', async () => {
+    socket.emit(WIRE_EVENTS.credit, { id: 'nobody', credits: 5 });
+    socket.emit(WIRE_EVENTS.credit, { id: 'x', credits: -1 });
+    socket.emit(WIRE_EVENTS.credit, 'garbage');
+
+    const s = rawStream(socket, 'strm.count', { key: 'after-garbage', n: 1 }, 2);
+    await s.finished;
+    expect(s.end).to.deep.equal({ id: s.id, seq: 1 });
+  });
+
+  describe('limits', () => {
+    beforeEach(async () => {
+      socket.close();
+      await t.close();
+      t = await startServer({ http: { socket: { streams: { maxCredits: 4, maxPerConnection: 1, stallTimeoutMs: 300 } } } });
+      socket = await open(t);
+    });
+
+    it('refuses an initial credit above streams.maxCredits with invalid_argument, without starting the generator', async () => {
+      const reply = await rawStream(socket, 'strm.count', { key: 'greedy' }, 5).reply;
+
+      expect(errorOf(reply)).to.deep.include({ code: 'invalid_argument', details: { limit: 4 }, retryable: false });
+      expect(strmLog.produced.has('greedy')).to.be.false;
+    });
+
+    it('fails a stream when a grant would leave more than maxCredits outstanding', async () => {
+      const s = rawStream(socket, 'strm.count', { key: 'over' }, 4);
+      await waitFor(() => s.chunks.length === 4);
+
+      s.grant(5);
+      await s.finished;
+
+      expect(s.fail?.error).to.deep.include({ code: 'invalid_argument', details: { limit: 4 } });
+      await waitFor(() => strmLog.finallyRan.has('over'));
+    });
+
+    it('fails a stream when repeated small grants would leave more than maxCredits outstanding', async () => {
+      const s = rawStream(socket, 'strm.idle', null, 1);
+      await s.reply;
+
+      s.grant(1);
+      s.grant(1);
+      s.grant(1);
+      await delay(100);
+      expect(s.fail).to.be.null;
+
+      s.grant(1);
+      await s.finished;
+      expect(s.fail?.error).to.deep.include({ code: 'invalid_argument', details: { limit: 4 } });
+    });
+
+    it('drops malformed credit frames for an open stream without changing its outstanding credit', async () => {
+      const s = rawStream(socket, 'strm.idle', null, 1);
+      await s.reply;
+
+      for (const credits of [-3, 0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '2']) {
+        socket.emit(WIRE_EVENTS.credit, { id: s.id, credits });
+      }
+      s.grant(3);
+      await delay(100);
+      expect(s.fail).to.be.null;
+
+      s.grant(1);
+      await s.finished;
+      expect(s.fail?.error).to.deep.include({ code: 'invalid_argument', details: { limit: 4 } });
+    });
+
+    it('refuses a stream beyond streams.maxPerConnection with resource_exhausted, and frees the slot when one ends', async () => {
+      const first = rawStream(socket, 'strm.count', { key: 'cap-1' }, 1);
+      await first.reply;
+
+      const second = await rawStream(socket, 'strm.count', { key: 'cap-2' }, 1).reply;
+      expect(errorOf(second)).to.deep.include({ code: 'resource_exhausted', retryable: true, retryAfterMs: 100 });
+
+      first.cancel();
+      await first.finished;
+      await delay(20);
+
+      const third = rawStream(socket, 'strm.count', { key: 'cap-3', n: 1 }, 2);
+      await third.finished;
+      expect(third.end).to.deep.equal({ id: third.id, seq: 1 });
+    });
+
+    it('fails a stream that gets no credit for stallTimeoutMs with deadline_exceeded', async () => {
+      const s = rawStream(socket, 'strm.count', { key: 'stalled' }, 1);
+      await s.finished;
+
+      expect(s.chunks).to.have.length(1);
+      expect(s.fail?.error).to.deep.include({ code: 'deadline_exceeded', retryable: true });
+      expect((strmLog.aborts.get('stalled') as SocketException).code).to.equal('deadline_exceeded');
+    });
+  });
+});

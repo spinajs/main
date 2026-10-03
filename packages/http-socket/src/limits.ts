@@ -122,6 +122,21 @@ export function assertHooksConfig(options: Pick<ISocketServerConfig, 'hooks'>): 
   }
 }
 
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+export function assertStreamsConfig(options: Pick<ISocketServerConfig, 'streams'>): void {
+  const streams = options.streams;
+  const positiveInteger = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0;
+
+  if (!positiveInteger(streams?.maxCredits) || !positiveInteger(streams?.maxPerConnection)) {
+    throw new RangeError(`http.socket.streams.maxCredits and maxPerConnection must be integers above 0, got maxCredits ${String(streams?.maxCredits)}, maxPerConnection ${String(streams?.maxPerConnection)}`);
+  }
+
+  if (!(positiveInteger(streams.stallTimeoutMs) && streams.stallTimeoutMs <= MAX_TIMER_DELAY_MS)) {
+    throw new RangeError(`http.socket.streams.stallTimeoutMs must be an integer within 1 and ${MAX_TIMER_DELAY_MS}, got ${String(streams.stallTimeoutMs)}`);
+  }
+}
+
 export function assertOrderingConfig(options: Pick<ISocketServerConfig, 'ordering'>): void {
   const grace = options.ordering?.abortGraceMs;
 

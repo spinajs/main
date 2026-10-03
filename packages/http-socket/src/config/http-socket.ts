@@ -38,6 +38,11 @@ const config: ISocketConfigFile = {
       hooks: {
         connectTimeoutMs: 10_000,
       },
+      streams: {
+        maxCredits: 64,
+        maxPerConnection: 8,
+        stallTimeoutMs: 60_000,
+      },
       drainMs: 5_000,
       adapter: undefined,
       transports: ['websocket', 'polling'],

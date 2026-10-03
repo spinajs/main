@@ -178,10 +178,10 @@ describe('socket command pipeline', function () {
     expect(resultOf(await command(socket, 'pipe.note', { text: 'hello' }))).to.equal('hello');
   });
 
-  it('answers a stream-returning handler with unimplemented until W4', async () => {
+  it('answers a stream-returning handler called without credits with failed_precondition', async () => {
     const error = errorOf(await command(socket, 'pipe.stream'));
-    expect(error.code).to.equal('unimplemented');
-    expect(error.message).to.match(/stream replies/);
+    expect(error.code).to.equal('failed_precondition');
+    expect(error.message).to.match(/open it as a stream/);
   });
 
   it('runs the handler inside the call storage', async () => {
