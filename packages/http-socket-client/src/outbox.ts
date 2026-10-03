@@ -43,20 +43,20 @@ export interface OutboxStore {
   clearFailed(seqs?: readonly number[]): Promise<void>;
 }
 
-/** Keeps nothing across reloads: the default when no store is given. */
+/** Keeps nothing across reloads: the default when no store is given. Entries are cloned in and out, as a persistent store would. */
 export class MemoryOutboxStore implements OutboxStore {
   private seq = 0;
   private readonly entries = new Map<number, OutboxEntry>();
   private readonly failures = new Map<number, FailedOutboxEntry>();
 
   public async add<P>(input: OutboxInput<P>): Promise<OutboxEntry<P>> {
-    const entry: OutboxEntry<P> = { seq: ++this.seq, name: input.name, payload: input.payload, createdAt: Date.now(), ...(input.key !== undefined ? { key: input.key } : {}) };
+    const entry: OutboxEntry<P> = { seq: ++this.seq, name: input.name, payload: structuredClone(input.payload), createdAt: Date.now(), ...(input.key !== undefined ? { key: input.key } : {}) };
     this.entries.set(entry.seq, entry);
-    return entry;
+    return structuredClone(entry);
   }
 
   public async pending(): Promise<OutboxEntry[]> {
-    return [...this.entries.values()];
+    return structuredClone([...this.entries.values()]);
   }
 
   public async remove(seq: number): Promise<void> {
@@ -65,12 +65,12 @@ export class MemoryOutboxStore implements OutboxStore {
 
   public async fail(entry: FailedOutboxEntry): Promise<void> {
     if (this.entries.delete(entry.seq)) {
-      this.failures.set(entry.seq, entry);
+      this.failures.set(entry.seq, structuredClone(entry));
     }
   }
 
   public async failed(): Promise<FailedOutboxEntry[]> {
-    return [...this.failures.values()].sort((a, b) => a.seq - b.seq);
+    return structuredClone([...this.failures.values()].sort((a, b) => a.seq - b.seq));
   }
 
   public async clearFailed(seqs?: readonly number[]): Promise<void> {

@@ -9,20 +9,23 @@ export interface OutboxStoreFixture {
   reopen?(): Promise<OutboxStore>;
 }
 
-const CONFLICT: SocketError = { code: 'conflict', message: 'already there', retryable: false };
+const CONFLICT: SocketError = { code: 'conflict', message: 'already there', retryable: false, retryAfterMs: 250, details: { keys: ['a', 'b'], nested: { n: 1 } }, errorId: 'err-1' };
 
 function failedOf(entry: OutboxEntry): FailedOutboxEntry {
-  return { ...entry, error: CONFLICT, failedAt: 1_000 };
+  return { ...entry, error: structuredClone(CONFLICT), failedAt: 1_000 };
 }
 
 /** Every OutboxStore passes this suite; `fixture` is called once per test. */
 export function describeOutboxStore(title: string, fixture: () => OutboxStoreFixture, options: { reopens: boolean }): void {
-  describe(`${title} ( OutboxStore contract )`, () => {
+  describe(`${title} (OutboxStore contract)`, () => {
     let f: OutboxStoreFixture;
     let store: OutboxStore;
 
     beforeEach(async () => {
       f = fixture();
+      if (options.reopens && !f.reopen) {
+        throw new Error(`${title}: options.reopens is true but the fixture has no reopen()`);
+      }
       store = await f.create();
     });
 
@@ -103,6 +106,47 @@ export function describeOutboxStore(title: string, fixture: () => OutboxStoreFix
       expect(await store.failed()).to.deep.equal([]);
     });
 
+    it('does not share objects with its callers', async () => {
+      const added = await store.add<{ n: number; list: number[] }>({ name: 'x', payload: { n: 1, list: [1] } });
+      added.payload.n = 99;
+      added.payload.list.push(2);
+
+      const [listed] = (await store.pending()) as OutboxEntry<{ n: number; list: number[] }>[];
+      expect(listed.payload).to.deep.equal({ n: 1, list: [1] });
+      listed.payload.n = 77;
+      listed.payload.list.length = 0;
+
+      expect((await store.pending())[0].payload).to.deep.equal({ n: 1, list: [1] });
+
+      const failedInput = failedOf((await store.pending())[0]);
+      await store.fail(failedInput);
+      (failedInput.error.details as { keys: string[] }).keys.push('zzz');
+      const [failed] = await store.failed();
+      (failed.error.details as { keys: string[] }).keys.push('yyy');
+
+      expect((await store.failed())[0]).to.deep.equal(failedOf({ ...listed, payload: { n: 1, list: [1] } }));
+    });
+
+    it('gives parallel adds distinct, increasing seqs', async () => {
+      const added = await Promise.all(Array.from({ length: 20 }, (_, i) => store.add({ name: 'x', payload: i })));
+      const seqs = added.map((e) => e.seq);
+
+      expect(new Set(seqs).size).to.equal(20);
+      expect(seqs).to.deep.equal([...seqs].sort((a, b) => a - b));
+      expect((await store.pending()).map((e) => e.seq)).to.deep.equal(seqs);
+    });
+
+    it('stays consistent under concurrent add, remove and fail', async () => {
+      const a = await store.add({ name: 'x', payload: 1 });
+      const b = await store.add({ name: 'x', payload: 2 });
+      const c = await store.add({ name: 'x', payload: 3 });
+
+      const [d] = await Promise.all([store.add({ name: 'x', payload: 4 }), store.remove(a.seq), store.fail(failedOf(b))]);
+
+      expect((await store.pending()).map((e) => e.seq)).to.deep.equal([c.seq, d.seq]);
+      expect((await store.failed()).map((e) => e.seq)).to.deep.equal([b.seq]);
+    });
+
     if (options.reopens) {
       it('keeps pending entries, failed entries and the seq counter across a reopen', async () => {
         const a = await store.add({ name: 'x', payload: { n: 1 }, key: 'k1' });
@@ -117,6 +161,41 @@ export function describeOutboxStore(title: string, fixture: () => OutboxStoreFix
         expect(await reopened.failed()).to.deep.equal([failedOf(a)]);
         const d = await reopened.add({ name: 'x', payload: { n: 4 } });
         expect(d.seq).to.be.above(c.seq);
+      });
+
+      it('keeps the seq counter when the highest seq sits in the failed list', async () => {
+        const a = await store.add({ name: 'x', payload: 1 });
+        const b = await store.add({ name: 'x', payload: 2 });
+        await store.remove(a.seq);
+        await store.fail(failedOf(b));
+
+        const reopened = await f.reopen!();
+
+        expect((await reopened.add({ name: 'x', payload: 3 })).seq).to.be.above(b.seq);
+      });
+
+      it('keeps the seq counter when the failed list was cleared before the reopen', async () => {
+        const a = await store.add({ name: 'x', payload: 1 });
+        await store.fail(failedOf(a));
+        await store.clearFailed();
+
+        const reopened = await f.reopen!();
+
+        expect((await reopened.add({ name: 'x', payload: 2 })).seq).to.be.above(a.seq);
+      });
+
+      it('persists clearFailed across a reopen', async () => {
+        const a = await store.add({ name: 'x', payload: 1 });
+        const b = await store.add({ name: 'x', payload: 2 });
+        await store.fail(failedOf(a));
+        await store.fail(failedOf(b));
+        await store.clearFailed([a.seq]);
+
+        const reopened = await f.reopen!();
+
+        expect((await reopened.failed()).map((e) => e.seq)).to.deep.equal([b.seq]);
+        await reopened.clearFailed();
+        expect(await (await f.reopen!()).failed()).to.deep.equal([]);
       });
     }
   });
