@@ -462,6 +462,14 @@ describe('authz-orm residual compiler', function () {
         expect(r.yes).to.deep.equal(['m1', 'm2']);
         expect(r.no).to.deep.equal(['m3', 'm4']);
         expect(ops).to.include('read');
+        // A clone must keep the policy's orWhere: as an AND it would select more rows under NOT.
+        const cloned = async (f: ResourceFilter) => {
+          const q = (Doc as any).query();
+          compileResidual(f, q, contextOf(Doc, alice));
+          return ((await q.clone().setAlias('copy')) as { id: string }[]).map((x) => x.id).sort();
+        };
+        expect(await cloned(rel('member'))).to.deep.equal(['m1', 'm2']);
+        expect(await cloned(not(rel('member')))).to.deep.equal(['m3', 'm4']);
 
         const q = createQuery(Doc, DeleteQueryBuilder).query;
         compileResidual(not(rel('member')), q as never, contextOf(Doc, alice, 'delete'));

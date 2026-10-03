@@ -53,18 +53,22 @@ export class ResidualSlot extends AuthzStatement {
 
 /** The caller's statements as one parenthesised group, compiled by the driver's own where compiler. */
 class CallerGroup extends QueryStatement {
-  constructor(private readonly driver: OrmDriver, private readonly statements: IQueryStatement[]) {
+  constructor(private readonly container: Resolver, private readonly statements: IQueryStatement[]) {
     super();
   }
 
   build(): IQueryStatementResult {
-    const group = this.driver.Container.resolve<WhereQueryStatement>(WhereQueryStatement as never, [{ Statements: this.statements }]);
+    const group = this.container.resolve<WhereQueryStatement>(WhereQueryStatement as never, [{ Statements: this.statements }]);
     return group.build();
   }
 
   clone(): IQueryStatement {
-    return new CallerGroup(this.driver, this.statements);
+    return new CallerGroup(this.container, this.statements);
   }
+}
+
+interface Resolver {
+  resolve<T>(type: never, args: unknown[]): T;
 }
 
 interface Shielded {
@@ -131,7 +135,7 @@ export function shield(builder: object, check: (builder: object) => void): void 
     configurable: true,
     get(this: Shielded) {
       const raw = statements.call(this) as IQueryStatement[];
-      return compiling > 0 ? grouped(this, raw) : raw;
+      return compiling > 0 ? grouped(this, raw, this.Driver.Container as unknown as Resolver) : raw;
     },
   });
   if (typeof clearWhere === 'function') {
@@ -148,7 +152,26 @@ export function shield(builder: object, check: (builder: object) => void): void 
   }
 }
 
-function grouped(builder: Shielded, raw: IQueryStatement[]): IQueryStatement[] {
+const groups = new WeakSet<object>();
+
+/**
+ * A where group (not a query, so it never compiles on its own) that holds authz statements: they
+ * read first, ANDed with the group's other statements as one, whenever the group is read.
+ */
+export function shieldGroup(group: object): void {
+  if (groups.has(group)) return;
+  groups.add(group);
+  const statements = getterOf(group, 'Statements');
+  if (statements === undefined) return;
+  Object.defineProperty(group, 'Statements', {
+    configurable: true,
+    get(this: { readonly Container: Resolver }) {
+      return grouped(this, statements.call(this) as IQueryStatement[], this.Container);
+    },
+  });
+}
+
+function grouped(builder: object, raw: IQueryStatement[], container: Resolver): IQueryStatement[] {
   const ours: IQueryStatement[] = ownedBy(builder).filter((s) => !raw.includes(s));
   const callers: IQueryStatement[] = [];
   const aggregates: IQueryStatement[] = [];
@@ -159,5 +182,14 @@ function grouped(builder: Shielded, raw: IQueryStatement[]): IQueryStatement[] {
   }
   if (ours.length === 0) return raw;
   for (const s of ours) s.Boolean = WhereBoolean.AND;
-  return [...ours, ...(callers.length > 0 ? [new CallerGroup(builder.Driver, callers)] : []), ...aggregates];
+  return [...ours, ...(callers.length > 0 ? [new CallerGroup(container, callers)] : []), ...aggregates];
+}
+
+/** `SelectQueryBuilder.clone` rebuilds the where statements without their connectors (`orWhere` became AND); give them back. */
+export function keepBooleans(source: object, copy: object): void {
+  const from = (source as { _statements?: IQueryStatement[] })._statements ?? [];
+  const to = (copy as { _statements?: IQueryStatement[] })._statements ?? [];
+  from.forEach((s, i) => {
+    if (i < to.length) to[i].Boolean = s.Boolean;
+  });
 }

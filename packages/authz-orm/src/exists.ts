@@ -16,7 +16,7 @@ const nameOf = (b: Aliased | undefined): string | undefined => b?.TableAlias || 
  * statement builds: the outer query may get its alias later (`populate()`), and a clone of the query
  * is correlated with the clone of the outer one.
  */
-class Correlation extends AuthzStatement {
+export class Correlation extends AuthzStatement {
   constructor(readonly target: SelectQueryBuilder, private readonly column: string, private readonly outerColumn: string) {
     super();
   }
@@ -25,8 +25,8 @@ class Correlation extends AuthzStatement {
     const quoter = this.target.Driver.Container.resolve<IdentifierQuoter>(IdentifierQuoter as never);
     const own = nameOf(this.target as Aliased);
     const outer = nameOf(this.target.CorrelationSource as Aliased | undefined);
-    // Without its outer query the EXISTS would hold for every row: render FALSE.
-    if (own === undefined || outer === undefined) return { Statements: ['(1 = 0)'], Bindings: [] };
+    // Without its outer query, or under the outer query's own name, the EXISTS would not test the outer row: render FALSE.
+    if (own === undefined || outer === undefined || own === outer) return { Statements: ['(1 = 0)'], Bindings: [] };
     return { Statements: [`${quoter.quote(own)}.${quoter.quote(this.column)} = ${quoter.quote(outer)}.${quoter.quote(this.outerColumn)}`], Bindings: [] };
   }
 

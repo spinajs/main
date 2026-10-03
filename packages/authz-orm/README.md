@@ -49,12 +49,18 @@ table likewise compiles once, after the gate passed it in `beforeQueryExecution`
   `AccessDenied`. A residual that needs IO (a model with `sync: 'never'`) resolves for every relation
   and sub-query before the query that compiles them runs; one compiled but never run stays FALSE.
 - `clone()` (and the counts and pages built from a clone) keeps every residual on the table it was
-  compiled for, also those a populated relation merged into the query.
+  compiled for, also those a populated relation merged into the query, and the caller's `orWhere`
+  connectors (the orm's clone turns them into AND).
+- A builder runs only for the principal it was built for: the same object, or one with equal data
+  (id, attributes, authn facts, ceiling, delegation and the rest). Run by any other principal (the
+  same user with other attributes or without MFA included) it fails with `Forbidden`; SYSTEM may run
+  it.
 - `whereExist` and `whereNotExists` on a many-to-many relation with a scoped target test the target
   rows the residual allows. Inside a nested `where(fn)` they are refused with `Forbidden`: the orm
   builds that sub-query on the junction table alone.
-- The static `Model.populate(relation, id)` joins the target table directly and is refused for a
-  scoped target; populate through a query or the relation object instead.
+- The static `Model.populate(relation, id)` of a hasMany builds a target query, which is scoped;
+  for a belongsTo or many-to-many it joins the target table directly and is refused for a scoped
+  target: populate through a query or the relation object instead.
 
 Load authz-orm once per process: a second copy (another install, or its ESM and CJS builds together)
 throws `AuthzConfigError` when it loads.
@@ -64,3 +70,41 @@ throws `AuthzConfigError` when it loads.
 Residuals compile for SQLite and PostgreSQL. Both must store text as UTF-8 (SQLite's default
 encoding, a PostgreSQL database created with `ENCODING 'UTF8'`): string order and the one-character
 `_` of `like` follow code points only then.
+
+## Native compilers
+
+An `OrmNativeCompiler` writes its condition into the builder it is handed; the compiler wraps it in
+parentheses and under `NOT` as the residual needs. To test another table (a correlated `EXISTS`,
+as authz-rbac's `native:rbac.assignment` does), import the helpers from
+`@spinajs/authz-orm/native`:
+
+- `correlatedQuery(builder, tableOrModel)`: `SELECT 1 FROM <table>` under its own alias, for
+  `whereExist(...)` or `whereNotExists(...)` on the native builder, a where group in it, or another
+  sub-query (subs nest: `NOT EXISTS` of a restriction inside a membership `EXISTS`);
+- `correlate(holder, column, outerColumn)`: `<sub>.<column> = <filtered row>.<outerColumn>` in a
+  sub-query or in a where group of one. At the sub-query's top level its other conditions are ANDed
+  after the correlations, so an `orWhere` there cannot reach past them. In a group the correlation
+  is ANDed with that group's conditions, so `onPath` is one `EXISTS`: a group per path column,
+  joined with `orWhere(fn)`. A sub-query with no correlation at its top level refuses an `orWhere`
+  there (it would reach around the groups);
+- `whereSql(holder, fragment)` adds an `` sql`…` `` fragment, in which `outerColumn(builder, col)`
+  is the filtered row's column, `subColumn(sub, col)` a sub-query's own column and `identifier(name)`
+  a quoted name. It writes SQL the helpers above cannot build, such as `below` (a `CASE` over the
+  row's path columns) or `attr()` (`COALESCE((SELECT …), :default)` with the row's column in the
+  scalar sub-select). Other values in the template are bound; the fragment is parenthesised, and its
+  NULL handling (Kleene) is the compiler's job;
+- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first.
+
+Every name is resolved when the query compiles, so an alias given later (`populate()`,
+`setAlias()`), clones, counts of clones and subs nested in subs always name the filtered row; a
+correlation that cannot find that row throws `AuthzConfigError` rather than render FALSE (under
+`NOT EXISTS` FALSE would allow the row).
+
+authz does not scope these sub-queries: read the principal from the `principal` argument, and read
+only tables that are not `@AccessResource` models (L4b reads `authz_*` tables). A sub-query over a
+scoped model's table, or its name in an `sql` fragment, sees every row of it. Lazy statements (the
+orm's deferred `EXISTS`) are refused, because the orm moves them after the other conditions and
+would change the grouping.
+
+`@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
+it only together with L4b.

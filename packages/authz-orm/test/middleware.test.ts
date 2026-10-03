@@ -256,7 +256,7 @@ describe('authz-orm query middleware', function () {
             await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, opts);
             const Task = await defineTask();
             const before = await as(alice, () => ({ q: Task.query() }));
-            expect((before.q.toDB() as { expression: string }).expression, 'unresolved: FALSE').to.include('(1 = 0)');
+            expect(((await as(alice, () => before.q.toDB())) as { expression: string }).expression, 'unresolved: FALSE').to.include('(1 = 0)');
             expect(ids(await as(alice, () => Task.all())), JSON.stringify(opts)).to.deep.equal(['t1', 't2']);
             await db.clear();
           }
@@ -275,7 +275,7 @@ describe('authz-orm query middleware', function () {
           const Task = await defineTask();
           const query = () => Task.query().whereIn('id', Task.query().select('id').where('team', 'blue'));
           const { q } = await as(alice, () => ({ q: query() }));
-          expect((q.toDB() as { expression: string }).expression).to.contain('(1 = 0)');
+          expect(((await as(alice, () => q.toDB())) as { expression: string }).expression).to.contain('(1 = 0)');
           expect(ids(await as(alice, query))).to.deep.equal(['t2']);
         });
 
@@ -465,7 +465,8 @@ describe('authz-orm query middleware', function () {
 
         const populated = async (p: Principal, build: () => any): Promise<string[][]> => {
           const { q } = await as(p, () => ({ q: build() }));
-          const { expression, bindings } = q.toDB() as { expression: string; bindings: unknown[] };
+          // Compiled as the principal it was built for (a builder refuses any other, M1).
+          const { expression, bindings } = (await as(p, () => q.toDB())) as { expression: string; bindings: unknown[] };
           const rows = (await db.raw(expression, bindings, dialect)) as Record<string, unknown>[];
           return rows.map((r) => [String(r.nid), String(r['$task$.title'] ?? null)]).sort();
         };
@@ -809,7 +810,7 @@ describe('authz-orm query middleware', function () {
           dialect,
         )) as Task;
         const { q } = await as(alice, () => ({ q: Post.query().select('id', 'pid').populate('task') }));
-        const { expression, bindings } = q.toDB() as { expression: string; bindings: unknown[] };
+        const { expression, bindings } = (await as(alice, () => q.toDB())) as { expression: string; bindings: unknown[] };
         expect(expression).to.match(/ ON .*[`"]owner[`"]/);
         expect(expression).to.not.match(/WHERE/);
         const rows = (await db.raw(expression, bindings, dialect)) as Record<string, unknown>[];

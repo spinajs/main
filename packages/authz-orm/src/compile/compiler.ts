@@ -14,6 +14,7 @@ import type { ModelClass, ResourceEntry } from '../registry.js';
 import { pkOf } from '../rows.js';
 import { AuthzStatement } from '../shield.js';
 import { caseWhen, dialectFor } from './dialect.js';
+import { NativeWhereBuilder, assertNoLazy } from './native.js';
 import { assertSynchronous } from './sync.js';
 import type { SqlDialect } from './dialect.js';
 import { globTokens, isLiteral, likeTokens, wildcardTokens } from './patterns.js';
@@ -81,28 +82,6 @@ function asSystem<T>(fn: () => T): T {
   const storage = authzStorage();
   const { AuthzDecision: _decision, Unscoped: _unscoped, ...rest } = storage.getStore() ?? {};
   return storage.run({ ...rest, Principal: SYSTEM, AuthzCache: new Map() }, fn);
-}
-
-/**
- * A where builder for native compilers that reads its parent's alias when it builds, not when it is
- * created: the query middleware runs before `populate()` or a join gives the query its alias.
- */
-class ScopedWhereBuilder extends WhereBuilder<unknown> {
-  public get TableAlias(): string {
-    return (this._parent as unknown as { TableAlias?: string } | undefined)?.TableAlias as string;
-  }
-
-  public clone<P extends IWhereBuilder<any>>(parent: P): WhereBuilder<unknown> {
-    const builder = new ScopedWhereBuilder(parent as unknown as WhereBuilder<unknown>);
-    builder._boolean = this._boolean;
-    builder._model = this._model;
-    builder._statements = this._statements.map((s) => {
-      const cloned = s.clone(builder);
-      cloned.Boolean = s.Boolean;
-      return cloned;
-    });
-    return builder;
-  }
 }
 
 type Sub = { readonly kind: 'native'; readonly builder: WhereBuilder<unknown> } | { readonly kind: 'scope'; readonly inner: SelectQueryBuilder; readonly alias: string };
@@ -529,8 +508,9 @@ class Compiler {
     this.natives ??= nativeCompilers();
     const compiler = this.natives.get(op);
     if (compiler === undefined) throw new AuthzConfigError(`authz-orm: no OrmNativeCompiler is registered for ${op}`);
-    const builder = new ScopedWhereBuilder(this.target as unknown as WhereBuilder<unknown>);
+    const builder = new NativeWhereBuilder(this.target as unknown as WhereBuilder<unknown>, { op, model: this.model, driver: this.driver, table: this.table });
     asSystem(() => assertSynchronous(compiler.compile(args, builder, this.model as never, this.ctx.principal), `the OrmNativeCompiler for ${op}`));
+    assertNoLazy(builder, op);
     this.subs.push({ kind: 'native', builder });
     return subRef(this.subs.length - 1);
   }

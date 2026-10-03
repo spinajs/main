@@ -20,6 +20,7 @@ const expect = chai.expect;
 
 const user = (id: string): Principal => ({ type: 'user', id, authenticated: true, source: 'test', attributes: {} });
 const bob = user('bob');
+const alice = user('alice');
 const rel = (relation: string): ResourceFilter => ({ op: 'relation', relation });
 const cmp = (field: string, op: string, value?: unknown): ResourceFilter => ({ op: 'cmp', field, cmp: op, value } as ResourceFilter);
 const permit = (when: ResourceFilter = { op: 'true' }) => ({ permitWhen: when });
@@ -350,6 +351,12 @@ describe('authz-orm junction, populate and cloned builders', function () {
           ]);
         });
 
+        it('the static Model.populate of a hasMany builds a target query, which is scoped', async () => {
+          await host({ [READ.task]: permit(rel('owner')) });
+          const { Project } = await tasks();
+          expect(idsOf(await as(bob, () => Project.populate('tasks', 'r1')))).to.deep.equal(['t2']);
+        });
+
         it("a join that reuses a populated relation's alias is not the relation's join: Forbidden", async () => {
           await host({ [READ.task]: permit(rel('owner')) });
           const { Task, Note } = await tasks();
@@ -359,6 +366,102 @@ describe('authz-orm junction, populate and cloned builders', function () {
               .populate('task')
               .leftJoin({ joinTable: db.table(Task), joinTableAlias: '$task$', sourceTablePrimaryKey: 'task_id', joinTableForeignKey: 'id', joinTableDriver: db.driver(dialect) } as never);
           expect(await fails(notesWithTask(bob, forged))).to.be.instanceOf(Forbidden);
+        });
+      });
+
+      describe('a builder kept across principals', () => {
+        it('a select, update or delete built as one principal and run as another is Forbidden; SYSTEM may run it', async () => {
+          await host({ [READ.task]: permit(rel('owner')), [`${TASK}:update`]: permit(rel('owner')), [`${TASK}:delete`]: permit(rel('owner')) });
+          const { Task } = await tasks();
+          const built = (): Promise<{ q: any }> => as(alice, () => ({ q: Task.query() }));
+          const first = (await built()).q;
+          expect(await fails(as(bob, () => first))).to.be.instanceOf(Forbidden);
+          const source = (await built()).q;
+          expect(await fails(as(bob, () => source.clone()))).to.be.instanceOf(Forbidden);
+          expect(await fails(as(bob, () => source.clone().selectCount()))).to.be.instanceOf(Forbidden);
+          // The same principal in a later request (another object with the same fields) still reads its rows.
+          const again = (await built()).q;
+          expect(idsOf(await as(user('alice'), () => again))).to.deep.equal(['t1', 't3']);
+          const system = (await built()).q;
+          expect(idsOf(await asSystem(() => system))).to.deep.equal(['t1', 't3']);
+
+          const { u } = await as(alice, () => ({ u: Task.update({ title: 'x' } as never).whereIn('id', ['t1', 't2', 't3']) }));
+          expect(await fails(as(bob, () => u))).to.be.instanceOf(Forbidden);
+          const { d } = await as(alice, () => ({ d: Task.destroy('t1') }));
+          expect(await fails(as(bob, () => d))).to.be.instanceOf(Forbidden);
+          const rows = await db.rows(Task);
+          expect(rows.map((r) => [r.id, r.title]).sort()).to.deep.equal([
+            ['t1', 'a'],
+            ['t2', 'b'],
+            ['t3', 'c'],
+          ]);
+        });
+
+        it('the same id with other attributes or other authn facts is another principal; the same object, nested, or a copy is not', async () => {
+          await host({ [READ.task]: permit(rel('owner')) });
+          const { Task } = await tasks();
+          const aal2: Principal = { ...alice, authn: { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['totp'], authenticatedAt: new Date(0) } as never };
+          const tagged = (attributes: Record<string, unknown>): Principal => ({ ...alice, attributes });
+          const built = (p: Principal): Promise<{ q: any }> => as(p, () => ({ q: Task.query() }));
+          const taggedA = (await built(tagged({ s: 'a' }))).q;
+          expect(await fails(as(tagged({ s: 'b' }), () => taggedA)))
+            .to.be.instanceOf(Forbidden)
+            .with.property('message')
+            .that.matches(/another principal/);
+          const strong = (await built(aal2)).q;
+          expect(await fails(as(alice, () => strong)))
+            .to.be.instanceOf(Forbidden)
+            .with.property('message')
+            .that.matches(/another principal/);
+          const plain = (await built(alice)).q;
+          expect(await fails(as(aal2, () => plain)))
+            .to.be.instanceOf(Forbidden)
+            .with.property('message')
+            .that.matches(/another principal/);
+          const unauthenticated = (await built(alice)).q;
+          expect(await fails(as({ ...alice, authenticated: false }, () => unauthenticated)))
+            .to.be.instanceOf(Forbidden)
+            .with.property('message')
+            .that.matches(/another principal/);
+          const otherSource = (await built(alice)).q;
+          expect(await fails(as({ ...alice, source: 'token' }, () => otherSource)))
+            .to.be.instanceOf(Forbidden)
+            .with.property('message')
+            .that.matches(/another principal/);
+
+          const twice = (await built(aal2)).q;
+          expect(idsOf(await as(aal2, () => as(aal2, () => twice)))).to.deep.equal(['t1', 't3']);
+          const copied = (await built(aal2)).q;
+          expect(idsOf(await as({ ...aal2, authn: { ...aal2.authn!, authenticatedAt: new Date(0) } }, () => copied))).to.deep.equal(['t1', 't3']);
+          const inner = await as(aal2, () => as(aal2, () => ({ q: Task.query() })));
+          expect(idsOf(await as(aal2, () => inner.q))).to.deep.equal(['t1', 't3']);
+        });
+
+        it('a sub-select built as another principal is Forbidden in whereIn and whereExist', async () => {
+          await host({ [READ.task]: permit(rel('owner')) });
+          const { Task, Note } = await tasks();
+          const sub = (): Promise<{ q: any }> => as(alice, () => ({ q: Task.query().select('id') }));
+          const inSub = (await sub()).q;
+          expect(await fails(as(bob, () => Note.query().whereIn('task_id', inSub)))).to.be.instanceOf(Forbidden);
+          const existsSub = (await sub()).q;
+          expect(await fails(as(bob, () => Note.query().whereExist(existsSub)))).to.be.instanceOf(Forbidden);
+          // Built as bob, the same sub-select reads bob's tasks only.
+          expect(idsOf(await as(bob, () => Note.query().whereIn('task_id', Task.query().select('id'))))).to.deep.equal(['n2']);
+        });
+
+        it('populated relations built as another principal are Forbidden: belongsTo, hasMany, many-to-many', async () => {
+          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
+          for (const relationScope of ['where', 'join'] as const) {
+            const { Note, Project } = await tasks({ relationScope });
+            const { q } = await as(alice, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
+            expect(await fails(notesWithTask(bob, () => q))).to.be.instanceOf(Forbidden);
+            const { p } = await as(alice, () => ({ p: Project.where('id', 'r1').populate('tasks') }));
+            expect(await fails(as(bob, () => p))).to.be.instanceOf(Forbidden);
+            await db.clear();
+          }
+          const { Post } = await posts();
+          const { q } = await as(alice, () => ({ q: Post.where('id', 'p1').populate('tags') }));
+          expect(await fails(as(bob, () => q))).to.be.instanceOf(Forbidden);
         });
       });
 
@@ -394,6 +497,31 @@ describe('authz-orm junction, populate and cloned builders', function () {
             expect(Number(await as(bob, () => q.clone().selectCount()))).to.equal(expected.length);
             await db.clear();
           }
+        });
+
+        it('a clone taken before the first compile keeps the populated join and residual; its count agrees', async () => {
+          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
+          for (const relationScope of ['where', 'join'] as const) {
+            const { Note } = await tasks({ relationScope });
+            const fresh = (): Promise<{ q: any }> => as(bob, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
+            const expected =
+              relationScope === 'where'
+                ? [['n2', 'b']]
+                : [
+                    ['n1', 'null'],
+                    ['n2', 'b'],
+                    ['n3', 'null'],
+                  ];
+            const q = (await fresh()).q;
+            expect(await notesWithTask(bob, () => q.clone())).to.deep.equal(expected);
+            const counted = (await fresh()).q;
+            expect(Number(await as(bob, () => counted.clone().selectCount()))).to.equal(expected.length);
+            await db.clear();
+          }
+          const { Post } = await posts();
+          const { q } = await as(bob, () => ({ q: Post.where('id', 'p1').populate('tags') }));
+          const rows = (await as(bob, () => q.clone())) as unknown[];
+          expect(rows.map(tagsOf)).to.deep.equal([['g2', 'g3']]);
         });
 
         it('a clone of a deferred populated query resolves the relation residual it carries', async () => {

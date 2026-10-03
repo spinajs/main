@@ -15,7 +15,7 @@ import { authorizeInsert, relationsOf } from './insert.js';
 import { relationPrincipalOf, serviceConfig } from './principal.js';
 import { entryOf, registeredClasses, registryVersion, scopePolicyOf } from './registry.js';
 import type { ModelClass, QueryKind, ResourceEntry } from './registry.js';
-import { AuthzStatement, ResidualSlot, own, ownedBy, shield } from './shield.js';
+import { AuthzStatement, ResidualSlot, keepBooleans, own, ownedBy, shield } from './shield.js';
 import { updateKeepsScope } from './update.js';
 
 /** What the middleware decided for a builder at creation. */
@@ -40,6 +40,33 @@ const scopes = new WeakMap<object, QueryScope>();
 /** The middleware's record for a builder (task 7 carries it to the builders the orm derives). */
 export function scopeOf(builder: object): QueryScope | undefined {
   return scopes.get(builder);
+}
+
+const plain = (v: object): boolean => {
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
+
+/** Equal data: plain objects and arrays by their entries, dates by time, anything else (an `identity` model, a class instance) by reference. */
+function sameData(a: unknown, b: unknown, depth: number): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || depth > 16) return false;
+  if (a instanceof Date || b instanceof Date) return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameData(x, b[i], depth + 1));
+  if (!plain(a) || !plain(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameData((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], depth + 1));
+}
+
+/**
+ * A builder keeps the residual of the principal it was built for, so app code that keeps one across
+ * requests (a memoised base query) would run it with that principal's rows. Only an object with the
+ * same data (attributes, authn facts, ceiling, delegation… everything a decision may read) counts as
+ * the same principal.
+ */
+function assertBuiltFor(scope: QueryScope | undefined, principal: Principal): void {
+  if (scope === undefined || sameData(scope.principal, principal, 0)) return;
+  throw new Forbidden(`authz-orm: a ${scope.kind} query of ${scope.entry.type} was built for another principal than the one running it`);
 }
 
 const domainName = (): string => {
@@ -100,7 +127,12 @@ function carryOnClone(builder: SelectQueryBuilder): void {
     configurable: true,
     writable: true,
     value: function (this: SelectQueryBuilder, ...args: unknown[]) {
+      // The orm shares the relation objects with the clone and they populate the query they were made
+      // for: compiled after the clone, they would add the join and the residual to the source only.
+      for (const r of relationsReached(this)) watchCompile(r);
+      for (const r of this.Relations ?? []) r.compile();
       const copy = (clone as (...a: unknown[]) => SelectQueryBuilder).apply(this, args);
+      keepBooleans(this, copy);
       const source = raw(this);
       const copied = raw(copy);
       // The orm rebinds every statement to the clone. A residual merged from a populated relation must
@@ -145,6 +177,8 @@ const unscopedReason = (): string | undefined => {
   const reason = authzStorage().getStore()?.Unscoped;
   return typeof reason === 'string' && reason !== '' ? reason : undefined;
 };
+
+const exempt = (): boolean => currentPrincipal() === SYSTEM || unscopedReason() !== undefined;
 
 const softDeleteColumn = (model: ModelClass): string | undefined => {
   const column = extractModelDescriptor(model as never)?.SoftDelete?.DeletedAt;
@@ -210,7 +244,9 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
     // Relation queries and sub-queries compile into this query without an execution hook of their own.
     for (const slot of pendingSlots(builder)) {
       const owner = scopes.get(slot.target as object);
-      if (owner !== undefined && !slot.resolved) await fill(slot, slot.target as QueryBuilder, owner);
+      if (owner === undefined || slot.resolved) continue;
+      if (!exempt()) assertBuiltFor(owner, currentPrincipal());
+      await fill(slot, slot.target as QueryBuilder, owner);
     }
     if (!scope) return;
     if (scope.kind === 'create') return insert(builder as InsertQueryBuilder, scope);
@@ -417,13 +453,14 @@ const optionsOf = (join: JoinStatement): IJoinStatementOptions => (join as unkno
  * The join a populated relation's own compile added, whose sub-builder carries the target model's
  * scope, and whose residual (or a clone of it) is still in the query: in its WHERE or in the join's ON.
  */
-function relationJoin(builder: SelectQueryBuilder, join: JoinStatement, table: string, relations: readonly RelationLike[]): boolean {
+function relationJoin(builder: SelectQueryBuilder, join: JoinStatement, table: string, relations: readonly RelationLike[], principal: Principal): boolean {
   const options = optionsOf(join);
   const present = new Set([...raw(builder), ...((options as { onStatements?: IQueryStatement[] }).onStatements ?? [])].filter((s): s is AuthzStatement => s instanceof AuthzStatement).map((s) => s.origin));
   return relations.some((r) => {
     const q = relationQueryOf(r);
     const scope = q && scopes.get(q);
     if (!(madeBy.get(join) === r && r.Alias !== undefined && r.Alias === options.joinTableAlias && normal(r.Descriptor?.TargetModel ? extractModelDescriptor(r.Descriptor.TargetModel as never)?.TableName : undefined) === table && scope !== undefined && tableOf(scope.model) === table)) return false;
+    assertBuiltFor(scope, principal);
     return ownedBy(q!).every((s) => present.has(s.origin));
   });
 }
@@ -437,6 +474,7 @@ function relationJoin(builder: SelectQueryBuilder, join: JoinStatement, table: s
 async function gate(builder: QueryBuilder, scope: QueryScope | undefined): Promise<void> {
   const principal = currentPrincipal();
   if (principal === SYSTEM || unscopedReason() !== undefined) return;
+  assertBuiltFor(scope, principal);
   const index = tables();
   if (index.size === 0) return;
   const service = (): AuthzService => authz(domainName());
@@ -479,6 +517,7 @@ function compileGate(builder: object): void {
   const principal = currentPrincipal();
   if (principal === SYSTEM || unscopedReason() !== undefined) return;
   const scope = scopes.get(builder);
+  assertBuiltFor(scope, principal);
   if ((builder instanceof InsertQueryBuilder || builder instanceof UpdateQueryBuilder) && scope !== undefined) {
     if (!scope.checked) throw new Forbidden(`authz-orm: a ${scope.kind} of ${scope.entry.type} compiled before its execution checks ran, or a second time`);
     scope.checked = false;
@@ -501,7 +540,7 @@ function compileGate(builder: object): void {
     const options = optionsOf(join);
     const joined = normal(options.joinModel ? extractModelDescriptor(options.joinModel as never)?.TableName : options.joinTable);
     const classes = joined === undefined ? undefined : index.get(joined);
-    if (classes && !relationJoin(builder, join, joined!, relations)) refuse(classes[0], 'a join');
+    if (classes && !relationJoin(builder, join, joined!, relations, principal)) refuse(classes[0], 'a join');
   }
 }
 
