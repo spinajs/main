@@ -113,3 +113,10 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - `sys.shutdown` must be sent through `SocketConnection.notify()` or a raw `io.emit`. `SocketHub` pushes refuse `sys.*` names.
 - Idempotency must key independently of the running map: the dispatcher's per-connection running map is by request id and is not a dedupe store.
 - Idempotency keys must be `(principalKey, clientId, key)`, for the same reason as the ordering key: a `clientId` is not a secret, and a replayed reply must never reach another principal.
+
+## W3 (resilience)
+
+### Command stage order
+
+- `STAGE_ORDER.Ordering` moves from `800` to `550`, after idempotency (`500`) and before policies (`600`) and arguments (`700`). Policies and hydrators of an `ordered` command now run inside its queue place, so they see what the commands before it changed. A durable edit pipelined right behind its create is no longer hydrated before the create ran (its `not_found` would be stored as final).
+- `ordered: 'connection'` and `ordered: 'client'` commands without `after` get the same, stronger ordering. A custom stage ordered between `550` and `800` now runs inside the queue place.

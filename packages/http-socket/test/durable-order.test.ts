@@ -1,9 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
 import { Socket as ClientSocket } from 'socket.io-client';
+import { ArgHydrator, BasePolicy, Hydrator } from '@spinajs/http';
 import { ErrorCode, SocketException } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
-import { Command, Payload, SocketController } from '../src/decorators.js';
+import { Command, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
+import type { ISocketPolicyRequest } from '../src/policies.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 import { killConnections } from './faults.js';
 
@@ -14,6 +16,36 @@ function newFenceGate(): void {
   let open!: () => void;
   const promise = new Promise<void>((resolve) => (open = resolve));
   fenceGate = { promise, open };
+}
+
+/** Documents created by `fence.create`; edits and renames of a missing one fail for good. */
+export const fenceDocs = new Set<string>();
+
+export class FenceDocHydrator extends ArgHydrator {
+  public async hydrate(input: { id: string }): Promise<FenceDoc> {
+    if (!fenceDocs.has(input.id)) {
+      throw new SocketException('not_found', `document ${input.id} not found`);
+    }
+    return new FenceDoc(input.id);
+  }
+}
+
+@Hydrator(FenceDocHydrator)
+export class FenceDoc {
+  constructor(public id: string) {}
+}
+
+export class FenceDocExists extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(req: unknown): Promise<void> {
+    const id = (req as ISocketPolicyRequest).params.id as string;
+    if (!fenceDocs.has(id)) {
+      throw new SocketException('forbidden', `document ${id} is not yours`);
+    }
+  }
 }
 
 @SocketController('fence')
@@ -36,6 +68,27 @@ export class FenceSocket extends BaseSocketController {
     await fenceGate.promise;
     fenceLog.push(`${p.tag}:end`);
     return p.tag;
+  }
+
+  @Command('create', { idempotent: true, ordered: 'client' })
+  public async create(@Payload() p: { id: string; ms?: number }) {
+    fenceLog.push(`create:${p.id}`);
+    await delay(p.ms ?? 0);
+    fenceDocs.add(p.id);
+    return p.id;
+  }
+
+  @Command('edit', { idempotent: true, ordered: 'client' })
+  public async edit(@Payload() doc: FenceDoc) {
+    fenceLog.push(`edit:${doc.id}`);
+    return doc.id;
+  }
+
+  @Command('rename', { idempotent: true, ordered: 'client' })
+  @SocketPolicy(FenceDocExists)
+  public async rename(@Payload() p: { id: string }) {
+    fenceLog.push(`rename:${p.id}`);
+    return p.id;
   }
 
   @Command('loose', { idempotent: true })
@@ -63,6 +116,7 @@ describe('durable command order: the after fence', function () {
 
   beforeEach(async () => {
     fenceLog.length = 0;
+    fenceDocs.clear();
     newFenceGate();
     t = await startServer();
   });
@@ -194,6 +248,23 @@ describe('durable command order: the after fence', function () {
 
     expect(resultOf(await command(second, 'fence.hang', { tag: 'a' }, { idempotencyKey: 'a' }))).to.equal('a');
     expect(fenceLog).to.deep.equal(['a', 'a:end']);
+  });
+
+  // a final not_found or forbidden would be stored, and the durable queue would fail the edit for good
+  it('hydrates a pipelined command only after its predecessor ran, so an edit right behind a create finds the document', async () => {
+    const s = await connect('fence-hydrate');
+    const [a, b] = await Promise.all([command(s, 'fence.create', { id: 'd1', ms: 100 }, { idempotencyKey: 'a' }), command(s, 'fence.edit', { id: 'd1' }, { idempotencyKey: 'b', after: 'a' })]);
+
+    expect([resultOf(a), resultOf(b)]).to.deep.equal(['d1', 'd1']);
+    expect(fenceLog).to.deep.equal(['create:d1', 'edit:d1']);
+  });
+
+  it('checks the policies of a pipelined command only after its predecessor ran', async () => {
+    const s = await connect('fence-policy');
+    const [a, b] = await Promise.all([command(s, 'fence.create', { id: 'd2', ms: 100 }, { idempotencyKey: 'a' }), command(s, 'fence.rename', { id: 'd2' }, { idempotencyKey: 'b', after: 'a' })]);
+
+    expect([resultOf(a), resultOf(b)]).to.deep.equal(['d2', 'd2']);
+    expect(fenceLog).to.deep.equal(['create:d2', 'rename:d2']);
   });
 
   it("refuses after on a command that is not ordered: 'client'", async () => {

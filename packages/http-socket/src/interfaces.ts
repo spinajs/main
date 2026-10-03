@@ -291,7 +291,11 @@ export abstract class SocketCommandStage {
   public abstract execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown>;
 }
 
-/** Spec §5.2 order. 320 waits for the connect hooks; 350 is W1's principal re-check ( Task 10A, D16 ); 500 is reserved for W3's idempotency stage. */
+/**
+ * Spec §5.2 order. 320 waits for the connect hooks; 350 is W1's principal re-check ( Task 10A, D16 ); 500 is W3's idempotency stage.
+ * Ordering ( 550 ) comes before policies and arguments, so they see the state the command's predecessors left: a durable edit
+ * pipelined behind its create would otherwise be hydrated before the create ran, and its not_found stored as final.
+ */
 export const STAGE_ORDER = {
   Size: 100,
   Rate: 200,
@@ -300,9 +304,9 @@ export const STAGE_ORDER = {
   Authentication: 350,
   Lookup: 400,
   Idempotency: 500,
+  Ordering: 550,
   Policies: 600,
   Arguments: 700,
-  Ordering: 800,
 } as const;
 
 /** What an idempotent command replays: its result, or the error it failed with for good. */
