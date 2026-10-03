@@ -69,8 +69,9 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
     { service: 'fsNative', name: 'authz-http-test', basePath: join(tmpdir(), 'spinajs-authz-http-test') },
   ]);
   cfg.set(['fs', 'defaultProvider'], 'authz-http-test');
-  for (const [key, value] of Object.entries(opts.config ?? {})) cfg.set([key], value);
+  for (const [path, value] of Object.entries(opts.config ?? {})) cfg.set(path.split('.'), value);
 
+  const before = new Set(DI.getRegisteredTypes(BaseController) ?? []);
   const controllers = [...(opts.controllers ?? [])];
   for (const c of controllers) DI.register(c).as(BaseController);
 
@@ -80,7 +81,8 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   await server.start();
 
   const port = (server.Server.address() as AddressInfo).port;
-  app = { server, controllers, port };
+  // Also what http registered itself (the sources), so no controller outlives this app.
+  app = { server, controllers: [...new Set(DI.getRegisteredTypes(BaseController) ?? [])].filter((t) => !before.has(t)) as Class<BaseController>[], port };
   return { server, request: () => chai.request(`http://127.0.0.1:${port}`) };
 }
 

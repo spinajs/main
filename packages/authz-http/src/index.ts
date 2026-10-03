@@ -5,6 +5,7 @@ export * from './access/index.js';
 export * from './fields.js';
 export * from './access/principal-policies.js';
 export * from './controllers/AccessController.js';
+export * from './explain/index.js';
 
 // api.ts holds the frozen signatures as stubs; an explicit export wins over `export *`.
 export { Access, AllowAnonymous, Unscoped } from './access/decorators.js';
