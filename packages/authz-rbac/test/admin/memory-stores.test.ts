@@ -4,7 +4,7 @@ import 'mocha';
 import { AuthzAdminFailure, AuthzConfigError, GLOBAL, MemoryAuthzAdminBackend } from '@spinajs/authz';
 import type { AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
-import { MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore } from '../../src/index.js';
+import { AdminAssignmentStore, MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore } from '../../src/index.js';
 import type { Assignment, RuleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -313,6 +313,42 @@ describe('MemoryLinkStore', () => {
     );
     expect(JSON.stringify([await links.find({}), await assignments.find({ at: T0, includeExpired: true })])).to.equal(before);
     expect((await links.byToken(token))?.id).to.equal(link.id);
+  });
+
+  it('preloads links with fixed tokens and writes their link:<id> assignments', async () => {
+    const seeded = new MemoryLinkStore(assignments, {
+      links: [
+        { link: { id: 'l1', scope: P1, expiresAt: later(5), attributes: { org_only: true }, createdBy: ROOT }, token: 'tok-l1', role: 'viewer', tags: ['b', 'a', 'a'] },
+        { link: { id: 'l2', scope: P2, attributes: {} }, token: 'tok-l2', role: 'editor' },
+      ],
+    });
+    expect(await seeded.byToken('tok-l1')).to.deep.equal({ id: 'l1', scope: P1, expiresAt: later(5), attributes: { org_only: true }, createdBy: ROOT });
+    expect((await seeded.byToken('tok-l2'))?.id).to.equal('l2');
+    expect(await seeded.byToken('tok-l3')).to.equal(null);
+    expect(JSON.stringify(Object.values(seeded))).to.not.include('tok-l1');
+    const [grant] = await assignments.forSubjects([{ type: 'link', id: 'l1' }], T0);
+    expect(grant).to.deep.include({ subject: { type: 'link', id: 'l1' }, role: 'viewer', scope: P1, tags: ['a', 'b'], expiresAt: null, grantedBy: ROOT });
+    expect((await assignments.forSubjects([{ type: 'link', id: 'l2' }], T0))[0]).to.deep.include({ role: 'editor', scope: P2, tags: [] });
+    await inTx(backend, (tx) => seeded.revoke('l1', ROOT, tx));
+    expect(await assignments.forSubjects([{ type: 'link', id: 'l1' }], T0)).to.deep.equal([]);
+  });
+
+  it('refuses preloaded links it cannot hold', () => {
+    const link = { id: 'l1', scope: P1, attributes: {} };
+    const other = new (class extends MemoryAssignmentStore {})();
+    expect(
+      () =>
+        new MemoryLinkStore(assignments, {
+          links: [
+            { link, token: 't', role: 'viewer' },
+            { link, token: 'u', role: 'viewer' },
+          ],
+        }),
+    ).to.throw(AuthzConfigError, /twice/);
+    expect(() => new MemoryLinkStore(assignments, { links: [{ link, token: '', role: 'viewer' }] })).to.throw(AuthzConfigError, /token/);
+    expect(() => new MemoryLinkStore(other, { links: [{ link, token: 't', role: 'viewer' }] })).to.not.throw();
+    const foreign = Object.create(AdminAssignmentStore.prototype) as AdminAssignmentStore;
+    expect(() => new MemoryLinkStore(foreign, { links: [{ link, token: 't', role: 'viewer' }] })).to.throw(AuthzConfigError, /MemoryAssignmentStore/);
   });
 
   it('version changes on every write', async () => {

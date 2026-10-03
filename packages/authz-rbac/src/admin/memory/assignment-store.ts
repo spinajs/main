@@ -45,6 +45,16 @@ export class MemoryAssignmentStore extends AdminAssignmentStore {
     for (const a of opts.assignments ?? []) this.rows.set(a.id, copy(a));
   }
 
+  /** Setup only (MemoryLinkStore preloads, tests, K1): an upsert outside any transaction, so no rollback undoes it. */
+  seed(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef): Assignment {
+    const key = identity(a);
+    const existing = [...this.rows.values()].find((r) => identity(r) === key);
+    const row = copy({ id: existing?.id ?? randomUUID(), subject: a.subject, role: a.role, scope: a.scope, tags: a.tags, expiresAt: a.expiresAt ?? null, grantedBy: existing?.grantedBy ?? actor, source: 'memory' });
+    this.rows.set(row.id, row);
+    this.revision++;
+    return copy(row);
+  }
+
   async forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]> {
     const keys = new Set(subjects.map(subjectKey));
     return [...this.rows.values()].filter((a) => keys.has(subjectKey(a.subject)) && isLive(a.expiresAt, at)).map(copy);

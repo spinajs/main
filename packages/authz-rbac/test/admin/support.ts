@@ -5,7 +5,7 @@ import { AdminGuard, AuthorizationModel, AuthzAdminBackend, AuthzAdminFailure, A
 import type { AuthzAdmin, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzService, Principal, ResourceRef } from '@spinajs/authz';
 
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
-import type { LadderDef, RoleDef } from '../../src/index.js';
+import type { Assignment, LadderDef, MemoryLinkStoreOptions, RoleDef } from '../../src/index.js';
 
 export const { config, installHost, uninstallHost, resetHost, domains, instance } = testHost;
 
@@ -91,25 +91,35 @@ export interface RbacDomain {
 
 export interface RbacDomainOptions {
   readonly roleStores?: readonly RoleStore[];
+  /** Rows the assignment store starts with. */
+  readonly assignments?: readonly Assignment[];
+  /** Links (with fixed tokens) the link store starts with. */
+  readonly links?: MemoryLinkStoreOptions['links'];
+  /** Replaces the authz.admin section (default: PermissiveGuard, TestBackend). */
+  readonly admin?: Record<string, unknown>;
+  /** Replaces grantsModel(). */
+  readonly model?: AuthorizationModel;
+  /** Declared besides the default permissions. */
+  readonly permissions?: Record<string, { types?: string[] }>;
   /** Leave these stores out. */
   readonly without?: readonly ('assignments' | 'links' | 'rules' | 'roles')[];
   register?(c: IContainer): void;
 }
 
 export async function rbacDomain(name = 'test', opts: RbacDomainOptions = {}): Promise<RbacDomain> {
-  config().set(['authz', 'domains', name], { permissions: PERMISSIONS, cache: { maxEntries: 0 } });
-  config().set(['authz', 'admin'], { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' });
+  config().set(['authz', 'domains', name], { permissions: { ...PERMISSIONS, ...opts.permissions }, cache: { maxEntries: 0 } });
+  config().set(['authz', 'admin'], opts.admin ?? { guard: { service: 'PermissiveGuard' }, backend: 'TestBackend' });
   const ds = await domains();
   const c = ds.create(name, 'root');
   const without = new Set(opts.without ?? []);
-  const assignments = new MemoryAssignmentStore();
-  const links = new MemoryLinkStore(assignments);
+  const assignments = new MemoryAssignmentStore({ assignments: opts.assignments });
+  const links = new MemoryLinkStore(assignments, { links: opts.links });
   const rules = new MemoryRuleStore();
   const bus = new RecordingChangeBus();
   const audit = new RecordingAudit();
   const sink = new RecordingSink();
   const clock = new ManualClock(START);
-  c.register(instance(grantsModel())).as(AuthorizationModel);
+  c.register(instance(opts.model ?? grantsModel())).as(AuthorizationModel);
   c.register(instance(bus)).as(ChangeBus);
   c.register(instance(audit)).as(DecisionAudit);
   c.register(instance(clock)).as(AuthzClock);

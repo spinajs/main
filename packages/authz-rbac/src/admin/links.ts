@@ -3,7 +3,7 @@ import type { AdminContext, AppliedRow, AuthzCommand, AuthzEvent, AuthzTx, Permi
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { LinkDef } from '../contracts.js';
-import { actorRef, assignmentStore, checkGrantable, event, linkStore, linkTags, quote, readAttributes, readFutureExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
+import { actorRef, assignmentStore, checkGrantable, event, linkGrants, linkStore, linkTags, plannedRemovals, quote, readAttributes, readFutureExpiry, readId, readNode, readOptionalTags, roleIndex } from './common.js';
 
 type Cmd<K extends AuthzCommand['kind']> = Extract<AuthzCommand, { kind: K }>;
 type Applied = { id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] } & AppliedRow;
@@ -52,7 +52,7 @@ export class RbacLinkHandler extends AuthzWriteHandler {
         if (Object.values(u).every((v) => v === undefined)) return { id: link.id, affected: 0, tags: [], events: [] };
         let next = link;
         if (u.expiresAt !== undefined || u.attributes !== undefined) next = await links.update(link.id, { expiresAt: u.expiresAt, attributes: u.attributes }, actor, tx);
-        const grant = await this.regrant(link, u, ctx, tx);
+        const grant = await this.regrant(c, link, u, ctx, tx);
         return { id: link.id, affected: 1, tags: linkTags(link.id), events: [event(ctx, 'LinkUpdated', { id: link.id, scope: next.scope, role: grant.role, tags: grant.tags, expiresAt: next.expiresAt ?? null })] };
       }
       case 'link.revoke': {
@@ -77,14 +77,13 @@ export class RbacLinkHandler extends AuthzWriteHandler {
   }
 
   /** A new role replaces the link's assignment (role is part of its identity); new tags update it in place. */
-  private async regrant(link: LinkDef, u: { role?: string; tags?: string[] }, ctx: AdminContext, tx: AuthzTx): Promise<{ role: string | null; tags: readonly string[] }> {
+  private async regrant(c: Cmd<'link.update'>, link: LinkDef, u: { role?: string; tags?: string[] }, ctx: AdminContext, tx: AuthzTx): Promise<{ role: string | null; tags: readonly string[] }> {
     const store = await assignmentStore(ctx);
     const actor = actorRef(ctx);
     const subject = { type: 'link', id: link.id };
-    const { items } = await store.find({ subject, scope: link.scope, includeExpired: true, at: ctx.now });
-    const current = items[0];
+    const current = (await linkGrants(link.id, ctx, true))?.[0];
     if (u.role !== undefined && u.role !== current?.role) {
-      for (const a of items) await store.revoke(a.id, actor, tx);
+      for (const a of (await plannedRemovals(c, ctx)).revoke) await store.revoke(a.id, actor, tx);
       const row = await store.assign({ subject, role: u.role, scope: link.scope, tags: u.tags ?? current?.tags ?? [], expiresAt: null }, actor, tx);
       return { role: row.role, tags: row.tags ?? [] };
     }

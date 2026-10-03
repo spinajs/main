@@ -29,20 +29,25 @@ function checkValue(op: string, v: unknown, field: string): void {
   if (!ok) throw refuse(field, `the value of ${op} has the wrong type`);
 }
 
+// Commands are structuredClone'd, which keeps cycles; without a limit a cycle or a deep JSON nesting
+// would reject execute with a RangeError instead of failing the command.
+const MAX_DEPTH = 32;
+
 /** Throws rule_not_compilable with the path of the first fault (rule.when.any.1). `fnKnown` decides fn names. */
-export function checkCondition(c: unknown, field: string, fnKnown: (name: string) => boolean): void {
+export function checkCondition(c: unknown, field: string, fnKnown: (name: string) => boolean, depth = 1): void {
+  if (depth > MAX_DEPTH) throw refuse(field, `conditions nest at most ${MAX_DEPTH} levels deep`);
   if (!isObject(c)) throw refuse(field, 'a condition must be an object');
   const keys = Object.keys(c);
   if ('all' in c || 'any' in c) {
     const key = 'all' in c ? 'all' : 'any';
     const list = c[key];
     if (keys.length !== 1 || !Array.isArray(list) || list.length === 0) throw refuse(field, `${key} must be the only key and a non-empty list`);
-    list.forEach((x, i) => checkCondition(x, `${field}.${key}.${i}`, fnKnown));
+    list.forEach((x, i) => checkCondition(x, `${field}.${key}.${i}`, fnKnown, depth + 1));
     return;
   }
   if ('not' in c) {
     if (keys.length !== 1) throw refuse(field, 'not must be the only key');
-    checkCondition(c.not, `${field}.not`, fnKnown);
+    checkCondition(c.not, `${field}.not`, fnKnown, depth + 1);
     return;
   }
   if ('attr' in c) {

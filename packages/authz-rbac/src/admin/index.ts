@@ -5,5 +5,7 @@ export * from './links.js';
 export * from './rules.js';
 export * from './readers.js';
 export * from './forgetter.js';
+export * from './facts.js';
+export * from './guard.js';
 export { plannedRemovals } from './common.js';
 export type { PlannedRemovals } from './common.js';

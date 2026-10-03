@@ -101,9 +101,8 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
         return { id: row.id, affected: 1, tags: [subjectTag(row.subject)], events: [revoked(ctx, row)] };
       }
       case 'assignment.revokeWhere': {
-        const { scope, subject, role } = this.whereOf(c);
-        // A link's grant goes with its link (link.revoke, scope.forget).
-        const items = (await store.find({ scope, subject, role, at: ctx.now })).items.filter((a) => !isLinkSubject(a.subject));
+        this.whereOf(c);
+        const items = (await plannedRemovals(c, ctx)).revoke;
         for (const a of items) await store.revoke(a.id, actor, tx);
         return { affected: items.length, tags: [...new Set(items.map((a) => subjectTag(a.subject)))], events: items.map((a) => revoked(ctx, a)) };
       }
@@ -131,7 +130,7 @@ export class RbacAssignmentHandler extends AuthzWriteHandler {
         const set = setOf(c);
         const member = readPrincipal(c.member, 'member');
         refuseLinkSubject(member, 'member');
-        const { items } = await store.find({ scope: set.scope, subject: member, role: set.role, includeExpired: true, at: ctx.now });
+        const items = (await plannedRemovals(c, ctx)).revoke;
         if (items.length === 0) throw new AuthzAdminFailure('not_found', `${quote(member)} is not a member of ${quote(set.role)} at the set scope`, 'member');
         for (const a of items) await store.revoke(a.id, actor, tx);
         return { id: items[0].id, affected: items.length, tags: [subjectTag(member)], events: items.map((a) => revoked(ctx, a)) };

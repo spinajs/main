@@ -328,7 +328,34 @@ describe('RBAC assignment and subject set commands', function () {
       expect((await plannedRemovals(grant('viewer', P1, DAVE), ctx())).expire).to.deep.equal([]);
       const m = await d.admin.execute(alice, [{ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE }]);
       expect((await plannedRemovals({ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE, expiresAt: later }, ctx())).expire.map((r) => r.id)).to.deep.equal([ok(m)[0].id]);
-      expect(await plannedRemovals({ kind: 'assignment.revoke', id: a.id }, ctx())).to.deep.equal({ revoke: [], expire: [] });
+      expect((await plannedRemovals({ kind: 'assignment.setExpiry', id: a.id, expiresAt: later }, ctx())).expire.map((r) => r.id)).to.deep.equal([a.id]);
+      expect(await plannedRemovals({ kind: 'assignment.setExpiry', id: a.id, expiresAt: null }, ctx())).to.deep.equal({ revoke: [], expire: [] });
+    });
+
+    it('names the rows revoke, revokeWhere, set.removeMember, a link role change and link.revoke remove', async () => {
+      const a = await d.admin.assign(alice, { subject: DAVE, role: 'viewer', scope: P1 });
+      const b = await d.admin.assign(alice, { subject: ERIN, role: 'viewer', scope: P1 });
+      await d.admin.assign(alice, { subject: ERIN, role: 'plain', scope: P2 });
+      const m = ok(await d.admin.execute(alice, [{ kind: 'set.addMember', set: { role: 'group.member', scope: GR }, member: DAVE }]))[0];
+      const { link } = await d.admin.createLink(alice, { scope: P1, role: 'viewer' });
+      const [grantOfLink] = await d.assignments.forSubjects([{ type: 'link', id: link.id }], START);
+      const ids = async (c: AuthzCommand) => {
+        const p = await plannedRemovals(c, ctx());
+        expect(p.expire).to.deep.equal([]);
+        return p.revoke.map((r) => r.id);
+      };
+      expect(await ids({ kind: 'assignment.revoke', id: a.id })).to.deep.equal([a.id]);
+      expect(await ids({ kind: 'assignment.revoke', id: 'gone' })).to.deep.equal([]);
+      expect(await ids({ kind: 'assignment.revokeWhere', scope: P1 })).to.deep.equal([a.id, b.id]);
+      expect(await ids({ kind: 'assignment.revokeWhere', scope: P1, subject: ERIN })).to.deep.equal([b.id]);
+      expect(await ids({ kind: 'set.removeMember', set: { role: 'group.member', scope: GR }, member: DAVE })).to.deep.equal([m.id]);
+      expect(await ids({ kind: 'link.update', id: link.id, role: 'editor' })).to.deep.equal([grantOfLink.id]);
+      expect(await ids({ kind: 'link.update', id: link.id, role: 'viewer' })).to.deep.equal([]);
+      expect(await ids({ kind: 'link.update', id: link.id, tags: ['x'] })).to.deep.equal([]);
+      expect(await ids({ kind: 'link.revoke', id: link.id })).to.deep.equal([grantOfLink.id]);
+      expect(await ids({ kind: 'link.revoke', id: 'gone' })).to.deep.equal([]);
+      expect(await ids({ kind: 'assignment.addTags', id: a.id, tags: ['x'] })).to.deep.equal([]);
+      expect(await ids({ kind: 'scope.forget', scope: P1 })).to.deep.equal([]);
     });
   });
 

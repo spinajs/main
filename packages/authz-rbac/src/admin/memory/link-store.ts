@@ -1,12 +1,13 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { AuthzAdminFailure, SYSTEM, memoryTx } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, SYSTEM, memoryTx } from '@spinajs/authz';
 import type { AuthzTx, MemoryTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 import type { LinkDef } from '../../contracts.js';
 import { AdminLinkStore } from '../ports.js';
 import type { AdminAssignmentStore, Page } from '../ports.js';
-import { copyDate, copyPrincipalRef, copyRef, deepFreeze, paged, sameRef } from '../rows.js';
+import { copyDate, copyPrincipalRef, copyRef, deepFreeze, normaliseTags, paged, sameRef } from '../rows.js';
+import { MemoryAssignmentStore } from './assignment-store.js';
 
 interface Row {
   readonly link: LinkDef;
@@ -25,6 +26,15 @@ function copy(l: LinkDef): LinkDef {
   });
 }
 
+export interface MemoryLinkStoreOptions {
+  readonly name?: string;
+  /**
+   * Links to start with, under fixed tokens (K1 and test worlds); each gets its link:<id> assignment in the
+   * given store, which must then be a MemoryAssignmentStore.
+   */
+  readonly links?: readonly { readonly link: LinkDef; readonly token: string; readonly role: string; readonly tags?: readonly string[] }[];
+}
+
 /**
  * Links in a map, keyed by id, holding only the SHA-256 of each token. A link's grant is a normal assignment
  * of subject link:<id> in the assignment store given here, written in the same transaction. Not registered.
@@ -34,9 +44,18 @@ export class MemoryLinkStore extends AdminLinkStore {
   private readonly rows = new Map<string, Row>();
   private revision = 0;
 
-  constructor(private readonly assignments: AdminAssignmentStore, opts: { readonly name?: string } = {}) {
+  constructor(private readonly assignments: AdminAssignmentStore, opts: MemoryLinkStoreOptions = {}) {
     super();
     this.name = opts.name ?? 'memory';
+    if (!opts.links?.length) return;
+    if (!(assignments instanceof MemoryAssignmentStore)) throw new AuthzConfigError(`MemoryLinkStore: preloaded links need a MemoryAssignmentStore for their grants, got ${assignments?.constructor?.name ?? String(assignments)}`);
+    for (const { link, token, role, tags } of opts.links) {
+      if (this.rows.has(link.id)) throw new AuthzConfigError(`MemoryLinkStore: link ${JSON.stringify(link.id)} is preloaded twice`);
+      if (typeof token !== 'string' || token === '') throw new AuthzConfigError(`MemoryLinkStore: preloaded link ${JSON.stringify(link.id)} needs a non-empty token`);
+      const row = copy(link);
+      this.rows.set(row.id, { link: row, hash: hashOf(token) });
+      assignments.seed({ subject: { type: 'link', id: row.id }, role, scope: row.scope, tags: normaliseTags(tags), expiresAt: null }, row.createdBy ?? copyPrincipalRef(SYSTEM));
+    }
   }
 
   async byToken(token: string): Promise<LinkDef | null> {

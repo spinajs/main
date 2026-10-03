@@ -246,6 +246,25 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ id: 'r2', when: { fn: 'time.ghost' } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
     });
 
+    it('refuses conditions nested deeper than 32 levels, cycles included, as a failed command', async () => {
+      await resetHost();
+      d = await rbacDomain('test', { register: (c) => c.register(FakeCompiler).as(ConditionCompiler) });
+      const nested = (depth: number): Condition => {
+        let c: Condition = { attr: 'principal.id', eq: 'x' };
+        for (let i = 1; i < depth; i++) c = i % 2 ? { not: c } : { all: [c] };
+        return c;
+      };
+      const cycle: Record<string, unknown> = {};
+      cycle.not = cycle;
+      for (const when of [nested(40), cycle as unknown as Condition]) {
+        const f = failure(await d.admin.execute(SYSTEM, [put(threshold({ when }))]));
+        expect(f.code).to.equal('rule_not_compilable');
+        expect(f.field).to.match(/^rule\.when(\.(not|all\.0))+$/);
+      }
+      ok(await d.admin.execute(SYSTEM, [put(threshold({ when: nested(32) }))]));
+      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ when: nested(33) }))])).code).to.equal('rule_not_compilable');
+    });
+
     it('stores only RuleDef keys', async () => {
       ok(await d.admin.execute(alice, [put({ ...threshold(), extra: 'x', source: 'forged' } as unknown as Rule)]));
       expect(await d.rules.byId('r1')).to.deep.equal({ ...threshold(), source: 'memory' });

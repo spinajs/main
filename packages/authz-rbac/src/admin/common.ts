@@ -1,5 +1,5 @@
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, AuthzEvent, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 
 import { RoleStore } from '../contracts.js';
@@ -71,6 +71,41 @@ async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
   const listed = new Map<string, string>();
   for (const l of ladders.values()) for (const r of l.roles) listed.set(r, l.name);
   return { roles, ladders, ladderOf: (role) => roles.get(role)?.ladder ?? listed.get(role) };
+}
+
+/** Rank on its ladder (index, weakest first); -1 when the role is not listed there. */
+export function rankOf(roles: RoleIndex, ladder: string, role: string): number {
+  return roles.ladders.get(ladder)?.roles.indexOf(role) ?? -1;
+}
+
+/**
+ * What holding `role` gives: the role, the roles it extends and the lower roles of its ladder, transitively.
+ * `unknown` names roles of the closure that are not defined. Implied roles are left out: they apply at
+ * other scopes (RbacService.covers is expected to replace this, hand-off to L1).
+ */
+export function roleClosure(roles: RoleIndex, role: string): { readonly defs: readonly RoleDef[]; readonly unknown: readonly string[] } {
+  const defs = new Map<string, RoleDef>();
+  const unknown = new Set<string>();
+  const visit = (name: string): void => {
+    if (defs.has(name) || unknown.has(name)) return;
+    const def = roles.roles.get(name);
+    if (!def) {
+      unknown.add(name);
+      return;
+    }
+    defs.set(name, def);
+    for (const e of def.extends) visit(e);
+    const ladder = roles.ladderOf(name);
+    const list = ladder === undefined ? undefined : roles.ladders.get(ladder)?.roles;
+    if (list) for (const lower of list.slice(0, Math.max(0, list.indexOf(name)))) visit(lower);
+  };
+  visit(role);
+  return { defs: [...defs.values()], unknown: [...unknown] };
+}
+
+/** A grant of the role's closure matches `permission` (grants are names or globs; conditions do not matter). */
+export function grantsPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
+  return roleClosure(roles, role).defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
 }
 
 // ---- command fields ----
@@ -172,21 +207,72 @@ export function checkGrantable(roles: RoleIndex, role: unknown, scope: ResourceR
 // ---- removals hidden in grants ----
 
 export interface PlannedRemovals {
-  /** Rows the command revokes (assignment.grant with replaceLadder: the subject's other roles of that ladder at that scope). */
+  /** Rows the command revokes. */
   readonly revoke: readonly Assignment[];
-  /** The existing row of the same (subject, role, scope) whose expiry the command sets to another non-null date. */
+  /** Rows whose expiry the command sets to another non-null date. */
   readonly expire: readonly Assignment[];
 }
 
 const NONE: PlannedRemovals = Object.freeze({ revoke: [], expire: [] });
 
 /**
- * What an assignment.grant or set.addMember removes besides what it grants, read inside the batch
- * transaction. The handler revokes exactly these rows, and an AdminGuard runs its removal checks
- * (self-lockout, last holder, protected roles) on the same rows. Other kinds remove nothing this way.
+ * The assignment rows a command revokes or re-expires, read inside the batch transaction: revoke,
+ * revokeWhere, set.removeMember, setExpiry, link.update with a new role, link.revoke, and what a grant
+ * or set.addMember removes besides what it grants (replaceLadder, a moved expiry). The handlers remove
+ * exactly these rows, and an AdminGuard runs its removal checks on the same rows, so the two cannot
+ * drift. A row the command names but the store no longer holds is left out (the handler reports it).
  */
 export async function plannedRemovals(c: AuthzCommand, ctx: AdminContext): Promise<PlannedRemovals> {
-  if (c.kind !== 'assignment.grant' && c.kind !== 'set.addMember') return NONE;
+  switch (c.kind) {
+    case 'assignment.grant':
+    case 'set.addMember':
+      return grantRemovals(c, ctx);
+    case 'assignment.revoke': {
+      const row = await (await assignmentStore(ctx)).byId(readId(c.id));
+      return row && !isLinkSubject(row.subject) ? { revoke: [row], expire: [] } : NONE;
+    }
+    case 'assignment.setExpiry': {
+      const row = await (await assignmentStore(ctx)).byId(readId(c.id));
+      const at = readExpiry(c.expiresAt) ?? null;
+      return row && !isLinkSubject(row.subject) && at !== null && row.expiresAt?.getTime() !== at.getTime() ? { revoke: [], expire: [row] } : NONE;
+    }
+    case 'assignment.revokeWhere': {
+      const scope = readScope(c.scope, 'scope');
+      const subject = c.subject === undefined ? undefined : readSubject(c.subject, 'subject');
+      const role = c.role === undefined ? undefined : readId(c.role, 'role');
+      // A link's grant goes with its link (link.revoke, scope.forget).
+      const { items } = await (await assignmentStore(ctx)).find({ scope, subject, role, at: ctx.now });
+      return { revoke: items.filter((a) => !isLinkSubject(a.subject)), expire: [] };
+    }
+    case 'set.removeMember': {
+      const set = (isObject(c.set) ? c.set : {}) as Record<string, unknown>;
+      const { items } = await (await assignmentStore(ctx)).find({ scope: readScope(set.scope, 'set.scope'), subject: readPrincipal(c.member, 'member'), role: readId(set.role, 'set.role'), includeExpired: true, at: ctx.now });
+      return { revoke: items, expire: [] };
+    }
+    case 'link.update': {
+      if (c.role === undefined) return NONE;
+      const items = await linkGrants(readId(c.id), ctx, true);
+      // The role is part of an assignment's identity: a new one replaces the link's grant.
+      return items !== undefined && readId(c.role, 'role') !== items[0]?.role ? { revoke: items, expire: [] } : NONE;
+    }
+    case 'link.revoke': {
+      const items = await linkGrants(readId(c.id), ctx, false);
+      return items !== undefined ? { revoke: items, expire: [] } : NONE;
+    }
+    default:
+      return NONE;
+  }
+}
+
+/** The grant rows of a link (at its scope only, or anywhere, as the link store drops them on revoke); undefined for an unknown link. */
+export async function linkGrants(id: string, ctx: AdminContext, atScope: boolean): Promise<readonly Assignment[] | undefined> {
+  const link = await (await linkStore(ctx)).byId(id);
+  if (!link) return undefined;
+  const { items } = await (await assignmentStore(ctx)).find({ subject: { type: LINK_TYPE, id: link.id }, ...(atScope ? { scope: link.scope } : {}), includeExpired: true, at: ctx.now });
+  return items;
+}
+
+async function grantRemovals(c: Extract<AuthzCommand, { kind: 'assignment.grant' | 'set.addMember' }>, ctx: AdminContext): Promise<PlannedRemovals> {
   const roles = await roleIndex(ctx);
   const store = await assignmentStore(ctx);
   let subject: AssignmentSubject;
