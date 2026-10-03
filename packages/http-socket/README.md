@@ -279,6 +279,9 @@ export class DocsSocket extends BaseSocketController {
 | `rate` | `{ perSecond: 50, burst: 100 }` | token bucket per connection |
 | `ordering.abortGraceMs` | `30_000` | how long an aborted `ordered` command keeps its queue place |
 | `hooks.connectTimeoutMs` | `10_000` | how long commands wait for connect hooks |
+| `idempotency` | `{ service: 'MemoryIdempotencyStore', ttlMs: 600_000, maxEntries: 100_000 }` | the `IdempotencyStore` class (by name) and how long and how many completed keys it keeps |
+| `drainMs` | `5_000` | how long running commands and streams get to finish at shutdown |
+| `shutdownRetryAfterMs` | `5_000` | the `retryAfterMs` of `sys.shutdown` and of the `unavailable` refusals during a drain |
 | `streams.maxCredits` | `64` | largest credit window per stream |
 | `streams.maxPerConnection` | `8` | open streams per connection |
 | `streams.stallTimeoutMs` | `60_000` | a stream without credit, or with a backlogged connection, this long fails |
@@ -286,6 +289,20 @@ export class DocsSocket extends BaseSocketController {
 | `adapter` | `undefined` | socket.io adapter for several instances |
 
 `system.dirs.socketControllers` (default `[]`) lists the folders scanned for socket controllers. An invalid limit stops the server at startup with a `RangeError`; `RELEASE_NOTES.md` lists the checks.
+
+## Durable commands, shutdown and recovery
+
+**Idempotent and ordered commands.** A command declared `@Command(name, { idempotent: true, ordered: 'client' })` serves `client.durable()`. The request carries an `idempotencyKey` and, for every command but the first in the queue, `after`: the key of its predecessor. Both are 1 to 256 printable ASCII characters.
+
+- A completed key replays its stored reply, and a running key is joined, so the handler runs once per `(principalKey, clientId, key)`. A result and a non-retryable error are stored. A retryable error, `unauthenticated` and the call's own abort release the key.
+- The ordering stage (550) runs a command with `after` only once the store holds its predecessor as completed. Otherwise it answers a retryable `unavailable` with `details.after`.
+- An `idempotencyKey` on a command that is not `idempotent` answers `failed_precondition`; an `after` without a key answers `invalid_argument`; an `after` on a command that is not `ordered: 'client'` answers `failed_precondition`.
+- Exactly-once needs a handler that rolls back when its signal aborts, for every abort reason (disconnect, cancel, deadline, shutdown), or that never throws the abort after it has committed. A handler that commits and then throws the abort reason, or another retryable error, releases its key, so a resend runs it again. Only the shutdown deadline marks the outcome as unknown and keeps the key. Check the signal before you commit, and make the commit the last step.
+- `MemoryIdempotencyStore` is per process. A store shared by several instances has to make `claim` atomic and expire the running claims of a dead instance; see `IdempotencyStore`.
+
+**Shutdown.** `dispose()` (and the host's `http.server.closing`) refuses new handshakes and commands with `unavailable`, sends `sys.shutdown { retryAfterMs }`, lets running commands and streams finish for `drainMs`, answers the rest with `unavailable`, disconnects the local sockets, waits for the disconnect hooks and closes. Set `http.shutdownTimeout` above `drainMs` + 3 s; startup warns when it is not. Polling clients do not drain, because `@spinajs/http` stops listening before it emits `http.server.closing`.
+
+**Recovery.** A recovered connection has `SocketConnection.recovered === true`, and its connect hooks run again. Its principal is re-checked with its source before the hooks and commands run, whatever `auth.revalidateMs` says.
 
 ## Observability
 

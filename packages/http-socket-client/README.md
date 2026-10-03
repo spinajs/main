@@ -53,7 +53,27 @@ const off = client.on<Committed>('docs.committed', (payload) => apply(payload));
 client.emit('docs.cursor', { x, y }); // fire-and-forget; false and dropped when not online
 ```
 
-The lifecycle names (`state`, `auth_required`, `incompatible`, `refused`, `failed`) are routed to the client's own listeners, so a server event with one of these names never reaches `on()`.
+The lifecycle names (`state`, `auth_required`, `incompatible`, `refused`, `acked`, `failed`, `held`) are routed to the client's own listeners, so a server event with one of these names never reaches `on()`.
+
+## Durable commands
+
+```ts
+import { SocketClient } from '@spinajs/http-socket-client';
+import { IndexedDbOutboxStore } from '@spinajs/http-socket-client/browser'; // Node: FileOutboxStore from '/node'
+
+const client = new SocketClient({ url, clientId: storedClientId, outbox: new IndexedDbOutboxStore('app') });
+client.on('acked', ({ entry, result }) => {});
+client.on('failed', ({ entry, error }) => {}); // refused for good; the entry waits in the store's failed list
+await client.durable('docs.edit', { id, op }, { key: opId }).catch(() => undefined);
+```
+
+- The command is written to the outbox before it is sent, then sent in order, up to `durable.window` (16) at once, each with `after` set to the previous unacknowledged command. It carries no deadline. The server command must be `idempotent` and `ordered: 'client'`.
+- After any drop everything unacknowledged is sent again, and so is a command unanswered for `durable.ackTimeoutMs` (60 s). Retryable errors are retried with the reconnect backoff.
+- `unauthenticated` keeps the queue and emits `held`; nothing is sent until the connection comes online again.
+- The key is your `key` (1 to 256 printable ASCII characters, not starting with `${clientId}:`) or a generated `${clientId}:<nonce>`.
+- A persistent `outbox` requires an explicit `clientId`, stored by the app: a new random id after a reload would break exactly-once and ordering. The default `MemoryOutboxStore` does not survive a reload.
+- `durable()` rejects when the server refuses the command for good and when the client closes (the entry stays in the outbox). Attach a `catch` or follow `acked` / `failed`.
+- `acked` and `failed` fire in send order, also for entries resumed from the outbox after a reload.
 
 ## Streams
 

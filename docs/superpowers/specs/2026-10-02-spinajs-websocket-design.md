@@ -219,7 +219,7 @@ client.on('failed', ({ entry, error }) => …)                 // a durable comm
   holds the command in memory until the client is online or the timeout passes. A drop in the middle of a command
   rejects it with `unavailable`, which is retryable.
 - **Durable commands.**
-  1. A command is written to the `OutboxStore` before it is sent, with `idempotencyKey = clientId:seq`.
+  1. A command is written to the `OutboxStore` before it is sent, with `idempotencyKey = clientId:<random nonce>`, persisted with the entry (a store that starts over reuses `seq`s).
   2. Commands go out in order, pipelined up to a window (default 16). The server must declare the command
      `idempotent` and `ordered: 'client'`.
   3. After any drop, everything not acked is resent in order. The server's idempotency store makes the resend safe.

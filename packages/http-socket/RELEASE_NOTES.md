@@ -96,6 +96,7 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `http.socket.ordering.abortGraceMs` (default `30_000`): how long an aborted `ordered` command whose handler is still running keeps its queue place.
 - `http.socket.hooks.connectTimeoutMs` (default `10_000`): a connect hook still running after it is logged and commands stop waiting for it, so a disconnect hook may start while the connect hook is still running.
 - `http.socket.streams` (default `{ maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 60_000 }`): the largest window a client may grant one stream, the open streams per connection, and how long a stream may wait for credit or for its backlogged connection to flush.
+- `http.socket.idempotency` (default `{ service: 'MemoryIdempotencyStore', ttlMs: 600_000, maxEntries: 100_000 }`), `http.socket.drainMs` (`5_000`) and `http.socket.shutdownRetryAfterMs` (`5_000`): see W3 resilience.
 - Limit refusals read "more than N commands in flight on this connection" and "more than N events in flight on this connection".
 
 ### SocketHub
@@ -124,21 +125,67 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 
 - **Rate limit.** Every `cmd` frame takes a token from the connection's bucket when it arrives, including frames without an ack, malformed frames and duplicate ids. A refused frame without an ack is dropped silently. Ack-less frames are logged with one warn per connection per 10 s, the rest at debug.
 - **Ordering.** `ordered: 'client'` queues are keyed by the principal (`principalKey`) and the `clientId`, so another principal sending the same `clientId` never waits on that queue.
-- **Shutdown.** W3 replaces the immediate abort with a graceful drain; see W3, Graceful shutdown.
-- **Connection state recovery.** A recovered connection keeps its socket id. Its disconnect hooks ran at the drop, and its connect hooks run again on recovery with the same id. A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes. The restore filter wraps socket.io 4.8 internals (`adapter.restoreSession`, `Namespace._initAdapter`): `test/recovery.test.ts` must pass before any socket.io upgrade.
+- **Shutdown.** `dispose()` runs `SocketServer.shutdown()`, which the host's `http.server.closing` DI event also starts. The steps:
+  1. Refuse new handshakes, recovered sockets and new commands with a retryable `unavailable` carrying `retryAfterMs = http.socket.shutdownRetryAfterMs`. New events are dropped.
+  2. Send `sys.shutdown { retryAfterMs }` to every local connection.
+  3. Let running commands and open streams finish for up to `drainMs`.
+  4. Answer the rest with `unavailable`, and wait for those replies to be written.
+  5. Disconnect the local sockets, and wait up to `drainMs` for the disconnect hooks while the hub can still push. Then close.
 
-## Notes for W3 (resilience)
+  Set `http.shutdownTimeout` above `http.socket.drainMs` + 3 s, or the http server destroys the sockets mid-drain; startup warns about it. See W3, Graceful shutdown.
+- **Connection state recovery.** A recovered connection keeps its socket id, and `SocketConnection.recovered` is `true`.
+  - Its disconnect hooks ran at the drop. Its connect hooks run again on recovery and can read `conn.recovered`, for example to skip re-joining rooms, which recovery restores. Commands and events wait for the hooks, which wait for the re-check below.
+  - A recovered connection whose principal has a source is re-checked with that source before its hooks and commands run, whatever `auth.revalidateMs` says. An `'invalid'` answer closes it with `sys.disconnect { reason: 'unauthenticated' }`. An `'unavailable'` answer runs the hooks and keeps the connection for one grace window. A `'valid'` answer that carries a principal replaces the restored one; that is how a session restored through a serializing adapter gets its `Principal.identity` back. A source that answers plain `true` keeps the flattened one.
+  - A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation, and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes.
+  - The restore filter wraps socket.io 4.8 internals (`adapter.restoreSession`, `Namespace._initAdapter`). `test/recovery.test.ts` must pass before any socket.io upgrade.
 
-- `sys.shutdown` must be sent through `SocketConnection.notify()` or a raw `io.emit`. `SocketHub` pushes refuse `sys.*` names.
-- Idempotency must key independently of the running map: the dispatcher's per-connection running map is by request id and is not a dedupe store.
-- Idempotency keys must be `(principalKey, clientId, key)`, for the same reason as the ordering key: a `clientId` is not a secret, and a replayed reply must never reach another principal.
+## W3 resilience (breaking changes)
 
-## W3 (resilience)
+- **`STAGE_ORDER` changed.** `Idempotency` is new at `500`, and `Ordering` moves from `800` to `550`: after idempotency, before policies (`600`) and arguments (`700`). Policies and hydrators of an `ordered` command now run inside its queue place, so they see what the commands before it changed. A durable edit pipelined right behind its create is no longer hydrated before the create ran (its `not_found` would be stored as final). `ordered` commands without `after` get the same, stronger ordering. A custom stage with an `Order` between `550` and `800` now runs inside the queue place.
+- **`isCommandRequest` is stricter.** `idempotencyKey` and the new `after` must be 1 to `MAX_KEY_LENGTH` (256) printable ASCII characters (`isKey`). A frame that breaks this is refused as a malformed command (`invalid_argument`).
+- **`idempotencyKey` / `after` rules.**
+  - An `idempotencyKey` on a command that is not `idempotent` is refused with `failed_precondition`.
+  - An `after` without an `idempotencyKey` is refused with `invalid_argument`.
+  - An `after` on a command that is not `ordered: 'client'` is refused with `failed_precondition`.
+- **A persistent outbox requires an explicit `clientId`.** `new SocketClient({ outbox })` without `clientId` throws a `RangeError`: persisted keys start with `${clientId}:`, and a fresh random id after a reload would break exactly-once and ordering.
+- **Streams cannot be idempotent or ordered.** An async-generator handler declared `idempotent` or `ordered` is refused at startup. Another async iterable returned by such a command is answered `failed_precondition`. A stream reply is never stored.
+- **Unauthenticated outcomes are released, not stored.** An `unauthenticated` error releases the idempotency key, so the command runs after a re-login. A retryable error and the call's own abort release it too.
+- **A fire-and-forget `durable()` rejects.** Its promise rejects when the server refuses the command for good (it is then in the `failed` list) and when the client closes (the entry stays in the outbox). A caller that does not await it attaches a `catch`, or follows `acked` / `failed` instead; otherwise the rejection is unhandled.
+- **`dispose()` drains**, up to `drainMs` (5 s by default) plus the flush windows described under Shutdown. Tests that close servers with handlers still running can set `http.socket.drainMs: 0`.
+- **The lifecycle events `acked`, `failed` and `held`** are routed to the client's own listeners. A server event with one of these names no longer reaches `client.on()`.
 
-### Command stage order
+## W3 resilience (new)
 
-- `STAGE_ORDER.Ordering` moves from `800` to `550`, after idempotency (`500`) and before policies (`600`) and arguments (`700`). Policies and hydrators of an `ordered` command now run inside its queue place, so they see what the commands before it changed. A durable edit pipelined right behind its create is no longer hydrated before the create ran (its `not_found` would be stored as final).
-- `ordered: 'connection'` and `ordered: 'client'` commands without `after` get the same, stronger ordering. A custom stage ordered between `550` and `800` now runs inside the queue place.
+### Idempotent commands (pipeline stage `IdempotencyStage`, `Order` 500)
+
+- `@Command(name, { idempotent: true })` plus a request `idempotencyKey`: a completed key replays its stored reply, and a running key is joined. The handler never runs twice for one `(principalKey, clientId, idempotencyKey)`; the three parts are `encodeURIComponent`-encoded in the store key.
+- A result and a non-retryable error are stored. A replayed error keeps its `errorId`. A result that JSON cannot represent is answered, and stored, as `undefined`.
+- A retryable error, an `unauthenticated` error, the call's own abort (deadline, cancel, disconnect, shutdown while queued) and a stream result release the key.
+- A key stays running until its handler settles, even after the client got an abort reply, and even for a handler the ordering stage cut loose after `ordering.abortGraceMs`. A resend joins it and never runs it twice.
+- `IdempotencyStore` is pluggable through `http.socket.idempotency.service` (a class name; the whole `http.socket.idempotency` object is its constructor argument). The default `MemoryIdempotencyStore` keeps up to `maxEntries` (100 000) completed keys for `ttlMs` (10 min), least recently used first out.
+- A store shared by several instances must make `claim` atomic and expire the running claims of a dead instance. While another instance runs a key, this one answers a retryable `unavailable` with `retryAfterMs: 1000`.
+- Public API: `IdempotencyStore`, `MemoryIdempotencyStore`, `SocketIdempotency`, `IdempotencyStage`, `ISocketIdempotencyClaim`.
+
+### Ordering and the `after` fence
+
+- `CommandRequest.after` names the idempotency key of the durable command sent before. The ordering stage (`Order` 550) runs the command only once the store holds that key as completed. Otherwise it answers a retryable `unavailable` with `details: { after }`, which lets the durable client requeue the command without pausing its queue.
+- The outcome of an ordered command is stored before its queue place is released, so the next command's fence sees it.
+
+### Durable commands (`@spinajs/http-socket-client`)
+
+- `client.durable(name, payload, { key? })` writes the command to the outbox before it sends it. The key is the app's `key` (1 to 256 printable ASCII characters, not starting with `${clientId}:`) or a generated `${clientId}:<random nonce>` that is persisted with the entry. The queue:
+  - sends up to `durable.window` (16) commands at once, each `after` the previous unacknowledged one, with no deadline;
+  - resends everything unacknowledged after any drop, and a command unanswered for `durable.ackTimeoutMs` (60 s) on a live connection;
+  - retries retryable errors with the reconnect backoff, honouring `retryAfterMs`, and sends only its head while it probes;
+  - keeps an `unauthenticated` command queued, emits `held` once, and sends nothing until the connection comes online again;
+  - moves a command refused for good to the store's `failed` list and emits `failed`;
+  - emits `acked` for each acknowledged command, also for those resumed from the outbox after a reload.
+- Callers and the `acked` / `failed` listeners hear about commands in send order. `close()` rejects waiting callers with a non-retryable `unavailable`; the entries stay in the store.
+- `durable.maxPayloadBytes` (1 MiB) is checked before the command is persisted.
+- Stores, all passing one contract suite (`add` durable before the send, a `seq` that is never reused, a `failed` list kept until `clearFailed`):
+  - `MemoryOutboxStore`, the default; it does not survive a reload;
+  - `IndexedDbOutboxStore(name, { factory?, exclusive? })` from `@spinajs/http-socket-client/browser`; with the global IndexedDB it refuses a second live store on the same name through `navigator.locks`;
+  - `FileOutboxStore(path)` from `@spinajs/http-socket-client/node`; one JSON file written through a temp file, fsync and rename, one process per file.
 
 ### Graceful shutdown
 
@@ -146,15 +193,37 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - During the drain, new handshakes, recovered connections and new commands are refused with `unavailable` and `retryAfterMs = http.socket.shutdownRetryAfterMs` (new, default `5_000`). A recovered connection gets `sys.shutdown` before its refusal. New events are dropped.
 - Every local connection gets `sys.shutdown {retryAfterMs}` through `SocketConnection.notify()`. Running commands, open streams and their stage chains get up to `drainMs` to finish. After that, the rest are answered `unavailable`, and open streams get `fail unavailable`, except keyed commands whose handler already started: they get 1 s more to answer, and record, their real outcome.
 - The server then disconnects only its own clients (`io.local`), waits up to 1 s for the transports to write the last replies and frames and up to `drainMs` for the disconnect hooks (which can still push), and closes. An adapter whose `close()` does not settle within 1 s is not waited for.
-- Startup warns when `drainMs + 2 000` reaches `http.shutdownTimeout`, after which `@spinajs/http` destroys the connections.
+- Startup warns when `drainMs + 3 000` reaches `http.shutdownTimeout`, after which `@spinajs/http` destroys the connections.
 
-### Known limits
+### Recovery
 
-- No idempotency store has a lease yet: a handler that never settles keeps its key running forever, and every resend of it waits or is refused. A lease belongs to the first shared store (Redis, ORM).
-- A reply the store could not keep is still answered and its key released. A second run therefore needs a store failure plus a lost ack.
+`SocketConnection.recovered`, and the principal re-check of recovered connections; see the Connection state recovery behaviour note.
+
+## W3 resilience (startup checks)
+
+`SocketServer` also refuses to start with a `RangeError` when:
+
+- `idempotency.service` is not a non-empty string, `idempotency.ttlMs` is not within (0, 2^31-1], or `idempotency.maxEntries` is not an integer above 0;
+- `drainMs` is not within [0, 2^31-1], or `shutdownRetryAfterMs` is not a finite number above 0.
+
+It warns when `drainMs + 3 000` reaches `http.shutdownTimeout`. `SocketClient` throws a `RangeError` for a `durable.window` or `durable.maxPayloadBytes` that is not an integer of at least 1, and for an invalid `durable.ackTimeoutMs`. `durable()` rejects with a `RangeError` for a key that `isKey` refuses or that starts with `${clientId}:`.
+
+## W3 resilience (spec amendments)
+
+- Spec §6 step 1 and plan D7 said `idempotencyKey = clientId:seq`. The key is now `clientId:<random nonce>`, persisted with the entry. A store that starts over (wiped, or in memory) reuses `seq`s, and the server would replay an old command's stored reply to a new one.
+
+## W3 resilience (known limits)
+
+- No idempotency store has a lease yet: a handler that never settles keeps its key running forever, and every resend of it waits or is refused. A shared store (Redis, ORM) needs to expire running claims.
+- A reply the store could not keep is still answered and its key released. A double run therefore needs both a store failure and a lost ack.
+- Exactly-once needs a keyed handler that rolls back when its signal aborts, for every abort reason (disconnect, cancel, deadline, shutdown), or that never throws the abort after it has committed. A handler that commits and then throws the abort reason (or another retryable error) releases its key, so a resend runs it again. Only the shutdown deadline marks the outcome as unknown and keeps the key. Check the signal before committing, and make the commit the last step.
+- Exactly-once across a graceful restart also needs a shared idempotency store, and handlers that finish within `drainMs` + `SHUTDOWN_FLUSH_MS` (1 s) or roll back when their signal aborts. A keyed handler still running after that is answered `unavailable` and its key stays running, because it may have committed. With a shared store, its resends are refused until the store expires the claims of the dead instance. With the memory store, the key dies with the process, and a resend to the next instance runs the command again. The memory store does not give exactly-once after a crash either. The editor's opId dedupe is the backstop.
+- A completed key is forgotten after `ttlMs`. An unacknowledged entry resent after a longer offline period runs again.
 - A principal switch mid-queue changes the key scope: an anonymous command whose ack was lost runs again after login.
 - Unauthenticated connections share one principal key, so their idempotency keys and `after` fences are scoped by `clientId` only.
+- Pushes reach a recovered connection until its re-check answers, capped at `min(revalidateMs, 10 s)`. Its commands and events wait for the re-check.
+- A plain `'valid'` (or `true`) answer from a custom `revalidate()` keeps the identity flattened by a serializing adapter. Only an answer that carries the principal restores it. The default `revalidate()` carries it.
+- Polling clients do not drain. `@spinajs/http` stops listening before it emits `http.server.closing`, so a polling client gets `sys.shutdown` and then loses its transport at its next poll. The replies of its running commands are lost, though a keyed command's outcome is still recorded for the resend. WebSocket clients drain fully. Draining them needs the http server to stop listening only after the socket drain (a follow-up in `@spinajs/http`).
+- Stream backpressure reads engine.io's `conn.writeBuffer`, a private field.
+- A stream command cannot be `idempotent`, cannot take `after`, and cannot be a fence predecessor: its reply is never stored.
 - The `after` fence and the `ordered: 'client'` queues are per instance; several instances need sticky sessions.
-- A stream command cannot be `idempotent` (refused at startup for an async generator, answered `failed_precondition` for another async iterable), cannot take `after`, and is never a fence predecessor: its reply is never stored.
-- Exactly-once across a graceful restart needs a shared idempotency store, and handlers that finish within `drainMs` + 1 s or roll back when their signal aborts. A keyed handler still running after that is answered `unavailable` and its key stays running, because it may have committed. With a shared store, its resends are then refused until the store expires the claims of the dead instance. With the memory store, the key dies with the process and a resend to the next instance runs the command again. The editor's opId dedupe is the backstop.
-- Polling clients do not drain. `@spinajs/http` stops listening before it emits `http.server.closing`, so a polling client gets `sys.shutdown` and then loses its transport at its next poll. The replies of its running commands are lost, though a keyed command's outcome is still recorded for the resend. WebSocket clients drain fully. Draining polling clients needs the http server to stop listening only after the socket drain.
