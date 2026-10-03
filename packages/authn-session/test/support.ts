@@ -1,6 +1,8 @@
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import type { DateTime } from 'luxon';
 import { SessionExpirationProvider, SessionProvider } from '../src/contracts.js';
+import type { ISession } from '../src/contracts.js';
 import { AbsoluteExpiration, MemorySessionStore, SlidingCappedExpiration, SlidingExpiration } from '../src/index.js';
 import shipped from '../src/config/session.js';
 
@@ -53,4 +55,14 @@ export async function withSessionConfig(config: Record<string, unknown>, extra: 
     registered = true;
   }
   await DI.resolve(Configuration);
+}
+
+/** Writes a 2.x-shaped row into the memory store: raw uuid key, no Subject or State, identity in Data. */
+export function plantLegacyRow(store: MemorySessionStore, row: { rawId: string; user?: string; authorized: boolean; impersonator?: string; creation: DateTime; expiration?: DateTime; extra?: [string, unknown][] }): void {
+  const data = new Map<string, unknown>([['Logged', true], ...(row.extra ?? [])]);
+  if (row.user !== undefined) data.set('User', row.user);
+  data.set('Authorized', row.authorized);
+  if (row.impersonator) data.set('Impersonator', row.impersonator);
+  const rows = (store as unknown as { Sessions: Map<string, ISession> }).Sessions;
+  rows.set(row.rawId, { SessionId: row.rawId, Creation: row.creation, Expiration: row.expiration, Data: data } as unknown as ISession);
 }

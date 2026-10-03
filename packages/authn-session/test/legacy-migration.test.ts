@@ -28,11 +28,12 @@ interface Legacy {
   creation?: DateTime;
   expiration?: DateTime;
   extra?: [string, unknown][];
+  rawId?: string;
 }
 
 /** A row as 2.x wrote it: raw uuid key, no Subject or State, identity in Data. */
 function plantLegacy(store: MemorySessionStore, l: Legacy = {}): string {
-  const raw = randomUUID();
+  const raw = l.rawId ?? randomUUID();
   const data = new Map<string, unknown>([['Logged', true], ...(l.extra ?? [])]);
   if (l.user !== undefined) data.set('User', l.user);
   data.set('Authorized', l.authorized ?? true);
@@ -92,6 +93,7 @@ describe('2.x session migration', () => {
       expect(isLegacySessionId('kQ7c1d0yYcH1m3S2bA9x_w')).to.be.false;
       expect(isLegacySessionId(sha256hex('x'))).to.be.false;
       expect(isLegacySessionId('00000000-0000-1000-8000-000000000000'), 'uuid v1').to.be.false;
+      expect(isLegacySessionId(randomUUID().toUpperCase()), '2.x wrote lowercase only').to.be.false;
     });
   });
 
@@ -144,12 +146,12 @@ describe('2.x session migration', () => {
       expect(Rows.of(store).get(sha256hex(raw))!.Impersonator).to.deep.equal(user('admin'));
     });
 
-    it("drops the 2.x identity entries from Data, so they cannot drift from the typed row", async () => {
+    it('drops the 2.x identity and login-state entries from Data, so no 2.x reader sees a logged-in session', async () => {
       const { issuer, store } = await setup();
-      const raw = plantLegacy(store, { user: 'u-1', impersonator: 'u-2' });
+      const raw = plantLegacy(store, { user: 'u-1', impersonator: 'u-2', authorized: false, extra: [['TwoFactorAuth', true]] });
 
       const r = (await issuer.restore(raw))!;
-      for (const k of ['User', 'Authorized', 'Impersonator']) {
+      for (const k of ['User', 'Authorized', 'Impersonator', 'Logged', 'TwoFactorAuth']) {
         expect(r.data.has(k), k).to.be.false;
         expect(Rows.of(store).get(sha256hex(raw))!.Data.has(k), k).to.be.false;
       }
@@ -234,6 +236,21 @@ describe('2.x session migration', () => {
       const handle = (await issuer.list(user('u-1')))[0].handle;
       expect(await issuer.revokeHandle(user('u-2'), handle)).to.be.false;
       expect(await issuer.revokeHandle(user('u-1'), handle)).to.be.true;
+      expect(await issuer.restore(raw)).to.be.null;
+    });
+
+    it('revokeHandle ends both rows left by an interrupted migration', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1' });
+      await issuer.restore(raw);
+      // a migration that saved the hashed row but crashed before deleting the raw one
+      plantLegacy(store, { user: 'u-1', rawId: raw });
+      expect(Rows.of(store).size).to.equal(2);
+
+      const handles = (await issuer.list(user('u-1'))).map((r) => r.handle);
+      expect(new Set(handles).size, 'both rows carry one handle').to.equal(1);
+      expect(await issuer.revokeHandle(user('u-1'), handles[0])).to.be.true;
+      expect(Rows.of(store).size).to.equal(0);
       expect(await issuer.restore(raw)).to.be.null;
     });
 

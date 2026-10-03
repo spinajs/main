@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import type { ISession, SessionProvider } from '../../src/contracts.js';
@@ -19,6 +19,24 @@ export interface IConformanceExpiration {
  * strategy config. Called once per behavior so tests stay isolated.
  */
 export type SessionProviderFactory = (expiration: IConformanceExpiration) => Promise<SessionProvider>;
+
+/** A session as 2.x wrote it: keyed by its raw uuid, no Subject or State, identity in Data. */
+export interface ILegacyRow {
+  rawId: string;
+  /** Data 'User'; omitted = a 2.x row without an owner. */
+  user?: string;
+  /** Data 'Authorized'. */
+  authorized: boolean;
+  /** Data 'Impersonator'. */
+  impersonator?: string;
+  creation: DateTime;
+  expiration?: DateTime;
+}
+
+export interface ISessionProviderConformanceOptions {
+  /** Writes a 2.x-shaped row the way 2.x did for this store. Required for persistent stores (A07, A08, SR-06). */
+  seedLegacy?: (provider: SessionProvider, row: ILegacyRow) => Promise<void>;
+}
 
 const SLIDING: IConformanceExpiration = { service: 'SlidingExpiration', ttl: 60 };
 const ABSOLUTE: IConformanceExpiration = { service: 'AbsoluteExpiration', ttl: 60 };
@@ -55,7 +73,7 @@ const ids = (list: ISession[]) => list.map((s) => s.SessionId).sort();
  *
  * @param makeProvider - builds a provider bound to a given expiration strategy
  */
-export function runSessionProviderConformance(makeProvider: SessionProviderFactory): void {
+export function runSessionProviderConformance(makeProvider: SessionProviderFactory, opts: ISessionProviderConformanceOptions = {}): void {
   describe('SessionProvider conformance', function () {
     this.timeout(15000);
 
@@ -243,6 +261,35 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         expect(ids(await provider.listBySubject(userRef('victim'))), 'the target sees the impersonation as its own').to.deep.equal([impersonation.SessionId]);
       });
 
+      it('deleteBySubject with except and includeImpersonations ends the rest, impersonations included (A30)', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const current = makeSession({ Subject: userRef('admin') });
+        const other = makeSession({ Subject: userRef('admin') });
+        const impersonation = makeSession({ Subject: userRef('victim'), Impersonator: userRef('admin') });
+        await provider.save(current);
+        await provider.save(other);
+        await provider.save(impersonation);
+
+        expect(await provider.deleteBySubject(userRef('admin'), { except: current.SessionId, includeImpersonations: true })).to.equal(2);
+        expect(await provider.restore(current.SessionId)).to.not.be.null;
+        expect(await provider.restore(other.SessionId)).to.be.null;
+        expect(await provider.restore(impersonation.SessionId)).to.be.null;
+      });
+
+      it('listBySubject with includeImpersonations leaves out an expired impersonation', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const live = makeSession({ Subject: userRef('victim'), Impersonator: userRef('admin') });
+        const expired = makeSession({ Subject: userRef('victim'), Impersonator: userRef('admin'), Expiration: DateTime.now().minus({ minutes: 1 }) });
+        await provider.save(live);
+        await provider.save(expired);
+
+        expect(ids(await provider.listBySubject(userRef('admin'), { includeImpersonations: true }))).to.deep.equal([live.SessionId]);
+      });
+
       it('truncate clears all sessions', async () => {
         const provider = await makeProvider(SLIDING);
         await provider.truncate();
@@ -318,6 +365,122 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         const restored = await provider.restore(session.SessionId);
         expect(restored!.Expiration!.toMillis()).to.equal(fixed.toMillis());
       });
+
+      it('SR-session revocation: touch never revives a deleted session', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const session = makeSession({ Expiration: DateTime.now().plus({ minutes: 5 }) });
+        await provider.save(session);
+        const restored = await provider.restore(session.SessionId);
+        await provider.delete(session.SessionId);
+
+        expect(await provider.touch(restored!)).to.be.false;
+        expect(await provider.restore(session.SessionId), 'a logout or ban between read and touch stays in force').to.be.null;
+      });
+
+      it('touch writes the Data of the row, also when the expiration does not change (the issuer updates rows only through touch)', async () => {
+        const provider = await makeProvider(ABSOLUTE);
+        await provider.truncate();
+
+        const session = makeSession();
+        await provider.save(session);
+        const restored = await provider.restore(session.SessionId);
+        restored!.Data.set('ActiveRole', 'editor');
+
+        expect(await provider.touch(restored!)).to.be.false;
+        expect((await provider.restore(session.SessionId))!.Data.get('ActiveRole')).to.equal('editor');
+      });
     });
+
+    if (opts.seedLegacy) {
+      const seedLegacy = opts.seedLegacy;
+      const legacy = (over: Partial<ILegacyRow> = {}): ILegacyRow => {
+        const creation = DateTime.now().minus({ minutes: 1 });
+        return { rawId: randomUUID(), user: 'u-legacy', authorized: true, creation, expiration: creation.plus({ minutes: 30 }), ...over };
+      };
+
+      describe('2.x rows (written before the upgrade, not migrated yet)', () => {
+        it('restore gives the 3.0 view: Subject from User, Impersonator, State active when Authorized', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const row = legacy({ user: 'u-1', impersonator: 'u-9' });
+          await seedLegacy(provider, row);
+
+          const s = await provider.restore(row.rawId);
+          expect(s).to.not.be.null;
+          expect(s!.SessionId).to.equal(row.rawId);
+          expect({ ...s!.Subject }).to.deep.equal(userRef('u-1'));
+          expect({ ...s!.Impersonator }).to.deep.equal(userRef('u-9'));
+          expect(s!.State).to.equal('active');
+          expect(s!.Creation.toMillis()).to.equal(row.creation.toMillis());
+        });
+
+        it('SR-07 a 2.x row that never passed 2FA comes back pending', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const row = legacy({ authorized: false });
+          await seedLegacy(provider, row);
+          expect((await provider.restore(row.rawId))!.State).to.equal('pending');
+        });
+
+        it('a 2.x row without User is absent', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const row = legacy({ user: undefined });
+          await seedLegacy(provider, row);
+          expect(await provider.restore(row.rawId)).to.be.null;
+        });
+
+        it('an expired 2.x row is absent', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const row = legacy({ expiration: DateTime.now().minus({ seconds: 1 }) });
+          await seedLegacy(provider, row);
+          expect(await provider.restore(row.rawId)).to.be.null;
+        });
+
+        it('A08 deleteBySubject reaches the 2.x rows of the subject', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const own = legacy({ user: 'admin' });
+          const other = legacy({ user: 'someone' });
+          await seedLegacy(provider, own);
+          await seedLegacy(provider, other);
+
+          expect(await provider.deleteBySubject(userRef('admin'))).to.equal(1);
+          expect(await provider.restore(own.rawId)).to.be.null;
+          expect(await provider.restore(other.rawId)).to.not.be.null;
+        });
+
+        it('SR-06 deleteBySubject with includeImpersonations reaches 2.x impersonations', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const imp = legacy({ user: 'victim', impersonator: 'admin' });
+          await seedLegacy(provider, imp);
+
+          expect(await provider.deleteBySubject(userRef('admin')), 'a plain delete keeps it').to.equal(0);
+          expect(await provider.deleteBySubject(userRef('admin'), { includeImpersonations: true })).to.equal(1);
+          expect(await provider.restore(imp.rawId)).to.be.null;
+        });
+
+        it('listBySubject returns live 2.x rows, owned and (on request) impersonated from', async () => {
+          const provider = await makeProvider(SLIDING);
+          await provider.truncate();
+          const own = legacy({ user: 'admin' });
+          const imp = legacy({ user: 'victim', impersonator: 'admin' });
+          const expired = legacy({ user: 'admin', expiration: DateTime.now().minus({ seconds: 1 }) });
+          await seedLegacy(provider, own);
+          await seedLegacy(provider, imp);
+          await seedLegacy(provider, expired);
+
+          expect(ids(await provider.listBySubject(userRef('admin')))).to.deep.equal([own.rawId]);
+          expect(ids(await provider.listBySubject(userRef('admin'), { includeImpersonations: true }))).to.deep.equal([own.rawId, imp.rawId].sort());
+          const victim = await provider.listBySubject(userRef('victim'));
+          expect(ids(victim)).to.deep.equal([imp.rawId]);
+          expect({ ...victim[0].Subject }).to.deep.equal(userRef('victim'));
+        });
+      });
+    }
   });
 }

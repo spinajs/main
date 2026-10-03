@@ -1,7 +1,7 @@
 import type { ISession } from './contracts.js';
 
-/** 2.x session ids were uuid v4; 3.0 raw ids (22 base64url chars) and storage keys (64 hex) never match. */
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** 2.x session ids were lowercase uuid v4; 3.0 raw ids (22 base64url chars) and storage keys (64 hex) never match. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export const isLegacySessionId = (id: unknown): id is string => typeof id === 'string' && UUID_V4.test(id);
 

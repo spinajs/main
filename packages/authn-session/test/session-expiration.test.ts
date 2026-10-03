@@ -100,3 +100,21 @@ describe('Session expiration strategies', () => {
     });
   });
 });
+
+describe('Session expiration strategy defaults', () => {
+  afterEach(() => {
+    uncacheOwned();
+  });
+
+  it('without ttl and maxLifetime, the built-in defaults equal the shipped config: 30 and 480 minutes', async () => {
+    await withConfig({ service: 'SlidingCappedExpiration', ttl: undefined, maxLifetime: undefined });
+    const capped = await DI.resolve(SlidingCappedExpiration);
+    const absolute = await DI.resolve(AbsoluteExpiration);
+
+    const session = new UserSession();
+    closeTo(capped.initial(session), DateTime.now().plus({ minutes: 30 }));
+    session.Creation = DateTime.now().minus({ minutes: 470 });
+    closeTo(capped.renew(session), session.Creation.plus({ minutes: 480 }));
+    closeTo(absolute.initial(session), session.Creation.plus({ minutes: 30 }));
+  });
+});

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import { Injectable } from '@spinajs/di';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { AutoinjectService, Config } from '@spinajs/configuration';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
@@ -41,6 +42,15 @@ type Restored = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFact
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const storageKeyOf = (rawId: string): string => sha256hex(rawId);
+
+/** Storage key of a handle, or null for a malformed one. */
+const keyOf = (h: SessionHandle | undefined): string | null => {
+  const id: unknown = h?.id;
+  return typeof id === 'string' && id.length > 0 && id.length <= MAX_RAW_ID_LENGTH ? storageKeyOf(id) : null;
+};
+
+/** 2.x login-state entries; a migrated row must not carry them (a 2.x reader would take `Logged` as logged in). */
+const LEGACY_LOGIN_KEYS = ['Logged', 'TwoFactorAuth'];
 
 /** The listed handle: one-way from the storage key, never the key or the raw id. */
 export const sessionHandleOf = (storageKey: string): string => sha256hex(HANDLE_DOMAIN + storageKey);
@@ -131,11 +141,11 @@ export class DefaultSessionIssuer extends SessionIssuer {
   public async elevate(h: SessionHandle, facts: Partial<AuthnFacts>): Promise<SessionHandle> {
     const session = await this.need(h);
     if (session.State !== 'pending') {
-      throw new Error('Only a pending session can be elevated');
+      throw new InvalidOperation('Only a pending session can be elevated');
     }
     const stored = readStored(session.Data.get(FACTS_KEY));
     if (!stored) {
-      throw new Error('Unknown or expired session');
+      throw new InvalidOperation('Unknown or expired session');
     }
 
     const data = new Map(session.Data);
@@ -156,15 +166,23 @@ export class DefaultSessionIssuer extends SessionIssuer {
 
   public async set(h: SessionHandle, key: string, value: unknown): Promise<void> {
     if (typeof key !== 'string' || key.startsWith(RESERVED_PREFIX) || REFUSED_KEYS.has(key)) {
-      throw new Error(`Session key ${String(key)} is reserved`);
+      throw new InvalidArgument(`Session key ${String(key)} is reserved`, 'key');
     }
     const session = await this.need(h);
     session.Data.set(key, value);
-    await this.Store.save(session);
+    // touch is the store's update-only write, so a revocation since the read stays in force.
+    await this.Store.touch(session);
+    if (!(await this.Store.restore(session.SessionId))) {
+      throw new InvalidOperation('Unknown or expired session');
+    }
   }
 
   public async revoke(h: SessionHandle): Promise<void> {
-    await this.Store.delete(storageKeyOf(h.id));
+    const key = keyOf(h);
+    if (key === null) {
+      return;
+    }
+    await this.Store.delete(key);
     if (isLegacySessionId(h.id)) {
       await this.Store.delete(h.id);
     }
@@ -173,7 +191,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
   public async revokeAll(subject: IdentityRef, opts?: { except?: SessionHandle; includeImpersonations?: boolean }): Promise<number> {
     return this.Store.deleteBySubject(ref(subject), {
       includeImpersonations: opts?.includeImpersonations === true,
-      except: opts?.except ? storageKeyOf(opts.except.id) : undefined,
+      except: opts?.except ? (keyOf(opts.except) ?? undefined) : undefined,
     });
   }
 
@@ -181,17 +199,22 @@ export class DefaultSessionIssuer extends SessionIssuer {
     if (typeof handle !== 'string') {
       return false;
     }
+    let found = false;
+    // Every match: an interrupted migration can leave the raw and the hashed row under one handle.
     for (const session of await this.Store.listBySubject(ref(subject))) {
       if (sameRef(session.Subject, subject) && this.handleOfRow(session) === handle) {
         await this.Store.delete(session.SessionId);
-        return true;
+        if (isLegacySessionId(session.SessionId)) {
+          await this.Store.delete(storageKeyOf(session.SessionId));
+        }
+        found = true;
       }
     }
-    return false;
+    return found;
   }
 
   public async list(subject: IdentityRef, opts?: { current?: SessionHandle }): Promise<readonly { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[]> {
-    const currentKey = opts?.current ? storageKeyOf(opts.current.id) : null;
+    const currentKey = opts?.current ? keyOf(opts.current) : null;
     const out: { handle: string; createdAt: Date; lastSeenAt: Date; ip?: string; userAgent?: string; current?: boolean }[] = [];
     for (const session of await this.Store.listBySubject(ref(subject))) {
       if (session.State !== 'active' || !sameRef(session.Subject, subject)) {
@@ -223,16 +246,28 @@ export class DefaultSessionIssuer extends SessionIssuer {
    * with authenticatedAt = Creation; a row that never passed 2FA stays
    * pending and lives at most pendingTtlSeconds more.
    */
-  protected async migrate(rawId: string): Promise<ISession | null> {
+  protected migrate(rawId: string): Promise<ISession | null> {
+    // Parallel first uses in this process share one migration; see migrateOnce for other processes.
+    let running = this.Migrations.get(rawId);
+    if (!running) {
+      running = this.migrateOnce(rawId).finally(() => this.Migrations.delete(rawId));
+      this.Migrations.set(rawId, running);
+    }
+    return running;
+  }
+
+  protected readonly Migrations = new Map<string, Promise<ISession | null>>();
+
+  protected async migrateOnce(rawId: string): Promise<ISession | null> {
     const legacy = await this.Store.restore(rawId);
     if (!legacy) {
-      // A parallel request may have migrated it a moment ago.
+      // Another process may have migrated it a moment ago.
       return this.Store.restore(storageKeyOf(rawId));
     }
 
     const now = DateTime.now();
     const data = new Map(legacy.Data);
-    for (const k of LEGACY_IDENTITY_KEYS) {
+    for (const k of [...LEGACY_IDENTITY_KEYS, ...LEGACY_LOGIN_KEYS]) {
       data.delete(k);
     }
     data.set(FACTS_KEY, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: legacy.Creation.toMillis() } satisfies StoredFacts);
@@ -254,6 +289,12 @@ export class DefaultSessionIssuer extends SessionIssuer {
       Data: data,
     });
     await this.Store.save(migrated);
+    // save is an upsert: when the raw row vanished since the read, a revocation (or, rarely, another
+    // process migrating it) got there first; drop the copy and fail closed.
+    if (!(await this.Store.restore(rawId))) {
+      await this.Store.delete(migrated.SessionId);
+      return null;
+    }
     await this.Store.delete(rawId);
     return migrated;
   }
@@ -274,26 +315,34 @@ export class DefaultSessionIssuer extends SessionIssuer {
     return new Map([...data].filter(([k]) => !k.startsWith(RESERVED_PREFIX)));
   }
 
-  /** Slides the idle deadline and records lastSeenAt, the latter at most once a minute. */
+  /** Slides the idle deadline and records lastSeenAt (at most once a minute) in one update-only write. */
   protected async refresh(session: ISession): Promise<void> {
-    await this.Store.touch(session);
     const now = Date.now();
     const lastSeen = session.Data.get(LAST_SEEN_KEY);
     if (typeof lastSeen !== 'number' || now - lastSeen >= LAST_SEEN_RESOLUTION_MS) {
       session.Data.set(LAST_SEEN_KEY, now);
-      await this.Store.save(session);
     }
+    await this.Store.touch(session);
   }
 
   protected async need(h: SessionHandle): Promise<ISession> {
-    const session = typeof h?.id === 'string' ? await this.Store.restore(storageKeyOf(h.id)) : null;
+    const key = keyOf(h);
+    if (key === null) {
+      throw new InvalidArgument('Malformed session handle', 'h');
+    }
+    const session = await this.Store.restore(key);
     if (!session) {
-      throw new Error('Unknown or expired session');
+      throw new InvalidOperation('Unknown or expired session');
     }
     return session;
   }
 
-  /** Re-keys a row under a fresh id: the new row is saved before the old one is deleted. */
+  /**
+   * Re-keys a row under a fresh id. The new row is saved first; if the old row
+   * vanished meanwhile (logout, ban), the copy is dropped, so a revocation that
+   * lands during a rotation is never undone. A revokeAll after the check also
+   * reaches the copy, which already carries the subject.
+   */
   protected async moveTo(session: ISession, data: Map<string, unknown>, over: Partial<ISession>): Promise<SessionHandle> {
     const rawId = randomBytes(16).toString('base64url');
     const moved = new UserSession({
@@ -307,6 +356,10 @@ export class DefaultSessionIssuer extends SessionIssuer {
       ...over,
     });
     await this.Store.save(moved);
+    if (!(await this.Store.restore(session.SessionId))) {
+      await this.Store.delete(moved.SessionId);
+      throw new InvalidOperation('Unknown or expired session');
+    }
     await this.Store.delete(session.SessionId);
     return { id: rawId, state: moved.State };
   }
