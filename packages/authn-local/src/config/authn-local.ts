@@ -24,6 +24,19 @@ const authnLocal = {
         version: 1,
         previous: [] as { secret: string; version: number }[],
       },
+
+      // `rule`, `description` and `generator` keep code defaults (no rule;
+      // 16 letters and digits) while @spinajs/users ships its 2.x values
+      // under the same keys: a null here would override its rule, and the
+      // `generator.characters` arrays would be concatenated.
+      policy: {
+        /** Code points; both within 8–128 (A04). Login always uses 8–128. */
+        minLength: 8,
+        maxLength: 128,
+
+        /** Name of a registered `PasswordBlocklist` service; null: none. */
+        blocklist: null as string | null,
+      },
     },
   },
 };

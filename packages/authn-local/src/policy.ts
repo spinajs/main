@@ -1,0 +1,223 @@
+import { randomInt } from 'node:crypto';
+import AjvModule from 'ajv';
+import type { ValidateFunction } from 'ajv';
+import { Injectable, SyncService } from '@spinajs/di';
+import { AutoinjectService, Config } from '@spinajs/configuration';
+import { InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
+import type { PasswordPolicy, PasswordViolation } from '@spinajs/authn/contracts';
+
+/** Bounds every password must stay within, whatever the policy says (A04). */
+export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_MAX_LENGTH = 128;
+
+/**
+ * How many draws `generate()` makes before declaring the pool and the rule incompatible. A uniform draw can miss a class the rule
+ * demands (about 6% of 16-character alphanumeric draws have no digit); ten draws bring a spurious failure to about 6e-13.
+ */
+const GENERATE_ATTEMPTS = 10;
+
+const DEFAULT_GENERATOR: GeneratorConfig = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] };
+
+// ajv is CommonJS; depending on the build its default import is the class itself or an object holding it in `default`.
+const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ValidateFunction };
+
+/** Optional hook (e.g. a k-anonymity breach check), named by `authn.local.policy.blocklist`. */
+export abstract class PasswordBlocklist {
+  public abstract isBlocked(password: string): Promise<boolean>;
+}
+
+export interface GeneratorConfig {
+  readonly length: number;
+  /** Concatenated into one pool; duplicates count once. */
+  readonly characters: readonly string[];
+}
+
+export interface LocalPasswordPolicyOptions {
+  readonly minLength?: number;
+  readonly maxLength?: number;
+  /** A JSON schema the password string must match; null: none. */
+  readonly rule?: object | null;
+  readonly description?: string;
+  readonly blocklist?: PasswordBlocklist | null;
+  readonly generator?: GeneratorConfig;
+}
+
+interface PolicySettings {
+  readonly minLength: number;
+  readonly maxLength: number;
+  readonly rule: ValidateFunction | null;
+  readonly pattern?: string;
+  readonly description?: string;
+}
+
+export function codePointLength(password: string): number {
+  let n = 0;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  for (const _ of password) {
+    n++;
+  }
+  return n;
+}
+
+/**
+ * The login bound (D5): fixed at 8–128 so that raising `authn.local.policy.minLength` later does not lock out passwords set
+ * under the old value.
+ */
+export function isLoginLength(password: string): boolean {
+  const n = codePointLength(password);
+  return n >= PASSWORD_MIN_LENGTH && n <= PASSWORD_MAX_LENGTH;
+}
+
+/** `check`, `policy` and the generator behind `PasswordService` (A04, SR-14). Passwords are never trimmed or normalised. */
+@Injectable()
+export class LocalPasswordPolicy extends SyncService {
+  @Config('authn.local.policy.minLength', { defaultValue: PASSWORD_MIN_LENGTH })
+  protected MinLength: number;
+
+  @Config('authn.local.policy.maxLength', { defaultValue: PASSWORD_MAX_LENGTH })
+  protected MaxLength: number;
+
+  @Config('authn.local.policy.rule', { defaultValue: null })
+  protected Rule: object | null;
+
+  @Config('authn.local.policy.description', { defaultValue: undefined as string | undefined })
+  protected Description: string | undefined;
+
+  // Code default instead of a shipped config value: @spinajs/users still ships this key, and its `characters` array would be
+  // concatenated with ours by the config merge.
+  @Config('authn.local.generator', { defaultValue: DEFAULT_GENERATOR })
+  protected Generator: GeneratorConfig;
+
+  @AutoinjectService('authn.local.policy.blocklist', PasswordBlocklist)
+  protected Blocklist: PasswordBlocklist | undefined;
+
+  private _settings?: PolicySettings;
+
+  /** With `options` the configuration is not read at all, so a test can build one without a container. */
+  constructor(protected readonly Options?: LocalPasswordPolicyOptions) {
+    super();
+  }
+
+  /** Validates the bounds and compiles the rule, so a bad config fails at boot when resolved by DI. */
+  public resolve(): void {
+    void this.settings;
+    super.resolve();
+  }
+
+  public async check(password: string): Promise<PasswordViolation[]> {
+    const violations = this.checkSync(password);
+    const blocklist = this.Options ? this.Options.blocklist : this.Blocklist;
+    if (blocklist && (await blocklist.isBlocked(password))) {
+      violations.push('blocklisted');
+    }
+    return violations;
+  }
+
+  public policy(): PasswordPolicy {
+    const { minLength, maxLength, pattern, description } = this.settings;
+    return {
+      minLength,
+      maxLength,
+      ...(pattern !== undefined ? { pattern } : {}),
+      ...(description !== undefined ? { description } : {}),
+    };
+  }
+
+  /**
+   * A random password from `authn.local.generator` that passes the length bounds and the rule (not the blocklist, which is async).
+   *
+   * @throws UnexpectedServerError when the generator config cannot produce such a password: a configuration fault no caller can
+   *   fix, so it must never reach a client as a 400.
+   */
+  public generate(): string {
+    const { minLength, maxLength } = this.settings;
+    const options = (this.Options ? this.Options.generator : this.Generator) ?? DEFAULT_GENERATOR;
+    const length = options.length ?? DEFAULT_GENERATOR.length;
+    const pool = [...new Set([...(options.characters ?? DEFAULT_GENERATOR.characters).join('')])];
+
+    if (!Number.isInteger(length) || length < 1 || pool.length === 0) {
+      throw new UnexpectedServerError('authn.local.generator must define a positive length and a non-empty character pool');
+    }
+
+    if (length < minLength || length > maxLength) {
+      throw new UnexpectedServerError(`authn.local.generator.length ${length} is outside authn.local.policy bounds ${minLength}–${maxLength}`);
+    }
+
+    for (let attempt = 0; attempt < GENERATE_ATTEMPTS; attempt++) {
+      const candidate = Array.from({ length }, () => pool[randomInt(pool.length)]).join('');
+      if (this.checkSync(candidate).length === 0) {
+        return candidate;
+      }
+    }
+
+    throw new UnexpectedServerError(
+      `Could not generate a password satisfying authn.local.policy.rule in ${GENERATE_ATTEMPTS} attempts. The generator character pool and the rule disagree - check authn.local.generator.`,
+    );
+  }
+
+  protected checkSync(password: string): PasswordViolation[] {
+    const { minLength, maxLength, rule } = this.settings;
+    const violations: PasswordViolation[] = [];
+    const n = codePointLength(password);
+
+    if (n < minLength) {
+      violations.push('too_short');
+    } else if (n > maxLength) {
+      violations.push('too_long');
+    }
+
+    if (rule && !rule(password)) {
+      violations.push('rule');
+    }
+
+    return violations;
+  }
+
+  protected get settings(): PolicySettings {
+    return (this._settings ??= this.buildSettings(
+      this.Options ?? { minLength: this.MinLength, maxLength: this.MaxLength, rule: this.Rule, description: this.Description },
+    ));
+  }
+
+  private buildSettings(options: LocalPasswordPolicyOptions): PolicySettings {
+    const minLength = options.minLength ?? PASSWORD_MIN_LENGTH;
+    const maxLength = options.maxLength ?? PASSWORD_MAX_LENGTH;
+
+    for (const [key, value] of [
+      ['minLength', minLength],
+      ['maxLength', maxLength],
+    ] as const) {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < PASSWORD_MIN_LENGTH || value > PASSWORD_MAX_LENGTH) {
+        throw new InvalidOption(`authn.local.policy.${key} must be an integer from ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH}, got ${String(value)}`);
+      }
+    }
+
+    if (minLength > maxLength) {
+      throw new InvalidOption(`authn.local.policy.minLength ${minLength} is above maxLength ${maxLength}`);
+    }
+
+    const schema = options.rule ?? null;
+    let rule: ValidateFunction | null = null;
+    if (schema !== null) {
+      if (typeof schema !== 'object' || Array.isArray(schema)) {
+        throw new InvalidOption('authn.local.policy.rule must be a JSON schema object or null');
+      }
+      try {
+        rule = new Ajv().compile(schema);
+      } catch (err) {
+        throw new InvalidOption(`authn.local.policy.rule does not compile: ${(err as Error).message}`);
+      }
+    }
+
+    const pattern = (schema as { pattern?: unknown } | null)?.pattern;
+    const description = options.description;
+
+    return {
+      minLength,
+      maxLength,
+      rule,
+      ...(typeof pattern === 'string' ? { pattern } : {}),
+      ...(typeof description === 'string' && description.trim() !== '' ? { description } : {}),
+    };
+  }
+}

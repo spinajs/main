@@ -56,6 +56,7 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
+    "ajv": "^8.12.0",
     "argon2": "^0.44.0"
   }
 }
