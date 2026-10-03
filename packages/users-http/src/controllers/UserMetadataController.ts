@@ -1,11 +1,11 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
-import { User as UserModel, UserMetadata } from '@spinajs/users';
+import { User as UserModel } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
-import { addressedColumn, UserMetadataService } from '../services/UserMetadataService.js';
+import { UserMetadataService } from '../services/UserMetadataService.js';
 
 /**
  * User metadata management.
@@ -107,22 +107,13 @@ export class UserMetadataController extends BaseController {
     @Patch(':_user/metadata/:meta')
     @Permission(['updateAny'])
     public async updateUserMetadata(
-        @FromModel({
-            // ONE column, picked by the identifier's shape — see `addressedColumn`. Comparing both
-            // in an `OR` put a numeric id against the `Key` varchar, which MySQL then refused in
-            // the UPDATE this lookup feeds (`ER_TRUNCATED_WRONG_VALUE`), turning every
-            // id-addressed edit into a 500.
-            query: (function ([_, user], meta) {
-                return this.where(addressedColumn(meta), meta).andWhere("user_id", user.Id)
-            })
-        }) meta: UserMetadata,
+        // A plain param, not @FromModel: the service answers a missing and a reserved entry with
+        // the same 404; a model lookup here would fail differently and tell the two apart.
+        @Param() meta: string,
         @FromModel({ queryField: "Uuid" }) _user: UserModel,
         @Body() data: UserMetadataDto) {
 
-        // @FromModel already resolved the entry within the addressed user's
-        // scope ( so a miss is a 404 ); the write still goes through the
-        // owner-scoped service so the predicate is not restated here.
-        await this.Metadata.update(_user.Id, meta.Id, data);
+        await this.Metadata.update(_user.Id, meta, data);
 
         return new Ok();
     }

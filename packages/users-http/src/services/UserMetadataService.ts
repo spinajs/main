@@ -20,9 +20,6 @@ export const DEFAULT_PAGE_SIZE = 10;
  * same value in one predicate without the database coercing across types. Digits mean the id — a
  * metadata key is a name (`user:niceName`, `2fa:enabled`), never a bare number — and anything else
  * means the key.
- *
- * Exported because the admin route's `@FromModel` lookup has to address the entry exactly the way
- * the write below does; the two disagreeing would turn a resolved entry into an update of nothing.
  */
 export function addressedColumn(idOrKey: string | number): 'Id' | 'Key' {
   return typeof idOrKey === 'number' || /^\d+$/.test(idOrKey) ? 'Id' : 'Key';

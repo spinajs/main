@@ -311,7 +311,7 @@ describe('UserMetadataController', function () {
     it('updates metadata of any user, scoped to that user', async () => {
       const entry = await metaOf(other, 'secret');
 
-      await controller.updateUserMetadata(entry!, other, { Key: 'secret', Value: 'reviewed', Type: 'string' } as any);
+      await controller.updateUserMetadata(String(entry!.Id), other, { Key: 'secret', Value: 'reviewed', Type: 'string' } as any);
 
       expect((await metaOf(other, 'secret'))!.Value).to.eq('reviewed');
       expect((await metaOf(owner, 'user:niceName'))!.Value, 'other accounts must be untouched').to.eq('Owner');
@@ -491,9 +491,26 @@ describe('UserMetadataController', function () {
       it('answers 404 for an update of a reserved row', async () => {
         const row = await metaOf(other, 'user:ban:is_banned');
 
-        await expect(controller.updateUserMetadata(row!, other, { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+        await expect(controller.updateUserMetadata(String(row!.Id), other, { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
 
         expect((await metaOf(other, 'user:ban:is_banned'))!.Value).to.eq(false);
+      });
+
+      it('answers an update of a reserved entry exactly like one of a missing entry', async () => {
+        const row = await metaOf(other, 'user:pwd_reset:token');
+        const failure = (meta: string, key = 'user:avatar') =>
+          controller.updateUserMetadata(meta, other, { Key: key, Value: 'x', Type: 'string' } as any).then(
+            () => expect.fail('the update went through'),
+            (e: Error) => ({ type: e.constructor, message: e.message }),
+          );
+
+        const missing = await failure('999999');
+        expect(missing.type).to.eq(ResourceNotFound);
+        expect(await failure(String(row!.Id))).to.deep.eq(missing);
+        expect(await failure('user:pwd_reset:token')).to.deep.eq(await failure('user:missing'));
+
+        // a reserved body key is refused before any lookup, whether the entry exists or not
+        expect(await failure(String(row!.Id), '2fa:token')).to.deep.eq(await failure('999999', '2fa:token'));
       });
 
       it('answers 404 for a delete of a reserved row and keeps it', async () => {
@@ -502,6 +519,38 @@ describe('UserMetadataController', function () {
         await expect(controller.deleteUserMetadata(other, row!.Id)).to.be.rejectedWith(ResourceNotFound);
 
         expect(await metaOf(other, 'user:2fa:token')).to.exist;
+      });
+    });
+
+    /**
+     * MySQL's default collations match spellings the key check cannot foresee to a stored key.
+     * SQLite compares bytes, so a stub makes `kit:twin` address the owner's `2fa:enabled` row.
+     */
+    describe('collation twins', () => {
+      beforeEach(async () => {
+        await plant(owner, '2fa:enabled', true);
+
+        const where = UserMetadata.where.bind(UserMetadata) as (...args: any[]) => any;
+        const twin = Object.assign(new UserMetadata(), { Key: '2fa:enabled', user_id: owner.Id });
+        sinon.stub(UserMetadata, 'where').callsFake(((...args: any[]) => (args[0] === 'Key' && args[1] === 'kit:twin' ? { andWhere: async () => [twin] } : where(...args))) as any);
+      });
+
+      it('refuses a write whose key addresses a reserved row', async () => {
+        await expect(controller.addMetadata(owner, { Key: 'kit:twin', Value: false, Type: 'boolean' } as any)).to.be.rejectedWith(InvalidArgument);
+        await expect(controller.addUserMetadata(owner, { Key: 'kit:twin', Value: false, Type: 'boolean' } as any)).to.be.rejectedWith(InvalidArgument);
+
+        expect(await metaOf(owner, 'kit:twin')).to.not.exist;
+      });
+
+      it('refuses to rename an entry to a key that addresses a reserved row', async () => {
+        await expect(controller.updateMetadata(owner, 'user:niceName', { Key: 'kit:twin', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(InvalidArgument);
+
+        expect((await metaOf(owner, 'user:niceName'))!.Value).to.eq('Owner');
+      });
+
+      it('answers 404 for a read whose key addresses a reserved row', async () => {
+        await expect(controller.getMeta(owner, 'kit:twin')).to.be.rejectedWith(ResourceNotFound);
+        await expect(controller.updateMetadata(owner, 'kit:twin', { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
       });
     });
   });

@@ -55,7 +55,7 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
   let pwd: BasicPasswordProvider;
 
   // Only what this suite resolves is uncached; the in-memory database goes with the Orm.
-  const owned = [DbTestConfiguration, Configuration, Orm, UserMetadataController, UserMetadataService];
+  const owned = [DbTestConfiguration, Configuration, Orm, UserMetadataController, UserMetadataService, BasicPasswordProvider, Default2FaToken];
 
   before(async () => {
     DI.setESMModuleSupport();
@@ -184,7 +184,7 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
 
       // renaming the row away from its reserved key lifts the ban just like deleting it
       await expect(controller.updateMetadata(target, String(ban.Id), { Key: 'user:note', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
-      await expect(controller.updateUserMetadata(ban, target, { Key: 'user:note', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+      await expect(controller.updateUserMetadata(String(ban.Id), target, { Key: 'user:note', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
 
       expect((await rowOf(target, 'user:ban:is_banned'))!.Value).to.eq(true);
       expect(await rowOf(target, 'user:note')).to.not.exist;
@@ -243,15 +243,7 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
         const u = await userOf(id);
         // A plain body key, so the refusal has to come from the addressed row, not the body.
         const dto = { Key: 'kit:renamed', Value: value, Type: typeOf(value) } as any;
-        if (as === 'owner') {
-          return attempt(() => controller.updateMetadata(u, rowId, dto));
-        }
-        // the admin route's @FromModel lookup: the row by id within the addressed user, else 404
-        const row = await UserMetadata.where('Id', rowId).andWhere('user_id', u.Id).first();
-        if (!row) {
-          return { ok: false };
-        }
-        return attempt(() => controller.updateUserMetadata(row, u, dto));
+        return attempt(() => (as === 'owner' ? controller.updateMetadata(u, rowId, dto) : controller.updateUserMetadata(rowId, u, dto)));
       },
       async deleteById(as, id, rowId) {
         const u = await userOf(id);

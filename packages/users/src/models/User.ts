@@ -212,13 +212,18 @@ export const USER_RESERVED_METADATA_PREFIXES: readonly string[] = Object.freeze(
 /**
  * Whether a metadata key falls under {@link USER_RESERVED_METADATA_PREFIXES}.
  *
- * The database compares keys by its collation, and MySQL's default one ignores case and
- * width, so `2FA:Token` or `２fa:token` addresses the `2fa:token` row. The key is normalized
- * the same way before the prefix check; refusing too much is safe, refusing too little is not.
+ * The database compares keys by its collation. MySQL's default ones ignore case, width,
+ * accents and invisible characters, so `2FA:Token`, `２fa:token` or `2fá:token` address the
+ * `2fa:token` row. The key is folded the same way before the prefix check. A collation may
+ * fold more than this; callers that address stored rows check the stored key as well.
  */
 export function isReservedMetadataKey(key: string): boolean {
-  const normalized = String(key).normalize('NFKC').trim().toLowerCase();
-  return USER_RESERVED_METADATA_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  const folded = String(key)
+    .normalize('NFKD')
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}]/gu, '')
+    .trim()
+    .toLowerCase();
+  return USER_RESERVED_METADATA_PREFIXES.some((prefix) => folded.startsWith(prefix));
 }
 
 /**

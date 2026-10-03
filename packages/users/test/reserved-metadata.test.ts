@@ -20,7 +20,7 @@ describe('reserved metadata keys', () => {
     });
   }
 
-  for (const key of ['2FA:enabled', 'User:Pwd_Reset:token', '２fa:token', ' 2fa:token', 'USER:BAN:IS_BANNED']) {
+  for (const key of ['2FA:enabled', 'User:Pwd_Reset:token', '２fa:token', ' 2fa:token', 'USER:BAN:IS_BANNED', '2fá:enabled', '2​fa:token', 'uſer:ban:is_banned', 'üser:login:attempts']) {
     it(`reserves the variant ${JSON.stringify(key)} a collation may match`, () => {
       expect(isReservedMetadataKey(key)).to.eq(true);
     });

@@ -111,7 +111,7 @@ Own and admin metadata routes with owner scoping and the protected-key guard; al
 | 22 | 292 | UserMetadataController > admin routes > lists the metadata of any user when no pagination is supplied | adapt | C2 | users-http/test/ |
 | 23 | 298 | UserMetadataController > admin routes > returns a single entry of any user by key | adapt | C2 | users-http/test/ |
 | 24 | 304 | UserMetadataController > admin routes > adds metadata to any user | adapt | C2 | users-http/test/ |
-| 25 | 311 | UserMetadataController > admin routes > updates metadata of any user, scoped to that user | adapt | C2 | users-http/test/ |
+| 25 | 311 | UserMetadataController > admin routes > updates metadata of any user, scoped to that user | adapt | C2 | users-http/test/ (SEC1: the admin PATCH takes the entry id or key as a plain param, no `@FromModel`) |
 | 26 | 320 | UserMetadataController > admin routes > deletes metadata of any user | adapt | C2 | users-http/test/ |
 | 27 | 329 | UserMetadataController > admin routes > does not delete an entry that belongs to a different user than the one addressed | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
 | 28 | 337 | UserMetadataController > admin routes > leaves the rest of the metadata of the user alone when one entry is removed | adapt | C2 | users-http/test/ |
