@@ -16,26 +16,32 @@ export const PG_SERVER = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Pas
 export interface TestDb {
   kind: DbKind;
   orm: Orm;
+  /** The child container the Orm was resolved in; resolve stores from it. */
+  container: IContainer;
   /** The connection the authz-rbac migrations and stores use (`'default'`). */
   driver: OrmDriver;
   /** Postgres only: the database created for this run. */
   database?: string;
+  /** With `second: true`: another SQLite `:memory:` connection, without migrations. */
+  second?: OrmDriver;
   dispose(): Promise<void>;
 }
 
 export interface BootOptions {
   /** `Migration.OnStartup` of the connection; default true. */
   migrate?: boolean;
+  /** Also boot a second connection (`TestDb.second`). */
+  second?: boolean;
 }
 
-function configurationFor(connection: Record<string, unknown>) {
+function configurationFor(connection: Record<string, unknown>, extra: Record<string, unknown>[]) {
   return class TestDbConfiguration extends FrameworkConfiguration {
     public async resolve(): Promise<void> {
       await super.resolve();
 
       // replaced, not merged: package configs must not add connections here
       const config = this.Config as Record<string, unknown>;
-      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
+      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection, ...extra] };
     }
   };
 }
@@ -112,7 +118,8 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   }
 
   const container: IContainer = DI.child();
-  container.register(configurationFor(connection)).as(Configuration);
+  const second = options.second ? [{ Name: `l2-${suite}-second`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: { OnStartup: false } }] : [];
+  container.register(configurationFor(connection, second)).as(Configuration);
   container.register(SqliteOrmDriver).as('orm-driver-sqlite');
   container.register(PostgresOrmDriver).as('orm-driver-postgres');
 
@@ -131,7 +138,9 @@ export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, op
   return {
     kind,
     orm,
+    container,
     driver: orm.Connections.get('default')!,
+    second: second.length > 0 ? orm.Connections.get(`l2-${suite}-second`) : undefined,
     database,
     dispose: async () => {
       await orm.dispose();
