@@ -9,3 +9,4 @@ export * from './facts.js';
 export * from './guard.js';
 export { plannedRemovals } from './common.js';
 export type { PlannedRemovals } from './common.js';
+export * from './db/index.js';

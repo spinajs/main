@@ -40,6 +40,8 @@ export class TestRbacModel extends AuthorizationModel {
 
   constructor(opts: TestRbacModelOptions) {
     super();
+    // Such a grant would permit everywhere here; a world that needs one waits for L1's RbacModel.
+    for (const r of opts.roles) for (const g of r.grants) if (g.on !== undefined || g.fields !== undefined) throw new Error(`TestRbacModel: role ${r.name} has a grant with ${g.on !== undefined ? 'on' : 'fields'}, which this model does not evaluate`);
     this.name = opts.name ?? 'rbac';
     this.roles = new Map(opts.roles.map((r) => [r.name, r]));
     this.ladders = new Map(opts.ladders.map((l) => [l.name, l]));

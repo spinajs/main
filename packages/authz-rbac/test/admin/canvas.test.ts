@@ -8,6 +8,7 @@ import type { AuthzAdmin, AuthzChange, AuthzCommand, AuthzService, LinkDef, Prin
 
 import type { Assignment, AssignmentSubject } from '../../src/index.js';
 import { adminHarness } from './admin-harness.js';
+import type { RecordingEventSink } from './admin-harness.js';
 
 const expect = chai.expect;
 const { ref, role } = fixtureDsl;
@@ -153,7 +154,7 @@ describe('AuthzAdmin: canvas C6 writes (design §6.6.4)', function () {
     expect(await rolesOf(O1, user(erin))).to.deep.equal(['org.admin']);
     expect(await decide(erin, 'project:settings', F1)).to.deep.equal({ allowed: true, roles: { org: 'org.admin', project: 'maintainer' } });
     expect(await allows(dave, 'project:settings', P1)).to.equal(false);
-    // A member may not hand out the org role above its own.
+    // A member lacks org:manage, so it cannot add members.
     expect(await refused(admin.assign(dave, { subject: user(mallory), role: 'org.member', scope: O1 }))).to.equal('forbidden');
 
     // Grant a project role with an add-on to a user, change its role, then its add-ons.
@@ -211,6 +212,7 @@ describe('AuthzAdmin: canvas C6 writes (design §6.6.4)', function () {
     expect(JSON.stringify(listed)).to.not.include(created.token);
     expect(JSON.stringify(published())).to.not.include(created.token);
     expect(JSON.stringify(session.audit!.entries)).to.not.include(created.token);
+    expect(JSON.stringify((session.lane?.adminEvents as RecordingEventSink).events)).to.not.include(created.token);
     expect(await rolesOf(P1, { type: 'link', id: created.link.id })).to.deep.equal(['viewer']);
     const viaLink = linkPrincipal(created.link.id, { scope: P1, expiresAt });
     expect(await allows(viaLink, 'inspect:view', F1)).to.equal(true);
@@ -264,6 +266,9 @@ describe('AuthzAdmin: canvas C6 writes (design §6.6.4)', function () {
     const p2Link = await admin.createLink(olga, { scope: P2, role: 'viewer' });
     await admin.putRule(olga, restrict(P2));
     await admin.assign(alice, { subject: user(bob), role: 'commenter', scope: F1 });
+    const p2Viewer = linkPrincipal(p2Link.link.id, { scope: P2 });
+    expect(await allows(dave, 'file:edit', P2)).to.equal(true);
+    expect(await allows(p2Viewer, 'project:read', P2)).to.equal(true);
     const before = published().length;
     const [forgetF1, forgetP2] = ok(
       await admin.execute(olga, [
@@ -281,7 +286,7 @@ describe('AuthzAdmin: canvas C6 writes (design §6.6.4)', function () {
     expect(await ruleIds(P2)).to.deep.equal([]);
     expect((await admin.list(olga, { kind: 'links', scope: P2 })).items).to.deep.equal([]);
     expect(await allows(dave, 'file:edit', P2)).to.equal(false);
-    expect(await allows(linkPrincipal(p2Link.link.id, { scope: P2 }), 'project:read', P2)).to.equal(false);
+    expect(await allows(p2Viewer, 'project:read', P2)).to.equal(false);
     // Rows elsewhere stay.
     expect(await rolesOf(P1, user(alice))).to.deep.equal(['maintainer']);
     expect(await ruleIds(P1)).to.deep.equal(['branch:p1:release/*:push']);
