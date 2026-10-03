@@ -4,7 +4,11 @@ import type { AuthzCommandResult, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { engineLog } from '../host/log.js';
 
-/** What a committed batch leaves under its idempotency key; rows[i] is the row command i wrote (for the sugar methods), or null. */
+/**
+ * What a committed batch leaves under its idempotency key; rows[i] is the row command i wrote (for the sugar
+ * methods), or null. Rows are redacted plain data; a backend that serialises them must give their Date fields
+ * (expiresAt) back as Dates.
+ */
 export interface RememberedBatch {
   readonly results: readonly AuthzCommandResult[];
   readonly rows: readonly unknown[];

@@ -169,6 +169,43 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
       expect(e).to.be.instanceOf(AuthzConfigError);
     });
 
+    it('a link handler without a token rolls the write back before createLink fails', async () => {
+      class TokenlessLink extends AuthzWriteHandler {
+        static wrote = 0;
+        readonly kinds = ['link.create'] as const;
+        async validate(): Promise<void> {}
+        permission(): { permission: Permission; resource: ResourceRef } {
+          return { permission: 'authz:links.manage', resource: p1 };
+        }
+        async apply(): Promise<{ id: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
+          TokenlessLink.wrote++;
+          return { id: 'l1', affected: 1, tags: [], events: [], row: { id: 'l1', scope: p1, attributes: {} } } as never;
+        }
+      }
+      const d = await adminDomain('tokenless', { handlers: false, register: (c) => c.register(TokenlessLink).as(AuthzWriteHandler) });
+      const e = await rejection(d.admin.createLink(alice, { scope: p1, role: 'viewer' }));
+      expect(e).to.be.instanceOf(AuthzConfigError);
+      expect(TokenlessLink.wrote).to.equal(1);
+      expect(d.backend.version('tokenless')).to.equal(0);
+      expect(d.bus.published).to.deep.equal([]);
+    });
+
+    it('a replayed key of another command kind is a conflict, not a wrong row', async () => {
+      const d = await domain();
+      await d.admin.createLink(alice, { scope: p1, role: 'viewer' }, { idempotencyKey: 'k' });
+      const e = await rejection(d.admin.assign(alice, { subject: { type: 'user', id: 'bob' }, role: 'editor', scope: p1 }, { idempotencyKey: 'k' }));
+      expect((e as AuthzAdminFailure).code).to.equal('conflict');
+      expect(d.store.rows.size).to.equal(1);
+    });
+
+    it('stores rows redacted under the idempotency key', async () => {
+      const d = await domain();
+      await d.admin.createLink(alice, { scope: p1, role: 'viewer' }, { idempotencyKey: 'k' });
+      const stored = await d.backend.recall('test', 'user:alice', 'k', d.clock.now());
+      expect(stored?.rows).to.deep.equal([{ id: 'a1', scope: p1, attributes: {}, createdBy: { type: 'user', id: 'x' } }]);
+      expect(JSON.stringify(stored)).to.not.contain('tok-');
+    });
+
     it('each void sugar method sends its one command', async () => {
       const d = await domain();
       const rule = { id: 'r1', kind: 'restrict', scope: p1 } as const;
@@ -254,6 +291,33 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
       const d = await domain();
       const e = await rejection(d.admin.list(alice, { kind: 'policies' }));
       expect((e as AuthzAdminFailure).code).to.equal('not_found');
+    });
+
+    it('refuses an unknown query kind and a query that is not plain data (invalid_query)', async () => {
+      const d = await domain();
+      const e = await rejection(d.admin.list(alice, { kind: 'tuples' } as unknown as AuthzAdminQuery));
+      expect((e as AuthzAdminFailure).code).to.equal('invalid_query');
+      expect((e as AuthzAdminFailure).field).to.equal('kind');
+      const f = await rejection(d.admin.list(alice, { kind: 'links', scope: { type: 'project', id: 'p1', fn: () => 1 } } as unknown as AuthzAdminQuery));
+      expect((f as AuthzAdminFailure).code).to.equal('invalid_query');
+      expect(d.model.requests).to.deep.equal([]);
+    });
+
+    it('writes no audit entry for a read', async () => {
+      const d = await domain();
+      await d.admin.list(alice, { kind: 'assignments' });
+      expect(d.audit.of('admin')).to.deep.equal([]);
+    });
+
+    it('refuses a reader answer whose total is not a count', async () => {
+      class BadTotal extends AuthzAdminReader {
+        readonly kinds = ['policies'] as const;
+        async list(): Promise<{ items: readonly unknown[]; total: number }> {
+          return { items: [], total: -1 };
+        }
+      }
+      const d = await domain((c) => c.register(BadTotal).as(AuthzAdminReader));
+      expect(await rejection(d.admin.list(alice, { kind: 'policies' }))).to.be.instanceOf(AuthzConfigError);
     });
 
     it('refuses two readers of one kind', async () => {
