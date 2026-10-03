@@ -1,6 +1,9 @@
 import { AuthzConfigError, GLOBAL, isPermission } from '@spinajs/authz';
 import type { Permission, ResourceType } from '@spinajs/authz';
 
+// Every module of the package reaches the registry, so a second copy fails before it registers anything.
+import './once.js';
+
 export type QueryKind = 'read' | 'create' | 'update' | 'delete';
 
 export const QUERY_KINDS: readonly QueryKind[] = Object.freeze(['read', 'create', 'update', 'delete'] as const);

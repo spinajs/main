@@ -10,6 +10,7 @@ import type { IJoinStatementOptions, IQueryStatement, IWhereBuilder, QueryBuilde
 import type { OrmScopePolicy } from './api.js';
 import { buildResidual, compileResidual } from './compile/compiler.js';
 import type { QueryOp, ResidualContext } from './compile/compiler.js';
+import { carryVetted, scopeManyToManyExists, unvettedJunction } from './exists.js';
 import { authorizeInsert, relationsOf } from './insert.js';
 import { relationPrincipalOf, serviceConfig } from './principal.js';
 import { entryOf, registeredClasses, registryVersion, scopePolicyOf } from './registry.js';
@@ -30,7 +31,7 @@ export interface QueryScope {
   readonly slot?: ResidualSlot;
   /** The residual in the builder, once known. */
   residual?: ResourceFilter;
-  /** Insert and update: the execution checks (stamp, authorizeUpdate, scope move) have run; the builder may compile. */
+  /** Insert and update: the execution checks (stamp, authorizeUpdate, scope move) have run; the builder may compile once. */
   checked?: boolean;
 }
 
@@ -57,10 +58,40 @@ function kindOf(builder: QueryBuilder): QueryKind {
 }
 
 const raw = (builder: object): IQueryStatement[] => (builder as unknown as { _statements: IQueryStatement[] })._statements;
+const rawJoins = (builder: unknown): IQueryStatement[] => (builder as { _joinStatements?: IQueryStatement[] } | undefined)?._joinStatements ?? [];
+
+// The relation whose own compile added a join statement: a join with the same alias is not that join.
+const madeBy = new WeakMap<object, object>();
+const watchedRelations = new WeakSet<object>();
+
+/** Records the joins a relation's compile adds, to the query it populates and to a many-to-many's junction query. */
+function watchCompile(relation: object): void {
+  if (watchedRelations.has(relation)) return;
+  watchedRelations.add(relation);
+  const r = relation as { compile?: (...a: unknown[]) => unknown; _query?: unknown; TableJoinQuery?: unknown };
+  const compile = r.compile;
+  if (typeof compile !== 'function') return;
+  Object.defineProperty(relation, 'compile', {
+    configurable: true,
+    writable: true,
+    value: function (this: unknown, ...args: unknown[]) {
+      const into = [r._query, r.TableJoinQuery].filter((b) => typeof b === 'object' && b !== null);
+      const before = into.map((b) => new Set(rawJoins(b)));
+      try {
+        return compile.apply(this, args);
+      } finally {
+        // A nested relation compiles inside its parent's compile, so it claims its own join first.
+        into.forEach((b, i) => {
+          for (const j of rawJoins(b)) if (!before[i].has(j) && !madeBy.has(j)) madeBy.set(j, relation);
+        });
+      }
+    },
+  });
+}
 
 const carried = new WeakSet<object>();
 
-/** A clone keeps the shield, the authz statements (as their clones) and the scope. */
+/** A clone keeps the shield, the authz statements (as their clones), the marks of the relation joins and the scope. */
 function carryOnClone(builder: SelectQueryBuilder): void {
   if (carried.has(builder)) return;
   carried.add(builder);
@@ -71,11 +102,23 @@ function carryOnClone(builder: SelectQueryBuilder): void {
     value: function (this: SelectQueryBuilder, ...args: unknown[]) {
       const copy = (clone as (...a: unknown[]) => SelectQueryBuilder).apply(this, args);
       const source = raw(this);
+      const copied = raw(copy);
+      // The orm rebinds every statement to the clone. A residual merged from a populated relation must
+      // keep reading the relation's alias, or it would test the clone's own columns of the same name.
+      source.forEach((s, i) => {
+        if (s instanceof AuthzStatement && s.target !== this && i < copied.length) copied[i] = s.clone(s.target as never);
+      });
       const map = <S extends IQueryStatement>(s: S): S => {
         const i = source.indexOf(s);
-        return (i >= 0 ? raw(copy)[i] : s.clone(copy as never)) as S;
+        return (i >= 0 ? copied[i] : s.clone(copy as never)) as S;
       };
       own(copy, ownedBy(this).map(map));
+      const joins = rawJoins(copy);
+      rawJoins(this).forEach((j, i) => {
+        const relation = madeBy.get(j);
+        if (relation !== undefined && joins[i] !== undefined) madeBy.set(joins[i], relation);
+      });
+      carryVetted(this, copy);
       const scope = scopes.get(this);
       if (scope) scopes.set(copy, { ...scope, ...(scope.slot ? { slot: map(scope.slot) } : {}) });
       guard(copy);
@@ -95,26 +138,7 @@ function guard(builder: unknown): void {
   if (!isWhereBuilder(builder) && !(builder instanceof InsertQueryBuilder)) return;
   shield(builder, compileGate);
   if (builder instanceof SelectQueryBuilder) carryOnClone(builder);
-  if (builder instanceof InsertQueryBuilder) uncheckOnChange(builder, 'values');
-  if (builder instanceof UpdateQueryBuilder) uncheckOnChange(builder, 'update');
-}
-
-const watched = new WeakSet<object>();
-
-/** New values after the execution checks ran make the builder unchecked again. */
-function uncheckOnChange(builder: object, method: 'values' | 'update'): void {
-  if (watched.has(builder)) return;
-  watched.add(builder);
-  const original = (builder as Record<string, (...a: unknown[]) => unknown>)[method];
-  Object.defineProperty(builder, method, {
-    configurable: true,
-    writable: true,
-    value: function (this: object, ...args: unknown[]) {
-      const scope = scopes.get(this);
-      if (scope) scope.checked = false;
-      return original.apply(this, args);
-    },
-  });
+  if (isWhereBuilder(builder)) scopeManyToManyExists(builder);
 }
 
 const unscopedReason = (): string | undefined => {
@@ -173,71 +197,119 @@ export class AuthzQueryMiddleware extends QueryMiddleware {
 
   afterQueryCreation(builder: QueryBuilder): void {
     guard(builder);
-    const model = builder.Model as ModelClass | undefined;
-    const entry = entryOf(model);
-    if (!entry || !model) return;
-    const kind = kindOf(builder);
-    const permission = entry.permissions[kind];
-    const principal = currentPrincipal();
-    const unscoped = unscopedReason();
-    if (unscoped !== undefined) {
-      recordUnscoped(authz(domainName()), principal, unscoped, permission, entry);
-      return;
-    }
-    if (principal === SYSTEM) return;
-
-    const service = authz(domainName());
-    const base: QueryScope = { service, model, entry, kind, permission, principal };
-    if (kind === 'create') {
-      scopes.set(builder, base);
-      return;
-    }
-
-    // A soft-delete model's update is a delete when it writes DeletedAt, known only at execution.
-    const deferred = principal === UNATTENDED || (kind === 'update' && softDeleteColumn(model) !== undefined);
-    const filter = deferred ? undefined : service.filterNow(principal, permission, entry.type);
-    if (filter?.op === 'true') {
-      scopes.set(builder, { ...base, residual: filter });
-      return;
-    }
-    const placement = entry.relationScope === 'join' && (builder as SelectQueryBuilder).Owner !== undefined ? 'join' : 'where';
-    if (filter === undefined || filter.op === 'false') {
-      const slot = new ResidualSlot(builder);
-      if (placement === 'join')
-        (builder as unknown as IWhereBuilder<unknown>).whereOnJoin(function (this: IWhereBuilder<unknown>) {
-          this.Statements.push(slot);
-        });
-      else (builder as unknown as IWhereBuilder<unknown>).Statements.push(slot);
-      own(builder, [slot]);
-      scopes.set(builder, { ...base, slot });
-      return;
-    }
-    const statement = compileResidual(filter, builder as unknown as IWhereBuilder<unknown>, { ...context(base, builder), placement });
-    own(builder, [statement]);
-    scopes.set(builder, { ...base, residual: filter });
+    scopeFor(builder, builder.Model as ModelClass | undefined);
   }
 
   async beforeQueryExecution(builder: QueryBuilder): Promise<void> {
-    // Builders the orm makes without afterQueryCreation (a many-to-many join query) are shielded here.
+    // Builders the orm makes without afterQueryCreation (a many-to-many junction query) are shielded here.
     guard(builder);
+    if (!scopes.has(builder)) scopeFor(builder, junctionOf(builder));
     const scope = scopes.get(builder);
     await gate(builder, scope);
+    if (scope?.slot && !scope.slot.resolved) await fill(scope.slot, builder, scope);
+    // Relation queries and sub-queries compile into this query without an execution hook of their own.
+    for (const slot of pendingSlots(builder)) {
+      const owner = scopes.get(slot.target as object);
+      if (owner !== undefined && !slot.resolved) await fill(slot, slot.target as QueryBuilder, owner);
+    }
     if (!scope) return;
     if (scope.kind === 'create') return insert(builder as InsertQueryBuilder, scope);
-    if (scope.slot && !scope.slot.resolved) {
-      const statements: IQueryStatement[] = [];
-      for (const kind of slotKinds(builder, scope)) {
-        const residual = await allowedResidual(scope, kind);
-        if (kind === scope.kind) scope.residual = residual;
-        if (residual.op !== 'true') statements.push(buildResidual(residual, builder as unknown as IWhereBuilder<unknown>, context(scope, builder, kind)));
-      }
-      scope.slot.fill(statements);
-    }
     if (scope.kind === 'update') {
       await authorizeUpdate(builder as UpdateQueryBuilder<unknown>, scope);
       scope.checked = true;
     }
   }
+}
+
+/** Puts `model`'s scope on the builder (conventions §6); `model` is the builder's model, or the junction a many-to-many query reads. */
+function scopeFor(builder: QueryBuilder, model: ModelClass | undefined): void {
+  const entry = entryOf(model);
+  if (!entry || !model) return;
+  const kind = kindOf(builder);
+  const permission = entry.permissions[kind];
+  const principal = currentPrincipal();
+  const unscoped = unscopedReason();
+  if (unscoped !== undefined) {
+    recordUnscoped(authz(domainName()), principal, unscoped, permission, entry);
+    return;
+  }
+  if (principal === SYSTEM) return;
+
+  const service = authz(domainName());
+  const base: QueryScope = { service, model, entry, kind, permission, principal };
+  if (kind === 'create') {
+    scopes.set(builder, base);
+    return;
+  }
+
+  // A soft-delete model's update is a delete when it writes DeletedAt, known only at execution.
+  const deferred = principal === UNATTENDED || (kind === 'update' && softDeleteColumn(model) !== undefined);
+  const filter = deferred ? undefined : service.filterNow(principal, permission, entry.type);
+  if (filter?.op === 'true') {
+    scopes.set(builder, { ...base, residual: filter });
+    return;
+  }
+  const placement = entry.relationScope === 'join' && (builder as SelectQueryBuilder).Owner !== undefined ? 'join' : 'where';
+  if (filter === undefined || filter.op === 'false') {
+    const slot = new ResidualSlot(builder);
+    if (placement === 'join')
+      (builder as unknown as IWhereBuilder<unknown>).whereOnJoin(function (this: IWhereBuilder<unknown>) {
+        this.Statements.push(slot);
+      });
+    else (builder as unknown as IWhereBuilder<unknown>).Statements.push(slot);
+    own(builder, [slot]);
+    scopes.set(builder, { ...base, slot });
+    return;
+  }
+  const statement = compileResidual(filter, builder as unknown as IWhereBuilder<unknown>, { ...context(base, builder), placement });
+  own(builder, [statement]);
+  scopes.set(builder, { ...base, residual: filter });
+}
+
+/** The junction model of a many-to-many relation whose junction query this is: it carries the target model but reads the junction table. */
+function junctionOf(builder: QueryBuilder): ModelClass | undefined {
+  const owner = (builder as SelectQueryBuilder).Owner as { TableJoinQuery?: unknown; _joinModel?: ModelClass } | undefined;
+  return owner !== undefined && owner.TableJoinQuery === builder ? owner._joinModel : undefined;
+}
+
+/** Resolves a slot with the type-level decision of its builder's scope (a denial throws `AccessDenied`). */
+async function fill(slot: ResidualSlot, builder: QueryBuilder, scope: QueryScope): Promise<void> {
+  const statements: IQueryStatement[] = [];
+  for (const kind of slotKinds(builder, scope)) {
+    const residual = await allowedResidual(scope, kind);
+    if (kind === scope.kind) scope.residual = residual;
+    if (residual.op !== 'true') statements.push(buildResidual(residual, builder as unknown as IWhereBuilder<unknown>, context(scope, builder, kind)));
+  }
+  slot.fill(statements);
+}
+
+/** Unresolved slots a query compiles: in its where and joins, its relation queries, and the sub-queries of its statements. */
+function pendingSlots(root: object): ResidualSlot[] {
+  const seen = new Set<object>();
+  const out: ResidualSlot[] = [];
+  const visit = (b: unknown): void => {
+    if (b === null || typeof b !== 'object' || seen.has(b)) return;
+    seen.add(b);
+    statements((b as { _statements?: unknown })._statements);
+    statements(rawJoins(b));
+    const relations = (b as { _relations?: unknown })._relations;
+    if (Array.isArray(relations)) for (const r of relations) visit(relationQueryOf(r));
+  };
+  const statements = (list: unknown): void => {
+    if (!Array.isArray(list)) return;
+    for (const s of list as unknown[]) {
+      if (s instanceof ResidualSlot) {
+        if (!s.resolved && !out.includes(s)) out.push(s);
+      } else if (s instanceof JoinStatement) {
+        const options = (s as unknown as { _options?: { onStatements?: unknown; nestedJoins?: unknown } })._options;
+        statements(options?.onStatements);
+        statements(options?.nestedJoins);
+        visit((s as unknown as { _whereBuilder?: unknown })._whereBuilder);
+      } else visit((s as { _builder?: unknown } | null)?._builder);
+    }
+  };
+  visit(root);
+  return out;
 }
 
 /** I5: an update of a soft-delete model that writes DeletedAt (delete or restore) needs delete; other columns need update. */
@@ -325,31 +397,33 @@ function relationsReached(builder: SelectQueryBuilder): RelationLike[] {
   return out;
 }
 
-/** The select's joins, with the joins nested in them. */
-function joinsOf(builder: SelectQueryBuilder): IJoinStatementOptions[] {
-  const out: IJoinStatementOptions[] = [];
+/** The select's join statements, with the joins nested in them. */
+function joinsOf(builder: SelectQueryBuilder): JoinStatement[] {
+  const out: JoinStatement[] = [];
   const visit = (list: readonly IQueryStatement[]): void => {
     for (const j of list) {
       if (!(j instanceof JoinStatement)) continue;
-      const options = (j as unknown as { _options: IJoinStatementOptions })._options;
-      out.push(options);
-      visit((options as { nestedJoins?: IQueryStatement[] }).nestedJoins ?? []);
+      out.push(j);
+      visit((optionsOf(j) as { nestedJoins?: IQueryStatement[] }).nestedJoins ?? []);
     }
   };
   visit(builder.JoinStatements ?? []);
   return out;
 }
 
+const optionsOf = (join: JoinStatement): IJoinStatementOptions => (join as unknown as { _options: IJoinStatementOptions })._options;
+
 /**
- * A join a populated relation made, whose sub-builder carries the target model's scope, and whose
- * residual (or a clone of it) is still in the query: in its WHERE or in the join's ON.
+ * The join a populated relation's own compile added, whose sub-builder carries the target model's
+ * scope, and whose residual (or a clone of it) is still in the query: in its WHERE or in the join's ON.
  */
-function relationJoin(builder: SelectQueryBuilder, join: IJoinStatementOptions, table: string, relations: readonly RelationLike[]): boolean {
-  const present = new Set([...raw(builder), ...((join as { onStatements?: IQueryStatement[] }).onStatements ?? [])].filter((s): s is AuthzStatement => s instanceof AuthzStatement).map((s) => s.origin));
+function relationJoin(builder: SelectQueryBuilder, join: JoinStatement, table: string, relations: readonly RelationLike[]): boolean {
+  const options = optionsOf(join);
+  const present = new Set([...raw(builder), ...((options as { onStatements?: IQueryStatement[] }).onStatements ?? [])].filter((s): s is AuthzStatement => s instanceof AuthzStatement).map((s) => s.origin));
   return relations.some((r) => {
     const q = relationQueryOf(r);
     const scope = q && scopes.get(q);
-    if (!(r.Alias !== undefined && r.Alias === join.joinTableAlias && normal(r.Descriptor?.TargetModel ? extractModelDescriptor(r.Descriptor.TargetModel as never)?.TableName : undefined) === table && scope !== undefined && tableOf(scope.model) === table)) return false;
+    if (!(madeBy.get(join) === r && r.Alias !== undefined && r.Alias === options.joinTableAlias && normal(r.Descriptor?.TargetModel ? extractModelDescriptor(r.Descriptor.TargetModel as never)?.TableName : undefined) === table && scope !== undefined && tableOf(scope.model) === table)) return false;
     return ownedBy(q!).every((s) => present.has(s.origin));
   });
 }
@@ -394,15 +468,22 @@ async function gate(builder: QueryBuilder, scope: QueryScope | undefined): Promi
 /**
  * The synchronous half of the gate, run before every compile of a shielded builder (also one no
  * execution hook precedes): the builder's table must be its scope's, every join of a scoped table
- * must be a relation's whose residual is still in the query, and an insert must have passed its
- * create check. Joins are checked here because the orm adds a populated relation's join when the
- * query compiles.
+ * must be a relation's whose residual is still in the query, an EXISTS over a junction must test
+ * the scoped target, and an insert or update must have passed its execution checks, which allow one
+ * compile. Joins are checked here because the orm adds a populated relation's join when the query
+ * compiles.
  */
 function compileGate(builder: object): void {
+  // Before any relation compiles, as SYSTEM too: the same query may run again for another principal.
+  if (builder instanceof SelectQueryBuilder) for (const r of relationsReached(builder)) watchCompile(r);
   const principal = currentPrincipal();
   if (principal === SYSTEM || unscopedReason() !== undefined) return;
   const scope = scopes.get(builder);
-  if ((builder instanceof InsertQueryBuilder || builder instanceof UpdateQueryBuilder) && scope !== undefined && !scope.checked) throw new Forbidden(`authz-orm: a ${scope.kind} of ${scope.entry.type} compiled before its execution checks ran`);
+  if ((builder instanceof InsertQueryBuilder || builder instanceof UpdateQueryBuilder) && scope !== undefined) {
+    if (!scope.checked) throw new Forbidden(`authz-orm: a ${scope.kind} of ${scope.entry.type} compiled before its execution checks ran, or a second time`);
+    scope.checked = false;
+  }
+  if (builder instanceof SelectQueryBuilder && unvettedJunction(builder)) throw new Forbidden(`authz-orm: an EXISTS over the junction table ${builder.Table} tests target rows without their scope; call whereExist on the query, not inside a nested where`);
   const index = tables();
   if (index.size === 0) return;
   const q = builder as QueryBuilder;
@@ -417,7 +498,8 @@ function compileGate(builder: object): void {
   for (const r of builder.Relations ?? []) r.compile();
   const relations = relationsReached(builder);
   for (const join of joinsOf(builder)) {
-    const joined = normal(join.joinModel ? extractModelDescriptor(join.joinModel as never)?.TableName : join.joinTable);
+    const options = optionsOf(join);
+    const joined = normal(options.joinModel ? extractModelDescriptor(options.joinModel as never)?.TableName : options.joinTable);
     const classes = joined === undefined ? undefined : index.get(joined);
     if (classes && !relationJoin(builder, join, joined!, relations)) refuse(classes[0], 'a join');
   }
@@ -462,20 +544,22 @@ async function insert(builder: InsertQueryBuilder, scope: QueryScope): Promise<v
 // Truncate and deep-clone builders that `gate` let through.
 const passed = new WeakSet<object>();
 
-/** `driver.execute()` compiles without `_run`: a truncate or deep clone of a scoped table must have passed `gate`. */
+/**
+ * `driver.execute()` compiles without `_run`: a truncate or deep clone of a scoped table must have
+ * passed `gate`, and that pass allows one compile.
+ */
 function tableCommandGate(builder: QueryBuilder): void {
-  if (passed.has(builder) || currentPrincipal() === SYSTEM || unscopedReason() !== undefined) return;
+  if (currentPrincipal() === SYSTEM || unscopedReason() !== undefined || passed.delete(builder)) return;
   const truncate = builder instanceof TruncateTableQueryBuilder;
   if (!truncate && (builder as CloneTableQueryBuilder).Shallow) return;
   const table = normal(truncate ? builder.Table : (builder as CloneTableQueryBuilder).CloneSource);
-  if (table !== undefined && tables().has(table)) throw new Forbidden(`authz-orm: ${truncate ? 'a truncate' : 'a copy'} of ${table} compiled before its authz check ran`);
+  if (table !== undefined && tables().has(table)) throw new Forbidden(`authz-orm: ${truncate ? 'a truncate' : 'a copy'} of ${table} compiled before its authz check ran, or a second time`);
 }
 
-// These builders reach no middleware hook when they are created, so their compile is guarded on the
-// prototype; the mark keeps a second load of this module from wrapping twice.
+// D-L4-8: these builders reach no middleware hook when they are created, so their compile is guarded
+// on the prototype (once per process: a second copy of the package refuses to load, see once.ts).
 for (const cls of [TruncateTableQueryBuilder, CloneTableQueryBuilder]) {
   const proto = cls.prototype as unknown as { toDB: ((...a: unknown[]) => unknown) & { authzGate?: true } };
-  if (proto.toDB.authzGate) continue;
   const toDB = proto.toDB;
   const gated = Object.assign(
     function (this: QueryBuilder, ...args: unknown[]) {

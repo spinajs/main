@@ -64,13 +64,16 @@ export class TestDb {
     }
     const cfg = testHost.config();
     const connections: unknown[] = [{ Driver: 'orm-driver-sqlite', Filename: ':memory:', Name: 'sqlite' }];
-    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES });
+    // The orm qualifies a joined Postgres table with the database name as its schema; a schema of
+    // that name on the search path makes the joined and the unqualified spelling one table.
+    if (opts.postgres) connections.push({ Driver: 'orm-driver-postgres', Name: 'postgres', ...POSTGRES, Options: { Schema: POSTGRES.Database } });
     const before = { logger: cfg.get<unknown>('logger'), db: cfg.get<unknown>('db') };
     cfg.set('logger', { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     cfg.set('db', { DefaultConnection: 'sqlite', Connections: connections });
 
     const orm = await DI.resolve(Orm);
     const db = new TestDb(orm, opts.postgres ? ['sqlite', 'postgres'] : ['sqlite']);
+    if (opts.postgres) await db.raw(`CREATE SCHEMA IF NOT EXISTS "${POSTGRES.Database}"`, [], 'postgres');
     db.ownsInstall = ownsInstall;
     db.restoreConfig = () => {
       for (const [k, v] of Object.entries(before)) {

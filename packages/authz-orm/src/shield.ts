@@ -6,8 +6,12 @@ export abstract class AuthzStatement extends QueryStatement {
   /** The statement this one was cloned from, transitively: a cloned query still carries the same residual. */
   origin: AuthzStatement = this;
 
+  /** The builder whose table (or alias) the statement reads; a residual merged into a parent keeps its relation query. */
+  abstract readonly target: unknown;
+
   protected derived<T extends AuthzStatement>(copy: T): T {
     copy.origin = this.origin;
+    copy.OnJoin = this.OnJoin;
     return copy;
   }
 }
@@ -20,7 +24,7 @@ export class ResidualSlot extends AuthzStatement {
   // undefined: not resolved (FALSE); empty: TRUE (renders nothing); else the AND of the statements.
   private filled: readonly IQueryStatement[] | undefined;
 
-  constructor(private readonly target: unknown) {
+  constructor(readonly target: unknown) {
     super();
   }
 

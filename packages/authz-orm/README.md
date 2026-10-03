@@ -34,10 +34,30 @@ clone) fail closed. Tables are matched by name, case-insensitively and across co
 table of the same name on another connection is refused too. An update that writes a column the
 residual reads loads the rows it reaches (as `SYSTEM`) to check them.
 
-An insert or update of a scoped model compiles only after its execution checks ran: calling `toDB()`
-on one before `await` (to log or explain it), or passing it to `driver.execute()`, is refused with
-`Forbidden`, and so is a builder whose values changed after the checks. A truncate or deep clone of a
-scoped table compiles only after the gate passed it in `beforeQueryExecution`.
+An insert or update of a scoped model compiles once, after its execution checks ran. Calling `toDB()`
+on one before `await` (to log or explain it), or after it ran, or passing it to `driver.execute()` is
+refused with `Forbidden`, whether its values changed or not. A truncate or deep clone of a scoped
+table likewise compiles once, after the gate passed it in `beforeQueryExecution`.
+
+## Relations, sub-queries and clones
+
+- A populated relation (belongsTo, hasMany, many-to-many) and the `populate()` of a relation object
+  read only the target rows the target's residual allows. For a many-to-many the residual filters the
+  junction query; a junction model that is an `@AccessResource` adds its own residual on the junction
+  rows.
+- A relation or sub-query whose type the principal may not read makes the whole query fail with
+  `AccessDenied`. A residual that needs IO (a model with `sync: 'never'`) resolves for every relation
+  and sub-query before the query that compiles them runs; one compiled but never run stays FALSE.
+- `clone()` (and the counts and pages built from a clone) keeps every residual on the table it was
+  compiled for, also those a populated relation merged into the query.
+- `whereExist` and `whereNotExists` on a many-to-many relation with a scoped target test the target
+  rows the residual allows. Inside a nested `where(fn)` they are refused with `Forbidden`: the orm
+  builds that sub-query on the junction table alone.
+- The static `Model.populate(relation, id)` joins the target table directly and is refused for a
+  scoped target; populate through a query or the relation object instead.
+
+Load authz-orm once per process: a second copy (another install, or its ESM and CJS builds together)
+throws `AuthzConfigError` when it loads.
 
 ## Databases
 

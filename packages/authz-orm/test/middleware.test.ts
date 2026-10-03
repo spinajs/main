@@ -1,5 +1,9 @@
 import * as chai from 'chai';
 import 'mocha';
+import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { AccessDenied, AuthorizationModel, AuthzConfigError, DecisionAudit, SYSTEM, authzStorage, runWithPrincipal } from '@spinajs/authz';
 import type { ModelCapabilities, Principal, ResourceFilter } from '@spinajs/authz';
@@ -8,12 +12,13 @@ import type { VoteTable } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { BelongsTo, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, ModelBase, QueryMiddleware, SelectQueryBuilder, SoftDelete, UpdateQueryBuilder, createQuery } from '@spinajs/orm';
+import { BelongsTo, CloneTableQueryBuilder, DeleteQueryBuilder, InsertBehaviour, InsertQueryBuilder, ModelBase, QueryMiddleware, SelectQueryBuilder, SoftDelete, TruncateTableQueryBuilder, TruncateTableQueryCompiler, UpdateQueryBuilder, createQuery } from '@spinajs/orm';
 import type { IWhereBuilder } from '@spinajs/orm';
 
 import { AccessResource, OrmScope, OrmScopePolicy, Owner, ScopeColumn } from '../src/index.js';
 import { ResidualStatement } from '../src/compile/compiler.js';
 import { AuthzQueryMiddleware } from '../src/middleware.js';
+import { claimProcess } from '../src/once.js';
 import { ResidualSlot } from '../src/shield.js';
 import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
@@ -265,11 +270,13 @@ describe('authz-orm query middleware', function () {
           expect(ids(await as(alice, () => Task.all()))).to.deep.equal(ALL);
         });
 
-        it('a sub-builder that never executes keeps its deferred residual FALSE (fail closed)', async () => {
-          await host({ [P.read]: permit() }, { sync: 'never' });
+        it("a sub-query's deferred residual resolves when the query that compiles it executes; compiled unexecuted it stays FALSE", async () => {
+          await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, { sync: 'never' });
           const Task = await defineTask();
-          const rows = await as(alice, () => Task.query().whereIn('id', Task.query().select('id')));
-          expect(ids(rows)).to.deep.equal([]);
+          const query = () => Task.query().whereIn('id', Task.query().select('id').where('team', 'blue'));
+          const { q } = await as(alice, () => ({ q: query() }));
+          expect((q.toDB() as { expression: string }).expression).to.contain('(1 = 0)');
+          expect(ids(await as(alice, query))).to.deep.equal(['t2']);
         });
 
         it('the delegation principal under inherit is the one relations compile for; maxDelegation is the booted one', async () => {
@@ -456,7 +463,6 @@ describe('authz-orm query middleware', function () {
           return { Task, Note };
         };
 
-        // Postgres populate SQL carries the database as a schema (an orm issue): the populate cases run on sqlite.
         const populated = async (p: Principal, build: () => any): Promise<string[][]> => {
           const { q } = await as(p, () => ({ q: build() }));
           const { expression, bindings } = q.toDB() as { expression: string; bindings: unknown[] };
@@ -465,7 +471,6 @@ describe('authz-orm query middleware', function () {
         };
 
         it("C1: an unscoped parent's orWhere does not widen a populated belongsTo residual, deferred too", async function () {
-          if (dialect === 'postgres') this.skip();
           await host({ [P.read]: permit(rel('owner')) });
           const { Note } = await notes();
           const query = () => Note.where('id', 'n1').orWhere('id', 'n2').select('id', 'nid').populate('task');
@@ -475,7 +480,6 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I1: clearWhere or orWhere in a populate callback keep the residual, in WHERE and in JOIN ON', async function () {
-          if (dialect === 'postgres') this.skip();
           await host({ [P.read]: permit(rel('owner')) });
           let { Note } = await notes('where');
           const cleared = () =>
@@ -610,7 +614,6 @@ describe('authz-orm query middleware', function () {
         };
 
         it('C1 and I1, executed: the populated residual holds through the execution hooks', async function () {
-          if (dialect === 'postgres') this.skip();
           await host({ [P.read]: permit(rel('owner')) });
           const { Note } = await notes();
           expect(await executed(bob, () => Note.where('id', 'n1').orWhere('id', 'n2').select('id', 'nid').populate('task'))).to.deep.equal([['n2', 'b']]);
@@ -626,7 +629,6 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-1: clearWhere after the relations compiled keeps the merged residual; a join whose residual is gone fails closed', async function () {
-          if (dialect === 'postgres') this.skip();
           await host({ [P.read]: permit(rel('owner')) });
           let { Note } = await notes();
           const compiled = async () => {
@@ -637,10 +639,7 @@ describe('authz-orm query middleware', function () {
           let { q } = await compiled();
           expect(await executed(bob, () => q.clearWhere())).to.deep.equal([['n2', 'b']]);
           ({ q } = await compiled());
-          const cloned = await executed(bob, () => q.clone().clearWhere()).catch((e: unknown) => e);
-          // Task 7: a parent clone rebinds the merged residual to the parent's alias (an SQL error today).
-          if (Array.isArray(cloned)) expect(cloned).to.deep.equal([['n2', 'b']]);
-          else expect(cloned).to.be.instanceOf(Error);
+          expect(await executed(bob, () => q.clone().clearWhere())).to.deep.equal([['n2', 'b']]);
           ({ q } = await compiled());
           q.Statements.splice(0);
           expect(await fails(executed(bob, () => q))).to.be.instanceOf(Forbidden);
@@ -718,11 +717,69 @@ describe('authz-orm query middleware', function () {
             ['t8', 'alice'],
           ]);
         });
+
+        it('N-1: a check allows one compile: a builder sent again after its execution is refused, changed or not', async () => {
+          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')), [P.update]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
+          const { Task, Note } = await notes();
+          const driver = db.driver(dialect);
+          const updateOf = (id: string) => as(alice, () => ({ u: createQuery(Task, UpdateQueryBuilder).query.update({ title: 'z' }).where('id', id) }));
+
+          let { u } = await updateOf('t1');
+          await as(alice, () => u);
+          (u.Value as Record<string, unknown>).owner = 'bob';
+          expect(await fails(as(alice, () => driver.execute(u)))).to.be.instanceOf(Forbidden);
+          ({ u } = await updateOf('t3'));
+          await as(alice, () => u);
+          u.orWhere('id', 't2');
+          expect(await fails(as(alice, () => driver.execute(u)))).to.be.instanceOf(Forbidden);
+          expect(await fails(as(alice, () => u.toDB()))).to.be.instanceOf(Forbidden);
+
+          const { insert } = await as(alice, () => ({ insert: createQuery(Task, InsertQueryBuilder).query.values({ id: 't8', title: 'x' }) }));
+          await as(alice, () => insert);
+          insert.forceColumn('owner', 'bob');
+          expect(await fails(as(alice, () => driver.execute(insert)))).to.be.instanceOf(Forbidden);
+
+          const truncate = driver.truncate(db.table(Note));
+          await as(bob, () => truncate);
+          truncate.setTable(db.table(Task));
+          expect(await fails(as(bob, () => driver.execute(truncate)))).to.be.instanceOf(Forbidden);
+
+          expect((await stored(Task)).map((r) => [r.id, r.owner, r.title])).to.deep.equal([
+            ['t1', 'alice', 'z'],
+            ['t2', 'bob', 'b'],
+            ['t3', 'alice', 'z'],
+            ['t8', 'alice', 'x'],
+          ]);
+        });
+
+        it('the truncate and clone builders the driver returns compile through the authz gate, which calls the original toDB', async () => {
+          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
+          const { Task } = await notes();
+          const driver = db.driver(dialect);
+          const table = db.table(Task);
+          const gated = (cls: { prototype: { toDB: unknown } }) => (cls.prototype.toDB as { authzGate?: boolean }).authzGate;
+
+          const truncate = driver.truncate(table);
+          expect(truncate).to.be.instanceOf(TruncateTableQueryBuilder);
+          expect(truncate.toDB).to.equal(TruncateTableQueryBuilder.prototype.toDB);
+          expect(gated(TruncateTableQueryBuilder)).to.equal(true);
+          expect(await fails(as(bob, () => truncate.toDB()))).to.be.instanceOf(Forbidden);
+          const compiler = driver.Container.resolve<TruncateTableQueryCompiler>(TruncateTableQueryCompiler, [truncate.Container, truncate]);
+          expect(await asSystem(() => truncate.toDB())).to.deep.equal(compiler.compile());
+
+          const copy = `${table}_copy`;
+          const clone = driver.schema().cloneTable((c) => void c.deepClone(table, copy));
+          expect(clone).to.be.instanceOf(CloneTableQueryBuilder);
+          expect(clone.toDB).to.equal(CloneTableQueryBuilder.prototype.toDB);
+          expect(gated(CloneTableQueryBuilder)).to.equal(true);
+          expect(await fails(as(bob, () => clone.toDB()))).to.be.instanceOf(Forbidden);
+          // The orm cannot compile a deep clone yet; the TypeError shows the wrapper called through to it.
+          expect(await fails(asSystem(() => clone.toDB()))).to.be.instanceOf(TypeError);
+          expect((await stored(Task)).map((r) => r.id)).to.deep.equal(ALL);
+        });
       });
 
       it("relationScope 'join': a populated target's residual goes into its JOIN ON, and the parent rows stay", async function () {
-        // Postgres populate SQL carries the database as a schema (an orm issue), so it runs on sqlite only.
-        if (dialect === 'postgres') this.skip();
         await host({ [P.read]: permit(rel('owner')) });
         const Task = (await db.define(
           {
@@ -794,5 +851,26 @@ describe('authz-orm query middleware', function () {
     expect(slot.build().Statements).to.deep.equal(['(1 = 0)']);
     slot.fill([]);
     expect(slot.build().Statements).to.deep.equal([]);
+  });
+
+  it('N-2: the process holds one copy of authz-orm; another copy claiming it throws AuthzConfigError', () => {
+    const KEY = Symbol.for('@spinajs/authz-orm');
+    const store: Record<symbol, unknown> = {};
+    const mine = {};
+    claimProcess(store, mine);
+    claimProcess(store, mine);
+    expect(() => claimProcess(store, {})).to.throw(AuthzConfigError);
+    expect((globalThis as unknown as Record<symbol, unknown>)[KEY]).to.not.equal(undefined);
+  });
+
+  it('N-2: loading the built package where another copy is loaded fails at load with AuthzConfigError', async function () {
+    const lib = resolve('lib/mjs/index.js');
+    if (!existsSync(lib)) this.skip();
+    const load = (claimed: boolean) => {
+      const script = `${claimed ? "globalThis[Symbol.for('@spinajs/authz-orm')] = {};" : ''} import(${JSON.stringify(pathToFileURL(lib).href)}).then(() => console.log('loaded'), (e) => console.log(e?.name));`;
+      return new Promise<string>((done, fail) => execFile(process.execPath, ['--input-type=module', '-e', script], { cwd: process.cwd() }, (e, out) => (e ? fail(e) : done(out.trim()))));
+    };
+    expect(await load(false)).to.equal('loaded');
+    expect(await load(true)).to.equal('AuthzConfigError');
   });
 });

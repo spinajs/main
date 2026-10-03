@@ -124,7 +124,7 @@ interface Compiled {
  * a join or `setAlias()` assigns later is the one used.
  */
 export class ResidualStatement extends AuthzStatement {
-  constructor(private readonly target: IWhereBuilder<unknown>, private readonly compiled: Compiled) {
+  constructor(readonly target: IWhereBuilder<unknown>, private readonly compiled: Compiled) {
     super();
   }
 
