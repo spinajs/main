@@ -1,5 +1,5 @@
 import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, ConditionFunction, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionFunction, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets } from './policies.js';
@@ -191,6 +191,23 @@ export class AbacModel extends AuthorizationModel {
     return { model: this.name, permissions: out };
   }
 
+  /**
+   * B19: a policy whose condition reads `scope.<type>.*` (other than `$global`) or calls a function on
+   * `resource.*` needs the row on a list request; such a policy on a list-scoped type (an adapter
+   * that compiles filters) cannot be pushed into the query. One line per policy and type, for the
+   * host to log at boot.
+   */
+  listWarnings(listScopedTypes: Iterable<ResourceType>): readonly string[] {
+    const listed = [...new Set(listScopedTypes)];
+    const out: string[] = [];
+    for (const p of this.loaded) {
+      if (!p.when || !needsRow(p.when)) continue;
+      const types = p.resourceTypes ? listed.filter((t) => p.resourceTypes!.has(t)) : listed;
+      for (const type of types) out.push(`${p.where} on list-scoped type ${JSON.stringify(type)}: its condition needs the row, so a list request ${p.policy.effect === 'deny' ? 'denies needs_subject' : 'gets nothing from it'}`);
+    }
+    return out;
+  }
+
   /** Boot refs for validateBoot (design §6.5 rules 7 and 10), fed through AbacContributor. */
   contribution(): AuthzContribution {
     const permissionRefs = this.loaded.flatMap((p) => p.policy.permissions.filter((name) => !name.includes('*')).flatMap((permission) => (p.policy.resourceTypes ?? [undefined]).map((type) => ({ permission, ...(type === undefined ? {} : { type }), source: `${this.name} policy ${JSON.stringify(p.policy.id)}` }))));
@@ -236,6 +253,20 @@ export class AbacModel extends AuthorizationModel {
         this.reload = undefined;
       });
     return this.reload;
+  }
+}
+
+function needsRow(c: ParsedCondition): boolean {
+  switch (c.kind) {
+    case 'all':
+    case 'any':
+      return c.items.some(needsRow);
+    case 'not':
+      return needsRow(c.item);
+    case 'fn':
+      return c.facts.roots.includes('resource') || c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
+    case 'cmp':
+      return c.facts.scopeTypes.some((t) => t !== GLOBAL.type);
   }
 }
 
