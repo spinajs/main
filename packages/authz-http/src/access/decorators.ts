@@ -1,6 +1,6 @@
 import { NewInstance } from '@spinajs/di';
 import type { Constructor } from '@spinajs/di';
-import { parsePermission } from '@spinajs/authz';
+import { AuthzConfigError, parsePermission } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 import { BasePolicy, Middleware, Route, RouteMiddleware } from '@spinajs/http';
 import type { IController, IControllerDescriptor, IPolicyGroup, IRoute, Request, Response } from '@spinajs/http';
@@ -9,14 +9,29 @@ import type * as express from 'express';
 import type { AccessOptions } from '../api.js';
 import { auditUnscoped } from '../domains.js';
 import { ACCESS_CLASS, ownAccessDescriptor, routeAccess, routeDomain } from './descriptor.js';
+import type { AccessKey, IAccessRule } from './descriptor.js';
 import { AccessPolicy } from './policy.js';
 import '../storage.js';
+
+// Keys each class declared itself, to tell a second @Access on one member from an override of an inherited one.
+const declared = new WeakMap<object, Set<AccessKey>>();
+
+function declareOnce(target: object, key: AccessKey): void {
+  const proto = (target as { prototype?: object }).prototype ?? target;
+  const keys = declared.get(proto) ?? new Set<AccessKey>();
+  if (keys.has(key)) {
+    const owner = (proto as { constructor: { name: string } }).constructor.name;
+    throw new Error(`@Access is declared twice on ${owner}${key === ACCESS_CLASS ? '' : `.${String(key)}`}`);
+  }
+  declared.set(proto, keys.add(key));
+}
 
 /**
  * Guards a route, or every route of a controller, with authorization (design §11.2). One policy
  * group: `AccessPolicy` AND the `also` policies (B23), as 2.x `@Permission` placed `RbacPolicy`;
  * other `@Policy` groups at the same place stay alternatives (OR), and a class-level `@Access`
- * narrows every route (http combines the class and route scopes with AND).
+ * narrows every route (http combines the class and route scopes with AND). On a subclass it
+ * replaces the inherited `@Access` group of that place instead of adding an alternative to it.
  */
 export function Access(permission: Permission | readonly Permission[], opts?: AccessOptions): ClassDecorator & MethodDecorator {
   const permissions: Permission[] = typeof permission === 'string' ? [permission] : [...permission];
@@ -26,13 +41,21 @@ export function Access(permission: Permission | readonly Permission[], opts?: Ac
   // A malformed name fails when the controller module loads, not on the first request.
   permissions.forEach((p) => parsePermission(p));
 
-  const rule = { permissions: Object.freeze(permissions), options: Object.freeze({ ...(opts ?? {}) }) };
+  const rule: IAccessRule = { permissions: Object.freeze(permissions), options: Object.freeze({ ...(opts ?? {}) }) };
 
   return Route((controller: IControllerDescriptor, route: IRoute, target: object, propertyKey?: string | symbol) => {
-    ownAccessDescriptor(target).Access.set(propertyKey ?? ACCESS_CLASS, rule);
+    const key = propertyKey ?? ACCESS_CLASS;
+    declareOnce(target, key);
+    ownAccessDescriptor(target).Access.set(key, rule);
 
-    const group: IPolicyGroup = [{ Type: AccessPolicy, Options: [rule] }, ...(rule.options.also ?? []).map((Type) => ({ Type: Type as Constructor<BasePolicy>, Options: [] }))];
-    (route ? route.Policies : controller.Policies).push(group);
+    const groups = route ? route.Policies : controller.Policies;
+    const inherited = groups.findIndex((g) => g[0]?.Type === AccessPolicy);
+    if (inherited >= 0) {
+      groups.splice(inherited, 1);
+    }
+    // The policy reads the rule from the descriptor at request time, so swagger, the boot refs and the check agree.
+    const group: IPolicyGroup = [{ Type: AccessPolicy, Options: [route ? 'route' : 'class'] }, ...(rule.options.also ?? []).map((Type) => ({ Type: Type as Constructor<BasePolicy>, Options: [] }))];
+    groups.push(group);
   }) as ClassDecorator & MethodDecorator;
 }
 
@@ -54,7 +77,12 @@ export class UnscopedMiddleware extends RouteMiddleware {
     super();
   }
 
-  public isEnabled(): boolean {
+  /** Called when http registers the route: an unguarded route must not run unscoped, so registration fails. */
+  public isEnabled(route: IRoute, controller: IController): boolean {
+    const access = routeAccess(controller, route.Method);
+    if (!access.route && !access.controller) {
+      throw new AuthzConfigError(`@Unscoped on ${controller.constructor.name}.${String(route.Method)} needs an @Access on the route or its class`);
+    }
     return true;
   }
 

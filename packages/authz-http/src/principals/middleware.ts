@@ -1,9 +1,10 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthzService } from '@spinajs/authz';
+import { AuthzConfigError, AuthzService, authzStorage } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
 import { PrincipalSource } from '../api.js';
@@ -26,11 +27,14 @@ export const PRINCIPAL_MIDDLEWARE_ORDER = 10;
  * `order` and the first non-null answer wins; with none, the anonymous principal when
  * `authz.principals.anonymous.enabled`, else no principal at all. The principal goes to
  * `req.storage.Principal`, the store the action's AsyncLocalStorage runs with, and the root
- * domain preloads it.
+ * domain preloads it in that store.
  */
 @Injectable(ServerMiddleware)
 export class PrincipalMiddleware extends ServerMiddleware {
-  protected Authz: AuthzService;
+  @Logger('authz-http')
+  protected Log: Log;
+
+  private authz: Promise<AuthzService> | undefined;
 
   constructor() {
     super();
@@ -38,8 +42,11 @@ export class PrincipalMiddleware extends ServerMiddleware {
   }
 
   public async resolve(): Promise<void> {
-    // authz() is synchronous and throws until the root service has booted, so boot it here (F4).
-    this.Authz = (await DI.resolve(AuthzService)) as AuthzService;
+    // The http server resolves its middlewares before the controllers register, and the root
+    // boot checks the @Access permissions of the registered controllers (B02): boot once it listens.
+    DI.once('http.server.listening', () => {
+      this.rootService().catch((err: unknown) => this.Log.error(err as Error, 'the root authz domain failed to boot'));
+    });
   }
 
   public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
@@ -52,11 +59,22 @@ export class PrincipalMiddleware extends ServerMiddleware {
     return null;
   }
 
+  /** The root AuthzService, booted once; `authz()` works in actions after it. */
+  protected rootService(): Promise<AuthzService> {
+    this.authz ??= (DI.resolve(AuthzService) as Promise<AuthzService>).catch((err: unknown) => {
+      this.authz = undefined;
+      throw err;
+    });
+    return this.authz;
+  }
+
   protected async attach(req: Request): Promise<void> {
+    const authz = await this.rootService();
     const principal = await this.authenticate(req);
     if (principal) {
       req.storage.Principal = principal;
-      await this.Authz.preload(principal);
+      // In the request's store, so what models keep per request at preload reaches the checks.
+      await authzStorage().run(req.storage as unknown as Record<string, unknown>, () => authz.preload(principal));
     }
   }
 
@@ -64,6 +82,10 @@ export class PrincipalMiddleware extends ServerMiddleware {
     for (const source of await this.sources()) {
       const principal = await source.authenticate(req);
       if (principal) {
+        // SYSTEM and UNATTENDED come only from runAs, @Job and @Unscoped (design §14.1).
+        if (principal.type === 'system' || principal.type === 'unattended') {
+          throw new AuthzConfigError(`principal source ${source.name} returned a ${principal.type} principal`);
+        }
         return principal;
       }
     }

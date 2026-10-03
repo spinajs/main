@@ -1,6 +1,6 @@
 import { DI, Injectable } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthzContributor } from '@spinajs/authz';
+import { AuthzContributor, parsePermission } from '@spinajs/authz';
 import type { AuthzContribution, PermissionRefDecl } from '@spinajs/authz';
 import { BaseController } from '@spinajs/http';
 
@@ -25,8 +25,9 @@ export class AccessContributor extends AuthzContributor {
       for (const [key, rule] of descriptor.Access) {
         if ((rule.options.domain ?? 'root') !== domain) continue;
         const source = `@Access on ${(type as Class<unknown>).name}${key === ACCESS_CLASS ? '' : `.${String(key)}`}`;
-        const resourceType = extractorType(rule.options.resource);
         for (const permission of rule.permissions) {
+          // Without an extractor the check runs on the type-level ref of the permission resource.
+          const resourceType = rule.options.resource ? extractorType(rule.options.resource) : parsePermission(permission).resource;
           permissionRefs.push(resourceType === undefined ? { permission, source } : { permission, type: resourceType, source });
         }
       }

@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthzService, Unauthenticated, authz } from '@spinajs/authz';
+import { AuthzService, SYSTEM, Unauthenticated, authz } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { BaseController, BasePath, Get, Ok, Req, ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -21,7 +21,7 @@ const carol = userPrincipal('carol');
 class WhoAmI extends BaseController {
   @Get('/')
   public who(@Req() req: Request) {
-    return new Ok({ stored: req.storage.Principal ?? null, current: authz().current() });
+    return new Ok({ stored: req.storage.Principal ?? null, current: authz().current(), preloadInStore: req.storage.AuthzCache instanceof Map && req.storage.AuthzCache.size > 0 });
   }
 }
 
@@ -54,6 +54,7 @@ class EarlySource extends PrincipalSource {
 
   public async authenticate(req: Request): Promise<Principal | null> {
     calls.early++;
+    if (req.headers['x-early'] === 'system') return SYSTEM;
     return req.headers['x-early'] === 'carol' ? carol : null;
   }
 }
@@ -139,8 +140,10 @@ describe('PrincipalMiddleware', function () {
     expect(res.body.current).to.deep.include({ type: 'user', id: 'alice' });
   });
 
-  it('preloads the principal in the root domain', async () => {
-    await app.request().get('/whoami').set('x-authn', 'alice');
+  it('preloads the principal in the root domain, in the store the action runs with', async () => {
+    const res = await app.request().get('/whoami').set('x-authn', 'alice');
+
+    expect(res.body.preloadInStore).to.eq(true);
 
     expect(preload.callCount).to.eq(1);
     expect(preload.firstCall.args[0]).to.deep.include({ type: 'user', id: 'alice' });
@@ -179,6 +182,12 @@ describe('PrincipalMiddleware', function () {
     } finally {
       testHost.config().unset(['authz', 'http', 'services']);
     }
+  });
+
+  it('refuses a system or unattended principal from a source', async () => {
+    const res = await app.request().get('/whoami').set('x-early', 'system');
+
+    expect(res.status).to.eq(500);
   });
 
   it('a source that throws Unauthenticated answers 401', async () => {

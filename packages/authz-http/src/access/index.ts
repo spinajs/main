@@ -1,5 +1,7 @@
-export * from './descriptor.js';
-export * from './extractors.js';
-export * from './policy.js';
-export * from './decorators.js';
-export * from './contributor.js';
+export { ACCESS_CLASS, accessDescriptorOf } from './descriptor.js';
+export type { AccessKey, IAccessDescriptor, IAccessRule } from './descriptor.js';
+export { typedExtractor, extractorType } from './extractors.js';
+export { AccessPolicy } from './policy.js';
+export type { AccessScope } from './policy.js';
+export { UnscopedMiddleware } from './decorators.js';
+export { AccessContributor } from './contributor.js';

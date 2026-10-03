@@ -40,9 +40,7 @@ export function accessDescriptorOf(controller: object): IAccessDescriptor | unde
 }
 
 export interface RouteAccess {
-  /** `@Access` on the route method. */
   readonly route?: IAccessRule;
-  /** `@Access` on the class. */
   readonly controller?: IAccessRule;
   /** `@AllowAnonymous` on the route or the class. */
   readonly anonymous: boolean;

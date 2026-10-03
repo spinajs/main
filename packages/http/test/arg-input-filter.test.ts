@@ -10,7 +10,7 @@ import { Schema } from '@spinajs/validation';
 
 import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { DateTime } from 'luxon';
-import { ArgInputFilter, BaseController, BasePath, Body, Controllers, Get, HttpServer, Ok, Post, Query } from '../src/index.js';
+import { ArgHydrator, ArgInputFilter, BaseController, BasePath, Body, Controllers, Get, HttpServer, Hydrator, Ok, Post, Query } from '../src/index.js';
 import type { IRouteParameter } from '../src/index.js';
 
 @Schema({
@@ -27,6 +27,16 @@ class StrictInput {
     Object.assign(this, data);
   }
 }
+
+/** Parses its input itself, as some hydrators of query objects do. */
+class ParsingHydrator extends ArgHydrator {
+  public async hydrate(input: any): Promise<any> {
+    return { parsed: JSON.parse(input) };
+  }
+}
+
+@Hydrator(ParsingHydrator)
+class ParsedQuery {}
 
 // Registered by this suite only, so the controller counts of the dir-scanned suites stay as they are.
 @BasePath('params/input-filter')
@@ -54,6 +64,11 @@ class InputFilterParams extends BaseController {
   @Get()
   public date(@Query() a: DateTime) {
     return new Ok({ date: a.toFormat('dd-MM-yyyy') });
+  }
+
+  @Get()
+  public parsed(@Query() a: ParsedQuery) {
+    return new Ok({ a });
   }
 }
 
@@ -181,6 +196,20 @@ describe('ArgInputFilter', function () {
     expect(unix.status).to.eq(200);
     expect(unix.body.date).to.eq('28-06-2022');
     expect(calls[2].input).to.eq('1656367511');
+  });
+
+  it('a JSON object string reaches a hydrator as a string, filtered', async () => {
+    const res = await req().get('params/input-filter/parsed?a={"id":1,"extra":"x"}');
+
+    expect(res.status).to.eq(200);
+    expect(res.body.a).to.deep.eq({ parsed: { id: 1 } });
+  });
+
+  it('an absent argument is not filtered', async () => {
+    const res = await req().get('params/input-filter/queryObject');
+
+    expect(res.status).to.eq(200);
+    expect(calls).to.deep.eq([]);
   });
 
   it('a primitive argument is not filtered', async () => {

@@ -9,7 +9,7 @@ import { Forbidden } from '@spinajs/exceptions';
 import { testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
-import { ACCESS_CLASS, ACCESS_DESCRIPTOR, Access, AccessContributor, AccessPolicy, AllowAnonymous, Unscoped, accessDescriptorOf, typedExtractor } from '../src/index.js';
+import { ACCESS_CLASS, ACCESS_DESCRIPTOR, Access, AccessContributor, AccessPolicy, AllowAnonymous, Unscoped, UnscopedMiddleware, accessDescriptorOf, typedExtractor } from '../src/index.js';
 import type { IAccessDescriptor } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
@@ -18,7 +18,7 @@ import type { TestDomain } from './support/domain.js';
 import { registerHeaderSource } from './support/principals.js';
 
 const D = 'acc';
-const PERMISSIONS = { 'file:read': {}, 'file:update': {}, 'file:write': {} };
+const PERMISSIONS = { 'file:read': {}, 'file:update': {}, 'file:write': {}, 'file:list': {} };
 
 class AlsoFails extends BasePolicy {
   public isEnabled() {
@@ -104,8 +104,45 @@ class ClassAccess extends BaseController {
 
 class ClassAccessChild extends ClassAccess {}
 
+@BasePath('acc-parent')
+@Access('file:read', { domain: D })
+class ParentRoutes extends BaseController {
+  @Get('x')
+  @Access('file:read', { domain: D })
+  public x(@Req() req: Request) {
+    return answer(req);
+  }
+
+  @Get('y')
+  public y(@Req() req: Request) {
+    return answer(req);
+  }
+}
+
+// An app narrowing a package controller: the parent's permissions must not stay an alternative.
+@BasePath('acc-child')
+@Access('file:update', { domain: D })
+class ChildRoutes extends ParentRoutes {
+  @Get('x')
+  @Access('file:update', { domain: D })
+  public x(@Req() req: Request) {
+    return answer(req);
+  }
+}
+
+@BasePath('acc-both')
+@Access('file:read', { domain: D })
+class BothScopes extends BaseController {
+  @Get('c')
+  @Access('file:list', { domain: D })
+  public c(@Req() req: Request) {
+    return answer(req);
+  }
+}
+
 // Permits file:read to alice and to anonymous principals; nothing else.
-const votes = (req: DecisionRequest): ScriptedVote => (req.permission === 'file:read' && (req.principal.id === 'alice' || req.principal.type === 'anonymous') ? { permitWhen: { op: 'true' } } : {});
+const votes = (req: DecisionRequest): ScriptedVote =>
+  (req.permission === 'file:read' && (req.principal.id === 'alice' || req.principal.type === 'anonymous')) || (req.permission === 'file:list' && req.principal.id === 'alice') ? { permitWhen: { op: 'true' } } : {};
 
 describe('@Access, @AllowAnonymous, @Unscoped', function () {
   this.timeout(30000);
@@ -116,7 +153,7 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
 
   before(async () => {
     unregisterSource = registerHeaderSource();
-    app = await startApp({ controllers: [AccessRoutes, ClassAccess] });
+    app = await startApp({ controllers: [AccessRoutes, ClassAccess, ParentRoutes, ChildRoutes, BothScopes] });
     domain = await createDomain(D, { permissions: PERMISSIONS, model: { votes } });
   });
 
@@ -239,6 +276,39 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
     });
   });
 
+  describe('inheritance and scopes', () => {
+    it('a subclass @Access replaces the inherited one at the route and at the class', async () => {
+      expect((await app.request().get('/acc-parent/x').set('x-user', 'alice')).status).to.eq(200);
+      expect((await app.request().get('/acc-parent/y').set('x-user', 'alice')).status).to.eq(200);
+      expect((await app.request().get('/acc-child/x').set('x-user', 'alice')).status).to.eq(403);
+      expect((await app.request().get('/acc-child/y').set('x-user', 'alice')).status).to.eq(403);
+    });
+
+    it('a subclass keeps one @Access group per place', () => {
+      const http = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, ChildRoutes.prototype) as IControllerDescriptor;
+      expect(http.Policies.map((g) => g.map((p) => p.Type))).to.deep.eq([[AccessPolicy]]);
+      expect(http.Routes.get('x')!.Policies.map((g) => g.map((p) => p.Type))).to.deep.eq([[AccessPolicy]]);
+    });
+
+    it('refuses two @Access on one member of one class', () => {
+      expect(() => {
+        class Twice extends BaseController {
+          @Access('file:read')
+          @Access('file:update')
+          public x() {}
+        }
+        return Twice;
+      }).to.throw(/declared twice on Twice.x/);
+    });
+
+    it("keeps the route @Access decision when the class @Access passes too", async () => {
+      const res = await app.request().get('/acc-both/c').set('x-user', 'alice');
+
+      expect(res.status).to.eq(200);
+      expect(res.body.permission).to.eq('file:list');
+    });
+  });
+
   describe('@Unscoped', () => {
     it('sets Unscoped in the store the action runs with and audits the bypass with its reason', async () => {
       const res = await app.request().get('/acc/reports').set('x-user', 'alice');
@@ -252,6 +322,21 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
       const res = await app.request().get('/acc/files/f1').set('x-user', 'alice');
 
       expect(res.body.unscoped).to.eq(null);
+    });
+
+    it('refuses to register a route that has no @Access to go with it', async () => {
+      @BasePath('acc-unguarded')
+      class Unguarded extends BaseController {
+        @Get()
+        @Unscoped('forgot the guard')
+        public x() {
+          return new Ok();
+        }
+      }
+
+      const instance = new Unguarded();
+      const route = (Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, Unguarded.prototype) as IControllerDescriptor).Routes.get('x')!;
+      expect(() => new UnscopedMiddleware('forgot the guard').isEnabled(route, instance)).to.throw(AuthzConfigError, /needs an @Access/);
     });
 
     it('a refused request is no bypass: nothing is audited', async () => {
@@ -273,11 +358,12 @@ describe('@Access, @AllowAnonymous, @Unscoped', function () {
   });
 
   describe('boot refs (AccessContributor)', () => {
-    it("contributes the permissions of the domain's routes, with the extractor's type", () => {
+    it("contributes the permissions of the domain's routes, typed by a typed extractor or the permission resource", () => {
       const refs = new AccessContributor().contribute(D).permissionRefs!;
 
       expect(refs).to.deep.include({ permission: 'file:read', source: '@Access on AccessRoutes.file' });
-      expect(refs).to.deep.include({ permission: 'file:read', source: '@Access on ClassAccess' });
+      expect(refs).to.deep.include({ permission: 'file:update', type: 'file', source: '@Access on AccessRoutes.any' });
+      expect(refs).to.deep.include({ permission: 'file:read', type: 'file', source: '@Access on ClassAccess' });
       expect(new AccessContributor().contribute('elsewhere').permissionRefs).to.deep.eq([]);
     });
 

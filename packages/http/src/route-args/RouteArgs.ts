@@ -120,25 +120,26 @@ export abstract class RouteArgs implements IRouteArgs {
       return arg;
     }
 
-    // Only JSON objects and arrays are parsed: a plain string (an ISO date for DateTimeHydrator, say) must reach the
-    // hydrator as it came, and a bad JSON string keeps failing where it failed before.
+    // Filters see JSON objects and arrays parsed, and their output goes on as a string again: hydrators
+    // that parse their input themselves keep getting what they got before. Any other string (an ISO date
+    // for DateTimeHydrator, bad JSON) reaches the filters and the hydrator as it came.
     let input = arg;
+    let parsedFromString = false;
     if (_.isString(input)) {
       try {
         const parsed = JSON.parse(input);
         if (parsed !== null && typeof parsed === 'object') {
           input = parsed;
+          parsedFromString = true;
         }
-      } catch {
-        // left as is
-      }
+      } catch {}
     }
 
     for (const filter of filters) {
       input = await filter.filter(input, routeParameter, route);
     }
 
-    return input;
+    return parsedFromString && input !== null && typeof input === 'object' ? JSON.stringify(input) : input;
   }
 
   protected async tryHydrateObject(arg: any, route: IRouteParameter, hydrator: any) {

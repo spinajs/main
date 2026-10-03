@@ -1,7 +1,7 @@
 import { DI, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthzDomains, AuthzService, DecisionAudit, DefaultAuthzDomains, readDomainConfig } from '@spinajs/authz';
+import { AuthzConfigError, AuthzDomains, AuthzService, DecisionAudit, DefaultAuthzDomains, readDomainConfig } from '@spinajs/authz';
 
 /** The booted AuthzService of a domain; `authz()` would throw before the domain's first resolve. */
 export async function domainService(domain: string): Promise<AuthzService> {
@@ -31,7 +31,8 @@ async function pickAudit(container: IContainer, service: string | undefined): Pr
  */
 export async function auditUnscoped(domain: string, entry: AuditEntry): Promise<void> {
   const domains = await DI.resolve(AuthzDomains);
-  if (!(domains instanceof DefaultAuthzDomains)) return;
+  // A bypass must not go unaudited, and only the host's AuthzDomains tells a domain's config lineage.
+  if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('@Unscoped needs the host AuthzDomains to audit the bypass');
   const configuration = DI.get(Configuration);
   const cfg = readDomainConfig((path) => configuration?.get(path), domains.lineage(domain));
   if (!cfg.audit.unscoped) return;
