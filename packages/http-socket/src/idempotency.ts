@@ -288,7 +288,8 @@ export class SocketIdempotency {
     }
 
     const error = this.Errors.toWire(outcome.error, `command ${name}`);
-    if (error.retryable) {
+    // unauthenticated refuses the credential, not the command: the client keeps it queued and resends after a login
+    if (error.retryable || error.code === 'unauthenticated') {
       await this.Store.release(scoped);
       return null;
     }

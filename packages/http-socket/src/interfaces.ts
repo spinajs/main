@@ -314,7 +314,7 @@ export type CommandOutcome = { readonly result: unknown } | { readonly error: un
 /** The idempotency stage's hold on one key while its command runs. */
 export interface ISocketIdempotencyClaim {
   /**
-   * Records the outcome once: a result or a final error is stored, a retryable error or the call's own
+   * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
    * abort releases the key. Later calls get the first answer. Null: released, or detached.
    */
   settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;

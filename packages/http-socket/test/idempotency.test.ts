@@ -4,7 +4,10 @@ import { Socket as ClientSocket } from 'socket.io-client';
 import { Injectable } from '@spinajs/di';
 import { SocketException } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
-import { Command, Payload, SocketController } from '../src/decorators.js';
+import { Unauthenticated } from '@spinajs/authz';
+import { BasePolicy } from '@spinajs/http';
+import { Command, Payload, SocketController, SocketPolicy } from '../src/decorators.js';
+import type { ISocketPolicyRequest } from '../src/policies.js';
 import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from '../src/idempotency.js';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 
@@ -21,6 +24,22 @@ function run(tag: string): number {
   const n = (idemRuns.get(tag) ?? 0) + 1;
   idemRuns.set(tag, n);
   return n;
+}
+
+export const idemLogin = { checks: 0 };
+
+/** Refuses an anonymous principal as `@SocketAccess` does, without an AuthzService to ask. */
+export class IdemNeedsLogin extends BasePolicy {
+  public isEnabled(): boolean {
+    return true;
+  }
+
+  public async execute(req: unknown): Promise<void> {
+    idemLogin.checks++;
+    if (!(req as ISocketPolicyRequest).storage.Principal.authenticated) {
+      throw new Unauthenticated('log in first');
+    }
+  }
 }
 
 @SocketController('idem')
@@ -54,6 +73,12 @@ export class IdempotencySocket extends BaseSocketController {
   public async unstorable(@Payload() p: { tag: string }) {
     run(p.tag);
     return { tag: p.tag, cannotClone: () => undefined };
+  }
+
+  @Command('guarded', { idempotent: true })
+  @SocketPolicy(IdemNeedsLogin)
+  public async guarded(@Payload() p: { tag: string }) {
+    return { tag: p.tag, run: run(p.tag) };
   }
 
   @Command('plain')
@@ -158,6 +183,27 @@ describe('socket idempotent commands', function () {
 
     expect(first.retryable).to.be.true;
     expect(idemRuns.get('u')).to.equal(2);
+  });
+
+  it('releases an unauthenticated refusal, so the same key is checked again rather than replayed', async () => {
+    idemLogin.checks = 0;
+    const s = await connect('idem-anon');
+
+    for (let i = 0; i < 2; i++) {
+      expect(errorOf(await command(s, 'idem.guarded', { tag: 'l' }, { idempotencyKey: 'k1' })).code).to.equal('unauthenticated');
+    }
+
+    expect(idemLogin.checks).to.equal(2);
+    expect(idemRuns.has('l')).to.be.false;
+  });
+
+  it('runs a key refused as unauthenticated once the same clientId comes back logged in', async () => {
+    const anonymous = await connect('idem-login');
+    expect(errorOf(await command(anonymous, 'idem.guarded', { tag: 'li' }, { idempotencyKey: 'k1' })).code).to.equal('unauthenticated');
+    anonymous.close();
+
+    const alice = await connect('idem-login', 'good');
+    expect(resultOf(await command(alice, 'idem.guarded', { tag: 'li' }, { idempotencyKey: 'k1' }))).to.deep.equal({ tag: 'li', run: 1 });
   });
 
   it('refuses a key on a command that is not idempotent', async () => {
