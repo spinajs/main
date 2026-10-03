@@ -6,7 +6,7 @@ import type { World } from '@spinajs/authz-testing';
 
 import { rbacHarness } from './model/harness.js';
 
-runBehaviour(['B01.rbac', 'B02.rbac', 'B12.rbac'], rbacHarness, { strict: true, timeoutMs: 30_000 });
+runBehaviour(['B01.rbac', 'B02.rbac', 'B11.rbac', 'B12.rbac', 'B13.rbac'], rbacHarness, { strict: true, timeoutMs: 30_000 });
 
 // Lane-local parts, not in the kit catalogue.
 const { ALGORITHMS, assignment, combine, extension, permit, ref, role, staticModel } = fixtureDsl;

@@ -1,10 +1,10 @@
 import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { Assignment, PermissionInput, ResourceRef } from '@spinajs/authz';
-import { userPrincipal } from '@spinajs/authz-testing';
+import { FakeScopeResolver, fakeEvaluationContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
-import { RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, runRbacPipeline } from '../../src/index.js';
+import { MemoryAssignmentStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, gatherRbacInput, runRbacPipeline } from '../../src/index.js';
 import type { RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -71,9 +71,11 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect(runRbacPipeline(input([assignment('a1', 'viewer')], 'file:write')).reason).to.deep.equal(NO_ACCESS);
     });
 
-    it('an assignment at a scope other than GLOBAL is not collected yet', () => {
-      const vote = runRbacPipeline(input([assignment('a1', 'viewer', { scope: { type: 'project', id: 'p1' } })], 'file:read'));
-      expect(vote.reason).to.deep.equal(NO_ACCESS);
+    it('collect keeps only the assignments whose scope is on the path', () => {
+      const scoped = [assignment('a1', 'viewer', { scope: { type: 'project', id: 'p1' } })];
+      expect(runRbacPipeline(input(scoped, 'file:read')).reason).to.deep.equal(NO_ACCESS);
+      const onPath = { ...input(scoped, 'file:read'), path: [f1, { type: 'project', id: 'p1' }, GLOBAL] };
+      expect(runRbacPipeline(onPath).permitWhen).to.deep.equal(TRUE);
     });
 
     it('an expired assignment is not collected, even if a store returns it', () => {
@@ -183,6 +185,97 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect(vote.roles).to.deep.equal({ project: 'viewer' });
       expect(vote.validUntil).to.deep.equal(until);
       expect(vote.fields).to.deep.equal({ read: ['name'] });
+    });
+  });
+
+  describe('scoped assignments along the resource path (B13)', () => {
+    // o1 → p1 → f1, o1 → p2 → f2
+    const O1: ResourceRef = { type: 'org', id: 'o1' };
+    const P1: ResourceRef = { type: 'project', id: 'p1' };
+    const P2: ResourceRef = { type: 'project', id: 'p2' };
+    const f2: ResourceRef = { type: 'file', id: 'f2' };
+    const scopes = () =>
+      new FakeScopeResolver({
+        nodes: [
+          { ref: P1, parent: O1 },
+          { ref: f1, parent: P1 },
+          { ref: P2, parent: O1 },
+          { ref: f2, parent: P2 },
+        ],
+      });
+
+    async function evaluate(assignments: readonly Assignment[], resource: ResourceRef, ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] })) {
+      const registry = new PermissionRegistryImpl();
+      registry.register(
+        ['file:read', 'file:write'].map((name) => ({ name, types: ['org', 'project', 'file'] })),
+        'test',
+      );
+      registry.freeze();
+      const roles = compileRoles(ROLES);
+      const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource }, ctx, { roles, grants: compileGrants(roles, registry), assignments: new MemoryAssignmentStore(assignments) });
+      return { input: gathered, vote: runRbacPipeline(gathered), ctx };
+    }
+
+    // A fresh ref, equal by value only: scopes match by resourceKey, not by identity.
+    const at = (ref: ResourceRef, id = 'a1') => assignment(id, 'viewer', { scope: { ...ref } });
+
+    it('an assignment at the resource itself applies to it', async () => {
+      expect((await evaluate([at(f1)], f1)).vote.permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('an assignment at S applies to S', async () => {
+      expect((await evaluate([at(P1)], P1)).vote.permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('an assignment at S applies to the descendants of S', async () => {
+      expect((await evaluate([at(P1)], f1)).vote.permitWhen).to.deep.equal(TRUE);
+      expect((await evaluate([at(O1)], f1)).vote.permitWhen).to.deep.equal(TRUE);
+      expect((await evaluate([at(O1)], f2)).vote.permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('an assignment at S does not apply to an ancestor of S', async () => {
+      expect((await evaluate([at(P1)], O1)).vote.reason).to.deep.equal(NO_ACCESS);
+      expect((await evaluate([at(f1)], P1)).vote.reason).to.deep.equal(NO_ACCESS);
+    });
+
+    it('an assignment at S does not apply to a sibling of S or its descendants', async () => {
+      expect((await evaluate([at(P1)], P2)).vote.reason).to.deep.equal(NO_ACCESS);
+      expect((await evaluate([at(P1)], f2)).vote.reason).to.deep.equal(NO_ACCESS);
+    });
+
+    it('a GLOBAL assignment applies to every concrete resource', async () => {
+      for (const r of [f1, f2, P1, O1]) expect((await evaluate([assignment('g1', 'viewer')], r)).vote.permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('the path is the ancestors list, read once per evaluation', async () => {
+      const { input: gathered, ctx } = await evaluate([at(P1)], f1);
+      expect(gathered.path).to.deep.equal([f1, P1, O1, GLOBAL]);
+      expect(ctx.stats.ancestors.calls).to.equal(1);
+    });
+
+    it('the resource itself and GLOBAL are on the path even when the ancestors list leaves them out', async () => {
+      const base = fakeEvaluationContext({ now: NOW });
+      const ctx = Object.assign(Object.create(base) as typeof base, { ancestors: async () => [P1] });
+      const { input: gathered, vote } = await evaluate([assignment('g1', 'viewer')], f1, ctx);
+      expect(gathered.path).to.deep.equal([f1, P1, GLOBAL]);
+      expect(vote.permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('the path is nearest first and GLOBAL stays last even when the ancestors list holds it earlier', async () => {
+      const base = fakeEvaluationContext({ now: NOW });
+      const ctx = Object.assign(Object.create(base) as typeof base, { ancestors: async () => [f1, GLOBAL, P1, O1] });
+      const { input: gathered } = await evaluate([], f1, ctx);
+      expect(gathered.path).to.deep.equal([f1, P1, O1, GLOBAL]);
+    });
+
+    it('a type-level request counts GLOBAL assignments only and reads no ancestors', async () => {
+      const typeLevel: ResourceRef = { type: 'file' };
+      const scoped = await evaluate([at(P1), at(f1, 'a2'), assignment('a3', 'viewer', { scope: { type: 'file' } })], typeLevel);
+      expect(scoped.vote.permitWhen).to.deep.equal(FALSE);
+      expect(scoped.vote.reason).to.deep.equal(NO_ACCESS);
+      expect(scoped.input.path).to.deep.equal([GLOBAL]);
+      expect(scoped.ctx.stats.ancestors.calls).to.equal(0);
+      expect((await evaluate([assignment('g1', 'viewer')], typeLevel)).vote.permitWhen).to.deep.equal(TRUE);
     });
   });
 });

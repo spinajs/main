@@ -1,6 +1,6 @@
 import { AuthzConfigError, CORE_FILTER_OPS, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { Assignment, ModelInitContext, NativeFilter, PermissionInput, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
-import { anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCompanions } from '@spinajs/authz-testing';
+import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -86,6 +86,14 @@ describe('authz-rbac model: RbacModel', () => {
   it('evaluate before init throws, it never votes no', async () => {
     const m = new RbacModel({ roles: new MemoryRoleStore(ROLES), assignments: new MemoryAssignmentStore(), log });
     expect(await rejects(Promise.resolve().then(() => check(m, alice, 'file:read')))).to.be.instanceOf(AuthzConfigError);
+  });
+
+  it('evaluate of an unknown resource (ancestors null) rejects, it never votes no', async () => {
+    const { model: m } = await model({ assignments: [assignment('g1', alice, 'viewer')] });
+    const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [new FakeScopeResolver({ types: ['file'], nodes: [{ ref: f1 }] })] });
+    expect((await m.evaluate({ principal: alice, permission: 'file:read', resource: f1 }, ctx)).permitWhen).to.deep.equal(TRUE);
+    const err = await rejects(m.evaluate({ principal: alice, permission: 'file:read', resource: { type: 'file', id: 'ghost' } }, ctx));
+    expect(err.message).to.contain('unknown resource file:ghost');
   });
 
   describe('applies', () => {

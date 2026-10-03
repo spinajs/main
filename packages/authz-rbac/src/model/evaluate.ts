@@ -39,7 +39,7 @@ export type RbacSteps = Readonly<Record<RbacStepName, RbacStep>> & {
 export interface RbacInput {
   readonly request: DecisionRequest;
   readonly now: Date;
-  /** Scopes whose assignments apply to the resource; GLOBAL only until scoped assignments land. */
+  /** Scopes whose assignments apply to the resource, nearest first: the resource, its ancestors in order, GLOBAL last. */
   readonly path: readonly ResourceRef[];
   /** Assignments of the principal's subjects, config roles included; `collect` keeps the live ones. */
   readonly assignments: readonly Assignment[];
@@ -191,7 +191,7 @@ export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationC
   let input: RbacInput = {
     request,
     now: ctx.now,
-    path: [GLOBAL],
+    path: await resourcePath(request.resource, ctx),
     assignments: [...stored, ...(sources.configAssignments?.(subjects) ?? [])],
     roles: sources.roles,
     grants: sources.grants,
@@ -201,6 +201,22 @@ export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationC
     if (ext.gather) input = { ...input, ...(await ext.gather(request, ctx, input, sources)) };
   }
   return input;
+}
+
+/**
+ * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its ancestors
+ * in order, GLOBAL last, each once. A type-level request gets GLOBAL only: a scoped assignment must never permit every row,
+ * it needs a row filter (`native:rbac.assignment`).
+ */
+export async function resourcePath(resource: ResourceRef, ctx: EvaluationContext): Promise<readonly ResourceRef[]> {
+  if (resource.id == null) return [GLOBAL];
+  const ancestors = await ctx.ancestors(resource);
+  // The engine denies unknown_resource before the models run; a "no" here would look like a clean answer.
+  if (ancestors === null) throw new Error(`rbac: unknown resource ${resourceKey(resource)}: ancestors answered null`);
+  const global = resourceKey(GLOBAL);
+  const path = new Map<string, ResourceRef>();
+  for (const ref of [resource, ...ancestors]) if (resourceKey(ref) !== global && !path.has(resourceKey(ref))) path.set(resourceKey(ref), ref);
+  return [...path.values(), GLOBAL];
 }
 
 /** The principal and its companions, each once. */
