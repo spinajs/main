@@ -1,9 +1,8 @@
-import * as chai from 'chai';
 import 'mocha';
 import { AccessDenied, Authorizer, DefaultConditionCompiler, LruDecisionCache, validateBoot } from '@spinajs/authz';
 import type { AuthorizationModel, AuthorizerOptions, CheckInput, Decision, Permission, Principal, RequestScope, ResourceRef, ResourceType } from '@spinajs/authz';
-import { BEHAVIOUR_FIXTURES, fakeModelInitContext, instantiateWorld, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
-import type { BehaviourAuthz, BehaviourFixture, BehaviourHarness, BehaviourSelector, FixtureExtension, SetupContext, World } from '@spinajs/authz-testing';
+import { fakeModelInitContext, instantiateWorld, runBehaviour } from '@spinajs/authz-testing';
+import type { BehaviourAuthz, BehaviourHarness, BehaviourSelector } from '@spinajs/authz-testing';
 
 import { AbacModel, ConfigPolicyStore } from '../src/index.js';
 
@@ -79,42 +78,4 @@ export const abacHarness = (): BehaviourHarness => ({
   },
 });
 
-const RFC_L3_1_CASE = "an ABAC deny policy takes a permission out of the holder's set";
-
-/**
- * The kit's catalogue with B26.abac's first case as RFC L3-1 proposes: its target `t` has no `dept`,
- * so the deny is UNKNOWN for it and three-valued logic denies it `doc:delete` too. Here `t` gets
- * `dept: 'dev'`. Remove once the kit carries the change.
- */
-const FIXTURES = BEHAVIOUR_FIXTURES.map((f: BehaviourFixture | FixtureExtension) =>
-  f.id !== 'B26'
-    ? f
-    : {
-        ...f,
-        parts: f.parts.map((p) =>
-          p.name !== 'abac'
-            ? p
-            : {
-                ...p,
-                cases: p.cases.map((c) => (c.name !== RFC_L3_1_CASE || !c.world ? c : { ...c, world: { ...c.world, principals: { ...c.world.principals, t: userPrincipal('t', { attributes: { dept: 'dev' } }) } } })),
-              },
-        ),
-      },
-);
-
-runBehaviour(ABAC_PARTS, abacHarness, { strict: true, fixtures: FIXTURES });
-
-describe('RFC L3-1: a missing principal attribute keeps a deny UNKNOWN', () => {
-  it("as the kit's case has it, t (no dept) loses doc:delete too, so ops covers it", async () => {
-    const b26 = BEHAVIOUR_FIXTURES.find((f) => f.id === 'B26')!;
-    const kase = b26.parts.find((p) => p.name === 'abac')!.cases.find((c) => c.name === RFC_L3_1_CASE)!;
-    const world = kase.world as World;
-    const ctx: SetupContext = { id: 'B26', part: 'abac', case: kase.name, title: kase.name, facets: abacHarness().facets };
-    const session = await abacHarness().setup(world, ctx);
-    const t = world.principals!.t;
-    const d = await session.authz!.check({ principal: t, permission: 'doc:delete' });
-    chai.expect(d.allowed).to.equal(false);
-    chai.expect(await session.authz!.covers!(world.principals!.ops, t)).to.equal(true);
-    chai.expect(await session.authz!.covers!(world.principals!.root2, t)).to.equal(true);
-  });
-});
+runBehaviour(ABAC_PARTS, abacHarness, { strict: true });
