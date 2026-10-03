@@ -1,6 +1,7 @@
 import 'mocha';
+import { expect } from 'chai';
 import { runAuthnBehaviour, runStrategyConformance } from '@spinajs/authn-testing';
-import type { Facet } from '@spinajs/authn-testing';
+import type { ConfigOverrides, Facet, HarnessContext } from '@spinajs/authn-testing';
 
 import { localHarness, localStrategySubject, registerHarnessTypes, unregisterHarnessTypes } from './kit-harness.js';
 
@@ -20,4 +21,20 @@ describe('authn-local kit acceptance', function () {
   });
 
   runStrategyConformance(localStrategySubject, { title: 'LocalPasswordStrategy conformance' });
+
+  describe('kit harness config', function () {
+    this.timeout(60_000);
+
+    it('a partial pepper override takes the rest from the package config (version 1)', async () => {
+      const config: ConfigOverrides = { authn: { local: { pepper: { secret: 'kit-harness-pepper-0123456789' } } } };
+      const h = await localHarness({ config } as HarnessContext);
+      try {
+        const id = await h.seed!.user({ login: 'pepper@example.test', password: 'Pepper-Pass-1' });
+        const stored = await h.passwordStore!.get(id);
+        expect(stored!.startsWith('$sp1$$argon2id$'), stored!).to.equal(true);
+      } finally {
+        await h.dispose!();
+      }
+    });
+  });
 });

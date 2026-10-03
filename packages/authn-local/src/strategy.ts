@@ -5,7 +5,7 @@ import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import { PasswordHasher } from './hasher.js';
-import { isLoginLength } from './policy.js';
+import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 
 const INVALID: StrategyOutcome = { ok: false, reason: 'invalid_credentials' };
 const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentials' };
@@ -62,6 +62,11 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   public async resolve(): Promise<void> {
     this._hasher = this.Deps ? this.Deps.hasher : await DI.resolve(PasswordHasher);
     await this._hasher.resolve();
+    if (!this.Deps) {
+      // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; resolving the
+      // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
+      await DI.resolve(LocalPasswordPolicy);
+    }
     await super.resolve();
   }
 
@@ -95,15 +100,21 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     }
 
     if (hasher.needsRehash(stored)) {
-      await this.rehash(hasher, id, fields.password);
+      await this.rehash(hasher, id, fields.password, stored);
     }
 
     return { ok: true, identity: id, method: 'password' };
   }
 
-  protected async rehash(hasher: PasswordHasher, id: IdentityRef, password: string): Promise<void> {
+  protected async rehash(hasher: PasswordHasher, id: IdentityRef, password: string, verified: string): Promise<void> {
     try {
-      await this.passwords().set(id, await hasher.hash(password));
+      const fresh = await hasher.hash(password);
+      // A reset, set, change or expiry may have stored a new value while we hashed: never write the old password back over it.
+      // A gap between this read and the write remains until the store offers a conditional write (RFC N3-1).
+      if ((await this.passwords().get(id)) !== verified) {
+        return;
+      }
+      await this.passwords().set(id, fresh);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
       this.log().warn(`Could not store the rehashed password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);

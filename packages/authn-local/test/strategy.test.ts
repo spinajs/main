@@ -2,11 +2,14 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { InvalidOption } from '@spinajs/exceptions';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome } from '@spinajs/authn/contracts';
-import { FakeIdentityStore, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, Argon2PasswordHasherOptions, EXPIRED_PASSWORD_MARKER, PasswordHasher } from '../src/hasher.js';
+import { LocalPasswordPolicy } from '../src/policy.js';
+import { LocalPasswordService } from '../src/service.js';
 import { LocalPasswordStrategy, LocalPasswordStrategyLog } from '../src/strategy.js';
 
 const ARGON2_DEFAULT_PREFIX = '$argon2id$v=19$m=65536,t=3,p=4$';
@@ -190,6 +193,17 @@ describe('LocalPasswordStrategy', function () {
       expect(stored!.startsWith(`$sp3$${ARGON2_DEFAULT_PREFIX}`), stored!).to.equal(true);
     });
 
+    it('a hash under a previous pepper version logs in and is rehashed under the current one', async () => {
+      const previous = { secret: 'strategy-old-pepper-0123456789', version: 2 };
+      const { strategy, passwords, hasher, alice } = await setup({ pepper: { ...PEPPER, previous: [previous] } });
+      await passwords.set(alice, await hasher.hashWith(PASSWORD, { pepper: previous }));
+
+      expect(await strategy.verify(pw(LOGIN, PASSWORD), CTX)).to.deep.equal({ ok: true, identity: alice, method: 'password' });
+      const stored = await passwords.get(alice);
+      expect(stored!.startsWith(`$sp3$${ARGON2_DEFAULT_PREFIX}`), stored!).to.equal(true);
+      expect(await hasher.verify(stored, PASSWORD)).to.equal(true);
+    });
+
     it('a failure to store the rehash does not fail the login and logs no secret', async () => {
       const { strategy, passwords, hasher, log, alice } = await setup();
       const old = await hasher.hashWith(PASSWORD, { argon2: { memoryCost: 4096, timeCost: 2, parallelism: 1 }, pepper: null });
@@ -206,6 +220,90 @@ describe('LocalPasswordStrategy', function () {
       expect(line).to.not.contain('$argon2');
       expect(line).to.not.contain(LOGIN);
     });
+  });
+
+  describe('rehash racing a credential change (A30)', () => {
+    const OLD = 'Old-Password-1';
+    const NEW = 'New-Password-2';
+
+    /** Holds the next `hash` until the test opens the gate. */
+    class GatedHasher extends Argon2PasswordHasher {
+      private gate: Promise<void> | null = null;
+      private open!: () => void;
+      private reached!: () => void;
+      public readonly held = new Promise<void>((r) => (this.reached = r));
+
+      public holdNextHash(): () => void {
+        this.gate = new Promise<void>((r) => (this.open = r));
+        return () => this.open();
+      }
+
+      public async hash(password: string): Promise<string> {
+        if (this.gate) {
+          const g = this.gate;
+          this.gate = null;
+          this.reached();
+          await g;
+        }
+        return super.hash(password);
+      }
+    }
+
+    async function raceSetup() {
+      const identities = new FakeIdentityStore();
+      const passwords = new MemoryPasswordCredentialStore();
+      const hasher = new GatedHasher({});
+      await hasher.resolve();
+      const strategy = new LocalPasswordStrategy({ identities, passwords, hasher });
+      await strategy.resolve();
+      const service = new LocalPasswordService({
+        identities,
+        passwords,
+        sessions: new MemorySessionIssuer(),
+        throttle: new FakeBackoffThrottle(DEFAULT_THROTTLE),
+        tokens: null,
+        sinks: [new RecordingEventSink()],
+        hasher,
+        policy: new LocalPasswordPolicy({}),
+      });
+      const alice = identities.add({ login: LOGIN });
+      await passwords.set(alice, await hasher.hashWith(OLD, { argon2: { memoryCost: 4096, timeCost: 2, parallelism: 1 } }));
+      return { hasher, strategy, service, passwords, alice };
+    }
+
+    type RaceSetup = Awaited<ReturnType<typeof raceSetup>>;
+
+    const paths: [string, (x: RaceSetup) => Promise<void>][] = [
+      [
+        'set',
+        async (x) => {
+          expect((await x.service.set(x.alice, NEW, CTX)).status).to.equal('set');
+        },
+      ],
+      [
+        'an admin expiry',
+        async (x) => {
+          await x.service.expire(x.alice, { cause: 'admin', actor: { type: 'user', id: 'admin-1' } }, CTX);
+        },
+      ],
+    ];
+
+    for (const [label, change] of paths) {
+      it(`a login rehash that finishes after ${label} does not write the old password back`, async () => {
+        const x = await raceSetup();
+        const open = x.hasher.holdNextHash();
+        const login = x.strategy.verify(pw(LOGIN, OLD), CTX);
+        await x.hasher.held;
+        await change(x);
+        const changed = await x.passwords.get(x.alice);
+        open();
+
+        expect((await login).ok).to.equal(true);
+        expect(await x.passwords.get(x.alice)).to.equal(changed);
+        expect(await x.hasher.verify(await x.passwords.get(x.alice), OLD), 'the old password stays dead').to.equal(false);
+        expect(await x.strategy.verify(pw(LOGIN, OLD), CTX)).to.deep.equal(INVALID);
+      });
+    }
   });
 
   describe('throttle keys (D7)', () => {
@@ -345,6 +443,7 @@ describe('LocalPasswordStrategy DI wiring', function () {
     DI.uncache(PasswordCredentialStore);
     DI.uncache(PasswordHasher);
     DI.uncache(Argon2PasswordHasher);
+    DI.uncache(LocalPasswordPolicy);
     DI.uncache(LocalPasswordStrategy);
     DI.uncache(FakeIdentityStore);
     DI.uncache(MemoryPasswordCredentialStore);
@@ -363,5 +462,64 @@ describe('LocalPasswordStrategy DI wiring', function () {
 
     expect(await strategy.verify(pw(LOGIN, PASSWORD), CTX)).to.deep.equal({ ok: true, identity: alice, method: 'password' });
     expect((await passwords.get(alice))!.startsWith('$sp3$')).to.equal(true);
+  });
+});
+
+/** Holds only a policy rule that strict ajv refuses (no ajv-formats), so nothing else in the config can fail first. */
+class StrategyBadPolicyConfiguration extends Configuration {
+  private readonly values = { authn: { local: { policy: { rule: { type: 'string', format: 'email' } } } } };
+  public get RootConfig() {
+    return { ...this.values, onConfigLoad: () => undefined };
+  }
+  public get<T>(path: string[] | string, defaultValue?: T): T {
+    let node: unknown = this.values;
+    for (const p of Array.isArray(path) ? path : path.split('.')) {
+      if (node === null || typeof node !== 'object' || !(p in node)) {
+        return defaultValue as T;
+      }
+      node = (node as Record<string, unknown>)[p];
+    }
+    return node as T;
+  }
+  public set(): void {}
+  public merge(): void {}
+  public async mergeSource(): Promise<void> {}
+  public async load(): Promise<void> {}
+  protected onLoad(): unknown {
+    return {};
+  }
+}
+
+describe('LocalPasswordStrategy boot checks', function () {
+  this.timeout(60_000);
+
+  before(async () => {
+    DI.setESMModuleSupport();
+    DI.register(StrategyBadPolicyConfiguration).as(Configuration);
+    await DI.resolve(Configuration);
+    DI.uncache(LocalPasswordPolicy);
+    DI.uncache(LocalPasswordStrategy);
+  });
+
+  after(() => {
+    DI.unregister(StrategyBadPolicyConfiguration);
+    DI.uncache(StrategyBadPolicyConfiguration);
+    DI.uncache(Configuration);
+    DI.uncache(PasswordHasher);
+    DI.uncache(Argon2PasswordHasher);
+    DI.uncache(LocalPasswordPolicy);
+    DI.uncache(AuthenticationStrategy);
+    DI.uncache(LocalPasswordStrategy);
+  });
+
+  it('a policy rule that does not compile fails the strategy at boot', async () => {
+    let error: unknown;
+    try {
+      await DI.resolve(LocalPasswordStrategy);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).to.be.instanceOf(InvalidOption);
+    expect((error as Error).message).to.contain('authn.local.policy.rule');
   });
 });

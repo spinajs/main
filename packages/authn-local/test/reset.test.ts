@@ -1,7 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
-import type { AuthnContext, AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnFacts, IdentityRef, ThrottleKey } from '@spinajs/authn/contracts';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher } from '../src/hasher.js';
@@ -93,6 +93,18 @@ async function setup(over: Partial<LocalPasswordServiceDeps> = {}) {
 
 type Setup = Awaited<ReturnType<typeof setup>>;
 
+function recordThrottleKeys(x: Setup): (readonly ThrottleKey[])[] {
+  const seen: (readonly ThrottleKey[])[] = [];
+  const attempt = x.throttle.attempt.bind(x.throttle);
+  x.throttle.attempt = (keys, flow, at) => {
+    seen.push(keys);
+    return attempt(keys, flow, at);
+  };
+  return seen;
+}
+
+const { ip: _ip, ...NO_IP } = ctx();
+
 async function requestAndTake(x: Setup, at: AuthnContext = ctx()): Promise<string> {
   expect(await x.service.requestReset(LOGIN, at)).to.deep.equal({ status: 'accepted' });
   await x.service.drain();
@@ -159,6 +171,20 @@ describe('LocalPasswordService reset and invite', function () {
       expect(await x.service.requestReset('nobody@example.com', ctx({ ip: '203.0.113.10' }))).to.deep.equal({ status: 'throttled', retryAfterSeconds: 60 });
     });
 
+    it('without ctx.ip counts against the fallback ip key, so ip-less requests are throttled across logins', async () => {
+      const x = await setup();
+      const keys = recordThrottleKeys(x);
+      for (let i = 0; i < 5; i++) {
+        expect(await x.service.requestReset(`user-${i}@example.com`, NO_IP)).to.deep.equal({ status: 'accepted' });
+      }
+      expect(await x.service.requestReset('user-5@example.com', NO_IP)).to.deep.equal({ status: 'throttled', retryAfterSeconds: 10 });
+      expect(keys[0]).to.deep.equal([
+        { kind: 'account', value: 'user-0@example.com' },
+        { kind: 'ip', value: 'unknown' },
+      ]);
+      await x.service.drain();
+    });
+
     it('normalises the login for the account key', async () => {
       const x = await setup();
       await x.service.requestReset(LOGIN, ctx());
@@ -221,14 +247,39 @@ describe('LocalPasswordService reset and invite', function () {
       }
     });
 
-    it('no event, log line or mailer field but `secret` holds the secret or its hash', async () => {
+    it('SR-09 the reset secret exists only in the mail sent at once: no queued or persisted payload, event or log holds it', async () => {
       const x = await setup();
-      const secret = await requestAndTake(x);
+      expect(await x.service.requestReset(LOGIN, ctx())).to.deep.equal({ status: 'accepted' });
+      // While the job waits in the queue no secret exists yet, so nothing queued can carry one.
+      expect(x.secrets.rows(), 'issued before the job ran').to.have.length(0);
+      expect(x.mailer.mails).to.have.length(0);
+      await x.service.drain();
+      const secret = x.mailer.secretFor(x.alice, 'reset')!;
+      expect(secret).to.be.a('string');
+
       await x.service.redeemReset(LOGIN, secret, NEW, later(1));
       const { secret: _secret, ...rest } = x.mailer.mails[0];
       const text = JSON.stringify([rest, x.events.all(), x.warnings]);
       expect(text).to.not.contain(secret);
       expect(text).to.not.contain(sha256hex(secret));
+      // The secret store keeps the SHA-256 it redeems against, never the secret.
+      expect(JSON.stringify([x.secrets.rows(), x.passwords.writes])).to.not.contain(secret);
+
+      // A transport that puts the secret into its error message: the log line keeps the error name only.
+      let leaked = '';
+      class LeakingMailer extends PasswordMailer {
+        public async send(mail: PasswordMail): Promise<void> {
+          leaked = mail.secret;
+          throw new Error(`queued for retry: ${mail.secret}`);
+        }
+      }
+      const y = await setup({ mailer: new LeakingMailer() });
+      await y.service.requestReset(LOGIN, ctx());
+      await y.service.drain();
+      expect(leaked).to.not.equal('');
+      const logged = JSON.stringify([y.warnings, y.events.all()]);
+      expect(logged).to.not.contain(leaked);
+      expect(logged).to.not.contain(sha256hex(leaked));
     });
   });
 
@@ -389,6 +440,16 @@ describe('LocalPasswordService reset and invite', function () {
       }
       expect(await x.service.redeemReset(LOGIN, randomUUID(), NEW, ctx())).to.deep.equal({ status: 'throttled', retryAfterSeconds: 10 });
       expect(await x.service.redeemReset(LOGIN, randomUUID(), NEW, ctx({ ip: '203.0.113.9' }))).to.deep.equal({ status: 'invalid' });
+    });
+
+    it('without ctx.ip counts against the fallback ip key, so ip-less redeems are throttled too', async () => {
+      const x = await setup();
+      const keys = recordThrottleKeys(x);
+      for (let i = 0; i < 5; i++) {
+        expect(await x.service.redeemReset(LOGIN, randomUUID(), NEW, NO_IP)).to.deep.equal({ status: 'invalid' });
+      }
+      expect(await x.service.redeemReset(LOGIN, randomUUID(), NEW, NO_IP)).to.deep.equal({ status: 'throttled', retryAfterSeconds: 10 });
+      expect(keys[0]).to.deep.equal([{ kind: 'ip', value: 'unknown' }]);
     });
   });
 

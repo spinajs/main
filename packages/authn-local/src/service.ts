@@ -63,6 +63,9 @@ const eligible = (s: IdentityStatus) => s.exists && !s.deleted && !s.banned && (
 /** For work that must match a real identity's: a fresh ref no store or cache can know. */
 const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
 
+/** The reset flow's ip key. Callers without `ctx.ip` share one bucket rather than going unthrottled. */
+const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
+
 /** Same keys as the kit's reauthenticate (D7). */
 function reauthKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
   return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
@@ -175,7 +178,7 @@ export class LocalPasswordService extends PasswordService {
    * known and unknown logins (A11, SR-04).
    */
   public async requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult> {
-    const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
+    const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, resetIpKey(ctx)];
     const gate = await this.throttle().attempt(keys, 'reset', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
@@ -188,7 +191,7 @@ export class LocalPasswordService extends PasswordService {
 
   /** D12. Every refusal answers `invalid`; the reason goes to audit only (SR-17). */
   public async redeemReset(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
-    const gate = await this.throttle().attempt(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [], 'reset', ctx);
+    const gate = await this.throttle().attempt([resetIpKey(ctx)], 'reset', ctx);
     if (!gate.allowed) {
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };

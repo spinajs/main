@@ -19,6 +19,7 @@ import {
 } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HarnessContext, StrategySubject, ThrottleParams } from '@spinajs/authn-testing';
 
+import packageConfig from '../src/config/authn-local.js';
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { PasswordMail, PasswordMailer } from '../src/mailer.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
@@ -69,8 +70,9 @@ const BLACK_HOLE_LOGGER = {
 };
 
 /**
- * Exactly the case's values over the code defaults. A FrameworkConfiguration would also merge every installed package's config,
- * and @spinajs/users still ships 2.x `authn.local` keys (a policy rule, `expiration.enabled: true`) that are not §22.5 defaults.
+ * The case's values over this package's own `authn` config, then the code defaults. A FrameworkConfiguration would also merge
+ * every installed package's config, and @spinajs/users still ships 2.x `authn.local` keys (a policy rule,
+ * `expiration.enabled: true`) that are not §22.5 defaults.
  */
 class HarnessConfiguration extends Configuration {
   public get RootConfig() {
@@ -237,7 +239,10 @@ export function registerHarnessTypes(): void {
   }
 }
 
-/** Undoes `registerHarnessTypes` so later suites see none of these types. */
+/**
+ * Undoes `registerHarnessTypes`. `DI.unregister` keeps the emptied key, so afterwards `DI.check(TokenService)` and the like stay
+ * true and `DI.resolve` throws: a later suite that needs "none registered" must not rely on `DI.check` (DI owner hand-off).
+ */
 export function unregisterHarnessTypes(): void {
   freshContainer();
   for (const [type] of REGISTRATIONS) {
@@ -252,6 +257,17 @@ function freshContainer(): void {
   }
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Objects merge key by key; anything else in `over`, arrays and null included, replaces the base value. */
+function mergeOver(base: unknown, over: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = isPlainObject(base) ? { ...base } : {};
+  for (const [k, v] of Object.entries(isPlainObject(over) ? over : {})) {
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? mergeOver(out[k], v) : v;
+  }
+  return out;
+}
+
 /** Maps ConfigOverrides onto the `authn.local` keys N3 reads; the blocklist list becomes the name of HarnessBlocklist. */
 function applyConfig(config: ConfigOverrides): void {
   checkSupported(config);
@@ -259,7 +275,7 @@ function applyConfig(config: ConfigOverrides): void {
   const blocklist = local.policy?.blocklist ?? null;
   const policy = { ...local.policy, blocklist: blocklist && blocklist.length > 0 ? HarnessBlocklist.name : null };
   current = {
-    values: { logger: BLACK_HOLE_LOGGER, authn: { local: { ...local, policy } } },
+    values: { logger: BLACK_HOLE_LOGGER, authn: mergeOver(packageConfig.authn, { local: { ...local, policy } }) },
     params: throttleParams(config),
     blocklist: blocklist ?? [],
   };
