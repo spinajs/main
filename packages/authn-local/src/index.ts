@@ -3,3 +3,5 @@ export * from './pepper.js';
 export * from './hasher.js';
 export * from './policy.js';
 export * from './strategy.js';
+export * from './audit.js';
+export * from './service.js';

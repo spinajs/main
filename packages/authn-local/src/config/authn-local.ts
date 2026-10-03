@@ -37,6 +37,14 @@ const authnLocal = {
         /** Name of a registered `PasswordBlocklist` service; null: none. */
         blocklist: null as string | null,
       },
+
+      reset: {
+        /**
+         * A reset, an admin reset and `set` also revoke every API and agent
+         * token. A voluntary change never does (H32).
+         */
+        revokeTokens: true,
+      },
     },
   },
 };

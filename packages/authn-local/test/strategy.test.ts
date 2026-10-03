@@ -346,6 +346,8 @@ describe('LocalPasswordStrategy DI wiring', function () {
     DI.uncache(PasswordHasher);
     DI.uncache(Argon2PasswordHasher);
     DI.uncache(LocalPasswordStrategy);
+    DI.uncache(FakeIdentityStore);
+    DI.uncache(MemoryPasswordCredentialStore);
   });
 
   it('resolves the hasher at boot and the stores lazily from the container', async () => {
