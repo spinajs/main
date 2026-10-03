@@ -53,6 +53,7 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/http-socket-client": "3.0.0-alpha.0",
     "@types/express": "^5.0.1",
     "@types/node": "^22.14.1",
     "lodash": "^4.17.21",
