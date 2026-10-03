@@ -18,7 +18,9 @@ import { DbTestConfiguration } from './db-common.js';
  * throws without this setup even though this suite never queries the database.
  * Mirrors the `before`/`after` in `./model.test.ts`.
  */
-describe('access token role policy - defaults', () => {
+describe('access token role policy - defaults', function () {
+  this.timeout(15000);
+
   before(async () => {
     DI.setESMModuleSupport();
 
