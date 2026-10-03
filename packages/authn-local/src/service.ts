@@ -1,12 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidOperation, MethodNotImplemented } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
-import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
   AuthnContext,
   AuthnEvent,
   IdentityRef,
+  IdentityStatus,
   PasswordChangeResult,
   PasswordExpiry,
   PasswordPolicy,
@@ -20,8 +22,11 @@ import type {
 } from '@spinajs/authn/contracts';
 
 import { AuditLog, publishAuthnEvent } from './audit.js';
+import { DeferredWork } from './deferred.js';
 import { PasswordHasher } from './hasher.js';
+import { PasswordMailer } from './mailer.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
+import { normalizeLogin } from './strategy.js';
 
 const INVALID = { status: 'invalid' } as const;
 
@@ -35,12 +40,28 @@ export interface LocalPasswordServiceDeps {
   readonly sinks: readonly AuthnEventSink[];
   readonly hasher: PasswordHasher;
   readonly policy: LocalPasswordPolicy;
+  /** Required by the reset and invite flows. */
+  readonly secrets?: SecretStore;
+  /** null or missing: no mailer, so reset and invite mails are not sent. */
+  readonly mailer?: PasswordMailer | null;
   readonly log?: AuditLog;
   /** `authn.local.reset.revokeTokens`; default true. */
   readonly revokeTokens?: boolean;
+  /** `authn.local.reset.ttlSeconds`; default 3600. */
+  readonly resetTtlSeconds?: number;
+  /** `authn.local.reset.url`; default ''. */
+  readonly resetUrl?: string;
+  /** `authn.local.invite.ttlSeconds`; default 900. */
+  readonly inviteTtlSeconds?: number;
 }
 
 const sameRef = (a: IdentityRef, b: IdentityRef) => a.type === b.type && a.id === b.id;
+
+/** D11, D12: exists, not deleted, not banned, and active or invite-pending. */
+const eligible = (s: IdentityStatus) => s.exists && !s.deleted && !s.banned && (s.active || s.invitePending === true);
+
+/** For work that must match a real identity's: a fresh ref no store or cache can know. */
+const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
 
 /** Same keys as the kit's reauthenticate (D7). */
 function reauthKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
@@ -56,11 +77,28 @@ export class LocalPasswordService extends PasswordService {
   @Config('authn.local.reset.revokeTokens', { defaultValue: true })
   protected RevokeTokens: boolean;
 
+  // Code defaults: @spinajs/users still ships these keys with its 2.x values.
+  @Config('authn.local.reset.ttlSeconds', { defaultValue: 3600 })
+  protected ResetTtlSeconds: number;
+
+  @Config('authn.local.reset.url', { defaultValue: '' })
+  protected ResetUrl: string;
+
+  @Config('authn.local.invite.ttlSeconds', { defaultValue: 900 })
+  protected InviteTtlSeconds: number;
+
   @Logger('authn-local')
   protected Log: Log;
 
+  private _work?: DeferredWork;
+
   constructor(protected readonly Deps?: LocalPasswordServiceDeps) {
     super();
+  }
+
+  /** Resolves once every deferred reset job scheduled so far has finished (tests, shutdown). */
+  public drain(): Promise<void> {
+    return this.work().drain();
   }
 
   /** D9. Keeps every API and agent token (H32). */
@@ -132,20 +170,115 @@ export class LocalPasswordService extends PasswordService {
     return this.policyComponent().policy();
   }
 
-  public async requestReset(_login: string, _ctx: AuthnContext): Promise<PasswordResetRequestResult> {
-    throw new MethodNotImplemented('LocalPasswordService.requestReset is not implemented yet');
+  /**
+   * D11. Counts first; then the lookup, issue, mail and audit run as deferred work, so the answer and its timing are the same for
+   * known and unknown logins (A11, SR-04).
+   */
+  public async requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult> {
+    const keys: ThrottleKey[] = [{ kind: 'account', value: normalizeLogin(login) }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
+    const gate = await this.throttle().attempt(keys, 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    this.work().defer(() => this.sendReset(login, ctx));
+    return { status: 'accepted' };
   }
 
-  public async redeemReset(_login: string, _secret: string, _newPassword: string, _ctx: AuthnContext): Promise<PasswordResetResult> {
-    throw new MethodNotImplemented('LocalPasswordService.redeemReset is not implemented yet');
+  /** D12. Every refusal answers `invalid`; the reason goes to audit only (SR-17). */
+  public async redeemReset(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
+    const gate = await this.throttle().attempt(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [], 'reset', ctx);
+    if (!gate.allowed) {
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', data: { flow: 'reset' } });
+      return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
+    }
+
+    const violations = await this.policyComponent().check(newPassword);
+    if (violations.length > 0) {
+      return { status: 'rejected', violations };
+    }
+
+    const identities = this.identities();
+    const secrets = this.secrets();
+    const id = await identities.findByLogin(login);
+    const status = await identities.status(id ?? throwaway());
+    const target = id && eligible(status) ? id : null;
+    const pending = target !== null && status.invitePending === true;
+
+    // Always two redeems, on throwaway refs where no real one is due: otherwise the time tells a pending invite from a missing
+    // login (A02).
+    const asReset = await secrets.redeem(target ?? throwaway(), 'reset', secret);
+    const asInvite = await secrets.redeem(!asReset && pending ? target : throwaway(), 'invite', secret);
+
+    if (!target) {
+      await this.audit(ctx, { type: 'password.reset', outcome: 'failure', ...(id ? { identity: id } : {}), reason: id ? 'status' : 'unknown_login' });
+      return INVALID;
+    }
+    if (!asReset && !asInvite) {
+      await this.audit(ctx, { type: 'password.reset', outcome: 'failure', identity: target, reason: 'secret' });
+      return INVALID;
+    }
+    const purpose = asReset ? 'reset' : 'invite';
+
+    await this.storePassword(target, newPassword);
+    await this.sessions().revokeAll(target, { includeImpersonations: true });
+    await this.revokeTokensOf(target, ctx);
+
+    if (purpose === 'reset') {
+      await this.audit(ctx, { type: 'password.reset', outcome: 'success', identity: target });
+    }
+    // users activates an invited identity on invite.redeem, also when the invite expired and a reset link completed it.
+    if (pending) {
+      await this.audit(ctx, { type: 'invite.redeem', outcome: 'success', identity: target, ...(purpose === 'reset' ? { data: { via: 'reset' } } : {}) });
+    }
+    return { status: 'reset', purpose };
   }
 
-  public async invite(_id: IdentityRef, _ctx: AuthnContext, _opts?: { readonly actor?: PrincipalRef }): Promise<void> {
-    throw new MethodNotImplemented('LocalPasswordService.invite is not implemented yet');
+  /** D13: an admin action, in the call and not throttled. */
+  public async invite(id: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<void> {
+    const sent = await this.mail(id, 'invite', this.inviteTtlSeconds());
+    // No event type exists for issuing an invite; it is recorded as a request of purpose invite.
+    await this.audit(ctx, {
+      type: 'password.reset.request',
+      outcome: sent ? 'success' : 'failure',
+      identity: id,
+      ...(opts?.actor ? { actor: opts.actor } : {}),
+      ...(sent ? {} : { reason: 'no_mailer' }),
+      data: { purpose: 'invite' },
+    });
   }
 
   public async expire(_id: IdentityRef, _opts: PasswordExpiry, _ctx: AuthnContext): Promise<void> {
     throw new MethodNotImplemented('LocalPasswordService.expire is not implemented yet');
+  }
+
+  protected async sendReset(login: string, ctx: AuthnContext): Promise<void> {
+    const identities = this.identities();
+    const id = await identities.findByLogin(login);
+    if (!id) {
+      await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', reason: 'unknown_login' });
+      return;
+    }
+    if (!eligible(await identities.status(id))) {
+      await this.audit(ctx, { type: 'password.reset.request', outcome: 'failure', identity: id, reason: 'status' });
+      return;
+    }
+    const sent = await this.mail(id, 'reset', this.resetTtlSeconds());
+    await this.audit(ctx, { type: 'password.reset.request', outcome: sent ? 'success' : 'failure', identity: id, ...(sent ? {} : { reason: 'no_mailer' }) });
+  }
+
+  /** Issues the secret right before sending it (D10, SR-09); without a mailer nothing is issued. */
+  protected async mail(id: IdentityRef, purpose: 'reset' | 'invite', ttlSeconds: number): Promise<boolean> {
+    const mailer = await this.mailer();
+    if (!mailer) {
+      this.log().warn(`No PasswordMailer is registered: the ${purpose} mail for ${id.type} ${id.id} was not sent`);
+      return false;
+    }
+    const to = await this.identities().display(id);
+    const secret = await this.secrets().issue(id, purpose, ttlSeconds);
+    await mailer.send({ identity: id, purpose, to, secret, url: this.resetUrl(), ttlSeconds });
+    return true;
   }
 
   /** One argon2 verify on every path, like the login strategy: the fixed login bound, then the stored hash or the dummy. */
@@ -179,6 +312,43 @@ export class LocalPasswordService extends PasswordService {
       ...(ctx.userAgent !== undefined ? { userAgent: ctx.userAgent } : {}),
     };
     await publishAuthnEvent(await this.sinks(), event, this.log());
+  }
+
+  protected work(): DeferredWork {
+    return (this._work ??= new DeferredWork(this.log()));
+  }
+
+  protected resetTtlSeconds(): number {
+    return this.Deps ? (this.Deps.resetTtlSeconds ?? 3600) : this.ResetTtlSeconds;
+  }
+
+  protected inviteTtlSeconds(): number {
+    return this.Deps ? (this.Deps.inviteTtlSeconds ?? 900) : this.InviteTtlSeconds;
+  }
+
+  protected resetUrl(): string {
+    return this.Deps ? (this.Deps.resetUrl ?? '') : this.ResetUrl;
+  }
+
+  protected identities(): IdentityStore {
+    return this.Deps ? this.Deps.identities : DI.resolve(IdentityStore);
+  }
+
+  protected secrets(): SecretStore {
+    if (this.Deps) {
+      if (!this.Deps.secrets) {
+        throw new InvalidOperation('LocalPasswordService was built without a SecretStore');
+      }
+      return this.Deps.secrets;
+    }
+    return DI.resolve(SecretStore);
+  }
+
+  protected async mailer(): Promise<PasswordMailer | null> {
+    if (this.Deps) {
+      return this.Deps.mailer ?? null;
+    }
+    return DI.check(PasswordMailer) ? await DI.resolve(PasswordMailer) : null;
   }
 
   protected policyComponent(): LocalPasswordPolicy {

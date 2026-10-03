@@ -2,13 +2,14 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, IdentityRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
-import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
+import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 
 import { Argon2PasswordHasher, PasswordHasher } from '../src/hasher.js';
 import { LocalPasswordPolicy, PasswordBlocklist } from '../src/policy.js';
 import { LocalPasswordService, LocalPasswordServiceDeps } from '../src/service.js';
+import { PasswordMail, PasswordMailer } from '../src/mailer.js';
 import { RecordingTokenService } from './recording-token-service.js';
 
 const OLD = 'Old-Password-1';
@@ -354,13 +355,10 @@ describe('LocalPasswordService', function () {
   });
 
   describe('later tasks', () => {
-    for (const method of ['requestReset', 'redeemReset', 'invite', 'expire'] as const) {
+    for (const method of ['expire'] as const) {
       it(`${method} says it is not implemented yet`, async () => {
         const { service, alice } = await setup();
         const call = {
-          requestReset: () => service.requestReset('alice@example.com', ctx()),
-          redeemReset: () => service.redeemReset('alice@example.com', 'secret', NEW, ctx()),
-          invite: () => service.invite(alice, ctx()),
           expire: () => service.expire(alice, { cause: 'aged' }, ctx()),
         }[method];
         let error: unknown;
@@ -381,6 +379,13 @@ class DefaultBackoffThrottle extends FakeBackoffThrottle {
   }
 }
 
+class DiRecordingMailer extends PasswordMailer {
+  public readonly mails: PasswordMail[] = [];
+  public async send(mail: PasswordMail): Promise<void> {
+    this.mails.push(mail);
+  }
+}
+
 class ServiceTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {
     return {
@@ -388,7 +393,7 @@ class ServiceTestConfiguration extends FrameworkConfiguration {
         targets: [{ name: 'Empty', type: 'BlackHoleTarget' }],
         rules: [{ name: '*', level: 'trace', target: 'Empty' }],
       },
-      authn: { local: { hasher: { maxConcurrent: 2 }, reset: { revokeTokens: false } } },
+      authn: { local: { hasher: { maxConcurrent: 2 }, reset: { revokeTokens: false, url: 'https://di.example.com/reset' }, invite: { ttlSeconds: 120 } } },
     };
   }
 }
@@ -405,6 +410,8 @@ describe('LocalPasswordService DI wiring', function () {
     DI.register(RecordingEventSink).as(AuthnEventSink);
     DI.register(RecordingTokenService).as(TokenService);
     DI.register(DefaultBackoffThrottle).as(AuthnThrottle);
+    DI.register(MemorySecretStore).as(SecretStore);
+    DI.register(DiRecordingMailer).as(PasswordMailer);
     await DI.resolve(Configuration);
   });
 
@@ -416,6 +423,12 @@ describe('LocalPasswordService DI wiring', function () {
     DI.unregister(RecordingEventSink);
     DI.unregister(RecordingTokenService);
     DI.unregister(DefaultBackoffThrottle);
+    DI.unregister(MemorySecretStore);
+    DI.unregister(DiRecordingMailer);
+    DI.uncache(SecretStore);
+    DI.uncache(PasswordMailer);
+    DI.uncache(MemorySecretStore);
+    DI.uncache(DiRecordingMailer);
     DI.uncache(Configuration);
     DI.uncache(IdentityStore);
     DI.uncache(PasswordCredentialStore);
@@ -456,5 +469,23 @@ describe('LocalPasswordService DI wiring', function () {
     expect(tokens.calls).to.deep.equal([]);
     const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
     expect(sink.ofType('password.change').map((e) => e.outcome)).to.deep.equal(['success', 'success']);
+  });
+
+  it('takes the SecretStore, the PasswordMailer and the reset and invite settings from the container', async () => {
+    const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
+    const identities = DI.resolve(IdentityStore) as FakeIdentityStore;
+    const mailer = DI.resolve(PasswordMailer) as DiRecordingMailer;
+    const secrets = DI.resolve(SecretStore);
+    const erin = identities.add({ login: 'erin@example.com', email: 'erin@example.com', status: { active: false, invitePending: true } });
+
+    expect(await service.requestReset('erin@example.com', ctx({ purpose: 'request' }))).to.deep.equal({ status: 'accepted' });
+    await service.drain();
+    await service.invite(erin, ctx({ purpose: 'request' }));
+
+    expect(mailer.mails.map((m) => [m.purpose, m.url, m.ttlSeconds])).to.deep.equal([
+      ['reset', 'https://di.example.com/reset', 3600],
+      ['invite', 'https://di.example.com/reset', 120],
+    ]);
+    expect(await secrets.redeem(erin, 'invite', mailer.mails[1].secret)).to.equal(true);
   });
 });
