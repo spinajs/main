@@ -164,6 +164,12 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect((await d.rules.find({})).total).to.equal(5);
     });
 
+    it('knows a permission whose name prefix is not one of its types (repo:push on branches)', async () => {
+      await resetHost();
+      d = await rbacDomain('test', { permissions: { 'repo:push': { types: ['project', 'branch'] } } });
+      ok(await d.admin.execute(SYSTEM, [put(threshold({ permissions: ['repo:push'] }))]));
+    });
+
     it('accepts a built-in condition function with valid args under the core compiler', async () => {
       ok(await d.admin.execute(SYSTEM, [put(threshold({ when: { fn: 'time.between', args: { from: '09:00', to: '17:00', tz: 'Europe/Warsaw' } } }))]));
       expect((await d.rules.byId('r1'))?.when).to.deep.equal({ fn: 'time.between', args: { from: '09:00', to: '17:00', tz: 'Europe/Warsaw' } });

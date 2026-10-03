@@ -351,7 +351,8 @@ export async function checkPermissionName(ctx: AdminContext, name: unknown, fiel
   }
   if (!isPermission(name)) throw new AuthzAdminFailure('unknown_permission', `${q(name)} is not a permission name`, field);
   try {
-    await ctx.authz.can(SYSTEM, name);
+    // At GLOBAL: without a resource the engine checks the name's prefix as the type, which need not be one of its types.
+    await ctx.authz.can(SYSTEM, name, GLOBAL);
   } catch (e) {
     if (e instanceof UnknownPermission) throw new AuthzAdminFailure('unknown_permission', `permission ${q(name)} is not registered`, field);
     throw e;
