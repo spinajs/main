@@ -1,6 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
-import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, ID_PATTERN, MAX_ID_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isSocketError } from '../src/index.js';
+import { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractOf, DEFAULT_RETRYABLE, ERROR_CODES, ErrorCode, EventName, EventPayload, ID_PATTERN, MAX_ID_LENGTH, MAX_KEY_LENGTH, MAX_NAME_LENGTH, NAME_PATTERN, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketException, WIRE_EVENTS, defineContract, isCancelFrame, isCommandRequest, isErrorCode, isEventFrame, isKey, isSocketError } from '../src/index.js';
 
 type DocsContract = {
   commands: { 'docs.open': [{ id: string }, { title: string }] };
@@ -121,6 +121,27 @@ describe('http-socket-common', () => {
       expect(isEventFrame({ name: '', payload: 1 })).to.be.false;
       expect(isCancelFrame({ id: 'r1' })).to.be.true;
       expect(isCancelFrame({ id: 1 })).to.be.false;
+    });
+
+    it('accepts idempotency keys and after of 1-MAX_KEY_LENGTH printable ASCII characters', () => {
+      const longest = 'k'.repeat(MAX_KEY_LENGTH);
+      expect(MAX_KEY_LENGTH).to.equal(256);
+
+      for (const key of ['client-1:1', `${'c'.repeat(128)}:9007199254740991`, longest, '550e8400-e29b-41d4-a716-446655440000']) {
+        expect(isKey(key), key).to.be.true;
+        expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: key, after: key }), key).to.be.true;
+      }
+
+      for (const key of ['', longest + 'k', 'a b', 'a\n', 'ż', 5, null]) {
+        expect(isKey(key), JSON.stringify(key)).to.be.false;
+        expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: key }), JSON.stringify(key)).to.be.false;
+        expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 'k1', after: key }), JSON.stringify(key)).to.be.false;
+      }
+    });
+
+    it('accepts a request without after, and after without a key ( the server refuses that one )', () => {
+      expect(isCommandRequest({ id: 'r1', name: 'x', idempotencyKey: 'k1' })).to.be.true;
+      expect(isCommandRequest({ id: 'r1', name: 'x', after: 'k0' })).to.be.true;
     });
   });
 

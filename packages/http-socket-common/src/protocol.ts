@@ -14,6 +14,9 @@ export const MAX_NAME_LENGTH = 128;
 /** Characters a command / event name may use: names end up in log lines and metric labels. */
 export const NAME_PATTERN = /^[\w.:-]+$/;
 
+/** Longest accepted idempotency key: a clientId ( MAX_ID_LENGTH ), a separator and a sequence number fit. */
+export const MAX_KEY_LENGTH = 256;
+
 export const WIRE_EVENTS = {
   /** client → server, answered through the socket.io ack */
   command: 'cmd',
@@ -53,7 +56,13 @@ export interface CommandRequest<P = unknown> {
   id: string;
   name: string;
   payload: P;
+  /** Deduplicates the command on the server; printable ASCII, at most MAX_KEY_LENGTH characters. */
   idempotencyKey?: string;
+  /**
+   * Durable commands: the idempotency key of the command sent before this one. The server runs this
+   * one only after that one has completed, and otherwise refuses it with a retryable `unavailable`.
+   */
+  after?: string;
   /**
    * Milliseconds the caller is still willing to wait, measured from when the request was sent.
    * Relative on purpose: client and server clocks never have to agree.
@@ -136,12 +145,16 @@ export function isName(value: unknown): value is string {
   return typeof value === 'string' && value.length <= MAX_NAME_LENGTH && NAME_PATTERN.test(value);
 }
 
+export function isKey(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_KEY_LENGTH && ID_PATTERN.test(value);
+}
+
 export function isCommandRequest(value: unknown): value is CommandRequest {
   if (!isRecord(value)) {
     return false;
   }
 
-  return isId(value.id) && isName(value.name) && (value.idempotencyKey === undefined || typeof value.idempotencyKey === 'string') && (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) && (value.traceparent === undefined || typeof value.traceparent === 'string');
+  return isId(value.id) && isName(value.name) && (value.idempotencyKey === undefined || isKey(value.idempotencyKey)) && (value.after === undefined || isKey(value.after)) && (value.deadline === undefined || (typeof value.deadline === 'number' && Number.isFinite(value.deadline))) && (value.traceparent === undefined || typeof value.traceparent === 'string');
 }
 
 export function isEventFrame(value: unknown): value is EventFrame {
