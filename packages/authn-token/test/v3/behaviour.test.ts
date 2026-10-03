@@ -1,3 +1,4 @@
+// Facets left pending here, with their owner lanes: A14/http (N8b), A15/core (N8a; tokenHarness has no `service` port).
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
@@ -19,7 +20,6 @@ describe('authn-token behaviour', function () {
     await shutdownV3Db();
   });
 
-  // The harness has no `service` port, so A15/core (N8a's facet) stays pending here.
   runAuthnBehaviour(['A14', 'A15'], tokenHarness, { title: 'authn-token: A14, A15', claim: ['A14/token', 'A15/token'] });
 
   runAuthnBehaviour(['A16'], jwtHarness, { title: 'authn-token: A16', claim: ['A16/jwt'] });

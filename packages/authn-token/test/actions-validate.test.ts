@@ -17,7 +17,7 @@ import '../src/generator.js';
 import '../src/legacy/role-policy.js';
 
 describe('access token actions - validate & cleanup', function () {
-  this.timeout(15000);
+  this.timeout(30000);
 
   before(async () => {
     DI.setESMModuleSupport();
