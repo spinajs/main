@@ -92,12 +92,12 @@ export class DefaultConditionCompiler extends ConditionCompiler {
   }
 
   /**
-   * `parseCondition` with this compiler's functions. Memoised per frozen condition object, since
-   * an unfrozen one may change. Models parse at boot with `where` (`compile` parses without it,
+   * `parseCondition` with this compiler's functions. Memoised per deeply frozen condition object,
+   * since anything else may change. Models parse at boot with `where` (`compile` parses without it,
    * so its errors only say "condition").
    */
   parse(c: Condition, where?: string): ParsedCondition {
-    const memo = c !== null && typeof c === 'object' && Object.isFrozen(c);
+    const memo = c !== null && typeof c === 'object' && deepFrozen(c);
     if (memo) {
       const hit = this.parsed.get(c);
       if (hit) return hit;
@@ -365,6 +365,12 @@ function valueOf(v: unknown): Value | typeof MISSING {
   return MISSING;
 }
 
+function deepFrozen(v: unknown, depth = 0): boolean {
+  if (v === null || typeof v !== 'object') return true;
+  if (!Object.isFrozen(v) || depth > 64) return false;
+  return Object.values(v).every((x) => deepFrozen(x, depth + 1));
+}
+
 function typesOf(x: unknown): string[] {
   try {
     const types = (x as { types?: unknown } | null)?.types;
@@ -404,7 +410,8 @@ const READ_ONLY = (): never => {
  * (and of every object it enumerates), so the compiler can tell whether the answer may be cached.
  * Lists are handed out as frozen copies and read as a whole; Dates as fresh copies. The proxy
  * target is an empty object: on a frozen principal a get trap that returns a wrapper would break
- * the Proxy invariants.
+ * the Proxy invariants. So each read of an object gives a new view (never compare them by
+ * identity), and a Map or class instance shows only its own data fields.
  */
 function readOnlyView(value: unknown, path: string, onRead: (path: string) => void): unknown {
   if (value instanceof Date) {
@@ -416,8 +423,10 @@ function readOnlyView(value: unknown, path: string, onRead: (path: string) => vo
     return value;
   }
   if (Array.isArray(value)) {
-    onRead(path);
-    return Object.freeze(value.map((x) => readOnlyView(x, path, onRead)));
+    // As an element read: the L2 key may hold a list sorted (ceiling roles, mfa), so its order is not keyed.
+    const elements = `${path}.*`;
+    onRead(elements);
+    return Object.freeze(value.map((x) => readOnlyView(x, elements, onRead)));
   }
   const source = value as Record<string, unknown>;
   const child = (k: string): unknown => readOnlyView(Object.hasOwn(source, k) ? source[k] : undefined, `${path}.${k}`, onRead);

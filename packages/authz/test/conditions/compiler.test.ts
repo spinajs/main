@@ -281,6 +281,10 @@ describe('conditions: DefaultConditionCompiler', () => {
       expect(await c.compile({ fn: 'reads.identity' }, req({ principal: who }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
       expect(await c.compile({ fn: 'reads.attributes' }, req(), ctxFor())).to.deep.include({ filter: TRUE, cacheable: true });
       expect(await c.compile({ fn: 'reads.keys' }, req(), ctxFor())).to.deep.include({ cacheable: false });
+      const lists = new DefaultConditionCompiler([new Fn('first.team', (_a, ctx) => (ctx.principal.attributes.teams as string[])[0] === 'red'), new Fn('first.role', (_a, ctx) => ctx.principal.ceiling?.roles?.[0] === 'viewer')]);
+      expect(await lists.compile({ fn: 'first.team' }, req(), ctxFor())).to.deep.include({ filter: TRUE, cacheable: true });
+      // The L2 key holds ceiling roles sorted, so an element read by position is not keyed.
+      expect(await lists.compile({ fn: 'first.role' }, req({ principal: { ...alice, ceiling: { roles: ['viewer'] } } as Principal }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
       expect(await c.compile({ fn: 'reads.actor' }, req({ actor: { ...agent, onBehalfOf: alice } }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
     });
 
