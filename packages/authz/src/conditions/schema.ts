@@ -14,6 +14,7 @@ const attrNode = {
   type: 'object',
   properties: {
     attr: { type: 'string', minLength: 1 },
+    // null passes here so the parser can say what to write instead.
     eq: { anyOf: [scalar, { type: 'null' }, ref] },
     ne: { anyOf: [scalar, { type: 'null' }, ref] },
     in: { anyOf: [literalList, ref] },

@@ -61,10 +61,9 @@ describe('conditions: DefaultConditionCompiler', () => {
       expect(await filterOf({ attr: 'resource.meta.kind', eq: 'x' })).to.deep.equal(cmp('meta.kind', 'eq', 'x'));
     });
 
-    it('maps null: true / false to the null tests and keeps eq null as UNKNOWN, never IS NULL', async () => {
+    it('maps null: true / false to the null tests', async () => {
       expect(await filterOf({ attr: 'resource.owner', null: true })).to.deep.equal(cmp('owner', 'null'));
       expect(await filterOf({ attr: 'resource.owner', null: false })).to.deep.equal(cmp('owner', 'notnull'));
-      expect(await filterOf({ attr: 'resource.owner', eq: null })).to.deep.equal(cmp('owner', 'eq', null));
     });
 
     it('folds in [] and nin [] as simplify does', async () => {
@@ -116,7 +115,6 @@ describe('conditions: DefaultConditionCompiler', () => {
       expect(await filterOf({ not: { attr: 'principal.attributes.missing', eq: 'x' } })).to.deep.equal({ op: 'not', arg: CONDITION_UNKNOWN });
       expect(await filterOf({ attr: 'principal.attributes.pool', lt: 1 })).to.equal(CONDITION_UNKNOWN);
       expect(await filterOf({ attr: 'principal.attributes.teams', eq: 'red' })).to.equal(CONDITION_UNKNOWN);
-      expect(await filterOf({ attr: 'principal.attributes.pool', eq: null })).to.equal(CONDITION_UNKNOWN);
       expect(await filterOf({ attr: 'principal.attributes.pool', eq: { ref: 'env.nothing' } })).to.equal(CONDITION_UNKNOWN);
     });
 
@@ -286,6 +284,9 @@ describe('conditions: DefaultConditionCompiler', () => {
       // The L2 key holds ceiling roles sorted, so an element read by position is not keyed.
       expect(await lists.compile({ fn: 'first.role' }, req({ principal: { ...alice, ceiling: { roles: ['viewer'] } } as Principal }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
       expect(await c.compile({ fn: 'reads.actor' }, req({ actor: { ...agent, onBehalfOf: alice } }), ctxFor())).to.deep.include({ filter: TRUE, cacheable: false });
+      const actorType = new DefaultConditionCompiler([new Fn('actor.type', (_a, ctx) => ctx.actor?.type === 'user')]);
+      // Without an actor the principal acts itself, as actor.* refs read it.
+      expect((await actorType.compile({ fn: 'actor.type' }, req(), ctxFor())).filter).to.equal(TRUE);
     });
 
     it('are read-only, and hand out copies of Dates', async () => {

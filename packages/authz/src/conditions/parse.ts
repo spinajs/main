@@ -213,6 +213,8 @@ function build(node: Json, at: string, depth: number, counter: { nodes: number }
     const value = parsePath(raw.ref, VALUE_ROOTS, `${at}.${op}.ref`, fail);
     operand = Object.freeze({ kind: 'ref', ref: value });
   } else {
+    // UNKNOWN on every row (never IS NULL), so it can only be a mistake: a deny would deny every row.
+    if (raw === null) fail(`'${op}: null' never matches; test for null with { null: ${op === 'eq'} }`, `${at}.${op}`);
     operand = Object.freeze({ kind: 'literal', value: deepFreeze(raw) as ConditionLiteral });
   }
   const refs = operand.kind === 'ref' ? [attr, operand.ref] : [attr];

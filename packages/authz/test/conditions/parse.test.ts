@@ -85,8 +85,6 @@ describe('conditions: parseCondition', () => {
         { attr: 'resource.a', eq: 'x' },
         { attr: 'resource.a', eq: 1 },
         { attr: 'resource.a', eq: false },
-        { attr: 'resource.a', eq: null },
-        { attr: 'resource.a', ne: null },
         { attr: 'resource.a', in: ['a', 1] },
         { attr: 'resource.a', in: [] },
         { attr: 'resource.a', nin: { ref: 'principal.attributes.teams' } },
@@ -107,9 +105,9 @@ describe('conditions: parseCondition', () => {
       for (const c of ok) expect(() => parse(c), JSON.stringify(c)).not.to.throw();
     });
 
-    it('keeps eq null as a literal (UNKNOWN at runtime), not a null test', () => {
-      const p = parse({ attr: 'resource.a', eq: null });
-      expect(p).to.deep.include({ op: 'eq', operand: { kind: 'literal', value: null } });
+    it('refuses eq/ne null, which never match, and points to the null test', () => {
+      fails({ attr: 'resource.a', eq: null }, /'eq: null' never matches; test for null with \{ null: true \} at \.eq/);
+      fails({ not: { attr: 'resource.a', ne: null } }, /'ne: null' never matches; test for null with \{ null: false \} at \.not\.ne/);
     });
 
     it('needs exactly one operator', () => {

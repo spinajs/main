@@ -235,7 +235,8 @@ class Run {
     const kleene = typeof (f as Partial<KleeneConditionFunction>).evaluateKleene === 'function';
     const ctx = {
       principal: view(this.req.principal, 'principal') as Principal,
-      ...(this.req.actor ? { actor: view(this.req.actor, 'actor') as Principal } : {}),
+      // As actor.* refs read it: without an actor the principal acts itself.
+      actor: view(this.actor, 'actor') as Principal,
       env: view(this.env, 'env') as Readonly<Record<string, unknown>>,
     };
     const result: unknown = kleene ? (f as KleeneConditionFunction).evaluateKleene(resolved, ctx) : f.evaluate(resolved, ctx);
