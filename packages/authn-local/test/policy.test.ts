@@ -327,6 +327,32 @@ describe('LocalPasswordPolicy config wiring', function () {
     expect(await p.check('Blocked-123')).to.deep.equal([]);
   });
 
+  it('a blocklist that failed to resolve is retried on the next check', async () => {
+    await boot({ policy: { blocklist: 'ConfiguredTestBlocklist' } });
+
+    class FlakyPolicy extends LocalPasswordPolicy {
+      public attempts = 0;
+      protected createBlocklist(type: Parameters<LocalPasswordPolicy['createBlocklist']>[0]) {
+        if (++this.attempts === 1) {
+          return Promise.reject(new Error('blocklist backend is down'));
+        }
+        return super.createBlocklist(type);
+      }
+    }
+
+    const p = new FlakyPolicy();
+    p.resolve();
+    let error: unknown;
+    try {
+      await p.check('Blocked-123');
+    } catch (e) {
+      error = e;
+    }
+    expect((error as Error)?.message).to.equal('blocklist backend is down');
+    expect(await p.check('Blocked-123')).to.deep.equal(['blocklisted']);
+    expect(p.attempts).to.equal(2);
+  });
+
   it('an unknown blocklist name fails at resolve', async () => {
     let error: unknown;
     try {

@@ -189,7 +189,16 @@ export class LocalPasswordPolicy extends SyncService {
       return this.Options.blocklist ?? null;
     }
     const type = this.blocklistType;
-    return type ? (this._blocklist ??= Promise.resolve(DI.resolve(type))) : null;
+    return type
+      ? (this._blocklist ??= this.createBlocklist(type).catch((err) => {
+          this._blocklist = undefined;
+          throw err;
+        }))
+      : null;
+  }
+
+  protected createBlocklist(type: Class<PasswordBlocklist>): Promise<PasswordBlocklist> {
+    return Promise.resolve(DI.resolve(type));
   }
 
   protected get blocklistType(): Class<PasswordBlocklist> | null {
