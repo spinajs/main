@@ -59,7 +59,6 @@ export async function example() {
 - [`@spinajs/orm-cli`](../../orm-cli/README.md) — `migrate-up` / `migrate-down` / `migrate-status`
   / `migrate-resolve` / `migrate-create` over the `orm.Migration` facade
 - [`@spinajs/orm-http`](../../orm-http/docs/) — exposing models over HTTP
-- [`@spinajs/orm-api`](../../orm-api/docs/) — CRUD controller building blocks
 
 ## Verifying the samples
 

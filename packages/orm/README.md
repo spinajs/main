@@ -69,7 +69,6 @@ Full documentation lives in **[docs/](docs/)**.
 | [`@spinajs/orm-mysql`](../orm-mysql) | MySQL / MariaDB driver |
 | [`@spinajs/orm-mssql`](../orm-mssql) | SQL Server driver |
 | [`@spinajs/orm-http`](../orm-http) | Route arguments, filtering and DTO relations for `@spinajs/http` |
-| [`@spinajs/orm-api`](../orm-api) | CRUD controller building blocks |
 
 ## Development
 

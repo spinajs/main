@@ -301,7 +301,7 @@ describe('controller descriptor inheritance', () => {
 
     it('stays quiet for controllers with no scanned base', async () => {
       // LoaderPkgController is deliberately NOT scanned - the shape of a shared
-      // base living outside the controllers dir ( eg. abstract Crud in orm-api ).
+      // base living outside the controllers dir.
       const { calls } = await runLoader([LoaderAppController, LoaderSoloController]);
 
       const noisy = calls.filter((c) => (c.level === 'warn' || c.level === 'info') && /Loader\w+Controller/.test(c.message));

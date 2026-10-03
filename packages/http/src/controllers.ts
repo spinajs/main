@@ -240,7 +240,7 @@ export class Controllers extends AsyncService {
       } else {
         // Subclassed but never registered as an override, so BOTH mounted and
         // Express route order picks the winner. Warn rather than throw, since
-        // legitimate shared bases exist ( eg. abstract Crud in orm-api ).
+        // legitimate shared bases exist.
         this.Log.warn(`Controller ${descendant.constructor.name} extends ${ci.name} but was not registered as an override. Call DI.register(${descendant.constructor.name}).as(${ci.name}) to replace it, otherwise both mount and route order decides which one answers.`);
       }
     }
