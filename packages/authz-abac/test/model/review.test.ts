@@ -294,6 +294,37 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
     });
   });
 
+  describe('final review', () => {
+    it('validate() refuses what would break a reload: an unknown function or permission, an id another store holds (I-1)', async () => {
+      const m = await model({ stores: [new ConfigPolicyStore([policy('cfg')]), new MemoryPolicyStore([policy('mem')])] });
+      expect(() => m.validate({ id: 'new', effect: 'permit', permissions: ['file:read'] })).not.to.throw();
+      expect(() => m.validate({ id: 'mem', effect: 'deny', permissions: ['file:read'] }, 'memory')).not.to.throw();
+      expect(() => m.validate({ id: 'cfg', effect: 'permit', permissions: ['file:read'] })).to.throw(AuthzConfigError, /already used by a policy from store "config"/);
+      expect(() => m.validate({ id: 'x', effect: 'permit', permissions: ['ghost:read'] })).to.throw(AuthzConfigError, /ghost:read/);
+      expect(() => m.validate({ id: 'x', effect: 'permit', permissions: ['file:read'], when: { fn: 'nope' } })).to.throw(AuthzConfigError, /unknown condition function "nope"/);
+    });
+
+    it('a disposed model neither reloads nor retries (m3)', async () => {
+      const store = new MemoryPolicyStore([policy('read')]);
+      const m = await model({ stores: [store], retryMs: 2 });
+      let loads = 0;
+      store.load = async () => {
+        loads++;
+        throw new Error('db down');
+      };
+      await m.dispose();
+      m.invalidate(['policy']);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(loads).to.equal(0);
+    });
+
+    it('summarize unites the field sets of the unconditional permits, as the vote does (m5)', async () => {
+      const m = await model({ stores: [new MemoryPolicyStore([policy('a', { fields: { read: ['name'] } }), policy('b', { fields: { read: ['email'] } }), policy('c', { when: { attr: 'resource.x', eq: 1 } })])] });
+      const s = await m.summarize(alice, { type: '$global' }, ctx());
+      expect(s.permissions).to.deep.equal([{ name: 'file:read', conditional: false, fields: { read: ['email', 'name'], write: [] } }]);
+    });
+  });
+
   describe('stores from config (I6)', () => {
     it('builds the stores authz.<name>.stores names, and refuses unknown names', async () => {
       const config = fakeModelInitContext({ config: { stores: ['ConfigPolicyStore', 'DbPolicyStore'], policies: [policy('read')] } });

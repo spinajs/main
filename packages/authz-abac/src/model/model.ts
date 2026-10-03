@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
-import type { AuthzContribution, CompiledCondition, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, DecisionRequest, Policy, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets } from './policies.js';
@@ -49,6 +49,8 @@ export class AbacModel extends AuthorizationModel {
   private generation = 0;
   private registry: PermissionRegistry | undefined;
   private loaded: readonly LoadedPolicy[] = [];
+  /** The store each loaded policy id came from (`validate`). */
+  private storeOf: ReadonlyMap<string, string> = new Map();
   private versions = '';
   private built: PolicyIndex | undefined;
   /** The generation the loaded policies are current for; behind `generation` means a load is due. */
@@ -119,7 +121,7 @@ export class AbacModel extends AuthorizationModel {
    * with nothing else ignores them.
    */
   invalidate(tags: readonly string[]): void {
-    if (!this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
+    if (this.disposed || !this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
     if (!tags.some((t) => t === '*' || t === 'policy' || t.startsWith('policy:') || t === `model:${this.name}`)) return;
     this.generation++;
     this.failed = false;
@@ -231,7 +233,7 @@ export class AbacModel extends AuthorizationModel {
       const def = ctx.permissions.get(name);
       if (!def || (at.type !== GLOBAL.type && !def.types.includes(at.type))) continue;
       const req: DecisionRequest = { principal, permission: name, resource: at, env: { now } };
-      let best: { conditional: boolean; fields?: FieldSet } | undefined;
+      const found: { conditional: boolean; p: LoadedPolicy }[] = [];
       for (const p of index.candidates(name, at.type)) {
         if (p.policy.effect !== 'permit' || !targets(p, req, now)) continue;
         const scope = scopeFilter(p.policy.scope, ancestors);
@@ -242,9 +244,19 @@ export class AbacModel extends AuthorizationModel {
           if (c.filter.op === 'false') continue;
           if (c.filter.op !== 'true') conditional = true;
         }
-        if (!best || (best.conditional && !conditional)) best = { conditional, ...(def.fields === true && p.policy.fields ? { fields: p.policy.fields } : {}) };
+        found.push({ conditional, p });
       }
-      if (best) out.push({ name, ...best });
+      if (found.length === 0) continue;
+      // As the vote's field sets: the union over the unconditional permits, else the intersection over all.
+      const unconditional = found.filter((f) => !f.conditional);
+      const fields =
+        def.fields === true
+          ? fieldsOf(
+              found.map((f) => ({ p: f.p, when: f.conditional ? FALSE : TRUE, needsSubject: false })),
+              [],
+            )
+          : undefined;
+      out.push({ name, conditional: unconditional.length === 0, ...(fields ? { fields: { ...(fields.read ? { read: fields.read } : {}), ...(fields.write ? { write: fields.write } : {}) } } : {}) });
     }
     return { model: this.name, permissions: out };
   }
@@ -264,6 +276,20 @@ export class AbacModel extends AuthorizationModel {
       for (const type of types) out.push(`${p.where} on list-scoped type ${JSON.stringify(type)}: its condition needs the row, so a list request ${p.policy.effect === 'deny' ? 'denies needs_subject' : 'gets nothing from it'}`);
     }
     return out;
+  }
+
+  /**
+   * Checks a policy a write handler is about to store as this model would load it: shape, condition
+   * with this model's functions, registered permissions, and an id no other store's policy uses.
+   * One bad row would make every reload fail, and the model indeterminate, so the handler (L9's
+   * `policy.put`) calls this first.
+   */
+  validate(policy: Omit<Policy, 'source'>, source = 'db'): void {
+    if (!this.registry) throw new AuthzConfigError(`${this.name}: the model is used before init`);
+    const p = loadPolicy({ ...policy, source }, 0, { source }, (c, where) => this.parser.parse(c, where));
+    const holder = this.storeOf.get(p.policy.id);
+    if (holder !== undefined && holder !== source) throw new AuthzConfigError(`${p.where}: the id is already used by a policy from store ${JSON.stringify(holder)}`);
+    new PolicyIndex([p], this.registry);
   }
 
   /** Boot refs for validateBoot (design §6.5 rules 7 and 10), fed through AbacContributor. */
@@ -287,12 +313,18 @@ export class AbacModel extends AuthorizationModel {
     const stores = this.stores ?? [];
     const lists = await Promise.all(stores.map(async (s) => ({ store: s, policies: await s.load() })));
     const loaded: LoadedPolicy[] = [];
+    const storeOf = new Map<string, string>();
     for (const { store, policies } of lists) {
       if (!Array.isArray(policies)) throw new AuthzConfigError(`${this.name}: policy store ${JSON.stringify(store.name)} did not load a list`);
-      for (const raw of policies) loaded.push(loadPolicy(raw, loaded.length, { source: store.name }, (c, where) => this.parser.parse(c, where)));
+      for (const raw of policies) {
+        const p = loadPolicy(raw, loaded.length, { source: store.name }, (c, where) => this.parser.parse(c, where));
+        loaded.push(p);
+        storeOf.set(p.policy.id, store.name);
+      }
     }
     const built = index ? new PolicyIndex(loaded, this.registry!) : undefined;
     this.loaded = loaded;
+    this.storeOf = storeOf;
     this.built = built;
     // From what was loaded, not a second read of the stores, which a write in between could make disagree.
     this.versions = createHash('sha256')

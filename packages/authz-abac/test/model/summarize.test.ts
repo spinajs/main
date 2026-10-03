@@ -48,7 +48,7 @@ describe('authz-abac: summarize (H18)', () => {
       model: 'abac',
       permissions: [
         { name: 'doc:delete', conditional: true },
-        { name: 'doc:read', conditional: false },
+        { name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } },
         { name: 'doc:write', conditional: false },
       ],
     });
@@ -58,13 +58,13 @@ describe('authz-abac: summarize (H18)', () => {
 
   it('an unconditional policy wins over a conditional one for the same permission; fields go with it', async () => {
     const m = await model([policy('cond', { when: { attr: 'resource.status', eq: 'open' } }), policy('all', { fields: { read: ['name'] } })]);
-    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['name'] } }]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['name'], write: [] } }]);
   });
 
   it('decides scopes on the path of `at`; a scoped policy is not listed at GLOBAL', async () => {
     const m = await model([policy('o1', { scope: O1 })]);
     expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([]);
-    expect((await m.summarize(alice, F1, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false }]);
+    expect((await m.summarize(alice, F1, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
   });
 
   it('drops expired policies and those a principal condition rules out', async () => {
