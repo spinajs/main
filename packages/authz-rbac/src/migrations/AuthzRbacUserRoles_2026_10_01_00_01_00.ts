@@ -1,23 +1,19 @@
 import { engineLog, GLOBAL } from '@spinajs/authz';
 import type { HostLog } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
 import { Migration, OrmDriver, OrmMigration } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
 import { AUTHZ_ASSIGNMENT_TABLE } from '../stores/assignment-row.js';
 import { scopeToColumns, subjectToColumns } from '../stores/columns.js';
 import { bumpVersion } from '../stores/version.js';
+import { configuredUsersColumns, countNullIds, hasUsers, inTransaction, matchColumn, rowsAffected, splitRoles, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY, USERS_TABLE, usersPage } from './users-table.js';
+import type { UsersColumns } from './users-table.js';
+
+export { USER_ROLES_DEFAULT_ID_COLUMN, USER_ROLES_DEFAULT_ROLE_COLUMN, USER_ROLES_ID_COLUMN_KEY, USER_ROLES_ROLE_COLUMN_KEY } from './users-table.js';
 
 /** `authz_assignment.source` of the rows copied from `users.<roleColumn>`. */
 export const USER_ROLES_SOURCE = 'users.Role';
-export const USER_ROLES_ROLE_COLUMN_KEY = 'authz.rbac.migration.roleColumn';
-export const USER_ROLES_ID_COLUMN_KEY = 'authz.rbac.migration.idColumn';
 
-/** The single source of these defaults; the config fragment does not repeat them. */
-export const USER_ROLES_DEFAULT_ID_COLUMN = 'Uuid';
-export const USER_ROLES_DEFAULT_ROLE_COLUMN = 'Role';
-
-const USERS_TABLE = 'users';
 const ROOT_DOMAIN = 'root';
 const NAME = 'AuthzRbacUserRoles_2026_10_01_00_01_00';
 
@@ -35,7 +31,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
   protected readonly insertBatch: number = 50;
 
   public async up(connection: OrmDriver): Promise<void> {
-    const configured = await this.columnNames(connection);
+    const configured = await configuredUsersColumns(connection);
 
     await inTransaction(connection, async () => {
       const columns = await this.usersColumns(connection, configured);
@@ -64,7 +60,7 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
         after = users[users.length - 1][idColumn];
       }
 
-      skipped += Number(await connection.select().from(USERS_TABLE).whereNull(idColumn).selectCount());
+      skipped += await countNullIds(connection, idColumn);
       if (skipped > 0) {
         this.log.warn(`${NAME}: skipped ${skipped} ${USERS_TABLE} row(s) whose ${idColumn} is null or empty; their roles were not copied`);
       }
@@ -85,18 +81,8 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
   }
 
   /** Keyset page of `(id, role)` ordered by the id column; `after` is the last id of the previous page. */
-  protected async page(connection: OrmDriver, idColumn: string, roleColumn: string, after: unknown): Promise<Record<string, unknown>[]> {
-    const query = connection.select().columns([idColumn, roleColumn]).from(USERS_TABLE).whereNotNull(idColumn).orderBy(idColumn).take(this.pageSize);
-    if (after !== undefined) query.where(idColumn, '>', after);
-    return (await query) as Record<string, unknown>[];
-  }
-
-  private async columnNames(connection: OrmDriver): Promise<UsersColumns> {
-    const configuration = connection.Container.hasRegistered(Configuration) ? await connection.Container.resolve(Configuration) : undefined;
-    return {
-      idColumn: configuration?.get<string>(USER_ROLES_ID_COLUMN_KEY) ?? USER_ROLES_DEFAULT_ID_COLUMN,
-      roleColumn: configuration?.get<string>(USER_ROLES_ROLE_COLUMN_KEY) ?? USER_ROLES_DEFAULT_ROLE_COLUMN,
-    };
+  protected page(connection: OrmDriver, idColumn: string, roleColumn: string, after: unknown): Promise<Record<string, unknown>[]> {
+    return usersPage(connection, idColumn, [idColumn, roleColumn], after, this.pageSize);
   }
 
   /**
@@ -125,24 +111,17 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
     const message = `${NAME}: table ${USERS_TABLE} has no column ${missing.join(', ')}; its columns are ${names.join(', ')}; no roles copied`;
 
     // an empty table loses nothing; a filled one is a misconfiguration the operator must see
-    const filled = Number(await connection.select().from(USERS_TABLE).selectCount()) > 0;
-    if (filled) this.log.warn(message);
+    if (await hasUsers(connection)) this.log.warn(message);
     else this.log.info(message);
 
     return null;
   }
 
   private assignmentsOf(id: string, roles: unknown, createdAt: Date): Record<string, unknown>[] {
-    const names = new Set(
-      String(roles ?? '')
-        .split(',')
-        .map((r) => r.trim())
-        .filter((r) => r !== ''),
-    );
     const subject = subjectToColumns({ type: 'user', id });
     const scope = scopeToColumns(GLOBAL);
 
-    return [...names].map((role) => ({
+    return splitRoles(roles).map((role) => ({
       id: randomUUID(),
       ...subject,
       role,
@@ -169,28 +148,4 @@ export class AuthzRbacUserRoles_2026_10_01_00_01_00 extends OrmMigration {
 
     return inserted;
   }
-}
-
-/** Inside the migration service's transaction when it runs one, else in our own: `bumpVersion` needs one. */
-function inTransaction(connection: OrmDriver, body: () => Promise<void>): Promise<void> {
-  return connection.CurrentTransaction !== undefined ? body() : connection.transaction(body);
-}
-
-interface UsersColumns {
-  idColumn: string;
-  roleColumn: string;
-}
-
-/**
- * The exact name, else the one column equal ignoring case: SQLite and MySQL treat column names
- * case-insensitively, and the name the table reports is the one that also works quoted on Postgres.
- */
-function matchColumn(names: readonly string[], wanted: string): string | undefined {
-  if (names.includes(wanted)) return wanted;
-  const folded = names.filter((n) => n.toLowerCase() === wanted.toLowerCase());
-  return folded.length === 1 ? folded[0] : undefined;
-}
-
-function rowsAffected(result: unknown): number {
-  return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);
 }
