@@ -1908,7 +1908,7 @@ In `packages/http-socket/RELEASE_NOTES.md`:
 - The generator runs inside the call's AsyncLocalStorage store for every item, so `AuthzService.current()` is the connection principal there too.
 - A stream command called without `credits` (a plain `client.command()`) is answered `failed_precondition`, and its generator never starts. W1 answered stream handlers with `unimplemented`.
 - `credits` above `streams.maxCredits`, at the request or by a later grant, fails with `invalid_argument` and `details { limit }`. More than `streams.maxPerConnection` open streams on one connection answers `resource_exhausted` with `retryAfterMs: 100`. An open stream holds no `maxInFlightPerConnection` slot.
-- `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only. `ordered` commands keep their queue place until the handler returns its generator, not until the stream ends.
+- `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only. A stream handler cannot be `ordered`: the registry refuses an `ordered` async generator at startup with `InvalidOperation`, and an `ordered` handler returning another async iterable is answered `failed_precondition`.
 - An open stream keeps its request id in flight until its `end` or `fail` frame.
 - Metrics: `socket_streams_total{command, code}` counts ended streams by outcome (`ok` or the error code). One debug line per stream: `socket stream <name> <outcome> <n> chunks <ms>ms connection <id>`.
 
@@ -4118,7 +4118,8 @@ public async *snapshot(@Payload() req: { docId: string; fromChunk?: number }, @S
   - `credits` above `streams.maxCredits` (64), at the request or by a later grant, fails with `invalid_argument`.
   - More than `streams.maxPerConnection` (8) open streams on a connection answers `resource_exhausted`.
   - An open stream holds no `maxInFlightPerConnection` slot.
-- **Timeouts.** `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only. `ordered` commands keep their queue place until the handler returns its generator.
+- **Timeouts.** `deadline` and `@Command({ timeoutMs })` bound the time until the stream reply only.
+- **Ordering.** A stream handler cannot be `ordered`; the server refuses to start with `InvalidOperation` when one is.
 - **Plain calls.** A stream command called with `client.command()` (no `credits`) answers `failed_precondition`, and its generator never starts.
 - **Resume.** A dropped connection ends the stream on both sides. To resume, put the position in the payload (`fromChunk` above), and let the client restart from the first chunk it has not applied. `loadSnapshot` in `packages/http-socket-example/src/client.ts` is a complete client.
 
