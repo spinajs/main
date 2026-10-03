@@ -25,6 +25,8 @@ export interface SwaggerAccess {
   readonly 'x-authz-domain'?: string;
   readonly 'x-authz-anonymous'?: true;
   readonly 'x-authz-unscoped'?: string;
+  /** `@UnfilteredInput(reason)`: the body is not field-filtered. */
+  readonly 'x-authz-unfiltered-input'?: string;
 }
 
 const IN = { param: 'path', body: 'body', query: 'query' } as const;
@@ -55,5 +57,6 @@ export function swaggerAccess(controller: object, method: AccessKey): SwaggerAcc
     ...(domain !== undefined && domain !== 'root' ? { 'x-authz-domain': domain } : {}),
     ...(access.anonymous ? { 'x-authz-anonymous': true as const } : {}),
     ...(access.unscoped !== undefined ? { 'x-authz-unscoped': access.unscoped } : {}),
+    ...(access.unfilteredInput !== undefined ? { 'x-authz-unfiltered-input': access.unfilteredInput } : {}),
   };
 }

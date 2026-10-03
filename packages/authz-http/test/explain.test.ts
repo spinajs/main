@@ -17,8 +17,9 @@ import { registerHeaderSource } from './support/principals.js';
 const D = 'exp';
 const EXPLAIN = '/authz/explain?principal=user:alice&permission=file:read&resource=file:f1';
 
-// bob holds authz:explain; nobody holds file:read.
-const votes = (req: DecisionRequest): ScriptedVote => (req.permission === 'authz:explain' && req.principal.id === 'bob' ? { permitWhen: { op: 'true' } } : {});
+// bob holds authz:explain, carol only on a condition; nobody holds file:read.
+const votes = (req: DecisionRequest): ScriptedVote =>
+  req.permission !== 'authz:explain' ? {} : req.principal.id === 'bob' ? { permitWhen: { op: 'true' } } : req.principal.id === 'carol' ? { permitWhen: { op: 'cmp', field: 'x', cmp: 'eq', value: 1 } } : {};
 
 async function boot(config: Record<string, unknown>): Promise<{ app: TestApp; domain: TestDomain }> {
   const app = await startApp({ config: { 'authz.http.access': { domain: D }, ...config } });
@@ -59,6 +60,7 @@ describe('explain route (H19, B41)', function () {
 
     expect((await running.app.request().get(EXPLAIN).set('x-user', 'alice')).status).to.eq(403);
     expect((await running.app.request().get(EXPLAIN)).status).to.eq(401);
+    expect((await running.app.request().get(EXPLAIN).set('x-user', 'carol')).status, 'a conditional grant').to.eq(403);
   });
 
   it('refuses a malformed principal or permission with 400', async () => {

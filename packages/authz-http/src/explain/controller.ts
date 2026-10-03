@@ -34,7 +34,8 @@ export class ExplainPolicy extends BasePolicy {
     const authz = await domainService(cfg.access.domain);
     const permission = cfg.explainRoute.permission;
     const decision = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } });
-    if (!decision.allowed) throw forbidden(decision);
+    // Only an unconditional grant: nothing here would enforce a residual.
+    if (!decision.allowed || decision.residual.op !== 'true') throw forbidden(decision);
   }
 }
 

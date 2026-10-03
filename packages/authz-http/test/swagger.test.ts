@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { BaseController } from '@spinajs/http';
 import { Model, ModelBase, Primary } from '@spinajs/orm';
 
-import { Access, AllowAnonymous, Unscoped, fromModel, fromParam, swaggerAccess, typedExtractor } from '../src/index.js';
+import { Access, AllowAnonymous, UnfilteredInput, Unscoped, fromModel, fromParam, swaggerAccess, typedExtractor } from '../src/index.js';
 
 @Model('swagger_docs')
 class SwaggerDoc extends ModelBase {
@@ -18,6 +18,7 @@ class SwaggerRoutes extends BaseController {
 
   @Access('doc:update', { resource: fromModel(SwaggerDoc, 'doc') })
   @Unscoped('export')
+  @UnfilteredInput('imports raw documents')
   public byModel() {}
 
   @AllowAnonymous()
@@ -45,7 +46,7 @@ describe('swaggerAccess', () => {
   });
 
   it('names the model of fromModel and the reason of @Unscoped', () => {
-    expect(swaggerAccess(SwaggerRoutes, 'byModel')).to.deep.include({ 'x-authz-resource': { in: 'path', name: 'doc', model: 'SwaggerDoc' }, 'x-authz-unscoped': 'export' });
+    expect(swaggerAccess(SwaggerRoutes, 'byModel')).to.deep.include({ 'x-authz-resource': { in: 'path', name: 'doc', model: 'SwaggerDoc' }, 'x-authz-unscoped': 'export', 'x-authz-unfiltered-input': 'imports raw documents' });
   });
 
   it('marks @AllowAnonymous, reads a typed extractor, and leaves a custom one opaque', () => {

@@ -147,8 +147,9 @@ export class AccessPolicy extends BasePolicy {
     if (!readDomainConfig((path) => configuration?.get(path), domains.lineage(domain)).engine.explain) return undefined;
 
     const permission: Permission = httpConfig().explainRoute.permission;
-    const holds = await authz.can(principal, permission, { type: parsePermission(permission).resource }).catch(() => false);
-    if (!holds) return undefined;
+    // Only an unconditional grant: a residual on the explain permission would not be enforced here.
+    const held = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }).catch(() => undefined);
+    if (!held?.allowed || held.residual.op !== 'true') return undefined;
 
     return (await authz.explain({ principal, permission: denied.permission, resource: denied.resource })).trace;
   }
