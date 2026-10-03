@@ -120,3 +120,11 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 
 - `STAGE_ORDER.Ordering` moves from `800` to `550`, after idempotency (`500`) and before policies (`600`) and arguments (`700`). Policies and hydrators of an `ordered` command now run inside its queue place, so they see what the commands before it changed. A durable edit pipelined right behind its create is no longer hydrated before the create ran (its `not_found` would be stored as final).
 - `ordered: 'connection'` and `ordered: 'client'` commands without `after` get the same, stronger ordering. A custom stage ordered between `550` and `800` now runs inside the queue place.
+
+### Known limits
+
+- No idempotency store has a lease yet: a handler that never settles keeps its key running forever, and every resend of it waits or is refused. A lease belongs to the first shared store (Redis, ORM).
+- A reply the store could not keep is still answered and its key released. A second run therefore needs a store failure plus a lost ack.
+- A principal switch mid-queue changes the key scope: an anonymous command whose ack was lost runs again after login.
+- Unauthenticated connections share one principal key, so their idempotency keys and `after` fences are scoped by `clientId` only.
+- The `after` fence and the `ordered: 'client'` queues are per instance; several instances need sticky sessions.

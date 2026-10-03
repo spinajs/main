@@ -60,7 +60,9 @@ export interface CommandRequest<P = unknown> {
   idempotencyKey?: string;
   /**
    * Durable commands: the idempotency key of the command sent before this one. The server runs this
-   * one only after that one has completed, and otherwise refuses it with a retryable `unavailable`.
+   * one only after that one has completed. For a predecessor it does not hold as completed ( unknown,
+   * still running, released ) it answers a retryable `unavailable` with `details: { after }`. Drop
+   * `after` once the predecessor has its final reply: the server forgets completed keys after their ttl.
    */
   after?: string;
   /**
