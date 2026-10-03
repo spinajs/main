@@ -1,0 +1,144 @@
+/** Test DB fixture: boots an Orm in a child DI container on sqlite `:memory:` or on a throwaway Postgres database. */
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { DI, IContainer } from '@spinajs/di';
+import '@spinajs/log';
+import { Orm, OrmDriver, QueryContext } from '@spinajs/orm';
+import { PostgresOrmDriver } from '@spinajs/orm-postgres';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
+import { randomBytes } from 'node:crypto';
+
+export type DbKind = 'sqlite' | 'postgres';
+
+export const DB_KINDS: DbKind[] = ['sqlite', 'postgres'];
+
+export const PG_SERVER = { Host: '127.0.0.1', Port: 15432, User: 'postgres', Password: 'postgres', Database: 'test' };
+
+export interface TestDb {
+  kind: DbKind;
+  orm: Orm;
+  /** The connection the authz-rbac migrations and stores use (`'default'`). */
+  driver: OrmDriver;
+  /** Postgres only: the database created for this run. */
+  database?: string;
+  dispose(): Promise<void>;
+}
+
+export interface BootOptions {
+  /** `Migration.OnStartup` of the connection; default true. */
+  migrate?: boolean;
+}
+
+function configurationFor(connection: Record<string, unknown>) {
+  return class TestDbConfiguration extends FrameworkConfiguration {
+    public async resolve(): Promise<void> {
+      await super.resolve();
+
+      // replaced, not merged: package configs must not add connections here
+      const config = this.Config as Record<string, unknown>;
+      config.db = { ...(config.db as object), DefaultConnection: connection.Name, Connections: [connection] };
+    }
+  };
+}
+
+/** Runs plain SQL (`?` placeholders); `executeOnDb` lives on the SQL drivers, not on `OrmDriver`. */
+export function rawQuery(driver: OrmDriver, sql: string, bindings: unknown[] = [], context: QueryContext = QueryContext.Select): Promise<any> {
+  return (driver as unknown as { executeOnDb(sql: string, bindings: unknown[], context: QueryContext): Promise<any> }).executeOnDb(sql, bindings, context);
+}
+
+async function adminDriver(): Promise<OrmDriver> {
+  const container = DI.child();
+  const driver = await container.resolve<OrmDriver>(PostgresOrmDriver, [{ Name: 'l2-pg-admin', Driver: 'orm-driver-postgres', ...PG_SERVER, Pool: { Max: 1, AcquireTimeout: 3000 } }]);
+  await driver.connect();
+  return driver;
+}
+
+/**
+ * Throws when Postgres is unreachable and `L2_REQUIRE_PG=1`; otherwise skips the calling suite.
+ */
+export async function requirePostgres(ctx: Mocha.Context): Promise<void> {
+  try {
+    const admin = await adminDriver();
+    await admin.disconnect();
+  } catch (err) {
+    if (process.env.L2_REQUIRE_PG === '1') {
+      throw new Error(`Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable and L2_REQUIRE_PG=1: ${(err as Error).message}`);
+    }
+
+    console.warn(`      Postgres at ${PG_SERVER.Host}:${PG_SERVER.Port} is unreachable, suite skipped (set L2_REQUIRE_PG=1 to fail instead)`);
+    ctx.skip();
+  }
+}
+
+export async function createPgDatabase(suite: string): Promise<string> {
+  const name = `l2_${suite}_${randomBytes(4).toString('hex')}`;
+  const admin = await adminDriver();
+
+  try {
+    await admin.schema().createDatabase(name);
+  } finally {
+    await admin.disconnect();
+  }
+
+  return name;
+}
+
+export async function dropPgDatabase(name: string): Promise<void> {
+  const admin = await adminDriver();
+
+  try {
+    await rawQuery(admin, `DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`, [], QueryContext.Schema);
+  } finally {
+    await admin.disconnect();
+  }
+}
+
+/**
+ * Call from a `before()` hook. For Postgres, skips the suite (see {@link requirePostgres}) and
+ * creates a database named after `suite`, dropped again by `dispose()`.
+ */
+export async function bootDb(ctx: Mocha.Context, kind: DbKind, suite: string, options: BootOptions = {}): Promise<TestDb> {
+  DI.setESMModuleSupport();
+
+  const migration = { OnStartup: options.migrate ?? true };
+  let database: string | undefined;
+  let connection: Record<string, unknown>;
+
+  if (kind === 'postgres') {
+    await requirePostgres(ctx);
+    database = await createPgDatabase(suite);
+    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-postgres', ...PG_SERVER, Database: database, Migration: migration };
+  } else {
+    connection = { Name: `l2-${suite}`, Driver: 'orm-driver-sqlite', Filename: ':memory:', Migration: migration };
+  }
+
+  const container: IContainer = DI.child();
+  container.register(configurationFor(connection)).as(Configuration);
+  container.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  container.register(PostgresOrmDriver).as('orm-driver-postgres');
+
+  let orm: Orm;
+
+  try {
+    await container.resolve(Configuration);
+    orm = await container.resolve(Orm);
+  } catch (err) {
+    if (database) {
+      await dropPgDatabase(database);
+    }
+    throw err;
+  }
+
+  return {
+    kind,
+    orm,
+    driver: orm.Connections.get('default')!,
+    database,
+    dispose: async () => {
+      await orm.dispose();
+
+      if (database) {
+        await dropPgDatabase(database);
+      }
+    },
+  };
+}
