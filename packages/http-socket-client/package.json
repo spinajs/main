@@ -10,6 +10,11 @@
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
     },
+    "./browser": {
+      "types": "./lib/mjs/browser.d.ts",
+      "import": "./lib/mjs/browser.js",
+      "require": "./lib/cjs/browser.js"
+    },
     "./node": {
       "types": "./lib/mjs/node/index.d.ts",
       "import": "./lib/mjs/node/index.js",
@@ -58,6 +63,7 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "socket.io": "^4.8.1"
   }
 }
