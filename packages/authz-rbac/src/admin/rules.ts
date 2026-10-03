@@ -175,12 +175,23 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     if (conditions.length === 0) return;
     const container = adminContainer(ctx);
     const hasCompiler = container.hasRegistered(ConditionCompiler);
-    const functions = container.hasRegistered(ConditionFunction) ? [...(await container.resolveChain(ConditionFunction))].map((f) => (f as ConditionFunction).name) : [];
+    const compiler = hasCompiler ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler & { parse?: (c: Condition, where?: string) => unknown }) : undefined;
+    // The core's DefaultConditionCompiler parses with its own functions; then it alone judges fn names.
+    const parses = typeof compiler?.parse === 'function';
+    const functions = !parses && container.hasRegistered(ConditionFunction) ? [...(await container.resolveChain(ConditionFunction))].map((f) => (f as ConditionFunction).name) : [];
     // No function registered: every fn is unknown, which matters only where conditions compile at all.
-    const fnKnown = (name: string) => (functions.length > 0 ? functions.includes(name) : !hasCompiler);
+    const fnKnown = (name: string) => parses || (functions.length > 0 ? functions.includes(name) : !hasCompiler);
     for (const [field, condition] of conditions) checkCondition(condition, field, fnKnown);
-    if (!hasCompiler) throw new AuthzAdminFailure('rule_not_compilable', `authz domain ${quote(ctx.domain)} has no ConditionCompiler, so a rule condition cannot be evaluated`, conditions[0][0]);
-    const compiler = (await container.resolve(ConditionCompiler)) as ConditionCompiler;
+    if (!compiler) throw new AuthzAdminFailure('rule_not_compilable', `authz domain ${quote(ctx.domain)} has no ConditionCompiler, so a rule condition cannot be evaluated`, conditions[0][0]);
+    if (parses) {
+      for (const [field, condition] of conditions) {
+        try {
+          compiler.parse!(condition, field);
+        } catch (e) {
+          throw new AuthzAdminFailure('rule_not_compilable', `${field} does not parse: ${e instanceof Error ? e.message : String(e)}`, field);
+        }
+      }
+    }
     const literal = rule.permissions?.find((p) => !p.includes('*'));
     const req: DecisionRequest = { principal: adminActor(ctx), permission: literal ?? MANAGE, resource: GLOBAL };
     for (const [field, condition] of conditions) {

@@ -168,8 +168,8 @@ describe('RBAC link, rule, reader and forget commands', function () {
       ['a malformed glob', threshold({ permissions: ['file:**'] }), { code: 'unknown_permission', field: 'rule.permissions.0' }],
       ['a malformed name', threshold({ permissions: ['nope'] }), { code: 'unknown_permission', field: 'rule.permissions.0' }],
       ['a subject set of a role that is no set', { id: 'x', kind: 'restrict', scope: P1, allow: [{ set: { role: 'plain', scope: O1 } }] }, { code: 'unknown_role', field: 'rule.allow.0.set.role' }],
-      ['a condition without a ConditionCompiler', threshold({ when: { attr: 'scope.org.policies.x', eq: false } }), { code: 'rule_not_compilable', field: 'rule.when' }],
-      ['a resource condition without a ConditionCompiler', threshold({ resource: { attr: 'resource.name', wildcard: 'release/*' } }), { code: 'rule_not_compilable', field: 'rule.resource' }],
+      // The core registers a ConditionCompiler in every host, so parse faults are what remains to refuse.
+      ['a condition naming an unknown function', threshold({ when: { fn: 'no.such.fn' } }), { code: 'rule_not_compilable', field: 'rule.when' }],
       ['an unknown kind', threshold({ kind: 'other' as never }), { code: 'invalid_command', field: 'rule.kind' }],
       ['no id', threshold({ id: '' }), { code: 'invalid_command', field: 'rule.id' }],
       ['no scope', threshold({ scope: undefined as never }), { code: 'invalid_command', field: 'rule.scope' }],
