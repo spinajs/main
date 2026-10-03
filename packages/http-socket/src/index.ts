@@ -1,7 +1,7 @@
 export * from '@spinajs/http-socket-common';
 export * from './interfaces.js';
 export { TokenBucket, payloadSize } from './limits.js';
-export { IdempotencyStore, MemoryIdempotencyStore } from './idempotency.js';
+export { IdempotencyStore, MemoryIdempotencyStore, SocketIdempotency } from './idempotency.js';
 export type { IdempotencyRecord } from './idempotency.js';
 export { AccessDeniedMapping, ConflictMapping, FailedPreconditionMapping, ForbiddenMapping, HandleSocketException, InvalidArgumentMapping, NotFoundMapping, SocketErrorMapper, SocketErrorMapping, SocketExceptionMapping, UnauthenticatedMapping, UnimplementedMapping, ValidationFailedMapping, codeMapping } from './errors.js';
 export { crossSiteRefusal, isAllowedOrigin } from './origin.js';

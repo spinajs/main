@@ -171,7 +171,7 @@ export interface ICommandOptions {
   schema?: object;
   /** server-side deadline; the earlier of this and the client's `deadline` applies */
   timeoutMs?: number;
-  /** W3: replay by `(clientId, idempotencyKey)` */
+  /** replay by principal, clientId and idempotencyKey; a durable command also needs ordered: 'client' */
   idempotent?: boolean;
   /** serial queue per connection, or per principal and clientId across reconnects */
   ordered?: 'connection' | 'client';
@@ -272,6 +272,8 @@ export interface ISocketCommandContext extends ISocketCallContext {
   args?: unknown[];
   /** the refusal of the rate token the dispatcher took when the frame arrived; the rate stage throws it */
   rateRefusal?: unknown;
+  /** set by the idempotency stage when it runs the command under a key; the ordering stage settles it inside the queue place */
+  idempotency?: ISocketIdempotencyClaim;
   /** fires `signal`; the dispatcher replies with `reason` at once */
   abort(reason: SocketException): void;
   /** keeps the earliest of all armed deadlines, counted from `receivedAt` */
@@ -305,3 +307,17 @@ export const STAGE_ORDER = {
 
 /** What an idempotent command replays: its result, or the error it failed with for good. */
 export type IdempotentReply = { readonly ok: true; readonly result: unknown } | { readonly ok: false; readonly error: SocketError };
+
+/** A command's outcome as the pipeline saw it. */
+export type CommandOutcome = { readonly result: unknown } | { readonly error: unknown };
+
+/** The idempotency stage's hold on one key while its command runs. */
+export interface ISocketIdempotencyClaim {
+  /**
+   * Records the outcome once: a result or a final error is stored, a retryable error or the call's own
+   * abort releases the key. Later calls get the first answer. Null: released, or detached.
+   */
+  settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
+  /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */
+  detach(running: Promise<unknown>): void;
+}
