@@ -345,6 +345,30 @@ describe('authz-rbac model: RbacContributor', () => {
     ]);
   });
 
+  it('refers to each grant relation once per type of the granted permission (B05 rule 8), naming role and permission', async () => {
+    const grants = (name: string, list: RoleDef['grants'], extra: Partial<RoleDef> = {}): RoleDef => ({ ...role(name, [], extra), grants: list });
+    const roles = [
+      grants('owner', [{ permission: 'file:read', relation: 'owner' }]),
+      grants('lead', [{ permission: 'file:*', relation: 'member' }], { extends: ['owner'] }),
+      grants('dup', [
+        { permission: 'file:write', relation: 'owner' },
+        { permission: 'file:write', relation: 'owner' },
+      ]),
+      role('plain', ['file:read']),
+    ];
+    const m = new RbacModel({ roles: new MemoryRoleStore(roles), assignments: new MemoryAssignmentStore(), log });
+    await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry([{ name: 'file:read', types: ['file', 'folder'] }, 'file:write']) }));
+    const out = await new RbacContributor(m).contribute('test');
+    expect(out.relationRefs).to.deep.equal([
+      { type: 'file', relation: 'owner', source: "rbac role 'owner' grant 'file:read'" },
+      { type: 'folder', relation: 'owner', source: "rbac role 'owner' grant 'file:read'" },
+      { type: 'file', relation: 'member', source: "rbac role 'lead' grant 'file:read' (from 'file:*')" },
+      { type: 'folder', relation: 'member', source: "rbac role 'lead' grant 'file:read' (from 'file:*')" },
+      { type: 'file', relation: 'member', source: "rbac role 'lead' grant 'file:write' (from 'file:*')" },
+      { type: 'file', relation: 'owner', source: "rbac role 'dup' grant 'file:write'" },
+    ]);
+  });
+
   it('throws UnknownPermission naming a grant of an unregistered permission (B02)', async () => {
     const m = new RbacModel({ roles: new MemoryRoleStore([role('editor', ['file:read', 'ghost:read'])]), assignments: new MemoryAssignmentStore(), log });
     await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));

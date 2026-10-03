@@ -78,6 +78,11 @@ export class RbacModel extends AuthorizationModel {
     return this.state().graph;
   }
 
+  /** The permission registry of the domain where `init` ran. @throws AuthzConfigError before `init` */
+  permissions(): PermissionRegistry {
+    return this.state().registry;
+  }
+
   /**
    * The grant index, compiled on first use (the registry is complete only after every model's init),
    * then the extensions' compile hooks; the contributor calls it at boot.

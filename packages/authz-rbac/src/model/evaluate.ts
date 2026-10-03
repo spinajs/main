@@ -1,4 +1,4 @@
-import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
+import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
@@ -129,6 +129,17 @@ const grant: RbacStep = (s) => {
   s.candidates = [...holders].map(([g, h]) => ({ grant: g, holders: h, failed: false }));
 };
 
+/** The rows a passing grant permits: the AND of its conditions; a grant with none permits every row. */
+export function grantResidual(grant: CompiledGrant): ResourceFilter {
+  return and(relationResidual(grant));
+}
+
+/** Several relations of one grant OR (B15). */
+function relationResidual(grant: CompiledGrant): ResourceFilter {
+  if (!grant.relations) return TRUE;
+  return or(...grant.relations.map((relation): ResourceFilter => ({ op: 'relation', relation })));
+}
+
 /*
  * validUntil bounds the vote by the earliest expiry among the holders of every candidate, refused
  * ones included: such an expiry can end a permit or change the reason. An assignment whose roles
@@ -138,7 +149,7 @@ const grant: RbacStep = (s) => {
 const residual: RbacStep = (s) => {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
   for (const c of s.candidates) {
-    if (!c.failed) s.permit.push(TRUE);
+    if (!c.failed) s.permit.push(grantResidual(c.grant));
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));

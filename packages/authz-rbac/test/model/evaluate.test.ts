@@ -188,6 +188,71 @@ describe('authz-rbac model: the evaluation pipeline', () => {
     });
   });
 
+  describe('relation residuals (B15)', () => {
+    const rel = (relation: string) => ({ op: 'relation' as const, relation });
+    const withGrants = (name: string, grants: RoleDef['grants']): RoleDef => ({ ...role(name), grants });
+    const RELATION_ROLES = [
+      withGrants('owner-reader', [{ permission: 'file:read', relation: 'owner' }]),
+      withGrants('either', [{ permission: 'file:read', relation: ['owner', 'member'] }]),
+      withGrants('two-grants', [
+        { permission: 'file:read', relation: 'owner' },
+        { permission: 'file:read', relation: 'member' },
+      ]),
+      withGrants('member-reader', [{ permission: 'file:read', relation: 'member' }]),
+      role('reader', ['file:read']),
+    ];
+    const vote = (roleNames: readonly string[]) =>
+      runRbacPipeline(
+        input(
+          roleNames.map((r, i) => assignment(`a${i}`, r)),
+          'file:read',
+          { roles: RELATION_ROLES },
+        ),
+      );
+
+    it('a grant with relation R permits when relation(R) holds, and gives no reason', () => {
+      const v = vote(['owner-reader']);
+      expect(v.permitWhen).to.deep.equal(rel('owner'));
+      expect(v.denyWhen).to.deep.equal(FALSE);
+      expect(v.reason).to.equal(undefined);
+    });
+
+    it('several relations in one grant are OR-ed', () => {
+      expect(vote(['either']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+    });
+
+    it('grants of one permission with different relations are OR-ed, within a role and across roles', () => {
+      expect(vote(['two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+      expect(vote(['owner-reader', 'member-reader']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+    });
+
+    it('a grant without relation is unconditional and absorbs the relation grants', () => {
+      expect(vote(['owner-reader', 'reader']).permitWhen).to.deep.equal(TRUE);
+      expect(vote(['reader', 'either']).permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('one relation reached through two roles appears once', () => {
+      expect(vote(['owner-reader', 'two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+    });
+
+    it('a refused relation grant adds nothing to permitWhen', () => {
+      const v = runRbacPipeline(
+        input([assignment('a1', 'owner-reader'), assignment('a2', 'member-reader')], 'file:read', { roles: RELATION_ROLES }),
+        withSteps({
+          tag: (s) => {
+            s.candidates.find((c) => c.grant.role === 'member-reader')!.failed = true;
+          },
+        }),
+      );
+      expect(v.permitWhen).to.deep.equal(rel('owner'));
+    });
+
+    it('a type-level request gets the same residual: every row is checked against relation(R)', () => {
+      const base = input([assignment('a1', 'owner-reader')], 'file:read', { roles: RELATION_ROLES });
+      expect(runRbacPipeline({ ...base, request: { ...base.request, resource: { type: 'file' } } }).permitWhen).to.deep.equal(rel('owner'));
+    });
+  });
+
   describe('scoped assignments along the resource path (B13)', () => {
     // o1 → p1 → f1, o1 → p2 → f2
     const O1: ResourceRef = { type: 'org', id: 'o1' };
