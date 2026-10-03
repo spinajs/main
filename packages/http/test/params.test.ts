@@ -46,8 +46,6 @@ describe('controller action test params', function () {
       await b.bootstrap();
     }
 
-    DI.setESMModuleSupport();
-
     DI.register(TestConfiguration).as(Configuration);
 
     await DI.resolve(Configuration);
@@ -56,7 +54,7 @@ describe('controller action test params', function () {
     await DI.resolve(Controllers);
     const server = await DI.resolve<HttpServer>(HttpServer);
 
-    server.start();
+    await server.start();
   });
 
   after(async () => {

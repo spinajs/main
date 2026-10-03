@@ -54,8 +54,6 @@ describe('http & controller tests', function () {
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
     uncacheControllers();
 
-    DI.setESMModuleSupport();
-
     DI.register(TestConfiguration).as(Configuration);
     DI.register(TestTransformer).as(DataTransformer);
 
@@ -80,7 +78,7 @@ describe('http & controller tests', function () {
     await c?.add(TestMethods2);
 
     const server = await DI.resolve(HttpServer);
-    server.start();
+    await server.start();
 
     let response = await req().get('testmethods2/testGet2');
     expect(response).to.have.status(200);
