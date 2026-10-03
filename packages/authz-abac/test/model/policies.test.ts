@@ -62,8 +62,14 @@ describe('authz-abac: policies', () => {
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], actorTypes: [''] }, /actorTypes must be/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], scope: 'org:o1' }, /scope must be a resource ref/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { show: ['a'] } }, /fields takes read, write and hide/);
-      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: 'a' } }, /fields.read must be a list/);
-      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 'high' }, /priority must be a finite number/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: 'a' } }, /fields.read must be a list of field globs/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: ['a b'] } }, /fields.read must be a list of field globs/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { hide: ['a'] } }, /fields.hide belongs on a deny policy/);
+      fails({ id: 'p1', effect: 'deny', permissions: ['file:read'], fields: { read: ['a'] } }, /fields.read and fields.write belong on a permit policy/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 'high' }, /priority must be an integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 99.5 }, /priority must be an integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], scope: { type: '$global', id: 'x' } }, /a \$global scope has no id/);
+      expect(load({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: ['*', '!salary', 'a.*'] } }).policy.fields).to.deep.equal({ read: ['*', '!salary', 'a.*'] });
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], expiresAt: 'soon' }, /expiresAt must be a Date/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], reason: '' }, /reason must be a non-empty string/);
     });
@@ -109,10 +115,11 @@ describe('authz-abac: policies', () => {
       expect(t({ principalTypes: ['user'] }, bot)).to.equal(true);
     });
 
-    it('match actor types against the actor only', () => {
+    it('match actor types against the actor, else the principal acting itself (as conditions read actor.*)', () => {
       expect(t({ actorTypes: ['agent'] }, alice, agent)).to.equal(true);
       expect(t({ actorTypes: ['agent'] }, alice)).to.equal(false);
-      expect(t({ actorTypes: ['agent'] }, agent)).to.equal(false);
+      expect(t({ actorTypes: ['agent'] }, agent)).to.equal(true);
+      expect(t({ actorTypes: ['user'] }, alice, agent)).to.equal(false);
     });
 
     it('drop a policy at its expiry', () => {

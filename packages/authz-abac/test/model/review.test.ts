@@ -1,0 +1,184 @@
+import * as chai from 'chai';
+import 'mocha';
+import { Authorizer, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, Policy, Vote } from '@spinajs/authz';
+import { agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+
+import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
+
+const expect = chai.expect;
+
+const NOW = new Date('2026-10-01T12:00:00.000Z');
+const F1 = { type: 'file', id: 'f1' };
+const alice = userPrincipal('alice');
+
+const registry = (): PermissionRegistryImpl => {
+  const r = new PermissionRegistryImpl();
+  r.register(
+    [
+      { name: 'file:read', types: ['file'], fields: true },
+      { name: 'file:delete', types: ['file'] },
+    ],
+    'test',
+  );
+  r.freeze();
+  return r;
+};
+
+const policy = (id: string, extra: Partial<Policy> = {}): Policy => ({ id, effect: 'permit', permissions: ['file:read'], source: 'test', ...extra });
+const ctx = (reg = registry()): EvaluationContext => fakeEvaluationContext({ now: NOW, permissions: reg, conditions: new DefaultConditionCompiler() });
+const req = (over: Partial<DecisionRequest> = {}): DecisionRequest => ({ principal: alice, permission: 'file:read', resource: { type: 'file' }, env: { now: NOW }, ...over });
+
+async function model(stores: AbacModel extends never ? never : ConstructorParameters<typeof AbacModel>[0], reg = registry()): Promise<AbacModel> {
+  const m = new AbacModel(stores);
+  await m.init(fakeModelInitContext({ permissions: reg }));
+  return m;
+}
+
+/** A memory store whose loads can be held back. */
+class GatedStore extends MemoryPolicyStore {
+  gate: Promise<void> | undefined;
+  loads = 0;
+  async load(): Promise<readonly Policy[]> {
+    this.loads++;
+    if (this.gate) await this.gate;
+    return super.load();
+  }
+}
+
+describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', () => {
+  describe('field sets', () => {
+    it('keep negations and globs, merged as the engine merges them (C1)', async () => {
+      const m = await model({ stores: [new MemoryPolicyStore([policy('most', { fields: { read: ['*', '!salary'] } })])] });
+      expect(((await m.evaluate(req(), ctx())) as Vote).fields).to.deep.equal({ read: ['*', '!salary'], write: [] });
+      const reg = registry();
+      const a = new Authorizer({ domain: 'root', models: [m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      const d = await a.check({ principal: alice, permission: 'file:read', resource: F1 });
+      expect(d.fields.read).to.include('!salary');
+    });
+
+    it('come from the permits that hold everywhere; with none, the intersection of all (C2)', async () => {
+      const names = policy('everyone-names', { fields: { read: ['name'] } });
+      const self = policy('self-all', { when: { attr: 'resource.id', eq: { ref: 'principal.id' } } });
+      const m = await model({ stores: [new MemoryPolicyStore([names, self])] });
+      expect(((await m.evaluate(req(), ctx())) as Vote).fields).to.deep.include({ read: ['name'] });
+      const onlyConditional = await model({ stores: [new MemoryPolicyStore([policy('a', { when: { attr: 'resource.x', eq: 1 }, fields: { read: ['a', 'b'] } }), policy('b', { when: { attr: 'resource.y', eq: 1 }, fields: { read: ['b', 'c'] } })])] });
+      expect(((await onlyConditional.evaluate(req(), ctx())) as Vote).fields).to.deep.include({ read: ['b'] });
+      // and through the engine, with the row of another user
+      const reg = registry();
+      const a = new Authorizer({ domain: 'root', models: [m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      const d = await a.check({ principal: alice, permission: 'file:read', resource: F1, subject: { id: 'bob', name: 'Bob', salary: 1 } });
+      expect(d.allowed).to.equal(true);
+      expect(d.fields.read).to.deep.equal(['name']);
+    });
+  });
+
+  describe('reloads', () => {
+    it('a request during a reload waits for it (I1); the catch-all tag reloads too (I2)', async () => {
+      const store = new GatedStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      let open!: () => void;
+      store.gate = new Promise((r) => (open = r));
+      store.put(policy('frozen', { effect: 'deny' }));
+      m.invalidate(['*']);
+      const pending = m.evaluate(req(), ctx());
+      expect(pending).to.be.instanceOf(Promise);
+      open();
+      store.gate = undefined;
+      expect((await pending).denyWhen).to.equal(TRUE);
+    });
+
+    it('moves version() at once and routes every pair until the reload lands, so a new deny on an unrouted pair applies (I3)', async () => {
+      const reg = registry();
+      const store = new MemoryPolicyStore([policy('read')]);
+      const m = await model({ stores: [store] }, reg);
+      const a = new Authorizer({ domain: 'root', models: [m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      const del = (): Promise<boolean> => a.check({ principal: alice, permission: 'file:delete', resource: F1 }).then((d) => d.allowed);
+      expect(await del()).to.equal(false);
+      const before = m.version();
+      store.put(policy('deleters', { permissions: ['file:delete'] }));
+      a.invalidate(['policy:deleters']);
+      expect(m.version()).to.not.equal(before);
+      expect(await del()).to.equal(true);
+      store.put(policy('no-delete', { effect: 'deny', permissions: ['file:delete'] }));
+      a.invalidate(['policy:no-delete']);
+      expect(await del()).to.equal(false);
+    });
+
+    it('a model over config stores only ignores invalidations and stays sync (M1)', async () => {
+      const m = await model({ stores: [new ConfigPolicyStore([policy('read')])] });
+      m.invalidate(['*', 'policy']);
+      expect(m.capabilities.sync).to.equal('always');
+      expect(m.evaluate(req(), ctx())).to.not.be.instanceOf(Promise);
+    });
+  });
+
+  describe('conditions decided without the row (I4)', () => {
+    it('a FALSE one drops the policy, a TRUE one applies it, both with their own reason', async () => {
+      const guest = userPrincipal('m', { attributes: { role: 'member' } });
+      const m = await model({
+        stores: [
+          new MemoryPolicyStore([
+            policy('guest-paths', {
+              effect: 'deny',
+              when: {
+                all: [
+                  { attr: 'principal.attributes.role', eq: 'guest' },
+                  { fn: 'glob', args: { value: { ref: 'resource.path' }, pattern: 'x/*' } },
+                ],
+              },
+            }),
+            policy('members', {
+              when: {
+                any: [
+                  { attr: 'principal.attributes.role', eq: 'member' },
+                  { fn: 'glob', args: { value: { ref: 'resource.path' }, pattern: 'x/*' } },
+                ],
+              },
+            }),
+          ]),
+        ],
+      });
+      const v = (await m.evaluate(req({ principal: guest }), ctx())) as Vote;
+      expect(v.denyWhen).to.equal(FALSE);
+      expect(v.permitWhen).to.equal(TRUE);
+    });
+  });
+
+  describe('actor types (I5)', () => {
+    it('an agent acting on its own meets an actorTypes policy', async () => {
+      const agent = agentPrincipal('ag1', alice, { delegation: 'intersect' });
+      const m = await model({ stores: [new MemoryPolicyStore([policy('agents-off', { effect: 'deny', permissions: ['*'], actorTypes: ['agent'] })])] });
+      expect(((await m.evaluate(req({ principal: agent }), ctx())) as Vote).denyWhen).to.equal(TRUE);
+      expect(((await m.evaluate(req(), ctx())) as Vote).denyWhen).to.equal(FALSE);
+    });
+  });
+
+  describe('stores from config (I6)', () => {
+    it('builds the stores authz.<name>.stores names, and refuses unknown names', async () => {
+      const config = fakeModelInitContext({ config: { stores: ['ConfigPolicyStore', 'DbPolicyStore'], policies: [policy('read')] } });
+      expect(storesFromConfig('abac', config).map((s) => s.constructor.name)).to.deep.equal(['ConfigPolicyStore', 'DbPolicyStore']);
+      expect(storesFromConfig('abac', fakeModelInitContext({})).map((s) => s.constructor.name)).to.deep.equal(['ConfigPolicyStore']);
+      const m = new AbacModel();
+      await m.init(fakeModelInitContext({ permissions: registry(), config: { stores: ['ConfigPolicyStore'], policies: [policy('read')] } }));
+      expect(((await m.evaluate(req(), ctx())) as Vote).permitWhen).to.equal(TRUE);
+      let error: unknown;
+      await new AbacModel().init(fakeModelInitContext({ permissions: registry(), config: { stores: ['Nope'] } })).catch((e) => (error = e));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.match(/authz\.abac\.stores names "Nope"/);
+    });
+
+    it('DbPolicyStore.put refuses a malformed policy or one that does not fit the columns (M6, M3)', async () => {
+      const store = new DbPolicyStore(() => {
+        throw new Error('never reached');
+      });
+      const tx = { driver: {} };
+      let error: unknown;
+      await store.put({ id: 'p', effect: 'permit', permissions: [] }, undefined, tx).catch((e) => (error = e));
+      expect((error as Error).message).to.match(/permissions must be a non-empty list/);
+      error = undefined;
+      await store.put({ id: 'x'.repeat(65), effect: 'permit', permissions: ['file:read'] }, undefined, tx).catch((e) => (error = e));
+      expect((error as Error).message).to.match(/id is longer than 64 characters/);
+    });
+  });
+});

@@ -1,4 +1,4 @@
-import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isPermission, isPermissionGlob } from '@spinajs/authz';
+import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob } from '@spinajs/authz';
 import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, Policy, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
 
 export const DEFAULT_POLICY_PRIORITY = 500;
@@ -52,6 +52,8 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
   if (raw.scope !== undefined) {
     const s = raw.scope;
     if (!isObject(s) || typeof s.type !== 'string' || s.type === '' || (s.id !== undefined && s.id !== null && typeof s.id !== 'string')) fail('scope must be a resource ref { type, id? }');
+    const sr0 = s as { type: string; id?: unknown };
+    if (sr0.type === GLOBAL.type && sr0.id !== undefined && sr0.id !== null) fail('a $global scope has no id');
     const sr = s as { type: string; id?: string | null };
     scope = Object.freeze(sr.id === undefined || sr.id === null ? { type: sr.type } : { type: sr.type, id: sr.id });
   }
@@ -64,14 +66,17 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
     for (const k of ['read', 'write', 'hide'] as const) {
       const list = (f as Record<string, unknown>)[k];
       if (list === undefined) continue;
-      if (!Array.isArray(list) || list.some((x) => typeof x !== 'string' || x === '')) fail(`fields.${k} must be a list of field names`);
+      if (!Array.isArray(list) || list.some((x) => !isFieldGlob(x))) fail(`fields.${k} must be a list of field globs ('name', 'a.*', '*', '!salary')`);
       out[k] = Object.freeze([...(list as string[])]);
     }
     fields = Object.freeze(out) as FieldSet;
+    // A permit gives read/write field sets and a deny hides: anything else would be dropped silently.
+    if (raw.effect === 'permit' && out.hide) fail('fields.hide belongs on a deny policy');
+    if (raw.effect === 'deny' && (out.read || out.write)) fail('fields.read and fields.write belong on a permit policy');
   }
 
   if (raw.reason !== undefined && (typeof raw.reason !== 'string' || raw.reason === '')) fail('reason must be a non-empty string');
-  if (raw.priority !== undefined && (typeof raw.priority !== 'number' || !Number.isFinite(raw.priority))) fail('priority must be a finite number');
+  if (raw.priority !== undefined && !Number.isSafeInteger(raw.priority)) fail('priority must be an integer');
   if (raw.source !== undefined && typeof raw.source !== 'string') fail('source must be a string');
 
   let expiresAt: Date | undefined;
@@ -163,7 +168,9 @@ export function targets(p: LoadedPolicy, req: Pick<DecisionRequest, 'principal' 
     const types = [req.principal.type, ...(req.principal.companions ?? []).map((c) => c.type)];
     if (!types.some((t) => p.principalTypes!.has(t))) return false;
   }
-  if (p.actorTypes && (!req.actor || !p.actorTypes.has(req.actor.type))) return false;
+  // As conditions read actor.*: without an actor the principal acts itself, so an agent acting on its
+  // own (or under intersect) meets an actorTypes: ['agent'] policy too.
+  if (p.actorTypes && !p.actorTypes.has((req.actor ?? req.principal).type)) return false;
   return true;
 }
 

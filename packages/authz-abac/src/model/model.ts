@@ -1,17 +1,25 @@
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, ConditionFunction, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { createHash } from 'node:crypto';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
+import { Orm } from '@spinajs/orm';
+import type { AuthzContribution, CompiledCondition, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, ParsedCondition, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
 import { ConfigPolicyStore } from './stores/config.js';
+import { DbPolicyStore } from './stores/db.js';
 
 export interface AbacModelOptions {
   /** Default 'abac'; the model reads `authz.<name>.*`. */
   readonly name?: string;
-  /** Default: one ConfigPolicyStore over `authz.<name>.policies`. */
+  /**
+   * Default: the stores named in `authz.<name>.stores` (design §8.3; 'ConfigPolicyStore' over
+   * `authz.<name>.policies`, 'DbPolicyStore' on the connection `authz.<name>.connection`, else
+   * 'default'), and without that key a ConfigPolicyStore.
+   */
   readonly stores?: readonly PolicyStore[];
-  /** Functions a policy condition may call, for the checks at load; default the core's built-ins. */
+  /** Functions a policy condition may call, for the checks at load; default every ConditionFunction registered in root DI (the built-ins included). */
   readonly functions?: readonly ConditionFunction[];
 }
 
@@ -31,8 +39,10 @@ interface Entry {
  */
 export class AbacModel extends AuthorizationModel {
   readonly name: string;
-  private readonly parser: DefaultConditionCompiler;
+  private parser: DefaultConditionCompiler;
+  private readonly functions: readonly ConditionFunction[] | undefined;
   private stores: readonly PolicyStore[] | undefined;
+  private generation = 0;
   private registry: PermissionRegistry | undefined;
   private loaded: readonly LoadedPolicy[] = [];
   private versions = '';
@@ -43,6 +53,7 @@ export class AbacModel extends AuthorizationModel {
   constructor(options: AbacModelOptions = {}) {
     super();
     this.name = options.name ?? 'abac';
+    this.functions = options.functions;
     this.parser = new DefaultConditionCompiler(options.functions ?? BUILTIN_CONDITION_FUNCTIONS);
     this.stores = options.stores;
   }
@@ -58,23 +69,39 @@ export class AbacModel extends AuthorizationModel {
 
   async init(ctx: ModelInitContext): Promise<void> {
     this.registry = ctx.permissions;
-    this.stores ??= [new ConfigPolicyStore(ctx.config<unknown[]>('policies', []))];
+    if (!this.functions) this.parser = new DefaultConditionCompiler(await registeredFunctions());
+    this.stores ??= storesFromConfig(this.name, ctx);
     // The registry is complete only after every model's init, so the index waits for the first applies().
     await this.load(false);
   }
 
-  /** Static routing; the first call builds the index, so an unregistered permission fails the boot (B02). */
+  /**
+   * Static routing; the first call builds the index, so an unregistered permission fails the boot
+   * (B02). While a reload is due every pair routes here, so a new policy on a pair this model did
+   * not route yet applies at once: `evaluate` waits for the reload.
+   */
   applies(permission: PermissionDef, type: ResourceType): boolean {
+    if (this.stale || this.reload) return true;
     return this.index().candidates(permission.name, type).length > 0;
   }
 
+  /** The loaded policies' hash, and a generation that moves at every invalidation so the host recompiles routes at once. */
   version(): string {
-    return this.versions;
+    return `${this.versions}#${this.generation}`;
   }
 
-  /** Any change of policy data (`policy`, `policy:<id>`) makes the next request reload the stores. */
+  /**
+   * A change of policy data (`policy`, `policy:<id>`, `model:<name>`, or the host's catch-all `*`)
+   * starts a reload of the stores; requests wait for it. Config stores never change, so a model
+   * with nothing else ignores them.
+   */
   invalidate(tags: readonly string[]): void {
-    if (tags.some((t) => t === 'policy' || t.startsWith('policy:') || t === `model:${this.name}`)) this.stale = true;
+    if (!this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
+    if (!tags.some((t) => t === '*' || t === 'policy' || t.startsWith('policy:') || t === `model:${this.name}`)) return;
+    this.stale = true;
+    this.generation++;
+    // Started now, so routes recompiled for the new version see the data soon; a failure stays for the next request.
+    this.fresh().catch(() => undefined);
   }
 
   async preload(): Promise<void> {
@@ -82,7 +109,7 @@ export class AbacModel extends AuthorizationModel {
   }
 
   evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
-    if (this.stale) return this.fresh().then(() => this.evaluate(req, ctx));
+    if (this.stale || this.reload) return this.fresh().then(() => this.evaluate(req, ctx));
     const now = ctx.now;
     const live = this.index()
       .candidates(req.permission, req.resource.type)
@@ -119,7 +146,9 @@ export class AbacModel extends AuthorizationModel {
       }
       const c = await this.compile(p, req, ctx);
       if (!c.cacheable) cacheable = false;
-      if (!c.needsSubject) {
+      // Decided without the row after all (the unread part sits under a junction that does not matter).
+      if (c.filter.op === 'false') continue;
+      if (!c.needsSubject || c.filter.op === 'true') {
         entries.push({ p, when: and(scope, c.filter), needsSubject: false });
       } else if (p.policy.effect === 'deny') {
         // B19: fail closed; the deny holds wherever the policy applies, with its own reason.
@@ -164,25 +193,26 @@ export class AbacModel extends AuthorizationModel {
    */
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
     await this.fresh();
+    const index = this.index();
     const now = ctx.now;
     const root = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
     let ancestors: readonly ResourceRef[] | undefined = root ? [GLOBAL] : undefined;
     if (!root && at.id !== undefined && at.id !== null) ancestors = (await ctx.ancestors(at)) ?? undefined;
     const out: { name: string; conditional: boolean; fields?: FieldSet }[] = [];
-    for (const name of [...this.index().permissions()].sort()) {
+    for (const name of [...index.permissions()].sort()) {
       const def = ctx.permissions.get(name);
       if (!def || (at.type !== GLOBAL.type && !def.types.includes(at.type))) continue;
       const req: DecisionRequest = { principal, permission: name, resource: at, env: { now } };
       let best: { conditional: boolean; fields?: FieldSet } | undefined;
-      for (const p of this.index().candidates(name, at.type)) {
+      for (const p of index.candidates(name, at.type)) {
         if (p.policy.effect !== 'permit' || !targets(p, req, now)) continue;
         const scope = scopeFilter(p.policy.scope, ancestors);
         if (scope === FALSE) continue;
         let conditional = scope !== TRUE;
         if (p.when) {
           const c = await this.compile(p, req, ctx);
-          if (c.filter.op === 'false' && !c.needsSubject) continue;
-          if (c.needsSubject || c.filter.op !== 'true') conditional = true;
+          if (c.filter.op === 'false') continue;
+          if (c.filter.op !== 'true') conditional = true;
         }
         if (!best || (best.conditional && !conditional)) best = { conditional, ...(def.fields === true && p.policy.fields ? { fields: p.policy.fields } : {}) };
       }
@@ -227,7 +257,7 @@ export class AbacModel extends AuthorizationModel {
 
   private async load(index: boolean): Promise<void> {
     const stores = this.stores ?? [];
-    const lists = await Promise.all(stores.map(async (s) => ({ store: s, policies: await s.load(), version: await s.version() })));
+    const lists = await Promise.all(stores.map(async (s) => ({ store: s, policies: await s.load() })));
     const loaded: LoadedPolicy[] = [];
     for (const { store, policies } of lists) {
       if (!Array.isArray(policies)) throw new AuthzConfigError(`${this.name}: policy store ${JSON.stringify(store.name)} did not load a list`);
@@ -236,7 +266,16 @@ export class AbacModel extends AuthorizationModel {
     const built = index ? new PolicyIndex(loaded, this.registry!) : undefined;
     this.loaded = loaded;
     this.built = built;
-    this.versions = lists.map((l) => `${l.store.name}=${l.version}`).join(';');
+    // From what was loaded, not a second read of the stores, which a write in between could make disagree.
+    this.versions = createHash('sha256')
+      .update(
+        JSON.stringify(
+          loaded.map((p) => p.policy),
+          (_k, v: unknown) => (v instanceof Date ? v.toISOString() : v),
+        ),
+      )
+      .digest('hex')
+      .slice(0, 16);
   }
 
   /** Reloads the stores once after an invalidation; concurrent requests share the load, a failed one is retried by the next. */
@@ -244,7 +283,12 @@ export class AbacModel extends AuthorizationModel {
     if (this.reload) return this.reload;
     if (!this.stale) return Promise.resolve();
     this.stale = false;
+    const generation = this.generation;
     this.reload = this.load(true)
+      .then(() => {
+        // Invalidated again while loading: the data just read may already be old.
+        if (this.generation !== generation) this.stale = true;
+      })
       .catch((e) => {
         this.stale = true;
         throw e;
@@ -275,16 +319,52 @@ function reasonOf(e: Entry): DenyReason {
   return { code: e.p.policy.reason ?? 'policy', policy: e.p.policy.id, priority: e.p.priority, sortKey: e.p.policy.id };
 }
 
-const union = (lists: readonly (readonly string[])[]): readonly string[] => {
-  const all = new Set(lists.flat());
-  return all.has('*') ? ['*'] : [...all].sort();
-};
+const intersectFieldGlobs = (lists: readonly (readonly string[])[]): string[] => lists.slice(1).reduce<string[]>((acc, l) => subtractFieldGlobs(acc, subtractFieldGlobs(acc, l)), [...lists[0]]);
 
-/** read/write: the union over the permits (a permit without fields gives '*'); hide: the union over the deny policies with fields. */
+/**
+ * One field set per vote, though the engine applies it to every row the vote permits. So read and
+ * write are the union over the permits that hold everywhere, and when none does, the intersection
+ * over all of them: every permitted row matches one of them, so it gets no field a permit holding
+ * there would not give. A permit without fields gives every field ('*'). Hide is the union over
+ * the deny policies with fields (hiding more is safe).
+ */
 function fieldsOf(permits: readonly Entry[], denies: readonly Entry[]): FieldSet | undefined {
-  const hide = union(denies.flatMap((e) => (e.p.policy.fields?.hide ? [e.p.policy.fields.hide] : [])));
+  const hides = denies.flatMap((e) => (e.p.policy.fields?.hide ? [e.p.policy.fields.hide] : []));
+  const hide = hides.length > 0 ? unionFieldGlobs(...hides) : [];
   if (permits.length === 0 && hide.length === 0) return undefined;
-  const read = union(permits.map((e) => (e.p.policy.fields ? e.p.policy.fields.read ?? [] : ['*'])));
-  const write = union(permits.map((e) => (e.p.policy.fields ? e.p.policy.fields.write ?? [] : ['*'])));
-  return { read, write, ...(hide.length > 0 ? { hide } : {}) };
+  const unconditional = permits.filter((e) => e.when.op === 'true');
+  const pick = (k: 'read' | 'write'): string[] => {
+    const sets = (unconditional.length > 0 ? unconditional : permits).map((e) => (e.p.policy.fields ? e.p.policy.fields[k] ?? [] : ['*']));
+    if (sets.length === 0) return [];
+    return unconditional.length > 0 ? unionFieldGlobs(...sets) : intersectFieldGlobs(sets);
+  };
+  return { read: pick('read'), write: pick('write'), ...(hide.length > 0 ? { hide } : {}) };
+}
+
+/** Every ConditionFunction registered in root DI; the built-ins when DI holds none. */
+async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
+  const list = (await DI.resolveChain(ConditionFunction)) as readonly ConditionFunction[];
+  return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
+}
+
+const STORE_NAMES = ['ConfigPolicyStore', 'DbPolicyStore'];
+
+/** The stores `authz.<model>.stores` names (design §8.3); DbPolicyStore resolves its connection on first use. */
+export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
+  const names = ctx.config<unknown>('stores', undefined);
+  const policies = ctx.config<unknown[]>('policies', []);
+  if (names === undefined) return [new ConfigPolicyStore(policies)];
+  if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) throw new AuthzConfigError(`authz.${model}.stores must be a list of store names (${STORE_NAMES.join(', ')})`);
+  return (names as string[]).map((name) => {
+    if (name === 'ConfigPolicyStore') return new ConfigPolicyStore(policies);
+    if (name === 'DbPolicyStore') {
+      const connection = ctx.config<string>('connection', 'default');
+      return new DbPolicyStore(async () => {
+        const driver = (await DI.resolve(Orm)).Connections.get(connection);
+        if (!driver) throw new AuthzConfigError(`authz.${model}.connection: no ORM connection named ${JSON.stringify(connection)}`);
+        return driver;
+      });
+    }
+    throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${STORE_NAMES.join(', ')})`);
+  });
 }

@@ -62,7 +62,7 @@ describe('authz-abac: AbacModel', () => {
       expect(m.name).to.equal('abac');
       expect(m.applies(registry().require('file:read'), 'file')).to.equal(true);
       expect(m.applies(registry().require('file:write'), 'file')).to.equal(false);
-      expect(m.version()).to.match(/^config=[0-9a-f]{16}$/);
+      expect(m.version()).to.match(/^[0-9a-f]{16}#0$/);
     });
 
     it('fails the boot on an unregistered permission (B02), a malformed policy or condition', async () => {

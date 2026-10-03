@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
+import { AuthzConfigError, GLOBAL, parseCondition, principalKey } from '@spinajs/authz';
 import type { AuthzTx, Policy, PrincipalRef } from '@spinajs/authz';
 import { OrmDriver } from '@spinajs/orm';
 
 import { PolicyStore } from '../../contracts.js';
+import { loadPolicy } from '../policies.js';
 
 export const AUTHZ_POLICY_TABLE = 'authz_policy';
 
@@ -53,8 +54,14 @@ export class DbPolicyStore extends PolicyStore {
     return hash.digest('hex').slice(0, 16);
   }
 
-  /** Inserts or replaces the policy with this id. */
+  /**
+   * Inserts or replaces the policy with this id. It is checked first (shape, globs, condition
+   * grammar; function names are the model's business) and must fit the columns, since one bad row
+   * would make every reload of the model fail.
+   */
   async put(policy: Omit<Policy, 'source'>, actor: PrincipalRef | undefined, tx: AuthzTx, now: Date = new Date()): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
+    loadPolicy({ ...policy, source: 'db' }, 0, { source: 'db' }, (c, where) => parseCondition(c, { functions: { has: () => true }, where }));
+    fits(policy);
     const driver = writeDriver(tx);
     await driver.del().from(AUTHZ_POLICY_TABLE).where('id', policy.id);
     await driver.insert().into(AUTHZ_POLICY_TABLE).values(policyToRow(policy, actor, now));
@@ -75,6 +82,21 @@ export class DbPolicyStore extends PolicyStore {
   }
 }
 
+const COLUMN_LENGTHS: readonly [string, (p: Omit<Policy, 'source'>) => string | undefined, number][] = [
+  ['id', (p) => p.id, 64],
+  ['reason', (p) => p.reason, 64],
+  ['scope type', (p) => p.scope?.type, 64],
+  ['scope id', (p) => p.scope?.id, 64],
+];
+
+function fits(p: Omit<Policy, 'source'>): void {
+  for (const [what, get, max] of COLUMN_LENGTHS) {
+    const v = get(p);
+    if (v !== undefined && v.length > max) throw new AuthzConfigError(`DbPolicyStore: policy ${JSON.stringify(p.id.slice(0, 64))}: ${what} is longer than ${max} characters`);
+  }
+}
+
+/** Any transaction on the driver passes; AuthzAdmin is the only caller that should open one for a store write. */
 function writeDriver(tx: AuthzTx): OrmDriver {
   const driver = tx?.driver;
   if (!(driver instanceof OrmDriver)) throw new AuthzConfigError('DbPolicyStore: AuthzTx.driver must be the OrmDriver of an AuthzAdmin transaction');
