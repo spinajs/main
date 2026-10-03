@@ -1,11 +1,11 @@
 import { Post, BasePath, Ok, Del, Body, Get, Query, Param, Policy, BaseController, Patch } from '@spinajs/http';
-import { User as UserModel, UserMetadata } from '@spinajs/users';
+import { User as UserModel } from '@spinajs/users';
 import { Autoinject } from '@spinajs/di';
 import { AuthorizedPolicy, Permission, Resource, User } from '@spinajs/authn-http';
 import { PaginationDTO, OrderDTO, Filter, IFilterRequest, FromModel } from '@spinajs/orm-http';
 import { UserMetadataDto } from '../dto/metadata-dto.js';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
-import { addressedColumn, UserMetadataService } from '../services/UserMetadataService.js';
+import { UserMetadataService } from '../services/UserMetadataService.js';
 
 /**
  * User metadata management.
@@ -15,7 +15,7 @@ import { addressedColumn, UserMetadataService } from '../services/UserMetadataSe
  *
  * Both families delegate to {@link UserMetadataService}, which owns the owner
  * scoping — the only thing that ever differed between them is where the owner
- * id comes from.
+ * id comes from — and hides reserved security keys on every route.
  * @tags User Metadata
  */
 @BasePath('user')
@@ -49,7 +49,7 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(this.Metadata.list(user.Id, pagination, order, filter));
+        return new Ok(await this.Metadata.list(user.Id, pagination, order, filter));
     }
 
 
@@ -62,14 +62,14 @@ export class UserMetadataController extends BaseController {
      * @returns {IUserMetadataEntry} Single metadata entry for the user
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readAny permission required
-     * @response 404 User or metadata key not found
+     * @response 404 User or metadata key not found, or the key is reserved
      */
     @Get(":user/metadata/:key")
     @Permission(['readAny'])
     public async getUserMeta(
         @FromModel({ queryField: "Uuid" }) user: UserModel,
         @Param() key: string) {
-        return new Ok(this.Metadata.getByKey(user.Id, key));
+        return new Ok(await this.Metadata.getByKey(user.Id, key));
     }
 
     /**
@@ -102,27 +102,18 @@ export class UserMetadataController extends BaseController {
      * @response 200 Metadata updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateAny permission required
-     * @response 404 User or metadata entry not found
+     * @response 404 User or metadata entry not found, or its key is reserved
      */
     @Patch(':_user/metadata/:meta')
     @Permission(['updateAny'])
     public async updateUserMetadata(
-        @FromModel({
-            // ONE column, picked by the identifier's shape — see `addressedColumn`. Comparing both
-            // in an `OR` put a numeric id against the `Key` varchar, which MySQL then refused in
-            // the UPDATE this lookup feeds (`ER_TRUNCATED_WRONG_VALUE`), turning every
-            // id-addressed edit into a 500.
-            query: (function ([_, user], meta) {
-                return this.where(addressedColumn(meta), meta).andWhere("user_id", user.Id)
-            })
-        }) meta: UserMetadata,
+        // A plain param, not @FromModel: the service answers a missing and a reserved entry with
+        // the same 404; a model lookup here would fail differently and tell the two apart.
+        @Param() meta: string,
         @FromModel({ queryField: "Uuid" }) _user: UserModel,
         @Body() data: UserMetadataDto) {
 
-        // @FromModel already resolved the entry within the addressed user's
-        // scope ( so a miss is a 404 ); the write still goes through the
-        // owner-scoped service so the predicate is not restated here.
-        await this.Metadata.update(_user.Id, meta.Id, data);
+        await this.Metadata.update(_user.Id, meta, data);
 
         return new Ok();
     }
@@ -136,7 +127,7 @@ export class UserMetadataController extends BaseController {
      * @response 200 Metadata deleted successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — deleteAny permission required
-     * @response 404 User or metadata entry not found
+     * @response 404 User or metadata entry not found, or its key is reserved
      */
     @Del(':user/metadata/:meta')
     @Permission(['deleteAny'])
@@ -169,7 +160,7 @@ export class UserMetadataController extends BaseController {
         @Filter(FilterableUserMetadata)
         filter?: IFilterRequest,
     ) {
-        return new Ok(this.Metadata.list(user.Id, pagination, order, filter));
+        return new Ok(await this.Metadata.list(user.Id, pagination, order, filter));
     }
 
     /**
@@ -180,12 +171,12 @@ export class UserMetadataController extends BaseController {
      * @returns {IUserMetadataEntry} Single own metadata entry by key
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — readOwn permission required
-     * @response 404 Metadata key not found
+     * @response 404 Metadata key not found, or the key is reserved
      */
     @Get("metadata/:key")
     @Permission(['readOwn'])
     public async getMeta(@User() user: UserModel, @Param() key: string) {
-        return new Ok(this.Metadata.getByKey(user.Id, key));
+        return new Ok(await this.Metadata.getByKey(user.Id, key));
     }
 
     /**
@@ -212,7 +203,7 @@ export class UserMetadataController extends BaseController {
      * @response 200 Metadata updated successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — updateOwn permission required
-     * @response 404 Metadata entry not found
+     * @response 404 Metadata entry not found, or its key is reserved
      */
     @Patch('metadata/:meta')
     @Permission(['updateOwn'])
@@ -230,7 +221,7 @@ export class UserMetadataController extends BaseController {
      * @response 200 Metadata deleted successfully
      * @response 401 Unauthorized — valid session required
      * @response 403 Forbidden — deleteOwn permission required
-     * @response 404 Metadata entry not found
+     * @response 404 Metadata entry not found, or its key is reserved
      */
     @Del('metadata/:meta')
     @Permission(['deleteOwn'])

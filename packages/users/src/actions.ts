@@ -3,7 +3,7 @@ import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _i
 import _ from 'lodash';
 import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
-import { USER_COMMON_METADATA, USER_SECURITY_METADATA_KEYS, User, UserBase } from './models/User.js';
+import { USER_COMMON_METADATA, User, UserBase, isReservedMetadataKey } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
@@ -484,10 +484,11 @@ export function assertRolesExist(roles: string[]): void {
 }
 
 /**
- * Refuses metadata keys that decide account access.
+ * Refuses metadata keys that decide account access: every reserved key
+ * ({@link isReservedMetadataKey}) and globs.
  *
  * `user:pwd_reset:token` is a bearer credential redeemable at the PUBLIC reset
- * endpoint and `user:2fa:*` is the second factor itself — writing either through
+ * endpoint and `2fa:*` is the second factor itself — writing either through
  * a generic key-value merge hands out an account rather than annotating one.
  * Ban and lockout keys are refused for the same reason bans have their own
  * action: written directly they skip the event, the email and the session
@@ -513,7 +514,7 @@ export function assertNoProtectedMetadata(metadata?: { [key: string]: any }): vo
       return true;
     }
 
-    return USER_SECURITY_METADATA_KEYS.includes(key);
+    return isReservedMetadataKey(key);
   });
 
   if (offending.length > 0) {
