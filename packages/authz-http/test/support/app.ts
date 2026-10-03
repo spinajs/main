@@ -11,6 +11,8 @@ import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spin
 import { fsService } from '@spinajs/fs';
 import { testHost } from '@spinajs/authz-testing';
 
+import { PrincipalMiddleware } from '../../src/index.js';
+
 chai.use(chaiHttp);
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -94,6 +96,7 @@ export async function stopApp(): Promise<void> {
   for (const type of DI.getRegisteredTypes(BaseController) ?? []) DI.uncache(type as Class<BaseController>);
   for (const c of controllers) DI.unregister(c);
   DI.uncache(BaseController);
+  await DI.get(PrincipalMiddleware)?.dispose();
   // Middlewares keep what they resolved at boot (PrincipalMiddleware: the root AuthzService uninstallHost disposes).
   for (const type of DI.getRegisteredTypes(ServerMiddleware) ?? []) DI.uncache(type as Class<ServerMiddleware>);
   DI.uncache(ServerMiddleware);

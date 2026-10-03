@@ -44,10 +44,22 @@ export class PrincipalMiddleware extends ServerMiddleware {
   public async resolve(): Promise<void> {
     // The http server resolves its middlewares before the controllers register, and the root
     // boot checks the @Access permissions of the registered controllers (B02): boot once it listens.
-    DI.once('http.server.listening', () => {
-      this.rootService().catch((err: unknown) => this.Log.error(err as Error, 'the root authz domain failed to boot'));
-    });
+    await super.resolve();
+    DI.RootContainer.once('http.server.listening', this.onListening);
   }
+
+  public async dispose(): Promise<void> {
+    DI.RootContainer.removeListener('http.server.listening', this.onListening);
+  }
+
+  // The server swallows a listener's errors, so a root that cannot boot stops it: a bad authz config must not serve.
+  private readonly onListening = (server?: unknown): void => {
+    this.rootService().catch((err: unknown) => {
+      this.Log.error(err as Error, 'the root authz domain failed to boot; stopping the http server');
+      const stop = (server as { stop?: () => Promise<void> } | undefined)?.stop;
+      if (typeof stop === 'function') stop.call(server).catch(() => undefined);
+    });
+  };
 
   public before(): (req: Request, res: express.Response, next: express.NextFunction) => void {
     return (req, _res, next) => {

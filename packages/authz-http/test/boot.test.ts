@@ -35,6 +35,7 @@ describe('root domain boot', function () {
   after(async () => {
     DI.unregister(RootRoutes);
     DI.uncache(RootRoutes);
+    await DI.get(PrincipalMiddleware)?.dispose();
     DI.uncache(PrincipalMiddleware);
     await testHost.resetRoot();
     if (installedHere) await testHost.uninstallHost();
@@ -59,5 +60,34 @@ describe('root domain boot', function () {
       contribute.restore();
       testHost.config().unset(['authz', 'permissions']);
     }
+  });
+
+  it('stops the http server when the root domain cannot boot', async () => {
+    DI.uncache(PrincipalMiddleware);
+    await testHost.resetRoot();
+    // RootRoutes names file:read, which this config does not register: boot rule 7 fails.
+    testHost.config().set(['authz', 'permissions'], {});
+    try {
+      const middleware = (await DI.resolve(PrincipalMiddleware)) as PrincipalMiddleware;
+      const server = { stop: sinon.stub().resolves() };
+      DI.RootContainer.emit('http.server.listening', server);
+
+      const err = await (middleware as unknown as { rootService(): Promise<unknown> }).rootService().then(() => null, (e: unknown) => e);
+      await new Promise((r) => setImmediate(r));
+
+      expect(err).to.be.instanceOf(Error);
+      expect(server.stop.calledOnce).to.eq(true);
+    } finally {
+      testHost.config().unset(['authz', 'permissions']);
+    }
+  });
+
+  it('drops its listening hook when disposed', async () => {
+    DI.uncache(PrincipalMiddleware);
+    const before = DI.RootContainer.listenerCount('http.server.listening');
+    const middleware = (await DI.resolve(PrincipalMiddleware)) as PrincipalMiddleware;
+    expect(DI.RootContainer.listenerCount('http.server.listening')).to.eq(before + 1);
+    await middleware.dispose();
+    expect(DI.RootContainer.listenerCount('http.server.listening')).to.eq(before);
   });
 });
