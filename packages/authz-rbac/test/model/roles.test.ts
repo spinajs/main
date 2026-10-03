@@ -73,7 +73,7 @@ describe('authz-rbac model: compileRoles', () => {
       const g = compileRoles([def]);
       const r = g.get('org.admin');
       expect(r?.name).to.equal('org.admin');
-      expect(r?.def).to.equal(def);
+      expect(r?.def).to.deep.equal(def);
       expect(r?.assignable).to.equal(true);
       expect(r?.scopeTypes).to.deep.equal(['org']);
       expect(compileRoles([role('x')]).get('x')?.scopeTypes).to.equal(undefined);
@@ -104,6 +104,21 @@ describe('authz-rbac model: compileRoles', () => {
       expect(Object.isFrozen(g.names)).to.equal(true);
       expect(Object.isFrozen(g.get('c'))).to.equal(true);
       expect(Object.isFrozen(g.get('c')?.closure)).to.equal(true);
+    });
+
+    it('holds deep-frozen copies of the definitions and ladders, so later changes to the input do not reach it', () => {
+      const def = role('editor', [], { ladder: 'project', scopeTypes: ['project'] });
+      const input: RoleDef = { ...def, grants: [{ permission: 'file:read', on: [{ type: 'file', id: 'a*' }], fields: { read: ['name'] }, grantedAt: ['project'] }] };
+      const ladders: LadderDef[] = [{ name: 'project', roles: ['editor'] }];
+      const g = compileRoles([input], ladders);
+      const held = g.get('editor')!.def;
+      expect(held).not.to.equal(input);
+      for (const v of [held, held.extends, held.grants, held.grants[0], held.grants[0].on, held.grants[0].on![0], held.grants[0].fields, held.grants[0].grantedAt, held.scopeTypes, g.ladders[0], g.ladders[0].roles]) expect(Object.isFrozen(v)).to.equal(true);
+      (input.grants as GrantDef[]).push({ permission: 'file:write' });
+      (ladders[0].roles as string[]).push('owner');
+      expect(held.grants).to.have.length(1);
+      expect(g.ladders[0].roles).to.deep.equal(['editor']);
+      expect(Object.isFrozen(input)).to.equal(false);
     });
 
     it('deep chains compile and refuse without recursion limits', () => {

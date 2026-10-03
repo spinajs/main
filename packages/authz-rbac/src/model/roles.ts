@@ -48,10 +48,11 @@ export function compileRoles(roles: readonly RoleDef[], ladders: readonly Ladder
     validateRole(def, index);
     const known = defs.get(def.name);
     if (known) throw new AuthzConfigError(`Role '${def.name}' is defined twice (sources: ${known.source}, ${def.source})`);
-    defs.set(def.name, def);
+    defs.set(def.name, frozenCopy(def));
   });
+  const heldLadders = frozenCopy(ladders);
 
-  const edges = roleEdges(defs, ladders, opts);
+  const edges = roleEdges(defs, heldLadders, opts);
   refuseCycles(defs, edges);
 
   const compiled = new Map<string, CompiledRole>();
@@ -63,14 +64,14 @@ export function compileRoles(roles: readonly RoleDef[], ladders: readonly Ladder
         def,
         closure: Object.freeze(closureOf(name, edges)),
         assignable: def.assignable !== false,
-        ...(def.scopeTypes ? { scopeTypes: Object.freeze([...def.scopeTypes]) } : {}),
+        ...(def.scopeTypes ? { scopeTypes: def.scopeTypes } : {}),
       }),
     );
   }
 
   return Object.freeze({
     names: Object.freeze([...defs.keys()]),
-    ladders: Object.freeze([...ladders]),
+    ladders: heldLadders,
     get: (name: string) => compiled.get(name),
     has: (name: string) => compiled.has(name),
   });
@@ -177,3 +178,12 @@ function validateRole(def: unknown, index: number): asserts def is RoleDef {
 }
 
 const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string' && x !== '');
+
+// Stores hand out their own arrays and may change them later; the graph and the grant index must not change with them.
+function frozenCopy<T>(value: T): T {
+  if (Array.isArray(value)) return Object.freeze(value.map(frozenCopy)) as T;
+  if (typeof value === 'object' && value !== null && [Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+    return Object.freeze(Object.fromEntries(Object.entries(value).map(([k, v]) => [k, frozenCopy(v)]))) as T;
+  }
+  return value;
+}
