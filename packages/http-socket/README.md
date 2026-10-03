@@ -188,11 +188,12 @@ public async *snapshot(@Payload() req: { docId: string; fromChunk?: number }, @S
 
 - **On the wire.** The ack is `{ id, ok: true, stream: true }`. Then come `chunk { id, seq, data }` frames numbered from 0, and finally `end { id, seq }` (`seq` = the number of chunks) or `fail { id, error }`. An `undefined` item is sent as `null`. Binary parts (`Uint8Array`, `ArrayBuffer`, `Buffer`) travel as socket.io attachments.
 - **Flow control.**
-  - The client's request carries `credits`, its window (the client's default is 8). The server asks the generator for the next item only while it holds credit, so a slow consumer slows the producer and nothing piles up in memory. The client grants more as it reads.
+  - The client's request carries `credits`, its window (the client's default is 8). The server asks the generator for the next item only while it holds credit, so a slow consumer slows the producer. The client grants more as it reads.
+  - Credit is the client's word, not proof that it reads. The server also pauses a stream while the connection's engine.io write buffer holds more than `streams.maxCredits` unsent packets, and resumes when the buffer flushes to the transport. A connection's unsent frames therefore stay near `maxCredits`, plus one chunk per open stream, plus the batch the transport is writing.
   - Finding the end of a stream needs one credit in hand, but does not spend it.
 - **Stopping.**
   - A client `cancel` (a `break` out of `for await`), a disconnect, shutdown, a stall and a refused grant abort the handler's signal and run the generator's `finally`.
-  - A stream that gets no credit for `streams.stallTimeoutMs` (60 s) fails with `deadline_exceeded`.
+  - A stream that gets no credit, or whose connection stays backlogged, for `streams.stallTimeoutMs` (60 s) fails with `deadline_exceeded`.
   - A generator that throws ends the stream with `fail`, after the chunks it already sent.
   - Nothing else bounds a stream source. It must honour `@Signal()`: a source that ignores its signal keeps running, and keeps its stream slot, until it settles by itself.
 - **Context.** Every step runs inside the call's AsyncLocalStorage store, so `AuthzService.current()` and the log context are the connection's.
@@ -278,7 +279,7 @@ export class DocsSocket extends BaseSocketController {
 | `hooks.connectTimeoutMs` | `10_000` | how long commands wait for connect hooks |
 | `streams.maxCredits` | `64` | largest credit window per stream |
 | `streams.maxPerConnection` | `8` | open streams per connection |
-| `streams.stallTimeoutMs` | `60_000` | a stream without credit this long fails |
+| `streams.stallTimeoutMs` | `60_000` | a stream without credit, or with a backlogged connection, this long fails |
 | `transports` | `['websocket', 'polling']` | engine.io transports; prefer `['websocket']` with cookie authentication |
 | `adapter` | `undefined` | socket.io adapter for several instances |
 

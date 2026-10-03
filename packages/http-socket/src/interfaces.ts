@@ -29,11 +29,11 @@ export interface ISocketCorsConfig {
 }
 
 export interface ISocketStreamsConfig {
-  /** largest credit window a client may grant one stream; a larger request or grant fails it with invalid_argument */
+  /** largest credit window a client may grant one stream; a larger request or grant fails it with invalid_argument. Also the unsent packets on a connection above which its streams pause */
   maxCredits: number;
   /** streams open on one connection at once; they hold no command in-flight slot */
   maxPerConnection: number;
-  /** a stream left without credit this long fails with deadline_exceeded */
+  /** a stream left without credit, or with its connection backlogged, this long fails with deadline_exceeded */
   stallTimeoutMs: number;
 }
 

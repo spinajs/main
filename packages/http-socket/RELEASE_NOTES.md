@@ -77,6 +77,7 @@ Live connections re-check their principal, so a revoked or expired credential st
 
 - A command handler that returns an async iterable (an `async *` method) answers with a stream reply. The ack is `{ id, ok: true, stream: true }`. Then come `chunk { id, seq, data }` frames numbered from 0, and finally `end { id, seq }` (`seq` = the number of chunks) or `fail { id, error }`. An `undefined` item is sent as `null`. Binary parts travel as attachments, as in commands.
 - Flow control is by credit. The request carries `credits`, the client's window. The server asks the source for the next item only while it holds credit, so a slow consumer slows the producer. Finding the end needs one credit in hand but does not spend it, so the client always keeps one in hand. The client grants more with `credit { id, credits }` as it reads.
+- Transport backpressure: credit is not trusted alone. A stream also pauses while its connection's engine.io write buffer holds more than `streams.maxCredits` unsent packets, and resumes when it flushes. The wait counts toward `streams.stallTimeoutMs`, so a client that grants credit but never reads its socket fails with `deadline_exceeded` and frees its slot.
 - The stream source is bounded only by credit stall, `cancel`, disconnect and shutdown, and it must honour `@Signal`. `cancel`, a disconnect, shutdown, a stall and a refused grant abort the signal (`cancelled` / `unavailable`) and run the generator's `finally`. A stream that gets no credit for `streams.stallTimeoutMs` fails with `deadline_exceeded`, and the generator's `finally` runs after a stall too.
 - Stream handlers cannot be `ordered`: such a handler is refused at startup, and an `ordered` handler that returns another async iterable is answered `failed_precondition`.
 - The generator runs inside the call's AsyncLocalStorage store for every item, so `AuthzService.current()` is the connection principal there too.
@@ -94,7 +95,7 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `http.socket.maxInFlightEventsPerConnection` (default `128`). It must be at least `rate.burst`. Events have their own in-flight cap, separate from `maxInFlightPerConnection`.
 - `http.socket.ordering.abortGraceMs` (default `30_000`): how long an aborted `ordered` command whose handler is still running keeps its queue place.
 - `http.socket.hooks.connectTimeoutMs` (default `10_000`): a connect hook still running after it is logged and commands stop waiting for it, so a disconnect hook may start while the connect hook is still running.
-- `http.socket.streams` (default `{ maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 60_000 }`): the largest window a client may grant one stream, the open streams per connection, and how long a stream may wait for credit.
+- `http.socket.streams` (default `{ maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 60_000 }`): the largest window a client may grant one stream, the open streams per connection, and how long a stream may wait for credit or for its backlogged connection to flush.
 - Limit refusals read "more than N commands in flight on this connection" and "more than N events in flight on this connection".
 
 ### SocketHub
