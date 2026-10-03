@@ -64,7 +64,8 @@ describe('ABAC admin over DbPolicyStore (sqlite)', function () {
     await orm?.dispose();
   });
 
-  const authz = { models: () => [model], check: async () => ({ allowed: true, residual: TRUE }) } as unknown as AuthzService;
+  // bob manages everything but project:p2.
+  const authz = { models: () => [model], check: async (req: { principal: Principal; resource: { id?: string } }) => (req.principal.id === 'bob' && req.resource.id === 'p2' ? { allowed: false } : { allowed: true, residual: TRUE }) } as unknown as AuthzService;
   const context = (actor: Principal = alice): AdminCallContext => Object.freeze({ domain: 'test', now: NOW, authz, actor, container, dryRun: false });
   const write = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => driver.transaction(() => fn({ driver })) as Promise<T>;
   const ids = async (): Promise<string[]> => (await store.load()).map((p) => p.id);
@@ -110,6 +111,23 @@ describe('ABAC admin over DbPolicyStore (sqlite)', function () {
     await handler.validate(c, context());
     await write((tx) => store.delete('x', tx));
     expect(await write((tx) => handler.apply(c, context(), tx))).to.deep.equal({ id: 'x', affected: 0, tags: [], events: [] });
+  });
+
+  it('a row moved to another scope since validate is checked again in the transaction', async () => {
+    const bob = userPrincipal('bob');
+    await run(put({ id: 'moved', effect: 'permit', permissions: ['file:read'], scope: P1 }));
+    const c: AuthzCommand = { kind: 'policy.delete', id: 'moved' };
+    await handler.validate(c, context(bob));
+    expect((await handler.permission(c, context(bob))).resource).to.deep.equal(P1);
+    await write((tx) => store.put({ id: 'moved', effect: 'permit', permissions: ['file:read'], scope: P2 }, alice, tx, NOW));
+    const e = await write((tx) => handler.apply(c, context(bob), tx)).then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(e).to.be.instanceOf(AuthzAdminFailure);
+    expect((e as AuthzAdminFailure).code).to.equal('forbidden');
+    expect((await store.load()).find((p) => p.id === 'moved')?.scope).to.deep.equal(P2);
+    await write((tx) => store.delete('moved', tx));
   });
 
   it('a rolled back transaction leaves no row', async () => {

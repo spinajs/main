@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzWriteHandler, ConditionCompiler, ConditionFunction, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -175,9 +175,9 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     if (conditions.length === 0) return;
     const container = adminContainer(ctx);
     const hasCompiler = container.hasRegistered(ConditionCompiler);
-    const compiler = hasCompiler ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler & { parse?: (c: Condition, where?: string) => unknown }) : undefined;
-    // The core's DefaultConditionCompiler parses with its own functions; then it alone judges fn names.
-    const parses = typeof compiler?.parse === 'function';
+    const compiler = hasCompiler ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler) : undefined;
+    // The core's DefaultConditionCompiler parses with its own functions; then it alone judges fn names. Any other compiler keeps the name check.
+    const parses = compiler instanceof DefaultConditionCompiler;
     const functions = !parses && container.hasRegistered(ConditionFunction) ? [...(await container.resolveChain(ConditionFunction))].map((f) => (f as ConditionFunction).name) : [];
     // No function registered: every fn is unknown, which matters only where conditions compile at all.
     const fnKnown = (name: string) => parses || (functions.length > 0 ? functions.includes(name) : !hasCompiler);
@@ -186,9 +186,10 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     if (parses) {
       for (const [field, condition] of conditions) {
         try {
-          compiler.parse!(condition, field);
+          compiler.parse(condition, field);
         } catch (e) {
-          throw new AuthzAdminFailure('rule_not_compilable', `${field} does not parse: ${e instanceof Error ? e.message : String(e)}`, field);
+          // The parse error names the field already (its where).
+          throw new AuthzAdminFailure('rule_not_compilable', e instanceof Error ? e.message : String(e), field);
         }
       }
     }

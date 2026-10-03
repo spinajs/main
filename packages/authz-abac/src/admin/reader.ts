@@ -31,6 +31,7 @@ export class AbacPolicyReader extends AuthzAdminReader {
     const scope = scopeOf(q);
     const all = await (await writableStore(ctx)).load();
     const items = all.filter((p) => scope === undefined || sameScope(p, { scope })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return { items: items.slice(page.offset, page.offset + page.limit), total: items.length };
+    // Copies: a caller changing an item must not change the store behind its version.
+    return { items: items.slice(page.offset, page.offset + page.limit).map((p) => structuredClone(p)), total: items.length };
   }
 }

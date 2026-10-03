@@ -30,6 +30,13 @@ class FakeCompiler extends ConditionCompiler {
   }
 }
 
+/** An app compiler with a parse method that checks nothing: it must not switch off the fn name check. */
+class ParsingCompiler extends FakeCompiler {
+  parse(): object {
+    return {};
+  }
+}
+
 /** Holds only rules without a resource condition (what a DB store refuses outside SQL form). */
 class Weekday extends ConditionFunction {
   readonly name = 'time.weekday';
@@ -157,6 +164,24 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect((await d.rules.find({})).total).to.equal(5);
     });
 
+    it('accepts a built-in condition function with valid args under the core compiler', async () => {
+      ok(await d.admin.execute(SYSTEM, [put(threshold({ when: { fn: 'time.between', args: { from: '09:00', to: '17:00', tz: 'Europe/Warsaw' } } }))]));
+      expect((await d.rules.byId('r1'))?.when).to.deep.equal({ fn: 'time.between', args: { from: '09:00', to: '17:00', tz: 'Europe/Warsaw' } });
+    });
+
+    it('a parse error names its field once', async () => {
+      const [r] = await d.admin.execute(SYSTEM, [put(threshold({ when: { fn: 'no.such.fn' } }))]);
+      expect(r.ok).to.equal(false);
+      const message = (r as Extract<typeof r, { ok: false }>).error.message;
+      expect(message.split('rule.when').length - 1, message).to.equal(1);
+    });
+
+    it('a custom compiler with a parse method keeps the function name check', async () => {
+      await resetHost();
+      d = await rbacDomain('test', { register: (c) => c.register(ParsingCompiler).as(ConditionCompiler) });
+      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ when: { fn: 'no.such.fn' } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
+    });
+
     const refusals: [string, Rule, { code: string; field?: string }][] = [
       ['an unknown ladder', threshold({ ladder: 'ghost', at: 'project' }), { code: 'unknown_ladder', field: 'rule.ladder' }],
       ['an unknown role', threshold({ ladder: 'project', at: 'project', minRole: 'ghost' }), { code: 'unknown_role', field: 'rule.minRole' }],
@@ -170,6 +195,7 @@ describe('RBAC link, rule, reader and forget commands', function () {
       ['a subject set of a role that is no set', { id: 'x', kind: 'restrict', scope: P1, allow: [{ set: { role: 'plain', scope: O1 } }] }, { code: 'unknown_role', field: 'rule.allow.0.set.role' }],
       // The core registers a ConditionCompiler in every host, so parse faults are what remains to refuse.
       ['a condition naming an unknown function', threshold({ when: { fn: 'no.such.fn' } }), { code: 'rule_not_compilable', field: 'rule.when' }],
+      ['a built-in function with an empty range', threshold({ when: { fn: 'time.between', args: { from: '09:00', to: '09:00' } } }), { code: 'rule_not_compilable', field: 'rule.when' }],
       ['an unknown kind', threshold({ kind: 'other' as never }), { code: 'invalid_command', field: 'rule.kind' }],
       ['no id', threshold({ id: '' }), { code: 'invalid_command', field: 'rule.id' }],
       ['no scope', threshold({ scope: undefined as never }), { code: 'invalid_command', field: 'rule.scope' }],

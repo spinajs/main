@@ -2,8 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthorizationModel, AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, SYSTEM } from '@spinajs/authz';
-import type { AuthzCommand } from '@spinajs/authz';
+import { AuthorizationModel, AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, MemoryAuthzAdminBackend, SYSTEM } from '@spinajs/authz';
+import type { AuthzCommand, AuthzTx } from '@spinajs/authz';
 
 import { AbacModel, AbacPolicyHandler, ConfigPolicyStore, MemoryPolicyStore, PolicyStore } from '../../src/index.js';
 import { F1, G, HOUR, P1, P2, START, TestGuard, abacDomain, del, failure, installHost, instance, ok, policy, put, rejection, resetHost, snapshot, stored, uninstallHost } from './support.js';
@@ -217,6 +217,61 @@ describe('ABAC policy commands through AuthzAdmin', function () {
       expect(await rejection(h.apply(put(policy('new')), d.context(), { driver: {} }))).to.be.instanceOf(AuthzConfigError);
       expect(await rejection(h.apply(del('old'), d.context(), { driver: {} }))).to.be.instanceOf(AuthzConfigError);
       expect(await snapshot(d.store)).to.deep.equal(before);
+    });
+
+    // Phase A runs outside the transaction, so another batch can move the policy before apply runs.
+    describe('a policy moved by another batch between validate and apply', () => {
+      const h = new AbacPolicyHandler();
+      const inTx = <T>(fn: (tx: AuthzTx) => Promise<T>): Promise<T> => new MemoryAuthzAdminBackend().transaction('test', fn);
+
+      it('a delete is checked again at the scope the row has now', async () => {
+        const ctx = d.context(bob);
+        await h.validate(del('old'), ctx);
+        expect((await h.permission(del('old'), ctx)).resource).to.deep.equal(P1);
+        d.store.put(stored('old', { scope: P2 }));
+        const e = (await rejection(inTx((tx) => h.apply(del('old'), ctx, tx)))) as AuthzAdminFailure;
+        expect(e).to.be.instanceOf(AuthzAdminFailure);
+        expect(e.code).to.equal('forbidden');
+        expect((await snapshot(d.store)).old).to.deep.equal(stored('old', { scope: P2 }));
+      });
+
+      it('a put is checked again at the scope the row has now', async () => {
+        const ctx = d.context(bob);
+        const c = put(policy('old', { scope: P1, effect: 'deny' }));
+        await h.validate(c, ctx);
+        d.store.put(stored('old', { scope: P2 }));
+        expect(((await rejection(inTx((tx) => h.apply(c, ctx, tx)))) as AuthzAdminFailure).code).to.equal('forbidden');
+        expect((await snapshot(d.store)).old).to.deep.equal(stored('old', { scope: P2 }));
+        // alice manages both scopes.
+        await inTx((tx) => h.apply(c, d.context(alice), tx));
+        expect((await snapshot(d.store)).old).to.deep.equal(stored('old', { scope: P1, effect: 'deny' }));
+      });
+    });
+  });
+
+  describe('stored form', () => {
+    beforeEach(async () => {
+      d = await abacDomain();
+    });
+
+    it('stores and emits the scope as scopeOf gives it: none for GLOBAL, no null id', async () => {
+      ok(await d.admin.execute(SYSTEM, [put(policy('g', { scope: G })), put(policy('t', { scope: { type: 'project', id: null as never } }))]));
+      const rows = await snapshot(d.store);
+      expect(rows.g).to.deep.equal(stored('g'));
+      expect(rows.t).to.deep.equal(stored('t', { scope: { type: 'project' } }));
+      expect(d.sink.events.map((e) => e.data)).to.deep.equal([
+        { id: 'g', op: 'put' },
+        { id: 't', scope: { type: 'project' }, op: 'put' },
+      ]);
+    });
+
+    it('stored rows are frozen and list() hands out copies', async () => {
+      ok(await d.admin.execute(SYSTEM, [put(policy('p1', { scope: P1 }))]));
+      const [row] = await d.store.load();
+      expect(Object.isFrozen(row) && Object.isFrozen(row.permissions) && Object.isFrozen(row.scope)).to.equal(true);
+      const [item] = (await d.admin.list(alice, { kind: 'policies' })).items as { permissions: string[] }[];
+      item.permissions.push('ghost:read');
+      expect((await d.store.load())[0].permissions).to.deep.equal(['file:read']);
     });
   });
 

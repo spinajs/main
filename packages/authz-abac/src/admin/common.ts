@@ -89,6 +89,17 @@ export function actorRef(ctx: AdminContext): PrincipalRef {
   return { type: a.type, id: a.id };
 }
 
+/** `scope` in the form scopeOf gives, left out for GLOBAL. */
 export function policyChanged(ctx: AdminContext, p: { readonly id: string; readonly scope?: ResourceRef }, op: 'put' | 'delete'): AuthzEvent {
-  return { type: 'PolicyChanged', domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data: { id: p.id, ...(p.scope ? { scope: { ...p.scope } } : {}), op } };
+  const scope = scopeOf(p);
+  return { type: 'PolicyChanged', domain: ctx.domain, actor: actorRef(ctx), at: ctx.now, data: { id: p.id, ...(scope.type === GLOBAL.type ? {} : { scope }), op } };
+}
+
+/** Stored memory rows are shared with readers and the model; freezing them keeps a caller from changing the store behind its version. */
+export function deepFreeze<T>(v: T): T {
+  if (v !== null && typeof v === 'object' && !(v instanceof Date) && !Object.isFrozen(v)) {
+    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
+    Object.freeze(v);
+  }
+  return v;
 }

@@ -1,9 +1,9 @@
-import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, UnknownPermission, assertAdminPermission, memoryTx, principalKey } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, AuthzWriteHandler, GLOBAL, UnknownPermission, assertAdminPermission, memoryTx, principalKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Permission, Policy, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import { DbPolicyStore, policyTags } from '../model/stores/db.js';
-import { abacModels, actorRef, byId, invalid, isPlainObject, policiesInTx, policyChanged, quote, readId, sameScope, scopeOf, writableStore } from './common.js';
+import { abacModels, actorRef, byId, deepFreeze, invalid, isPlainObject, policiesInTx, policyChanged, quote, readId, sameScope, scopeOf, writableStore } from './common.js';
 import type { WritablePolicyStore } from './common.js';
 
 type PolicyInput = Omit<Policy, 'source'>;
@@ -32,6 +32,13 @@ function readPolicy(v: unknown, ctx: AdminContext): PolicyInput {
   const copy = structuredClone(v);
   for (const k of Object.keys(copy)) if (copy[k] === undefined) delete copy[k];
   return copy as unknown as PolicyInput;
+}
+
+/** The policy as stored: its scope in the form scopeOf gives, none for GLOBAL (as DbPolicyStore reads it back). */
+function normalised(p: PolicyInput): PolicyInput {
+  const { scope: _scope, ...rest } = p;
+  const scope = scopeOf(p);
+  return scope.type === GLOBAL.type ? rest : { ...rest, scope };
 }
 
 /** The command field an AbacModel error names (its messages read `abac policy "<id>"[ when]: <text>`). */
@@ -108,19 +115,21 @@ export class AbacPolicyHandler extends AuthzWriteHandler {
 
   async apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<Applied> {
     const store = await writableStore(ctx);
-    if (c.kind === 'policy.put') return this.put(store, readPolicy(c.policy, ctx), ctx, tx);
+    if (c.kind === 'policy.put') return this.put(store, normalised(readPolicy(c.policy, ctx)), ctx, tx);
     return this.delete(store, readId((c as Extract<AuthzCommand, { kind: 'policy.delete' }>).id), ctx, tx);
   }
 
   private async put(store: WritablePolicyStore, p: PolicyInput, ctx: AdminContext, tx: AuthzTx): Promise<Applied> {
+    const undo = store instanceof DbPolicyStore ? undefined : memoryTx(tx);
+    // Phase A ran outside the transaction: another batch may have moved the policy since.
+    const [before] = await policiesInTx(store, tx, { id: p.id });
+    if (before && !sameScope(before, p)) await assertAdminPermission(ctx, 'policy.put', scopeOf(before), MANAGE);
     let tags: readonly string[];
     if (store instanceof DbPolicyStore) {
       ({ tags } = await store.put(p, actorRef(ctx), tx, ctx.now));
     } else {
-      const undo = memoryTx(tx);
-      const before = await byId(store, p.id);
-      store.put({ ...p, source: store.name });
-      undo.onRollback(() => (before ? store.put(before) : store.delete(p.id)));
+      store.put(deepFreeze({ ...p, source: store.name }));
+      undo!.onRollback(() => (before ? store.put(before) : store.delete(p.id)));
       tags = policyTags(p.id);
     }
     return { id: p.id, affected: 1, tags, events: [policyChanged(ctx, p, 'put')] };
@@ -131,6 +140,8 @@ export class AbacPolicyHandler extends AuthzWriteHandler {
     // An earlier command of the batch may have removed it since validate.
     const [before] = await policiesInTx(store, tx, { id });
     if (!before) return { id, affected: 0, tags: [], events: [] };
+    // Checked again here: another batch may have moved the policy since permission() read its scope.
+    await assertAdminPermission(ctx, 'policy.delete', scopeOf(before), MANAGE);
     let tags: readonly string[];
     if (store instanceof DbPolicyStore) {
       const out = await store.delete(id, tx);
