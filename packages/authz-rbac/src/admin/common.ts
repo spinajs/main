@@ -78,14 +78,18 @@ export function rankOf(roles: RoleIndex, ladder: string, role: string): number {
   return roles.ladders.get(ladder)?.roles.indexOf(role) ?? -1;
 }
 
+/** Which implied roles a closure follows: none, those also held at the role's own scope, or all of them. */
+export type ImpliesMode = 'none' | 'same-scope' | 'all';
+
 /**
- * What holding `role` gives: the role, the roles it extends and the lower roles of its ladder, transitively.
- * `unknown` names roles of the closure that are not defined. Implied roles are left out: they apply at
- * other scopes (RbacService.covers is expected to replace this, hand-off to L1).
+ * What holding `role` gives: the role, the roles it extends, the lower roles of its ladder and, per
+ * `implies`, its implied roles, transitively. `unknown` names roles of the closure that are not defined;
+ * `bypass` is set when a followed implied role bypasses restrict or cap rules.
  */
-export function roleClosure(roles: RoleIndex, role: string): { readonly defs: readonly RoleDef[]; readonly unknown: readonly string[] } {
+export function roleClosure(roles: RoleIndex, role: string, implies: ImpliesMode = 'none'): { readonly defs: readonly RoleDef[]; readonly unknown: readonly string[]; readonly bypass: boolean } {
   const defs = new Map<string, RoleDef>();
   const unknown = new Set<string>();
+  let bypass = false;
   const visit = (name: string): void => {
     if (defs.has(name) || unknown.has(name)) return;
     const def = roles.roles.get(name);
@@ -98,14 +102,22 @@ export function roleClosure(roles: RoleIndex, role: string): { readonly defs: re
     const ladder = roles.ladderOf(name);
     const list = ladder === undefined ? undefined : roles.ladders.get(ladder)?.roles;
     if (list) for (const lower of list.slice(0, Math.max(0, list.indexOf(name)))) visit(lower);
+    for (const i of def.implies ?? []) {
+      if (implies === 'none' || (implies === 'same-scope' && i.at !== 'self-and-descendants')) continue;
+      if ((i.bypass?.length ?? 0) > 0) bypass = true;
+      visit(i.role);
+    }
   };
   visit(role);
-  return { defs: [...defs.values()], unknown: [...unknown] };
+  return { defs: [...defs.values()], unknown: [...unknown], bypass };
 }
 
-/** A grant of the role's closure matches `permission` (grants are names or globs; conditions do not matter). */
+/**
+ * A grant of the role's closure matches `permission` at the role's own scope: implied roles held
+ * `self-and-descendants` count, `descendants` ones do not. Grants are names or globs; conditions do not matter.
+ */
 export function grantsPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
-  return roleClosure(roles, role).defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
 }
 
 // ---- command fields ----

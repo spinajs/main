@@ -1,10 +1,10 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, isPermission, principalKey } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, isPermission, principalKey, resourceKey } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantsPermission, isPlainObject, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
+import { assignmentStore, grantsPermission, isPlainObject, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleClosure, roleIndex } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
@@ -81,6 +81,8 @@ interface Call {
   readonly cfg: AdminGuardConfig;
   readonly roles: RoleIndex;
   readonly privileged: (role: string) => boolean;
+  /** The actor's effective role per ladder and scope, asked once per command. */
+  readonly ranks: Map<string, Promise<string | undefined>>;
 }
 
 const refuse = (code: string, message: string, field?: string): AuthzAdminFailure => new AuthzAdminFailure(code, message, field);
@@ -109,7 +111,7 @@ export class DefaultAdminGuard extends AdminGuard {
       if (!memo.has(role)) memo.set(role, roles.roles.has(role) && grantsPermission(roles, role, cfg.privilegedPermission));
       return memo.get(role)!;
     };
-    const call: Call = { actor, ctx, cfg, roles, privileged };
+    const call: Call = { actor, ctx, cfg, roles, privileged, ranks: new Map() };
     if (cfg.preventEscalation) await this.escalation(call, c);
     await this.removals(call, c);
   }
@@ -125,8 +127,13 @@ export class DefaultAdminGuard extends AdminGuard {
     for (const t of await this.granted(call, c)) {
       const what = `${principalKey(call.actor)} may not grant ${quote(t.role)} at ${quote(t.scope)}`;
       if (!(await facts.covers(call.actor, t.role, t.scope, call.ctx))) throw refuse('escalation', `${what}: it does not hold every permission of the role there`, t.field);
-      const ladder = call.roles.ladderOf(t.role);
-      if (ladder !== undefined && !(await this.ranksAtLeast(call, facts, ladder, t.role, t.scope))) throw refuse('escalation', `${what}: the role ranks above its own on ladder ${quote(ladder)}`, t.field);
+      // Every ladder role the grant gives, through extends and implies too, must rank at or below the actor's own.
+      for (const { name } of roleClosure(call.roles, t.role, 'all').defs) {
+        const ladder = call.roles.ladderOf(name);
+        if (ladder === undefined || (await this.ranksAtLeast(call, facts, ladder, name, t.scope))) continue;
+        const which = name === t.role ? 'the role' : `it gives ${quote(name)}, which`;
+        throw refuse('escalation', `${what}: ${which} ranks above its own on ladder ${quote(ladder)}`, t.field);
+      }
     }
   }
 
@@ -145,15 +152,29 @@ export class DefaultAdminGuard extends AdminGuard {
         const scope = readScope(set.scope, 'set.scope');
         return [{ role, scope, field: 'set.role' }, ...(await this.reach(call, role, scope, 'set.role'))];
       }
-      case 'link.create':
-        return [{ role: readId(c.role, 'role'), scope: readScope(c.scope, 'scope'), field: 'role' }];
+      case 'link.create': {
+        const role = readId(c.role, 'role');
+        const scope = readScope(c.scope, 'scope');
+        return [{ role, scope, field: 'role' }, ...(await this.reach(call, role, scope, 'role'))];
+      }
       case 'link.update': {
         const link = await (await linkStore(ctx)).byId(readId(c.id));
         if (!link) return [];
-        if (c.role !== undefined) return [{ role: readId(c.role, 'role'), scope: link.scope, field: 'role' }];
-        if (c.tags === undefined) return [];
+        // A new role replaces the link's grant, so it covers whatever else the command changes.
+        if (c.role !== undefined) {
+          const role = readId(c.role, 'role');
+          return [{ role, scope: link.scope, field: 'role' }, ...(await this.reach(call, role, link.scope, 'role'))];
+        }
         const current = (await linkGrants(link.id, ctx, true)) ?? [];
-        return current.filter((a) => adds(a, c.tags)).map((a) => ({ role: a.role, scope: a.scope, field: 'tags' }));
+        const out: Target[] = [];
+        if (extendsExpiry(link.expiresAt, c.expiresAt)) for (const a of current) out.push({ role: a.role, scope: a.scope, field: 'expiresAt' }, ...(await this.reach(call, a.role, a.scope, 'expiresAt')));
+        if (c.tags !== undefined) out.push(...current.filter((a) => adds(a, c.tags)).map((a) => ({ role: a.role, scope: a.scope, field: 'tags' })));
+        return out;
+      }
+      case 'assignment.setExpiry': {
+        const row = await (await assignmentStore(ctx)).byId(readId(c.id));
+        if (!row || !extendsExpiry(row.expiresAt, c.expiresAt)) return [];
+        return [{ role: row.role, scope: row.scope, field: 'expiresAt' }, ...(isSetSubject(row.subject) ? [] : await this.reach(call, row.role, row.scope, 'expiresAt'))];
       }
       case 'assignment.setTags':
       case 'assignment.addTags': {
@@ -193,7 +214,9 @@ export class DefaultAdminGuard extends AdminGuard {
     const wanted = rankOf(call.roles, ladder, role);
     // A role its ladder does not list has no rank anyone can reach.
     if (wanted < 0) return false;
-    const own = await facts.effectiveRole(call.actor, ladder, scope, call.ctx);
+    const key = `${ladder}\u0000${resourceKey(scope)}`;
+    if (!call.ranks.has(key)) call.ranks.set(key, facts.effectiveRole(call.actor, ladder, scope, call.ctx));
+    const own = await call.ranks.get(key)!;
     return own !== undefined && rankOf(call.roles, ladder, own) >= wanted;
   }
 
@@ -208,7 +231,7 @@ export class DefaultAdminGuard extends AdminGuard {
       const row = await (await assignmentStore(ctx)).byId(readId(c.id));
       if (row) touched.push(row);
     }
-    if (c.kind === 'link.update' && c.tags !== undefined && planned.revoke.length === 0) touched.push(...((await linkGrants(readId(c.id), ctx, true)) ?? []));
+    if (c.kind === 'link.update' && (c.tags !== undefined || c.expiresAt !== undefined) && planned.revoke.length === 0) touched.push(...((await linkGrants(readId(c.id), ctx, true)) ?? []));
 
     if (cfg.protectSystemRole) {
       const system = touched.find((a) => roles.roles.get(a.role)?.assignable === false);
@@ -279,6 +302,16 @@ export class DefaultAdminGuard extends AdminGuard {
     if (!container.hasRegistered(RbacAdminFacts)) throw new AuthzConfigError(`Authz domain ${quote(ctx.domain)}: no RbacAdminFacts is registered; DefaultAdminGuard needs one`);
     return (await container.resolve(RbacAdminFacts)) as RbacAdminFacts;
   }
+}
+
+/**
+ * The new expiry (null: none) lies after the current one. Renewing a lapsed row or link is such a move: it
+ * gives the role again, so the guard treats it as a grant. Moving it earlier is a removal instead.
+ */
+function extendsExpiry(current: Date | null | undefined, next: unknown): boolean {
+  if (next === undefined || current == null) return false;
+  const until = readExpiry(next);
+  return until == null || until.getTime() > current.getTime();
 }
 
 /** The command adds a tag the row does not hold yet. */

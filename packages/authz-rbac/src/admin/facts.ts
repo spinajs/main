@@ -1,4 +1,4 @@
-import { isPermission } from '@spinajs/authz';
+import { AuthzConfigError, isPermission } from '@spinajs/authz';
 import type { AdminContext, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -16,15 +16,17 @@ const unconditional = (d: Decision | undefined): boolean => d?.allowed === true 
 
 /**
  * RbacAdminFacts from checks through ctx.authz. Fails closed where checks cannot answer without the
- * permission registry: a glob grant, an undefined role in the closure or a check that throws (a permission
- * whose types exclude the scope type) counts as not covered.
+ * permission registry: a glob grant, an undefined role in the closure, an implied role that bypasses
+ * restrict or cap rules, or a check refused as a configuration error (a permission whose types exclude the
+ * scope type) counts as not covered. Any other error of a check rejects.
  */
 @Singleton()
 @Injectable(RbacAdminFacts)
 export class CheckRbacAdminFacts extends RbacAdminFacts {
   async covers(actor: Principal, role: string, scope: ResourceRef, ctx: AdminContext): Promise<boolean> {
-    const { defs, unknown } = roleClosure(await roleIndex(ctx), role);
-    if (unknown.length > 0) return false;
+    // A `descendants` implied role is not held at the scope, but checks reach no lower; L1 judges it exactly.
+    const { defs, unknown, bypass } = roleClosure(await roleIndex(ctx), role, 'all');
+    if (unknown.length > 0 || bypass) return false;
     const wanted = new Set<Permission>();
     for (const def of defs) {
       for (const g of def.grants) {
@@ -36,8 +38,9 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     try {
       const decisions = await ctx.authz.checkMany(actor, [...wanted], scope);
       return [...wanted].every((p) => unconditional(decisions.get(p)));
-    } catch {
-      return false;
+    } catch (e) {
+      if (e instanceof AuthzConfigError) return false;
+      throw e;
     }
   }
 
@@ -52,8 +55,9 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
           tried.add(permission);
           try {
             return (await ctx.authz.check({ principal: actor, permission, resource: scope })).roles?.[ladder];
-          } catch {
+          } catch (e) {
             // Not checkable at this scope; try the next permission.
+            if (!(e instanceof AuthzConfigError)) throw e;
           }
         }
       }

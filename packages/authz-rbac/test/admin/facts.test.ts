@@ -3,12 +3,12 @@ import 'mocha';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
-import { FALSE, TRUE, compilePermissionGlob } from '@spinajs/authz';
+import { AuthzConfigError, FALSE, TRUE, UnknownPermission, compilePermissionGlob } from '@spinajs/authz';
 import type { AdminCallContext, Principal, ResourceRef } from '@spinajs/authz';
 
 import { CheckRbacAdminFacts } from '../../src/index.js';
 import type { LadderDef, RoleDef } from '../../src/index.js';
-import { G, P1, START, StaticRoleStore, installHost, rbacDomain, resetHost, uninstallHost } from './support.js';
+import { G, P1, START, StaticRoleStore, installHost, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
 import type { RbacDomain } from './support.js';
 
 const expect = chai.expect;
@@ -16,7 +16,7 @@ const expect = chai.expect;
 const role = (name: string, extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], grants: [], assignable: true, source: 'test', ...extra });
 const grants = (...names: string[]) => names.map((permission) => ({ permission }));
 
-const ROLES: RoleDef[] = [role('viewer', { ladder: 'project', grants: grants('file:read') }), role('editor', { ladder: 'project', grants: [{ permission: 'file:edit', relation: 'owner' }] }), role('maintainer', { ladder: 'project', grants: grants('project:settings') }), role('empty'), role('globber', { grants: grants('file:*') }), role('broken', { extends: ['ghost'] }), role('reader', { extends: ['viewer'] }), role('userAdmin', { grants: grants('users:update') })];
+const ROLES: RoleDef[] = [role('viewer', { ladder: 'project', grants: grants('file:read') }), role('editor', { ladder: 'project', grants: [{ permission: 'file:edit', relation: 'owner' }] }), role('maintainer', { ladder: 'project', grants: grants('project:settings') }), role('empty'), role('globber', { grants: grants('file:*') }), role('broken', { extends: ['ghost'] }), role('reader', { extends: ['viewer'] }), role('userAdmin', { grants: grants('users:update') }), role('lead', { implies: [{ role: 'maintainer', at: 'self-and-descendants' }] }), role('below', { implies: [{ role: 'viewer', at: 'descendants' }] }), role('skip', { implies: [{ role: 'viewer', at: 'self-and-descendants', bypass: ['cap'] }] }), role('haunted', { implies: [{ role: 'ghost', at: 'descendants' }] })];
 const LADDERS: LadderDef[] = [
   { name: 'project', roles: ['viewer', 'editor', 'maintainer'] },
   { name: 'bare', roles: ['empty'] },
@@ -81,6 +81,39 @@ describe('CheckRbacAdminFacts', function () {
     // users:update is not checkable on a project.
     expect(await covers('userAdmin', P1)).to.equal(false);
     expect(await covers('userAdmin', G)).to.equal(true);
+  });
+
+  it('covers follows implied roles of both kinds and checks them at the scope', async () => {
+    expect(await covers('below')).to.equal(true);
+    expect(await covers('below', P1, bob)).to.equal(false);
+    // lead implies maintainer, whose project:settings alice holds only conditionally.
+    expect(await covers('lead')).to.equal(false);
+  });
+
+  it('fails closed on an implied role that bypasses rules or is undefined', async () => {
+    expect(await covers('skip')).to.equal(false);
+    expect(await covers('haunted')).to.equal(false);
+  });
+
+  it('only a configuration error of a check counts as not covered; any other rejects', async () => {
+    const throwing = (e: Error): AdminCallContext => {
+      const authz = Object.create(d.service) as typeof d.service;
+      Object.assign(authz, {
+        checkMany: async () => {
+          throw e;
+        },
+        check: async () => {
+          throw e;
+        },
+      });
+      return { ...ctx(), authz };
+    };
+    const down = new Error('driver down');
+    expect(await rejection(facts.covers(alice, 'viewer', P1, throwing(down)))).to.equal(down);
+    expect(await rejection(facts.effectiveRole(alice, 'project', P1, throwing(down)))).to.equal(down);
+    expect(await facts.covers(alice, 'viewer', P1, throwing(new AuthzConfigError('not checkable here')))).to.equal(false);
+    expect(await facts.covers(alice, 'viewer', P1, throwing(new UnknownPermission('file:read')))).to.equal(false);
+    expect(await facts.effectiveRole(alice, 'project', P1, throwing(new AuthzConfigError('not checkable here')))).to.equal(undefined);
   });
 
   it('effectiveRole reads Decision.roles of a check at the scope, denials included', async () => {

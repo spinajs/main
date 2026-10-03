@@ -16,7 +16,7 @@ const role = (name: string, extra: Partial<RoleDef> = {}): RoleDef => ({ name, e
 const grants = (...names: string[]) => names.map((permission) => ({ permission }));
 const MANAGE = ['authz:assignments.manage', 'authz:links.manage', 'authz:rules.manage'];
 
-export const GUARD_ROLES: RoleDef[] = [role('viewer', { ladder: 'project', grants: grants('file:read') }), role('editor', { ladder: 'project', grants: grants('file:edit') }), role('maintainer', { ladder: 'project', grants: grants('project:settings') }), role('helper', { ladder: 'staff', grants: grants('users:read') }), role('admin', { ladder: 'staff', grants: grants('users:update', 'authz:assignments.manage') }), role('ops', { grants: grants('authz:assignments.manage') }), role('manager', { grants: grants(...MANAGE) }), role('globber', { grants: grants('file:*') }), role('reader', { extends: ['viewer'] }), role('sys', { assignable: false, grants: grants('users:update') }), role('package', { assignable: false, grants: grants('file:read') }), role('group.member', { subjectSet: true, scopeTypes: ['group'] }), role('staff.set', { subjectSet: true })];
+export const GUARD_ROLES: RoleDef[] = [role('viewer', { ladder: 'project', grants: grants('file:read') }), role('editor', { ladder: 'project', grants: grants('file:edit') }), role('maintainer', { ladder: 'project', grants: grants('project:settings') }), role('helper', { ladder: 'staff', grants: grants('users:read') }), role('admin', { ladder: 'staff', grants: grants('users:update', 'authz:assignments.manage') }), role('ops', { grants: grants('authz:assignments.manage') }), role('manager', { grants: grants(...MANAGE) }), role('globber', { grants: grants('file:*') }), role('reader', { extends: ['viewer'] }), role('sys', { assignable: false, grants: grants('users:update') }), role('package', { assignable: false, grants: grants('file:read') }), role('group.member', { subjectSet: true, scopeTypes: ['group'] }), role('staff.set', { subjectSet: true }), role('lead', { implies: [{ role: 'maintainer', at: 'self-and-descendants' }] }), role('boss', { implies: [{ role: 'admin', at: 'self-and-descendants' }] }), role('far', { implies: [{ role: 'admin', at: 'descendants' }] }), role('skipper', { implies: [{ role: 'viewer', at: 'self-and-descendants', bypass: ['restrict'] }] })];
 export const GUARD_LADDERS: LadderDef[] = [
   { name: 'project', roles: ['viewer', 'editor', 'maintainer'] },
   { name: 'staff', roles: ['helper', 'admin'] },
@@ -237,6 +237,33 @@ describe('DefaultAdminGuard', function () {
       await passes(p('bob'), [{ kind: 'link.update', id: created.ok ? created.id! : '', tags: ['x'] }]);
     });
 
+    it('links: a link holding a subject set role reaches every role the set holds', async () => {
+      table.set('bob', GR, { allow: ['authz:assignments.manage', 'authz:links.manage'] });
+      const links = [
+        { link: { id: 'l-st', scope: GR, attributes: {} }, token: 'tok-st', role: 'staff.set' },
+        { link: { id: 'l-gm', scope: GR, attributes: {}, expiresAt: at(-HOUR) }, token: 'tok-gm', role: 'group.member' },
+      ];
+      await world({ rows: [...BASE, ...admins('root'), row('g-mt', GROUP, 'maintainer', P1)], links });
+      await refused(p('bob'), [{ kind: 'link.create', scope: GR, role: 'group.member' }], 'escalation');
+      await refused(p('bob'), [{ kind: 'link.update', id: 'l-st', role: 'group.member' }], 'escalation');
+      await refused(p('bob'), [{ kind: 'link.update', id: 'l-gm', expiresAt: null }], 'escalation');
+      await world({ rows: [...BASE, ...admins('root'), row('g-ed', GROUP, 'editor', P1)], links });
+      await passes(p('bob'), [{ kind: 'link.create', scope: GR, role: 'group.member' }]);
+      await passes(p('bob'), [{ kind: 'link.update', id: 'l-st', role: 'group.member' }]);
+      await passes(p('bob'), [{ kind: 'link.update', id: 'l-gm', expiresAt: null }]);
+    });
+
+    it('implied roles: covers follows implies, and a ladder role a grant gives through implies needs the rank', async () => {
+      await refused(p('bob'), [grant('lead')], 'escalation');
+      // dan holds every permission of maintainer but ranks editor.
+      await refused(p('dan'), [grant('lead')], 'escalation');
+      await passes(p('root'), [grant('lead')]);
+      await refused(p('ops'), [grant('boss', G)], 'escalation');
+      await passes(p('root'), [grant('boss', G)]);
+      // An implied role that bypasses restrict or cap rules cannot be judged from the actor's checks.
+      await refused(p('root'), [grant('skipper')], 'escalation');
+    });
+
     it('links: adding tags to a link checks its role', async () => {
       await world({ links: [{ link: { id: 'l-mt', scope: P1, attributes: {} }, token: 'tok', role: 'maintainer' }] });
       await refused(p('bob'), [{ kind: 'link.update', id: 'l-mt', tags: ['x'] }], 'escalation');
@@ -261,6 +288,47 @@ describe('DefaultAdminGuard', function () {
       await refused(p('bob'), [put({ id: 'cap-high', kind: 'cap', ladder: 'project', maxRole: 'maintainer' })], 'escalation');
       await passes(p('bob'), [put({ id: 'cap-ref', kind: 'cap', ladder: 'project', maxRole: { ref: 'scope.project.cap' } })]);
       await passes(p('bob'), [put({ id: 'cap-null', kind: 'cap', ladder: 'project', maxRole: null })]);
+    });
+
+    describe('expiry revivals and extensions are grants', () => {
+      const setExpiry = (id: string, expiresAt: Date | null): AuthzCommand => ({ kind: 'assignment.setExpiry', id, expiresAt });
+
+      it('setExpiry renewing a lapsed row or moving an expiry later needs the role covered; moving it earlier does not', async () => {
+        await world({ rows: [...BASE, ...admins('root', 'root2'), row('a-old', user('dave'), 'admin', G, { expiresAt: at(-HOUR) }), row('o-old', user('ops'), 'admin', G, { expiresAt: at(-HOUR) }), row('a-exp', user('dave'), 'admin', G, { expiresAt: at(HOUR) })] });
+        // ops holds only authz:assignments.manage.
+        expect(failure(await run(p('ops'), [setExpiry('a-old', null)]))).to.deep.equal({ at: 0, code: 'escalation', field: 'expiresAt' });
+        await refused(p('ops'), [setExpiry('a-old', at(HOUR))], 'escalation');
+        await refused(p('ops'), [setExpiry('o-old', null)], 'escalation');
+        await refused(p('ops'), [setExpiry('a-exp', null)], 'escalation');
+        await refused(p('ops'), [setExpiry('a-exp', at(2 * HOUR))], 'escalation');
+        expect((await d.assignments.byId('a-old'))!.expiresAt).to.deep.equal(at(-HOUR));
+        await passes(p('ops'), [setExpiry('a-exp', at(HOUR / 2))]);
+        await passes(p('root'), [setExpiry('a-old', null), setExpiry('a-exp', null)]);
+      });
+
+      it('a ladder role renewed must rank at or below the actor', async () => {
+        await world({ rows: [...BASE, ...admins('root'), row('d-mt', user('dave'), 'maintainer', P1, { expiresAt: at(-HOUR) }), row('d-ed', user('dave'), 'editor', P1, { expiresAt: at(-HOUR) })] });
+        await refused(p('bob'), [setExpiry('d-mt', null)], 'escalation');
+        await passes(p('bob'), [setExpiry('d-ed', null)]);
+      });
+
+      it('renewing a set membership reaches the roles the set holds; renewing a set row checks its role', async () => {
+        await world({ rows: [...BASE, ...admins('root'), row('s-admin', STAFF, 'admin'), row('m-old', user('dave'), 'staff.set', G, { expiresAt: at(-HOUR) }), row('g-old', GROUP, 'admin', G, { expiresAt: at(-HOUR) })] });
+        await refused(p('ops'), [setExpiry('m-old', null)], 'escalation');
+        await refused(p('ops'), [setExpiry('g-old', at(HOUR))], 'escalation');
+        await passes(p('root'), [setExpiry('m-old', null), setExpiry('g-old', at(HOUR))]);
+      });
+
+      it('link.update renewing a lapsed link or moving its expiry later needs its role covered', async () => {
+        const link = (id: string, r: string, expiresAt: Date) => ({ link: { id, scope: P1, attributes: {}, expiresAt }, token: `tok-${id}`, role: r });
+        await world({ links: [link('l-old', 'maintainer', at(-HOUR)), link('l-exp', 'maintainer', at(HOUR)), link('l-view', 'viewer', at(-HOUR))] });
+        const update = (id: string, expiresAt: Date | null): AuthzCommand => ({ kind: 'link.update', id, expiresAt });
+        await refused(p('bob'), [update('l-old', null)], 'escalation');
+        await refused(p('bob'), [update('l-exp', at(2 * HOUR))], 'escalation');
+        await passes(p('bob'), [update('l-exp', at(HOUR / 2))]);
+        await passes(p('bob'), [update('l-view', null)]);
+        await passes(p('root'), [update('l-old', at(HOUR))]);
+      });
     });
 
     it('preventEscalation: false lets every grant through', async () => {
@@ -349,10 +417,21 @@ describe('DefaultAdminGuard', function () {
       await passes(p('ops'), [revoke('s-admin')]);
     });
 
+    it('a role that implies a privileged role at its own scope is privileged; one implying it only below is not', async () => {
+      await world({ rows: [...BASE, row('boss-root', user('root'), 'boss')] });
+      await refused(p('root'), [revoke('boss-root')], 'self_lockout');
+      await refused(p('ops'), [revoke('boss-root')], 'last_holder');
+      await world({ rows: [...BASE, ...admins('root'), row('boss-dave', user('dave'), 'boss')] });
+      await passes(p('ops'), [revoke('a-root')]);
+      await world({ rows: [...BASE, ...admins('root'), row('far-dave', user('dave'), 'far')] });
+      await refused(p('ops'), [revoke('a-root')], 'last_holder');
+    });
+
     it('a link role change and link.revoke are removal paths', async () => {
       await world({ links: [{ link: { id: 'l-pkg', scope: P1, attributes: {} }, token: 'tok', role: 'package' }] });
       await refused(p('bob'), [{ kind: 'link.update', id: 'l-pkg', role: 'viewer' }], 'protected_role');
       await refused(p('bob'), [{ kind: 'link.update', id: 'l-pkg', tags: [] }], 'protected_role');
+      await refused(p('bob'), [{ kind: 'link.update', id: 'l-pkg', expiresAt: at(HOUR) }], 'protected_role');
       await refused(p('bob'), [{ kind: 'link.revoke', id: 'l-pkg' }], 'protected_role');
       await passes(SYSTEM, [{ kind: 'link.revoke', id: 'l-pkg' }]);
     });
