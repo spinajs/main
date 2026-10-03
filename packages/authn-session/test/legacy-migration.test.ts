@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { DI } from '@spinajs/di';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { FakeClock } from '@spinajs/authn-testing';
 import { DefaultSessionIssuer, MemorySessionStore, adaptLegacySession, isLegacySessionId } from '../src/index.js';
 import type { ISession } from '../src/index.js';
@@ -168,6 +169,28 @@ describe('2.x session migration', () => {
       expect(Rows.of(store).get(sha256hex(raw))!.Expiration!.toMillis()).to.equal(clock.now().getTime() + 300_000);
       clock.tick(301_000);
       expect(await issuer.restore(raw)).to.be.null;
+    });
+
+    it('SR-session absolute timeout: a 2.x row older than maxLifetime does not come back, even for one request', async () => {
+      const { issuer, store } = await setup();
+      const neverExpires = plantLegacy(store, { user: 'u-1', creation: DateTime.now().minus({ minutes: 481 }) });
+      Rows.of(store).get(neverExpires)!.Expiration = undefined;
+      const stillLive = plantLegacy(store, { user: 'u-1', creation: DateTime.now().minus({ minutes: 600 }), expiration: DateTime.now().plus({ minutes: 20 }) });
+
+      expect(await issuer.restore(neverExpires)).to.be.null;
+      expect(await issuer.restore(stillLive)).to.be.null;
+      expect(await issuer.list(user('u-1'))).to.deep.equal([]);
+    });
+
+    it('SR-session absolute timeout: elevating a 2.x pending row older than maxLifetime is refused and leaves no session', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1', authorized: false, creation: DateTime.now().minus({ minutes: 481 }), expiration: DateTime.now().plus({ minutes: 20 }) });
+
+      const pd = (await issuer.restore(raw))!.handle;
+      expect(pd.state).to.equal('pending');
+      const refused = await issuer.elevate(pd, { mfa: ['totp'] }).catch((e: Error) => e);
+      expect(refused).to.be.instanceOf(InvalidOperation);
+      expect(Rows.of(store).size).to.equal(0);
     });
 
     it('a 2.x row without User is absent and not migrated', async () => {

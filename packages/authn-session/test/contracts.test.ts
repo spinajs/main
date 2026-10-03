@@ -203,6 +203,7 @@ const PUBLIC_EXPORTS = [
   'MemorySessionStore',
   'SESSION_COOKIE_BASE_NAME',
   'SESSION_IP_KEY',
+  'SESSION_PENDING_STEPS_KEY',
   'SESSION_USER_AGENT_KEY',
   'SessionExpirationProvider',
   'SessionProvider',

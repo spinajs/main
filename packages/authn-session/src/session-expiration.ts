@@ -47,8 +47,8 @@ export class SlidingExpiration extends SessionExpirationProvider {
 }
 
 /**
- * Sliding expiration with an absolute cap: renewal pushes the expiration to
- * `now + ttl` but never past `Creation + maxLifetime`. Combines idle timeout
+ * Sliding expiration with an absolute cap: the initial and every renewed
+ * expiration is `now + ttl` but never past `Creation + maxLifetime`. Combines idle timeout
  * with a hard session lifetime ceiling.
  *
  * Settings: `authn.session.expiration.ttl` and
@@ -62,8 +62,9 @@ export class SlidingCappedExpiration extends SessionExpirationProvider {
   @Config('authn.session.expiration.maxLifetime', { defaultValue: 480 })
   protected MaxLifetime!: number;
 
-  public initial(_session: ISession): DateTime | undefined {
-    return DateTime.now().plus({ minutes: this.Ttl });
+  // Capped too: elevate and the 2.x migration give an old Creation a fresh initial expiration.
+  public initial(session: ISession): DateTime | undefined {
+    return this.renew(session);
   }
 
   public renew(session: ISession): DateTime | undefined {

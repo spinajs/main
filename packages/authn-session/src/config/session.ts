@@ -9,6 +9,9 @@ const sessionConfig = {
         ttl: 30,
         maxLifetime: 480,
       },
+
+      /** Lifetime of a pending (pre-MFA) session, measured from issue and never extended by use. Seconds. */
+      pendingTtlSeconds: 300,
     },
   },
 };

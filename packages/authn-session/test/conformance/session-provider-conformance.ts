@@ -366,6 +366,34 @@ export function runSessionProviderConformance(makeProvider: SessionProviderFacto
         expect(restored!.Expiration!.toMillis()).to.equal(fixed.toMillis());
       });
 
+      it('SR-07 touch writes the Data of a pending session and keeps its expiration (the issuer sets pending rows through touch)', async () => {
+        const provider = await makeProvider(SLIDING);
+        await provider.truncate();
+
+        const fixed = DateTime.now().plus({ minutes: 5 });
+        const session = makeSession({ State: 'pending', Expiration: fixed });
+        await provider.save(session);
+        const restored = await provider.restore(session.SessionId);
+        restored!.Data.set('Ip', '203.0.113.7');
+
+        expect(await provider.touch(restored!)).to.be.false;
+        const after = (await provider.restore(session.SessionId))!;
+        expect(after.Data.get('Ip')).to.equal('203.0.113.7');
+        expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+        expect(after.State).to.equal('pending');
+      });
+
+      it('SR-session absolute timeout: capped: the initial expiration of an old session stops at Creation + maxLifetime', async () => {
+        const provider = await makeProvider(CAPPED);
+        await provider.truncate();
+
+        const creation = DateTime.now().minus({ minutes: 119 });
+        const session = makeSession({ Creation: creation });
+        await provider.save(session);
+
+        closeTo((await provider.restore(session.SessionId))!.Expiration, creation.plus({ minutes: 120 }));
+      });
+
       it('SR-session revocation: touch never revives a deleted session', async () => {
         const provider = await makeProvider(SLIDING);
         await provider.truncate();

@@ -6,8 +6,9 @@ import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
-import { DefaultSessionIssuer, MemorySessionStore } from '../src/index.js';
+import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY } from '../src/index.js';
 import type { ISession } from '../src/index.js';
+import shipped from '../src/config/session.js';
 import { plantLegacyRow, uncacheOwned, withSessionConfig } from './support.js';
 
 const sha256hex = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -149,6 +150,87 @@ describe('DefaultSessionIssuer hardening', () => {
       }
       c.tick(6_000);
       expect(await issuer.restore(pd.id)).to.be.null;
+    });
+  });
+
+  describe('pending state (A09 store part)', () => {
+    it('the shipped pendingTtlSeconds equals the built-in default: 300 seconds', async () => {
+      expect((shipped.authn.session as Record<string, unknown>).pendingTtlSeconds).to.equal(300);
+
+      const c = fake();
+      await withSessionConfig({ authn: { session: { ...SESSION_CONFIG.authn.session, pendingTtlSeconds: undefined } } }, [DefaultSessionIssuer, SessionIssuer]);
+      const issuer = await DI.resolve(DefaultSessionIssuer);
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      expect(rowOf(store, pd)!.Expiration!.toMillis()).to.equal(c.now().getTime() + 300_000);
+    });
+
+    it('restore of a pending session carries its steps, read-only, under SESSION_PENDING_STEPS_KEY', async () => {
+      const { issuer } = await setup();
+      expect(SESSION_PENDING_STEPS_KEY).to.equal('authn:pendingSteps');
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp', 'webauthn'] } });
+
+      const steps = (await issuer.restore(pd.id))!.data.get(SESSION_PENDING_STEPS_KEY) as string[];
+      expect(steps).to.deep.equal(['totp', 'webauthn']);
+      expect(Object.isFrozen(steps), 'read-only').to.be.true;
+      expect(() => steps.push('none')).to.throw(TypeError);
+      expect((await issuer.restore(pd.id))!.data.get(SESSION_PENDING_STEPS_KEY)).to.deep.equal(['totp', 'webauthn']);
+    });
+
+    it('set refuses SESSION_PENDING_STEPS_KEY', async () => {
+      const { issuer } = await setup();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      const refused = await issuer.set(pd, SESSION_PENDING_STEPS_KEY, []).catch((e: Error) => e);
+      expect(refused).to.be.instanceOf(InvalidArgument);
+      expect((await issuer.restore(pd.id))!.data.get(SESSION_PENDING_STEPS_KEY)).to.deep.equal(['totp']);
+    });
+
+    it('an active session never carries the pending steps, issued active or elevated', async () => {
+      const { issuer, store } = await setup();
+      const active = await issuer.issue(alice, facts());
+      expect((await issuer.restore(active.id))!.data.has(SESSION_PENDING_STEPS_KEY)).to.be.false;
+
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      const e = await issuer.elevate(pd, { mfa: ['totp'] });
+      expect((await issuer.restore(e.id))!.data.has(SESSION_PENDING_STEPS_KEY)).to.be.false;
+
+      // A stray pending entry on an active row (a store bug, a hand-edited row) is still not exposed.
+      rowOf(store, e)!.Data.set('authn:pending', { steps: ['totp'] });
+      expect((await issuer.restore(e.id))!.data.has(SESSION_PENDING_STEPS_KEY)).to.be.false;
+    });
+
+    it('SR-07 set and rotate measure the pending TTL from issue, never from use', async () => {
+      const c = fake();
+      const { issuer, store } = await setup();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      const deadline = c.now().getTime() + 300_000;
+
+      c.tick(200_000);
+      await issuer.set(pd, 'Ip', '203.0.113.7');
+      expect(rowOf(store, pd)!.Expiration!.toMillis(), 'set').to.equal(deadline);
+      expect((await issuer.restore(pd.id))!.data.get('Ip')).to.equal('203.0.113.7');
+
+      const rotated = await issuer.rotate(pd);
+      expect(rotated.state).to.equal('pending');
+      expect(rowOf(store, rotated)!.Expiration!.toMillis(), 'rotate').to.equal(deadline);
+
+      c.tick(101_000);
+      expect(await issuer.restore(rotated.id)).to.be.null;
+    });
+
+    it('SR-session absolute timeout: elevate never sets an expiration past Creation + maxLifetime', async () => {
+      const c = fake();
+      await withSessionConfig({ authn: { session: { ...SESSION_CONFIG.authn.session, expiration: { service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 32 } } } }, [DefaultSessionIssuer, SessionIssuer]);
+      const issuer = await DI.resolve(DefaultSessionIssuer);
+      const store = await DI.resolve(MemorySessionStore);
+      await store.truncate();
+      const pd = await issuer.issue(alice, facts(), { pending: { steps: ['totp'] } });
+      const cap = c.now().getTime() + 32 * MIN;
+
+      c.tick(4 * MIN);
+      const e = await issuer.elevate(pd, { mfa: ['totp'] });
+      expect(rowOf(store, e)!.Expiration!.toMillis()).to.equal(cap);
     });
   });
 

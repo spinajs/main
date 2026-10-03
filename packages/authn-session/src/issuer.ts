@@ -17,6 +17,12 @@ export const SESSION_IP_KEY = 'Ip';
 /** Client user agent shown by `list`; set like SESSION_IP_KEY. */
 export const SESSION_USER_AGENT_KEY = 'UserAgent';
 
+/**
+ * In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen
+ * `readonly string[]`. Reserved, so `set` refuses it.
+ */
+export const SESSION_PENDING_STEPS_KEY = 'authn:pendingSteps';
+
 const RESERVED_PREFIX = 'authn:';
 const FACTS_KEY = 'authn:facts';
 const PENDING_KEY = 'authn:pending';
@@ -60,6 +66,13 @@ const ref = (r: IdentityRef | PrincipalRef): IdentityRef => ({ type: r.type, id:
 function toStored(f: AuthnFacts): StoredFacts {
   return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime() };
 }
+
+function pendingStepsOf(v: unknown): readonly string[] {
+  const steps = (v as { steps?: unknown } | undefined)?.steps;
+  return Object.freeze(Array.isArray(steps) ? steps.filter((s): s is string => typeof s === 'string') : []);
+}
+
+const isExpired = (s: ISession): boolean => !!s.Expiration && s.Expiration <= DateTime.now();
 
 function readStored(v: unknown): StoredFacts | null {
   const f = v as Partial<StoredFacts> | undefined;
@@ -124,12 +137,16 @@ export class DefaultSessionIssuer extends SessionIssuer {
     if (session.State === 'active') {
       await this.refresh(session);
     }
+    // The store checked the row before the renewal; a just-migrated 2.x row past maxLifetime is only caught here.
+    if (isExpired(session)) {
+      return null;
+    }
 
     return {
       handle: { id: rawId, state: session.State },
       identity: ref(session.Subject),
       facts: this.factsOf(session, stored),
-      data: this.publicData(session.Data),
+      data: this.publicData(session),
     };
   }
 
@@ -311,8 +328,12 @@ export class DefaultSessionIssuer extends SessionIssuer {
     };
   }
 
-  protected publicData(data: Map<string, unknown>): ReadonlyMap<string, unknown> {
-    return new Map([...data].filter(([k]) => !k.startsWith(RESERVED_PREFIX)));
+  protected publicData(session: ISession): ReadonlyMap<string, unknown> {
+    const data = new Map<string, unknown>([...session.Data].filter(([k]) => !k.startsWith(RESERVED_PREFIX)));
+    if (session.State === 'pending') {
+      data.set(SESSION_PENDING_STEPS_KEY, pendingStepsOf(session.Data.get(PENDING_KEY)));
+    }
+    return data;
   }
 
   /** Slides the idle deadline and records lastSeenAt (at most once a minute) in one update-only write. */
@@ -356,6 +377,13 @@ export class DefaultSessionIssuer extends SessionIssuer {
       ...over,
     });
     await this.Store.save(moved);
+    // save gave it the initial expiration, capped at Creation + maxLifetime: elevating a migrated 2.x row that old
+    // yields a dead session, so end both rows and refuse.
+    if (isExpired(moved)) {
+      await this.Store.delete(moved.SessionId);
+      await this.Store.delete(session.SessionId);
+      throw new InvalidOperation('Unknown or expired session');
+    }
     if (!(await this.Store.restore(session.SessionId))) {
       await this.Store.delete(moved.SessionId);
       throw new InvalidOperation('Unknown or expired session');

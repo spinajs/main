@@ -75,6 +75,15 @@ describe('Session expiration strategies', () => {
       closeTo(result, DateTime.now().plus({ minutes: 30 }));
     });
 
+    it('SR-session absolute timeout: initial never passes Creation + maxLifetime (elevate and the 2.x migration keep an old Creation)', async () => {
+      await withConfig({ service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 480 });
+      const strategy = await DI.resolve(SlidingCappedExpiration);
+
+      const session = new UserSession();
+      session.Creation = DateTime.now().minus({ minutes: 470 });
+      closeTo(strategy.initial(session), session.Creation.plus({ minutes: 480 }));
+    });
+
     it('renew slides to now + ttl when under the cap', async () => {
       await withConfig({ service: 'SlidingCappedExpiration', ttl: 30, maxLifetime: 1440 });
       const strategy = await DI.resolve(SlidingCappedExpiration);
