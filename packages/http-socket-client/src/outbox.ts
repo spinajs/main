@@ -6,7 +6,7 @@ export interface OutboxEntry<P = unknown> {
   readonly seq: number;
   readonly name: string;
   readonly payload: P;
-  /** Idempotency key chosen by the app; `${clientId}:${seq}` when absent. */
+  /** Idempotency key chosen by the app; the queue persists `${clientId}:<random nonce>` when absent. */
   readonly key?: string;
   /** ms epoch */
   readonly createdAt: number;
