@@ -2,6 +2,7 @@ import { SocketException, WIRE_EVENTS, type ContractShape, type EventFrame, type
 import { CommandDispatcher, DEFAULT_TIMEOUT_MS, type CommandOptions } from './commands.js';
 import { Connection, type AuthProvider, type ConnectionState, type IoOptions } from './connection.js';
 import type { TypedSocketClient } from './contract.js';
+import type { FailedCommand } from './durable.js';
 import { Emitter, rethrowAsync } from './emitter.js';
 import { randomId } from './ids.js';
 import type { ReconnectOptions } from './reconnect.js';
@@ -24,11 +25,6 @@ export interface SocketClientOptions {
   onListenerError?: (error: unknown) => void;
 }
 
-export interface FailedCommand {
-  entry: unknown;
-  error: SocketError;
-}
-
 export interface ClientLifecycleEvents {
   state: (state: ConnectionState, previous: ConnectionState) => void;
   auth_required: (error: SocketError) => void;
@@ -38,6 +34,8 @@ export interface ClientLifecycleEvents {
   /** Reserved for durable commands: an outbox entry the server refused for good. */
   failed: (event: FailedCommand) => void;
 }
+
+export type { FailedCommand };
 
 export type LifecycleEventName = keyof ClientLifecycleEvents;
 
