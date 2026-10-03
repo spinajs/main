@@ -233,3 +233,27 @@ describe('FileOutboxStore resilience', () => {
     expect((await new FileOutboxStore(path).add({ name: 'x', payload: 3 })).seq).to.be.above(newest.seq);
   });
 });
+
+describe('FileOutboxStore batching', () => {
+  it('rejects only the caller whose payload is not JSON, not the whole batch', async () => {
+    const path = nextPath();
+    const store = new FileOutboxStore(path);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    const results = await Promise.allSettled([store.add({ name: 'x', payload: 1 }), store.add({ name: 'x', payload: circular }), store.add({ name: 'x', payload: 3 })]);
+
+    expect(results.map((r) => r.status)).to.deep.equal(['fulfilled', 'rejected', 'fulfilled']);
+    expect((await new FileOutboxStore(path).pending()).map((e) => e.payload)).to.deep.equal([1, 3]);
+  });
+
+  it('lets reads in a batch see the changes queued before them, and not those after', async () => {
+    const store = new FileOutboxStore(nextPath());
+    const first = await store.add({ name: 'x', payload: 1 });
+
+    const [, before, , after] = await Promise.all([store.add({ name: 'x', payload: 2 }), store.pending(), store.remove(first.seq), store.pending()]);
+
+    expect(before.map((e) => e.payload)).to.deep.equal([1, 2]);
+    expect(after.map((e) => e.payload)).to.deep.equal([2]);
+  });
+});

@@ -54,6 +54,13 @@ export class FileOutboxStore implements OutboxStore {
   }
 
   public add<P>(input: OutboxInput<P>): Promise<OutboxEntry<P>> {
+    try {
+      // A payload that cannot be serialized must fail its own caller, not the batch it would share a write with.
+      JSON.stringify(input.payload);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
     return this.submit(true, (state) => {
       const entry: OutboxEntry<P> = { seq: ++state.seq, name: input.name, payload: structuredClone(input.payload), createdAt: Date.now(), ...(input.key !== undefined ? { key: input.key } : {}) };
       state.pending.push(entry);
@@ -184,6 +191,7 @@ export class FileOutboxStore implements OutboxStore {
       throw err;
     }
 
+    // An error here means the batch may have persisted although it rejects: at-least-once, and the idempotency key makes the retry safe.
     await this.syncDirectory();
   }
 
