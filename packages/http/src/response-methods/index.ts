@@ -1,6 +1,7 @@
 export * from './badRequest.js';
 export * from './created.js';
 export * from './file.js';
+export * from './buffer.js';
 export * from './forbidden.js';
 export * from './noContent.js';
 export * from './notFound.js';

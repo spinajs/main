@@ -291,6 +291,14 @@ describe('http & controller tests', function () {
     expect(response.header['content-length']).to.be.not.null;
   });
 
+  it('Should get an in-memory buffer with its mime type', async () => {
+    const response = await req().get('files/buffer').send();
+
+    expect(response).to.have.status(200);
+    expect(response.header['content-type']).to.eq('image/png');
+    expect(Buffer.compare(response.body, Buffer.from(Array.from({ length: 256 }, (_, i) => i)))).to.eq(0);
+  });
+
   it('@Ip returns client ip', async () => {
     const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
     expect(response).to.have.status(200);
