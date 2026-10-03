@@ -1,5 +1,6 @@
 export * from './roles.js';
 export * from './grants.js';
+export * from './patterns.js';
 export * from './assignments.js';
 export * from './evaluate.js';
 export * from './memory.js';

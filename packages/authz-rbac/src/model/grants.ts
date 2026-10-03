@@ -2,6 +2,8 @@ import { AuthzConfigError, UnknownPermission, parsePermission } from '@spinajs/a
 import type { FieldSet, Permission, PermissionDef, PermissionRegistry, ResourceType } from '@spinajs/authz';
 
 import type { GrantDef, ResourcePattern, RoleDef } from '../contracts.js';
+import { compilePattern } from './patterns.js';
+import type { CompiledPattern } from './patterns.js';
 import type { RoleGraph } from './roles.js';
 
 /** One grant giving one concrete permission. */
@@ -17,6 +19,8 @@ export interface CompiledGrant {
   /** Absent when the grant names no relation. */
   readonly relations?: readonly string[];
   readonly on?: readonly ResourcePattern[];
+  /** `on` compiled; set exactly when `on` is. */
+  readonly patterns?: readonly CompiledPattern[];
   /** Only on permissions with `fields: true`. */
   readonly fields?: FieldSet;
   readonly requiresTag?: string;
@@ -93,6 +97,7 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
   for (const grant of role.grants) {
     validateGrant(grant, at);
     const relations = typeof grant.relation === 'string' ? [grant.relation] : grant.relation;
+    const patterns = compileOn(grant, role);
 
     const direct = matchGrant(grant, registry, at);
     if (direct.length === 0) notes.unmatchedGlobs.push({ role: role.name, glob: grant.permission });
@@ -108,7 +113,7 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
         via: impliedFrom === undefined ? 'direct' : 'implies',
         ...(impliedFrom !== undefined ? { impliedFrom } : {}),
         ...(relations ? { relations: Object.freeze([...relations]) } : {}),
-        ...(grant.on !== undefined ? { on: grant.on } : {}),
+        ...(patterns ? { on: grant.on, patterns } : {}),
         ...(grant.fields !== undefined && def.fields === true ? { fields: grant.fields } : {}),
         ...(grant.requiresTag !== undefined ? { requiresTag: grant.requiresTag } : {}),
         ...(grant.grantedAt !== undefined ? { grantedAt: grant.grantedAt } : {}),
@@ -168,6 +173,15 @@ function validateGrant(grant: unknown, at: string): asserts grant is GrantDef {
   if (r !== undefined && !(typeof r === 'string' ? r !== '' : Array.isArray(r) && r.length > 0 && r.every((x) => typeof x === 'string' && x !== ''))) {
     throw new AuthzConfigError(`${at}: grant '${g.permission}' has an invalid relation; use a relation name or a non-empty array of them`);
   }
+}
+
+/** An empty `on` would permit nothing; it is refused as a config mistake rather than read as "no limit". */
+function compileOn(grant: GrantDef, role: RoleDef): readonly CompiledPattern[] | undefined {
+  const on: unknown = grant.on;
+  if (on === undefined) return undefined;
+  const where = `rbac role '${role.name}' grant '${grant.permission}' (source: ${role.source})`;
+  if (!Array.isArray(on) || on.length === 0) throw new AuthzConfigError(`${where}: \`on\` must be a non-empty array of resource patterns`);
+  return Object.freeze(on.map((p: ResourcePattern) => compilePattern(p, where)));
 }
 
 // Ordinal order (names are ASCII); localeCompare would depend on the host locale.

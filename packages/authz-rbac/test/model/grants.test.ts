@@ -230,6 +230,25 @@ describe('authz-rbac model: compileGrants', () => {
       }
     });
 
+    it('on that is empty, not an array or holds a malformed pattern is AuthzConfigError naming the grant', () => {
+      for (const on of [[], 'file', [{ type: '' }], [{ type: 'file', id: '{principal}' }]]) {
+        const err = thrown(() => compile([role('r', [{ permission: 'file:*', on } as unknown as GrantDef])], registry(PERMS)));
+        expect(err, JSON.stringify(on)).to.be.instanceOf(AuthzConfigError);
+        expect(err.message).to.contain("rbac role 'r' grant 'file:*' (source: test)");
+      }
+    });
+
+    it('on is compiled once per grant and shared by its expanded permissions', () => {
+      const reg = registry([{ name: 'file:write', implies: ['file:read'] }, 'file:read']);
+      const idx = compile([role('r', [{ permission: 'file:write', on: [{ type: 'file', id: 'a/{principal.id}/*' }] }, 'file:read'])], reg);
+      const [write] = idx.grants('r', 'file:write');
+      const [read, plain] = idx.grants('r', 'file:read');
+      expect(write.patterns).to.deep.equal([{ type: 'file', id: ['a/', { principal: ['id'] }, '/*'], glob: true, pattern: { type: 'file', id: 'a/{principal.id}/*' } }]);
+      expect(read.patterns).to.equal(write.patterns);
+      expect(Object.isFrozen(write.patterns![0])).to.equal(true);
+      expect(plain).not.to.have.property('patterns');
+    });
+
     it('an implied permission the registry does not hold is UnknownPermission (unfrozen registry)', () => {
       const reg = new PermissionRegistryImpl();
       reg.register([{ name: 'file:write', implies: ['file:ghost'] }], 'test');

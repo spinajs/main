@@ -3,6 +3,7 @@ import type { AuthzContribution, PermissionRefDecl, PermissionRegistry, Relation
 
 import type { GrantIndex } from './grants.js';
 import type { RbacModel } from './model.js';
+import { patternTypes } from './patterns.js';
 import type { RoleGraph } from './roles.js';
 
 /**
@@ -39,7 +40,8 @@ export class RbacContributor extends AuthzContributor {
 /**
  * One ref per relation of each compiled grant and per type of its permission: the engine resolves a
  * relation through the resolver of the checked resource's type (B05 rule 8). `$global` is left out,
- * it is no type a resolver serves.
+ * it is no type a resolver serves. A grant limited by `on` needs refs only for the types its patterns
+ * can admit: elsewhere AND(relation, FALSE) never evaluates the relation.
  */
 function relationRefs(graph: RoleGraph, grants: GrantIndex, registry: PermissionRegistry): RelationRefDecl[] {
   const out = new Map<string, RelationRefDecl>();
@@ -51,7 +53,7 @@ function relationRefs(graph: RoleGraph, grants: GrantIndex, registry: Permission
         if (g.role !== role) continue;
         const source = `rbac role '${role}' grant '${permission}'${g.def.permission === permission ? '' : ` (from '${g.def.permission}')`}`;
         for (const relation of g.relations ?? []) {
-          for (const type of types) out.set(JSON.stringify([type, relation, source]), { type, relation, source });
+          for (const type of g.patterns ? patternTypes(g.patterns, types) : types) out.set(JSON.stringify([type, relation, source]), { type, relation, source });
         }
       }
     }

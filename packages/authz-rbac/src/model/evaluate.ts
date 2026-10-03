@@ -5,6 +5,8 @@ import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../
 import { expiryTime } from './assignments.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
+import { patternsFilter } from './patterns.js';
+import type { PatternContext } from './patterns.js';
 import type { CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
@@ -130,8 +132,8 @@ const grant: RbacStep = (s) => {
 };
 
 /** The rows a passing grant permits: the AND of its conditions; a grant with none permits every row. */
-export function grantResidual(grant: CompiledGrant): ResourceFilter {
-  return and(relationResidual(grant));
+export function grantResidual(grant: CompiledGrant, at: PatternContext): ResourceFilter {
+  return and(relationResidual(grant), grant.patterns ? patternsFilter(grant.patterns, at) : TRUE);
 }
 
 /** Several relations of one grant OR (B15). */
@@ -148,8 +150,9 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  */
 const residual: RbacStep = (s) => {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
+  const at: PatternContext = { resource: s.input.request.resource, path: s.input.path, principal: s.input.request.principal };
   for (const c of s.candidates) {
-    if (!c.failed) s.permit.push(grantResidual(c.grant));
+    if (!c.failed) s.permit.push(grantResidual(c.grant, at));
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));

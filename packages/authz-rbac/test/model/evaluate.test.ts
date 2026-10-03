@@ -31,6 +31,8 @@ function input(assignments: readonly Assignment[], permission: string, opts: { r
 
 const NO_ACCESS = { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access };
 
+const withGrantsOf = (name: string, grants: RoleDef['grants']): RoleDef => ({ ...role(name), grants });
+
 /** The default table with some steps replaced. */
 const withSteps = (replace: Partial<RbacSteps>): RbacSteps => ({ ...RBAC_STEPS, ...replace });
 
@@ -250,6 +252,48 @@ describe('authz-rbac model: the evaluation pipeline', () => {
     it('a type-level request gets the same residual: every row is checked against relation(R)', () => {
       const base = input([assignment('a1', 'owner-reader')], 'file:read', { roles: RELATION_ROLES });
       expect(runRbacPipeline({ ...base, request: { ...base.request, resource: { type: 'file' } } }).permitWhen).to.deep.equal(rel('owner'));
+    });
+
+    it('a partial permit keeps the reason of the refused grant while permitWhen is conditional', () => {
+      const tagMissing = { code: 'tag_missing', tag: 'beta', priority: DEFAULT_DENY_PRIORITY.tag_missing };
+      const v = runRbacPipeline(
+        input([assignment('a1', 'owner-reader'), assignment('a2', 'reader')], 'file:read', { roles: RELATION_ROLES }),
+        withSteps({
+          tag: (s) => {
+            s.candidates.find((c) => c.grant.role === 'reader')!.failed = true;
+            s.reasons.push(tagMissing);
+          },
+        }),
+      );
+      expect(v.permitWhen).to.deep.equal(rel('owner'));
+      expect(v.reason).to.deep.equal(tagMissing);
+    });
+  });
+
+  describe('resource patterns in the residual (B16)', () => {
+    const patterned = withGrantsOf('patterned', [{ permission: 'file:read', relation: 'owner', on: [{ type: 'file', id: 'pub-*' }] }]);
+    const exact = withGrantsOf('exact', [{ permission: 'file:read', on: [{ type: 'file', id: 'f1' }] }]);
+    const run = (roleName: string, resource: ResourceRef) => {
+      const base = input([assignment('a1', roleName)], 'file:read', { roles: [patterned, exact] });
+      return runRbacPipeline({ ...base, request: { ...base.request, resource }, path: resource.id === undefined ? [GLOBAL] : [resource, GLOBAL] }).permitWhen;
+    };
+
+    it('the pattern part is ANDed with the relation part', () => {
+      expect(run('patterned', { type: 'file' })).to.deep.equal({
+        op: 'and',
+        args: [
+          { op: 'relation', relation: 'owner' },
+          { op: 'cmp', field: 'id', cmp: 'glob', value: 'pub-*' },
+        ],
+      });
+      expect(run('patterned', { type: 'file', id: 'pub-1' })).to.deep.equal({ op: 'relation', relation: 'owner' });
+      expect(run('patterned', f1)).to.deep.equal(FALSE);
+    });
+
+    it('a grant whose patterns miss the resource permits nothing', () => {
+      expect(run('exact', f1)).to.deep.equal(TRUE);
+      expect(run('exact', { type: 'file', id: 'f2' })).to.deep.equal(FALSE);
+      expect(run('exact', { type: 'file' })).to.deep.equal({ op: 'under', scopes: [f1] });
     });
   });
 

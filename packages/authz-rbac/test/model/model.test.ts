@@ -369,6 +369,46 @@ describe('authz-rbac model: RbacContributor', () => {
     ]);
   });
 
+  const contributed = async (roles: readonly RoleDef[], permissions: Parameters<typeof registry>[0]) => {
+    const m = new RbacModel({ roles: new MemoryRoleStore(roles), assignments: new MemoryAssignmentStore(), log });
+    await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry(permissions) }));
+    return new RbacContributor(m).contribute('test');
+  };
+  const withGrants = (name: string, list: RoleDef['grants']): RoleDef => ({ ...role(name), grants: list });
+
+  it('an implied permission gets refs for its own types, with the grant as written in the source', async () => {
+    const out = await contributed(
+      [withGrants('w', [{ permission: 'file:write', relation: 'owner' }])],
+      [
+        { name: 'file:read', types: ['file', 'folder'] },
+        { name: 'file:write', types: ['file'], implies: ['file:read'] },
+      ],
+    );
+    expect(out.relationRefs).to.deep.equal([
+      { type: 'file', relation: 'owner', source: "rbac role 'w' grant 'file:read' (from 'file:write')" },
+      { type: 'folder', relation: 'owner', source: "rbac role 'w' grant 'file:read' (from 'file:write')" },
+      { type: 'file', relation: 'owner', source: "rbac role 'w' grant 'file:write'" },
+    ]);
+  });
+
+  it('on patterns narrow the ref types: a type-only or glob pattern to its type, an exact id keeps every type below the node', async () => {
+    const roles = [withGrants('typed', [{ permission: 'file:read', relation: 'owner', on: [{ type: 'folder' }] }]), withGrants('globbed', [{ permission: 'file:read', relation: 'owner', on: [{ type: 'doc', id: 'pub-*' }] }]), withGrants('exact', [{ permission: 'file:read', relation: 'member', on: [{ type: 'dir', id: 'home' }] }]), withGrants('outside', [{ permission: 'file:read', relation: 'owner', on: [{ type: 'note' }] }])];
+    const out = await contributed(roles, [{ name: 'file:read', types: ['file', 'folder', 'doc'] }]);
+    expect(out.relationRefs).to.deep.equal([
+      { type: 'folder', relation: 'owner', source: "rbac role 'typed' grant 'file:read'" },
+      { type: 'doc', relation: 'owner', source: "rbac role 'globbed' grant 'file:read'" },
+      { type: 'file', relation: 'member', source: "rbac role 'exact' grant 'file:read'" },
+      { type: 'folder', relation: 'member', source: "rbac role 'exact' grant 'file:read'" },
+      { type: 'doc', relation: 'member', source: "rbac role 'exact' grant 'file:read'" },
+    ]);
+  });
+
+  it('a malformed pattern fails the boot, naming the role and the grant', async () => {
+    const err = await rejects(contributed([withGrants('bad', [{ permission: 'file:read', on: [{ type: 'file', id: '{env.now}' }] }])], ['file:read']));
+    expect(err).to.be.instanceOf(AuthzConfigError);
+    expect(err.message).to.contain("rbac role 'bad' grant 'file:read'");
+  });
+
   it('throws UnknownPermission naming a grant of an unregistered permission (B02)', async () => {
     const m = new RbacModel({ roles: new MemoryRoleStore([role('editor', ['file:read', 'ghost:read'])]), assignments: new MemoryAssignmentStore(), log });
     await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
