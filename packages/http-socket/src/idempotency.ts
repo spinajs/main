@@ -239,11 +239,15 @@ export class SocketIdempotency {
           publish(reply);
           return reply;
         },
-        (err: unknown) => {
-          forget();
-          publish(null);
-          throw err;
-        },
+        // a key left running would refuse every resend for good
+        (err: unknown) =>
+          this.Store.release(scoped)
+            .catch((releaseErr: Error) => this.Log.error(releaseErr, `Socket command ${name}: releasing its idempotency key failed`))
+            .then(() => {
+              forget();
+              publish(null);
+              throw err;
+            }),
       ));
 
     return {

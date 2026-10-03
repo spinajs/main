@@ -50,6 +50,12 @@ export class IdempotencySocket extends BaseSocketController {
     return { tag: p.tag, run: n };
   }
 
+  @Command('unstorable', { idempotent: true })
+  public async unstorable(@Payload() p: { tag: string }) {
+    run(p.tag);
+    return { tag: p.tag, cannotClone: () => undefined };
+  }
+
   @Command('plain')
   public async plain() {
     return 'plain';
@@ -182,6 +188,15 @@ describe('socket idempotent commands', function () {
 
     expect(resultOf(await resent)).to.deep.equal({ tag: 'h', run: 1 });
     expect(idemRuns.get('h')).to.equal(1);
+  });
+
+  it('releases a key whose outcome the store could not keep, so a resend is not refused for good', async () => {
+    const s = await connect('idem-unstorable');
+    await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
+    const resent = await command(s, 'idem.unstorable', { tag: 'x' }, { idempotencyKey: 'k1' });
+
+    expect(resent.ok || resent.error.code).to.not.equal('unavailable');
+    expect(idemRuns.get('x')).to.equal(2);
   });
 
   it('uses the store class named in http.socket.idempotency.service', async () => {
