@@ -93,16 +93,16 @@ Own and admin metadata routes with owner scoping and the protected-key guard; al
 | 4 | 138 | UserMetadataController > own metadata — read > paginates | adapt | C2 | users-http/test/ |
 | 5 | 147 | UserMetadataController > own metadata — read > orders by the requested column | adapt | C2 | users-http/test/ |
 | 6 | 153 | UserMetadataController > own metadata — read > returns a single own entry by key | adapt | C2 | users-http/test/ |
-| 7 | 159 | UserMetadataController > own metadata — read > does not return another user entry by key | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15) |
+| 7 | 159 | UserMetadataController > own metadata — read > does not return another user entry by key | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
 | 8 | 165 | UserMetadataController > own metadata — write > adds a new entry | adapt | C2 | users-http/test/ |
 | 9 | 172 | UserMetadataController > own metadata — write > forces ownership — a user_id sent in the payload is ignored | adapt | C2 | users-http/test/ (IDOR intent kept: ownership forced on write, B15) |
 | 10 | 179 | UserMetadataController > own metadata — write > updates an existing entry by key | adapt | C2 | users-http/test/ |
 | 11 | 185 | UserMetadataController > own metadata — write > updates an existing entry by id | adapt | C2 | users-http/test/ |
 | 12 | 201 | UserMetadataController > own metadata — write > updates by id without touching an entry whose key is that number | adapt | C2 | users-http/test/ |
-| 13 | 219 | UserMetadataController > own metadata — write > cannot update an entry of another user by key | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15) |
-| 14 | 225 | UserMetadataController > own metadata — write > cannot update an entry of another user by id | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15) |
+| 13 | 219 | UserMetadataController > own metadata — write > cannot update an entry of another user by key | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
+| 14 | 225 | UserMetadataController > own metadata — write > cannot update an entry of another user by id | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
 | 15 | 233 | UserMetadataController > own metadata — write > deletes an own entry | adapt | C2 | users-http/test/ |
-| 16 | 242 | UserMetadataController > own metadata — write > cannot delete an entry of another user | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15) |
+| 16 | 242 | UserMetadataController > own metadata — write > cannot delete an entry of another user | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
 | 17 | 252 | UserMetadataController > protected metadata keys > refuses to plant the invite marker through own POST /user/metadata | adapt | C2 | users-http/test/ (A12, SR-02: SEC1 reserved-prefix guard kept on the `@Access` routes) |
 | 18 | 260 | UserMetadataController > protected metadata keys > refuses to rewrite an entry Key to the invite marker through own PATCH | adapt | C2 | users-http/test/ (A12, SR-02: SEC1 reserved-prefix guard kept on the `@Access` routes) |
 | 19 | 269 | UserMetadataController > protected metadata keys > refuses to plant the invite marker through the admin route | adapt | C2 | users-http/test/ (A12, SR-02: SEC1 reserved-prefix guard kept on the `@Access` routes) |
@@ -113,7 +113,7 @@ Own and admin metadata routes with owner scoping and the protected-key guard; al
 | 24 | 304 | UserMetadataController > admin routes > adds metadata to any user | adapt | C2 | users-http/test/ |
 | 25 | 311 | UserMetadataController > admin routes > updates metadata of any user, scoped to that user | adapt | C2 | users-http/test/ |
 | 26 | 320 | UserMetadataController > admin routes > deletes metadata of any user | adapt | C2 | users-http/test/ |
-| 27 | 329 | UserMetadataController > admin routes > does not delete an entry that belongs to a different user than the one addressed | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15) |
+| 27 | 329 | UserMetadataController > admin routes > does not delete an entry that belongs to a different user than the one addressed | adapt | C2 | users-http/test/ (IDOR intent kept: owner scoping through the `self` relation, B15; SEC1: expects 404, `ResourceNotFound`, like an absent or reserved entry) |
 | 28 | 337 | UserMetadataController > admin routes > leaves the rest of the metadata of the user alone when one entry is removed | adapt | C2 | users-http/test/ |
 
 ## test/users-controller.test.ts

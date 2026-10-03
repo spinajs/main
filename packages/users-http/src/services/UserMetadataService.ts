@@ -1,5 +1,6 @@
 import { Injectable } from '@spinajs/di';
-import { UserMetadata, assertNoProtectedMetadata } from '@spinajs/users';
+import { ResourceNotFound, InvalidArgument } from '@spinajs/exceptions';
+import { UserMetadata, assertNoProtectedMetadata, isReservedMetadataKey } from '@spinajs/users';
 import { InsertBehaviour, SortOrder } from '@spinajs/orm';
 import type { IFilterRequest, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 import { FilterableUserMetadata } from '../models/FilterableUserMetadata.js';
@@ -27,6 +28,8 @@ export function addressedColumn(idOrKey: string | number): 'Id' | 'Key' {
   return typeof idOrKey === 'number' || /^\d+$/.test(idOrKey) ? 'Id' : 'Key';
 }
 
+const notFound = () => new ResourceNotFound('Metadata entry not found');
+
 /**
  * User metadata access, always scoped to one owner.
  *
@@ -38,27 +41,41 @@ export function addressedColumn(idOrKey: string | number): 'Id' | 'Key' {
  * Ownership is filtered explicitly rather than left to the rbac query
  * middleware: metadata queries resolve to the unsafe base model, so no
  * automatic owner scoping fires for them.
+ *
+ * Reserved keys ({@link isReservedMetadataKey}: 2FA secrets, reset and invite tokens, ban and
+ * throttle state) do not exist for this API (design A12, SR-01, SR-02): no list shows them, and
+ * a read, update or delete that addresses one answers 404 like a missing entry. Every check runs
+ * on the key of the row the database returned too, not only on the key the caller sent, because
+ * a case- or accent-insensitive collation lets another spelling address a reserved row.
  */
 @Injectable()
 export class UserMetadataService {
-  /** Paginated, filtered, ordered listing of one user's metadata. */
-  public list(ownerId: number, pagination?: PaginationDTO, order?: OrderDTO, filter?: IFilterRequest) {
+  /** Paginated, filtered, ordered listing of one user's metadata, reserved keys left out. */
+  public async list(ownerId: number, pagination?: PaginationDTO, order?: OrderDTO, filter?: IFilterRequest) {
     const limit = pagination?.limit || DEFAULT_PAGE_SIZE;
 
-    return FilterableUserMetadata.select()
-      .where('user_id', ownerId)
+    // Excluded in the query, not after it, so a page holds `limit` visible entries.
+    const reserved = (await this.rowsOf(ownerId)).filter((m) => isReservedMetadataKey(m.Key)).map((m) => m.Id);
+
+    const query = FilterableUserMetadata.select().where('user_id', ownerId);
+
+    if (reserved.length > 0) {
+      query.whereNotIn('Id', reserved);
+    }
+
+    const rows = await query
       .filter(filter?.filters ?? [], filter?.op)
       .take(limit)
       .skip(limit * (pagination?.page ?? 0))
       .order(order?.column ?? 'Id', order?.order ?? SortOrder.DESC);
+
+    // A reserved row written between the two queries.
+    return rows.filter((m) => !isReservedMetadataKey(m.Key));
   }
 
-  /** A single entry of one user, by key. Rejects when absent. */
-  public getByKey(ownerId: number, key: string) {
-    return UserMetadata.where({
-      Key: key,
-      user_id: ownerId,
-    }).firstOrFail();
+  /** A single entry of one user, by key. Rejects with 404 when absent or reserved. */
+  public async getByKey(ownerId: number, key: string): Promise<UserMetadata> {
+    return this.addressed(ownerId, String(key), 'Key');
   }
 
   /**
@@ -69,9 +86,10 @@ export class UserMetadataService {
    * to satisfy the generated schema. Ownership comes from the addressed user and nothing else.
    */
   public async upsert(ownerId: number, data: UserMetadataDto): Promise<void> {
-    // This route is generic enough to reach rbac's own security keys (invite marker, ban, 2FA, …);
+    // This route is generic enough to reach the account's security keys (invite marker, ban, 2FA, …);
     // an admin has dedicated routes for those, so the generic API must refuse them for everyone.
     assertNoProtectedMetadata({ [data.Key]: data.Value });
+    await this.assertNoReservedTwin(ownerId, data.Key);
 
     const entry = new UserMetadata();
 
@@ -88,7 +106,8 @@ export class UserMetadataService {
 
   /**
    * Update an entry addressed by either its Id or its Key, always AND-ed with the ownership filter
-   * so no caller can reach another user's entry.
+   * so no caller can reach another user's entry. Rejects with 404 when the entry is absent or
+   * reserved.
    *
    * ONE column is compared, chosen by {@link addressedColumn} — never both in an `OR`. The previous
    * `Key = ? OR Id = ?` put a single value against columns of two different types, and a numeric
@@ -104,23 +123,61 @@ export class UserMetadataService {
     // guard as upsert() applies here regardless of which entry is currently addressed.
     assertNoProtectedMetadata({ [data.Key]: data.Value });
 
+    const entry = await this.addressed(ownerId, idOrKey, addressedColumn(idOrKey));
+    await this.assertNoReservedTwin(ownerId, data.Key);
+
     await UserMetadata.update({
       Key: data.Key,
       Value: data.Value,
       Type: data.Type,
     })
-      .where(addressedColumn(idOrKey), idOrKey)
+      .where('Id', entry.Id)
       .andWhere('user_id', ownerId);
   }
 
   /**
-   * Delete an entry by id, scoped to its owner.
+   * Delete an entry by id, scoped to its owner. Rejects with 404 when the entry is absent or
+   * reserved.
    *
    * `destroy()` refuses to build an unbounded DELETE, so the entry id goes in
    * as the primary key and ownership is AND-ed on top of it — deleting by id
    * alone would let any caller remove anybody's entry.
    */
   public async delete(ownerId: number, id: number): Promise<void> {
-    await UserMetadata.destroy(id).andWhere('user_id', ownerId);
+    const entry = await this.addressed(ownerId, id, 'Id');
+
+    await UserMetadata.destroy(entry.Id).andWhere('user_id', ownerId);
+  }
+
+  private rowsOf(ownerId: number) {
+    return UserMetadata.where('user_id', ownerId) as unknown as Promise<UserMetadata[]>;
+  }
+
+  /** The one visible entry the identifier addresses within the owner's metadata, or a 404. */
+  private async addressed(ownerId: number, idOrKey: string | number, column: 'Id' | 'Key'): Promise<UserMetadata> {
+    if (column === 'Key' && isReservedMetadataKey(String(idOrKey))) {
+      throw notFound();
+    }
+
+    const rows = (await (UserMetadata.where(column, idOrKey).andWhere('user_id', ownerId) as unknown as Promise<UserMetadata[]>)) ?? [];
+
+    if (rows.length !== 1 || isReservedMetadataKey(rows[0].Key)) {
+      throw notFound();
+    }
+
+    return rows[0];
+  }
+
+  /**
+   * Refuses a key the database matches to a stored reserved row, which a case- or
+   * accent-insensitive collation does for spellings the key check lets through
+   * (`2fá:enabled` against `2fa:enabled`); `InsertOrUpdate` would then overwrite that row.
+   */
+  private async assertNoReservedTwin(ownerId: number, key: string): Promise<void> {
+    const twins = (await (UserMetadata.where('Key', key).andWhere('user_id', ownerId) as unknown as Promise<UserMetadata[]>)) ?? [];
+
+    if (twins.some((m) => isReservedMetadataKey(m.Key))) {
+      throw new InvalidArgument(`Protected metadata keys cannot be set directly: ${key}`);
+    }
   }
 }

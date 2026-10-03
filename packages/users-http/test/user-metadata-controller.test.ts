@@ -8,9 +8,9 @@ import { Orm, SortOrder } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
-import { OrderDTO, PaginationDTO } from '@spinajs/orm-http';
+import { FilterableLogicalOperators, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
 
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User, UserMetadata } from '@spinajs/users';
 
 import { UserMetadataController } from '../src/controllers/UserMetadataController.js';
@@ -157,7 +157,7 @@ describe('UserMetadataController', function () {
     });
 
     it('does not return another user entry by key', async () => {
-      await expect(body(await controller.getMeta(owner, 'secret'))).to.be.rejected;
+      await expect(controller.getMeta(owner, 'secret')).to.be.rejectedWith(ResourceNotFound);
     });
   });
 
@@ -217,7 +217,7 @@ describe('UserMetadataController', function () {
     });
 
     it('cannot update an entry of another user by key', async () => {
-      await controller.updateMetadata(owner, 'secret', { Key: 'secret', Value: 'hacked', Type: 'string' } as any);
+      await expect(controller.updateMetadata(owner, 'secret', { Key: 'secret', Value: 'hacked', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
 
       expect((await metaOf(other, 'secret'))!.Value, 'foreign metadata must stay untouched').to.eq('do-not-touch');
     });
@@ -225,7 +225,7 @@ describe('UserMetadataController', function () {
     it('cannot update an entry of another user by id', async () => {
       const foreign = await metaOf(other, 'secret');
 
-      await controller.updateMetadata(owner, String(foreign!.Id), { Key: 'secret', Value: 'hacked', Type: 'string' } as any);
+      await expect(controller.updateMetadata(owner, String(foreign!.Id), { Key: 'secret', Value: 'hacked', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
 
       expect((await metaOf(other, 'secret'))!.Value).to.eq('do-not-touch');
     });
@@ -242,7 +242,7 @@ describe('UserMetadataController', function () {
     it('cannot delete an entry of another user', async () => {
       const foreign = await metaOf(other, 'secret');
 
-      await controller.deleteMetadata(owner, foreign!.Id);
+      await expect(controller.deleteMetadata(owner, foreign!.Id)).to.be.rejectedWith(ResourceNotFound);
 
       expect(await metaOf(other, 'secret'), 'foreign metadata must survive').to.exist;
     });
@@ -329,7 +329,7 @@ describe('UserMetadataController', function () {
     it('does not delete an entry that belongs to a different user than the one addressed', async () => {
       const ownerEntry = await metaOf(owner, 'user:phone');
 
-      await controller.deleteUserMetadata(other, ownerEntry!.Id);
+      await expect(controller.deleteUserMetadata(other, ownerEntry!.Id)).to.be.rejectedWith(ResourceNotFound);
 
       expect(await metaOf(owner, 'user:phone'), 'delete must stay scoped to the addressed user').to.exist;
     });
@@ -340,6 +340,169 @@ describe('UserMetadataController', function () {
 
       const left = await allMetaOf(other);
       expect(left.map((m) => m.Key)).to.deep.eq(['user:niceName']);
+    });
+
+    it('answers 404 for an update of an entry that does not exist', async () => {
+      await expect(controller.updateMetadata(owner, 'user:missing', { Key: 'user:missing', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+      expect(await metaOf(owner, 'user:missing')).to.not.exist;
+    });
+
+    it('answers 404 for a delete of an entry that does not exist', async () => {
+      await expect(controller.deleteUserMetadata(other, 999999)).to.be.rejectedWith(ResourceNotFound);
+    });
+  });
+
+  /**
+   * Reserved keys (A12: `2fa:`, `user:2fa:`, `user:pwd_reset:`, `user:pwd:`, `user:login:`,
+   * `user:ban:`, `user:invite:`) behave as absent on every metadata route: hidden from lists,
+   * 404 when addressed, refused as a write target.
+   */
+  describe('reserved metadata keys', () => {
+    const plant = async (user: User, key: string, value: unknown) => {
+      // straight insert: the guard-free path authn and the user actions write through
+      const m = new UserMetadata();
+      m.Key = key;
+      m.Value = value;
+      m.user_id = user.Id;
+      await m.insert();
+      return (await metaOf(user, key))!;
+    };
+
+    const keysOf = async (r: any) => (await body<any[]>(r)).map((m) => m.Key);
+
+    describe('own routes', () => {
+      beforeEach(async () => {
+        await plant(owner, '2fa:token', 'JBSWY3DPEHPK3PXP');
+        await plant(owner, '2fa:enabled', true);
+        await plant(owner, 'user:pwd_reset:token', 'reset-token');
+        await plant(owner, 'user:invite:pending', true);
+      });
+
+      it('lists no reserved key', async () => {
+        expect(await keysOf(await controller.readMeta(owner, new PaginationDTO({ page: 0, limit: 50 })))).to.have.members(['user:niceName', 'user:phone']);
+      });
+
+      it('fills a page with visible entries only', async () => {
+        // reserved rows have the highest ids, so they would lead a DESC page if filtered after the query
+        const page = await keysOf(await controller.readMeta(owner, new PaginationDTO({ page: 0, limit: 2 })));
+
+        expect(page).to.have.members(['user:niceName', 'user:phone']);
+      });
+
+      it('lists no reserved key under a client filter that targets them', async () => {
+        const filter = {
+          op: FilterableLogicalOperators.Or,
+          filters: [
+            { Column: 'Key', Operator: 'like', Value: '2fa' },
+            { Column: 'Key', Operator: 'like', Value: 'pwd_reset' },
+          ],
+        };
+
+        expect(await keysOf(await controller.readMeta(owner, new PaginationDTO({ page: 0, limit: 50 }), undefined, filter as any))).to.deep.eq([]);
+      });
+
+      it('lists no reserved key stored in a width variant', async () => {
+        await plant(owner, '２fa:otp', '123456');
+
+        expect(await keysOf(await controller.readMeta(owner, new PaginationDTO({ page: 0, limit: 50 })))).to.have.members(['user:niceName', 'user:phone']);
+      });
+
+      for (const key of ['2fa:token', '2fa:enabled', 'user:pwd_reset:token', 'user:invite:pending', '2FA:TOKEN', '２fa:token']) {
+        it(`answers 404 for a read of ${key}`, async () => {
+          await expect(controller.getMeta(owner, key)).to.be.rejectedWith(ResourceNotFound);
+        });
+      }
+
+      it('answers 404 for a read of a key that does not exist', async () => {
+        await expect(controller.getMeta(owner, 'user:missing')).to.be.rejectedWith(ResourceNotFound);
+      });
+
+      it('refuses a write of a reserved key and keeps the stored value', async () => {
+        await expect(controller.addMetadata(owner, new UserMetadata({ Key: '2fa:enabled', Value: 'false', Type: 'boolean' }))).to.be.rejectedWith(InvalidArgument);
+
+        expect((await metaOf(owner, '2fa:enabled'))!.Value).to.eq(true);
+      });
+
+      it('answers 404 for an update addressed by a reserved key', async () => {
+        await expect(controller.updateMetadata(owner, '2fa:token', { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+
+        expect((await metaOf(owner, '2fa:token'))!.Value).to.eq('JBSWY3DPEHPK3PXP');
+      });
+
+      it('answers 404 for an update addressed by the id of a reserved row', async () => {
+        const row = await metaOf(owner, 'user:pwd_reset:token');
+
+        await expect(controller.updateMetadata(owner, String(row!.Id), { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+
+        const after = await metaOf(owner, 'user:pwd_reset:token');
+        expect(after!.Value).to.eq('reset-token');
+      });
+
+      it('refuses to rename a plain entry to a reserved key in any case', async () => {
+        await expect(controller.updateMetadata(owner, 'user:niceName', { Key: '2FA:Enabled', Value: 'false', Type: 'boolean' } as any)).to.be.rejectedWith(InvalidArgument);
+
+        expect((await metaOf(owner, 'user:niceName'))!.Value).to.eq('Owner');
+      });
+
+      it('answers 404 for a delete of a reserved row and keeps it', async () => {
+        const row = await metaOf(owner, '2fa:enabled');
+
+        await expect(controller.deleteMetadata(owner, row!.Id)).to.be.rejectedWith(ResourceNotFound);
+
+        expect(await metaOf(owner, '2fa:enabled')).to.exist;
+      });
+
+      it('still reads, updates and deletes plain entries', async () => {
+        expect((await body<any>(await controller.getMeta(owner, 'user:phone'))).Value).to.eq('111222333');
+
+        await controller.updateMetadata(owner, 'user:phone', { Key: 'user:phone', Value: '444', Type: 'string' } as any);
+        expect((await metaOf(owner, 'user:phone'))!.Value).to.eq('444');
+
+        const phone = await metaOf(owner, 'user:phone');
+        await controller.deleteMetadata(owner, phone!.Id);
+        expect(await metaOf(owner, 'user:phone')).to.not.exist;
+      });
+    });
+
+    describe('admin routes', () => {
+      beforeEach(async () => {
+        await plant(other, 'user:pwd_reset:token', 'reset-token');
+        await plant(other, 'user:2fa:token', 'legacy');
+        await plant(other, 'user:ban:is_banned', false);
+        await plant(other, 'user:login:attempts', '2');
+      });
+
+      it('lists no reserved key of another user', async () => {
+        expect(await keysOf(await controller.readUserMeta(other, new PaginationDTO({ page: 0, limit: 50 })))).to.have.members(['user:niceName', 'secret']);
+      });
+
+      for (const key of ['user:pwd_reset:token', 'user:2fa:token', 'user:ban:is_banned', 'user:login:attempts', 'User:Pwd_Reset:Token']) {
+        it(`answers 404 for a read of ${key}`, async () => {
+          await expect(controller.getUserMeta(other, key)).to.be.rejectedWith(ResourceNotFound);
+        });
+      }
+
+      it('refuses to plant a known 2fa secret', async () => {
+        await expect(controller.addUserMetadata(other, new UserMetadata({ Key: '2fa:token', Value: 'KNOWNSECRET', Type: 'string' }))).to.be.rejectedWith(InvalidArgument);
+
+        expect(await metaOf(other, '2fa:token')).to.not.exist;
+      });
+
+      it('answers 404 for an update of a reserved row', async () => {
+        const row = await metaOf(other, 'user:ban:is_banned');
+
+        await expect(controller.updateUserMetadata(row!, other, { Key: 'user:avatar', Value: 'x', Type: 'string' } as any)).to.be.rejectedWith(ResourceNotFound);
+
+        expect((await metaOf(other, 'user:ban:is_banned'))!.Value).to.eq(false);
+      });
+
+      it('answers 404 for a delete of a reserved row and keeps it', async () => {
+        const row = await metaOf(other, 'user:2fa:token');
+
+        await expect(controller.deleteUserMetadata(other, row!.Id)).to.be.rejectedWith(ResourceNotFound);
+
+        expect(await metaOf(other, 'user:2fa:token')).to.exist;
+      });
     });
   });
 });
