@@ -34,19 +34,28 @@ describe('DurableQueue', () => {
     expect(DEFAULT_DURABLE).to.deep.equal({ window: 16, ackTimeoutMs: 60_000 });
   });
 
-  it('sends in order, keyed clientId:seq, each after the previous unacknowledged command, without a deadline', async () => {
+  it('sends in order, keyed clientId:nonce, each after the previous unacknowledged command, without a deadline', async () => {
     serveDurable(server, 'docs.submit');
     server.ackFault = { kind: 'delay', ms: 100 };
-    const { queue } = await onlineQueue(server);
+    const { queue, store } = await onlineQueue(server);
+    const added: string[] = [];
+    const add = store.add.bind(store);
+    store.add = (async (input: OutboxInput) => {
+      added.push(input.key!);
+      return add(input);
+    }) as OutboxStore['add'];
 
     const results = await Promise.all([1, 2, 3].map((n) => queue.submit('docs.submit', { n })));
 
     expect(results).to.deep.equal([{ n: 1 }, { n: 2 }, { n: 3 }]);
-    expect(server.requests.map((r) => [r.idempotencyKey, r.after])).to.deep.equal([
-      ['client-1:1', undefined],
-      ['client-1:2', 'client-1:1'],
-      ['client-1:3', 'client-1:2'],
-    ]);
+    const keys = server.requests.map((r) => r.idempotencyKey!);
+    expect(new Set(keys).size).to.equal(3);
+    for (const key of keys) {
+      expect(key).to.match(/^client-1:\S{16,}$/);
+    }
+    // persisted with the entry, so a resend after a reload reuses it
+    expect(added).to.deep.equal(keys);
+    expect(server.requests.map((r) => r.after)).to.deep.equal([undefined, keys[0], keys[1]]);
     expect(server.requests.every((r) => r.deadline === undefined)).to.be.true;
   });
 
@@ -101,6 +110,7 @@ describe('DurableQueue', () => {
     expect(settled).to.deep.equal([1, 2, 3, 4]);
     expect([...stub.runs.values()]).to.deep.equal([1, 1, 1, 1]);
     expect(server.requests.length).to.be.above(4);
+    expect(new Set(server.requests.map((r) => r.idempotencyKey)).size).to.equal(4);
   });
 
   it('runs each of 500 commands once and settles them in order while the connection is killed 10 times', async () => {
@@ -119,7 +129,8 @@ describe('DurableQueue', () => {
     await all;
 
     expect(settled).to.deep.equal(Array.from({ length: 500 }, (_, n) => n));
-    expect(stub.order).to.deep.equal(Array.from({ length: 500 }, (_, n) => `client-1:${n + 1}`));
+    const numberOf = new Map(server.requests.map((r) => [r.idempotencyKey, (r.payload as { n: number }).n]));
+    expect(stub.order.map((key) => numberOf.get(key))).to.deep.equal(Array.from({ length: 500 }, (_, n) => n));
     expect([...stub.runs.values()].every((runs) => runs === 1)).to.be.true;
     expect(server.requests.length).to.be.above(500);
   }).timeout(20_000);
@@ -180,7 +191,7 @@ describe('DurableQueue', () => {
 
     expect(await done).to.deep.equal({ n: 1 });
     expect(failed).to.deep.equal([]);
-    expect(stub.runs.get('client-1:1')).to.equal(1);
+    expect([...stub.runs.values()]).to.deep.equal([1]);
   });
 
   it('resumes the entries a previous queue left in the store and reports them through acked', async () => {
@@ -199,8 +210,10 @@ describe('DurableQueue', () => {
       [1, { n: 1 }],
       [2, { n: 2 }],
     ]);
-    expect(stub.order).to.deep.equal(['client-1:1', 'op-2']);
-    expect(server.requests[1].after).to.equal('client-1:1');
+    expect(stub.order).to.have.length(2);
+    expect(stub.order[0]).to.match(/^client-1:/);
+    expect(stub.order[1]).to.equal('op-2');
+    expect(server.requests[1].after).to.equal(stub.order[0]);
     await sleep(20);
     expect(await store.pending()).to.deep.equal([]);
   });
@@ -232,7 +245,7 @@ describe('DurableQueue', () => {
 
     expect(await done).to.deep.equal({ n: 1 });
     expect(server.requests).to.have.length(2);
-    expect(stub.runs.get('client-1:1')).to.equal(1);
+    expect([...stub.runs.values()]).to.deep.equal([1]);
   });
 
   it('uses an app key verbatim and refuses one the server would refuse', async () => {
@@ -242,7 +255,8 @@ describe('DurableQueue', () => {
     await queue.submit('docs.submit', { n: 1 }, { key: 'op-1' });
     expect(server.requests[0].idempotencyKey).to.equal('op-1');
 
-    for (const key of ['', 'a b', 'k'.repeat(257)]) {
+    // client-1: is the prefix of generated keys, which an app key could collide with
+    for (const key of ['', 'a b', 'k'.repeat(257), 'client-1:op-2']) {
       const error = await queue.submit('docs.submit', {}, { key }).catch((e: unknown) => e);
       expect(error, key).to.be.instanceOf(RangeError);
     }
@@ -263,12 +277,12 @@ describe('DurableQueue', () => {
     server.refuse = undefined;
     connection.connect();
     expect(await done).to.deep.equal({ n: 1 });
-    expect(stub.runs.get('client-1:1')).to.equal(1);
+    expect([...stub.runs.values()]).to.deep.equal([1]);
   });
 
   it('settles callers in send order even when the replies arrive out of order', async () => {
     server.rawReplies.set('docs.slow', async (request: CommandRequest) => {
-      if (request.idempotencyKey === 'client-1:1') {
+      if ((request.payload as { n: number }).n === 1) {
         await sleep(150);
       }
       return { id: request.id, ok: true, result: request.payload };
@@ -289,6 +303,39 @@ describe('DurableQueue', () => {
     expect(() => new DurableQueue({ ...base, durable: { window: 1.5 } })).to.throw(RangeError);
     expect(() => new DurableQueue({ ...base, durable: { ackTimeoutMs: 0 } })).to.throw(RangeError);
     expect(() => new DurableQueue({ ...base, clientId: 'a b' })).to.throw(RangeError);
+  });
+
+  it('gives a command submitted after a reload a key no earlier command had, even when the store starts over', async () => {
+    const stub = serveDurable(server, 'docs.submit');
+    const first = await onlineQueue(server);
+    expect(await first.queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
+    first.queue.close();
+    first.connection.close();
+
+    // a MemoryOutboxStore, a wiped IndexedDB or a deleted file: seq starts at 1 again
+    const second = await onlineQueue(server, { store: new MemoryOutboxStore() });
+    expect(await second.queue.submit('docs.submit', { n: 2 })).to.deep.equal({ n: 2 });
+
+    expect(stub.runs.size).to.equal(2);
+  });
+
+  it('resumes an entry with the key it was first sent with', async () => {
+    const stub = serveDurable(server, 'docs.submit');
+    server.ackFault = { kind: 'drop' };
+    const store = new MemoryOutboxStore();
+    const first = await onlineQueue(server, { store });
+    void first.queue.submit('docs.submit', { n: 1 }).catch(() => undefined);
+    await until(() => server.requests.length === 1);
+    first.queue.close();
+    first.connection.close();
+
+    server.ackFault = { kind: 'none' };
+    const second = await onlineQueue(server, { store });
+    await until(() => server.requests.length === 2 && second.queue.size === 0);
+
+    expect(server.requests[1].idempotencyKey).to.equal(server.requests[0].idempotencyKey);
+    expect([...stub.runs.values()]).to.deep.equal([1]);
+    second.queue.close();
   });
 
   it('ignores a reply that arrives after close, so the entry resumes on the next start', async () => {

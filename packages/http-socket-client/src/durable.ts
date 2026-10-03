@@ -2,6 +2,7 @@ import { MAX_ID_LENGTH, MAX_KEY_LENGTH, SocketException, WIRE_EVENTS, isId, isKe
 import type { CommandDispatcher } from './commands.js';
 import type { Connection, ConnectionState } from './connection.js';
 import { Emitter, rethrowAsync } from './emitter.js';
+import { randomId } from './ids.js';
 import type { FailedOutboxEntry, OutboxEntry, OutboxStore } from './outbox.js';
 import { ReconnectPolicy, type ReconnectOptions } from './reconnect.js';
 import { assertTimeoutMs } from './timeout.js';
@@ -14,7 +15,10 @@ export interface DurableOptions {
 }
 
 export interface DurableCommandOptions {
-  /** Idempotency key, eg. an op id; `${clientId}:${seq}` when omitted. 1-MAX_KEY_LENGTH printable ASCII characters. */
+  /**
+   * Idempotency key, eg. an op id: 1-MAX_KEY_LENGTH printable ASCII characters, not starting with `${clientId}:`.
+   * When omitted, `${clientId}:${random nonce}` is generated and persisted with the entry.
+   */
   key?: string;
 }
 
@@ -78,6 +82,8 @@ export class DurableQueue {
   private readonly ackTimeoutMs: number;
   private readonly onStoreError: (error: unknown) => void;
   private readonly unsubscribe: () => void;
+  /** generated keys start with it; app keys must not */
+  private readonly keyPrefix: string;
   private readonly loaded: Promise<void>;
   private adding: Promise<unknown> = Promise.resolve();
   private attempt = 0;
@@ -96,6 +102,7 @@ export class DurableQueue {
       throw new RangeError(`clientId must be 1-${MAX_ID_LENGTH} printable ASCII characters`);
     }
 
+    this.keyPrefix = `${options.clientId}:`;
     this.window = window;
     this.ackTimeoutMs = assertTimeoutMs('durable.ackTimeoutMs', ackTimeoutMs);
     this.policy = new ReconnectPolicy(options.reconnect);
@@ -116,8 +123,8 @@ export class DurableQueue {
       return Promise.reject(SocketException.fromWire(CLOSED));
     }
 
-    if (options.key !== undefined && !isKey(options.key)) {
-      return Promise.reject(new RangeError(`a durable command key must be 1-${MAX_KEY_LENGTH} printable ASCII characters`));
+    if (options.key !== undefined && (!isKey(options.key) || options.key.startsWith(this.keyPrefix))) {
+      return Promise.reject(new RangeError(`a durable command key must be 1-${MAX_KEY_LENGTH} printable ASCII characters and must not start with '${this.keyPrefix}'`));
     }
 
     let resolve!: (result: unknown) => void;
@@ -130,7 +137,9 @@ export class DurableQueue {
     // one add at a time, and the item joins the queue inside that turn: items stay in seq order
     const queued = this.adding.then(async () => {
       await this.loaded;
-      const entry = await this.options.store.add({ name, payload, ...(options.key !== undefined ? { key: options.key } : {}) });
+      // not the seq: a store that starts over ( wiped, or in memory ) reuses seqs, and the server would
+      // replay an old command's stored reply to a new one
+      const entry = await this.options.store.add({ name, payload, key: options.key ?? `${this.keyPrefix}${randomId()}` });
       // persisted already: it resumes on the next start
       if (this.closed) {
         throw SocketException.fromWire(CLOSED);
@@ -182,7 +191,8 @@ export class DurableQueue {
   }
 
   private item(entry: OutboxEntry): Item {
-    return { entry, key: entry.key ?? `${this.options.clientId}:${entry.seq}`, state: 'queued', requestId: null, timer: undefined };
+    // only an entry another writer added has no key; createdAt keeps it apart from a reused seq
+    return { entry, key: entry.key ?? `${this.keyPrefix}${entry.seq}.${entry.createdAt}`, state: 'queued', requestId: null, timer: undefined };
   }
 
   private onState(state: ConnectionState, previous: ConnectionState): void {
