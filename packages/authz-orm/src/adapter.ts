@@ -1,16 +1,18 @@
-import { AuthzConfigError, CORE_FILTER_OPS, GLOBAL, ResourceAdapter, SYSTEM, parsePermission, requestScope, resourceKey, runWithPrincipal } from '@spinajs/authz';
+import { AuthzConfigError, CORE_FILTER_OPS, GLOBAL, ResourceAdapter, parsePermission, requestScope, resourceKey } from '@spinajs/authz';
 import type { FilterOp, PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { ModelBase, extractModelDescriptor } from '@spinajs/orm';
 
 import { OrmNativeCompiler } from './api.js';
-import { columnOf, dialectOf, idMode, idText, idValue, normalize } from './columns.js';
+import { columnOf, dialectOf, idMode, idText, normalize } from './columns.js';
 import { classesOf, entryOf, registeredTypes } from './registry.js';
-import type { ModelClass } from './registry.js';
+import { ormRelations } from './relations.js';
+import { findRow, pkOf } from './rows.js';
+import type { Row } from './rows.js';
+
+export { findRow } from './rows.js';
 
 const MEMO = 'authz-orm:';
-
-type Row = ModelBase & Record<string, unknown>;
 
 /** The registered `OrmNativeCompiler`s by op; two for one op is a configuration error. */
 export function nativeCompilers(): ReadonlyMap<string, OrmNativeCompiler> {
@@ -22,32 +24,6 @@ export function nativeCompilers(): ReadonlyMap<string, OrmNativeCompiler> {
     out.set(c.op, c);
   }
   return out;
-}
-
-function pkOf(model: ModelClass): string {
-  const pk = extractModelDescriptor(model as never)?.PrimaryKey;
-  const name = Array.isArray(pk) ? pk[0] : pk;
-  if (typeof name !== 'string' || name === '') throw new AuthzConfigError(`authz-orm: model ${model.name} has no primary key`);
-  return name;
-}
-
-/** The row of `ref` among the classes of its type (registration order), loaded unscoped; null when none has it. */
-export async function findRow(ref: ResourceRef): Promise<Row | null> {
-  if (ref.id === undefined || ref.id === null) return null;
-  const id = String(ref.id);
-  for (const cls of classesOf(ref.type)) {
-    const pk = pkOf(cls);
-    const column = columnOf(cls, pk);
-    if (!column) continue;
-    const mode = idMode(column, dialectOf(extractModelDescriptor(cls as never)));
-    const value = idValue(mode, id, column);
-    if (value === undefined) continue;
-    const model = cls as unknown as typeof ModelBase;
-    const query = () => model.where(pk, value).first() as Promise<unknown>;
-    const row = await runWithPrincipal(SYSTEM, query);
-    if (row instanceof ModelBase && idText(mode, (row as Row)[pk]) === id) return row as Row;
-  }
-  return null;
 }
 
 /** Memoised per request store (none outside a store); a rejection is not kept. */
@@ -159,7 +135,7 @@ export class OrmResourceAdapter extends ResourceAdapter<ModelBase> {
   }
 
   relations(): readonly RelationResolver[] {
-    return [];
+    return ormRelations();
   }
 
   permissions(): readonly Omit<PermissionDef, 'source'>[] {

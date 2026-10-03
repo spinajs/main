@@ -83,7 +83,11 @@ describe('authz-orm OrmResourceAdapter', function () {
             .map((p) => p.name),
         ).to.deep.equal(['ad-task:read', 'ad-task:create', 'ad-task:update', 'ad-task:delete']);
         expect(a.compiles).to.deep.equal([...CORE_FILTER_OPS]);
-        expect(a.relations!()).to.deep.equal([]);
+        expect(
+          a.relations!()
+            .filter((r) => r.type === 'ad-task')
+            .map((r) => r.relation),
+        ).to.deep.equal(['owner']);
       });
 
       it('ancestors: self, scope columns in order (null skipped, dangling listed), GLOBAL; unknown row is null', async () => {
@@ -210,6 +214,10 @@ describe('authz-orm OrmResourceAdapter', function () {
           expect(await a.load!({ type: 'ad-big', id: '9007199254740992' })).to.equal(null);
           expect(await a.load!({ type: 'ad-big', id: '99999999999999999999' })).to.equal(null);
           expect(await a.load!({ type: 'ad-big', id: '1e3' })).to.equal(null);
+          await db.define({ name: 'Dec', columns: { id: 'NUMERIC' }, rows: [{ id: '12.50' }], decorate: (cls) => AccessResource('ad-dec')(cls) }, dialect);
+          expect(await a.load!({ type: 'ad-dec', id: '1x5' }), 'not a numeric literal: a miss, not a cast error').to.equal(null);
+          expect(await a.load!({ type: 'ad-dec', id: '12.5' }), 'the text form is 12.50').to.equal(null);
+          expect(((await a.load!({ type: 'ad-dec', id: '12.50' })) as any).id).to.equal('12.50');
         });
       }
 
