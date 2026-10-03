@@ -42,3 +42,16 @@ Session store regressions and the `Data` column codec on the sqlite-backed `DbSe
 | 9 | 318 | db session provider > session Data: json column (object) and text column (string) > runs both converging migrations on startup without failing on a driver that cannot MODIFY | adapt | N2 | session-provider-db/test/ Keep the three `include` checks (lines 325-327); add `UserSessionIdHash_2026_10_02_00_00_00` to the recorded-names list (new N2 task 6 check). |
 | 10 | 335 | db session provider > session Data: json column (object) and text column (string) > both migrations resolve to SKIP on this sqlite connection | adapt | N2 | session-provider-db/test/ Assertions unchanged. New check for `UserSessionIdHash`: the `SessionId` widen (MySQL `MODIFY`) may skip on sqlite, but `ImpersonatorId` and its index must still be added, or `deleteBySubject(..., { includeImpersonations })` breaks there. |
 | 11 | 354 | db session provider > session Data: json column (object) and text column (string) > round-trips a saved session back out of the store with its structural types intact | adapt | N2 | session-provider-db/test/ Import path plus `Subject`/`State`; restore takes the stored key, hashing lives in `SessionIssuer`. |
+
+## N2 status (done)
+
+All 11 adapt rows are carried in `test/session-provider.test.ts` (N2
+commits "feat(session-provider-db): store sessions on the 3.0 session
+contract" and "fix(session-provider-db): survive undecodable rows; touch
+skips expired"): rows 1–5 keep their titles; rows 6–8
+and 11 keep their titles with Subject/State rows; rows 9–10 keep their
+titles and `test/session-id-hash-migration.test.ts` adds the
+`UserSessionIdHash_2026_10_02_00_00_00` checks (columns, indexes,
+backfill, sqlite rebuild). The shared suite now comes from
+`../../authn-session/test/conformance/` with the 2.x `seedLegacy` hook;
+`test/kit-conformance.test.ts` runs the kit's A07/A08/A09 store facets.

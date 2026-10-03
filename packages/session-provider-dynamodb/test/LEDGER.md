@@ -46,3 +46,17 @@ Live-DynamoDB integration run (skipped unless `DYNAMO_INTEGRATION=1`; needs loca
 | 4 | 149 | should touch session | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State`. Its three `expect(...)` calls (lines 172-174) assert nothing (no matcher). `touch` renews through the expiration strategy and overwrites the assigned `date2`, so do not assert `sR2 === date2`; if N2 tightens it, assert `touch()` returns `true` and `sR2.Expiration > sR.Expiration`. |
 | 5 | 176 | should return null when session expired | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. Real 5 s wait; the fake-backed run covers expiry. |
 | 6 | 211 | should return null if session not exist | adapt | N2 | session-provider-dynamodb/test/ Import path plus `Subject`/`State` on the session. |
+
+## N2 status (done)
+
+All rows are carried (N2 commit "feat(session-provider-dynamodb): store sessions on the
+3.0 contract"): `test/session-provider.test.ts`
+row "deleteByUser … keyed on numeric UserId (B4)" → "deleteBySubject
+removes only the target subject's sessions, matched on the Subject
+attribute (B4)"; the "UserId as a top-level attribute" row → the item
+layout tests in `test/v3/item-layout.test.ts` (Subject, ImpersonatorId,
+State). `test/session.test.ts` (AWS integration, 6 tests) uses the 3.0
+API and stays skipped unless `DYNAMO_INTEGRATION=1`. The shared suite
+comes from `../../authn-session/test/conformance/` with the 2.x
+`seedLegacy` hook; `test/kit-conformance.test.ts` runs the kit's
+A07/A08/A09 store facets.

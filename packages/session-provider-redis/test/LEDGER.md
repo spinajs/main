@@ -35,3 +35,15 @@ Redis-specific regressions on `RedisSessionStore` over `ioredis-mock`. Dominant 
 | 2 | 107 | redis session provider > RedisSessionStore regressions > listByUser returns live sessions and prunes expired ids from the user set | adapt | N2 | session-provider-redis/test/ `listByUser(9)` becomes `listBySubject(ref)`; the raw key `session:r-expired` stays (the store keys by the id it gets); the subject index key `session:user:9` follows N2's new per-subject key format (an `IdentityRef`). Expected members `['r-live']` and result unchanged. |
 | 3 | 133 | redis session provider > RedisSessionStore regressions > save persists an already-set Expiration verbatim | adapt | N2 | session-provider-redis/test/ Import path plus `Subject`/`State` on the session. |
 | 4 | 147 | redis session provider > RedisSessionStore regressions > restore returns null for an expired session even if the mock kept the key | adapt | N2 | session-provider-redis/test/ The raw key `session:r-ghost` stays; only `Subject`/`State` fields change. The `isExpired` gate expectation is unchanged. |
+
+## N2 status (done)
+
+All 4 adapt rows are carried in `test/session-provider.test.ts` (N2
+commit "feat(session-provider-redis): store sessions on the 3.0 session
+contract"): row 1 → "deleteBySubject removes only the target
+subject's sessions across multiple subjects"; row 2 → "listBySubject
+returns live sessions and prunes expired ids from the subject set" (set
+key `session:subject:<principalKey>`); rows 3–4 keep their titles. The
+shared suite comes from `../../authn-session/test/conformance/` with the
+2.x `seedLegacy` hook; `test/kit-conformance.test.ts` runs the kit's
+A07/A08/A09 store facets.
