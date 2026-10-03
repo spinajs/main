@@ -67,7 +67,7 @@ function notWritable(fields: readonly string[]): BadRequest {
  */
 @Injectable(ArgInputFilter)
 export class AuthzInputFieldFilter extends ArgInputFilter {
-  public filter(input: unknown, parameter: IRouteParameter, route?: IRoute): unknown {
+  public filter(input: unknown, parameter: IRouteParameter): unknown {
     if (!BODY_ARGS.has(String(parameter.Type))) return input;
     const store = authzStorage().getStore();
     const mark = store?.AuthzHttpRoute as AuthzHttpRouteMark | undefined;
@@ -77,20 +77,19 @@ export class AuthzInputFieldFilter extends ArgInputFilter {
 
     const { write, writeMode } = decisionFields(decision, decision?.domain ?? mark?.domain);
 
-    if (!isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '')) {
+    // Primitives and lists of primitives are a field of the record: checked by the parameter name. Objects and lists of objects are records.
+    const field = !isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '') || (Array.isArray(input) && input.every((v) => !isObject(v)));
+    if (field) {
       if (compileFieldGlobs(write).allows(parameter.Name)) return input;
       if (writeMode === 'reject') throw notWritable([parameter.Name]);
       return undefined;
     }
 
-    // A named slice of the body (a form field, or one of several body params) is the field of that name.
-    const named = String(parameter.Type) === 'FromFormField' || [...(route?.Parameters?.values() ?? [])].filter((p) => BODY_ARGS.has(String(p.Type))).length > 1;
-    const record = named ? { [parameter.Name]: input } : input;
-    const filtered = filterObject(write, record) as Record<string, unknown>;
-    const removed = removedPaths(JSON.parse(JSON.stringify(record)), filtered);
+    const filtered = filterObject(write, input);
+    const removed = removedPaths(JSON.parse(JSON.stringify(input)), filtered);
     if (removed.length === 0) return input;
     if (writeMode === 'reject') throw notWritable(removed);
-    return named ? filtered[parameter.Name] : filtered;
+    return filtered;
   }
 }
 

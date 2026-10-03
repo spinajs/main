@@ -67,8 +67,14 @@ class FieldRoutes extends BaseController {
 
   @Patch('multi/:id')
   @Access('user:update', { domain: D, resource: USER })
-  public multi(@Body() name: string, @Body() roles: string[], @Body() address: object) {
-    return new Ok({ name: name ?? null, roles: roles ?? null, address: address ?? null });
+  public multi(@Body() name: string, @Body() roles: string[], @Body() user: object) {
+    return new Ok({ name: name ?? null, roles: roles ?? null, user: user ?? null });
+  }
+
+  @Patch('roles/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  public roles(@Body() roles: string[]) {
+    return new Ok({ roles: roles ?? null });
   }
 
   @Patch('field/:id')
@@ -215,18 +221,33 @@ describe('field filters (B17 http)', function () {
       expect((await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', Password: 'new' })).status).to.eq(400);
     });
 
-    it('checks each of several body params as the field of its name, arrays and objects included', async () => {
-      const send = () => app.request().patch('/fld/multi/u1').set('x-user', 'alice').send({ name: 'M', roles: ['admin'], address: { city: 'X', zip: 'Y' } });
+    it('checks primitive and list-of-primitive params by their name and filters record params as records', async () => {
+      const send = () => app.request().patch('/fld/multi/u1').set('x-user', 'alice').send({ name: 'M', roles: ['admin'], user: { name: 'M', salary: 1, Password: 'p' } });
 
       const res = await send();
       expect(res.status).to.eq(200);
-      expect(res.body).to.deep.eq({ name: 'M', roles: null, address: { city: 'X' } });
+      expect(res.body).to.deep.eq({ name: 'M', roles: null, user: { name: 'M' } });
 
       reject();
       const refused = await send();
       expect(refused.status).to.eq(400);
       // the first offending param refuses the request; http extracts params in its own order
-      expect(refused.body.fields).to.satisfy((f: string[]) => f.length === 1 && ['roles', 'address.zip'].includes(f[0]));
+      expect(refused.body.fields).to.satisfy((f: string[]) => f.length > 0 && f.every((x) => ['roles', 'salary', 'Password'].includes(x)));
+    });
+
+    it('a record param next to others still loses neverRead under write *', async () => {
+      script.write = ['*'];
+      const res = await app.request().patch('/fld/multi/u1').set('x-user', 'alice').send({ name: 'M', user: { name: 'M', Password: 'p' } });
+
+      expect(res.body.user).to.deep.eq({ name: 'M' });
+    });
+
+    it('checks a list of primitives by its name when it is the only body param too', async () => {
+      const res = await app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin'] });
+      expect(res.body.roles).to.eq(null);
+
+      reject();
+      expect((await app.request().patch('/fld/roles/u1').set('x-user', 'alice').send({ roles: ['admin'] })).status).to.eq(400);
     });
 
     it('filters @BodyField() input too', async () => {
