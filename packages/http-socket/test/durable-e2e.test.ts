@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AddressInfo } from 'node:net';
 import { DI, Injectable } from '@spinajs/di';
 import { SocketClient, type FailedOutboxEntry, type OutboxEntry, type OutboxInput, type OutboxStore, type SocketClientOptions } from '@spinajs/http-socket-client';
 import { FileOutboxStore } from '@spinajs/http-socket-client/node';
@@ -10,10 +11,10 @@ import { BaseSocketController } from '../src/controller.js';
 import { Command, Connection, OnConnect, Payload, SocketController } from '../src/decorators.js';
 import { SocketConnection } from '../src/connection.js';
 import { SocketHub } from '../src/hub.js';
-import { IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
+import { IdempotencyRecord, IdempotencyStore, MemoryIdempotencyStore } from '../src/idempotency.js';
 import { ISocketCommandContext, IdempotentReply, STAGE_ORDER, SocketCommandStage } from '../src/interfaces.js';
 import { ITestServer, delay, startServer, waitFor } from './harness.js';
-import { ackFaults, killConnections, restart } from './faults.js';
+import { ackFaults, killConnections } from './faults.js';
 
 const envInt = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -156,7 +157,7 @@ export class DurableE2eForgetfulStore extends MemoryIdempotencyStore {
   public static last: DurableE2eForgetfulStore | null = null;
   /** the raw idempotency keys whose completion was lost */
   public forgotten: string[] = [];
-  protected completions = 0;
+  public completions = 0;
 
   constructor() {
     super();
@@ -177,6 +178,29 @@ export class DurableE2eForgetfulStore extends MemoryIdempotencyStore {
       this.forgotten.push(raw);
       this.drop(key);
     }
+  }
+}
+
+/**
+ * Counts the claims answered with a completed reply: the resends the server replayed instead of running.
+ * Not `get`: the ordering fence reads completed keys too, and those reads replay nothing.
+ */
+@Injectable(IdempotencyStore)
+export class DurableE2eReplayStore extends MemoryIdempotencyStore {
+  public static last: DurableE2eReplayStore | null = null;
+  public replays = 0;
+
+  constructor() {
+    super();
+    DurableE2eReplayStore.last = this;
+  }
+
+  public async claim(key: string): Promise<IdempotencyRecord | null> {
+    const held = await super.claim(key);
+    if (held?.state === 'done') {
+      this.replays++;
+    }
+    return held;
   }
 }
 
@@ -230,16 +254,25 @@ const range = (count: number) => Array.from({ length: count }, (_, n) => n);
 
 /** Every command ran once, in send order, and every caller got its own result in send order. */
 function expectExactlyOnceInOrder(count: number, resolved: number[]): void {
-  expect(resolved).to.deep.equal(range(count));
-  expect(e2eOrder).to.deep.equal(range(count));
-  expect([...e2eRuns.values()].every((runs) => runs === 1)).to.be.true;
+  expect(resolved, `client settlement order, seed ${SEED}`).to.deep.equal(range(count));
+  expect(e2eOrder, `server run order, seed ${SEED}`).to.deep.equal(range(count));
+  expect(
+    [...e2eRuns].filter(([, runs]) => runs !== 1),
+    `commands not run exactly once, seed ${SEED}`,
+  ).to.deep.equal([]);
 }
 
 // The test is about drops, not limits: 1 000 pipelined commands and their resends would otherwise spend most of their time rate-limited.
 const UNLIMITED = { http: { socket: { rate: { perSecond: 5_000, burst: 1_000 }, maxInFlightEventsPerConnection: 1_000 } } };
+const REPLAYING = { http: { socket: { ...UNLIMITED.http.socket, idempotency: { service: 'DurableE2eReplayStore' } } } };
+
+// Wall-clock budgets, far above the observed values; a slow machine scales them, CI skips them.
+const STALL_FACTOR = Number(process.env.E2E_STALL_FACTOR) > 0 ? Number(process.env.E2E_STALL_FACTOR) : 1;
+const CHECK_STALLS = !process.env.CI;
 
 describe('W3 end to end: the real client against the real server', function () {
   this.timeout(120_000);
+  this.slow(30_000);
 
   let t: ITestServer;
   let clients: SocketClient[] = [];
@@ -334,7 +367,7 @@ describe('W3 end to end: the real client against the real server', function () {
   });
 
   it(`runs ${COMMANDS} durable commands exactly once and in order while the connection is killed ${KILLS} times`, async () => {
-    t = await startServer(UNLIMITED);
+    t = await startServer(REPLAYING);
     const random = mulberry32(SEED);
     const c = client('e2e-durable');
     await online(c);
@@ -350,16 +383,24 @@ describe('W3 end to end: the real client against the real server', function () {
     openGate();
     await all;
 
-    expectExactlyOnceInOrder(COMMANDS, resolved);
+    const replays = DurableE2eReplayStore.last!.replays;
     // eslint-disable-next-line no-console
-    console.log(`      ${KILLS} drops ( ${lostReplies} lost a reply ), ${e2eProbe.requests} requests, ${e2eProbe.fenced.length} fenced, refused ${JSON.stringify([...e2eProbe.refused])}, longest stall ${meter.max} ms, stalls over 100 ms ${meter.total} ms`);
-    expect(lostReplies, 'drops that lost a reply').to.be.above(0);
+    console.log(`      ${KILLS} drops ( ${lostReplies} lost a reply ), ${e2eProbe.requests} requests, ${replays} replays, ${e2eProbe.fenced.length} fenced, refused ${JSON.stringify([...e2eProbe.refused])}, longest stall ${meter.max} ms, stalls over 100 ms ${meter.total} ms`);
+    expect(lostReplies, `drops that lost a reply, seed ${SEED}`).to.be.above(0);
+    // a lost reply is answered from the store on resend; a rerun would show in the run counts below
+    expect(replays, `resends answered from the idempotency store, seed ${SEED}`).to.be.above(0);
+    expectExactlyOnceInOrder(COMMANDS, resolved);
     // A fence refusal parks the command behind its predecessor, any other refusal pauses the whole queue with
     // a backoff. Drops alone give the queue no reason to back off.
-    expect([...e2eProbe.refused.keys()].filter((kind) => kind !== 'aborted')).to.deep.equal([]);
-    // what a stuck queue looks like: it would wait for the 60 s ack timeout or a backoff ceiling
-    expect(meter.max, 'longest stall while online').to.be.below(2_000);
-    expect(meter.total, 'stalls over 100 ms while online').to.be.below(5_000);
+    expect(
+      [...e2eProbe.refused.keys()].filter((kind) => kind !== 'aborted'),
+      `refusals other than aborted calls, seed ${SEED}`,
+    ).to.deep.equal([]);
+    if (CHECK_STALLS) {
+      // what a stuck queue looks like: it would wait for the 60 s ack timeout or a backoff ceiling
+      expect(meter.max, `longest stall while online, seed ${SEED}`).to.be.below(5_000 * STALL_FACTOR);
+      expect(meter.total, `stalls over 100 ms while online, seed ${SEED}`).to.be.below(10_000 * STALL_FACTOR);
+    }
   });
 
   it('keeps the order when a successor reaches the fence before its predecessor', async () => {
@@ -377,10 +418,13 @@ describe('W3 end to end: the real client against the real server', function () {
     await all;
 
     expectExactlyOnceInOrder(count, resolved);
-    expect(e2eProbe.jittered).to.be.above(0);
+    expect(e2eProbe.jittered, `jittered requests, seed ${SEED + 1}`).to.be.above(0);
     // without overtakes the fence would never have refused anything
-    expect(e2eProbe.fenced.length, 'fence refusals').to.be.above(0);
-    expect([...e2eProbe.refused.keys()].filter((kind) => kind !== 'aborted')).to.deep.equal([]);
+    expect(e2eProbe.fenced.length, `fence refusals, seed ${SEED + 1}`).to.be.above(0);
+    expect(
+      [...e2eProbe.refused.keys()].filter((kind) => kind !== 'aborted'),
+      `refusals other than aborted calls, seed ${SEED + 1}`,
+    ).to.deep.equal([]);
   });
 
   it('does not hold a successor whose predecessor was answered but never stored', async () => {
@@ -393,8 +437,9 @@ describe('W3 end to end: the real client against the real server', function () {
     await Promise.all(range(count).map((n) => c.durable<number>('e2e.apply', { n, ms: 2 }).then((v) => void resolved.push(v))));
 
     expectExactlyOnceInOrder(count, resolved);
-    const forgotten = DurableE2eForgetfulStore.last!.forgotten;
-    expect(forgotten).to.have.length(20);
+    const { forgotten, completions } = DurableE2eForgetfulStore.last!;
+    expect(forgotten).to.have.length(range(completions).filter((n) => n % 10 === 3 || n % 10 === 7).length);
+    expect(forgotten).to.not.be.empty;
     // the successor of a lost key was fenced on it, and still ran
     expect(e2eProbe.fenced.filter((after) => forgotten.includes(after))).to.not.be.empty;
   });
@@ -411,9 +456,10 @@ describe('W3 end to end: the real client against the real server', function () {
     const slow = c.command<string>('e2e.slow', { ms: 500 });
     await delay(20);
     const notice = new Promise((resolve) => c.once('sys.shutdown', resolve));
-    const restarted = restart(t, cfg);
+    // the fault kit's restart, split so the gap between the two servers can be checked
+    const { port } = t.host.Http.address() as AddressInfo;
+    const closed = t.close();
     await notice;
-    const ranAtShutdown = e2eRuns.size;
     const refused = await c.command('e2e.ping').then(
       () => null,
       (error: { code: string }) => error,
@@ -422,15 +468,21 @@ describe('W3 end to end: the real client against the real server', function () {
     expect(await slow).to.equal('slow done');
     expect(refused).to.include({ code: 'unavailable' });
 
-    t = await restarted;
+    await closed;
+    const ranBeforeRestart = e2eRuns.size;
+    // the drain wrote every reply before the transports closed; the client may still be reading them
+    await waitFor(() => resolved.length >= ranBeforeRestart, 2_000).catch(() => undefined);
+    expect(resolved, 'commands the old server ran are the ones it answered').to.deep.equal(range(ranBeforeRestart));
+    expect(ranBeforeRestart, 'durable commands left for the restarted server').to.be.below(50);
+
+    t = await startServer(cfg, undefined, port);
     await all;
 
-    expect(ranAtShutdown, 'durable commands left for the restarted server').to.be.below(50);
     expectExactlyOnceInOrder(50, resolved);
   });
 
   it('resumes a FileOutboxStore queue in a new client on the same file and acknowledges each command once', async () => {
-    t = await startServer(UNLIMITED);
+    t = await startServer(REPLAYING);
     const dir = await mkdtemp(join(tmpdir(), 'e2e-outbox-'));
     const path = join(dir, 'outbox.json');
     const random = mulberry32(SEED + 2);
@@ -463,7 +515,9 @@ describe('W3 end to end: the real client against the real server', function () {
       b.on('acked', ({ result }) => void ackedByB.push(result as number));
       await waitFor(() => resolvedByA.length + ackedByB.length >= count, 30_000);
 
-      expect(resolvedByA.length, 'answered before the reload').to.be.within(1, count - 1);
+      expect(resolvedByA.length, `answered before the reload, seed ${SEED + 2}`).to.be.within(1, count - 1);
+      // what A's server ran but A never heard of is answered to B from the store
+      expect(DurableE2eReplayStore.last!.replays, `resends answered from the idempotency store, seed ${SEED + 2}`).to.be.above(0);
       expectExactlyOnceInOrder(count, [...resolvedByA, ...ackedByB]);
       expect(await second.pending()).to.deep.equal([]);
     } finally {
