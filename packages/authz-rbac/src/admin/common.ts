@@ -78,15 +78,27 @@ export function rankOf(roles: RoleIndex, ladder: string, role: string): number {
   return roles.ladders.get(ladder)?.roles.indexOf(role) ?? -1;
 }
 
-/** Which implied roles a closure follows: none, those also held at the role's own scope, or all of them. */
-export type ImpliesMode = 'none' | 'same-scope' | 'all';
+/** The ladder's ranks apply at the scope's type (GLOBAL is $global); a ladder without resourceTypes applies everywhere. */
+export function ladderAppliesAt(roles: RoleIndex, ladder: string, scope: ResourceRef): boolean {
+  const types = roles.ladders.get(ladder)?.resourceTypes;
+  return types === undefined || types.includes(scope.type);
+}
+
+/** Which implied roles a closure follows: none, those also held at the role's own scope, all, or those the predicate accepts. */
+export type ImpliesMode = 'none' | 'same-scope' | 'all' | ((def: RoleDef) => boolean);
+
+export interface RoleClosure {
+  readonly defs: readonly RoleDef[];
+  readonly unknown: readonly string[];
+  readonly bypass: boolean;
+}
 
 /**
  * What holding `role` gives: the role, the roles it extends, the lower roles of its ladder and, per
  * `implies`, its implied roles, transitively. `unknown` names roles of the closure that are not defined;
  * `bypass` is set when a followed implied role bypasses restrict or cap rules.
  */
-export function roleClosure(roles: RoleIndex, role: string, implies: ImpliesMode = 'none'): { readonly defs: readonly RoleDef[]; readonly unknown: readonly string[]; readonly bypass: boolean } {
+export function roleClosure(roles: RoleIndex, role: string, implies: ImpliesMode = 'none'): RoleClosure {
   const defs = new Map<string, RoleDef>();
   const unknown = new Set<string>();
   let bypass = false;
@@ -102,14 +114,32 @@ export function roleClosure(roles: RoleIndex, role: string, implies: ImpliesMode
     const ladder = roles.ladderOf(name);
     const list = ladder === undefined ? undefined : roles.ladders.get(ladder)?.roles;
     if (list) for (const lower of list.slice(0, Math.max(0, list.indexOf(name)))) visit(lower);
-    for (const i of def.implies ?? []) {
-      if (implies === 'none' || (implies === 'same-scope' && i.at !== 'self-and-descendants')) continue;
+    const follows = typeof implies === 'function' ? implies(def) : implies !== 'none';
+    for (const i of follows ? def.implies ?? [] : []) {
+      if (implies === 'same-scope' && i.at !== 'self-and-descendants') continue;
       if ((i.bypass?.length ?? 0) > 0) bypass = true;
       visit(i.role);
     }
   };
   visit(role);
   return { defs: [...defs.values()], unknown: [...unknown], bypass };
+}
+
+/**
+ * What granting `role` gives, as judged against the actor: the closure with every implied role, except the
+ * implied roles of a ladder role the actor already ranks at or above on that ladder (`holds`). Ladder roles
+ * inherit the grants and implies of lower ones, so such an actor already holds them; this is what lets an
+ * org owner grant org.admin, whose implied maintainer applies to project types only.
+ */
+export async function grantClosure(roles: RoleIndex, role: string, holds: (ladder: string, role: string) => Promise<boolean>): Promise<RoleClosure> {
+  const held = new Map<string, boolean>();
+  // Skipping only shrinks the closure, so asking about the roles it reaches until none is new terminates.
+  for (;;) {
+    const closure = roleClosure(roles, role, (def) => held.get(def.name) !== true);
+    const open = closure.defs.filter((d) => (d.implies?.length ?? 0) > 0 && roles.ladderOf(d.name) !== undefined && !held.has(d.name));
+    if (open.length === 0) return closure;
+    for (const d of open) held.set(d.name, await holds(roles.ladderOf(d.name)!, d.name));
+  }
 }
 
 /**

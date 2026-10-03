@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantsPermission, isPlainObject, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleClosure, roleIndex } from './common.js';
+import { assignmentStore, grantClosure, grantsPermission, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
@@ -128,9 +128,10 @@ export class DefaultAdminGuard extends AdminGuard {
       const what = `${principalKey(call.actor)} may not grant ${quote(t.role)} at ${quote(t.scope)}`;
       if (!(await facts.covers(call.actor, t.role, t.scope, call.ctx))) throw refuse('escalation', `${what}: it does not hold every permission of the role there`, t.field);
       // Every ladder role the grant gives, through extends and implies too, must rank at or below the actor's own.
-      for (const { name } of roleClosure(call.roles, t.role, 'all').defs) {
+      const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, t.scope);
+      for (const { name } of (await grantClosure(call.roles, t.role, holds)).defs) {
         const ladder = call.roles.ladderOf(name);
-        if (ladder === undefined || (await this.ranksAtLeast(call, facts, ladder, name, t.scope))) continue;
+        if (ladder === undefined || (await holds(ladder, name))) continue;
         const which = name === t.role ? 'the role' : `it gives ${quote(name)}, which`;
         throw refuse('escalation', `${what}: ${which} ranks above its own on ladder ${quote(ladder)}`, t.field);
       }
@@ -212,8 +213,9 @@ export class DefaultAdminGuard extends AdminGuard {
 
   private async ranksAtLeast(call: Call, facts: RbacAdminFacts, ladder: string, role: string, scope: ResourceRef): Promise<boolean> {
     const wanted = rankOf(call.roles, ladder, role);
-    // A role its ladder does not list has no rank anyone can reach.
-    if (wanted < 0) return false;
+    // A role its ladder does not list has no rank anyone can reach; a ladder that does not apply at the
+    // scope's type gives no rank there.
+    if (wanted < 0 || !ladderAppliesAt(call.roles, ladder, scope)) return false;
     const key = `${ladder}\u0000${resourceKey(scope)}`;
     if (!call.ranks.has(key)) call.ranks.set(key, facts.effectiveRole(call.actor, ladder, scope, call.ctx));
     const own = await call.ranks.get(key)!;

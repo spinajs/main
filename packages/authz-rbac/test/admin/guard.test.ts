@@ -7,7 +7,7 @@ import type { AdminCallContext, AuthzCommand, AuthzCommandResult, Principal, Pri
 
 import { CheckRbacAdminFacts, DefaultAdminGuard, RbacAdminFacts } from '../../src/index.js';
 import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../../src/index.js';
-import { G, GR, HOUR, P1, START, StaticRoleStore, config, failure, installHost, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
+import { G, GR, HOUR, O1, P1, START, StaticRoleStore, config, failure, installHost, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
 import type { RbacDomain, RbacDomainOptions } from './support.js';
 
 const expect = chai.expect;
@@ -77,17 +77,20 @@ describe('DefaultAdminGuard', function () {
     readonly guard?: Record<string, unknown>;
     readonly links?: RbacDomainOptions['links'];
     readonly register?: RbacDomainOptions['register'];
+    readonly roles?: readonly RoleDef[];
+    readonly ladders?: readonly LadderDef[];
+    readonly permissions?: RbacDomainOptions['permissions'];
   }
 
   async function world(opts: WorldOptions = {}): Promise<RbacDomain> {
     await resetHost();
     d = await rbacDomain('test', {
-      roleStores: [new StaticRoleStore('guard', GUARD_ROLES, GUARD_LADDERS)],
+      roleStores: [new StaticRoleStore('guard', opts.roles ?? GUARD_ROLES, opts.ladders ?? GUARD_LADDERS)],
       assignments: opts.rows ?? [...BASE, ...admins('root', 'root2')],
       links: opts.links,
       admin: { backend: 'TestBackend', guard: opts.guard ?? GUARD },
       model: table.model(),
-      permissions: USER_PERMISSIONS,
+      permissions: { ...USER_PERMISSIONS, ...opts.permissions },
       register: opts.register,
     });
     return d;
@@ -262,6 +265,57 @@ describe('DefaultAdminGuard', function () {
       await passes(p('root'), [grant('boss', G)]);
       // An implied role that bypasses restrict or cap rules cannot be judged from the actor's checks.
       await refused(p('root'), [grant('skipper')], 'escalation');
+    });
+
+    describe('canvas-shaped org roles (design §8.5)', () => {
+      const ORG = ['org.file_guest', 'org.guest', 'org.member', 'org.admin', 'org.owner'];
+      const CANVAS_ROLES: RoleDef[] = [role('viewer', { ladder: 'project', grants: grants('file:read') }), role('commenter', { ladder: 'project' }), role('editor', { ladder: 'project', grants: grants('file:edit') }), role('maintainer', { ladder: 'project', grants: grants('project:settings') }), role('org.file_guest', { ladder: 'org' }), role('org.guest', { ladder: 'org' }), role('org.member', { ladder: 'org', subjectSet: true }), role('org.admin', { ladder: 'org', grants: grants('org:manage', 'audit:read'), implies: [{ role: 'maintainer', at: 'self-and-descendants', tags: ['inspect', 'code'], bypass: ['restrict', 'cap'] }] }), role('org.owner', { ladder: 'org', grants: grants('org:billing') })];
+      const CANVAS_LADDERS: LadderDef[] = [
+        { name: 'project', roles: ['viewer', 'commenter', 'editor', 'maintainer'], resourceTypes: ['project', 'file', 'branch'] },
+        { name: 'org', roles: ORG },
+      ];
+      const ORG_PERMISSIONS = { 'org:manage': { types: ['org'] }, 'audit:read': { types: ['org'] }, 'org:billing': { types: ['org'] } };
+      const canvas = (register?: RbacDomainOptions['register']) => world({ roles: CANVAS_ROLES, ladders: CANVAS_LADDERS, permissions: ORG_PERMISSIONS, rows: [row('m-alice', user('alice'), 'org.member', O1)], register });
+      const promote = (r = 'org.admin'): AuthzCommand => grant(r, O1, user('alice'), { replaceLadder: true });
+      const ORG_POWERS = ['org:manage', 'audit:read', 'authz:assignments.manage'];
+
+      beforeEach(() => {
+        table.set('owner', O1, { allow: [...ORG_POWERS, 'org:billing'], roles: { org: 'org.owner' } });
+        table.set('oadmin', O1, { allow: ORG_POWERS, roles: { org: 'org.admin' } });
+        // Holds org.admin's literal permissions, but ranks member.
+        table.set('member', O1, { allow: ORG_POWERS, roles: { org: 'org.member' } });
+      });
+
+      it('an org owner or admin grants org.admin at the org; an org member is refused', async () => {
+        await canvas();
+        await refused(p('member'), [promote()], 'escalation');
+        await passes(p('owner'), [promote()]);
+        expect((await d.assignments.find({ scope: O1, subject: user('alice'), at: START })).items.map((a) => a.role)).to.deep.equal(['org.admin']);
+        await canvas();
+        await passes(p('oadmin'), [promote()]);
+        await canvas();
+        await refused(p('oadmin'), [promote('org.owner')], 'escalation');
+      });
+
+      it('the rank check never asks for a ladder that does not apply at the scope, and refuses what it cannot skip', async () => {
+        const asked: string[] = [];
+        let orgRank = 'org.member';
+        class Recording extends RbacAdminFacts {
+          async covers(): Promise<boolean> {
+            return true;
+          }
+          async effectiveRole(_a: Principal, ladder: string, scope: ResourceRef): Promise<string | undefined> {
+            asked.push(`${ladder}@${resourceKey(scope)}`);
+            return ladder === 'org' ? orgRank : 'maintainer';
+          }
+        }
+        await canvas((c) => c.register(Recording).as(RbacAdminFacts));
+        // org.admin above a member: its implied maintainer is followed, and the project ladder gives no rank at an org.
+        await refused(p('member'), [promote()], 'escalation');
+        orgRank = 'org.owner';
+        await passes(p('owner'), [promote()]);
+        expect(asked.filter((a) => a.startsWith('project@'))).to.deep.equal([]);
+      });
     });
 
     it('links: adding tags to a link checks its role', async () => {
