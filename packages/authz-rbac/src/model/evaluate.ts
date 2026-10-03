@@ -9,7 +9,7 @@ import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import { ladderExtension } from './ladder/extension.js';
 import type { LadderIndex } from './ladder/ladders.js';
-import { reachableGrants } from './ladder/steps.js';
+import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
 import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
@@ -273,16 +273,19 @@ function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceF
 }
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({
-  collect,
+  collect: (s: RbacState) => {
+    collect(s);
+    rankAssignments(s);
+  },
   restrict: noop,
   cap: noop,
-  aggregate: noop,
+  aggregate: aggregateRanks,
   grant,
   tag: noop,
   provenance: noop,
   threshold: noop,
   residual,
-  noGrantReason: (): DenyReason => ({ code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access }),
+  noGrantReason: (s: RbacState): DenyReason => roleTooLow(s) ?? { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access },
 });
 
 /** RBAC_STEPS for `RbacModel.summarize`: each vote lists the fields of every grant that permits some row (`summaryFieldGlobs`). */
