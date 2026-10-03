@@ -19,6 +19,7 @@ export * from './migrations/Queue_2026_06_30_00_00_00.js';
 export * from './migrations/Queue_2026_07_02_00_00_00.js';
 export * from './migrations/Queue_2026_07_10_00_00_00.js';
 export * from './migrations/Queue_2026_07_17_00_00_00.js';
+export * from './migrations/Queue_2026_10_03_00_00_00.js';
 export * from './helpers.js';
 export * from './fp.js';
 
@@ -161,6 +162,8 @@ export class DefaultQueueService extends QueueService {
                 // capture the dispatch-time attempt ceiling ( retries + 1 ) so it stays authoritative
                 // across redeliveries and consumers can render Attempt/MaxAttempts consistently.
                 jModel.MaxAttempts = ((ev as QueueJob).RetryCount ?? 0) + 1;
+                jModel.InitiatorType = ev.Initiator?.type;
+                jModel.InitiatorId = ev.Initiator?.id;
 
                 try {
                   await jModel.insert();

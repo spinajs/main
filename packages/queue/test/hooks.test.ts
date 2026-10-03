@@ -219,6 +219,33 @@ describe('queue message hooks', function () {
     expect(seen).to.deep.equal([{ type: 'user', id: 'alice' }]);
   });
 
+  it('the consumer copies the Initiator onto the job row on first receipt', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(PlainJob);
+    await PlainJob.emit({});
+
+    const c = await client();
+    await c.deliver(c.Emitted[0]);
+
+    const row = (await JobModel.all())[0] as JobModel<unknown>;
+    expect(row.InitiatorType).to.equal('user');
+    expect(row.InitiatorId).to.equal('alice');
+  });
+
+  it('a redelivery keeps the Initiator of the first receipt', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(PlainJob);
+    await PlainJob.emit({});
+
+    const c = await client();
+    await c.deliver(c.Emitted[0]);
+    await c.deliver({ ...c.Emitted[0], Initiator: { type: 'user', id: 'mallory' } });
+
+    const rows = await JobModel.all();
+    expect(rows).to.have.length(1);
+    expect((rows[0] as JobModel<unknown>).InitiatorId).to.equal('alice');
+  });
+
   it('a throwing aroundHandle fails the job through the normal failure path', async () => {
     failHandle = true;
     const queue = await DI.resolve(QueueService);
@@ -263,6 +290,9 @@ describe('queue without message hooks', function () {
     await c.deliver(c.Emitted[0]);
 
     expect(trace).to.deep.equal(['execute']);
-    expect(((await JobModel.all())[0] as JobModel<unknown>).Status).to.equal('success');
+    const row = (await JobModel.all())[0] as JobModel<unknown>;
+    expect(row.Status).to.equal('success');
+    expect(row.InitiatorType ?? null).to.equal(null);
+    expect(row.InitiatorId ?? null).to.equal(null);
   });
 });
