@@ -6,7 +6,7 @@ import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { FakeClock } from '@spinajs/authn-testing';
-import { DefaultSessionIssuer, MemorySessionStore, adaptLegacySession, isLegacySessionId } from '../src/index.js';
+import { DefaultSessionIssuer, MemorySessionStore, SESSION_PENDING_STEPS_KEY, adaptLegacySession, isLegacySessionId } from '../src/index.js';
 import type { ISession } from '../src/index.js';
 import { uncacheOwned, withSessionConfig } from './support.js';
 
@@ -169,6 +169,15 @@ describe('2.x session migration', () => {
       expect(Rows.of(store).get(sha256hex(raw))!.Expiration!.toMillis()).to.equal(clock.now().getTime() + 300_000);
       clock.tick(301_000);
       expect(await issuer.restore(raw)).to.be.null;
+    });
+
+    it('a migrated pending 2.x row exposes no pending steps, so no flow reads "nothing left to verify"', async () => {
+      const { issuer, store } = await setup();
+      const raw = plantLegacy(store, { user: 'u-1', authorized: false });
+
+      const r = (await issuer.restore(raw))!;
+      expect(r.handle.state).to.equal('pending');
+      expect(r.data.has(SESSION_PENDING_STEPS_KEY)).to.be.false;
     });
 
     it('SR-session absolute timeout: a 2.x row older than maxLifetime does not come back, even for one request', async () => {

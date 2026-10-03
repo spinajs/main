@@ -18,8 +18,10 @@ export const SESSION_IP_KEY = 'Ip';
 export const SESSION_USER_AGENT_KEY = 'UserAgent';
 
 /**
- * In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen
- * `readonly string[]`. Reserved, so `set` refuses it.
+ * In `restore(...).data` of a pending session only: the MFA steps it waits for, a frozen,
+ * non-empty `readonly string[]`. Absent when the steps are unknown (a migrated 2.x row): the
+ * flow then picks them from the subject's enrolled factors and must never elevate on no step.
+ * Reserved, so `set` refuses it.
  */
 export const SESSION_PENDING_STEPS_KEY = 'authn:pendingSteps';
 
@@ -67,9 +69,10 @@ function toStored(f: AuthnFacts): StoredFacts {
   return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt.getTime() };
 }
 
-function pendingStepsOf(v: unknown): readonly string[] {
+function pendingStepsOf(v: unknown): readonly string[] | null {
   const steps = (v as { steps?: unknown } | undefined)?.steps;
-  return Object.freeze(Array.isArray(steps) ? steps.filter((s): s is string => typeof s === 'string') : []);
+  const known = Array.isArray(steps) ? steps.filter((s): s is string => typeof s === 'string') : [];
+  return known.length > 0 ? Object.freeze(known) : null;
 }
 
 const isExpired = (s: ISession): boolean => !!s.Expiration && s.Expiration <= DateTime.now();
@@ -139,6 +142,7 @@ export class DefaultSessionIssuer extends SessionIssuer {
     }
     // The store checked the row before the renewal; a just-migrated 2.x row past maxLifetime is only caught here.
     if (isExpired(session)) {
+      await this.Store.delete(session.SessionId);
       return null;
     }
 
@@ -330,8 +334,9 @@ export class DefaultSessionIssuer extends SessionIssuer {
 
   protected publicData(session: ISession): ReadonlyMap<string, unknown> {
     const data = new Map<string, unknown>([...session.Data].filter(([k]) => !k.startsWith(RESERVED_PREFIX)));
-    if (session.State === 'pending') {
-      data.set(SESSION_PENDING_STEPS_KEY, pendingStepsOf(session.Data.get(PENDING_KEY)));
+    const steps = session.State === 'pending' ? pendingStepsOf(session.Data.get(PENDING_KEY)) : null;
+    if (steps) {
+      data.set(SESSION_PENDING_STEPS_KEY, steps);
     }
     return data;
   }
