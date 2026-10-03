@@ -35,7 +35,7 @@ export const isUsableKey = (key: KeyRecord, now: Date): boolean => !key.revokedA
  * A login challenge is stored for the key it names; a name that is not a kid still gets a challenge of the same shape
  * (A02), stored under a digest so anonymous input never becomes a long identity id.
  */
-const loginIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : createHash('sha256').update(kid, 'utf8').digest('hex') });
+export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidKid(kid) ? kid : createHash('sha256').update(kid, 'utf8').digest('hex') });
 
 /** KeyRegistry over a KeyStore, challenges in SecretStore (lane notes D7, D12). */
 @Injectable(KeyRegistry)
@@ -168,7 +168,7 @@ export class DefaultKeyRegistry extends KeyRegistry {
           return { ok: false, retryAfterSeconds: t.retryAfterSeconds };
         }
       }
-      identity = loginIdentity(r.kid);
+      identity = loginChallengeIdentity(r.kid);
     } else {
       throw new TypeError('a key challenge is { purpose: register, owner } or { purpose: login, kid }');
     }
