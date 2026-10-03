@@ -1,7 +1,8 @@
 import { AuthzConfigError, GLOBAL, resourceKey, subtractFieldGlobs } from '@spinajs/authz';
 import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
 
-import { liveAssignments, resourcePath } from './evaluate.js';
+import { liveAssignments, rbacTables, resourcePath } from './evaluate.js';
+import type { RbacTables } from './evaluate.js';
 import type { CompiledGrant } from './grants.js';
 import type { RbacModel } from './model.js';
 
@@ -35,7 +36,9 @@ export class RbacService {
    * - relations: w's relations are a subset of h's (h's OR admits every row w's does);
    * - patterns (`on`): w's patterns, as written, are a subset of h's;
    * - fields: w's read and write globs lie inside h's (a grant without fields gives every field);
-   * - requiresTag: equal; grantedAt: w's types are a subset of h's.
+   * - requiresTag: equal; grantedAt: w's types are a subset of h's;
+   * - ladder `resourceTypes`: of the types the permission is checked on (its `types` and `$global`),
+   *   h applies on every one w applies on.
    * Conditions compare as role definitions, not as resolved rows: `home/{principal.id}` and `owner`
    * cover themselves, although the assignee gets its own home and its own rows, not the actor's. That
    * is "an actor may hand out its own role". So an unconditional grant covers a conditional one and
@@ -93,11 +96,15 @@ export class RbacService {
     const index = this.model.grantIndex();
     if (wanted.some((r) => !graph.has(r))) return false;
     const holding = [...new Set(held)].filter((r) => graph.has(r));
+    const { ladders } = modelTables(this.model);
+    const registry = this.model.permissions();
     for (const role of new Set(wanted)) {
       for (const permission of index.permissions(role)) {
         if (limit && !limit.allows(permission)) return false;
+        const types = ladders ? [...registry.require(permission).types, GLOBAL.type] : [];
+        const typesCover = (h: CompiledGrant, w: CompiledGrant) => types.every((t) => !ladders!.appliesAt(w, t) || ladders!.appliesAt(h, t));
         for (const w of index.grants(role, permission)) {
-          if (!holding.some((h) => index.grants(h, permission).some((g) => grantCovers(g, w)))) return false;
+          if (!holding.some((h) => index.grants(h, permission).some((g) => grantCovers(g, w) && typesCover(g, w)))) return false;
         }
       }
     }
@@ -204,4 +211,9 @@ function grantCovers(h: CompiledGrant, w: CompiledGrant): boolean {
   if (h.requiresTag !== undefined && h.requiresTag !== w.requiresTag) return false;
   if (h.grantedAt && !(w.grantedAt && w.grantedAt.every((t) => h.grantedAt!.includes(t)))) return false;
   return true;
+}
+
+/** The tables `model` evaluates with (rbacTables over its extensions), so covers and the votes agree. */
+export function modelTables(model: RbacModel): RbacTables {
+  return rbacTables(model.extensions, model.roleGraph(), model.grantIndex());
 }

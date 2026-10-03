@@ -1,4 +1,4 @@
-import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 
 import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
@@ -7,6 +7,9 @@ import { expiryTime } from './assignments.js';
 import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
+import { ladderExtension } from './ladder/extension.js';
+import type { LadderIndex } from './ladder/ladders.js';
+import { reachableGrants } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
 import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
@@ -70,6 +73,8 @@ export interface RbacInput {
   readonly assignments: readonly Assignment[];
   readonly roles: RoleGraph;
   readonly grants: GrantIndex;
+  /** Rank tables (RbacExtension.tables); absent: no role has a rank and every grant applies on every type. */
+  readonly ladders?: LadderIndex;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -177,7 +182,7 @@ export function ceilingRoles(principal: Principal): ReadonlySet<string> | undefi
 const grant: RbacStep = (s) => {
   const holders = new Map<CompiledGrant, LiveAssignment[]>();
   for (const live of s.live) {
-    for (const g of s.input.grants.grants(live.role, s.permission)) {
+    for (const g of reachableGrants(s, live)) {
       const list = holders.get(g);
       if (list) list.push(live);
       else holders.set(g, [live]);
@@ -238,7 +243,7 @@ const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
 function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
   const out = new Map<CompiledGrant, LiveAssignment[]>();
   for (const live of s.scoped) {
-    for (const g of s.input.grants.grants(live.role, s.permission)) {
+    for (const g of reachableGrants(s, live)) {
       const list = out.get(g);
       if (list) list.push(live);
       else out.set(g, [live]);
@@ -397,12 +402,43 @@ export function extendRbacInput(request: DecisionRequest, ctx: EvaluationContext
 
 function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
   const extensions = sources.extensions ?? [];
+  if (from === 0) input = { ...input, ...rbacTables(extensions, input.roles, input.grants) };
   for (let i = from; i < extensions.length; i++) {
     const part = extensions[i].gather?.(request, ctx, input, sources);
-    if (isThenable(part)) return Promise.resolve(part).then((p) => extendInput(request, ctx, sources, i + 1, { ...input, ...p }));
-    if (part) input = { ...input, ...part };
+    if (isThenable(part)) return Promise.resolve(part).then((p) => extendInput(request, ctx, sources, i + 1, { ...input, ...tableFree(p) }));
+    if (part) input = { ...input, ...tableFree(part) };
   }
   return input;
+}
+
+/** Tables compiled from the role graph, which RbacService reads too; one source each. */
+export interface RbacTables {
+  readonly ladders?: LadderIndex;
+}
+
+const TABLE_KEYS: readonly (keyof RbacTables)[] = ['ladders'];
+
+/**
+ * The extensions' tables for `graph`, merged; the gathering phase puts them in every input.
+ * @throws AuthzConfigError when two extensions give one table
+ */
+export function rbacTables(extensions: readonly RbacExtension[], graph: RoleGraph, grants: GrantIndex): RbacTables {
+  const out: Record<string, unknown> = {};
+  for (const ext of extensions) {
+    for (const [key, table] of Object.entries(ext.tables?.(graph, grants) ?? {})) {
+      if (table === undefined) continue;
+      if (key in out) throw new AuthzConfigError(`rbac: two extensions give the '${key}' table`);
+      out[key] = table;
+    }
+  }
+  return out as RbacTables;
+}
+
+// A table set by a gather would reach the votes but not RbacService.covers, which reads rbacTables.
+function tableFree(part: Partial<RbacInput> | undefined): Partial<RbacInput> | undefined {
+  const key = part ? TABLE_KEYS.find((k) => k in part) : undefined;
+  if (key) throw new Error(`rbac: an extension's gather set '${key}'; give it through RbacExtension.tables`);
+  return part;
 }
 
 /**
@@ -442,6 +478,8 @@ export interface RbacExtension {
   readonly extraEdges?: CompileRolesOptions['extraEdges'];
   /** Right after the grant index is built, at boot through the contributor; throw AuthzConfigError to fail the boot. */
   compile?(graph: RoleGraph, grants: GrantIndex, registry: PermissionRegistry): void;
+  /** Tables of the role graph (rank tables); memoise them per graph, the gathering phase asks on every request. */
+  tables?(graph: RoleGraph, grants: GrantIndex): RbacTables;
   /** At the end of the gathering phase; the result is merged into the input. */
   gather?(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>>;
   /** Boot refs, merged into the contributor's. */
@@ -456,7 +494,7 @@ export interface RbacExtension {
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
 /** One factory per extension, so every model gets its own instances. */
-export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([]);
+export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */
 export function createRbacExtensions(opts: RbacModelOptions, factories: readonly RbacExtensionFactory[] = DEFAULT_RBAC_EXTENSIONS): readonly RbacExtension[] {
