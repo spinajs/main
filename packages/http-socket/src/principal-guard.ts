@@ -168,7 +168,12 @@ export class SocketPrincipalGuard {
       return;
     }
 
+    const restored = connection.principal;
     await (this.pending.get(connection) ?? this.check(connection));
+
+    if (connection.principal === restored && !this.closing.has(connection)) {
+      this.Log.debug(`Socket ${connection.id}: the re-check of the recovered connection carried no principal; an identity flattened by a serializing adapter stays flattened`);
+    }
   }
 
   /**

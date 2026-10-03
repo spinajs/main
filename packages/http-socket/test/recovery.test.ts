@@ -5,12 +5,12 @@ import { DI } from '@spinajs/di';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM_EVENTS, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
-import { Connection, OnConnect, OnDisconnect, SocketController } from '../src/decorators.js';
+import { Command, Connection, OnConnect, OnDisconnect, OnEvent, SocketController } from '../src/decorators.js';
 import { SocketHub } from '../src/hub.js';
-import { ISocketHandshake, SocketPrincipalSource } from '../src/interfaces.js';
+import { ISocketHandshake, SocketPrincipalSource, SocketRevalidationResult } from '../src/interfaces.js';
 import { SocketConnection } from '../src/connection.js';
 import { SocketPrincipalGuard } from '../src/principal-guard.js';
-import { IConnectOptions, ITestServer, connect, connected, delay, nextEvent, open, startServer, waitFor } from './harness.js';
+import { IConnectOptions, ITestServer, command, connect, connected, delay, errorOf, nextEvent, open, startServer, waitFor } from './harness.js';
 
 export class RecoveredUser {
   constructor(public readonly name: string) {}
@@ -57,7 +57,23 @@ export class RecoveryOrderSocket extends BaseSocketController {
   }
 }
 
-/** Owns the tokens starting with 'recov-'; 'recov-expiring' expires 300 ms after its handshake. */
+export const recoverySlowRuns: string[] = [];
+
+@SocketController('recovery-slow')
+export class RecoverySlowSocket extends BaseSocketController {
+  @Command('ping')
+  public async ping() {
+    recoverySlowRuns.push('command');
+    return 'pong';
+  }
+
+  @OnEvent('ping')
+  public async pinged() {
+    recoverySlowRuns.push('event');
+  }
+}
+
+/** Owns the tokens starting with 'recov-'; 'recov-expiring' expires 300 ms after its handshake, 'recov-slow' takes 500 ms to revalidate. */
 export class RecoverySource extends SocketPrincipalSource {
   public readonly name = 'recovery';
   public readonly order = 4;
@@ -77,6 +93,14 @@ export class RecoverySource extends SocketPrincipalSource {
       ...(token === 'recov-expiring' ? { ceiling: { expiresAt: new Date(Date.now() + 300) } } : {}),
       ...(token === 'recov-user' ? { identity: new RecoveredUser('ann') } : {}),
     };
+  }
+
+  public async revalidate(handshake: ISocketHandshake, principal: Principal): Promise<SocketRevalidationResult> {
+    if (principal.id === 'recov-slow') {
+      await delay(500);
+    }
+
+    return super.revalidate(handshake, principal);
   }
 }
 
@@ -222,15 +246,38 @@ describe('socket connection state recovery and the principal', function () {
     expect(await kicked).to.deep.equal({ reason: 'unauthenticated' });
   });
 
+  it('holds the commands and events of a recovered connection until its re-check, then refuses them when it fails', async () => {
+    t = await startServer();
+    recoverySlowRuns.length = 0;
+    const { pid, offset } = await dropped({ auth: { token: 'recov-slow' } });
+
+    const second = track(connect(t, { auth: { pid, offset } }));
+    const kicked = nextEvent<{ reason: string }>(second, SYSTEM_EVENTS.disconnect);
+    await connected(second);
+    const reply = command(second, 'recovery-slow.ping');
+    second.emit(WIRE_EVENTS.event, { name: 'recovery-slow.ping', payload: null });
+
+    const early = await Promise.race([reply.then(() => 'answered'), delay(150).then(() => 'waiting')]);
+    expect(early).to.equal('waiting');
+    expect(errorOf(await reply).code).to.equal('unauthenticated');
+    expect(await kicked).to.deep.equal({ reason: 'unauthenticated' });
+    await delay(50);
+    expect(recoverySlowRuns).to.deep.equal([]);
+  });
+
   it('brings back the identity that a serializing adapter flattened', async () => {
     t = await startServer();
-    const adapter = t.server.Io!.of('/').adapter as unknown as { restoreSession: (pid: string, offset: string) => Promise<{ data: unknown } | null> };
-    const restore = adapter.restoreSession.bind(adapter);
-    // what a Redis or Postgres adapter hands back: the session data as JSON
-    adapter.restoreSession = async (pid, offset) => {
-      const session = await restore(pid, offset);
-      return session && { ...session, data: JSON.parse(JSON.stringify(session.data)) };
-    };
+    const io = t.server.Io!;
+    const Base = io.adapter()! as unknown as new (...args: never[]) => { restoreSession(pid: string, offset: string): Promise<{ data: unknown } | null> };
+    // what a Redis or Postgres adapter hands back: the session data as JSON. A subclass installed through io.adapter()
+    // deliberately puts the round-trip inside the guardRecovery wrapper, as with a real adapter, so restorable() sees the JSON too.
+    class JsonSessionAdapter extends Base {
+      public async restoreSession(pid: string, offset: string) {
+        const session = await super.restoreSession(pid, offset);
+        return session && { ...session, data: JSON.parse(JSON.stringify(session.data)) as unknown };
+      }
+    }
+    io.adapter(JsonSessionAdapter as unknown as Parameters<typeof io.adapter>[0]);
 
     const { id, pid, offset } = await dropped({ auth: { token: 'recov-user' } });
     const { second } = await reconnect(pid, offset, { token: 'recov-user' });
