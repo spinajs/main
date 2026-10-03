@@ -14,6 +14,7 @@ import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import { cacheSafeRef } from '../engine/cache-key.js';
 import { defaultAttribute, evaluateResidual } from '../engine/evaluate.js';
 import type { SubjectEnv } from '../engine/evaluate.js';
+import { BUILTIN_CONDITION_FUNCTIONS, KleeneConditionFunction, isBuiltinConditionFunction } from './functions.js';
 import { parseCondition } from './parse.js';
 import type { ConditionOp, ConditionPath, ParsedCondition } from './parse.js';
 
@@ -63,7 +64,8 @@ export class DefaultConditionCompiler extends ConditionCompiler {
   private readonly resourceAttributeTypes: ReadonlySet<string>;
   private readonly parsed = new WeakMap<object, ParsedCondition>();
 
-  constructor(functions: readonly ConditionFunction[] = [], resolvers: readonly ScopeResolver[] = [], adapters: readonly ResourceAdapter[] = []) {
+  /** `functions` defaults to the built-ins (time.between, ip.in, glob, wildcard). */
+  constructor(functions: readonly ConditionFunction[] = BUILTIN_CONDITION_FUNCTIONS, resolvers: readonly ScopeResolver[] = [], adapters: readonly ResourceAdapter[] = []) {
     super();
     // Only a scope resolver's attributes describe the resource itself (canvas branch → { name });
     // an adapter has rows, and its scopeAttributes serve scope.* refs, not resource.* (design §5.9).
@@ -74,7 +76,11 @@ export class DefaultConditionCompiler extends ConditionCompiler {
       if (!(f instanceof ConditionFunction) && (typeof f !== 'object' || f === null || typeof (f as ConditionFunction).evaluate !== 'function')) throw new AuthzConfigError('a condition function must extend ConditionFunction');
       const name = f.name;
       if (typeof name !== 'string' || name === '') throw new AuthzConfigError('a condition function needs a name');
-      if (map.has(name)) throw new AuthzConfigError(`two condition functions are named ${JSON.stringify(name)}`);
+      if (map.has(name)) {
+        // The ESM and CJS copies of this package each register the built-ins.
+        if (isBuiltinConditionFunction(f) && isBuiltinConditionFunction(map.get(name))) continue;
+        throw new AuthzConfigError(`two condition functions are named ${JSON.stringify(name)}`);
+      }
       map.set(name, f);
     }
     this.functions = map;
@@ -97,8 +103,27 @@ export class DefaultConditionCompiler extends ConditionCompiler {
       if (hit) return hit;
     }
     const p = parseCondition(c, { functions: this.functions, ...(where === undefined ? {} : { where }) });
+    this.checkArgs(p, where ?? 'condition');
     if (memo) this.parsed.set(c, p);
     return p;
+  }
+
+  private checkArgs(p: ParsedCondition, where: string): void {
+    switch (p.kind) {
+      case 'all':
+      case 'any':
+        for (const item of p.items) this.checkArgs(item, where);
+        return;
+      case 'not':
+        this.checkArgs(p.item, where);
+        return;
+      case 'fn': {
+        const f = this.functions.get(p.name);
+        const check = (f as Partial<KleeneConditionFunction> | undefined)?.checkArgs;
+        if (typeof check === 'function') check.call(f, p.args, where);
+        return;
+      }
+    }
   }
 
   compile(c: Condition, req: DecisionRequest, ctx: EvaluationContext): Promise<CompiledCondition> {
@@ -200,11 +225,14 @@ class Run {
       readOnlyView(value, root, (path) => {
         if (!cacheSafeRef(path)) this.cacheable = false;
       });
-    const result: unknown = f.evaluate(resolved, {
+    const kleene = typeof (f as Partial<KleeneConditionFunction>).evaluateKleene === 'function';
+    const ctx = {
       principal: view(this.req.principal, 'principal') as Principal,
       ...(this.req.actor ? { actor: view(this.req.actor, 'actor') as Principal } : {}),
       env: view(this.env, 'env') as Readonly<Record<string, unknown>>,
-    });
+    };
+    const result: unknown = kleene ? (f as KleeneConditionFunction).evaluateKleene(resolved, ctx) : f.evaluate(resolved, ctx);
+    if (kleene && result === undefined) return CONDITION_UNKNOWN;
     if (typeof result !== 'boolean') throw new AuthzConfigError(`condition function ${JSON.stringify(name)} returned ${result === null ? 'null' : typeof result}, not a boolean`);
     return result ? TRUE : FALSE;
   }

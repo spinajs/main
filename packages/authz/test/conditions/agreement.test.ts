@@ -148,7 +148,10 @@ async function selects(d: Decision, row: unknown, w: OracleWorld): Promise<boole
   return (await evaluateResidual(d.residual, row, env)) === true;
 }
 
-describe('conditions: compiled residual agrees with the direct Kleene evaluation', () => {
+describe('conditions: compiled residual agrees with the direct Kleene evaluation', function () {
+  // Hundreds of Authorizer checks per property.
+  this.timeout(120_000);
+
   it('row by row through the engine: with the subject, by id alone, and from a warm L2 under another env; permit and deny', async () => {
     await fc.assert(
       fc.asyncProperty(condition(), world, async (c, spec) => {
