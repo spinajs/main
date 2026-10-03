@@ -1,5 +1,5 @@
 import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, readDomainConfig, resolveDelegation } from '@spinajs/authz';
-import type { ConfigGetter, Principal } from '@spinajs/authz';
+import type { AuthzService, ConfigGetter, DomainConfig, Principal } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 
@@ -20,11 +20,15 @@ function lineageOf(domain: string, get: ConfigGetter): readonly string[] {
   return out;
 }
 
-/** `engine.maxDelegation` of `domain`, merged over its lineage as the host reads it (default 2). */
-export function maxDelegationOf(domain: string = ROOT): number {
+function domainConfig(domain: string): DomainConfig {
   const configuration = DI.get(Configuration) as Configuration | undefined;
   const get: ConfigGetter = (path) => (configuration && typeof configuration.get === 'function' ? configuration.get(path) : undefined);
-  return readDomainConfig(get, lineageOf(domain, get)).engine.maxDelegation;
+  return readDomainConfig(get, lineageOf(domain, get));
+}
+
+/** `engine.maxDelegation` of `domain`, merged over its lineage as the host reads it (default 2). */
+export function maxDelegationOf(domain: string = ROOT): number {
+  return domainConfig(domain).engine.maxDelegation;
 }
 
 /**
@@ -33,4 +37,20 @@ export function maxDelegationOf(domain: string = ROOT): number {
  */
 export function relationPrincipal(principal: Principal, domain: string = ROOT): Principal {
   return resolveDelegation(principal, undefined, maxDelegationOf(domain)).principal;
+}
+
+// The host reads a domain's config once, when its service boots; a new config takes effect with a
+// new service instance, so keying by the instance keeps the middleware in step with the engine.
+const configs = new WeakMap<AuthzService, DomainConfig>();
+
+/** The booted service's domain config, read once per service instance. */
+export function serviceConfig(service: AuthzService): DomainConfig {
+  let cfg = configs.get(service);
+  if (cfg === undefined) configs.set(service, (cfg = domainConfig(service.domain)));
+  return cfg;
+}
+
+/** `relationPrincipal` for the domain of a booted service, without reading the config per call. */
+export function relationPrincipalOf(principal: Principal, service: AuthzService): Principal {
+  return resolveDelegation(principal, undefined, serviceConfig(service).engine.maxDelegation).principal;
 }

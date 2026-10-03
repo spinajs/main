@@ -2,7 +2,7 @@ import { AuthzConfigError, GLOBAL, SYSTEM, authzStorage } from '@spinajs/authz';
 import type { Principal, ResourceFilter } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { IdentifierQuoter, QueryStatement, SelectQueryBuilder, WhereBuilder, WhereQueryStatement, extractModelDescriptor } from '@spinajs/orm';
+import { IdentifierQuoter, SelectQueryBuilder, WhereBuilder, WhereQueryStatement, extractModelDescriptor } from '@spinajs/orm';
 import type { IQueryStatement, IQueryStatementResult, IWhereBuilder, OrmDriver } from '@spinajs/orm';
 
 import type { OrmNativeCompiler, OrmScopePolicy } from '../api.js';
@@ -12,6 +12,7 @@ import type { ColumnInfo, IdMode } from '../columns.js';
 import { classesOf, entryOf, scopePolicyOf } from '../registry.js';
 import type { ModelClass, ResourceEntry } from '../registry.js';
 import { pkOf } from '../rows.js';
+import { AuthzStatement } from '../shield.js';
 import { caseWhen, dialectFor } from './dialect.js';
 import { assertSynchronous } from './sync.js';
 import type { SqlDialect } from './dialect.js';
@@ -122,7 +123,7 @@ interface Compiled {
  * with the builder's alias (or its table) when the statement builds, so an alias that `populate()`,
  * a join or `setAlias()` assigns later is the one used.
  */
-export class ResidualStatement extends QueryStatement {
+export class ResidualStatement extends AuthzStatement {
   constructor(private readonly target: IWhereBuilder<unknown>, private readonly compiled: Compiled) {
     super();
   }
@@ -149,7 +150,7 @@ export class ResidualStatement extends QueryStatement {
   public clone<T>(parent?: T): IQueryStatement {
     const target = (parent ?? this.target) as unknown as IWhereBuilder<unknown>;
     const subs = this.compiled.subs.map((s): Sub => (s.kind === 'native' ? { kind: 'native', builder: s.builder.clone(target) as WhereBuilder<unknown> } : { kind: 'scope', inner: s.inner.clone(), alias: s.alias }));
-    return new ResidualStatement(target, { ...this.compiled, subs });
+    return this.derived(new ResidualStatement(target, { ...this.compiled, subs }));
   }
 }
 
@@ -167,13 +168,18 @@ function whereOf(container: IContainer, builder: IWhereBuilder<unknown>, binding
  * `placement: 'join'` in the JOIN ON of the populated relation whose query `target` is.
  */
 export function compileResidual(filter: ResourceFilter, target: IWhereBuilder<unknown>, ctx: ResidualContext): ResidualStatement {
-  const statement = new ResidualStatement(target, new Compiler(target, ctx).compile(filter));
+  const statement = buildResidual(filter, target, ctx);
   if (ctx.placement === 'join') {
     target.whereOnJoin(function (this: IWhereBuilder<unknown>) {
       this.Statements.push(statement);
     });
   } else target.Statements.push(statement);
   return statement;
+}
+
+/** The compiled residual as a statement of `target`, not added to it (`placement` is ignored). */
+export function buildResidual(filter: ResourceFilter, target: IWhereBuilder<unknown>, ctx: ResidualContext): ResidualStatement {
+  return new ResidualStatement(target, new Compiler(target, ctx).compile(filter));
 }
 
 type Field = { readonly kind: 'column'; readonly info: ColumnInfo; readonly ref: Sql } | { readonly kind: 'none' } | { readonly kind: 'unknown' };

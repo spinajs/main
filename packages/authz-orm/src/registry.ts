@@ -57,6 +57,10 @@ const properties = new WeakMap<ModelClass, PropertyMetadata>();
 const scopes = new WeakMap<ModelClass, Map<string, ModelClass>>();
 // entryOf runs for every query builder; any registry write clears it.
 let entries = new WeakMap<ModelClass, ResourceEntry | null>();
+let version = 0;
+
+/** Changes whenever a class is registered or forgotten. */
+export const registryVersion = (): number => version;
 
 const nameOf = (c: unknown): string => (typeof c === 'function' && c.name ? c.name : '<anonymous class>');
 
@@ -105,6 +109,7 @@ export function register(model: ModelClass, type: unknown, opts?: unknown): void
   }
   registrations.set(model, next);
   entries = new WeakMap();
+  version++;
 }
 
 function metadataOf(model: ModelClass): PropertyMetadata {
@@ -212,10 +217,12 @@ export function permissionFor(model: unknown, kind: QueryKind): Permission | und
 export function unregisterResource(model: ModelClass): void {
   registrations.delete(model);
   entries = new WeakMap();
+  version++;
 }
 
 /** Test seam: forget every registration (decorator metadata stays). */
 export function resetRegistry(): void {
   registrations.clear();
   entries = new WeakMap();
+  version++;
 }

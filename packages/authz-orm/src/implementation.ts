@@ -3,3 +3,5 @@ export { filterFields } from './fields.js';
 export { ownsBy } from './relations.js';
 export { OrmResourceAdapter } from './adapter.js';
 export { OrmAuthzContributor } from './contributor.js';
+// Registers AuthzQueryMiddleware as a QueryMiddleware.
+import './middleware.js';

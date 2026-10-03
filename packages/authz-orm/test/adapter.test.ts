@@ -12,6 +12,7 @@ import { OPAQUE } from '../src/columns.js';
 import { OrmAuthzContributor } from '../src/contributor.js';
 import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
+import { asSystem } from './support/system.js';
 
 const expect = chai.expect;
 
@@ -71,7 +72,7 @@ describe('authz-orm OrmResourceAdapter', function () {
         const a = adapter();
         expect(a.kind).to.equal('orm');
         expect(a.types).to.include('ad-task');
-        const [row] = (await (Task as any).all()) as ModelBase[];
+        const [row] = (await asSystem(() => (Task as any).all())) as ModelBase[];
         expect(a.accepts(row)).to.equal(true);
         expect(a.accepts({ id: 't1' })).to.equal(false);
         expect(a.accepts(null)).to.equal(false);
@@ -157,7 +158,7 @@ describe('authz-orm OrmResourceAdapter', function () {
       it('attribute normalises per column kind; a non-column is undefined', async () => {
         const Task = await defineTask([{ id: 't1', title: 'a', n: 3, r: 1.5, done: dialect === 'postgres' ? true : 1, due: '2024-01-01 00:00:00' }, { id: 't2' }]);
         const a = adapter();
-        const rows = (await (Task as any).all()) as ModelBase[];
+        const rows = (await asSystem(() => (Task as any).all())) as ModelBase[];
         const t1 = rows.find((r: any) => r.id === 't1')!;
         const t2 = rows.find((r: any) => r.id === 't2')!;
         expect(a.attribute!(t1, 'title')).to.equal('a');
@@ -177,7 +178,7 @@ describe('authz-orm OrmResourceAdapter', function () {
       if (dialect === 'sqlite') {
         it('sqlite: a value of another storage class in a typed column is opaque', async () => {
           const Task = await defineTask([{ id: 't1', n: 'abc' }]);
-          const [row] = (await (Task as any).all()) as ModelBase[];
+          const [row] = (await asSystem(() => (Task as any).all())) as ModelBase[];
           expect(adapter().attribute!(row, 'n')).to.equal(OPAQUE);
         });
       }

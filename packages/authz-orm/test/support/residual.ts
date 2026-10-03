@@ -5,6 +5,7 @@ import type { IWhereBuilder, ModelBase } from '@spinajs/orm';
 import { OrmResourceAdapter } from '../../src/adapter.js';
 import { compileResidual } from '../../src/compile/compiler.js';
 import type { QueryOp, ResidualContext } from '../../src/compile/compiler.js';
+import { asSystem } from './system.js';
 
 export type Model = typeof ModelBase;
 
@@ -68,19 +69,21 @@ export class Memory {
 }
 
 export async function allRows(model: Model): Promise<ModelBase[]> {
-  return (await (model as any).query()) as ModelBase[];
+  return (await asSystem(() => (model as any).query())) as ModelBase[];
 }
 
 export function contextOf(model: Model, principal: Principal, op: QueryOp = 'read'): ResidualContext {
   return { model, principal, op };
 }
 
-/** Ids of the rows a select with the compiled residual returns. */
+/** Ids of the rows a select with the compiled residual returns (as SYSTEM, so only this residual scopes it). */
 export async function sqlIds(model: Model, filter: ResourceFilter, principal: Principal, shape?: (q: IWhereBuilder<unknown>) => void): Promise<string[]> {
-  const q = (model as any).query();
-  compileResidual(filter, q, contextOf(model, principal));
-  shape?.(q);
-  const rows = (await q) as ModelBase[];
+  const rows = (await asSystem(() => {
+    const q = (model as any).query();
+    compileResidual(filter, q, contextOf(model, principal));
+    shape?.(q);
+    return q;
+  })) as ModelBase[];
   return rows.map(pk).sort();
 }
 

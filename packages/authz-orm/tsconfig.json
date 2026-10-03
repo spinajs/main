@@ -28,6 +28,9 @@
     },
     {
       "path": "../orm-sqlite/tsconfig.json"
+    },
+    {
+      "path": "../exceptions/tsconfig.json"
     }
   ]
 }

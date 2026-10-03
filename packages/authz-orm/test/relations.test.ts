@@ -13,6 +13,7 @@ import { OrmResourceAdapter } from '../src/adapter.js';
 import { maxDelegationOf, relationPrincipal } from '../src/principal.js';
 import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
+import { asSystem } from './support/system.js';
 
 const expect = chai.expect;
 
@@ -69,7 +70,7 @@ describe('authz-orm relations', function () {
         if (dialect === 'postgres' && !pg) this.skip();
       });
 
-      const rowOf = async (model: typeof ModelBase, id: string) => (await (model as any).where('id', id).first()) as ModelBase;
+      const rowOf = async (model: typeof ModelBase, id: string) => (await asSystem(() => (model as any).where('id', id).first())) as ModelBase;
 
       describe('owner', () => {
         const defineFile = (rows: Record<string, unknown>[], ownerType = T.text) =>

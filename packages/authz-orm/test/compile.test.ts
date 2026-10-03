@@ -14,8 +14,11 @@ import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
 import { Memory, allRows, contextOf, not, sqlIds } from './support/residual.js';
 import type { Model } from './support/residual.js';
+import { systemIt } from './support/system.js';
 
 const expect = chai.expect;
+// The suite tests the compiler, not the middleware: test bodies run as SYSTEM, which it leaves alone.
+const it = systemIt;
 
 const user = (id: string, attributes: Record<string, unknown> = {}): Principal => ({ type: 'user', id, authenticated: true, source: 'test', attributes });
 const alice = user('alice', { org: 'o1' });
@@ -610,6 +613,13 @@ describe('authz-orm residual compiler', function () {
         const Doc = await defineDocs({ rows: [] });
         const driver = { Options: { Driver: 'orm-driver-mysql' } };
         expect(() => compileResidual({ op: 'true' }, (Doc as any).query(), { ...contextOf(Doc, alice), driver: driver as never })).to.throw(AuthzConfigError, /orm-driver-mysql/);
+      });
+
+      it('a driver of the other dialect than the model connection is a configuration error', async function () {
+        if (!pg) this.skip();
+        const Doc = await defineDocs({ rows: [] });
+        const other = db.driver(dialect === 'sqlite' ? 'postgres' : 'sqlite');
+        expect(() => compileResidual({ op: 'true' }, (Doc as any).query(), { ...contextOf(Doc, alice), driver: other })).to.throw(AuthzConfigError, new RegExp(`lives on a ${dialect} connection`));
       });
 
       it('the residual is qualified with the alias the builder has when it builds', async () => {
