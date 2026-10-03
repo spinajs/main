@@ -142,3 +142,23 @@ unknown key with the same work and result as a bad signature, throttles by
 | `httpSignature.requiredComponents` | `['@method', '@target-uri', 'content-digest']` |
 
 `authn_nonce` comes with `@spinajs/authn-orm`'s `AuthnInitial` migration.
+
+List the strategies an app uses in `authn.strategies`; `service` is the
+class name:
+
+```ts
+authn: {
+  strategies: [
+    { name: 'keys-jws', service: 'JwsAssertionStrategy' },
+    { name: 'keys-httpsig', service: 'HttpSignatureStrategy' },
+    { name: 'keys-challenge', service: 'KeyChallengeStrategy' },
+  ],
+  keys: { assertion: { audience: 'https://api.example.com' } },
+}
+```
+
+Dates in `authn_key` and `authn_nonce` are stored as UTC wall time. The ORM
+reads date columns in the process time zone first, so run the server with
+`TZ=UTC`: elsewhere an expiry inside a spring-forward hour reads back one
+hour late.
+
