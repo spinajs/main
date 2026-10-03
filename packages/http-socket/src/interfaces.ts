@@ -8,7 +8,7 @@ import type { Decision, IAuthnPrincipalStorage, IAuthzAsyncStorage } from '@spin
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
 import { SocketException } from '@spinajs/http-socket-common';
-import type { CommandRequest } from '@spinajs/http-socket-common';
+import type { CommandRequest, SocketError } from '@spinajs/http-socket-common';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { TokenBucket } from './limits.js';
 
@@ -18,9 +18,12 @@ export interface ISocketRateConfig {
 }
 
 export interface ISocketIdempotencyConfig {
-  /** DI name of the IdempotencyStore implementation (W3). */
+  /** Class name of the IdempotencyStore implementation; this whole object is its first constructor argument. */
   service: string;
+  /** How long a completed key replays its reply. */
   ttlMs: number;
+  /** MemoryIdempotencyStore: completed keys kept at most; the least recently used go first. */
+  maxEntries: number;
 }
 
 export interface ISocketCorsConfig {
@@ -299,3 +302,6 @@ export const STAGE_ORDER = {
   Arguments: 700,
   Ordering: 800,
 } as const;
+
+/** What an idempotent command replays: its result, or the error it failed with for good. */
+export type IdempotentReply = { readonly ok: true; readonly result: unknown } | { readonly ok: false; readonly error: SocketError };

@@ -17,6 +17,7 @@ import { SocketHandlerRegistry } from './registry.js';
 import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
+import { assertIdempotencyConfig } from './idempotency.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
 function refusal(wire: SocketError): Error & { data: SocketError } {
@@ -99,6 +100,7 @@ export class SocketServer extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
+    assertIdempotencyConfig(this.Options.idempotency);
     await this.ControllerFiles;
     // a duplicate or orphan handler rejects here, before socket.io attaches: no partial routing
     await this.Registry.build();

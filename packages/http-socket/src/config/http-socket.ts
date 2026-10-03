@@ -31,6 +31,7 @@ const config: ISocketConfigFile = {
       idempotency: {
         service: 'MemoryIdempotencyStore',
         ttlMs: 600_000,
+        maxEntries: 100_000,
       },
       ordering: {
         abortGraceMs: 30_000,
