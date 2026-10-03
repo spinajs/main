@@ -73,6 +73,12 @@ export class DurableE2eSocket extends BaseSocketController {
     return p.n;
   }
 
+  /** idempotent but not ordered: the `after` fence alone keeps a durable queue in order */
+  @Command('loose', { idempotent: true })
+  public async loose(@Payload() p: { n: number; ms: number }) {
+    return this.apply(p);
+  }
+
   @Command('slow')
   public async slow(@Payload() p: { ms: number }) {
     await delay(p.ms);
@@ -425,6 +431,19 @@ describe('W3 end to end: the real client against the real server', function () {
       [...e2eProbe.refused.keys()].filter((kind) => kind !== 'aborted'),
       `refusals other than aborted calls, seed ${SEED + 1}`,
     ).to.deep.equal([]);
+  });
+
+  it("runs a durable queue of an idempotent command that is not ordered: 'client' exactly once and in order, past its head", async () => {
+    t = await startServer(UNLIMITED);
+    const c = client('e2e-loose');
+    await online(c);
+
+    const count = 50;
+    const resolved: number[] = [];
+    await Promise.all(range(count).map((n) => c.durable<number>('e2e.loose', { n, ms: count - n }).then((v) => void resolved.push(v))));
+
+    expectExactlyOnceInOrder(count, resolved);
+    expect([...e2eProbe.refused.keys()]).to.deep.equal([]);
   });
 
   it('does not hold a successor whose predecessor was answered but never stored', async () => {

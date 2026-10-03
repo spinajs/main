@@ -325,11 +325,17 @@ describe('durable command order: the after fence', function () {
     expect(fenceLog).to.deep.equal(['create:d2', 'rename:d2']);
   });
 
-  it("refuses after on a command that is not ordered: 'client'", async () => {
+  it("fences an idempotent command that is not ordered: 'client' on its predecessor, without queueing it", async () => {
     const s = await connect('fence-unordered');
     const error = errorOf(await command(s, 'fence.loose', undefined, { idempotencyKey: 'k', after: 'a' }));
 
-    expect(error.code).to.equal('failed_precondition');
+    expect(error.code).to.equal('unavailable');
+    expect(error.retryable).to.be.true;
+    expect(error.details).to.deep.equal({ after: 'a' });
     expect(fenceLog).to.deep.equal([]);
+
+    expect(resultOf(await command(s, 'fence.loose', undefined, { idempotencyKey: 'a' }))).to.equal('loose');
+    expect(resultOf(await command(s, 'fence.loose', undefined, { idempotencyKey: 'k', after: 'a' }))).to.equal('loose');
+    expect(fenceLog).to.deep.equal(['loose', 'loose']);
   });
 });

@@ -109,7 +109,7 @@ Every command passes these stages in order. The first stage that fails answers w
 5. **Authentication.** The principal is re-checked (expiry, revalidation); a failure answers `unauthenticated`.
 6. **Lookup.** An unknown name answers `unimplemented`.
 7. **Idempotency.** An `idempotent` command with an `idempotencyKey` replays the stored reply of a completed run of that key, or waits for a running one.
-8. **Ordering.** `ordered: 'connection' | 'client'` waits in a serial queue; `after` waits for the named predecessor to complete. A stream handler cannot be `ordered`.
+8. **Ordering.** `ordered: 'connection' | 'client'` waits in a serial queue; `after` requires the named predecessor to have completed, in any mode. A stream handler cannot be `ordered`.
 9. **Policies.** `@SocketPolicy` / `@SocketAccess` answer `unauthenticated` or `forbidden`.
 10. **Arguments.** Extraction and ajv validation answer `invalid_argument`, with the validation errors in `details`.
 11. **Handler.** It runs with an `AbortSignal`.
@@ -296,7 +296,7 @@ export class DocsSocket extends BaseSocketController {
 
 - A completed key replays its stored reply, and a running key is joined, so the handler runs once per `(principalKey, clientId, key)`. A result and a non-retryable error are stored. A retryable error, `unauthenticated` and the call's own abort release the key.
 - The ordering stage (550) runs a command with `after` only once the store holds its predecessor as completed. Otherwise it answers a retryable `unavailable` with `details.after`.
-- An `idempotencyKey` on a command that is not `idempotent` answers `failed_precondition`; an `after` without a key answers `invalid_argument`; an `after` on a command that is not `ordered: 'client'` answers `failed_precondition`.
+- An `idempotencyKey` on a command that is not `idempotent` answers `failed_precondition`; an `after` without a key answers `invalid_argument`; an `after` on an `idempotent` command that is not `ordered: 'client'` is checked the same way, without a queue place.
 - Exactly-once needs a handler that rolls back when its signal aborts, for every abort reason (disconnect, cancel, deadline, shutdown), or that never throws the abort after it has committed. A handler that commits and then throws the abort reason, or another retryable error, releases its key, so a resend runs it again. Only the shutdown deadline marks the outcome as unknown and keeps the key. Check the signal before you commit, and make the commit the last step.
 - `MemoryIdempotencyStore` is per process. A store shared by several instances has to make `claim` atomic and expire the running claims of a dead instance; see `IdempotencyStore`.
 

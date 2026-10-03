@@ -13,7 +13,7 @@ import { SerialQueue } from '../queue.js';
  *
  * A durable command names its predecessor's idempotency key in `after` and runs only once that one
  * has completed. Pipelining, resends and refusals before this stage ( rate, in flight, a drop ) could
- * otherwise let it overtake.
+ * otherwise let it overtake. Any mode honours `after`; without `ordered` it is a check, not a wait.
  */
 @Injectable(SocketCommandStage)
 export class OrderingStage extends SocketCommandStage {
@@ -35,11 +35,9 @@ export class OrderingStage extends SocketCommandStage {
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     const mode = ctx.handler?.descriptor.Options.ordered;
 
-    if (ctx.request.after !== undefined && mode !== 'client') {
-      throw new SocketException('failed_precondition', `command ${ctx.request.name} is not ordered: 'client', so it cannot take after`);
-    }
-
+    // a durable command on an unordered command: it still runs only after its predecessor, but takes no queue place
     if (!mode) {
+      await this.assertAfter(ctx);
       return next();
     }
 

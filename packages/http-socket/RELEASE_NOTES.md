@@ -146,7 +146,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - **`idempotencyKey` / `after` rules.**
   - An `idempotencyKey` on a command that is not `idempotent` is refused with `failed_precondition`.
   - An `after` without an `idempotencyKey` is refused with `invalid_argument`.
-  - An `after` on a command that is not `ordered: 'client'` is refused with `failed_precondition`.
+  - An `after` on an `idempotent` command that is not `ordered: 'client'` gets the fence check alone, without a queue place: it runs only once its predecessor has completed, so `durable()` works on it at any queue position.
 - **A persistent outbox requires an explicit `clientId`.** `new SocketClient({ outbox })` without `clientId` throws a `RangeError`: persisted keys start with `${clientId}:`, and a fresh random id after a reload would break exactly-once and ordering.
 - **Streams cannot be idempotent or ordered.** An async-generator handler declared `idempotent` or `ordered` is refused at startup. Another async iterable returned by such a command is answered `failed_precondition`. A stream reply is never stored.
 - **Unauthenticated outcomes are released, not stored.** An `unauthenticated` error releases the idempotency key, so the command runs after a re-login. A retryable error and the call's own abort release it too.

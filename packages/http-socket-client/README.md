@@ -67,7 +67,7 @@ client.on('failed', ({ entry, error }) => {}); // refused for good; the entry wa
 await client.durable('docs.edit', { id, op }, { key: opId }).catch(() => undefined);
 ```
 
-- The command is written to the outbox before it is sent, then sent in order, up to `durable.window` (16) at once, each with `after` set to the previous unacknowledged command. It carries no deadline. The server command must be `idempotent` and `ordered: 'client'`.
+- The command is written to the outbox before it is sent, then sent in order, up to `durable.window` (16) at once, each with `after` set to the previous unacknowledged command. It carries no deadline. The server command must be `idempotent`. With `ordered: 'client'` it waits in the server's queue behind its predecessor; without it, the server only checks that the predecessor has completed and otherwise answers a retryable `unavailable`, which parks it until the predecessor's answer, then sends it again. Either way it runs after its predecessor, whatever its queue position.
 - After any drop everything unacknowledged is sent again, and so is a command unanswered for `durable.ackTimeoutMs` (60 s). Retryable errors are retried with the reconnect backoff.
 - `unauthenticated` keeps the queue and emits `held`; nothing is sent until the connection comes online again.
 - The key is your `key` (1 to 256 printable ASCII characters, not starting with `${clientId}:`) or a generated `${clientId}:<nonce>`.
