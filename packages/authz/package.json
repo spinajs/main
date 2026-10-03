@@ -53,10 +53,10 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
-    "@spinajs/configuration": "2.0.548",
-    "@spinajs/di": "2.0.548",
-    "@spinajs/exceptions": "2.0.548",
-    "@spinajs/log-common": "2.0.548"
+    "@spinajs/configuration": "2.0.549",
+    "@spinajs/di": "2.0.549",
+    "@spinajs/exceptions": "2.0.549",
+    "@spinajs/log-common": "2.0.549"
   },
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.0-alpha.0"

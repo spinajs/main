@@ -14,10 +14,12 @@ replaces them and deletes the legacy file.
 | Class | Count |
 |---|---|
 | move | 42 |
-| adapt | 115 |
+| adapt | 117 |
 | rewrite | 180 |
 | drop | 26 |
-| **total** | 363 |
+| **total** | 365 |
+
+`test/cli.test.ts` came later, from master `228090a22` (2.0.549), merged in G1b.
 
 Mixed files: in `actions`, `actions-fundamentals`, `auth` and `user`, C1 splits the file. Kept (move/adapt) rows stay or move as classed; rewrite rows go to `test/legacy-v2/<same file name>`. T1 deletes every `users/test/legacy-v2/` file once the replacements named in the Target column exist, whichever lane writes them (plan §5 gives T lanes the deletion of `legacy-v2`). Drop rows use lane T1 throughout.
 
@@ -181,6 +183,15 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 | 7 | 120 | Authorization provider tests > should auth fail on banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Banned: same opaque failure as every other login failure. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
 | 8 | 125 | Authorization provider tests > should auth fail on user not active | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Inactive account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
 | 9 | 130 | Authorization provider tests > Should auth fail on user deleted | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Deleted account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
+
+## test/cli.test.ts
+
+CLI commands that must boot the Orm themselves (`RbacCliCommand`). Both adapt: the password command moves to N3 as `authn:password` (N3 task 7), the find command stays with C1.
+
+| # | Line | Test | Class | Lane | Target |
+|---|---|---|---|---|---|
+| 1 | 51 | rbac cli commands > rbac:user-change-password brings the Orm up and changes the password | adapt | C1 → N3 | `authn-local/test/ported/` (A03) Command becomes `authn:password <login>`; keep the Orm-boot assertion. `authn-local` may not import `RbacCliCommand` from `users` (rule 10), so it needs its own base. |
+| 2 | 61 | rbac cli commands > rbac:user-find brings the Orm up and reports the user | adapt | C1 | users/test/ |
 
 ## test/clone-rbac.test.ts
 

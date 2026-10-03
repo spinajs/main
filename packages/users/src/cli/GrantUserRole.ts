@@ -1,5 +1,6 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import _ from 'lodash';
 import { grant } from '../actions.js';
@@ -7,7 +8,7 @@ import { grant } from '../actions.js';
 @Command('rbac:user-grant', 'Grants role to user')
 @Argument('idOrUuid',true, 'numeric id or uuid')
 @Argument('role',true, 'user role')
-export class GrantUserRole extends CliCommand {
+export class GrantUserRole extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
 

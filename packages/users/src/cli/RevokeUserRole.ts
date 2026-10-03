@@ -1,13 +1,14 @@
 import { Log, Logger } from '@spinajs/log';
-import { Argument, CliCommand, Command } from '@spinajs/cli';
+import { Argument, Command } from '@spinajs/cli';
+import { RbacCliCommand } from './RbacCliCommand.js';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import _ from 'lodash';
 import { revoke } from '../actions.js';
 
-@Command('rbac:user-revoke', 'Sets active or inactive user')
+@Command('rbac:user-revoke', 'Revokes role from user')
 @Argument('idOrUuid',true, 'numeric id or uuid')
 @Argument('role',true, 'user role')
-export class RevokeUserRole extends CliCommand {
+export class RevokeUserRole extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
 

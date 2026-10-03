@@ -54,7 +54,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
-    "@spinajs/di": "2.0.548",
+    "@spinajs/di": "2.0.549",
     "fast-check": "^4.10.2"
   }
 }

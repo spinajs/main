@@ -54,7 +54,7 @@
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-http": "3.0.0-alpha.0",
-    "@spinajs/http": "2.0.548",
+    "@spinajs/http": "2.0.549",
     "jose": "^6.1.0"
   }
 }
