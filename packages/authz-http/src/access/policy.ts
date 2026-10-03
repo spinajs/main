@@ -7,7 +7,8 @@ import type { IController, IRoute, Request } from '@spinajs/http';
 
 import { domainService } from '../domains.js';
 import { httpConfig } from '../http-config.js';
-import { routeAccess } from './descriptor.js';
+import { routeAccess, routeDomain } from './descriptor.js';
+import { isUnloadedModel } from './extractors.js';
 import type { IAccessRule } from './descriptor.js';
 import '../storage.js';
 
@@ -61,6 +62,8 @@ export class AccessPolicy extends BasePolicy {
       throw new AuthzConfigError(`AccessPolicy on ${controller.constructor.name}.${String(route.Method)} finds no ${this.scope} @Access`);
     }
 
+    req.storage.AuthzHttpRoute = { domain: routeDomain(access), ...(access.unfilteredInput !== undefined ? { unfilteredInput: access.unfilteredInput } : {}) };
+
     const principal = req.storage.Principal;
     if (!principal) {
       throw unauthenticated('this route needs a principal');
@@ -71,7 +74,8 @@ export class AccessPolicy extends BasePolicy {
 
     const domain = rule.options.domain ?? 'root';
     const authz = await domainService(domain);
-    const resource = rule.options.resource ? await rule.options.resource(req) : undefined;
+    const extracted = rule.options.resource ? await rule.options.resource(req) : undefined;
+    const resource = isUnloadedModel(extracted) ? await this.refOf(domain, extracted) : extracted;
     const decision = await this.inStore(req, () => this.decide(authz, domain, rule, principal, resource));
 
     if (!decision.allowed) {
@@ -107,6 +111,18 @@ export class AccessPolicy extends BasePolicy {
     }
 
     return denied!;
+  }
+
+  /**
+   * The ref the domain's adapter gives an unloaded `fromModel` instance. The instance itself must not
+   * reach the engine, which would read its default field values as the row.
+   */
+  protected async refOf(domain: string, instance: object): Promise<ResourceRef> {
+    const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
+    const adapters = [...(await domains.container(domain).resolveChain(ResourceAdapter))] as ResourceAdapter[];
+    const adapter = adapters.find((a) => a.accepts(instance));
+    if (!adapter) throw new AuthzConfigError(`no ResourceAdapter of domain ${domain} accepts ${instance.constructor.name}`);
+    return adapter.refOf(instance);
   }
 
   /** The row of `ref` from the first adapter of the domain that serves its type and can load; null when none can or the row is missing. */

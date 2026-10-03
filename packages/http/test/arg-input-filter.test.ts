@@ -10,7 +10,7 @@ import { Schema } from '@spinajs/validation';
 
 import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { DateTime } from 'luxon';
-import { ArgHydrator, ArgInputFilter, BaseController, BasePath, Body, Controllers, Get, HttpServer, Hydrator, Ok, Post, Query } from '../src/index.js';
+import { ArgHydrator, ArgInputFilter, BaseController, BodyField, FromXml, BasePath, Body, Controllers, Get, HttpServer, Hydrator, Ok, Post, Query } from '../src/index.js';
 import type { IRouteParameter } from '../src/index.js';
 
 @Schema({
@@ -69,6 +69,16 @@ class InputFilterParams extends BaseController {
   @Get()
   public parsed(@Query() a: ParsedQuery) {
     return new Ok({ a });
+  }
+
+  @Post()
+  public bodyField(@BodyField() input: object) {
+    return new Ok({ input });
+  }
+
+  @Post()
+  public xml(@FromXml() input: object) {
+    return new Ok({ input });
   }
 }
 
@@ -203,6 +213,16 @@ describe('ArgInputFilter', function () {
 
     expect(res.status).to.eq(200);
     expect(res.body.a).to.deep.eq({ parsed: { id: 1 } });
+  });
+
+  it('@BodyField() and XML bodies go through the filters too', async () => {
+    const field = await req().post('params/input-filter/bodyField').send({ id: 1, extra: 'x' });
+    expect(field.status).to.eq(200);
+    expect(field.body.input).to.deep.eq({ id: 1 });
+
+    const xml = await req().post('params/input-filter/xml').set('Content-Type', 'application/xml').send('<root><id>1</id></root>');
+    expect(xml.status).to.eq(200);
+    expect(calls.map((c) => c.name)).to.include('first:input');
   });
 
   it('an absent argument is not filtered', async () => {

@@ -1,12 +1,14 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { DecisionRequest } from '@spinajs/authz';
+import { GLOBAL, ResourceAdapter } from '@spinajs/authz';
+import type { DecisionRequest, ResourceRef } from '@spinajs/authz';
+import { Model, ModelBase, Primary } from '@spinajs/orm';
 import { BaseController, BasePath, Get, Ok, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { FakeAdapter, testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
-import { Access, typedExtractor } from '../src/index.js';
+import { Access, fromModel, typedExtractor } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { createDomain } from './support/domain.js';
@@ -19,11 +21,12 @@ const D = 'pol';
 const OTHER = 'pol-other';
 const LOCKED = { code: 'locked', priority: 50, sortKey: 'k', detail: 'd' };
 
-const permissions = { 'file:read': {}, 'file:write': {}, 'authz:explain': {} };
+const permissions = { 'file:read': {}, 'file:write': {}, 'authz:explain': {}, 'doc:read': {} };
 const rows = { file: [{ id: 'f1', owner: 'alice' }, { id: 'f2', owner: 'bob' }] };
 
 // alice: file:read on her own rows only (a residual); carol: denied with LOCKED; bob: authz:explain.
 const votes = (req: DecisionRequest): ScriptedVote => {
+  if (req.permission === 'doc:read') return req.principal.id === 'alice' ? { permitWhen: { op: 'cmp', field: 'Status', cmp: 'ne', value: 'archived' } } : {};
   if (req.permission === 'authz:explain') return req.principal.id === 'bob' ? { permitWhen: { op: 'true' } } : {};
   if (req.principal.id === 'carol') return { denyWhen: { op: 'true' }, denies: [{ when: { op: 'true' }, reason: LOCKED }] };
   if (req.principal.id === 'alice' && req.permission === 'file:read') return { permitWhen: { op: 'cmp', field: 'owner', cmp: 'eq', value: 'alice' } };
@@ -31,6 +34,29 @@ const votes = (req: DecisionRequest): ScriptedVote => {
 };
 
 const ok = (req: Request) => new Ok({ allowed: req.storage.AuthzDecision?.allowed ?? null, residual: req.storage.AuthzDecision?.residual.op ?? null });
+
+@Model('policy_docs')
+class Doc extends ModelBase {
+  @Primary()
+  public Id: string;
+
+  // A default the engine must never read as the row (a fromModel instance is not loaded).
+  public Status = 'draft';
+}
+
+class DocAdapter extends ResourceAdapter<Doc> {
+  public readonly kind = 'test';
+  public readonly types = ['doc'];
+  public accepts(target: unknown): target is Doc {
+    return target instanceof Doc;
+  }
+  public refOf(target: Doc): ResourceRef {
+    return { type: 'doc', id: String(target.PrimaryKeyValue) };
+  }
+  public async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[]> {
+    return [ref, GLOBAL];
+  }
+}
 
 @BasePath('pol')
 class PolicyRoutes extends BaseController {
@@ -43,6 +69,12 @@ class PolicyRoutes extends BaseController {
   @Get('loaded/:id')
   @Access('file:read', { domain: D, resource: fromParamForTests('id', 'file'), subject: 'load' })
   public loaded(@Req() req: Request) {
+    return ok(req);
+  }
+
+  @Get('docs/:doc')
+  @Access('doc:read', { domain: D, resource: fromModel(Doc, 'doc') })
+  public doc(@Req() req: Request) {
     return ok(req);
   }
 
@@ -64,7 +96,7 @@ describe('AccessPolicy', function () {
   before(async () => {
     unregisterSource = registerHeaderSource();
     app = await startApp({ controllers: [PolicyRoutes] });
-    domain = await createDomain(D, { permissions, model: { votes }, adapters: [new FakeAdapter({ types: ['file'], rows })] });
+    domain = await createDomain(D, { permissions, model: { votes }, adapters: [new FakeAdapter({ types: ['file'], rows }), new DocAdapter()] });
     other = await createDomain(OTHER, { permissions, model: { votes: () => ({}) } });
   });
 
@@ -114,6 +146,17 @@ describe('AccessPolicy', function () {
 
     expect((await app.request().get('/pol/loaded/f2').set('x-user', 'alice')).status).to.eq(403);
     expect((await app.request().get('/pol/loaded/missing').set('x-user', 'alice')).status).to.eq(403);
+  });
+
+  it('fromModel checks the ref the domain adapter gives, never the unloaded instance', async () => {
+    domain.model.calls.length = 0;
+    const res = await app.request().get('/pol/docs/d1').set('x-user', 'alice');
+
+    expect(res.status).to.eq(200);
+    expect(res.body.residual).to.eq('cmp');
+    const req = domain.model.requests.find((r) => r.permission === 'doc:read')!;
+    expect(req.resource).to.deep.eq({ type: 'doc', id: 'd1' });
+    expect(req.subject).to.eq(undefined);
   });
 
   it('checks in the domain the @Access names', async () => {

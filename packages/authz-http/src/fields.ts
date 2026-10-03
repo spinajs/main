@@ -1,14 +1,16 @@
 import { DI, Injectable, NewInstance } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, readDomainConfig, subtractFieldGlobs } from '@spinajs/authz';
+import { AUTHZ_DEFAULTS, AuthzDomains, DefaultAuthzDomains, authzStorage, compileFieldGlobs, filterObject, readDomainConfig, subtractFieldGlobs } from '@spinajs/authz';
 import type { Decision } from '@spinajs/authz';
 import { BadRequest } from '@spinajs/exceptions';
 import { ArgInputFilter, DataTransformer, RouteMiddleware } from '@spinajs/http';
 import type { IController, IRoute, IRouteParameter, Request, Response } from '@spinajs/http';
 import type * as express from 'express';
 
-import { routeAccess } from './access/descriptor.js';
-import './storage.js';
+import { routeAccess, routeDomain } from './access/descriptor.js';
+import type { AuthzHttpRouteMark } from './storage.js';
+
+const PRIMITIVES = new Set(['String', 'Number', 'BigInt', 'Boolean']);
 
 /** Route args that carry what the caller writes; query, url, header and cookie args are not writes. */
 export const BODY_ARGS: ReadonlySet<string> = new Set(['FromBody', 'BodyFieldRouteArgs', 'FromForm', 'FromFormField', 'FromCSV', 'FromJSONFile', 'FromXmlRouteArgs', 'AsDbModel']);
@@ -19,19 +21,23 @@ export interface DecisionFields {
   readonly writeMode: 'strip' | 'reject';
 }
 
-/** The decision's field sets without the domain's `fields.neverRead`, and the domain's write mode (design §11.3, B17). */
-export function decisionFields(decision: Decision): DecisionFields {
+/**
+ * The decision's field sets without the domain's `fields.neverRead`, and the domain's write mode
+ * (design §11.3, B17). Without a decision (a route another policy group admitted) only
+ * `neverRead` applies, in the route's domain.
+ */
+export function decisionFields(decision: Decision | undefined, domain: string = decision?.domain ?? 'root'): DecisionFields {
   const domains = DI.get(AuthzDomains);
   const configuration = DI.get(Configuration);
-  let neverRead: readonly string[] = [];
-  let writeMode: 'strip' | 'reject' = 'strip';
+  let neverRead: readonly string[] = AUTHZ_DEFAULTS.fields.neverRead;
+  let writeMode: 'strip' | 'reject' = AUTHZ_DEFAULTS.fields.write.mode;
   if (domains instanceof DefaultAuthzDomains) {
-    const cfg = readDomainConfig((path) => configuration?.get(path), domains.lineage(decision.domain));
+    const cfg = readDomainConfig((path) => configuration?.get(path), domains.lineage(domain));
     neverRead = cfg.fields.neverRead;
     writeMode = cfg.fields.writeMode;
   }
   const without = (globs: readonly string[]) => (neverRead.length === 0 ? globs : subtractFieldGlobs(globs, neverRead));
-  return { read: without(decision.fields.read), write: without(decision.fields.write), writeMode };
+  return { read: without(decision?.fields.read ?? ['*']), write: without(decision?.fields.write ?? ['*']), writeMode };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object';
@@ -56,36 +62,38 @@ function notWritable(fields: readonly string[]): BadRequest {
 /**
  * Strips, or in `reject` mode refuses with 400, the body input the route's decision does not let
  * the caller write (`decision.fields.write` minus `fields.neverRead`, design §11.3, B17). A named
- * primitive body field is checked by its name. Without a decision (a route without `@Access`, or
- * one admitted by another policy group) the input passes as it is.
+ * primitive body field is checked by its name. A route another policy group admitted (no decision)
+ * still loses `neverRead`; a route without `@Access`, or with `@UnfilteredInput`, is not filtered.
  */
 @Injectable(ArgInputFilter)
 export class AuthzInputFieldFilter extends ArgInputFilter {
   public filter(input: unknown, parameter: IRouteParameter): unknown {
     if (!BODY_ARGS.has(String(parameter.Type))) return input;
-    const decision = authzStorage().getStore()?.AuthzDecision;
-    if (!decision) return input;
+    const store = authzStorage().getStore();
+    const mark = store?.AuthzHttpRoute as AuthzHttpRouteMark | undefined;
+    const decision = store?.AuthzDecision;
+    // Untouched: a route without @Access (login and password routes carry passwords), or one that opted out.
+    if ((!mark && !decision) || mark?.unfilteredInput !== undefined) return input;
 
-    const { write, writeMode } = decisionFields(decision);
+    const { write, writeMode } = decisionFields(decision, decision?.domain ?? mark?.domain);
 
-    if (!isObject(input)) {
+    if (!isObject(input) || PRIMITIVES.has((parameter.RuntimeType as { name?: string } | undefined)?.name ?? '')) {
       if (compileFieldGlobs(write).allows(parameter.Name)) return input;
       if (writeMode === 'reject') throw notWritable([parameter.Name]);
       return undefined;
     }
 
     const filtered = filterObject(write, input);
-    if (writeMode === 'reject') {
-      const removed = removedPaths(JSON.parse(JSON.stringify(input)), filtered);
-      if (removed.length > 0) throw notWritable(removed);
-    }
+    const removed = removedPaths(JSON.parse(JSON.stringify(input)), filtered);
+    if (removed.length === 0) return input;
+    if (writeMode === 'reject') throw notWritable(removed);
     return filtered;
   }
 }
 
-function readable(data: unknown, decision: Decision | undefined): unknown {
-  if (!decision || !isObject(data)) return data;
-  return filterObject(decisionFields(decision).read, data);
+function readable(data: unknown, decision: Decision | undefined, domain: string | undefined): unknown {
+  if ((!decision && domain === undefined) || !isObject(data)) return data;
+  return filterObject(decisionFields(decision, decision?.domain ?? domain).read, data);
 }
 
 /** `x-data-transform: authz-fields`: the response data limited to what the route's decision lets the caller read. */
@@ -96,7 +104,8 @@ export class AuthzFieldTransformer extends DataTransformer {
   }
 
   public transform(data: unknown, request: express.Request): unknown {
-    return readable(data, (request as Request).storage?.AuthzDecision);
+    const storage = (request as Request).storage;
+    return readable(data, storage?.AuthzDecision, (storage?.AuthzHttpRoute as AuthzHttpRouteMark | undefined)?.domain);
   }
 }
 
@@ -111,11 +120,12 @@ export class AuthzFieldsMiddleware extends RouteMiddleware {
   public async onBefore(): Promise<void> {}
 
   // http calls this without awaiting it, so the data is replaced before the first await.
-  public async onResponse(response: Response): Promise<void> {
+  public async onResponse(response: Response, route: IRoute, controller: IController): Promise<void> {
     const decision = authzStorage().getStore()?.AuthzDecision;
+    const domain = routeDomain(routeAccess(controller, route.Method));
     const holder = response as unknown as { responseData?: unknown };
     const data = holder.responseData;
-    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(Array.isArray(data) ? resolved : resolved[0], decision));
+    holder.responseData = Promise.all(Array.isArray(data) ? data : [data]).then((resolved) => readable(Array.isArray(data) ? resolved : resolved[0], decision, domain));
   }
 
   public async onAfter(): Promise<void> {}

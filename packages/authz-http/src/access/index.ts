@@ -4,5 +4,5 @@ export { typedExtractor, extractorType, extractorInfo } from './extractors.js';
 export type { ExtractorInfo } from './extractors.js';
 export { AccessPolicy } from './policy.js';
 export type { AccessScope } from './policy.js';
-export { UnscopedMiddleware } from './decorators.js';
+export { UnscopedMiddleware, UnfilteredInput } from './decorators.js';
 export { AccessContributor } from './contributor.js';

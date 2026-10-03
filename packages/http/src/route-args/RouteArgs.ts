@@ -55,6 +55,11 @@ export abstract class RouteArgs implements IRouteArgs {
   public abstract extract(callData: IRouteCall, callArgs: unknown[], routeParameter: IRouteParameter, req: Request, res: express.Response, route?: IRoute): Promise<IRouteArgsResult>;
 
   protected async tryHydrateParam(arg: any, routeParameter: IRouteParameter, route: IRoute) {
+    // Filtered first, so an input filter that removes a required value fails the check below.
+    if (arg !== null && arg !== undefined) {
+      arg = await this.filterInput(arg, routeParameter, route);
+    }
+
     // Enforce presence for params explicitly marked `{ required: true }` BEFORE
     // the null/undefined skip below (absent optional params are intentionally
     // not validated). Params without the flag keep the old optional behavior.
@@ -69,10 +74,6 @@ export abstract class RouteArgs implements IRouteArgs {
           instancePath: routeParameter.Name,
         },
       ]);
-    }
-
-    if (arg !== null && arg !== undefined) {
-      arg = await this.filterInput(arg, routeParameter, route);
     }
 
     let result = null;
@@ -114,7 +115,7 @@ export abstract class RouteArgs implements IRouteArgs {
     return result;
   }
 
-  protected async filterInput(arg: unknown, routeParameter: IRouteParameter, route: IRoute): Promise<unknown> {
+  protected async filterInput(arg: unknown, routeParameter: IRouteParameter, route?: IRoute): Promise<unknown> {
     const filters = (await DI.resolve(Array.ofType(ArgInputFilter))) as ArgInputFilter[];
     if (filters.length === 0) {
       return arg;

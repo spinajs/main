@@ -1,12 +1,12 @@
 import 'mocha';
 import { expect } from 'chai';
 import type { DecisionRequest } from '@spinajs/authz';
-import { BaseController, BasePath, Body, Get, Ok, Patch, Req } from '@spinajs/http';
+import { BaseController, BasePath, BasePolicy, Body, BodyField, Get, Ok, Patch, Policy, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
 import type { ScriptedVote } from '@spinajs/authz-testing';
 
-import { Access, AuthzFieldTransformer, fromParam } from '../src/index.js';
+import { Access, AuthzFieldTransformer, UnfilteredInput, fromParam } from '../src/index.js';
 import { startApp, stopApp } from './support/app.js';
 import type { TestApp } from './support/app.js';
 import { createDomain } from './support/domain.js';
@@ -25,6 +25,13 @@ const votes = (req: DecisionRequest): ScriptedVote => {
   if (req.permission === 'user:update') return { permitWhen: { op: 'true' }, fields: { write: script.write } };
   return { permitWhen: { op: 'true' } };
 };
+
+class Passes extends BasePolicy {
+  public isEnabled() {
+    return true;
+  }
+  public async execute() {}
+}
 
 @BasePath('fld')
 class FieldRoutes extends BaseController {
@@ -56,6 +63,38 @@ class FieldRoutes extends BaseController {
   @Access('user:update', { domain: D, resource: USER })
   public updateFields(@Body() name: string, @Body() salary: number) {
     return new Ok({ name: name ?? null, salary: salary ?? null });
+  }
+
+  @Patch('field/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  public bodyField(@BodyField() body: object) {
+    return new Ok({ body });
+  }
+
+  @Patch('admin/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  @UnfilteredInput('admins set passwords')
+  public admin(@Body() body: object) {
+    return new Ok({ body });
+  }
+
+  @Patch('open/:id')
+  public open(@Body() body: object) {
+    return new Ok({ body });
+  }
+
+  @Get('alt/:id')
+  @Access('user:read', { domain: D, resource: USER, fields: 'filter' })
+  @Policy(Passes)
+  public alternative() {
+    return new Ok(structuredClone(ROW));
+  }
+
+  @Patch('alt/:id')
+  @Access('user:update', { domain: D, resource: USER })
+  @Policy(Passes)
+  public alternativeWrite(@Body() body: object) {
+    return new Ok({ body });
   }
 
   @Get('transform')
@@ -121,6 +160,14 @@ describe('field filters (B17 http)', function () {
       expect(res.body).to.have.property('salary', 9);
     });
 
+    it('drops neverRead from a response another policy group admitted', async () => {
+      const res = await app.request().get('/fld/alt/u1').set('x-user', 'carol');
+
+      expect(res.status).to.eq(200);
+      expect(res.body).to.have.property('salary', 9);
+      expect(res.body).to.not.have.property('Password');
+    });
+
     it('AuthzFieldTransformer applies the same filter to data it is given', async () => {
       const res = await app.request().get('/fld/transform').set('x-user', 'alice');
 
@@ -160,6 +207,30 @@ describe('field filters (B17 http)', function () {
 
       reject();
       expect((await app.request().patch('/fld/users/u1').set('x-user', 'alice').send({ name: 'M', Password: 'new' })).status).to.eq(400);
+    });
+
+    it('filters @BodyField() input too', async () => {
+      const res = await app.request().patch('/fld/field/u1').set('x-user', 'alice').send({ name: 'M', salary: 10 });
+
+      expect(res.body.body).to.deep.eq({ name: 'M' });
+    });
+
+    it('leaves the input of an @UnfilteredInput route and of a route without @Access alone', async () => {
+      expect((await app.request().patch('/fld/admin/u1').set('x-user', 'alice').send({ name: 'M', Password: 'p' })).body.body).to.deep.eq({ name: 'M', Password: 'p' });
+      expect((await app.request().patch('/fld/open/u1').send({ name: 'M', Password: 'p' })).body.body).to.deep.eq({ name: 'M', Password: 'p' });
+    });
+
+    it('strips neverRead from a request another policy group admitted', async () => {
+      const res = await app.request().patch('/fld/alt/u1').set('x-user', 'carol').send({ name: 'M', salary: 1, Password: 'p' });
+
+      expect(res.status).to.eq(200);
+      expect(res.body.body).to.deep.eq({ name: 'M', salary: 1 });
+    });
+
+    it('checks a primitive-typed parameter by its name even when the value is an object', async () => {
+      const res = await app.request().patch('/fld/users/u1/fields').set('x-user', 'alice').send({ name: 'M', salary: { a: 1 } });
+
+      expect(res.body.salary).to.eq(null);
     });
 
     it('checks a named primitive body field by its name', async () => {

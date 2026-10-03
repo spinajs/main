@@ -23,9 +23,10 @@ export interface IAccessDescriptor {
   Access: Map<AccessKey, IAccessRule>;
   Anonymous: Map<AccessKey, true>;
   Unscoped: Map<AccessKey, string>;
+  UnfilteredInput: Map<AccessKey, string>;
 }
 
-const empty = (): IAccessDescriptor => ({ Access: new Map(), Anonymous: new Map(), Unscoped: new Map() });
+const empty = (): IAccessDescriptor => ({ Access: new Map(), Anonymous: new Map(), Unscoped: new Map(), UnfilteredInput: new Map() });
 
 /** The descriptor owned by the decorated class, for writing. */
 export function ownAccessDescriptor(target: object): IAccessDescriptor {
@@ -45,6 +46,8 @@ export interface RouteAccess {
   /** `@AllowAnonymous` on the route or the class. */
   readonly anonymous: boolean;
   readonly unscoped?: string;
+  /** `@UnfilteredInput(reason)` on the route or the class. */
+  readonly unfilteredInput?: string;
 }
 
 export function routeAccess(controller: object, method: AccessKey): RouteAccess {
@@ -55,6 +58,7 @@ export function routeAccess(controller: object, method: AccessKey): RouteAccess 
     controller: d.Access.get(ACCESS_CLASS),
     anonymous: d.Anonymous.has(method) || d.Anonymous.has(ACCESS_CLASS),
     unscoped: d.Unscoped.get(method),
+    unfilteredInput: d.UnfilteredInput.get(method) ?? d.UnfilteredInput.get(ACCESS_CLASS),
   };
 }
 

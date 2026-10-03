@@ -73,6 +73,20 @@ export function AllowAnonymous(): ClassDecorator & MethodDecorator {
 }
 
 /**
+ * Leaves the route's body input as the caller sent it: no `fields.write` and no `fields.neverRead`
+ * filter. For routes whose body legitimately carries such fields, e.g. an admin creating a user
+ * with a password; the reason documents why.
+ */
+export function UnfilteredInput(reason: string): ClassDecorator & MethodDecorator {
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new Error('@UnfilteredInput needs a reason');
+  }
+  return ((target: object, propertyKey?: string | symbol) => {
+    ownAccessDescriptor(target).UnfilteredInput.set(propertyKey ?? ACCESS_CLASS, reason);
+  }) as ClassDecorator & MethodDecorator;
+}
+
+/**
  * Sets `req.storage.Unscoped` for the action, so the ORM applies no residual to the route's
  * queries, and audits the bypass (kind `unscoped`) in the route's domain (B09). Runs after the
  * policies: a refused request is no bypass.

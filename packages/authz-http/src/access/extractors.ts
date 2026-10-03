@@ -7,6 +7,12 @@ import type { ModelBase } from '@spinajs/orm';
 import type { ResourceExtractor } from '../api.js';
 
 const EXTRACTOR = Symbol.for('authz:access:extractor');
+const UNLOADED = Symbol.for('authz:access:unloaded-model');
+
+/** A model instance `fromModel` made: only its primary key is set. */
+export function isUnloadedModel(value: unknown): value is ModelBase {
+  return typeof value === 'object' && value !== null && (value as Record<symbol, unknown>)[UNLOADED] === true;
+}
 
 /** What an extractor built here declares about itself, for boot checks and swagger. */
 export interface ExtractorInfo {
@@ -70,13 +76,15 @@ export function fromQuery(param: string, type: ResourceType): ResourceExtractor 
 }
 
 /**
- * An unloaded instance of `model` holding the url parameter as its primary key; the domain's ORM
- * adapter turns it into the ref its `@AccessResource` declares (design §11.2, §12.3).
+ * An unloaded instance of `model` holding the url parameter as its primary key. AccessPolicy asks the
+ * domain's adapter for its ref (the type `@AccessResource` declares) and checks that ref, never the
+ * instance (design §11.2, §12.3).
  */
 export function fromModel(model: Class<ModelBase>, param: string): ResourceExtractor {
   return described({ from: 'model', name: param, model }, (req: Request) => {
     const instance = new (model as unknown as new () => ModelBase)();
     instance.PrimaryKeyValue = idOf(req.params?.[param], `url parameter ${param}`);
+    Object.defineProperty(instance, UNLOADED, { value: true });
     return instance;
   });
 }
