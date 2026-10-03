@@ -515,6 +515,7 @@ export interface IMessageRoutingOption {
   /**
    * Default retry count for jobs routed here that carry no `RetryCount` of their own.
    * An explicit `RetryCount` on the job always wins.
+   * Honoured by the STOMP and AMQP transports; the first routing entry that declares it applies.
    */
   maxRetries?: number;
 }
