@@ -156,14 +156,12 @@ describe('SocketClient', () => {
     expect((errors[0] as Error).message).to.equal('boom');
   });
 
-  it('reserves durable() and stream(): both reject with unimplemented', async () => {
+  it('reserves stream(): it rejects with unimplemented', async () => {
     const client = makeClient(server, { autoConnect: false });
 
-    const durableError = await rejectionOf(client.durable('docs.submit', {}));
     const iterator = client.stream('docs.snapshot', {})[Symbol.asyncIterator]();
     const streamError = await rejectionOf(iterator.next());
 
-    expect(durableError.code).to.equal('unimplemented');
     expect(streamError.code).to.equal('unimplemented');
   });
 

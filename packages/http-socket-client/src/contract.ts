@@ -1,6 +1,7 @@
 import type { ClientEventName, ClientEventPayload, CommandName, CommandPayload, CommandResult, ContractShape, EventName, EventPayload } from '@spinajs/http-socket-common';
 import type { ClientLifecycleEvents, LifecycleEventName, Unsubscribe } from './client.js';
 import type { CommandOptions } from './commands.js';
+import type { DurableCommandOptions } from './durable.js';
 import type { ConnectionState } from './connection.js';
 
 /** A stream command declares its result as AsyncIterable<Item>; stream() yields the items. */
@@ -14,7 +15,7 @@ export interface TypedSocketClient<C extends ContractShape> {
   disconnect(): void;
   close(): void;
   command<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: CommandOptions): Promise<CommandResult<C, N>>;
-  durable<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>): Promise<CommandResult<C, N>>;
+  durable<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: DurableCommandOptions): Promise<CommandResult<C, N>>;
   stream<N extends CommandName<C>>(name: N, payload: CommandPayload<C, N>, options?: CommandOptions): AsyncIterable<StreamItem<C, N>>;
   emit<N extends ClientEventName<C>>(name: N, payload: ClientEventPayload<C, N>): boolean;
   on<K extends LifecycleEventName>(event: K, listener: ClientLifecycleEvents[K]): Unsubscribe;

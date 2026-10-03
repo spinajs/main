@@ -5,13 +5,13 @@ import type { ClientLifecycleEvents, StreamItem, TypedSocketClient } from '../sr
 
 describe('public entry', () => {
   it('exports the client surface and the common protocol', () => {
-    for (const name of ['SocketClient', 'LIFECYCLE_EVENTS', 'ReconnectPolicy', 'DEFAULT_RECONNECT', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_CONNECT_TIMEOUT_MS', 'MAX_SERVER_HINT_MS', 'SocketException', 'isSocketError', 'WIRE_EVENTS', 'SYSTEM_EVENTS', 'defineContract', 'PROTOCOL_VERSION']) {
+    for (const name of ['SocketClient', 'LIFECYCLE_EVENTS', 'ReconnectPolicy', 'DEFAULT_RECONNECT', 'DEFAULT_TIMEOUT_MS', 'DEFAULT_CONNECT_TIMEOUT_MS', 'MAX_SERVER_HINT_MS', 'SocketException', 'isSocketError', 'WIRE_EVENTS', 'SYSTEM_EVENTS', 'defineContract', 'PROTOCOL_VERSION', 'MemoryOutboxStore', 'DEFAULT_DURABLE']) {
       expect(api, name).to.have.property(name);
     }
   });
 
   it('keeps the internals private', () => {
-    for (const name of ['Connection', 'CommandDispatcher', 'Emitter', 'randomId']) {
+    for (const name of ['Connection', 'CommandDispatcher', 'Emitter', 'randomId', 'DurableQueue']) {
       expect(api, name).to.not.have.property(name);
     }
   });

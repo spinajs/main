@@ -2,9 +2,10 @@ import { SocketException, WIRE_EVENTS, type ContractShape, type EventFrame, type
 import { CommandDispatcher, DEFAULT_TIMEOUT_MS, type CommandOptions } from './commands.js';
 import { Connection, type AuthProvider, type ConnectionState, type IoOptions } from './connection.js';
 import type { TypedSocketClient } from './contract.js';
-import type { FailedCommand } from './durable.js';
+import { DurableQueue, type AckedCommand, type DurableCommandOptions, type DurableOptions, type FailedCommand, type HeldCommand } from './durable.js';
 import { Emitter, rethrowAsync } from './emitter.js';
 import { randomId } from './ids.js';
+import { MemoryOutboxStore, type OutboxStore } from './outbox.js';
 import type { ReconnectOptions } from './reconnect.js';
 
 export interface SocketClientOptions {
@@ -22,6 +23,9 @@ export interface SocketClientOptions {
   autoConnect?: boolean;
   /** Passed to socket.io-client; reconnection, autoConnect, forceNew, retries and auth stay owned by the client. */
   io?: IoOptions;
+  /** Where durable commands wait for their reply, eg. IndexedDbOutboxStore ( `/browser` ); a MemoryOutboxStore when omitted. */
+  outbox?: OutboxStore;
+  durable?: DurableOptions;
   onListenerError?: (error: unknown) => void;
 }
 
@@ -31,8 +35,12 @@ export interface ClientLifecycleEvents {
   incompatible: (error: SocketError) => void;
   /** The server refused the connection for a reason no retry can fix (forbidden, invalid_argument …); connect() tries again. */
   refused: (error: SocketError) => void;
-  /** Reserved for durable commands: an outbox entry the server refused for good. */
+  /** A durable command was acknowledged; also for commands resumed from the outbox after a reload. In send order. */
+  acked: (event: AckedCommand) => void;
+  /** A durable command the server refused for good; it is in the outbox's failed list. In send order. */
   failed: (event: FailedCommand) => void;
+  /** A durable command was refused as unauthenticated and stays queued; the queue sends nothing until the connection comes online again. */
+  held: (event: HeldCommand) => void;
 }
 
 export type { FailedCommand };
@@ -40,7 +48,7 @@ export type { FailedCommand };
 export type LifecycleEventName = keyof ClientLifecycleEvents;
 
 /** Names `on()` routes to client lifecycle listeners; server events with these names are unreachable. */
-export const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set<LifecycleEventName>(['state', 'auth_required', 'incompatible', 'refused', 'failed']);
+export const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set<LifecycleEventName>(['state', 'auth_required', 'incompatible', 'refused', 'acked', 'failed', 'held']);
 
 export type ServerEventListener<T = unknown> = (payload: T) => void;
 export type Unsubscribe = () => void;
@@ -56,6 +64,7 @@ export class SocketClient {
   public readonly clientId: string;
   private readonly connection: Connection;
   private readonly commands: CommandDispatcher;
+  private readonly durableQueue: DurableQueue;
   private readonly lifecycle: Emitter<ClientLifecycleEvents>;
   private readonly serverEvents: Emitter<ServerEvents>;
   // set once the app calls connect(), disconnect() or close(), which then override autoConnect
@@ -77,6 +86,18 @@ export class SocketClient {
       onListenerError,
     });
     this.commands = new CommandDispatcher(this.connection, options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS);
+    this.durableQueue = new DurableQueue({
+      connection: this.connection,
+      commands: this.commands,
+      store: options.outbox ?? new MemoryOutboxStore(),
+      clientId: this.clientId,
+      reconnect: options.reconnect,
+      durable: options.durable,
+      onListenerError,
+    });
+    this.durableQueue.events.on('acked', (event) => this.lifecycle.emit('acked', event));
+    this.durableQueue.events.on('failed', (event) => this.lifecycle.emit('failed', event));
+    this.durableQueue.events.on('held', (event) => this.lifecycle.emit('held', event));
 
     this.connection.events.on('state', (state, previous) => this.lifecycle.emit('state', state, previous));
     this.connection.events.on('auth_required', (error) => this.lifecycle.emit('auth_required', error));
@@ -124,9 +145,9 @@ export class SocketClient {
     return this.commands.execute(name, payload, options) as Promise<R>;
   }
 
-  /** Reserved: durable commands arrive with the outbox store. */
-  public durable<R = unknown>(name: string, _payload?: unknown): Promise<R> {
-    return Promise.reject(new SocketException('unimplemented', `durable() is not available yet (${name})`));
+  /** Persisted, ordered and retried until the server answers ( spec §6 ); the server command must be idempotent and ordered: 'client'. */
+  public durable<R = unknown>(name: string, payload?: unknown, options?: DurableCommandOptions): Promise<R> {
+    return this.durableQueue.submit(name, payload, options) as Promise<R>;
   }
 
   /** Reserved: stream replies arrive with credit-based flow control. */

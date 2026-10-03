@@ -1,10 +1,14 @@
 export * from '@spinajs/http-socket-common';
 export { SocketClient, LIFECYCLE_EVENTS } from './client.js';
-export type { ClientLifecycleEvents, FailedCommand, LifecycleEventName, ServerEventListener, SocketClientOptions, Unsubscribe } from './client.js';
+export type { ClientLifecycleEvents, LifecycleEventName, ServerEventListener, SocketClientOptions, Unsubscribe } from './client.js';
 export { DEFAULT_TIMEOUT_MS } from './commands.js';
 export type { CommandOptions, WhenOffline } from './commands.js';
 export { DEFAULT_CONNECT_TIMEOUT_MS } from './connection.js';
 export type { AuthPayload, AuthProvider, ConnectionState, IoOptions } from './connection.js';
 export type { StreamItem, TypedSocketClient } from './contract.js';
+export { DEFAULT_DURABLE } from './durable.js';
+export type { AckedCommand, DurableCommandOptions, DurableOptions, FailedCommand, HeldCommand } from './durable.js';
+export { MemoryOutboxStore } from './outbox.js';
+export type { FailedOutboxEntry, OutboxEntry, OutboxInput, OutboxStore } from './outbox.js';
 export { DEFAULT_RECONNECT, MAX_SERVER_HINT_MS, ReconnectPolicy } from './reconnect.js';
 export type { ReconnectOptions } from './reconnect.js';
