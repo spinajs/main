@@ -592,8 +592,18 @@ Ownership enforcement on UPDATE and DELETE, a 2.x IDOR regression. All rewrite (
 ## N2 status (session rows)
 
 N2 copied the session code into `@spinajs/authn-session` (C1 deletes the
-users copies and these test files). Where each N2 row landed:
-`.authz-sdd/N2-tasks-1-3-report.md` ("Users ledger rows → authn-session
-tests"); the cookie rows 4–13 were adapted for `'auto'` in N2 task 5
-(`authn-session/test/session-cookie.test.ts`), the `hashSessionId` rows
-14–15 became the session-handle tests of `authn-session/test/issuer.test.ts`.
+users copies and these test files). Where each N2 row landed, all under
+`packages/authn-session/test/`:
+
+| users file (rows) | authn-session test |
+|---|---|
+| session-codec.test.ts (1–8) | `session-codec.test.ts`, same titles |
+| session-cookie.test.ts (1–11) | `session-cookie.test.ts`, same titles; rows 4, 6, 8, 9, 11 adapted for `'auto'` (task 5) |
+| session-cookie.test.ts (12–13) | `session-cookie.test.ts` › shipped session cookie configuration, per app env |
+| session-cookie.test.ts (14–15) | `issuer.test.ts` › "the session handle is neither the id nor the storage key …" |
+| session-expiration.test.ts (1–7) | `session-expiration.test.ts`, same titles |
+| session-regenerate.test.ts (1, 4) | `issuer.test.ts` › "SR-session fixation: rotate gives a new id …" |
+| session-regenerate.test.ts (2) | `issuer.test.ts` › "keeps Creation and Expiration …", "keeps the impersonator and the facts" |
+| session-regenerate.test.ts (3) | moot: rotate deletes the old row and copies Data into a new Map |
+| session.test.ts (1–2) | `session.test.ts`, same titles |
+| conformance/session-provider-conformance.ts (1–11) | `conformance/session-provider-conformance.ts` (Subject/State; deleteBySubject/listBySubject) |

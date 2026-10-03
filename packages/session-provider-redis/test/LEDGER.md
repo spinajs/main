@@ -39,7 +39,8 @@ Redis-specific regressions on `RedisSessionStore` over `ioredis-mock`. Dominant 
 ## N2 status (done)
 
 All 4 adapt rows are carried in `test/session-provider.test.ts` (N2
-commit `e6c20c9ea`): row 1 → "deleteBySubject removes only the target
+commit "feat(session-provider-redis): store sessions on the 3.0 session
+contract"): row 1 → "deleteBySubject removes only the target
 subject's sessions across multiple subjects"; row 2 → "listBySubject
 returns live sessions and prunes expired ids from the subject set" (set
 key `session:subject:<principalKey>`); rows 3–4 keep their titles. The

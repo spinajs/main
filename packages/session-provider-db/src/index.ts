@@ -41,9 +41,13 @@ export class DbSessionStore extends SessionProvider {
 
   public async resolve() {
     this.CleanupTimer = setInterval(async () => {
-      const count = await this.cleanupExpired();
-
-      this.Log.info(`Cleaned up expired session, count: ${count}`);
+      // An unhandled rejection here would end the process; the next tick retries.
+      try {
+        const count = await this.cleanupExpired();
+        this.Log.info(`Cleaned up expired session, count: ${count}`);
+      } catch (err) {
+        this.Log.error(err as Error, 'Expired session cleanup failed');
+      }
     }, this.CleanupInterval);
 
     // do not keep the process alive solely for the cleanup timer

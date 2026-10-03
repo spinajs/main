@@ -49,7 +49,8 @@ Live-DynamoDB integration run (skipped unless `DYNAMO_INTEGRATION=1`; needs loca
 
 ## N2 status (done)
 
-All rows are carried (N2 commit `6e9545887`): `test/session-provider.test.ts`
+All rows are carried (N2 commit "feat(session-provider-dynamodb): store sessions on the
+3.0 contract"): `test/session-provider.test.ts`
 row "deleteByUser … keyed on numeric UserId (B4)" → "deleteBySubject
 removes only the target subject's sessions, matched on the Subject
 attribute (B4)"; the "UserId as a top-level attribute" row → the item

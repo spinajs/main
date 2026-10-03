@@ -46,7 +46,9 @@ Session store regressions and the `Data` column codec on the sqlite-backed `DbSe
 ## N2 status (done)
 
 All 11 adapt rows are carried in `test/session-provider.test.ts` (N2
-commits `1e98c8a5e`, `e9bc01cc3`): rows 1–5 keep their titles; rows 6–8
+commits "feat(session-provider-db): store sessions on the 3.0 session
+contract" and "fix(session-provider-db): survive undecodable rows; touch
+skips expired"): rows 1–5 keep their titles; rows 6–8
 and 11 keep their titles with Subject/State rows; rows 9–10 keep their
 titles and `test/session-id-hash-migration.test.ts` adds the
 `UserSessionIdHash_2026_10_02_00_00_00` checks (columns, indexes,
