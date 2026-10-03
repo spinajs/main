@@ -1,4 +1,22 @@
+import { join, normalize, resolve } from 'path';
+
+function dir(path: string) {
+  const inCommonJs = typeof module !== 'undefined';
+  return [
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'authn-local', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+
+    // one up if we run from app or build folder
+    resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), '../', 'node_modules', '@spinajs', 'authn-local', 'lib', inCommonJs ? 'cjs' : 'mjs', path))),
+  ];
+}
+
 const authnLocal = {
+  system: {
+    dirs: {
+      // Commands are found by a filesystem scan (`@ListFromFiles`).
+      cli: [...dir('cli')],
+    },
+  },
   authn: {
     local: {
       // `service` is left out while @spinajs/users still ships the 2.x
@@ -37,6 +55,9 @@ const authnLocal = {
         /** Name of a registered `PasswordBlocklist` service; null: none. */
         blocklist: null as string | null,
       },
+
+      // `expiration.enabled` (false) and `expiration.maxAgeDays` (31) keep code defaults while @spinajs/users ships its 2.x
+      // `expiration: { enabled: true, passwordExpirationTime }`.
 
       reset: {
         /**

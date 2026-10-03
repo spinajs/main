@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidOperation, MethodNotImplemented } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type {
@@ -23,7 +23,7 @@ import type {
 
 import { AuditLog, publishAuthnEvent } from './audit.js';
 import { DeferredWork } from './deferred.js';
-import { PasswordHasher } from './hasher.js';
+import { EXPIRED_PASSWORD_MARKER, PasswordHasher } from './hasher.js';
 import { PasswordMailer } from './mailer.js';
 import { isLoginLength, LocalPasswordPolicy } from './policy.js';
 import { normalizeLogin } from './strategy.js';
@@ -249,8 +249,34 @@ export class LocalPasswordService extends PasswordService {
     });
   }
 
-  public async expire(_id: IdentityRef, _opts: PasswordExpiry, _ctx: AuthnContext): Promise<void> {
-    throw new MethodNotImplemented('LocalPasswordService.expire is not implemented yet');
+  /** D15. `admin` revokes tokens under reset.revokeTokens and mails only with `sendReset`; `aged` keeps tokens (H32) and mails. */
+  public async expire(id: IdentityRef, opts: PasswordExpiry, ctx: AuthnContext): Promise<void> {
+    await this.passwords().set(id, EXPIRED_PASSWORD_MARKER);
+    await this.sessions().revokeAll(id, { includeImpersonations: true });
+    const actor = opts.cause === 'admin' ? opts.actor : undefined;
+    if (opts.cause === 'admin') {
+      await this.revokeTokensOf(id, ctx, opts.actor);
+    }
+    // No password.expire event type exists.
+    await this.audit(ctx, { type: 'password.change', outcome: 'success', identity: id, ...(actor ? { actor } : {}), data: { cause: opts.cause, expired: true } });
+
+    if (opts.cause === 'aged' || opts.sendReset === true) {
+      await this.mailResetAfterExpiry(id);
+    }
+  }
+
+  /**
+   * The expiry already holds, and the owner can still ask for a reset, so a mail failure is logged and not thrown. An identity
+   * that could not redeem a reset gets none.
+   */
+  protected async mailResetAfterExpiry(id: IdentityRef): Promise<void> {
+    try {
+      if (eligible(await this.identities().status(id))) {
+        await this.mail(id, 'reset', this.resetTtlSeconds());
+      }
+    } catch (err) {
+      this.log().warn(`The reset mail after the password expiry of ${id.type} ${id.id} failed: ${(err as Error)?.name ?? typeof err}`);
+    }
   }
 
   protected async sendReset(login: string, ctx: AuthnContext): Promise<void> {

@@ -7,3 +7,4 @@ export * from './audit.js';
 export * from './service.js';
 export * from './mailer.js';
 export * from './deferred.js';
+export * from './expiration.js';

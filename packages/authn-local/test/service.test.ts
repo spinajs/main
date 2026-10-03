@@ -353,24 +353,6 @@ describe('LocalPasswordService', function () {
       expect(service.policy()).to.deep.equal({ minLength: 8, maxLength: 128 });
     });
   });
-
-  describe('later tasks', () => {
-    for (const method of ['expire'] as const) {
-      it(`${method} says it is not implemented yet`, async () => {
-        const { service, alice } = await setup();
-        const call = {
-          expire: () => service.expire(alice, { cause: 'aged' }, ctx()),
-        }[method];
-        let error: unknown;
-        try {
-          await call();
-        } catch (e) {
-          error = e;
-        }
-        expect((error as Error)?.message).to.contain('not implemented yet');
-      });
-    }
-  });
 });
 
 class DefaultBackoffThrottle extends FakeBackoffThrottle {
