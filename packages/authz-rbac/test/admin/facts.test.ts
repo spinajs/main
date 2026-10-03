@@ -133,7 +133,7 @@ describe('CheckRbacAdminFacts field sets', function () {
   const facts = new CheckRbacAdminFacts();
   const carol = userPrincipal('carol');
   const dave = userPrincipal('dave');
-  const FIELD_ROLES: RoleDef[] = [role('fullDoc', { grants: grants('doc:read') }), role('nameDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name'] } }] }), role('bodyDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name', 'body'] } }] })];
+  const FIELD_ROLES: RoleDef[] = [role('fullDoc', { grants: grants('doc:read') }), role('nameDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name'] } }] }), role('bodyDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name', 'body'] } }] }), role('hideDoc', { grants: [{ permission: 'doc:read', fields: { hide: ['secret'] } }] })];
 
   before(async () => {
     await installHost();
@@ -165,9 +165,11 @@ describe('CheckRbacAdminFacts field sets', function () {
     expect(await facts.covers(carol, 'nameDoc', P1, ctx(carol))).to.equal(true);
     expect(await facts.covers(carol, 'bodyDoc', P1, ctx(carol))).to.equal(false);
     expect(await facts.covers(carol, 'fullDoc', P1, ctx(carol))).to.equal(false);
+    // A field set with hide only gives every other field.
+    expect(await facts.covers(carol, 'hideDoc', P1, ctx(carol))).to.equal(false);
   });
 
   it('an actor with every field covers each of them', async () => {
-    for (const r of ['nameDoc', 'bodyDoc', 'fullDoc']) expect(await facts.covers(dave, r, P1, ctx(dave)), r).to.equal(true);
+    for (const r of ['nameDoc', 'bodyDoc', 'fullDoc', 'hideDoc']) expect(await facts.covers(dave, r, P1, ctx(dave)), r).to.equal(true);
   });
 });

@@ -36,7 +36,8 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     // A `descendants` implied role is not held at the scope, but checks reach no lower; L1 judges it exactly.
     const { defs, unknown, bypass } = await grantClosure(roles, role, holds);
     if (unknown.length > 0 || bypass) return false;
-    // Per permission: the field sets its grants give; undefined = a grant without fields, which gives every field.
+    // Per permission: the field sets its grants give; undefined = a grant without fields. An absent read or write
+    // inside a field set means every field, as the RBAC model compiles it.
     const wanted = new Map<Permission, { read: string[]; write: string[] } | undefined>();
     for (const def of defs) {
       for (const g of def.grants) {
@@ -47,7 +48,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
           continue;
         }
         const hide = g.fields.hide ?? [];
-        wanted.set(g.permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(g.fields.read ?? [], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(g.fields.write ?? [], hide)) });
+        wanted.set(g.permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(g.fields.read ?? ['*'], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(g.fields.write ?? ['*'], hide)) });
       }
     }
     if (wanted.size === 0) return true;
