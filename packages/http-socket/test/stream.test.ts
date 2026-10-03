@@ -339,13 +339,37 @@ describe('ServerStream', () => {
     await tick();
     expect(source.pending).to.have.length(1);
 
-    const started = Date.now();
+    controller.abort(new SocketException('cancelled', 'cancelled by the client'));
+
+    expect(await Promise.race([outcome, tick(1000).then(() => 'still pending')])).to.equal('cancelled');
+    expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.fail]);
+    expect(source.returnCalls).to.equal(1);
+  });
+
+  it('settles only once a next() that ignored the abort settles', async () => {
+    const source = manual();
+    const { stream, controller } = setup(source.iterator, { credits: 1 });
+    let settled = false;
+
+    const outcome = stream.run();
+    void stream.settled.then(() => (settled = true));
+    await tick();
     controller.abort(new SocketException('cancelled', 'cancelled by the client'));
 
     expect(await outcome).to.equal('cancelled');
-    expect(Date.now() - started).to.be.below(100);
-    expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.fail]);
-    expect(source.returnCalls).to.equal(1);
+    await tick();
+    expect(settled).to.be.false;
+
+    source.push('late');
+    await until(() => settled);
+  });
+
+  it('settles with run() when nothing of the source is pending', async () => {
+    const log: ISourceLog = { produced: 0, finallyRan: false };
+    const { stream } = setup(counter(log, 1));
+
+    expect(await stream.run()).to.equal('ok');
+    await stream.settled;
   });
 
   it('a grant during a pending next() counts once that item is sent', async () => {

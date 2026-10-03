@@ -15,7 +15,7 @@ import { SOCKET_UNKNOWN_COMMAND, observeCommand } from './metrics.js';
 import { SocketArgumentResolver } from './args.js';
 import { SocketPolicyGate } from './policies.js';
 import { SocketPrincipalGuard } from './principal-guard.js';
-import { ServerStream } from './stream.js';
+import { ServerStream, isStreamResult } from './stream.js';
 import { IN_FLIGHT_RETRY_AFTER_MS } from './stages/limits.js';
 import './stages/index.js';
 
@@ -30,10 +30,6 @@ function aborted(signal: AbortSignal): Promise<never> {
     }
     signal.addEventListener('abort', () => reject(signal.reason), { once: true });
   });
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
 }
 
 @Injectable()
@@ -140,7 +136,14 @@ export class SocketDispatcher extends AsyncService {
       const abort = aborted(ctx.signal);
       abort.catch(() => undefined);
 
-      const result = await Promise.race([chain, abort]);
+      let result: unknown;
+      try {
+        result = await Promise.race([chain, abort]);
+      } catch (err) {
+        // the answer is out already; a stream the handler returns later is closed instead of left open
+        void chain.then((late) => this.closeStream(late), () => undefined);
+        throw err;
+      }
       reply = await this.toReply(ctx, result);
     } catch (err) {
       reply = { id: ctx.request.id, ok: false, error: this.Errors.toWire(err, `command ${ctx.request.name}`) };
@@ -421,22 +424,31 @@ export class SocketDispatcher extends AsyncService {
 
   /** An async iterable result becomes a stream reply; its chunks follow the ack ( runStream ). */
   protected async toReply(ctx: SocketCommandContext, result: unknown): Promise<CommandReply> {
-    if (!isAsyncIterable(result)) {
+    if (!isStreamResult(result)) {
       return { id: ctx.request.id, ok: true, result: result === undefined ? null : result };
     }
 
     try {
       ctx.stream = this.openStream(ctx, result);
     } catch (err) {
-      try {
-        await (result as AsyncGenerator<unknown>).return?.(undefined);
-      } catch {
-        // a failing generator cleanup does not change the answer
-      }
+      await this.closeStream(result);
       throw err;
     }
 
     return { id: ctx.request.id, ok: true, stream: true };
+  }
+
+  /** Closes a stream result that will never be sent; a no-op for anything else. */
+  protected async closeStream(result: unknown): Promise<void> {
+    if (!isStreamResult(result)) {
+      return;
+    }
+
+    try {
+      await result[Symbol.asyncIterator]().return?.(undefined);
+    } catch {
+      // a failing cleanup does not change the answer
+    }
   }
 
   protected openStream(ctx: SocketCommandContext, source: AsyncIterable<unknown>): ServerStream {
@@ -444,10 +456,15 @@ export class SocketDispatcher extends AsyncService {
     const credits = ctx.request.credits;
     const limits = this.Options.streams;
     const runtime = ctx.runtime;
-    const socket = this.sockets.get(runtime);
+    const socket = this.sockets.get(runtime)!;
 
     if (ctx.signal.aborted) {
       throw ctx.signal.reason;
+    }
+
+    // the queue place is released when the handler returns, long before the stream ends; the registry refuses async generators
+    if (ctx.handler?.descriptor.Options.ordered) {
+      throw new SocketException('failed_precondition', `ordered command ${name} cannot reply with a stream`);
     }
 
     if (credits === undefined) {
@@ -460,10 +477,6 @@ export class SocketDispatcher extends AsyncService {
 
     if (runtime.streams >= limits.maxPerConnection) {
       throw new SocketException('resource_exhausted', `more than ${limits.maxPerConnection} streams open on this connection`, { retryAfterMs: IN_FLIGHT_RETRY_AFTER_MS });
-    }
-
-    if (!socket) {
-      throw new SocketException('unavailable', 'connection closed');
     }
 
     const stream = new ServerStream({
@@ -490,10 +503,11 @@ export class SocketDispatcher extends AsyncService {
     const runtime = ctx.runtime;
 
     void stream.run().then(() => {
-      runtime.streams--;
       if (runtime.running.get(ctx.request.id) === ctx) {
         runtime.running.delete(ctx.request.id);
       }
     });
+    // a source that ignores its signal still runs, so it keeps its slot until it settles
+    void stream.settled.then(() => runtime.streams--);
   }
 }

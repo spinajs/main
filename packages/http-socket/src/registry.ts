@@ -73,6 +73,11 @@ export class SocketHandlerRegistry {
       throw new InvalidOperation(`Socket ${handler.Kind} ${fullName} ( ${controllerName}::${String(handler.Method)} ) is not a valid socket ${handler.Kind} name: at most ${MAX_NAME_LENGTH} characters of ${NAME_PATTERN.source}`);
     }
 
+    // its queue place would be released when the generator is returned, long before the stream ends
+    if (handler.Kind === 'command' && handler.Options.ordered && Object.prototype.toString.call(controller[handler.Method as keyof BaseSocketController]) === '[object AsyncGeneratorFunction]') {
+      throw new InvalidOperation(`Socket command ${fullName} ( ${controllerName}::${String(handler.Method)} ) is ordered and replies with a stream; ordered commands cannot stream`);
+    }
+
     // http's resolver reads only Policies and Method, so the socket descriptors pass structurally
     const policies = await resolveRoutePolicies({ Policies: descriptor.Policies } as unknown as IControllerDescriptor, { Policies: handler.Policies, Method: handler.Method } as unknown as IRoute, this.Container, this.Cfg, this.Log, controllerName, fullName);
 

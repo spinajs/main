@@ -99,7 +99,7 @@ Live connections re-check their principal, so a revoked or expired credential st
 - `hooks.connectTimeoutMs` is not a positive number;
 - `ordering.abortGraceMs` is not a positive number.
 
-The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, and when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`. Socket.io is not attached in either case.
+The handler registry refuses to start with `InvalidOperation` when a command or event name is invalid (`NAME_PATTERN`, `MAX_NAME_LENGTH`), when a name is declared twice, when a method carries socket parameter or policy decorators but no `@Command`, `@OnEvent`, `@OnConnect` or `@OnDisconnect`, and when an `ordered` command's handler is an async generator (W4): its queue place would be released when the generator is returned, long before the stream ends. An `ordered` handler that returns another async iterable is answered `failed_precondition` at run time. Socket.io is not attached in either case.
 
 ## Behaviour notes
 

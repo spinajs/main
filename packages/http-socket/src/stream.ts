@@ -4,6 +4,11 @@ import { untilAborted } from './limits.js';
 
 export type StreamFrameEvent = typeof WIRE_EVENTS.chunk | typeof WIRE_EVENTS.end | typeof WIRE_EVENTS.fail;
 
+/** A handler result that is answered as a stream reply; stages that store or replay results must pass it through. */
+export function isStreamResult(value: unknown): value is AsyncIterable<unknown> {
+  return value !== null && typeof value === 'object' && typeof (value as Record<symbol, unknown>)[Symbol.asyncIterator] === 'function';
+}
+
 /** How a stream ended: 'ok' after its `end` frame, else the code of its `fail` frame. */
 export type StreamOutcome = 'ok' | ErrorCode;
 
@@ -31,15 +36,29 @@ export interface IServerStreamInit {
 /**
  * The server side of one stream reply. It asks the source for the next item only while the client
  * has credit for it, so a slow consumer slows the producer instead of filling buffers.
+ *
+ * Nothing bounds the source but a credit stall, cancel, disconnect and shutdown, and all of them only fire
+ * its signal: a source must honour its `@Signal()`, or it keeps running ( and holds its stream slot ) until it settles.
  */
 export class ServerStream {
   protected credits: number;
   protected seq = 0;
   protected wake: (() => void) | null = null;
   protected outcome: Promise<StreamOutcome> | null = null;
+  /** next() and return() calls of the source that have not settled yet */
+  protected pending = new Set<Promise<unknown>>();
 
   constructor(protected readonly init: IServerStreamInit) {
     this.credits = init.credits;
+  }
+
+  /** Settles once run() has finished and no next() or return() of the source is pending. */
+  public get settled(): Promise<void> {
+    return (this.outcome ?? Promise.resolve()).then(async () => {
+      while (this.pending.size > 0) {
+        await Promise.all(this.pending);
+      }
+    });
   }
 
   /** Chunks sent so far. */
@@ -73,7 +92,7 @@ export class ServerStream {
       for (;;) {
         await this.creditAvailable();
         const step = await untilAborted(
-          this.init.within(() => this.init.iterator.next()),
+          this.source(() => this.init.iterator.next()),
           this.init.signal,
         );
 
@@ -108,8 +127,18 @@ export class ServerStream {
     }
 
     // not awaited: return() waits for a pending next(), which a source that ignores its signal never settles
-    this.init.within(async () => this.init.iterator.return?.(undefined)).catch(() => undefined);
+    this.source(async () => this.init.iterator.return?.(undefined)).catch(() => undefined);
     return error.code;
+  }
+
+  protected source<T>(call: () => Promise<T>): Promise<T> {
+    const step = this.init.within(call);
+    const forget = (): void => {
+      this.pending.delete(tracked);
+    };
+    const tracked: Promise<void> = step.then(forget, forget);
+    this.pending.add(tracked);
+    return step;
   }
 
   protected creditAvailable(): Promise<void> {

@@ -6,6 +6,7 @@ import { DI } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 import { SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
+import { SocketDispatcher } from '../src/dispatcher.js';
 import { Command, Payload, Signal, SocketController } from '../src/decorators.js';
 import { ITestServer, command, delay, errorOf, open, startServer, waitFor } from './harness.js';
 import { consumeAsClient, rawStream } from './stream-client.js';
@@ -14,12 +15,30 @@ export const strmLog = {
   produced: new Map<string, number>(),
   finallyRan: new Set<string>(),
   aborts: new Map<string, unknown>(),
+  closed: new Set<string>(),
+  /** settles the pending next() of strm.stuck */
+  release: null as (() => void) | null,
   reset(): void {
     this.produced.clear();
     this.finallyRan.clear();
     this.aborts.clear();
+    this.closed.clear();
+    this.release = null;
   },
 };
+
+/** An async iterable that is not a generator: the object itself has no return(), only its iterator does. */
+function plainIterable(key: string, next: () => Promise<IteratorResult<unknown>>): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next,
+      return: async () => {
+        strmLog.closed.add(key);
+        return { done: true, value: undefined };
+      },
+    }),
+  };
+}
 
 @SocketController('strm')
 export class StrmSocket extends BaseSocketController {
@@ -70,6 +89,35 @@ export class StrmSocket extends BaseSocketController {
   @Command('void')
   public async *nothing() {
     yield undefined;
+  }
+
+  @Command('iterable')
+  public iterable(@Payload() p: { key: string }) {
+    return plainIterable(p.key, async () => ({ done: true, value: undefined }));
+  }
+
+  @Command('ordered-plain', { ordered: 'connection' })
+  public orderedPlain(@Payload() p: { key: string }) {
+    return plainIterable(p.key, async () => ({ done: true, value: undefined }));
+  }
+
+  @Command('late')
+  public async late(@Payload() p: { key: string }) {
+    // ignores its signal, so it returns its stream after the command was answered
+    await delay(150);
+    return plainIterable(p.key, async () => ({ done: true, value: undefined }));
+  }
+
+  @Command('stuck')
+  public stuck() {
+    // ignores its signal: next() settles only when the test releases it
+    return plainIterable(
+      'stuck',
+      () =>
+        new Promise((resolve) => {
+          strmLog.release = () => resolve({ done: true, value: undefined });
+        }),
+    );
   }
 
   @Command('idle')
@@ -221,6 +269,40 @@ describe('stream replies', function () {
     expect(s.end).to.deep.equal({ id: s.id, seq: 1 });
   });
 
+  it('closes a refused async iterable that is not a generator through its iterator', async () => {
+    const error = errorOf(await command(socket, 'strm.iterable', { key: 'refused' }));
+
+    expect(error.code).to.equal('failed_precondition');
+    await waitFor(() => strmLog.closed.has('refused'));
+  });
+
+  it('refuses a stream from an ordered command the registry could not see as one, and closes it', async () => {
+    const error = errorOf(await command(socket, 'strm.ordered-plain', { key: 'ordered' }, { credits: 1 }));
+
+    expect(error.code).to.equal('failed_precondition');
+    expect(error.message).to.match(/ordered/);
+    await waitFor(() => strmLog.closed.has('ordered'));
+  });
+
+  it('closes a stream the handler returns after its command was already answered', async () => {
+    const error = errorOf(await command(socket, 'strm.late', { key: 'late' }, { deadline: 30, credits: 1 }));
+
+    expect(error.code).to.equal('deadline_exceeded');
+    await waitFor(() => strmLog.closed.has('late'));
+  });
+
+  it('shutdown ( abortAll ) fails an open stream with unavailable and runs the generator finally block', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'shutdown' }, 1);
+    await waitFor(() => s.chunks.length === 1);
+
+    DI.get(SocketDispatcher)!.abortAll(new SocketException('unavailable', 'server shutting down'));
+    await s.finished;
+
+    expect(s.fail?.error).to.deep.include({ code: 'unavailable', retryable: true });
+    await waitFor(() => strmLog.finallyRan.has('shutdown'));
+    expect((strmLog.aborts.get('shutdown') as SocketException).code).to.equal('unavailable');
+  });
+
   it('sends exactly one fail frame for a cancel, even a repeated one', async () => {
     const s = rawStream(socket, 'strm.count', { key: 'once' }, 1);
     let fails = 0;
@@ -245,7 +327,7 @@ describe('stream replies', function () {
     beforeEach(async () => {
       socket.close();
       await t.close();
-      t = await startServer({ http: { socket: { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 300 } } } });
+      t = await startServer({ http: { socket: { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 2000 } } } });
       socket = await open(t);
     });
 
@@ -268,7 +350,7 @@ describe('stream replies', function () {
     beforeEach(async () => {
       socket.close();
       await t.close();
-      t = await startServer({ http: { socket: { streams: { maxCredits: 4, maxPerConnection: 1, stallTimeoutMs: 300 } } } });
+      t = await startServer({ http: { socket: { streams: { maxCredits: 4, maxPerConnection: 1, stallTimeoutMs: 2000 } } } });
       socket = await open(t);
     });
 
@@ -335,6 +417,37 @@ describe('stream replies', function () {
       const third = rawStream(socket, 'strm.count', { key: 'cap-3', n: 1 }, 2);
       await third.finished;
       expect(third.end).to.deep.equal({ id: third.id, seq: 1 });
+    });
+
+    it('holds the stream slot until a source that ignores its signal settles', async () => {
+      const s = rawStream(socket, 'strm.stuck', null, 1);
+      await s.reply;
+      await waitFor(() => strmLog.release !== null);
+
+      s.cancel();
+      await s.finished;
+      expect(s.fail?.error.code).to.equal('cancelled');
+      await waitFor(() => strmLog.closed.has('stuck'));
+      await delay(50);
+
+      expect(errorOf(await rawStream(socket, 'strm.count', { key: 'blocked' }, 1).reply)).to.deep.include({ code: 'resource_exhausted', retryAfterMs: 100 });
+      expect(strmLog.produced.has('blocked')).to.be.false;
+
+      strmLog.release!();
+      await delay(50);
+
+      const freed = rawStream(socket, 'strm.count', { key: 'freed', n: 1 }, 2);
+      await freed.finished;
+      expect(freed.end).to.deep.equal({ id: freed.id, seq: 1 });
+    });
+  });
+
+  describe('stall', () => {
+    beforeEach(async () => {
+      socket.close();
+      await t.close();
+      t = await startServer({ http: { socket: { streams: { maxCredits: 4, maxPerConnection: 1, stallTimeoutMs: 300 } } } });
+      socket = await open(t);
     });
 
     it('fails a stream that gets no credit for stallTimeoutMs with deadline_exceeded', async () => {
