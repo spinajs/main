@@ -22,6 +22,8 @@ const authnLocal = {
       // `service` is left out while @spinajs/users still ships the 2.x
       // `authn.local.hasher.service: 'BasicPasswordProvider'`: package configs
       // merge in glob order, and either value would break the other package.
+      // No code reads `hasher.service` yet: `@Injectable(PasswordHasher)` selects
+      // Argon2PasswordHasher until C1 drops the 2.x key.
       hasher: {
         /**
          * Argon2 operations at once (hash and verify); the rest queue. Each

@@ -63,7 +63,10 @@ const eligible = (s: IdentityStatus) => s.exists && !s.deleted && !s.banned && (
 /** For work that must match a real identity's: a fresh ref no store or cache can know. */
 const throwaway = (): IdentityRef => ({ type: 'user', id: randomUUID() });
 
-/** The reset flow's ip key. Callers without `ctx.ip` share one bucket rather than going unthrottled. */
+/**
+ * The reset flow's ip key. Callers without `ctx.ip` share one bucket rather than going unthrottled, so one caller's requests can
+ * throttle every other caller that also omits it: HTTP callers must pass the trusted-proxy ip.
+ */
 const resetIpKey = (ctx: AuthnContext): ThrottleKey => ({ kind: 'ip', value: ctx.ip ?? 'unknown' });
 
 /** Same keys as the kit's reauthenticate (D7). */
