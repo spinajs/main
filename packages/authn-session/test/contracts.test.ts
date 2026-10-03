@@ -198,8 +198,11 @@ const EXPECTED_META = [{ autoinject: true, key: 'Expiration', inject: 'SessionEx
 /** The package's public runtime surface; contracts plus the session building blocks. */
 const PUBLIC_EXPORTS = [
   'AbsoluteExpiration',
+  'DefaultSessionIssuer',
   'MemorySessionStore',
   'SESSION_COOKIE_BASE_NAME',
+  'SESSION_IP_KEY',
+  'SESSION_USER_AGENT_KEY',
   'SessionExpirationProvider',
   'SessionProvider',
   'SlidingCappedExpiration',
@@ -213,11 +216,15 @@ const PUBLIC_EXPORTS = [
   'sessionCookieMaxAge',
   'sessionCookieName',
   'sessionCookieOptions',
+  'sessionHandleOf',
+  'storageKeyOf',
 ];
 
-/** What loading the package may add to the root registry: the store and the strategies under their types. */
+/** What loading the package may add to the root registry: the issuer, the store and the strategies under their types. */
 const EXPECTED_REGISTRATIONS: Record<string, string[]> = {
   SessionProvider: ['MemorySessionStore'],
+  SessionIssuer: ['DefaultSessionIssuer'],
+  DefaultSessionIssuer: ['DefaultSessionIssuer'],
   MemorySessionStore: ['MemorySessionStore'],
   SessionExpirationProvider: ['AbsoluteExpiration', 'SlidingExpiration', 'SlidingCappedExpiration'],
   AbsoluteExpiration: ['AbsoluteExpiration'],
@@ -460,7 +467,7 @@ describe('@spinajs/authn-session contracts', function () {
       expect(meta.inject[0].serviceFunc!(KEY, container)).to.deep.eq({ service: 'SlidingCappedExpiration', options: cfg[KEY] });
     });
 
-    describe('loading the built package registers only the memory store and the expiration strategies', () => {
+    describe('loading the built package registers only the issuer, the memory store and the expiration strategies', () => {
       let esm: Probe;
       let cjs: Probe;
 
@@ -500,8 +507,8 @@ describe('@spinajs/authn-session contracts', function () {
         const before = p.before as Snapshot;
         const after = p.after as Snapshot;
         expect(delta(before.registry, after.registry)).to.deep.eq(EXPECTED_REGISTRATIONS);
-        // @Config caches one value per decorated property: ttl of the three strategies plus maxLifetime of the capped one
-        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object'] });
+        // @Config caches one value per decorated property: ttl of the three strategies, maxLifetime of the capped one and the pending TTL
+        expect(delta(before.cache, after.cache)).to.deep.eq({ __configuration_property__: ['Object', 'Object', 'Object', 'Object', 'Object'] });
         expect(after.events).to.deep.eq(before.events);
       };
 
