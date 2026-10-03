@@ -24,17 +24,19 @@
  *
  * Root stays booted across cases: it boots once, inside the first case and under that case's config,
  * so root must hold no models of the lane and root-only keys of a world reach root only in the first
- * case. The harness needs the support module's TestConfiguration as the DI Configuration: it installs
- * it in `beforeAll` (when no one did) and uninstalls it in `afterAll`. Host tests and lanes load the
- * host from the lib (`@spinajs/authz`), never from src, because two copies register two
+ * case. The harness needs `testHost`'s TestConfiguration as the DI Configuration: it installs it in
+ * `beforeAll` (when no one did) and uninstalls it in `afterAll`. Host tests and lanes load the host
+ * from the lib (`@spinajs/authz`, as this kit does), never from src, because two copies register two
  * DefaultAuthzService classes in one DI root.
  */
-import { instantiateWorld } from '@spinajs/authz-testing';
-import type { BehaviourAuthz, BehaviourDomains, BehaviourHarness, Facet, HarnessSession, KitWorld, SetupContext, World } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
 
 import { AuthzClock, AuthzContributor, AuthorizationModel, ChangeBus, DecisionAudit, RelationResolver, ResourceAdapter, ScopeAttributeStore, ScopeResolver, resourceKey } from '@spinajs/authz';
 import type { AuthzService, ResourceRef } from '@spinajs/authz';
+import type { BehaviourAuthz, BehaviourDomains, BehaviourHarness, HarnessSession, SetupContext } from '../behaviour/harness.js';
+import type { Facet, World } from '../behaviour/types.js';
+import { instantiateWorld } from '../behaviour/world.js';
+import type { KitWorld } from '../behaviour/world.js';
 import { config, domains, installHost, instance, uninstallHost } from './support.js';
 
 export interface HostSetup {

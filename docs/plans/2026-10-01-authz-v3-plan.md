@@ -269,6 +269,10 @@ the r3 change list above.
    A01–A27 and (r4) A30–A32 live in `@spinajs/authn-testing` (F7) and are
    run the same way:
    `runAuthnBehaviour(['A02', 'A05'], () => harness)`.
+   (G1b) A lane that runs fixtures through the host does not write its own
+   host harness: it uses `hostHarness` from `@spinajs/authz-testing`, wiring
+   its models and handles through the options `register` and `extend`
+   (kit README, "Shared host harness").
 5. **Old APIs are not deleted by consumer lanes.** Consumer lanes stop using
    them and mark them `@deprecated`; R1 deletes them after every consumer has
    merged. This keeps `feat/authz-v3` building after every merge. Exception
