@@ -162,6 +162,17 @@ export function assertIdempotencyConfig(options: ISocketIdempotencyConfig): void
 /** Retry hint when another instance runs the key: this one cannot join it. */
 export const ELSEWHERE_RETRY_AFTER_MS = 1_000;
 
+const OUTCOME_UNKNOWN = new WeakSet<object>();
+
+/**
+ * Marks an abort reason after which a started handler's outcome is unknown ( shutdown ): it may have committed and then
+ * thrown the reason, so its key stays running instead of being released for a retry that would run it again.
+ */
+export function outcomeUnknownAfter<T extends object>(reason: T): T {
+  OUTCOME_UNKNOWN.add(reason);
+  return reason;
+}
+
 function isBinary(value: unknown): boolean {
   return value instanceof ArrayBuffer || ArrayBuffer.isView(value) || (typeof Blob !== 'undefined' && value instanceof Blob);
 }
@@ -273,6 +284,7 @@ export class SocketIdempotency {
 
     let answer: Promise<IdempotentReply | null> | null = null;
     let detached = false;
+    let started = false;
 
     // a released key can be claimed again before this cleanup runs: never drop the newer claim's entry
     const forget = () => {
@@ -282,7 +294,7 @@ export class SocketIdempotency {
     };
 
     const finish = (outcome: CommandOutcome): Promise<IdempotentReply | null> =>
-      (answer ??= this.record(scoped, name, signal, outcome).then(
+      (answer ??= this.record(scoped, name, signal, outcome, started).then(
         (reply) => {
           forget();
           publish(reply);
@@ -302,6 +314,12 @@ export class SocketIdempotency {
       ));
 
     return {
+      get started() {
+        return started;
+      },
+      start: () => {
+        started = true;
+      },
       settle: (outcome) => (detached ? Promise.resolve(null) : finish(outcome)),
       detach: (running) => {
         if (answer || detached) {
@@ -320,7 +338,7 @@ export class SocketIdempotency {
     };
   }
 
-  protected async record(scoped: string, name: string, signal: AbortSignal, outcome: CommandOutcome): Promise<IdempotentReply | null> {
+  protected async record(scoped: string, name: string, signal: AbortSignal, outcome: CommandOutcome, started: boolean): Promise<IdempotentReply | null> {
     if ('result' in outcome) {
       // a stream reply cannot be replayed
       if (isStreamResult(outcome.result)) {
@@ -334,6 +352,10 @@ export class SocketIdempotency {
 
     // the call's own deadline, cancel, disconnect or shutdown: the command produced no outcome
     if (isAbortOf(outcome.error, signal)) {
+      if (started && OUTCOME_UNKNOWN.has(signal.reason as object)) {
+        this.Log.warn(`Socket command ${name}: aborted by shutdown after its handler started; its idempotency key stays running, as it may have committed`);
+        return null;
+      }
       return this.forgo(scoped, name);
     }
 

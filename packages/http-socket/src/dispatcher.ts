@@ -150,10 +150,17 @@ export class SocketDispatcher extends AsyncService {
     );
   }
 
-  /** @internal Aborts every running command on every connection ( shutdown ). */
-  public abortAll(reason: SocketException): void {
+  /**
+   * @internal Aborts every running command on every connection ( shutdown ). With `spareStarted`, a command whose
+   * idempotency claim already reached its handler keeps running: it may commit any moment, and only its real outcome tells.
+   */
+  public abortAll(reason: SocketException, spareStarted = false): void {
     for (const runtime of this.runtimes.values()) {
-      this.abortRunning(runtime, reason);
+      for (const ctx of runtime.running.values()) {
+        if (!(spareStarted && ctx.idempotency?.started)) {
+          ctx.abort(reason);
+        }
+      }
     }
   }
 
@@ -168,6 +175,11 @@ export class SocketDispatcher extends AsyncService {
    */
   public drained(ms: number): Promise<boolean> {
     return within([...this.replies, ...this.chains], ms);
+  }
+
+  /** @internal True once every command received so far has been answered and its stream ( if any ) has ended; false when `ms` passes first. */
+  public answered(ms: number): Promise<boolean> {
+    return within([...this.replies], ms);
   }
 
   /** @internal True once every disconnect hook started so far is done; false when `ms` passes first. */
@@ -351,6 +363,11 @@ export class SocketDispatcher extends AsyncService {
       return;
     }
 
+    if (this.refusal) {
+      this.Log.debug(`Socket event ${frame.name} from connection ${connection.id} dropped: the server is shutting down`);
+      return;
+    }
+
     try {
       // before waiting for the connect hooks, so a flood sent while they run is not queued
       assertPayloadSize(frame.payload, this.Options.maxPayloadBytes);
@@ -514,6 +531,8 @@ export class SocketDispatcher extends AsyncService {
     if (!handler || !args) {
       throw new SocketException('internal', 'command reached its handler without lookup or arguments; a built-in stage is missing');
     }
+
+    ctx.idempotency?.start();
 
     return handler.controller[handler.descriptor.Method as string](...args);
   }

@@ -335,10 +335,14 @@ export type CommandOutcome = { readonly result: unknown } | { readonly error: un
 export interface ISocketIdempotencyClaim {
   /**
    * Records the outcome once: a result or a final error is stored, a retryable or unauthenticated error or the call's own
-   * abort releases the key. Later calls get the first answer. Null: released, or detached.
+   * abort releases the key, except a shutdown abort after `start()`, which leaves it running. Later calls get the first answer.
+   * Null: released, left running, or detached.
    * A result is answered in its wire ( JSON ) form, and still answered when the store cannot keep it.
    */
   settle(outcome: CommandOutcome): Promise<IdempotentReply | null>;
   /** The pipeline gave up on a handler that still runs: the key stays running until `running` settles, and `settle` answers null. */
   detach(running: Promise<unknown>): void;
+  /** @internal Called right before the handler: from then on an abort marked by `outcomeUnknownAfter` keeps the key running. */
+  start(): void;
+  readonly started: boolean;
 }

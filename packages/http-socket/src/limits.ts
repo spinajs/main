@@ -184,3 +184,16 @@ export function assertShutdownConfig(options: Pick<ISocketServerConfig, 'drainMs
     throw new RangeError(`http.socket.shutdownRetryAfterMs must be a finite number above 0, got ${String(shutdownRetryAfterMs)}`);
   }
 }
+
+/** How long the replies, stream `fail` frames and transports of a shutdown get to flush, and a started keyed command gets past `drainMs`. */
+export const SHUTDOWN_FLUSH_MS = 1_000;
+
+/** The http server destroys every connection `http.shutdownTimeout` after it starts closing; a drain that may outlast that is cut short. */
+export function shutdownOverrun(drainMs: number, shutdownTimeoutMs: number): string | null {
+  const worst = drainMs + 2 * SHUTDOWN_FLUSH_MS;
+  if (worst < shutdownTimeoutMs) {
+    return null;
+  }
+
+  return `http.socket.drainMs ( ${drainMs} ms ) plus ${2 * SHUTDOWN_FLUSH_MS} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written`;
+}
