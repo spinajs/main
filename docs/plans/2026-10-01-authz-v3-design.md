@@ -1043,8 +1043,8 @@ export abstract class ScopeResolver {              // for types without an adapt
   attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
 }
 // Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
-// A condition or rule that reads a missing scope attribute makes the vote indeterminate (B04, fail closed; B39).
-// (r6, F3) A vote whose permitWhen, denyWhen or denies hold a scope.* ref that cannot be resolved (attribute absent, node unknown, or a type-level request for a type other than $global) is indeterminate: model_error, and the error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
+// (r6, G1b) A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
+// (r6, F3) The model_error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
 
 /** (r3, D23) Scope attributes as authz data. ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {

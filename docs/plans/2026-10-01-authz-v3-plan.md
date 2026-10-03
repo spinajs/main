@@ -552,8 +552,9 @@ F0a first, alone (§0a).
      models/adapters/scope resolvers/relations/native filters/combinators
      with `resolveChain`, builds an `Authorizer`, runs `init()` of models and
      the boot validator in `resolve()`); `authz(domain?)`.
-  3. `AuthzDomains`: `create`, `container`, `service`, `names`; fan-out of
-     `AuthzChange`; disposal (B29).
+  3. `AuthzDomains`: `create`, `container`, `service`, `names`; (G1b) no fan-out:
+     each domain subscribes to the `ChangeBus` its container resolves and
+     `AuthzDomains` forwards nothing (design §10.3); disposal (B29).
   4. Config: AJV schema for `authz.*` core keys (design §8.1) registered
      like other packages; per-domain overrides; old-key detector for every
      `rbac.*` key (design §8.1) failing boot with the converter's name.
