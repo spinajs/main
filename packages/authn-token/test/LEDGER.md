@@ -31,7 +31,7 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 |---|---|---|---|---|---|
 | 1 | 72 | access token actions - crud > creates token for user, returns plaintext once, stores only hash | rewrite | N6 | authn-token/test/v3/ (TokenService.create; A14; SR-08 "token without expiry refused"): expiry is mandatory, so the null `ExpiresAt` assertion changes; the plaintext-once and hash-only assertions keep |
 | 2 | 88 | access token actions - crud > accepts expiration date | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
-| 3 | 97 | access token actions - crud > rejects roles the owner does not hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07): the roles-subset rule leaves authn-token (it imports no authz); owner roles come from RBAC assignments, not `User.Role`. OPEN (N6/C5): the create-time refusal (`AccessTokenRoleNotAllowed`, nothing persisted) either survives in 3.0 through `RoleSource`, or becomes narrowing at evaluation only (B07); the replacement follows that decision |
+| 3 | 97 | access token actions - crud > rejects roles the owner does not hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07): the roles-subset rule leaves authn-token (it imports no authz); owner roles come from RBAC assignments, not `User.Role`. DECIDED (N6): the create-time refusal survives in 3.0 through `RoleSource` when one is registered (`TokenService.create` answers `invalid_scope`, nothing persisted); without one the roles are stored as given. Check time stays authoritative: the authz-rbac ceiling keeps only roles the owner holds (L1/C5, B07) |
 | 4 | 111 | access token actions - crud > resolves owner by uuid string | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
 | 5 | 118 | access token actions - crud > deletes token by uuid | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
 | 6 | 127 | access token actions - crud > grants and revokes role on token, only owner-held roles grantable | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); the owner-held-roles rule is covered by line 97 |
@@ -49,6 +49,8 @@ row 4 → `create` "binds the token to the owner row found by users.Uuid";
 row 5 → `revoke` "revokes the token with that uuid and stamps RevokedAt from ctx.now".
 Row 1 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" and
 "mints a prefixed token and stores only its hash", and by the kit case "A14 the plaintext is shown once" (`v3/behaviour.test.ts`).
+N6 task 2 fix: row 3's create-time half is covered in `v3/token-service.test.ts` (`create` > "roles against a registered RoleSource");
+the check-time half stays with T3 in `authz-rbac/test/ported/token/`.
 
 ## test/actions-validate.test.ts
 

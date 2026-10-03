@@ -73,7 +73,8 @@ export async function bootV3Db(): Promise<OrmDriver> {
   return v3Connection();
 }
 
-export function shutdownV3Db(): void {
+export async function shutdownV3Db(): Promise<void> {
+  await DI.get(Orm)?.dispose();
   uncacheOwn();
   DI.unregister(V3DbConfiguration);
 }
@@ -108,6 +109,8 @@ export async function insertUserRow(uuid: string): Promise<number> {
       table.dateTime('DeletedAt');
       table.dateTime('LastLoginAt');
     });
+    await connection.index().unique().table('users').name('user_uuid_idx').columns(['Uuid']);
+    await connection.index().unique().table('users').name('user_login_idx').columns(['Login']);
   }
 
   const result = await connection

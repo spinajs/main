@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { OrmDriver } from '@spinajs/orm';
+import { ConnectionState, IdentifierQuoter, OrmDriver } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -25,8 +25,8 @@ describe('AuthnTokenScope migration', function () {
     owner = await insertUserRow(uuidv4());
   });
 
-  after(() => {
-    shutdownV3Db();
+  after(async () => {
+    await shutdownV3Db();
   });
 
   async function columns(): Promise<string[]> {
@@ -67,6 +67,98 @@ describe('AuthnTokenScope migration', function () {
     expect(loaded.Kind).to.equal('pat');
     expect(loaded.Scope).to.be.null;
     expect(loaded.RevokedAt).to.be.null;
+  });
+
+  it('stores Kind pat for a row built through the model without a valid kind', async () => {
+    expect(new AccessToken().Kind).to.equal('pat');
+    expect(new AccessToken({ Kind: 'bogus' as never }).Kind).to.equal('pat');
+    expect(new AccessToken({ Kind: 'agent' }).Kind).to.equal('agent');
+    expect(new AccessToken({ Kind: 'service' }).Kind).to.equal('service');
+
+    const token = new AccessToken({ Name: 'model', Token: 'm'.repeat(64), Roles: ['user'], ExpiresAt: DateTime.now().plus({ days: 1 }), user_id: owner });
+    await token.insert();
+
+    const rows = (await connection.select().from('rbac_access_tokens').where({ Uuid: token.Uuid })) as Array<{ Kind: string }>;
+    expect(rows[0].Kind).to.equal('pat');
+  });
+
+  it('down drops the columns through quoted identifiers', async () => {
+    const quote = (n: string) => connection.Container.resolve<IdentifierQuoter>(IdentifierQuoter).quote(n);
+    const driver = connection as unknown as { executeOnDb: (stmt: string, ...rest: unknown[]) => Promise<unknown> };
+    const original = driver.executeOnDb;
+    const statements: string[] = [];
+    driver.executeOnDb = function (stmt: string, ...rest: unknown[]) {
+      statements.push(String(stmt));
+      return original.call(this, stmt, ...rest);
+    };
+
+    try {
+      await migration.down(connection);
+    } finally {
+      driver.executeOnDb = original;
+      await migration.up(connection);
+    }
+
+    const drops = statements.filter((s) => /DROP COLUMN/i.test(s));
+    expect(drops).to.have.length(NEW_COLUMNS.length);
+    for (const column of NEW_COLUMNS) {
+      expect(
+        drops.some((s) => s.includes(`DROP COLUMN ${quote(column)}`)),
+        column,
+      ).to.equal(true);
+    }
+  });
+
+  it('refuses a maxTtlDays that is not a positive number before touching the table', async () => {
+    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 'ninety']) {
+      await migration.down(connection);
+      setMaxTtlDays(value as number);
+      try {
+        const err = await migration.up(connection).catch((e: unknown) => e);
+        expect(err, String(value)).to.be.instanceOf(Error);
+        expect((err as Error).message, String(value)).to.contain('authn.token.maxTtlDays');
+        expect(await columns(), String(value)).to.not.include.any.members(NEW_COLUMNS);
+      } finally {
+        setMaxTtlDays(undefined);
+        await migration.up(connection);
+      }
+    }
+  });
+
+  it('back-fills a row whose CreatedAt is an ISO string written by the sqlite column default', async () => {
+    setMaxTtlDays(undefined);
+    await migration.down(connection);
+
+    const uuid = uuidv4();
+    const iso = '2026-01-15T10:20:30.000Z';
+    await connection
+      .insert()
+      .into('rbac_access_tokens')
+      .values({ Uuid: uuid, Name: 'iso', Token: uuid.replace(/-/g, '').padEnd(64, '1'), Roles: 'user', CreatedAt: iso, ExpiresAt: null, user_id: owner });
+
+    await migration.up(connection);
+
+    const row = await AccessToken.where('Uuid', uuid).firstOrFail();
+    expect(row.ExpiresAt!.toMillis()).to.equal(DateTime.fromISO(iso).plus({ days: 90 }).toMillis());
+  });
+
+  it('the test users table refuses a duplicate Uuid or Login, as RBACInitial does', async () => {
+    const uuid = uuidv4();
+    await insertUserRow(uuid);
+    const values = (over: Record<string, unknown>) => ({ Uuid: uuidv4(), Email: `${uuidv4()}@spinajs.test`, Password: 'x', Login: uuidv4(), Role: 'user', IsActive: 1, ...over });
+
+    const sameUuid = await connection
+      .insert()
+      .into('users')
+      .values(values({ Uuid: uuid }))
+      .catch((e: unknown) => e);
+    expect(sameUuid, 'duplicate Uuid').to.be.instanceOf(Error);
+    const sameLogin = await connection
+      .insert()
+      .into('users')
+      .values(values({ Login: uuid }))
+      .catch((e: unknown) => e);
+    expect(sameLogin, 'duplicate Login').to.be.instanceOf(Error);
   });
 
   it('down removes the four columns', async () => {
@@ -121,5 +213,16 @@ describe('AuthnTokenScope migration', function () {
 
     const row = await AccessToken.where('Uuid', uuid).firstOrFail();
     expect(row.ExpiresAt!.toMillis()).to.equal(createdAt.plus({ days: 7 }).toMillis());
+  });
+});
+
+describe('v3 test database', () => {
+  it('shutdownV3Db closes the connection', async function () {
+    this.timeout(15000);
+    const connection = await bootV3Db();
+    expect(connection.State).to.equal(ConnectionState.Connected);
+
+    await shutdownV3Db();
+    expect(connection.State).to.equal(ConnectionState.Disconnected);
   });
 });

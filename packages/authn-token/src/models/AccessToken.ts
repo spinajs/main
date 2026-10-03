@@ -4,6 +4,8 @@ import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _default } from '@spinajs/util';
 
+export const TOKEN_KINDS: readonly string[] = ['pat', 'service', 'agent'] satisfies readonly TokenKind[];
+
 /**
  * Personal access token. Only the SHA-256 hash of the token is stored;
  * the plaintext is returned once at creation and cannot be recovered.
@@ -15,8 +17,11 @@ export class AccessToken extends ModelBase<AccessToken> {
     super(data);
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
 
-    // The column is NOT NULL with a db default, but the sqlite converter refuses an unset non-null field.
-    this.Kind ??= 'pat';
+    // setDefaults() copies the raw column default from tableInfo, i.e. the SQL text "'pat'" with its quotes.
+    // Rows read from the db are built empty and hydrated afterwards, so this never rewrites a stored kind.
+    if (!TOKEN_KINDS.includes(this.Kind)) {
+      this.Kind = 'pat';
+    }
   }
 
   /**

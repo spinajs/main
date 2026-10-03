@@ -30,6 +30,9 @@ export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
     throw new UnsupportedConfig(unsupported);
   }
 
+  // Before the config changes, so a failure here leaves no changed config behind.
+  await v3Connection().del().from('rbac_access_tokens');
+
   const configuration = DI.get(Configuration)!;
   const saved = SUPPORTED.map((path) => [path, configuration.get(path)] as const);
   for (const path of SUPPORTED) {
@@ -38,8 +41,6 @@ export async function tokenHarness(ctx: HarnessContext): Promise<Harness> {
       configuration.set(path, value);
     }
   }
-
-  await v3Connection().del().from('rbac_access_tokens');
 
   const identities = new FakeIdentityStore();
   const base = fakeSeedPort(identities, new MemoryPasswordCredentialStore());

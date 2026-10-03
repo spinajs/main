@@ -1,20 +1,24 @@
 import { DI, Inject, Injectable } from '@spinajs/di';
 import { Config, service } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthnEventSink, IdentityStore, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
+import { Log, Logger } from '@spinajs/log';
+import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Principal, PrincipalRef, ResourceRef, TokenCreateOptions, TokenCreateResult, TokenKind, TokenRecord, TokenScope, TokenValidation } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
 import { checkTokenFormat } from '../generator.js';
-import { AccessToken } from '../models/AccessToken.js';
+import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
 
-const KINDS: readonly string[] = ['pat', 'service', 'agent'] satisfies readonly TokenKind[];
 const MAX_NAME_LENGTH = 128;
+/** Width of the comma-joined `Roles` column. */
+const MAX_ROLES_LENGTH = 512;
+const MAX_SCOPE_ENTRIES = 1000;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
 type Refusal = Extract<TokenCreateResult, { ok: false }>;
 type Failure = Extract<TokenValidation, { ok: false }>;
@@ -25,6 +29,15 @@ const fail = (reason: AuthnFailure): Failure => ({ ok: false, reason });
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/** The time value of a real Date, read without calling anything an override could replace; NaN otherwise. */
+function instant(v: unknown): number {
+  try {
+    return Date.prototype.getTime.call(v);
+  } catch {
+    return Number.NaN;
+  }
+}
 
 function toDate(v: unknown): Date | null {
   const d = DateTime.isDateTime(v) ? v.toJSDate() : v instanceof Date ? v : null;
@@ -40,7 +53,9 @@ function parseRoles(roles: unknown): string[] | undefined | null {
   if (!Array.isArray(roles) || roles.length === 0 || !roles.every((r) => isNonEmptyString(r) && !r.includes(','))) {
     return null;
   }
-  return [...new Set(roles as string[])];
+  const unique = [...new Set(roles as string[])];
+  // Postgres and strict mysql would throw on overflow; non-strict mysql would cut the last role to another name.
+  return unique.join(',').length <= MAX_ROLES_LENGTH ? unique : null;
 }
 
 /** Keeps only the known keys; undefined: no limits; null: malformed. */
@@ -55,14 +70,14 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   const out: { permissions?: string[]; resources?: ResourceRef[]; agent?: boolean } = {};
 
   if (scope.permissions !== undefined) {
-    if (!Array.isArray(scope.permissions) || !scope.permissions.every(isNonEmptyString)) {
+    if (!Array.isArray(scope.permissions) || scope.permissions.length > MAX_SCOPE_ENTRIES || !scope.permissions.every(isNonEmptyString)) {
       return null;
     }
     out.permissions = [...scope.permissions];
   }
 
   if (scope.resources !== undefined) {
-    if (!Array.isArray(scope.resources)) {
+    if (!Array.isArray(scope.resources) || scope.resources.length > MAX_SCOPE_ENTRIES) {
       return null;
     }
     const resources: ResourceRef[] = [];
@@ -101,8 +116,21 @@ export class DbTokenService extends TokenService {
   @Config('authn.token.length', { defaultValue: 32 })
   protected Length: number;
 
+  @Logger('authn-token')
+  protected Log: Log;
+
   constructor(protected readonly owners: TokenOwnerResolver, protected readonly profiles: TokenProfilePolicy, protected readonly identities: IdentityStore) {
     super();
+    // With nothing registered, DI injects the bare abstract class; fail at boot, not on the first valid token.
+    if (typeof identities?.status !== 'function') {
+      throw new Error('DbTokenService needs an IdentityStore; register one (e.g. @spinajs/users) before resolving TokenService');
+    }
+    if (typeof owners?.rowIdOf !== 'function' || typeof owners.refOf !== 'function') {
+      throw new Error('DbTokenService needs a TokenOwnerResolver');
+    }
+    if (typeof profiles?.allowedProfiles !== 'function') {
+      throw new Error('DbTokenService needs a TokenProfilePolicy');
+    }
     // TokenService is not an AsyncService, so DI never calls resolve() itself.
     this.resolve();
   }
@@ -113,10 +141,12 @@ export class DbTokenService extends TokenService {
   }
 
   public async create(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext): Promise<TokenCreateResult> {
+    const now = this.nowOf(ctx);
+
     // Callers can bypass the types, so every field is checked as unknown.
     const raw: Record<string, unknown> = isRecord(opts) ? opts : {};
     const kind = raw.kind;
-    if (typeof kind !== 'string' || !KINDS.includes(kind)) {
+    if (typeof kind !== 'string' || !TOKEN_KINDS.includes(kind)) {
       return INVALID_SCOPE;
     }
 
@@ -143,13 +173,12 @@ export class DbTokenService extends TokenService {
       profile = raw.profile;
     }
 
-    const expiresAt = raw.expiresAt;
-    if (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime())) {
+    const expiresAt = instant(raw.expiresAt);
+    if (!Number.isFinite(expiresAt)) {
       return INVALID_EXPIRY;
     }
-    const now = ctx.now.getTime();
     const cap = agent ? now + this.positive(this.AgentMaxTtlMinutes, 'agentMaxTtlMinutes') * MINUTE_MS : now + this.positive(this.MaxTtlDays, 'maxTtlDays') * DAY_MS;
-    if (expiresAt.getTime() <= now || expiresAt.getTime() > cap) {
+    if (expiresAt <= now || expiresAt > cap) {
       return INVALID_EXPIRY;
     }
 
@@ -163,16 +192,21 @@ export class DbTokenService extends TokenService {
       throw new Error(`Token owner ${String(owner?.type)}:${String(owner?.id)} is unknown to ${this.owners.constructor.name}`);
     }
 
+    if (roles !== undefined && !(await this.ownerHolds(owner, roles))) {
+      return INVALID_SCOPE;
+    }
+
     const generator = await service<AccessTokenGenerationProvider>('authn.token.generation', AccessTokenGenerationProvider);
     const generated = await generator.generate();
+    this.checkGenerated(generated?.Plaintext);
 
     const token = new AccessToken({
       Name: name,
       Token: generated.Hash,
       Roles: roles ?? [],
       Kind: kind as TokenKind,
-      ExpiresAt: DateTime.fromJSDate(expiresAt) as DateTime<true>,
-      CreatedAt: DateTime.fromJSDate(ctx.now) as DateTime<true>,
+      ExpiresAt: DateTime.fromMillis(expiresAt) as DateTime<true>,
+      CreatedAt: DateTime.fromMillis(now) as DateTime<true>,
       user_id: rowId,
       ...(profile !== undefined ? { Profile: profile } : {}),
       ...(scope !== undefined ? { Scope: scope } : {}),
@@ -180,7 +214,7 @@ export class DbTokenService extends TokenService {
     await token.insert();
 
     const record = this.recordOf(token, owner);
-    await this.publish(ctx, 'token.create', owner, { token: record.id, kind: record.kind });
+    await this.publish(ctx, now, 'token.create', owner, { token: record.id, kind: record.kind });
 
     return { ok: true, plaintext: generated.Plaintext, record };
   }
@@ -196,6 +230,7 @@ export class DbTokenService extends TokenService {
   }
 
   public async revoke(owner: IdentityRef, id: string, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<boolean> {
+    const now = this.nowOf(ctx);
     if (!isNonEmptyString(id)) {
       return false;
     }
@@ -210,35 +245,38 @@ export class DbTokenService extends TokenService {
     }
 
     // Conditional on RevokedAt, so of two concurrent revokes only one answers true.
-    const result = await AccessToken.update({ RevokedAt: DateTime.fromJSDate(ctx.now) as DateTime<true> })
+    const result = await AccessToken.update({ RevokedAt: DateTime.fromMillis(now) as DateTime<true> })
       .where('Id', token.Id)
       .whereNull('RevokedAt');
     if (this.affected(result) === 0) {
       return false;
     }
 
-    await this.publish(ctx, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
+    await this.publish(ctx, now, 'token.revoke', owner, { token: token.Uuid, kind: token.Kind }, opts?.actor);
     return true;
   }
 
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
+    const now = this.nowOf(ctx);
     const rowId = await this.owners.rowIdOf(owner);
     if (rowId === null) {
       return 0;
     }
 
     // Agent tokens acting for the owner carry the owner's user_id, so they are included.
-    const result = await AccessToken.update({ RevokedAt: DateTime.fromJSDate(ctx.now) as DateTime<true> })
+    const result = await AccessToken.update({ RevokedAt: DateTime.fromMillis(now) as DateTime<true> })
       .where('user_id', rowId)
       .whereNull('RevokedAt');
     const count = this.affected(result);
 
-    await this.publish(ctx, 'token.revoke', owner, { count }, opts?.actor);
+    await this.publish(ctx, now, 'token.revoke', owner, { count }, opts?.actor);
     return count;
   }
 
   public async validate(raw: string, ctx: AuthnContext): Promise<TokenValidation> {
-    if (!isNonEmptyString(raw)) {
+    // Without a valid now no token could ever count as expired.
+    const now = instant(ctx?.now);
+    if (!Number.isFinite(now) || !isNonEmptyString(raw)) {
       return fail('invalid_credentials');
     }
 
@@ -253,10 +291,10 @@ export class DbTokenService extends TokenService {
 
     // A null expiry is a 2.x row the back-fill has not reached: expired, never eternal (SR-08).
     const expiresAt = toDate(token.ExpiresAt);
-    if (expiresAt === null || expiresAt.getTime() <= ctx.now.getTime()) {
+    if (expiresAt === null || expiresAt.getTime() <= now) {
       return fail('expired');
     }
-    if (!KINDS.includes(token.Kind)) {
+    if (!TOKEN_KINDS.includes(token.Kind)) {
       return fail('invalid_credentials');
     }
 
@@ -325,10 +363,29 @@ export class DbTokenService extends TokenService {
     };
   }
 
-  protected async publish(ctx: AuthnContext, type: 'token.create' | 'token.revoke', owner: IdentityRef, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
+  /**
+   * Defence in depth for B24/B07 (a token never above its owner); authz-rbac's ceiling stays authoritative at
+   * check time. Without a registered RoleSource the roles are stored as given.
+   */
+  protected async ownerHolds(owner: IdentityRef, roles: readonly string[]): Promise<boolean> {
+    // Resolving an unregistered abstract class builds it bare and records it under its own name.
+    if (!(DI.getRegisteredTypes(RoleSource) ?? []).some((t) => t !== RoleSource)) {
+      return true;
+    }
+    const source = await DI.resolve(RoleSource);
+    if (typeof source?.rolesOf !== 'function') {
+      throw new Error('The registered RoleSource has no rolesOf()');
+    }
+
+    const principal: Principal = { type: owner.type, id: owner.id, authenticated: true, source: 'token', attributes: {} };
+    const held = new Set((await source.rolesOf(principal)).map((r) => r.role));
+    return roles.every((r) => held.has(r));
+  }
+
+  protected async publish(ctx: AuthnContext, now: number, type: 'token.create' | 'token.revoke', owner: IdentityRef, data: Record<string, unknown>, actor?: PrincipalRef): Promise<void> {
     const event: AuthnEvent = {
       type,
-      at: ctx.now,
+      at: new Date(now),
       outcome: 'success',
       identity: { type: owner.type, id: owner.id },
       ...(actor ? { actor } : {}),
@@ -340,7 +397,27 @@ export class DbTokenService extends TokenService {
     // Resolved per event, so a sink registered after this service still gets it.
     const sinks = await DI.resolve(Array.ofType(AuthnEventSink));
     for (const sink of sinks ?? []) {
-      await sink.publish(event);
+      // The token is stored or revoked by now; a failing sink must not make the caller lose the plaintext or retry.
+      try {
+        await sink.publish(event);
+      } catch (err) {
+        this.Log.error(err as Error, `AuthnEventSink ${sink.constructor.name} failed to publish ${type}`);
+      }
+    }
+  }
+
+  private nowOf(ctx: AuthnContext): number {
+    const now = instant(ctx?.now);
+    if (!Number.isFinite(now)) {
+      throw new Error('ctx.now must be a valid Date');
+    }
+    return now;
+  }
+
+  private checkGenerated(plaintext: unknown): void {
+    const suffix = typeof plaintext === 'string' && plaintext.startsWith(this.Prefix) ? plaintext.slice(this.Prefix.length) : '';
+    if (!BASE64URL.test(suffix) || suffix.length < Math.ceil((this.Length * 4) / 3)) {
+      throw new Error('authn.token.generation minted a token without the configured prefix or length');
     }
   }
 

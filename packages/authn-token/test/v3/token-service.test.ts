@@ -4,11 +4,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { AuthnEventSink, IdentityStore, TokenService } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, IdentityStatus, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
+import { AuthnEventSink, IdentityStore, RoleSource, TokenService } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, IdentityRef, IdentityStatus, Principal, TokenCreateOptions, TokenCreateResult } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, RecordingEventSink } from '@spinajs/authn-testing';
 import { DateTime } from 'luxon';
 
+import { AccessTokenGenerationProvider } from '../../src/generation.js';
+import type { IGeneratedToken } from '../../src/generation.js';
 import '../../src/generator.js';
 import { AccessToken } from '../../src/models/AccessToken.js';
 import { DbTokenService, NoTokenProfilesPolicy, TokenOwnerResolver, TokenProfilePolicy, UsersTableTokenOwnerResolver } from '../../src/service/index.js';
@@ -37,6 +39,33 @@ class StubProfilePolicy extends TokenProfilePolicy {
 
 class TokenTestIdentityStore extends FakeIdentityStore {}
 
+class ThrowingTokenSink extends AuthnEventSink {
+  public async publish(_event: AuthnEvent): Promise<void> {
+    throw new Error('sink down');
+  }
+}
+
+class ViewerRoleSource extends RoleSource {
+  public static readonly asked: Principal[] = [];
+
+  public async rolesOf(principal: Principal): Promise<readonly { role: string; requirePassword: boolean }[]> {
+    ViewerRoleSource.asked.push(principal);
+    return [{ role: 'viewer', requirePassword: false }];
+  }
+}
+
+class FixedTokenProvider extends AccessTokenGenerationProvider {
+  public static plaintext = '';
+
+  public async generate(): Promise<IGeneratedToken> {
+    return { Plaintext: FixedTokenProvider.plaintext, Hash: sha256(FixedTokenProvider.plaintext) };
+  }
+
+  public hash(plaintext: string): string {
+    return sha256(plaintext);
+  }
+}
+
 type Ok = Extract<TokenCreateResult, { ok: true }>;
 
 describe('DbTokenService', function () {
@@ -60,11 +89,11 @@ describe('DbTokenService', function () {
     }
   });
 
-  after(() => {
+  after(async () => {
     DI.unregister(TokenTestSink);
     DI.uncache(TokenTestSink);
     DI.uncache(Array.ofType(AuthnEventSink));
-    shutdownV3Db();
+    await shutdownV3Db();
   });
 
   beforeEach(() => {
@@ -346,6 +375,159 @@ describe('DbTokenService', function () {
       }
       expect(await count()).to.equal(before);
     });
+
+    it('reads expiresAt once through Date.prototype.getTime and stores that instant', async () => {
+      const a = await owner();
+      // getTime() claims one day; the real instant is the constructor's.
+      class LyingDate extends Date {
+        public getTime(): number {
+          return NOW.getTime() + DAY;
+        }
+      }
+
+      await refused(a, { name: 'x', kind: 'pat', expiresAt: new LyingDate(at(1000 * DAY).getTime()) }, 'invalid_expiry', 'getTime hides an expiry past the cap');
+      await refused(a, { name: 'x', kind: 'pat', expiresAt: Object.create(Date.prototype) }, 'invalid_expiry', 'a Date without a time value');
+
+      const t = await pat(a, { expiresAt: new LyingDate(at(2 * DAY).getTime()) });
+      expect((await row(t.record.id)).ExpiresAt?.toMillis()).to.equal(at(2 * DAY).getTime());
+      expect(t.record.expiresAt.getTime()).to.equal(at(2 * DAY).getTime());
+    });
+
+    it('refuses roles longer than the Roles column and more than 1000 permissions or resources', async () => {
+      const a = await owner();
+      const many = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`);
+
+      await pat(a, { roles: ['r'.repeat(512)] });
+      await pat(a, { scope: { permissions: many(1000), resources: many(1000).map((id) => ({ type: 'file', id })) } });
+
+      const rows: Array<[string, Record<string, unknown>]> = [
+        ['one role of 513 characters', { roles: ['r'.repeat(513)] }],
+        ['two roles joined to 513 characters', { roles: ['r'.repeat(256), 's'.repeat(256)] }],
+        ['1001 permissions', { scope: { permissions: many(1001) } }],
+        ['1001 resources', { scope: { resources: many(1001).map((id) => ({ type: 'file', id })) } }],
+      ];
+      for (const [label, opts] of rows) {
+        await refused(a, { name: 'x', kind: 'pat', expiresAt: at(DAY), ...opts }, 'invalid_scope', label);
+      }
+    });
+
+    it('throws when the generator mints a token without the prefix or the configured length, and stores nothing', async () => {
+      const a = await owner();
+      const servicePath = ['authn', 'token', 'generation', 'service'];
+      const saved = config().get(servicePath);
+      DI.register(FixedTokenProvider).as(AccessTokenGenerationProvider);
+      config().set(servicePath, 'FixedTokenProvider');
+
+      try {
+        for (const plaintext of ['spt_short', `xyz_${'a'.repeat(43)}`, `spt_${'a'.repeat(42)}`, `spt_${'+'.repeat(43)}`, `spt_${'a'.repeat(42)}=`]) {
+          FixedTokenProvider.plaintext = plaintext;
+          const before = await count();
+          const err = await create(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }).catch((e: unknown) => e);
+          expect(err, plaintext).to.be.instanceOf(Error);
+          expect(await count(), `${plaintext}: nothing stored`).to.equal(before);
+        }
+
+        FixedTokenProvider.plaintext = `spt_${'a'.repeat(43)}`;
+        expect((await pat(a)).plaintext).to.equal(FixedTokenProvider.plaintext);
+      } finally {
+        config().set(servicePath, saved);
+        DI.unregister(FixedTokenProvider);
+        DI.uncache(FixedTokenProvider);
+      }
+    });
+
+    describe('roles against a registered RoleSource', () => {
+      afterEach(() => {
+        DI.unregister(ViewerRoleSource);
+        DI.uncache(ViewerRoleSource);
+        DI.uncache(RoleSource);
+        ViewerRoleSource.asked.length = 0;
+      });
+
+      it('refuses a role the owner does not hold and stores nothing', async () => {
+        DI.register(ViewerRoleSource).as(RoleSource);
+        const a = await owner();
+
+        await refused(a, { name: 'x', kind: 'pat', roles: ['admin'], expiresAt: at(DAY) }, 'invalid_scope', 'pat admin');
+        await refused(a, { name: 'x', kind: 'service', roles: ['viewer', 'admin'], expiresAt: at(DAY) }, 'invalid_scope', 'service viewer + admin');
+        expect(ViewerRoleSource.asked).to.deep.equal([
+          { type: a.type, id: a.id, authenticated: true, source: 'token', attributes: {} },
+          { type: a.type, id: a.id, authenticated: true, source: 'token', attributes: {} },
+        ]);
+      });
+
+      it('accepts roles the owner holds and asks nothing for a token without roles', async () => {
+        DI.register(ViewerRoleSource).as(RoleSource);
+        const a = await owner();
+
+        expect((await pat(a, { roles: ['viewer'] })).record.roles).to.deep.equal(['viewer']);
+        await pat(a);
+        await agent(a);
+        expect(ViewerRoleSource.asked).to.have.length(1);
+      });
+
+      it('stores a role the owner lacks when no RoleSource is registered (authz-rbac drops it at check time)', async () => {
+        const a = await owner();
+        const t = await pat(a, { roles: ['admin'] });
+        expect((await row(t.record.id)).Roles).to.deep.equal(['admin']);
+        expect(ViewerRoleSource.asked).to.deep.equal([]);
+      });
+    });
+  });
+
+  describe('an invalid ctx.now', () => {
+    const bad: Array<[string, unknown]> = [
+      ['NaN date', new Date(Number.NaN)],
+      ['ISO string', NOW.toISOString()],
+      ['Date without a time value', Object.create(Date.prototype)],
+      ['undefined', undefined],
+    ];
+    const badCtx = (now: unknown): AuthnContext => ({ now: now as Date, purpose: 'request' });
+
+    it('validate answers invalid_credentials', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      for (const [label, now] of bad) {
+        expect(await validate(t.plaintext, badCtx(now)), label).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+      }
+    });
+
+    it('create throws a plain Error and stores nothing', async () => {
+      const a = await owner();
+      for (const [label, now] of bad) {
+        const before = await count();
+        const err = await create(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, badCtx(now)).catch((e: unknown) => e);
+        expect(err, label).to.be.instanceOf(Error);
+        expect(err, label).to.not.be.instanceOf(InvalidArgument);
+        expect(await count(), `${label}: nothing stored`).to.equal(before);
+      }
+    });
+
+    it('revoke throws and leaves the token live', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      sink.clear();
+      for (const [label, now] of bad) {
+        const err = await tokens.revoke(a, t.record.id, badCtx(now)).catch((e: unknown) => e);
+        expect(err, label).to.be.instanceOf(Error);
+      }
+      expect((await row(t.record.id)).RevokedAt).to.equal(null);
+      expect((await validate(t.plaintext)).ok).to.equal(true);
+      expect(sink.all()).to.deep.equal([]);
+    });
+
+    it('revokeAllFor throws and leaves the tokens live', async () => {
+      const a = await owner();
+      const t = await pat(a);
+      sink.clear();
+      for (const [label, now] of bad) {
+        const err = await tokens.revokeAllFor(a, badCtx(now)).catch((e: unknown) => e);
+        expect(err, label).to.be.instanceOf(Error);
+      }
+      expect((await row(t.record.id)).RevokedAt).to.equal(null);
+      expect((await validate(t.plaintext)).ok).to.equal(true);
+      expect(sink.all()).to.deep.equal([]);
+    });
   });
 
   describe('list', () => {
@@ -626,6 +808,32 @@ describe('DbTokenService', function () {
         DI.register(TokenTestSink).as(AuthnEventSink);
       }
     });
+
+    it('keeps a stored token and a completed revoke when a sink throws', async () => {
+      DI.register(ThrowingTokenSink).as(AuthnEventSink);
+      DI.uncache(Array.ofType(AuthnEventSink));
+      try {
+        const recording = DI.resolve(Array.ofType(AuthnEventSink)).find((s) => s instanceof TokenTestSink) as TokenTestSink;
+        recording.clear();
+        const a = await owner();
+
+        const t = await pat(a);
+        expect(t.plaintext).to.match(/^spt_/);
+        expect((await validate(t.plaintext)).ok).to.equal(true);
+
+        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
+        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+
+        await pat(a);
+        expect(await tokens.revokeAllFor(a, ctx())).to.equal(1);
+
+        expect(recording.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke', 'token.create', 'token.revoke']);
+      } finally {
+        DI.unregister(ThrowingTokenSink);
+        DI.uncache(ThrowingTokenSink);
+        DI.uncache(Array.ofType(AuthnEventSink));
+      }
+    });
   });
 
   describe('wiring', () => {
@@ -635,6 +843,13 @@ describe('DbTokenService', function () {
       DI.uncache(IdentityStore);
       DI.uncache(DbTokenService);
       DI.uncache(TokenService);
+      DI.uncache(TokenOwnerResolver);
+      DI.uncache(TokenProfilePolicy);
+    });
+
+    it('refuses to start when DI has no IdentityStore to inject', () => {
+      expect(() => DI.resolve(TokenService)).to.throw(Error, /IdentityStore/);
+      expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, {} as IdentityStore)).to.throw(Error, /IdentityStore/);
     });
 
     it('resolves as the TokenService with the default resolver, profile policy and the registered IdentityStore', async () => {
@@ -673,8 +888,10 @@ describe('DbTokenService', function () {
         ['agentMaxTtlMinutes', -1],
       ] as const) {
         setToken(key, value);
+        const before = await count();
         const err = await create(a, { name: 'x', kind: key === 'maxTtlDays' ? 'pat' : 'agent', scope: key === 'maxTtlDays' ? undefined : { agent: true }, expiresAt: at(MINUTE) }).catch((e: unknown) => e);
         expect(err, `${key} = ${value}`).to.be.instanceOf(Error);
+        expect(await count(), `${key} = ${value}: nothing stored`).to.equal(before);
         setToken(key, savedConfig.get(key));
       }
     });
