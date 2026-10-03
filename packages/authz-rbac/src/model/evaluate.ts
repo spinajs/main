@@ -3,6 +3,8 @@ import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest,
 
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
+import { compileFieldSet, intersectFieldGlobs, voteFieldGlobs } from './fields.js';
+import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
 import { patternsFilter } from './patterns.js';
@@ -24,6 +26,8 @@ import type { CompileRolesOptions, RoleGraph } from './roles.js';
  *   only while nothing permits; it never denies, so another model's permit still wins under
  *   permit-overrides. A deny entry (step 8) goes to `state.denies`, which feeds Vote.denies and
  *   denyWhen only: the engine reads each entry's reason where its `when` holds.
+ * - `state.fields` set by a step before `residual` is a cap: `residual` intersects the grants'
+ *   fields with it, and keeps it as it is when no contributing grant carries fields.
  */
 
 export const RBAC_STEP_NAMES = Object.freeze(['collect', 'restrict', 'cap', 'aggregate', 'grant', 'tag', 'provenance', 'threshold', 'residual'] as const);
@@ -147,15 +151,27 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  * ones included: such an expiry can end a permit or change the reason. An assignment whose roles
  * do not reach the permission cannot change this vote, so its expiry is left out. Steps that read
  * other assignments (aggregate for Vote.roles) lower state.validUntil themselves.
+ *
+ * Fields (voteFieldGlobs): grants whose residual is TRUE for this request decide them; only when
+ * none is TRUE do the conditional grants, by intersection. A grant whose residual is FALSE adds none.
  */
 const residual: RbacStep = (s) => {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
   const at: PatternContext = { resource: s.input.request.resource, path: s.input.path, principal: s.input.request.principal };
+  const unconditional: (FieldGlobs | undefined)[] = [];
+  const conditional: (FieldGlobs | undefined)[] = [];
   for (const c of s.candidates) {
-    if (!c.failed) s.permit.push(grantResidual(c.grant, at));
+    if (!c.failed) {
+      const permits = grantResidual(c.grant, at);
+      s.permit.push(permits);
+      if (permits.op === 'true') unconditional.push(c.grant.fieldGlobs);
+      else if (permits.op !== 'false') conditional.push(c.grant.fieldGlobs);
+    }
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
+  const fields = voteFieldGlobs(unconditional, conditional);
+  if (fields) s.fields = s.fields ? intersectFieldGlobs(fields, compileFieldSet(s.fields, 'rbac: the fields an earlier step set')) : fields;
 };
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({

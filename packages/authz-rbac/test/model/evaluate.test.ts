@@ -1,5 +1,5 @@
-import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
-import type { Assignment, PermissionInput, ResourceRef } from '@spinajs/authz';
+import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, compileFieldGlobs } from '@spinajs/authz';
+import type { Assignment, FieldSet, PermissionInput, ResourceRef } from '@spinajs/authz';
 import { FakeScopeResolver, fakeEvaluationContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
@@ -294,6 +294,151 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect(run('exact', f1)).to.deep.equal(TRUE);
       expect(run('exact', { type: 'file', id: 'f2' })).to.deep.equal(FALSE);
       expect(run('exact', { type: 'file' })).to.deep.equal({ op: 'under', scopes: [f1] });
+    });
+  });
+
+  describe('field sets (B17)', () => {
+    const PERMISSIONS = [{ name: 'user:read', fields: true }];
+    const fieldVote = (grants: Record<string, RoleDef['grants']>, opts: { steps?: RbacSteps; resource?: ResourceRef } = {}) => {
+      const base = input(
+        Object.keys(grants).map((r, i) => assignment(`a${i}`, r)),
+        'user:read',
+        { roles: Object.entries(grants).map(([name, list]) => withGrantsOf(name, list)), permissions: PERMISSIONS },
+      );
+      const resource = opts.resource ?? { type: 'user', id: 'u1' };
+      return runRbacPipeline({ ...base, request: { ...base.request, resource }, path: resource.id === undefined ? [GLOBAL] : [resource, GLOBAL] }, opts.steps);
+    };
+    const expectFields = (fields: FieldSet | undefined, list: 'read' | 'write', allows: readonly string[], denies: readonly string[]) => {
+      const m = compileFieldGlobs(fields?.[list] ?? ['*']);
+      for (const f of allows) expect(m.allows(f), `${list} allows ${f}`).to.equal(true);
+      for (const f of denies) expect(m.allows(f), `${list} denies ${f}`).to.equal(false);
+    };
+
+    it("one grant's field set becomes the vote's", () => {
+      const v = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['name', 'email'], write: ['name'] } }] });
+      expect(v.fields).to.have.keys('read', 'write');
+      expectFields(v.fields, 'read', ['name', 'email'], ['salary']);
+      expectFields(v.fields, 'write', ['name'], ['email']);
+    });
+
+    it('the field sets of passing grants are united, across roles and within one', () => {
+      const v = fieldVote({
+        reader: [{ permission: 'user:read', fields: { read: ['name', 'email'] } }],
+        avatars: [
+          { permission: 'user:read', fields: { read: ['avatar'] } },
+          { permission: 'user:read', fields: { read: ['bio'] } },
+        ],
+      });
+      expectFields(v.fields, 'read', ['name', 'email', 'avatar', 'bio'], ['salary']);
+    });
+
+    it('an unconditional grant without fields widens the union to every field', () => {
+      const v = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['name'], write: ['name'] } }], all: [{ permission: 'user:read' }] });
+      expect(v.fields).to.deep.equal({ read: ['*'], write: ['*'] });
+    });
+
+    it('no passing grant with fields leaves Vote.fields unset (every field, D-F5-2)', () => {
+      expect(fieldVote({ all: [{ permission: 'user:read' }] })).not.to.have.property('fields');
+    });
+
+    it('a list the grant leaves out is every field, as the engine reads a vote', () => {
+      const v = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['name'] } }] });
+      expect(v.fields!.write).to.deep.equal(['*']);
+    });
+
+    it('fields an earlier step set cap the result: intersected with the grants, kept when no grant carries fields', () => {
+      const capped = withSteps({
+        aggregate: (s) => {
+          s.fields = { read: ['name', 'email'] };
+        },
+      });
+      const v = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['email', 'phone'], write: ['email'] } }] }, { steps: capped });
+      expectFields(v.fields, 'read', ['email'], ['name', 'phone']);
+      expectFields(v.fields, 'write', ['email'], ['name']);
+      const w = fieldVote({ all: [{ permission: 'user:read' }] }, { steps: capped });
+      expect(w.fields).to.deep.equal({ read: ['name', 'email'] });
+    });
+
+    it('!X negations and A.* globs work, and a union restores what one grant negates', () => {
+      const v = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['*', '!Password', '!internal'], write: ['profile.*'] } }] });
+      expectFields(v.fields, 'read', ['name', 'profile.age'], ['Password', 'internal']);
+      expectFields(v.fields, 'write', ['profile.age', 'profile.name'], ['name', 'profile']);
+      const w = fieldVote({ reader: [{ permission: 'user:read', fields: { read: ['*', '!internal'] } }], ops: [{ permission: 'user:read', fields: { read: ['internal'] } }] });
+      expectFields(w.fields, 'read', ['name', 'internal'], []);
+    });
+
+    it("a grant's hide is folded into its own read and write, never into other grants", () => {
+      const v = fieldVote({ hr: [{ permission: 'user:read', fields: { read: ['*'], hide: ['salary'] } }] });
+      expect(v.fields).not.to.have.property('hide');
+      expectFields(v.fields, 'read', ['name'], ['salary']);
+      expectFields(v.fields, 'write', ['name'], ['salary']);
+      const w = fieldVote({ hr: [{ permission: 'user:read', fields: { read: ['*'], hide: ['salary'] } }], payroll: [{ permission: 'user:read', fields: { read: ['salary'] } }] });
+      expectFields(w.fields, 'read', ['name', 'salary'], []);
+    });
+
+    describe('unconditional and conditional grants', () => {
+      const LOGIN = { permission: 'user:read', fields: { read: ['Login'] } };
+      const SELF_ALL = { permission: 'user:read', relation: 'self', fields: { read: ['*', '!Password'] } };
+
+      it('an unconditional grant decides alone: a conditional one cannot widen it to rows it may not hold on', () => {
+        const v = fieldVote({ public: [LOGIN], self: [SELF_ALL] });
+        expect(v.permitWhen).to.deep.equal(TRUE);
+        expectFields(v.fields, 'read', ['Login'], ['email', 'phone', 'Password']);
+        const w = fieldVote({ public: [LOGIN], selfAll: [{ permission: 'user:read', relation: 'self' }] });
+        expectFields(w.fields, 'read', ['Login'], ['email']);
+      });
+
+      it('unconditional grants unite among themselves, conditional ones aside', () => {
+        const v = fieldVote({ public: [LOGIN], avatars: [{ permission: 'user:read', fields: { read: ['avatar'] } }], self: [SELF_ALL] });
+        expectFields(v.fields, 'read', ['Login', 'avatar'], ['email']);
+      });
+
+      it('with conditional grants only, the fields are their intersection', () => {
+        const v = fieldVote({ self: [{ permission: 'user:read', relation: 'self', fields: { read: ['name', 'email'], write: ['email'] } }], member: [{ permission: 'user:read', relation: 'member', fields: { read: ['name', 'phone'] } }] });
+        expectFields(v.fields, 'read', ['name'], ['email', 'phone']);
+        expectFields(v.fields, 'write', ['email'], ['name']);
+      });
+
+      it('a conditional grant without fields does not widen the intersection', () => {
+        const v = fieldVote({ self: [{ permission: 'user:read', relation: 'self', fields: { read: ['email'] } }], member: [{ permission: 'user:read', relation: 'member' }] });
+        expectFields(v.fields, 'read', ['email'], ['name']);
+        expect(fieldVote({ member: [{ permission: 'user:read', relation: 'member' }] })).not.to.have.property('fields');
+      });
+
+      it('a pattern that holds on the concrete resource makes its grant unconditional; on a type-level request it is conditional', () => {
+        const grants = { mine: [{ permission: 'user:read', on: [{ type: 'user', id: 'u1' }], fields: { read: ['salary'] } }], self: [{ permission: 'user:read', relation: 'self', fields: { read: ['email', 'salary'] } }] };
+        const concrete = fieldVote(grants);
+        expectFields(concrete.fields, 'read', ['salary'], ['email']);
+        const typeLevel = fieldVote(grants, { resource: { type: 'user' } });
+        expectFields(typeLevel.fields, 'read', ['salary'], ['email']);
+        const wider = fieldVote({ mine: [{ permission: 'user:read', on: [{ type: 'user', id: 'u1' }], fields: { read: ['salary', 'email'] } }], self: [{ permission: 'user:read', relation: 'self', fields: { read: ['email'] } }] }, { resource: { type: 'user' } });
+        expectFields(wider.fields, 'read', ['email'], ['salary']);
+      });
+    });
+
+    it('a refused grant, or one whose patterns miss the resource, adds no fields', () => {
+      const missed = fieldVote({ other: [{ permission: 'user:read', on: [{ type: 'user', id: 'u2' }], fields: { read: ['salary'] } }], reader: [{ permission: 'user:read', fields: { read: ['name'] } }] });
+      expectFields(missed.fields, 'read', ['name'], ['salary']);
+      const refused = fieldVote(
+        { tagged: [{ permission: 'user:read', fields: { read: ['salary'] } }], reader: [{ permission: 'user:read', fields: { read: ['name'] } }] },
+        {
+          steps: withSteps({
+            tag: (s) => {
+              s.candidates.find((c) => c.grant.role === 'tagged')!.failed = true;
+            },
+          }),
+        },
+      );
+      expectFields(refused.fields, 'read', ['name'], ['salary']);
+      const none = fieldVote({ other: [{ permission: 'user:read', on: [{ type: 'user', id: 'u2' }], fields: { read: ['salary'] } }] });
+      expect(none.permitWhen).to.deep.equal(FALSE);
+      expect(none).not.to.have.property('fields');
+    });
+
+    it('a union over the field-glob work budget throws, so the vote is model_error (fail closed)', () => {
+      const negations = ['*', ...Array.from({ length: 300 }, (_, i) => `!*.a${i}`)];
+      const subtrees = Array.from({ length: 300 }, (_, i) => `M${i}.*`);
+      expect(() => fieldVote({ a: [{ permission: 'user:read', fields: { read: negations } }], b: [{ permission: 'user:read', fields: { read: subtrees } }] })).to.throw(AuthzConfigError, /too complex/);
     });
   });
 

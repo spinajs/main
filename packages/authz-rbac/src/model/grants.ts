@@ -4,6 +4,8 @@ import type { FieldSet, Permission, PermissionDef, PermissionRegistry, ResourceT
 import type { GrantDef, ResourcePattern, RoleDef } from '../contracts.js';
 import { compilePattern } from './patterns.js';
 import type { CompiledPattern } from './patterns.js';
+import { compileFieldSet } from './fields.js';
+import type { FieldGlobs } from './fields.js';
 import type { RoleGraph } from './roles.js';
 
 /** One grant giving one concrete permission. */
@@ -23,6 +25,8 @@ export interface CompiledGrant {
   readonly patterns?: readonly CompiledPattern[];
   /** Only on permissions with `fields: true`. */
   readonly fields?: FieldSet;
+  /** `fields` as the vote reads it; set exactly when `fields` is. */
+  readonly fieldGlobs?: FieldGlobs;
   readonly requiresTag?: string;
   readonly grantedAt?: readonly ResourceType[];
 }
@@ -98,6 +102,7 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
     validateGrant(grant, at);
     const relations = typeof grant.relation === 'string' ? [grant.relation] : grant.relation;
     const patterns = compileOn(grant, role);
+    const fieldGlobs = grant.fields === undefined ? undefined : compileFieldSet(grant.fields, grantWhere(grant, role));
 
     const direct = matchGrant(grant, registry, at);
     if (direct.length === 0) notes.unmatchedGlobs.push({ role: role.name, glob: grant.permission });
@@ -114,7 +119,7 @@ function ownGrants(role: RoleDef, registry: PermissionRegistry, notes: Notes): G
         ...(impliedFrom !== undefined ? { impliedFrom } : {}),
         ...(relations ? { relations: Object.freeze([...relations]) } : {}),
         ...(patterns ? { on: grant.on, patterns } : {}),
-        ...(grant.fields !== undefined && def.fields === true ? { fields: grant.fields } : {}),
+        ...(fieldGlobs && def.fields === true ? { fields: grant.fields, fieldGlobs } : {}),
         ...(grant.requiresTag !== undefined ? { requiresTag: grant.requiresTag } : {}),
         ...(grant.grantedAt !== undefined ? { grantedAt: grant.grantedAt } : {}),
       });
@@ -179,10 +184,12 @@ function validateGrant(grant: unknown, at: string): asserts grant is GrantDef {
 function compileOn(grant: GrantDef, role: RoleDef): readonly CompiledPattern[] | undefined {
   const on: unknown = grant.on;
   if (on === undefined) return undefined;
-  const where = `rbac role '${role.name}' grant '${grant.permission}' (source: ${role.source})`;
+  const where = grantWhere(grant, role);
   if (!Array.isArray(on) || on.length === 0) throw new AuthzConfigError(`${where}: \`on\` must be a non-empty array of resource patterns`);
   return Object.freeze(on.map((p: ResourcePattern) => compilePattern(p, where)));
 }
+
+const grantWhere = (grant: GrantDef, role: RoleDef): string => `rbac role '${role.name}' grant '${grant.permission}' (source: ${role.source})`;
 
 // Ordinal order (names are ASCII); localeCompare would depend on the host locale.
 const compareCodePoints = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

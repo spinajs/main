@@ -191,6 +191,26 @@ describe('authz-rbac model: compileGrants', () => {
       expect(idx.droppedFields).to.deep.equal([{ role: 'r', glob: 'user:del*' }]);
       expect(Object.isFrozen(idx.droppedFields)).to.equal(true);
     });
+
+    it('fieldGlobs holds the effective read and write: a missing list is every field, hide is subtracted from both', () => {
+      const idx = compile([role('r', [{ permission: 'user:update', fields: { read: ['*'], hide: ['Salary'] } }, { permission: 'user:read', fields }, 'user:read'])], reg);
+      const [update] = idx.grants('r', 'user:update');
+      expect(update.fieldGlobs).to.deep.equal({ read: ['*', '!Salary'], write: ['*', '!Salary'] });
+      expect(Object.isFrozen(update.fieldGlobs)).to.equal(true);
+      const [implied, literal, plain] = idx.grants('r', 'user:read');
+      expect(implied.fieldGlobs).to.equal(update.fieldGlobs);
+      expect(literal.fieldGlobs).to.deep.equal({ read: ['Login'], write: ['*'] });
+      expect(plain).not.to.have.property('fieldGlobs');
+      expect(idx.grants('r', 'user:stat')[0]).not.to.have.property('fieldGlobs');
+    });
+
+    it('a malformed field set is refused at boot, naming the role and the grant', () => {
+      for (const bad of ['Login', ['Login'], { read: 'Login' }, { read: [1] }, { read: ['a..b'] }, { write: ['!'] }, { reed: ['Login'] }]) {
+        const err = thrown(() => compile([role('r', [{ permission: 'user:read', fields: bad } as unknown as GrantDef])], reg));
+        expect(err, JSON.stringify(bad)).to.be.instanceOf(AuthzConfigError);
+        expect(err.message, JSON.stringify(bad)).to.contain("rbac role 'r' grant 'user:read' (source: test)");
+      }
+    });
   });
 
   describe('refusals', () => {
