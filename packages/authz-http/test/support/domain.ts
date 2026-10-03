@@ -15,9 +15,9 @@ export interface TestDomain {
  * A child domain of root holding one StaticModel `m1` and a RecordingAudit, booted. `permissions`
  * is `authz.domains.<name>.permissions`; `domain` merges into `authz.domains.<name>`.
  */
-export async function createDomain(name: string, opts: { permissions: Record<string, unknown>; model?: StaticModelOptions; adapters?: readonly ResourceAdapter[]; domain?: Record<string, unknown> }): Promise<TestDomain> {
+export async function createDomain(name: string, opts: { permissions: Record<string, unknown>; model?: StaticModelOptions; adapters?: readonly ResourceAdapter[]; extraModel?: AuthorizationModel; domain?: Record<string, unknown> }): Promise<TestDomain> {
   const cfg = testHost.config();
-  cfg.set(['authz', 'domains', name], { permissions: opts.permissions, combine: { default: { algorithm: 'deny-overrides', models: ['m1'] } }, cache: { maxEntries: 0 }, ...(opts.domain ?? {}) });
+  cfg.set(['authz', 'domains', name], { permissions: opts.permissions, combine: { default: { algorithm: 'deny-overrides', models: ['m1', ...(opts.extraModel ? [opts.extraModel.name] : [])] } }, cache: { maxEntries: 0 }, ...(opts.domain ?? {}) });
 
   const domains = (await testHost.domains()) as AuthzDomains;
   const container = domains.create(name, 'root');
@@ -26,6 +26,7 @@ export async function createDomain(name: string, opts: { permissions: Record<str
   container.register(testHost.instance(model)).as(AuthorizationModel);
   container.register(testHost.instance(audit)).as(DecisionAudit);
   for (const a of opts.adapters ?? []) container.register(testHost.instance(a)).as(ResourceAdapter);
+  if (opts.extraModel) container.register(testHost.instance(opts.extraModel)).as(AuthorizationModel);
 
   try {
     const authz = await domains.service(name);

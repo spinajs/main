@@ -20,6 +20,8 @@ export interface AuthzHttpConfig {
   readonly services: readonly ServicePrincipalConfig[];
   readonly explainRoute: { readonly enabled: boolean; readonly permission: string };
   readonly links: LinksConfig;
+  /** The domain GET /user/access and POST /user/access/check answer for. */
+  readonly access: { readonly domain: string };
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
@@ -46,6 +48,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
     },
     explainRoute: { type: 'object', properties: { enabled: { type: 'boolean' }, permission: nonEmpty } },
     links: { type: 'object', properties: { query: nullableName, header: nullableName, cookie: nullableName } },
+    access: { type: 'object', properties: { domain: nonEmpty } },
   },
 };
 
@@ -94,10 +97,13 @@ export function httpConfig(): AuthzHttpConfig {
   if (explain.permission !== undefined && !isName(explain.permission)) fail('explainRoute.permission', 'a non-empty string');
 
   const links = isRecord(http.links) ? http.links : {};
+  const access = isRecord(http.access) ? http.access : {};
+  if (access.domain !== undefined && !isName(access.domain)) fail('access.domain', 'a non-empty string');
 
   return {
     services: services.map(service),
     explainRoute: { enabled: explain.enabled === true, permission: (explain.permission as string | undefined) ?? 'authz:explain' },
     links: { query: optionalName(links, 'query', 'link'), header: optionalName(links, 'header', 'X-Authz-Link'), cookie: optionalName(links, 'cookie', null) },
+    access: { domain: (access.domain as string | undefined) ?? 'root' },
   };
 }
