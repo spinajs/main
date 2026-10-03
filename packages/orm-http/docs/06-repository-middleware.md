@@ -10,9 +10,7 @@
 >   `response-methods/OrmNotFound` — not `middleware.js`);
 > - `package.json` declares `"exports": { "." : ... }` only, so a deep import such as
 >   `@spinajs/orm-http/lib/mjs/middleware.js` does not resolve either;
-> - nothing in this repository invokes its hooks. `@spinajs/orm-api` carries an identical copy,
->   equally unexported, and the generic CRUD controller the hooks were written for is commented
->   out in that package.
+> - nothing in this repository invokes its hooks.
 >
 > It is dead code today. Reaching it requires adding `export * from './middleware.js';` to
 > `src/index.ts` first. For interception that actually fires, use `QueryMiddleware` — see below.

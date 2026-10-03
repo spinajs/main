@@ -128,7 +128,6 @@
     "@spinajs/log-common": "file:packages\\log-common",
     "@spinajs/log-source-graphana-loki": "file:packages/log-source-graphana-loki",
     "@spinajs/orm": "file:packages\\orm",
-    "@spinajs/orm-api": "file:packages/orm-api",
     "@spinajs/orm-http": "file:packages\\orm-http",
     "@spinajs/orm-mssql": "file:packages\\orm-mssql",
     "@spinajs/orm-mysql": "file:packages\\orm-mysql",

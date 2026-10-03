@@ -59,7 +59,6 @@ export class ArticleController extends BaseController {
 ## Related
 
 - [`@spinajs/orm`](../../orm/docs/) — the core
-- [`@spinajs/orm-api`](../../orm-api/docs/) — CRUD controller building blocks built on the same ideas
 
 ## A note on this package's tests
 

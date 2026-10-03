@@ -1365,7 +1365,7 @@ export class SelectQueryBuilder<T = any> extends QueryBuilder<T> {
     builder._statements = this._statements.map(c => c.clone(builder));
 
     // Clone group-by statements (previously dropped, silently losing GROUP BY
-    // on a cloned query — eg. orm-api count-pagination clones the builder).
+    // on a cloned query).
     builder._groupStatements = this._groupStatements.map(c => c.clone(builder));
 
     // Carry relations and result middlewares over. These hold live objects and

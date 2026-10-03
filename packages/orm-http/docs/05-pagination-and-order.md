@@ -192,8 +192,7 @@ export async function byAuthorName() {
 
 ## `ITransformOptions`
 
-A shape for handing paging metadata to a collection transformer. `@spinajs/orm-api` consumes it
-— see [its docs](../../orm-api/docs/05-transformers-and-policies.md).
+A shape for handing paging metadata to a collection transformer.
 
 | Field | Meaning |
 | --- | --- |
