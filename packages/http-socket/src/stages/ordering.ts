@@ -1,13 +1,19 @@
-import { Injectable } from '@spinajs/di';
-import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { Autoinject, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { principalKey } from '@spinajs/authz';
+import { SocketException } from '@spinajs/http-socket-common';
+import { ISocketCommandContext, ISocketServerConfig, STAGE_ORDER, SocketCommandStage } from '../interfaces.js';
+import { SocketIdempotency } from '../idempotency.js';
 import { SerialQueue } from '../queue.js';
 
 /**
  * `ordered: 'connection'` serialises a connection's commands; `ordered: 'client'` serialises the
  * commands of one principal and clientId across reconnects. In memory, per server instance.
+ *
+ * A durable command names its predecessor's idempotency key in `after` and runs only once that one
+ * has completed. Pipelining, resends and refusals before this stage ( rate, in flight, a drop ) could
+ * otherwise let it overtake.
  */
 @Injectable(SocketCommandStage)
 export class OrderingStage extends SocketCommandStage {
@@ -17,6 +23,9 @@ export class OrderingStage extends SocketCommandStage {
   @Config('http.socket')
   protected Options: ISocketServerConfig;
 
+  @Autoinject()
+  protected Idempotency: SocketIdempotency;
+
   protected Queue = new SerialQueue();
 
   public get Order(): number {
@@ -25,6 +34,10 @@ export class OrderingStage extends SocketCommandStage {
 
   public async execute(ctx: ISocketCommandContext, next: () => Promise<unknown>): Promise<unknown> {
     const mode = ctx.handler?.descriptor.Options.ordered;
+
+    if (ctx.request.after !== undefined && mode !== 'client') {
+      throw new SocketException('failed_precondition', `command ${ctx.request.name} is not ordered: 'client', so it cannot take after`);
+    }
 
     if (!mode) {
       return next();
@@ -39,6 +52,8 @@ export class OrderingStage extends SocketCommandStage {
       if (ctx.signal.aborted) {
         throw ctx.signal.reason;
       }
+
+      await this.assertAfter(ctx);
 
       // The place is held until the handler settles: releasing on abort would let a resent command
       // run while the aborted one still applies. A handler that never settles is cut loose after the grace.
@@ -64,10 +79,27 @@ export class OrderingStage extends SocketCommandStage {
 
       // cut loose: the dispatcher has answered the abort already, a late handler result is dropped there
       if (!(await settled)) {
+        // the key stays running until the handler settles, so a resend joins it instead of running it twice
+        ctx.idempotency?.detach(running);
         throw ctx.signal.reason;
       }
 
+      // recorded before this place is released: the next command's after check must see it
+      await running.then(
+        (result) => ctx.idempotency?.settle({ result }),
+        (error: unknown) => ctx.idempotency?.settle({ error }),
+      );
+
       return running;
     });
+  }
+
+  protected async assertAfter(ctx: ISocketCommandContext): Promise<void> {
+    const after = ctx.request.after;
+
+    if (after !== undefined && !(await this.Idempotency.completed(this.Idempotency.scope(ctx.connection, after)))) {
+      // details.after lets the durable client requeue the refused command without pausing its queue
+      throw new SocketException('unavailable', `command ${ctx.request.name} must follow ${after}, which has not completed`, { details: { after } });
+    }
   }
 }
