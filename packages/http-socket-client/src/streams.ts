@@ -68,6 +68,11 @@ export class StreamDispatcher implements StreamHost {
     connection.events.on('state', (state, previous) => this.onState(state, previous));
   }
 
+  /** @internal streams held offline plus streams sent or open; 0 once every stream has settled */
+  public get activeStreams(): number {
+    return this.waiting.size + this.open.size;
+  }
+
   public stream<T>(name: string, payload?: unknown, options: StreamOptions = {}): ClientStream<T> {
     return new ClientStream<T>(this, name, payload, options);
   }
@@ -133,10 +138,16 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
     return this.requestId;
   }
 
+  /** @internal chunks received and not yet read */
+  public get buffered(): number {
+    return this.buffer.length;
+  }
+
   public [Symbol.asyncIterator](): this {
     return this;
   }
 
+  /** Reads one item. Calls must not overlap: a second next() while one is pending rejects with a TypeError. */
   public next(): Promise<IteratorResult<T>> {
     if (this.phase === 'idle') this.start();
     if (this.buffer.length > 0) return Promise.resolve({ value: this.take(), done: false });
@@ -151,6 +162,7 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
   /** `for await` calls it on break or throw: the server is told to stop and its generator's `finally` runs. */
   public async return(): Promise<IteratorResult<T>> {
     this.stop(null);
+    this.failure = null;
     return { value: undefined, done: true };
   }
 
@@ -187,7 +199,8 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
       return;
     }
     this.reader = null;
-    this.disarm();
+    // before the ack the armed timer is the reply timeout, which must keep running
+    if (this.phase === 'open') this.disarm();
     this.consumed++;
     this.replenish();
     reader.resolve({ value, done: false });
@@ -243,6 +256,8 @@ export class ClientStream<T> implements AsyncIterableIterator<T> {
 
     this.phase = 'open';
     this.disarm();
+    // chunks read before the ack were not credited back
+    this.replenish();
     if (this.reader) this.arm(this.timeoutMs, NO_FRAME);
   }
 

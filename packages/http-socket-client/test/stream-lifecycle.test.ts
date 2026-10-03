@@ -52,7 +52,7 @@ describe('client stream lifecycle', () => {
     server.handlers.set('n.silent', () => new Promise(() => undefined));
     const { streams } = await onlineStreams(server);
 
-    const error = await rejectionOf(streams.stream('n.silent', null, { timeoutMs: 80 }).next());
+    const error = await rejectionOf(streams.stream('n.silent', null, { timeoutMs: 300 }).next());
     expect(error.toWire()).to.deep.equal({ code: 'deadline_exceeded', message: 'no reply before the timeout', retryable: true });
     await until(() => server.cancels.length === 1);
   });
@@ -62,22 +62,23 @@ describe('client stream lifecycle', () => {
       yield 'first';
       await new Promise(() => undefined);
     });
-    const { streams } = await onlineStreams(server, 80);
+    const { streams } = await onlineStreams(server, 300);
     const items = streams.stream<string>('n.stuck');
 
     expect((await items.next()).value).to.equal('first');
     const error = await rejectionOf(items.next());
     expect(error.toWire()).to.deep.equal({ code: 'deadline_exceeded', message: 'no stream frame before the timeout', retryable: true });
     await until(() => server.cancels.length === 1);
+    expect(streams.activeStreams).to.equal(0);
   });
 
   it('a slow consumer is not timed out: the timeout runs only while next() waits', async () => {
     serveStream(server, 'n.two', () => ['a', 'b']);
-    const { streams } = await onlineStreams(server, 80);
+    const { streams } = await onlineStreams(server, 300);
     const items = streams.stream<string>('n.two');
 
     expect((await items.next()).value).to.equal('a');
-    await sleep(200);
+    await sleep(900);
     expect((await items.next()).value).to.equal('b');
     expect((await items.next()).done).to.be.true;
   });
@@ -89,12 +90,14 @@ describe('client stream lifecycle', () => {
     const items = streams.stream<number>('n.endless', null, { signal: controller.signal, credits: 4 });
 
     expect((await items.next()).value).to.equal(0);
-    await sleep(30);
+    await until(() => items.buffered === 3);
     controller.abort();
+    expect(items.buffered).to.equal(0);
 
     const error = await rejectionOf(items.next());
     expect(error.toWire()).to.deep.equal({ code: 'cancelled', message: 'the stream was cancelled', retryable: false });
     await until(() => server.cancels.length === 1);
+    expect(streams.activeStreams).to.equal(0);
   });
 
   it('rejects at once, sending nothing, when the signal is already aborted', async () => {
@@ -114,9 +117,9 @@ describe('client stream lifecycle', () => {
 
     expect((await items.next()).value).to.equal(0);
     // chunks 1, 2 and 3 are buffered: one consumed item frees less than half the window
-    await sleep(50);
+    await until(() => items.buffered === 3);
     server.killConnections();
-    await sleep(50);
+    await until(() => streams.activeStreams === 0);
 
     const { items: rest, error } = await readUntilFailure(items);
     expect(rest).to.deep.equal([1, 2, 3]);

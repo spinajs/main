@@ -36,6 +36,7 @@ describe('client stream replies', () => {
     expect(server.requests).to.have.length(0);
 
     expect(await collect(items)).to.deep.equal([0, 1, 2, 3, 4]);
+    expect(streams.activeStreams).to.equal(0);
 
     const [request] = server.requests;
     expect(request).to.include({ name: 'n.list', credits: 8, traceparent: '00-abc-def-01' });
@@ -50,12 +51,14 @@ describe('client stream replies', () => {
     const items = streams.stream<number>('n.many', null, { credits: 4 });
 
     expect(await items.next()).to.deep.equal({ value: 0, done: false });
-    await sleep(50);
+    await until(() => logs[0].sent === 4);
+    await sleep(30);
     expect(logs[0].sent).to.equal(4);
     expect(logs[0].credits).to.deep.equal([]);
 
     expect(await items.next()).to.deep.equal({ value: 1, done: false });
-    await sleep(50);
+    await until(() => logs[0].sent === 6);
+    await sleep(30);
     // half the window is free: one grant of 2
     expect(logs[0].credits).to.deep.equal([2]);
     expect(logs[0].sent).to.equal(6);
@@ -79,6 +82,29 @@ describe('client stream replies', () => {
 
     await until(() => logs[0].cancelled);
     expect(server.cancels).to.deep.equal([logs[0].request.id]);
+    expect(streams.activeStreams).to.equal(0);
+  });
+
+  it('runs two interleaved streams on one connection, cancelling one while the other completes', async () => {
+    const endlessLogs = serveStream(server, 'n.endless', () => endless());
+    const rangeLogs = serveStream(server, 'n.range', () => range(10));
+    const { streams } = await onlineStreams(server);
+    const first = streams.stream<number>('n.endless', null, { credits: 2 });
+    const second = streams.stream<number>('n.range', null, { credits: 2 });
+
+    for (let i = 0; i < 3; i++) {
+      expect((await first.next()).value).to.equal(i);
+      expect((await second.next()).value).to.equal(i);
+    }
+    expect(streams.activeStreams).to.equal(2);
+    await first.return();
+
+    expect(await collect(second)).to.deep.equal([3, 4, 5, 6, 7, 8, 9]);
+    await until(() => endlessLogs[0].cancelled);
+    expect(server.cancels).to.deep.equal([endlessLogs[0].request.id]);
+    expect(rangeLogs[0].cancelled).to.be.false;
+    expect(rangeLogs[0].sent).to.equal(10);
+    expect(streams.activeStreams).to.equal(0);
   });
 
   it('delivers the chunks before a server failure, then rejects with its SocketError', async () => {
@@ -94,6 +120,55 @@ describe('client stream replies', () => {
     expect(items).to.deep.equal([1, 2]);
     expect(error).to.be.instanceOf(SocketException);
     expect((error as SocketException).toWire()).to.deep.equal({ code: 'not_found', message: 'gone', retryable: false });
+    expect(streams.activeStreams).to.equal(0);
+  });
+
+  it('next() after return() on a failed stream resolves done instead of rejecting again', async () => {
+    server.handlers.set('n.denied', () => {
+      throw { code: 'forbidden', message: 'no', retryable: false };
+    });
+    const { streams } = await onlineStreams(server);
+    const items = streams.stream('n.denied');
+
+    await rejectionOf(items.next());
+    expect(await items.return()).to.deep.equal({ value: undefined, done: true });
+    expect(await items.next()).to.deep.equal({ value: undefined, done: true });
+  });
+
+  it('a chunk that arrives before the ack is credited back once the ack arrives ( window 1, no deadlock )', async () => {
+    server.rawReplies.set('n.early', (request, socket) => {
+      const rest = [
+        () => socket.emit(WIRE_EVENTS.chunk, { id: request.id, seq: 1, data: 'b' }),
+        () => socket.emit(WIRE_EVENTS.end, { id: request.id, seq: 2 }),
+      ];
+      const onCredit = (frame: { id: string }) => {
+        if (frame.id !== request.id) return;
+        rest.shift()?.();
+        if (rest.length === 0) socket.off(WIRE_EVENTS.credit, onCredit);
+      };
+      socket.on(WIRE_EVENTS.credit, onCredit);
+      // emitted before the stub writes the ack
+      socket.emit(WIRE_EVENTS.chunk, { id: request.id, seq: 0, data: 'a' });
+      return streamReply(request.id);
+    });
+    const { streams } = await onlineStreams(server, 300);
+
+    expect(await collect(streams.stream<string>('n.early', null, { credits: 1 }))).to.deep.equal(['a', 'b']);
+  });
+
+  it('a chunk that arrives before the ack does not disarm the reply timeout', async () => {
+    server.rawReplies.set('n.early-noack', (request, socket) => {
+      socket.emit(WIRE_EVENTS.chunk, { id: request.id, seq: 0, data: 'a' });
+      return streamReply(request.id);
+    });
+    server.ackFault = { kind: 'drop' };
+    const { streams } = await onlineStreams(server, 300);
+    const items = streams.stream<string>('n.early-noack', null, { credits: 2 });
+
+    expect((await items.next()).value).to.equal('a');
+    const error = await rejectionOf(items.next());
+    expect(error.toWire()).to.deep.equal({ code: 'deadline_exceeded', message: 'no reply before the timeout', retryable: true });
+    expect(streams.activeStreams).to.equal(0);
   });
 
   it('rejects an error reply with its SocketError', async () => {
@@ -153,7 +228,8 @@ describe('client stream replies', () => {
     const items = streams.stream<number>('n.flood', null, { credits: 4 });
 
     expect((await items.next()).value).to.equal(0);
-    await sleep(50);
+    // the fifth chunk fails the stream and releases it
+    await until(() => streams.activeStreams === 0);
     const error = await rejectionOf(items.next());
     expect(error.toWire()).to.deep.equal({ code: 'internal', message: 'the server sent more chunks than it had credit for', retryable: false });
   });
