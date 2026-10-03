@@ -100,6 +100,20 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
 }
 
 /**
+ * A stored Scope read back: null when it is malformed or its agent flag disagrees with the row's kind. Rows can be
+ * edited outside create, and a scope that read as "no limits" would widen the token.
+ */
+function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | null {
+  if (stored === null || stored === undefined) {
+    return agent ? null : undefined;
+  }
+  if (!isRecord(stored) || (agent ? stored.agent !== true : stored.agent !== undefined && stored.agent !== false)) {
+    return null;
+  }
+  return parseScope(stored, agent);
+}
+
+/**
  * `TokenService` over `rbac_access_tokens`. Owners map to `user_id` through {@link TokenOwnerResolver};
  * owner status comes from {@link IdentityStore} on every validate.
  */
@@ -179,7 +193,8 @@ export class DbTokenService extends TokenService {
     if (!Number.isFinite(expiresAt)) {
       return INVALID_EXPIRY;
     }
-    const cap = agent ? now + this.positive(this.AgentMaxTtlMinutes, 'agentMaxTtlMinutes') * MINUTE_MS : now + this.positive(this.MaxTtlDays, 'maxTtlDays') * DAY_MS;
+    const patCap = now + this.positive(this.MaxTtlDays, 'maxTtlDays') * DAY_MS;
+    const cap = agent ? Math.min(patCap, now + this.positive(this.AgentMaxTtlMinutes, 'agentMaxTtlMinutes') * MINUTE_MS) : patCap;
     if (expiresAt <= now || expiresAt > cap) {
       return INVALID_EXPIRY;
     }
@@ -299,6 +314,12 @@ export class DbTokenService extends TokenService {
     if (!TOKEN_KINDS.includes(token.Kind)) {
       return fail('invalid_credentials');
     }
+    const agent = token.Kind === 'agent';
+    const scope = storedScope(token.Scope, agent);
+    // An agent acts with its owner's roles narrowed by its scope; a row that also pins roles or a profile was edited.
+    if (scope === null || (agent && ((token.Roles ?? []).some(isNonEmptyString) || !!token.Profile))) {
+      return fail('invalid_credentials');
+    }
 
     const owner = await this.owners.refOf(token.user_id);
     if (owner === null) {
@@ -314,11 +335,11 @@ export class DbTokenService extends TokenService {
 
     const record = this.recordOf(token, owner);
     const limits: Pick<Ceiling, 'permissions' | 'resources'> = {
-      ...(record.scope?.permissions !== undefined ? { permissions: record.scope.permissions } : {}),
-      ...(record.scope?.resources !== undefined ? { resources: record.scope.resources } : {}),
+      ...(scope?.permissions !== undefined ? { permissions: scope.permissions } : {}),
+      ...(scope?.resources !== undefined ? { resources: scope.resources } : {}),
     };
 
-    if (record.kind === 'agent') {
+    if (agent) {
       return {
         ok: true,
         identity: { type: 'agent', id: record.id },

@@ -19,7 +19,8 @@ describe('authn-token behaviour', function () {
     await shutdownV3Db();
   });
 
-  runAuthnBehaviour(['A14'], tokenHarness, { title: 'authn-token: A14', claim: ['A14/token'] });
+  // The harness has no `service` port, so A15/core (N8a's facet) stays pending here.
+  runAuthnBehaviour(['A14', 'A15'], tokenHarness, { title: 'authn-token: A14, A15', claim: ['A14/token', 'A15/token'] });
 
   it('tokenHarness leaves the config as it was when its setup fails', async () => {
     const path = ['authn', 'token', 'maxTtlDays'];
