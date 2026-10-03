@@ -116,6 +116,35 @@ const LOCAL = [
       ],
     },
   ]),
+  extension('B26', [
+    {
+      name: 'rbac-probe',
+      facets: ['engine', 'rbac'],
+      lanes: ['L1'],
+      note: 'AuthzService.covers must count a typed doc:read grant of the target; skipped until the engine reads model summaries (docs/plans/authz-v3-rfc/L1-3.md).',
+      cases: [
+        {
+          name: 'a caller without doc:read does not cover a target whose doc:read comes from a typed grant',
+          world: {
+            permissions: [
+              { name: 'doc:read', types: ['doc'] },
+              { name: 'doc:write', types: ['doc'] },
+            ],
+            principals: { caller: userPrincipal('caller'), target: userPrincipal('target'), root: userPrincipal('root') },
+            combine: combine('deny-overrides', 'rbac'),
+            rbac: {
+              roles: [role('typedReader', [{ permission: 'doc:read', on: [{ type: 'doc' }] }]), role('writerOnly', ['doc:write']), role('all', ['doc:read', 'doc:write'])],
+              assignments: [assignment('c1', userPrincipal('caller'), 'writerOnly'), assignment('t1', userPrincipal('target'), 'typedReader'), assignment('r1', userPrincipal('root'), 'all')],
+            },
+          },
+          steps: [
+            { covers: { holder: 'caller', target: 'target' }, expect: false },
+            { covers: { holder: 'root', target: 'target' }, expect: true },
+          ],
+        },
+      ],
+    },
+  ]),
 ];
 
 const throwingHarness = () =>
@@ -132,3 +161,8 @@ const throwingHarness = () =>
 runBehaviour(['B06.rbac-native'], () => rbacHarness({ extensions: (_host, options) => [rbacAssignmentExtension(options)] }), { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B01.rbac-combine'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B12.rbac-extension'], throwingHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
+
+// Pending until F3 lands RFC L1-3 (covers from model summaries); then drop the skip. Today covers(caller, target) is true.
+describe.skip('B26.rbac-probe: RFC L1-3 (docs/plans/authz-v3-rfc/L1-3.md)', () => {
+  runBehaviour(['B26.rbac-probe'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
+});
