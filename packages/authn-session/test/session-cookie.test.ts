@@ -1,0 +1,98 @@
+import { expect } from 'chai';
+import { DateTime } from 'luxon';
+import { clearSessionCookie, sessionCookie, sessionCookieMaxAge, sessionCookieName, sessionCookieOptions, UserSession } from '../src/index.js';
+
+const RAW_ID = 'kQ7c1d0yYcH1m3S2bA9x_w';
+
+describe('sessionCookieMaxAge', () => {
+  it('derives cookie maxAge (ms) from the session Expiration relative to now (B1)', () => {
+    const session = new UserSession();
+    session.Expiration = DateTime.now().plus({ minutes: 120 });
+
+    const maxAge = sessionCookieMaxAge(session);
+
+    // ~120 minutes in ms, allow a little slack for execution time
+    expect(maxAge).to.be.a('number');
+    expect(maxAge!).to.be.greaterThan(119 * 60 * 1000);
+    expect(maxAge!).to.be.at.most(120 * 60 * 1000);
+  });
+
+  it('returns undefined when the session never expires (no Expiration)', () => {
+    const session = new UserSession();
+    session.Expiration = undefined;
+
+    expect(sessionCookieMaxAge(session)).to.be.undefined;
+  });
+
+  it('clamps to 0 for an already-expired session (never negative)', () => {
+    const session = new UserSession();
+    session.Expiration = DateTime.now().minus({ minutes: 5 });
+
+    expect(sessionCookieMaxAge(session)).to.equal(0);
+  });
+});
+
+describe('session cookie attributes', () => {
+  const in30 = () => DateTime.now().plus({ minutes: 30 });
+
+  it('is Secure, HttpOnly and SameSite=Strict with no configuration at all', () => {
+    const options = sessionCookieOptions();
+
+    expect(options.httpOnly).to.equal(true);
+    expect(options.secure).to.equal(true);
+    expect(options.sameSite).to.equal('strict');
+  });
+
+  it('cannot be downgraded to a javascript-readable cookie by configuration', () => {
+    const options = sessionCookieOptions({ httpOnly: false } as any);
+
+    expect(options.httpOnly).to.equal(true);
+  });
+
+  it('lets an application relax secure / sameSite deliberately', () => {
+    const options = sessionCookieOptions({ secure: false, sameSite: 'lax' });
+
+    expect(options.secure).to.equal(false);
+    expect(options.sameSite).to.equal('lax');
+  });
+
+  it('passes unknown express options through', () => {
+    const options = sessionCookieOptions({ path: '/app', priority: 'high' } as any);
+
+    expect(options.path).to.equal('/app');
+    expect(options.priority).to.equal('high');
+  });
+
+  it('defaults to the ssid name and honors a configured one', () => {
+    expect(sessionCookieName()).to.equal('ssid');
+    expect(sessionCookieName({ name: 'sid' })).to.equal('sid');
+  });
+
+  it('emits __Host- prefixed cookies with everything that prefix requires', () => {
+    const cookie = sessionCookie(RAW_ID, { name: 'sid', hostPrefix: true, secure: false, domain: 'example.com' } as any, in30());
+
+    expect(cookie.Name).to.equal('__Host-sid');
+    // browsers reject a __Host- cookie that is not secure, not rooted at / or
+    // carries a Domain — so the prefix forces all three regardless of config
+    expect(cookie.Options.secure).to.equal(true);
+    expect(cookie.Options.path).to.equal('/');
+    expect(cookie.Options).to.not.have.property('domain');
+  });
+
+  it('carries the session id, is signed, and expires with the session', () => {
+    const cookie = sessionCookie(RAW_ID, {}, in30());
+
+    expect(cookie.Value).to.equal(RAW_ID);
+    expect(cookie.Options.signed).to.equal(true);
+    expect(cookie.Options.maxAge).to.be.greaterThan(29 * 60 * 1000);
+  });
+
+  it('clears with an empty value and an immediate expiry, keeping the hardened flags', () => {
+    const cookie = clearSessionCookie();
+
+    expect(cookie.Value).to.equal('');
+    expect(cookie.Options.maxAge).to.equal(0);
+    expect(cookie.Options.httpOnly).to.equal(true);
+    expect(cookie.Options.secure).to.equal(true);
+  });
+});

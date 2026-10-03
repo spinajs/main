@@ -1,0 +1,104 @@
+import { DateTime } from 'luxon';
+import { Injectable, NewInstance } from '@spinajs/di';
+import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
+import { SessionProvider } from './contracts.js';
+import type { ISession } from './contracts.js';
+import { belongsTo, expirationEquals } from './match.js';
+
+/**
+ * A stored session row. `SessionId` is the storage key the issuer gives it
+ * (sha256 of the raw id); it has no default, so a raw-looking id can never
+ * reach a store by accident.
+ */
+@NewInstance()
+export class UserSession implements ISession {
+  public SessionId!: string;
+
+  public Subject!: IdentityRef;
+
+  public Impersonator?: IdentityRef;
+
+  public State: SessionHandle['state'] = 'active';
+
+  public Creation: DateTime = DateTime.now();
+
+  /** `undefined` = never expires; set by the store through the configured strategy. */
+  public Expiration: DateTime | undefined = undefined;
+
+  public Data: Map<string, unknown> = new Map();
+
+  constructor(session?: Partial<ISession>) {
+    if (session) {
+      Object.assign(this, session);
+    }
+  }
+}
+
+/**
+ * Simple session storage in memory, for testing or a single instance.
+ * Keeps live session objects (no serialization).
+ */
+@Injectable(SessionProvider)
+export class MemorySessionStore extends SessionProvider<ISession> {
+  protected Sessions: Map<string, ISession> = new Map<string, ISession>();
+
+  public async restore(sessionId: string): Promise<ISession | null> {
+    const session = this.Sessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+
+    if (this.isExpired(session)) {
+      this.Sessions.delete(sessionId);
+      return null;
+    }
+
+    return session;
+  }
+
+  public async save(session: ISession): Promise<void> {
+    // Only a brand-new session gets its initial expiration; a scheduled one is kept verbatim (B3).
+    if (session.Expiration === undefined) {
+      this.applyInitialExpiration(session);
+    }
+
+    this.Sessions.set(session.SessionId, session);
+  }
+
+  public async touch(session: ISession): Promise<boolean> {
+    const current = session.Expiration;
+    this.applyRenewedExpiration(session);
+
+    if (expirationEquals(current, session.Expiration)) {
+      return false;
+    }
+
+    this.Sessions.set(session.SessionId, session);
+    return true;
+  }
+
+  public async delete(sessionId: string): Promise<void> {
+    this.Sessions.delete(sessionId);
+  }
+
+  public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
+    let count = 0;
+    for (const [key, session] of [...this.Sessions.entries()]) {
+      if (key !== opts?.except && belongsTo(session, subject, opts?.includeImpersonations)) {
+        this.Sessions.delete(key);
+        if (!this.isExpired(session)) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  public async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
+    return [...this.Sessions.values()].filter((s) => !this.isExpired(s) && belongsTo(s, subject, opts?.includeImpersonations));
+  }
+
+  public async truncate(): Promise<void> {
+    this.Sessions = new Map<string, ISession>();
+  }
+}
