@@ -318,6 +318,41 @@ describe('stomp queue transport - unit', function () {
       expect(sub!.headers['activemq.prefetchSize']).to.eq('1');
     });
 
+    it('uses options.prefetch for activemq.prefetchSize', async () => {
+      const c = await connected({ options: { prefetch: 4 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('4');
+    });
+
+    it('accepts a numeric string prefetch ( env / json config )', async () => {
+      const c = await connected({ options: { prefetch: '8' } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('8');
+    });
+
+    it('re-applies the configured prefetch on reconnect', async () => {
+      const c = await connected({ options: { prefetch: 3 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+      c.fake.subscriptions.length = 0;
+
+      c.fake.simulateDrop();
+      c.fake.simulateConnect();
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('3');
+    });
+
+    for (const bad of [0, -2, 1.5, 'many', null]) {
+      it(`rejects resolve() for an invalid prefetch ( ${String(bad)} )`, async () => {
+        const c = new TestableStompClient(options({ options: { prefetch: bad } }));
+        await expect(c.resolve()).to.be.rejectedWith(InvalidArgument, /prefetch/i);
+      });
+    }
+
     it('records a subscription made before connect and applies it on connect', async () => {
       const c = new TestableStompClient(options());
 
