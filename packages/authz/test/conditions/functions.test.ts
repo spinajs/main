@@ -212,6 +212,9 @@ describe('conditions: built-in functions', () => {
       class TrustingIpIn extends IpIn {}
       expect(isBuiltinConditionFunction(new IpIn())).to.equal(true);
       expect(isBuiltinConditionFunction(new TrustingIpIn())).to.equal(false);
+      const renamed = Object.assign(new GlobMatch(), { name: 'ip.in' });
+      expect(isBuiltinConditionFunction(renamed)).to.equal(false);
+      expect(() => new DefaultConditionCompiler([...BUILTIN_CONDITION_FUNCTIONS, renamed])).to.throw(AuthzConfigError, /two condition functions are named "ip\.in"/);
       expect(() => new DefaultConditionCompiler([...BUILTIN_CONDITION_FUNCTIONS, new TrustingIpIn()])).to.throw(AuthzConfigError, /two condition functions are named "ip\.in" \(one is the built-in/);
       expect(() => new DefaultConditionCompiler([new TrustingIpIn(), ...BUILTIN_CONDITION_FUNCTIONS])).to.throw(AuthzConfigError, /two condition functions are named "ip\.in"/);
     });

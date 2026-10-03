@@ -34,7 +34,10 @@ export abstract class KleeneConditionFunction extends ConditionFunction {
  */
 export const isBuiltinConditionFunction = (f: unknown): boolean => {
   try {
-    return typeof f === 'object' && f !== null && Object.hasOwn((f as { constructor: object }).constructor, BUILTIN);
+    if (typeof f !== 'object' || f === null) return false;
+    const ctor = (f as { constructor: Record<symbol, unknown> }).constructor;
+    // The tag holds the name, so an instance renamed in plain JS is no built-in either.
+    return Object.hasOwn(ctor, BUILTIN) && ctor[BUILTIN] === (f as { name?: unknown }).name;
   } catch {
     return false;
   }
@@ -106,7 +109,7 @@ export const conditionFunctionCaches = { zones: (): { spellings: number; zones: 
  * `from` equal to `to` is refused at boot and UNKNOWN when refs give it.
  */
 export class TimeBetween extends KleeneConditionFunction {
-  static readonly [BUILTIN] = true;
+  static readonly [BUILTIN]: string = 'time.between';
   readonly name: string = 'time.between';
 
   checkArgs(args: Readonly<Record<string, unknown>>, where: string): void {
@@ -197,7 +200,7 @@ function blockList(ranges: readonly unknown[]): BlockList | null {
  * `::ffff:0:0/96` (`::/0` does) matches IPv4 clients too.
  */
 export class IpIn extends KleeneConditionFunction {
-  static readonly [BUILTIN] = true;
+  static readonly [BUILTIN]: string = 'ip.in';
   readonly name: string = 'ip.in';
 
   checkArgs(args: Readonly<Record<string, unknown>>, where: string): void {
@@ -227,7 +230,7 @@ export class IpIn extends KleeneConditionFunction {
 
 /** `{ value, pattern }`: `value` matches the glob (`*` stops at `/`, `**` crosses it), as the cmp `glob` does. */
 export class GlobMatch extends KleeneConditionFunction {
-  static readonly [BUILTIN] = true;
+  static readonly [BUILTIN]: string = 'glob';
   readonly name: string = 'glob';
   protected match = matchGlob;
 
@@ -247,7 +250,7 @@ export class GlobMatch extends KleeneConditionFunction {
 
 /** `{ value, pattern }`: `*` is any run of characters, `/` included, as the cmp `wildcard` does. */
 export class WildcardMatch extends GlobMatch {
-  static readonly [BUILTIN] = true;
+  static readonly [BUILTIN]: string = 'wildcard';
   readonly name: string = 'wildcard';
   protected match = matchWildcard;
 }
