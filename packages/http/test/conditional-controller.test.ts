@@ -57,6 +57,11 @@ describe('Conditional controller registration (Array.ofType<BaseController>)', (
       DI.uncache(type);
     }
     DI.uncache(BaseController);
+
+    // The registry keeps the first position of a re-registered type, so a later
+    // suite's `register(TestConfiguration)` would not override this one.
+    DI.unregister(MinimalTestConfiguration);
+    DI.uncache(MinimalTestConfiguration);
   });
 
   beforeEach(async () => {

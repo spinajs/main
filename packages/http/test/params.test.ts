@@ -8,7 +8,7 @@ import { expect } from 'chai';
 
 import { fsService, fs as sFs } from '@spinajs/fs';
 
-import { dir, req, TestConfiguration } from './common.js';
+import { dir, releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { Controllers, HttpServer } from '../src/index.js';
 import { CvsSampleObjectWithHydrator, CvsSampleObjectWithHydratorHydrator, CvsSampleObjectWithSchema, SampleCvsModel, SampleModel, SampleObject, SampleObjectWithSchema } from './dto/index.js';
 import { HeaderParams } from './controllers/params/HeaderParams.js';
@@ -39,13 +39,12 @@ describe('controller action test params', function () {
     sb.spy(TestFileTransformer.prototype);
     sb.spy(CvsFileParams.prototype);
     sb.spy(CvsSampleObjectWithHydratorHydrator.prototype);
+    uncacheControllers();
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
       await b.bootstrap();
     }
-
-    DI.setESMModuleSupport();
 
     DI.register(TestConfiguration).as(Configuration);
 
@@ -55,12 +54,11 @@ describe('controller action test params', function () {
     await DI.resolve(Controllers);
     const server = await DI.resolve<HttpServer>(HttpServer);
 
-    server.start();
+    await server.start();
   });
 
   after(async () => {
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.stop();
+    await releaseHttpServer();
     sb.restore();
   });
 

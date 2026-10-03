@@ -11,7 +11,7 @@ import '@spinajs/templates-pug';
 import { Controllers, HttpServer } from '../src/index.js';
 import { SampleMiddleware2 } from './middlewares/SampleMiddleware2.js';
 import { SamplePolicy2 } from './policies/SamplePolicy2.js';
-import { req, TestConfiguration } from './common.js';
+import { releaseHttpServer, req, TestConfiguration, uncacheControllers } from './common.js';
 import { DataTransformer } from './../src/interfaces.js';
 import { TestTransformer } from './transformers/TestTransformer.js';
 import { SamplePolicy } from './policies/SamplePolicy.js';
@@ -52,8 +52,7 @@ describe('http & controller tests', function () {
 
     samplePolicyExecuteSpy = middlewareSandbox.spy(SamplePolicy.prototype, 'execute');
     samplePolicy2ExecuteSpy = middlewareSandbox.spy(SamplePolicy2.prototype, 'execute');
-
-    DI.setESMModuleSupport();
+    uncacheControllers();
 
     DI.register(TestConfiguration).as(Configuration);
     DI.register(TestTransformer).as(DataTransformer);
@@ -65,8 +64,7 @@ describe('http & controller tests', function () {
   });
 
   after(async () => {
-    const server = await DI.resolve(HttpServer);
-    server.stop();
+    await releaseHttpServer();
 
     middlewareSandbox.restore();
   });
@@ -80,7 +78,7 @@ describe('http & controller tests', function () {
     await c?.add(TestMethods2);
 
     const server = await DI.resolve(HttpServer);
-    server.start();
+    await server.start();
 
     let response = await req().get('testmethods2/testGet2');
     expect(response).to.have.status(200);
