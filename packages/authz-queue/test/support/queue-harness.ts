@@ -5,9 +5,13 @@ import { Orm } from '@spinajs/orm';
 import '@spinajs/orm-sqlite';
 import { DefaultQueueService, Job, QueueClient, QueueJob, QueueService } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
-import type { BehaviourHarness, HarnessSession, JobRun, JobSpec, QueueHandle, QueueMessage } from '@spinajs/authz-testing';
-import { hostHarness } from '@spinajs/authz-testing';
+import type { BehaviourHarness, HarnessSession, JobRun, JobSpec, QueueHandle, QueueMessage, QueuePeer } from '@spinajs/authz-testing';
+import { hostHarness, instantiateWorld, testHost } from '@spinajs/authz-testing';
+import type { HostSetup } from '@spinajs/authz-testing';
+import { AuthorizationModel, AuthzClock, ChangeBus, DecisionAudit, RelationResolver, ResourceAdapter, ScopeResolver } from '@spinajs/authz';
 import type { AuthzService } from '@spinajs/authz';
+
+import { NodeBus, PeerQueueService } from './nodes.js';
 
 import { MemoryBroker, MemoryQueueClient } from './memory-client.js';
 import './memory-client.js';
@@ -50,15 +54,57 @@ function jobClass(name: string, runAs?: 'initiator' | 'system'): typeof QueueJob
 }
 
 /** Real QueueService and consumer over an in-memory transport and an in-memory SQLite job table. */
+interface RunningPeer extends QueuePeer {
+  dispose(): Promise<void>;
+}
+
+async function startPeer(host: HostSetup, connection: string): Promise<RunningPeer> {
+  const name = `${host.domain}-peer`;
+  const kit = instantiateWorld(host.world);
+  const client = new MemoryQueueClient({ name: `${connection}-peer`, options: { broker: connection } } as never);
+  await client.resolve();
+  const bus = new NodeBus(new PeerQueueService(client));
+
+  // The peer is configured like the test domain: same permissions, combination and cache settings.
+  const own = testHost.config().get<unknown>(['authz', 'domains', host.domain]);
+  host.setConfig(['authz', 'domains', name], JSON.parse(JSON.stringify(own)));
+
+  const domains = await testHost.domains();
+  const container = domains.create(name, 'root');
+  for (const m of kit.models) container.register(testHost.instance(m)).as(AuthorizationModel);
+  for (const a of kit.adapters) container.register(testHost.instance(a)).as(ResourceAdapter);
+  for (const r of kit.scopeResolvers) container.register(testHost.instance(r)).as(ScopeResolver);
+  for (const r of kit.relations) container.register(testHost.instance(r)).as(RelationResolver);
+  container.register(testHost.instance(kit.audit)).as(DecisionAudit);
+  container.register(testHost.instance(kit.clock)).as(AuthzClock);
+  container.register(testHost.instance(bus)).as(ChangeBus);
+
+  const authz = await domains.service(name);
+  await bus.ready();
+
+  return {
+    authz: authz as never,
+    kit,
+    async dispose() {
+      await bus.dispose();
+      await container.dispose();
+      client.unsubscribe();
+      await client.dispose();
+    },
+  };
+}
+
 export function queueHarness(): BehaviourHarness {
   let seq = 0;
   let connection = '';
+  let nodeBus: NodeBus;
 
   return hostHarness({
     facets: ['queue'],
 
     register(host) {
       connection = `authz-queue-test-${++seq}`;
+      nodeBus = new NodeBus();
       host.setConfig(['authz', 'queue', 'domain'], host.domain);
       host.setConfig(['db'], {
         DefaultConnection: 'queue',
@@ -69,6 +115,7 @@ export function queueHarness(): BehaviourHarness {
         routing: {},
         connections: [{ service: 'MemoryQueueClient', name: connection, defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test', options: { broker: connection } }],
       });
+      if (host.ctx.facets.includes('bus')) host.container.register(testHost.instance(nodeBus)).as(ChangeBus);
       host.setConfig(['logger'], { targets: [{ name: 'Empty', type: 'BlackHoleTarget' }], rules: [{ name: '*', level: 'trace', target: 'Empty' }] });
     },
 
@@ -88,6 +135,8 @@ export function queueHarness(): BehaviourHarness {
       for (const cls of jobs.values()) await queue.consume(cls as never);
       const client = queue.get(connection) as unknown as MemoryQueueClient;
 
+      // A second node is already running when the first publishes, so it starts with the case.
+      const peer = host.ctx.facets.includes('bus') ? await startPeer(host, connection) : undefined;
       const handle: QueueHandle = {
         async emit(job: string, payload?: Readonly<Record<string, unknown>>): Promise<QueueMessage> {
           const cls = jobs.get(job);
@@ -107,13 +156,17 @@ export function queueHarness(): BehaviourHarness {
         },
 
         async peer() {
-          throw new Error('queueHarness: peer() is not implemented yet');
+          if (!peer) throw new Error('queueHarness: the part needs the bus facet to have a peer node');
+          return peer;
         },
       };
 
       return {
         lane: { queue: handle },
+        bus: nodeBus,
         async dispose() {
+          await peer?.dispose();
+          await nodeBus.dispose();
           await queue.dispose();
           await orm.dispose();
           MemoryBroker.drop((client.Options.options as { broker: string }).broker);

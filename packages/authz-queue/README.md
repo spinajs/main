@@ -13,3 +13,7 @@ Importing the package registers `AuthzQueueHook` as a `QueueMessageHook` of `@sp
 The hook uses the authz domain named by `authz.queue.domain` (default `root`).
 
 `Initiator` crosses the broker as plain data, so the broker is trusted to carry it unchanged. The default `InitiatorPrincipalFactory` builds the principal from the stamp alone (no attributes, `source: 'queue'`). An app that must reload the user registers its own: `DI.register(MyFactory).as(InitiatorPrincipalFactory)`. The stamp does not carry `onBehalfOf` or `authn` facts, so an agent or impersonating principal is rebuilt without them.
+
+## Change bus
+
+`QueueChangeBus` retries a failed listen every 5 s and then drops all caches. It carries `AuthzChange`s to the other nodes as `AuthzChangeEvent` queue events. Select it with `authz.bus.service: 'QueueChangeBus'`; importing the package only makes it selectable, so name the bus you want. Subscribers on the publishing node hear a change at once and skip the copy that returns from the broker. A publish the queue refuses rejects. `authz.bus.topic`, when set and `queue.routing` has no route for `AuthzChangeEvent`, becomes that route's channel.
