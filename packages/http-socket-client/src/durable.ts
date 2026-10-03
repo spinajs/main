@@ -220,7 +220,7 @@ export class DurableQueue {
 
   /**
    * Rejects the callers still waiting; their entries stay in the store for the next start. Commands
-   * already answered but waiting for an earlier one are reported first, in order.
+   * already answered and stored, but waiting for an earlier one, are reported first, in order.
    */
   public close(): void {
     if (this.closed) {
@@ -235,7 +235,8 @@ export class DurableQueue {
       clearTimeout(item.timer);
       // a late reply must not touch the store: the entry is left for the next start, which replays it
       item.outstanding.clear();
-      if (item.outcome) {
+      // an outcome the store has not applied may still be undone by the next start, which replays the entry
+      if (item.outcome && item.stored) {
         this.report(item, item.outcome);
       } else {
         item.reject?.(SocketException.fromWire(CLOSED));
@@ -243,7 +244,7 @@ export class DurableQueue {
     }
   }
 
-  /** Reads the store once; a failed read is tried again by the next submit(). */
+  /** Reads the store once; a failed read is tried again by the next submit() or the next time the connection comes online. */
   private load(): Promise<void> {
     if (this.loading === undefined) {
       this.loading = this.options.store.pending().then(
@@ -289,6 +290,9 @@ export class DurableQueue {
 
     if (state === 'online') {
       this.heldUntilOnline = false;
+      if (this.loading === undefined) {
+        this.load().catch(this.onStoreError);
+      }
       this.pump();
     }
   }

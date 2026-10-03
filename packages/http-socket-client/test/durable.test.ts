@@ -471,6 +471,26 @@ describe('DurableQueue', () => {
     expect(acked.map((a) => a.result)).to.deep.equal([{ n: 2 }]);
   });
 
+  it('does not report on close an answered command whose outcome the store has not applied yet', async () => {
+    serveDurable(server, 'docs.submit');
+    const store = new MemoryOutboxStore();
+    let removing = false;
+    store.remove = () => {
+      removing = true;
+      return new Promise(() => undefined);
+    };
+    const { queue } = await onlineQueue(server, { store });
+    const acked: AckedCommand[] = [];
+    queue.events.on('acked', (event) => acked.push(event));
+
+    const done = queue.submit('docs.submit', { n: 1 });
+    await until(() => removing);
+    queue.close();
+
+    expect((await rejectionOf(done)).code).to.equal('unavailable');
+    expect(acked).to.deep.equal([]);
+  });
+
   it('loads the store again on the next submit when the first load failed', async () => {
     serveDurable(server, 'docs.submit');
     const store = new MemoryOutboxStore();
@@ -490,6 +510,32 @@ describe('DurableQueue', () => {
 
     expect(await queue.submit('docs.submit', { n: 1 })).to.deep.equal({ n: 1 });
     expect(acked.map((a) => a.result)).to.deep.equal([{ n: 0 }, { n: 1 }]);
+    expect(errors.map((e) => (e as Error).message)).to.deep.equal(['storage is busy']);
+  });
+
+  it('loads the store again when the connection comes online, after the first load failed', async () => {
+    serveDurable(server, 'docs.submit');
+    const store = new MemoryOutboxStore();
+    await store.add({ name: 'docs.submit', payload: { n: 0 }, key: 'op-0' });
+    const pending = store.pending.bind(store);
+    let failures = 1;
+    store.pending = async () => {
+      if (failures-- > 0) {
+        throw new Error('storage is busy');
+      }
+      return pending();
+    };
+    const errors: unknown[] = [];
+    const connection = makeConnection(server);
+    const queue = track(new DurableQueue({ connection, commands: new CommandDispatcher(connection, 1000), store, clientId: 'client-1', reconnect: FAST_RECONNECT, onListenerError: (error) => errors.push(error) }));
+    const acked: AckedCommand[] = [];
+    queue.events.on('acked', (event) => acked.push(event));
+    await sleep(20);
+    connection.connect();
+
+    await until(() => acked.length === 1);
+    expect(acked[0].result).to.deep.equal({ n: 0 });
+    expect(await store.pending()).to.deep.equal([]);
     expect(errors.map((e) => (e as Error).message)).to.deep.equal(['storage is busy']);
   });
 
