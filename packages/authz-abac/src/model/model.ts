@@ -21,7 +21,11 @@ export interface AbacModelOptions {
   readonly stores?: readonly PolicyStore[];
   /** Functions a policy condition may call, for the checks at load; default every ConditionFunction registered in root DI (the built-ins included). */
   readonly functions?: readonly ConditionFunction[];
+  /** After a failed reload, the first retry waits this long (default 1000 ms), doubling up to 60 s. */
+  readonly retryMs?: number;
 }
+
+const MAX_RETRY_MS = 60_000;
 
 const RESIDUALS = Object.freeze(['true', 'false', 'and', 'or', 'not', 'cmp', 'under'] as const);
 
@@ -52,6 +56,9 @@ export class AbacModel extends AuthorizationModel {
   private reload: Promise<void> | undefined;
   /** The last load failed; routing falls back to the last good index until one succeeds. */
   private failed = false;
+  private readonly retryMs: number;
+  private retryDelay: number;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: AbacModelOptions = {}) {
     super();
@@ -59,6 +66,8 @@ export class AbacModel extends AuthorizationModel {
     this.functions = options.functions;
     this.parser = new DefaultConditionCompiler(options.functions ?? BUILTIN_CONDITION_FUNCTIONS);
     this.stores = options.stores;
+    this.retryMs = options.retryMs ?? 1000;
+    this.retryDelay = this.retryMs;
   }
 
   /**
@@ -304,22 +313,47 @@ export class AbacModel extends AuthorizationModel {
    */
   private startLoad(): void {
     const generation = this.generation;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     const run = this.load(true).then(
       () => {
         this.loadedGeneration = Math.max(this.loadedGeneration, generation);
         this.failed = false;
+        this.retryDelay = this.retryMs;
       },
       (e: unknown) => {
-        this.failed = true;
+        // A newer change came in meanwhile: the next load (for it) starts below, so this is no outage yet.
+        if (generation === this.generation) this.failed = true;
         throw e;
       },
     );
     this.reload = run.finally(() => {
       this.reload = undefined;
-      if (!this.failed && this.loadedGeneration < this.generation) this.startLoad();
+      if (this.failed) this.scheduleRetry();
+      else if (this.loadedGeneration < this.generation) this.startLoad();
     });
     // Waiters see the failure; nobody else must get an unhandled rejection.
     this.reload.catch(() => undefined);
+  }
+
+  /** Retries a failed load on its own, so a change also takes effect when no request of this model comes (backoff to 60 s). */
+  private scheduleRetry(): void {
+    if (this.retryTimer) return;
+    const delay = this.retryDelay;
+    this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_MS);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (this.failed && !this.reload) {
+        this.failed = false;
+        this.startLoad();
+      }
+    }, delay);
+    this.retryTimer.unref?.();
+  }
+
+  async dispose(): Promise<void> {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
   }
 }
 

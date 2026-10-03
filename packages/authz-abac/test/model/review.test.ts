@@ -163,6 +163,57 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect(m.version()).to.not.match(/~$/);
     });
 
+    it('a load that fails after a newer change came in leaves the next load to run for it (r3 I-c, N8)', async () => {
+      const store = new GatedStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      const load = MemoryPolicyStore.prototype.load.bind(store);
+      let fail = true;
+      let open!: () => void;
+      store.gate = new Promise((r) => (open = r));
+      store.load = async () => {
+        store.loads++;
+        await store.gate;
+        if (fail) {
+          fail = false;
+          throw new Error('db down');
+        }
+        return load();
+      };
+      const before = store.loads;
+      m.invalidate(['policy']);
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy:no-read']);
+      open();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(store.loads - before).to.equal(2);
+      expect(((await m.evaluate(req(), ctx())) as Vote).denyWhen).to.equal(TRUE);
+    });
+
+    it('retries a failed load on its own, with backoff, so a change applies with no request of the model (r3 I-c, N7)', async () => {
+      const store = new MemoryPolicyStore([policy('read')]);
+      const m = await model({ stores: [store], retryMs: 5 });
+      const load = store.load.bind(store);
+      let down = true;
+      let loads = 0;
+      store.load = async () => {
+        loads++;
+        if (down) throw new Error('db down');
+        return load();
+      };
+      store.put(policy('no-read', { effect: 'deny' }));
+      m.invalidate(['policy']);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(loads).to.be.greaterThan(1);
+      expect(m.version()).to.not.match(/~$/);
+      down = false;
+      await new Promise((r) => setTimeout(r, 200));
+      expect(((await m.evaluate(req(), ctx())) as Vote).denyWhen).to.equal(TRUE);
+      const settled = loads;
+      await new Promise((r) => setTimeout(r, 50));
+      expect(loads).to.equal(settled);
+      await m.dispose();
+    });
+
     it('a model over config stores only ignores invalidations and stays sync (M1)', async () => {
       const m = await model({ stores: [new ConfigPolicyStore([policy('read')])] });
       m.invalidate(['*', 'policy']);
