@@ -154,6 +154,9 @@ describe('agent tokens (A15)', function () {
         ['an empty permission', { permissions: [''] }],
         ['a resource without type', { resources: [{ id: '7' }] }],
         ['resources as an object', { resources: { type: 'file' } }],
+        ['a misspelt key', { permission: ['file:read'] }],
+        ['a roles key', { roles: ['viewer'] }],
+        ['a resource with an extra key', { resources: [{ type: 'file', id: '7', under: 'p1' }] }],
       ] as const) {
         const g = await agent(a, { permissions: ['file:read'] });
         await edit(g.record.id, { Scope: JSON.stringify({ agent: true, ...scope }) });
@@ -167,6 +170,19 @@ describe('agent tokens (A15)', function () {
         const t = await pat(a, { scope: { permissions: ['file:read'] } });
         await edit(t.record.id, { Scope: scope });
         await failsClosed(t.plaintext, `pat, Scope ${scope}`);
+      }
+    });
+
+    it('still validates pat and service rows with a stored {} or {"agent":false} scope, without a ceiling', async () => {
+      const a = await owner();
+      for (const kind of ['pat', 'service']) {
+        for (const scope of ['{}', '{"agent":false}']) {
+          const t = await pat(a, { kind });
+          await edit(t.record.id, { Scope: scope });
+          const v = await valid(t.plaintext);
+          expect(v.ceiling, `${kind} ${scope}`).to.equal(undefined);
+          expect((await tokens.list(a)).find((r) => r.id === t.record.id)?.kind).to.equal(kind);
+        }
       }
     });
   });

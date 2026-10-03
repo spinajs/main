@@ -7,7 +7,7 @@ import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Prin
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
-import { checkTokenFormat } from '../generator.js';
+import { MAX_TOKEN_LENGTH, checkTokenFormat } from '../generator.js';
 import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
@@ -99,6 +99,11 @@ function parseScope(scope: unknown, agent: boolean): TokenScope | undefined | nu
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+const SCOPE_KEYS: readonly string[] = ['permissions', 'resources', 'agent'];
+const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
+
+const onlyKeys = (v: Record<string, unknown>, allowed: readonly string[]): boolean => Object.keys(v).every((k) => allowed.includes(k));
+
 /**
  * A stored Scope read back: null when it is malformed or its agent flag disagrees with the row's kind. Rows can be
  * edited outside create, and a scope that read as "no limits" would widen the token.
@@ -108,6 +113,11 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
     return agent ? null : undefined;
   }
   if (!isRecord(stored) || (agent ? stored.agent !== true : stored.agent !== undefined && stored.agent !== false)) {
+    return null;
+  }
+  // parseScope drops unknown keys; on the read path an unknown key (a typo, a ceiling field such as roles) must not
+  // turn into "no limits".
+  if (!onlyKeys(stored, SCOPE_KEYS) || (Array.isArray(stored.resources) && !stored.resources.every((r) => isRecord(r) && onlyKeys(r, RESOURCE_KEYS)))) {
     return null;
   }
   return parseScope(stored, agent);
@@ -396,6 +406,7 @@ export class DbTokenService extends TokenService {
       throw new Error(`Access token ${t.Uuid} has an unreadable CreatedAt`);
     }
     const lastUsedAt = toDate(t.LastUsedAt);
+    const scope = storedScope(t.Scope, t.Kind === 'agent');
 
     return {
       id: t.Uuid,
@@ -404,7 +415,7 @@ export class DbTokenService extends TokenService {
       kind: t.Kind,
       ...(roles.length > 0 ? { roles } : {}),
       ...(t.Profile ? { profile: t.Profile } : {}),
-      ...(t.Scope ? { scope: t.Scope } : {}),
+      ...(scope ? { scope } : {}),
       createdAt,
       // A 2.x row without expiry reads as expired at its creation.
       expiresAt: toDate(t.ExpiresAt) ?? createdAt,
@@ -474,7 +485,7 @@ export class DbTokenService extends TokenService {
 
   private checkGenerated(plaintext: unknown): void {
     const suffix = typeof plaintext === 'string' && plaintext.startsWith(this.Prefix) ? plaintext.slice(this.Prefix.length) : '';
-    if (!BASE64URL.test(suffix) || suffix.length < Math.ceil((this.Length * 4) / 3)) {
+    if (!BASE64URL.test(suffix) || suffix.length < Math.ceil((this.Length * 4) / 3) || (plaintext as string).length > MAX_TOKEN_LENGTH) {
       throw new Error('authn.token.generation minted a token without the configured prefix or length');
     }
   }

@@ -8,12 +8,18 @@ import { AccessTokenGenerationProvider, IGeneratedToken } from './generation.js'
  * Throws unless the prefix is a non-empty string and the length at least 32 bytes (256 bits, A14).
  * Defence in depth next to the authn config schema.
  */
+/** TokenStrategy treats a longer value as not a token, so nothing longer may be minted. */
+export const MAX_TOKEN_LENGTH = 1024;
+
 export function checkTokenFormat(prefix: unknown, length: unknown): void {
   if (typeof prefix !== 'string' || prefix.length === 0) {
     throw new Error('authn.token.prefix must be a non-empty string');
   }
   if (typeof length !== 'number' || !Number.isInteger(length) || length < 32) {
     throw new Error('authn.token.length must be an integer of at least 32 (bytes)');
+  }
+  if (prefix.length + Math.ceil((length * 4) / 3) > MAX_TOKEN_LENGTH) {
+    throw new Error(`authn.token.prefix and authn.token.length make tokens longer than ${MAX_TOKEN_LENGTH} characters`);
   }
 }
 

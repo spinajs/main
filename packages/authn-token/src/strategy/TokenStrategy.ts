@@ -5,15 +5,12 @@ import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey, TokenRecord } from '@spinajs/authn/contracts';
 
-import { checkTokenFormat } from '../generator.js';
+import { MAX_TOKEN_LENGTH, checkTokenFormat } from '../generator.js';
 
 /** Implemented by DbTokenService; a TokenService without it gets no last-used stamps. */
 export interface TokenUseRecorder {
   touch(id: string, ctx: AuthnContext, intervalSeconds: number): Promise<boolean>;
 }
-
-// Far above any minted token; a longer value is not ours and is never hashed or looked up.
-const MAX_TOKEN_LENGTH = 1024;
 
 const recordsUse = (s: unknown): s is TokenUseRecorder => typeof (s as Partial<TokenUseRecorder> | null)?.touch === 'function';
 

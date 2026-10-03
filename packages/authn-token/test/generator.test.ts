@@ -46,6 +46,8 @@ describe('SecureRandomTokenProvider', () => {
       [undefined, 32],
       ['spt_', undefined],
       ['spt_', 32.5],
+      // 4 + 1023 characters: TokenStrategy would never accept it
+      ['spt_', 767],
     ];
 
     for (const [prefix, length] of rows) {
