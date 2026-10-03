@@ -11,6 +11,7 @@ import { decodeCeiling, encodeCeiling, KeyStore } from './store.js';
 const OWNER_TYPES: readonly string[] = ['user', 'service', 'agent'];
 const MAX_OWNER_ID = 64;
 const MAX_NAME = 128;
+const TOUCH_INTERVAL_MS = 60_000;
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -41,6 +42,7 @@ const loginIdentity = (kid: string): IdentityRef => ({ type: 'key', id: isValidK
 @Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
 export class DefaultKeyRegistry extends KeyRegistry {
   protected readonly options: KeysOptions;
+  private readonly stamped = new Map<string, number>();
 
   constructor(
     protected readonly store: KeyStore,
@@ -138,6 +140,16 @@ export class DefaultKeyRegistry extends KeyRegistry {
 
   async byId(kid: string): Promise<KeyRecord | null> {
     return isValidKid(kid) ? this.store.get(kid) : null;
+  }
+
+  /** Stamps last_used_at after a successful verification, at most once a minute per key so busy clients write little. */
+  async touch(kid: string, at: Date): Promise<void> {
+    const last = this.stamped.get(kid);
+    if (last !== undefined && at.getTime() - last < TOUCH_INTERVAL_MS && at.getTime() >= last) {
+      return;
+    }
+    this.stamped.set(kid, at.getTime());
+    await this.store.touch(kid, at);
   }
 
   async challenge(req: KeyChallengeRequest, ctx: AuthnContext): Promise<KeyChallengeResult> {

@@ -5,3 +5,5 @@ export * from './models/index.js';
 export * from './migrations/index.js';
 export * from './registry/index.js';
 export * from './jws/index.js';
+export * from './nonce/index.js';
+export * from './strategies/index.js';

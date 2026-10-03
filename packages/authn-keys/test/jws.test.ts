@@ -3,15 +3,10 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import type { JwsClaims, JwsKey, JwsVerifyOptions, KeyAlgorithm } from '@spinajs/authn/contracts';
 import { generateKeyPair, runAuthnBehaviour, signCompactJws } from '@spinajs/authn-testing';
-import type { KitKeyPair } from '@spinajs/authn-testing';
 import { SMALL_ORDER } from '../src/jwk/index.js';
 import { LocalJwsSigner, parseStrictJson, StrictJwsVerifier } from '../src/jws/index.js';
 import type { PrivateJwk } from '../src/jws/index.js';
-
-export const privateJwkOf = (kp: KitKeyPair, kid = kp.kid): PrivateJwk => {
-  const j = kp.privateKey.export({ format: 'jwk' }) as Record<string, string>;
-  return { kty: j.kty, crv: j.crv, kid, x: j.x, ...(j.y ? { y: j.y } : {}), d: j.d };
-};
+import { privateJwkOf } from './harness.js';
 
 for (const alg of ['EdDSA', 'ES256'] as const) {
   runAuthnBehaviour(['A17'], () => ({ jws: { verifier: new StrictJwsVerifier(), signer: new LocalJwsSigner([privateJwkOf(generateKeyPair(alg))]) } }), {
