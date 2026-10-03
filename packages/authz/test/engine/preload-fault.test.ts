@@ -56,6 +56,9 @@ class Preloading extends StaticModel {
           );
     ctx.cache.set('d1', await known);
   }
+  async summarize(): Promise<ModelSummary> {
+    return { model: 'rbac', permissions: [] };
+  }
 }
 
 const make = (via: 'ancestors' | 'check' | 'throw', down: boolean) => new Authorizer({ domain: 'root', models: [new Preloading(via)], registry: REG, clock: fakeClock().clock, log: new RecordingLog(), audit: new RecordingAudit(), scopeResolvers: [new Resolver(down)] } as never);

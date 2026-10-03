@@ -3,7 +3,7 @@ import 'mocha';
 
 import { Authorizer, MAX_SUMMARY_PERMISSIONS } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
-import { AuthzConfigError, CORE_FILTER_OPS, FALSE, GLOBAL, PermissionRegistry, SYSTEM, TRUE, UNATTENDED } from '../../src/index.js';
+import { AuthzConfigError, CONDITION_UNKNOWN, CORE_FILTER_OPS, FALSE, GLOBAL, PermissionRegistry, SYSTEM, TRUE, UNATTENDED, subtractFieldGlobs, unionFieldGlobs } from '../../src/index.js';
 import type { DecisionRequest, EvaluationContext, ModelSummary, Permission, PermissionDef, Principal, ResourceFilter, ResourceRef, Vote } from '../../src/index.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
 import { DenyOverrides } from '../../src/engine/combinators.js';
@@ -47,6 +47,13 @@ class SummaryModel extends StaticModel {
   summarize(p: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
     this.summaries.push({ principal: p, at, ctx });
     return Promise.resolve().then(() => this.impl(p, at)) as Promise<ModelSummary>;
+  }
+}
+
+/** An empty summary: covers is false while a routed model of the target gives none. */
+class Summarizing extends StaticModel {
+  summarize(): Promise<ModelSummary> {
+    return Promise.resolve({ model: this.name, permissions: [] });
   }
 }
 
@@ -127,7 +134,7 @@ describe('Authorizer.summary', () => {
     expect(rbac.calls.every((c) => c.req.resource.type === '$global' && c.req.resource.id === undefined)).to.equal(true);
   });
 
-  it('candidates are the registered names the model summaries list; a listed name the check denies is left out', async () => {
+  it('candidates are the registered names the model summaries list; a listed name the check denies is listed conditional', async () => {
     const vote = table('rbac', { alice: { 'doc:read': P(), 'doc:write': P(), 'org:view': P() } });
     const rbac = new SummaryModel('rbac', { vote }, () => ({
       model: 'forged',
@@ -141,8 +148,11 @@ describe('Authorizer.summary', () => {
     }));
     const a = make({ models: [rbac] });
     const s = await a.summary(alice);
-    // doc:write and org:view are allowed but no summary names them; doc:delete is named but denied.
-    expect(names(s)).to.deep.equal(['doc:read']);
+    // doc:write and org:view are allowed but no summary names them; doc:delete is named but its check denies.
+    expect(s.permissions.map((p) => [p.name, p.conditional])).to.deep.equal([
+      ['doc:delete', true],
+      ['doc:read', false],
+    ]);
     expect(rbac.calls.map((c) => c.req.permission).sort()).to.deep.equal(['doc:delete', 'doc:read']);
     expect(s.models).to.have.length(1);
     expect(s.models[0].model).to.equal('rbac');
@@ -363,7 +373,7 @@ describe('Authorizer.summary', () => {
 
 describe('Authorizer.covers', () => {
   const setup = (grants: Grants, options: Partial<AuthorizerOptions> = {}, capabilities: StaticModelOptions['capabilities'] = {}) => {
-    const rbac = new StaticModel('rbac', { vote: table('rbac', grants), capabilities });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', grants), capabilities });
     return { rbac, a: make({ models: [rbac], ...options }) };
   };
 
@@ -521,7 +531,7 @@ describe('Authorizer.covers', () => {
       [10, true],
       [9000, false],
     ] as const) {
-      const models = [0, 1, 2, 3].map((k) => new StaticModel(`m${k}`, { vote: table(`m${k}`, { alice: { 'doc:read': P(scopes(k, n)), ...(k === 0 ? { 'doc:write': P() } : {}) }, bob: { 'doc:read': P(scopes(k, n)) } }), capabilities: { effects: ['permit'] } }));
+      const models = [0, 1, 2, 3].map((k) => new Summarizing(`m${k}`, { vote: table(`m${k}`, { alice: { 'doc:read': P(scopes(k, n)), ...(k === 0 ? { 'doc:write': P() } : {}) }, bob: { 'doc:read': P(scopes(k, n)) } }), capabilities: { effects: ['permit'] } }));
       const a = make({ models, combine: { default: { algorithm: 'permit-overrides' } } });
       const d = await a.check({ principal: bob, permission: 'doc:read', resource: GLOBAL });
       expect(d.allowed && d.residual.op === 'or' && d.residual.args.length === 4, `${n} scopes`).to.equal(true);
@@ -542,8 +552,8 @@ describe('Authorizer.covers', () => {
   it('B26: an ABAC deny policy on the holder counts', async () => {
     const grants: Grants = { admin: { 'doc:read': P(), 'doc:write': P(), 'doc:delete': P(), 'org:view': P() }, bob: { 'doc:read': P(), 'doc:delete': P() } };
     const admin = principal('user', 'admin', { attributes: { dept: 'ops' } });
-    const rbac = new StaticModel('rbac', { vote: table('rbac', grants) });
-    const abac = new StaticModel('abac', {
+    const rbac = new Summarizing('rbac', { vote: table('rbac', grants) });
+    const abac = new Summarizing('abac', {
       vote: (req: DecisionRequest) => ({ model: 'abac', permitWhen: FALSE, denyWhen: req.permission === 'doc:delete' && req.principal.attributes.dept === 'ops' ? TRUE : FALSE, cacheable: true }),
     });
     expect(await make({ models: [rbac] }).covers(admin, bob)).to.equal(true);
@@ -551,8 +561,8 @@ describe('Authorizer.covers', () => {
   });
 
   it('B26: an ABAC permit on the target counts', async () => {
-    const rbac = new StaticModel('rbac', { vote: table('rbac', { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }) });
-    const abac = new StaticModel('abac', { vote: table('abac', { bob: { 'org:view': P() } }) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }) });
+    const abac = new Summarizing('abac', { vote: table('abac', { bob: { 'org:view': P() } }) });
     const options = { combine: { default: { algorithm: 'permit-overrides' } } };
     expect(await make({ models: [rbac], ...options }).covers(alice, bob)).to.equal(true);
     expect(await make({ models: [rbac, abac], ...options }).covers(alice, bob)).to.equal(false);
@@ -566,7 +576,7 @@ describe('Authorizer.covers', () => {
   });
 
   it('a check that throws makes covers false (fail closed) and is logged', async () => {
-    const rbac = new StaticModel('rbac', { vote: table('rbac', { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }) });
     expect(await make({ models: [rbac] }).covers(alice, bob)).to.equal(true);
     expect(await make({ models: [rbac], registry: new ThrowingRegistry('org:view') }).covers(alice, bob)).to.equal(false);
     expect(log.at('error').some((e) => e.message.includes('registry down'))).to.equal(true);
@@ -599,7 +609,7 @@ describe('Authorizer.covers', () => {
 
   it(`more than MAX_SUMMARY_PERMISSIONS (${MAX_SUMMARY_PERMISSIONS}) permissions ⇒ false without checking, with a warning`, async () => {
     const many = registryOf(Array.from({ length: MAX_SUMMARY_PERMISSIONS + 1 }, (_, i) => ({ name: `p:a${i}`, types: ['p'] })));
-    const rbac = new StaticModel('rbac', { vote: table('rbac', { alice: { 'p:a0': P() } }) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', { alice: { 'p:a0': P() } }) });
     expect(await make({ registry: many, models: [rbac] }).covers(alice, bob)).to.equal(false);
     expect(rbac.calls).to.have.length(0);
     expect(log.at('warn').some((e) => e.message.includes(String(MAX_SUMMARY_PERMISSIONS)))).to.equal(true);
@@ -608,7 +618,7 @@ describe('Authorizer.covers', () => {
   it('stops checking once a target entry is not covered', async () => {
     const grants: Grants = { bob: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`p:a${String(i).padStart(2, '0')}`, P()])) };
     const many = registryOf(Array.from({ length: 40 }, (_, i) => ({ name: `p:a${String(i).padStart(2, '0')}`, types: ['p'] })));
-    const rbac = new StaticModel('rbac', { vote: table('rbac', grants) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', grants) });
     expect(await make({ registry: many, models: [rbac] }).covers(alice, bob)).to.equal(false);
     expect(rbac.calls.length).to.be.lessThan(80);
   });
@@ -632,7 +642,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
   const store = (get: () => Promise<Record<string, unknown>>): Partial<AuthorizerOptions> => ({ scopeAttributes: { store: { get, version: () => Promise.resolve('') } } });
 
   it('R1: a target vote that throws makes covers false; the same target without that grant is covered', async () => {
-    const faulty = new StaticModel('rbac', {
+    const faulty = new Summarizing('rbac', {
       vote: (req: DecisionRequest) => {
         if (bobWrite(req)) throw new Error('db down');
         return table('rbac', grants)(req);
@@ -641,20 +651,20 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
     const a = make({ models: [faulty] });
     expect((await a.check({ principal: bob, permission: 'doc:write', resource: GLOBAL })).reason?.code).to.equal('model_error');
     expect(await a.covers(alice, bob)).to.equal(false);
-    expect(await make({ models: [new StaticModel('rbac', { vote: table('rbac', bobWithoutWrite) })] }).covers(alice, bob)).to.equal(true);
+    expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })] }).covers(alice, bob)).to.equal(true);
   });
 
   it('R2: a target vote that never settles makes covers false', async () => {
-    const hanging = new StaticModel('rbac', { vote: ((req: DecisionRequest) => (bobWrite(req) ? new Promise(() => {}) : table('rbac', grants)(req))) as never });
+    const hanging = new Summarizing('rbac', { vote: ((req: DecisionRequest) => (bobWrite(req) ? new Promise(() => {}) : table('rbac', grants)(req))) as never });
     expect(await make({ models: [hanging], config: { modelTimeoutMs: 50 } }).covers(alice, bob)).to.equal(false);
     // The vote's own time limit decides, not the call's deadline.
     expect(log.at('error').some((e) => e.message.includes('target check of doc:write rests on an engine fault'))).to.equal(true);
   });
 
   it('R3: a fault masked by another reason (permit-overrides, the granting model throws) still makes covers false', async () => {
-    const m1 = new StaticModel('m1', { vote: (req: DecisionRequest) => ({ ...table('m1', bobWithoutWrite)(req), reason: { code: 'no_access' } } as Vote), capabilities: { effects: ['permit'] } });
+    const m1 = new Summarizing('m1', { vote: (req: DecisionRequest) => ({ ...table('m1', bobWithoutWrite)(req), reason: { code: 'no_access' } } as Vote), capabilities: { effects: ['permit'] } });
     const m2 = (throws: boolean) =>
-      new StaticModel('m2', {
+      new Summarizing('m2', {
         vote: (req: DecisionRequest) => {
           if (throws && bobWrite(req)) throw new Error('db down');
           return { model: 'm2', permitWhen: FALSE, denyWhen: FALSE, cacheable: true } as Vote;
@@ -671,25 +681,25 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
   it('a combinator that throws for a target check makes covers false', async () => {
     // Only bob's doc:write is conditional, so the combinator fails for that check alone.
     const throwsOnCmp = flaky((votes) => votes.some((v) => v.permitWhen.op === 'cmp'));
-    const rbac = new StaticModel('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(isPublic) } }) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(isPublic) } }) });
     const options = { combinators: [throwsOnCmp as never], combine: { default: { algorithm: 'flaky' } } };
     expect(await make({ models: [rbac], ...options }).covers(alice, bob)).to.equal(false);
-    expect(await make({ models: [new StaticModel('rbac', { vote: table('rbac', bobWithoutWrite) })], ...options }).covers(alice, bob)).to.equal(true);
+    expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })], ...options }).covers(alice, bob)).to.equal(true);
   });
 
   it('a scope attribute load that rejects or times out in the binder makes covers false', async () => {
-    const rbac = new StaticModel('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(tier) } }) });
+    const rbac = new Summarizing('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(tier) } }) });
     expect(await make({ models: [rbac], ...store(() => Promise.reject(new Error('store down'))) }).covers(alice, bob)).to.equal(false);
     expect(await make({ models: [rbac], config: { modelTimeoutMs: 50 }, ...store(() => new Promise(() => {})) }).covers(alice, bob)).to.equal(false);
     // A store that answers without the attribute: bob's vote is indeterminate (decision 29), so covers is false too.
     expect(await make({ models: [rbac], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(false);
     // Control: without bob's grant that reads the store, alice covers him.
-    expect(await make({ models: [new StaticModel('rbac', { vote: table('rbac', bobWithoutWrite) })], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(true);
+    expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })], ...store(() => Promise.resolve({})) }).covers(alice, bob)).to.equal(true);
   });
 
   it('a model that catches a failed or timed-out ctx.attributes and votes no makes covers false', async () => {
     const reading = (get: () => Promise<Record<string, unknown>>) => {
-      const rbac = new StaticModel('rbac', {
+      const rbac = new Summarizing('rbac', {
         vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (!bobWrite(req)) return table('rbac', grants)(req);
           const attrs = await ctx.attributes(GLOBAL).catch(() => null);
@@ -706,7 +716,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
   it('a target decision resting on a faulted nested ctx.check makes covers false', async () => {
     const carol = principal('user', 'carol');
     const nesting = (carolThrows: boolean) =>
-      new StaticModel('rbac', {
+      new Summarizing('rbac', {
         vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (req.principal.id === 'carol') {
             if (carolThrows) throw new Error('db down');
@@ -723,7 +733,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
 
   it('a faulted holder check makes covers false too (conservative)', async () => {
     const holderFaults = (throws: boolean) =>
-      new StaticModel('rbac', {
+      new Summarizing('rbac', {
         vote: (req: DecisionRequest) => {
           if (throws && req.principal.id === 'alice' && req.permission === 'doc:delete') throw new Error('db down');
           return table('rbac', { alice: { 'doc:read': P(), 'doc:write': P(), 'doc:delete': P() }, bob: { 'doc:read': P() } })(req);
@@ -735,7 +745,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
 
   it('a faulted decision is never cached: a later check or covers in the same request evaluates it again', async () => {
     let fail = true;
-    const a = make({ models: [new StaticModel('rbac', { vote: table('rbac', grants) })], combinators: [flaky(() => fail) as never], combine: { default: { algorithm: 'flaky' } } });
+    const a = make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) })], combinators: [flaky(() => fail) as never], combine: { default: { algorithm: 'flaky' } } });
     const cache = new Map<string, unknown>();
     expect((await a.check({ principal: bob, permission: 'doc:write', resource: GLOBAL }, { cache })).reason?.code).to.equal('model_error');
     fail = false;
@@ -751,7 +761,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
 
   it('R4: a degraded load the model memoised in ctx.cache earlier in the request makes covers false', async () => {
     const memoising = (get: () => Promise<Record<string, unknown>>) => {
-      const rbac = new StaticModel('rbac', {
+      const rbac = new Summarizing('rbac', {
         vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (!bobWrite(req)) return table('rbac', grants)(req);
           if (!ctx.cache.has('tier'))
@@ -792,7 +802,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
       }
     }
     const memoising = (down: boolean) => {
-      const rbac = new StaticModel('rbac', {
+      const rbac = new Summarizing('rbac', {
         vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (req.principal.id === 'carol') return { model: 'rbac', permitWhen: FALSE, denyWhen: FALSE, cacheable: true } as Vote;
           if (!bobWrite(req)) return table('rbac', grants)(req);
@@ -825,7 +835,7 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
   it('a faulted (resolved, not rejected) ctx.check the model memoised earlier in the request makes covers false', async () => {
     const carol = principal('user', 'carol');
     const memoising = (carolFaults: boolean) => {
-      const rbac = new StaticModel('rbac', {
+      const rbac = new Summarizing('rbac', {
         vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
           if (req.principal.id === 'carol') {
             if (carolFaults) throw new Error('db down');
@@ -874,16 +884,16 @@ describe('Authorizer.covers and summary: one deadline per call (M2)', () => {
     .all()
     .map((d) => d.name)
     .sort();
-  const slow = () => new StaticModel('rbac', { vote: table('rbac', { alice: Object.fromEntries(sorted.map((n) => [n, P()])) }), delayMs: 30 });
+  const slow = (Model: typeof StaticModel = StaticModel) => new Model('rbac', { vote: table('rbac', { alice: Object.fromEntries(sorted.map((n) => [n, P()])) }), delayMs: 30 });
 
   it('covers past 4 × modelTimeoutMs is false without waiting for the remaining checks, and is logged', async function () {
     this.timeout(20000);
     const started = Date.now();
-    expect(await make({ registry: many, models: [slow()], config: { modelTimeoutMs: 100 } }).covers(alice, bob)).to.equal(false);
+    expect(await make({ registry: many, models: [slow(Summarizing)], config: { modelTimeoutMs: 100 } }).covers(alice, bob)).to.equal(false);
     expect(Date.now() - started).to.be.lessThan(3250);
     expect(log.at('error').some((e) => e.message.includes('400 ms'))).to.equal(true);
     // The same call under a longer limit finishes and covers.
-    expect(await make({ registry: many, models: [slow()], config: { modelTimeoutMs: 2000 } }).covers(alice, bob)).to.equal(true);
+    expect(await make({ registry: many, models: [slow(Summarizing)], config: { modelTimeoutMs: 2000 } }).covers(alice, bob)).to.equal(true);
   });
 
   it('summary past 4 × modelTimeoutMs returns the permissions checked so far, leaves out the rest and logs it', async function () {
@@ -897,5 +907,275 @@ describe('Authorizer.covers and summary: one deadline per call (M2)', () => {
     expect(log.at('error').some((e) => e.message.includes('400 ms') && e.message.includes(`${200 - s.permissions.length} permission`))).to.equal(true);
     expect(deepFrozen(s)).to.equal(true);
     expect((await make({ registry: many, models: [slow()], config: { modelTimeoutMs: 2000 } }).summary(alice)).permissions).to.have.length(200);
+  });
+});
+
+describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
+  type Listed = ModelSummary['permissions'][number];
+  type Listing = Readonly<Record<string, readonly Listed[]>>;
+
+  const root = principal('user', 'root');
+  const O1: ResourceRef = { type: 'org', id: 'o1' };
+  const listing = (byId: Listing) => (p: Principal) => ({ model: 'rbac', permissions: byId[p.id] ?? [] });
+  /** RBAC-like votes from `grants`; its summary lists `listed` per principal id. */
+  const rbacOf = (grants: Grants, listed: Listing = {}, options: StaticModelOptions = {}) => new SummaryModel('rbac', { vote: table('rbac', grants), ...options }, listing(listed));
+  const coversFalseLogged = () => log.at('error').some((e) => e.message.includes('covers is false'));
+  const pairs = (s: { readonly permissions: readonly { readonly name: string; readonly conditional: boolean }[] }) => s.permissions.map((p) => [p.name, p.conditional]);
+  const entry = (name: string, conditional = false, fields?: Listed['fields']): Listed => (fields ? { name, conditional, fields } : { name, conditional });
+
+  describe('covers: the target set is its checks and its summaries', () => {
+    it('a permission the target holds only by its summary: a holder without it does not cover, an unconditional holder with every field does', async () => {
+      const grants: Grants = { alice: { 'doc:write': P() }, root: { 'doc:read': P(), 'doc:write': P() } };
+      const a = make({ models: [rbacOf(grants, { bob: [entry('doc:read')] })] });
+      expect((await a.check({ principal: bob, permission: 'doc:read', resource: GLOBAL })).allowed).to.equal(false);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      // Strict through doc:write.
+      expect(await a.covers(root, bob)).to.equal(true);
+      // Control: without the summary entry alice covers bob.
+      expect(await make({ models: [rbacOf(grants)] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it('a conditional summary entry is covered only by an unconditional holder', async () => {
+      const grants: Grants = { alice: { 'doc:read': P(isPublic), 'doc:write': P() }, root: { 'doc:read': P(), 'doc:write': P() } };
+      const a = make({ models: [rbacOf(grants, { bob: [entry('doc:read', true)] })] });
+      expect(await a.covers(alice, bob)).to.equal(false);
+      expect(await a.covers(root, bob)).to.equal(true);
+      // Control: the same condition from bob's check is covered by alice's equal one.
+      expect(await make({ models: [rbacOf({ ...grants, bob: { 'doc:read': P(isPublic) } })] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it("a summary entry's fields must be inside the holder's; an entry without fields needs every field but neverRead", async () => {
+      const read = (r: string[]) => P(TRUE, { fields: { read: r } });
+      const title: Listing = { bob: [entry('doc:read', false, { read: ['title'], write: [] })] };
+      const bare: Listing = { bob: [entry('doc:read')] };
+      const cases: [string, Partial<Vote>, Listing, boolean][] = [
+        ['read body vs title', read(['body']), title, false],
+        ['read title and body vs title', read(['title', 'body']), title, true],
+        ['read title vs every field', read(['title']), bare, false],
+        ['every field but neverRead vs every field', P(), bare, true],
+      ];
+      for (const [label, holder, listed, expected] of cases) {
+        const a = make({ models: [rbacOf({ alice: { 'doc:read': holder, 'doc:write': P() } }, listed)] });
+        expect(await a.covers(alice, bob), label).to.equal(expected);
+      }
+    });
+
+    it('the holder side ignores summaries: a holder whose summary lists a permission its checks deny does not cover a target holding it', async () => {
+      const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P(), 'doc:delete': P() } };
+      const rbac = rbacOf(grants, { alice: [entry('doc:delete')] });
+      expect(await make({ models: [rbac] }).covers(alice, bob)).to.equal(false);
+      expect(rbac.summaries.map((s) => s.principal.id)).to.deep.equal(['bob']);
+      // Control: the same holder with doc:delete from a check covers bob.
+      expect(await make({ models: [rbacOf({ ...grants, alice: { ...grants.alice, 'doc:delete': P() } })] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it("strictness: an unconditional target entry for the holder's only extra permission is not strict; a conditional one is", async () => {
+      const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
+      expect(await make({ models: [rbacOf(grants)] }).covers(alice, bob)).to.equal(true);
+      expect(await make({ models: [rbacOf(grants, { bob: [entry('doc:write')] })] }).covers(alice, bob)).to.equal(false);
+      expect(await make({ models: [rbacOf(grants, { bob: [entry('doc:write', true)] })] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it('summary entries for names not checkable at `at`, or not registered, are ignored', async () => {
+      const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
+      const resolver = new FakeScopeResolver(['doc'], { 'doc:d1': null });
+      const a = make({ models: [rbacOf(grants, { bob: [entry('doc:read'), entry('nope:x'), entry('org:view')] })], scopeResolvers: [resolver] });
+      expect(await a.covers(alice, bob, { type: 'doc', id: 'd1' })).to.equal(true);
+      // Control: at $global org:view is checkable, and alice lacks it.
+      expect(await a.covers(alice, bob)).to.equal(false);
+    });
+  });
+
+  describe('covers fails closed on target summaries', () => {
+    const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
+    const working = () => ({ model: 'rbac', permissions: [entry('doc:read')] });
+
+    it('a summarize that throws, rejects, never settles or returns garbage makes covers false and is logged; a working one covers', async () => {
+      const failing: [string, () => unknown][] = [
+        [
+          'throws',
+          () => {
+            throw new Error('boom');
+          },
+        ],
+        ['rejects', () => Promise.reject(new Error('down'))],
+        ['never settles', () => new Promise(() => {})],
+        ['no permissions list', () => ({ model: 'rbac', permissions: 'all' })],
+        ['a malformed entry', () => ({ model: 'rbac', permissions: [{ name: 'doc:read', conditional: 'no' }] })],
+      ];
+      for (const [label, impl] of failing) {
+        log = new RecordingLog();
+        const a = make({ models: [new SummaryModel('rbac', { vote: table('rbac', grants) }, impl)], config: { modelTimeoutMs: 30 } });
+        expect(await a.covers(alice, bob), label).to.equal(false);
+        expect(coversFalseLogged(), label).to.equal(true);
+      }
+      log = new RecordingLog();
+      expect(await make({ models: [new SummaryModel('rbac', { vote: table('rbac', grants) }, working)], config: { modelTimeoutMs: 30 } }).covers(alice, bob)).to.equal(true);
+      expect(coversFalseLogged()).to.equal(false);
+    });
+
+    it('a routed model without summarize makes covers false and is logged; one that does not serve the target type does not count', async () => {
+      const rbac = () => new SummaryModel('rbac', { vote: table('rbac', grants) }, working);
+      expect(await make({ models: [rbac(), new StaticModel('abac', { vote: P(FALSE) })] }).covers(alice, bob)).to.equal(false);
+      expect(coversFalseLogged()).to.equal(true);
+      expect(await make({ models: [new StaticModel('rbac', { vote: table('rbac', grants) })] }).covers(alice, bob)).to.equal(false);
+      log = new RecordingLog();
+      expect(await make({ models: [rbac(), new StaticModel('svc', { vote: P(FALSE), capabilities: { principalTypes: ['service'] } })] }).covers(alice, bob)).to.equal(true);
+      expect(coversFalseLogged()).to.equal(false);
+    });
+
+    it('a summary never makes covers true where the checks alone say false', async () => {
+      const wider: Grants = { alice: { 'doc:read': P() }, bob: { 'doc:read': P(), 'doc:write': P() } };
+      const impls: (() => unknown)[] = [
+        () => ({ model: 'rbac', permissions: [] }),
+        () => ({ model: 'rbac', permissions: [entry('doc:write')] }),
+        () => {
+          throw new Error('boom');
+        },
+        () => ({ model: 'rbac', permissions: 'all' }),
+      ];
+      for (const impl of impls) expect(await make({ models: [new SummaryModel('rbac', { vote: table('rbac', wider) }, impl)] }).covers(alice, bob)).to.equal(false);
+    });
+  });
+
+  describe('routed models (D1)', () => {
+    const typedModel = (listed: Listing) => new SummaryModel('typed', { applies: (_def, type) => type === 'doc', vote: P(FALSE) }, listing(listed));
+    const grants: Grants = { alice: { 'doc:write': P() }, root: { 'doc:read': P(), 'doc:write': P() } };
+
+    it('covers summarizes at $global a model routed only for the permission types', async () => {
+      const typed = typedModel({ bob: [entry('doc:read')] });
+      const a = make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) }), typed] });
+      expect(a.routes().get('doc:read', '$global')!.models.map((m) => m.name)).to.deep.equal(['rbac']);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      expect(await a.covers(root, bob)).to.equal(true);
+      expect(typed.summaries.length).to.be.greaterThan(0);
+      expect(typed.summaries.every((s) => s.principal.id === 'bob' && s.at.type === '$global')).to.equal(true);
+      // Control: the same world without the entry.
+      expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) }), typedModel({})] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it('summary lists what such a model gives at $global', async () => {
+      const typed = typedModel({ bob: [entry('doc:read')] });
+      const s = await make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) }), typed] }).summary(bob);
+      expect(pairs(s)).to.deep.equal([['doc:read', true]]);
+      expect(s.models.map((m) => m.model)).to.deep.equal(['rbac', 'typed']);
+    });
+
+    it('a typed at keeps the models routed at its type only', async () => {
+      const typed = typedModel({ bob: [entry('doc:read')] });
+      const orgOnly = new SummaryModel('org-only', { applies: (_def, type) => type === 'org', vote: P(FALSE) }, () => ({ model: 'org-only', permissions: [] }));
+      const resolver = new FakeScopeResolver(['doc'], { 'doc:d1': null });
+      await make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) }), typed, orgOnly], scopeResolvers: [resolver] }).summary(bob, { type: 'doc', id: 'd1' });
+      expect(typed.summaries).to.have.length(1);
+      expect(orgOnly.summaries).to.have.length(0);
+    });
+  });
+
+  describe('the ceiling on summary entries (D3)', () => {
+    const past = () => new Date(clock.now.getTime() - 1);
+    const future = () => new Date(clock.now.getTime() + 60_000);
+    const bobWith = (ceiling: unknown) => principal('user', 'bob', { ceiling: ceiling as never });
+
+    it("covers: the target's ceiling drops an entry it does not allow, has expired on or has no resources for", async () => {
+      const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
+      const a = make({ models: [rbacOf(grants, { bob: [entry('doc:delete')] })] });
+      const cases: [string, unknown, boolean][] = [
+        ['no ceiling', undefined, false],
+        ['permissions without doc:delete', { permissions: ['doc:read'] }, true],
+        ['permissions with doc:delete', { permissions: ['doc:*'] }, false],
+        ['expired', { expiresAt: past() }, true],
+        ['not expired', { expiresAt: future() }, false],
+        ['an invalid expiry', { expiresAt: new Date(NaN) }, true],
+        ['no resources', { resources: [] }, true],
+        ['resources below GLOBAL keep the entry', { resources: [O1] }, false],
+      ];
+      for (const [label, ceiling, expected] of cases) expect(await a.covers(alice, ceiling === undefined ? bob : bobWith(ceiling)), label).to.equal(expected);
+    });
+
+    it('covers: resources below GLOBAL keep the entry, conditional', async () => {
+      const a = make({ models: [rbacOf({ alice: { 'doc:read': P() } }, { bob: [entry('doc:read')] })] });
+      expect(await a.covers(alice, bob)).to.equal(false);
+      expect(await a.covers(alice, bobWith({ resources: [GLOBAL] }))).to.equal(false);
+      expect(await a.covers(alice, bobWith({ resources: [O1] }))).to.equal(true);
+    });
+
+    it('summary: the ceiling drops or keeps the summary entries the same way', async () => {
+      const a = make({ models: [rbacOf({}, { alice: [entry('doc:read'), entry('doc:delete')] })] });
+      const at = async (ceiling: unknown) => pairs(await a.summary(principal('user', 'alice', { ceiling: ceiling as never })));
+      const both = [
+        ['doc:delete', true],
+        ['doc:read', true],
+      ];
+      expect(await at(undefined)).to.deep.equal(both);
+      expect(await at({ permissions: ['doc:read'] })).to.deep.equal([['doc:read', true]]);
+      expect(await at({ expiresAt: past() })).to.deep.equal([]);
+      expect(await at({ expiresAt: future() })).to.deep.equal(both);
+      expect(await at({ resources: [] })).to.deep.equal([]);
+      expect(await at({ resources: [O1] })).to.deep.equal(both);
+    });
+  });
+
+  describe('a target entry the engine proves absent everywhere (D5)', () => {
+    const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
+    const bobDelete = (req: DecisionRequest) => req.principal.id === 'bob' && req.permission === 'doc:delete';
+    const denying = (when: ResourceFilter, code: string, denyWhen: ResourceFilter = when) =>
+      new Summarizing('abac', {
+        vote: (req: DecisionRequest) => ({ model: 'abac', permitWhen: FALSE, denyWhen: bobDelete(req) ? denyWhen : FALSE, ...(bobDelete(req) ? { denies: [{ when, reason: { code } }] } : {}), cacheable: true }),
+      });
+    const world = (deny: StaticModel | undefined, algorithm = 'deny-overrides') => make({ models: [rbacOf(grants, { bob: [entry('doc:delete')] }), ...(deny ? [deny] : [])], combine: { default: { algorithm } } });
+
+    it('a row-universal deny of the target makes its summary entry not count', async () => {
+      expect(await world(undefined).covers(alice, bob)).to.equal(false);
+      expect(await world(denying(TRUE, 'policy')).covers(alice, bob)).to.equal(true);
+      expect(await world(denying(CONDITION_UNKNOWN, 'policy')).covers(alice, bob)).to.equal(true);
+      expect(await world(denying(CONDITION_UNKNOWN, 'policy', { op: 'or', args: [isPublic, CONDITION_UNKNOWN] })).covers(alice, bob)).to.equal(true);
+    });
+
+    it('not for a needs_subject deny, not under permit-overrides, not for a deny on a resource field', async () => {
+      expect(await world(denying(TRUE, 'needs_subject')).covers(alice, bob)).to.equal(false);
+      expect(await world(denying(TRUE, 'policy'), 'permit-overrides').covers(alice, bob)).to.equal(false);
+      expect(await world(denying(isPublic, 'policy')).covers(alice, bob)).to.equal(false);
+    });
+
+    it('not for a deny entry the vote does not combine', async () => {
+      expect(await world(denying(TRUE, 'policy', isPublic)).covers(alice, bob)).to.equal(false);
+    });
+
+    it('a target check that allows never lets the entry go', async () => {
+      const allowing = { ...grants, alice: { ...grants.alice, 'doc:delete': P(isPublic) }, bob: { 'doc:read': P(), 'doc:delete': P(isPublic) } };
+      const a = make({ models: [rbacOf(allowing, { bob: [entry('doc:delete')] })] });
+      expect((await a.check({ principal: bob, permission: 'doc:delete', resource: GLOBAL })).allowed).to.equal(true);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      // Control: without the entry alice's equal condition covers bob's.
+      expect(await make({ models: [rbacOf(allowing)] }).covers(alice, bob)).to.equal(true);
+    });
+  });
+
+  describe('summary (B25, D6)', () => {
+    it("a name only a summary lists is conditional, with the union of the entries' fields less neverRead", async () => {
+      const m1 = new SummaryModel('m1', { vote: P(FALSE) }, () => ({ model: 'm1', permissions: [entry('doc:read', false, { read: ['title'], write: [] })] }));
+      const m2 = new SummaryModel('m2', { vote: P(FALSE) }, () => ({ model: 'm2', permissions: [entry('doc:read', false, { read: ['body', 'Password'] }), entry('doc:delete')] }));
+      const s = await make({ models: [m1, m2] }).summary(alice);
+      expect(s.permissions).to.deep.equal([
+        { name: 'doc:delete', conditional: true },
+        { name: 'doc:read', conditional: true, fields: { read: subtractFieldGlobs(unionFieldGlobs(['title'], ['body', 'Password']), ['Password']), write: subtractFieldGlobs(['*'], ['Password']) } },
+      ]);
+      expect(s.permissions[1].fields!.read).to.not.include('Password');
+      expect(deepFrozen(s)).to.equal(true);
+    });
+
+    it('an allowed check gives the entry; a faulted check leaves a listed name out', async () => {
+      const rbac = new SummaryModel(
+        'rbac',
+        {
+          vote: (req: DecisionRequest) => {
+            if (req.permission === 'doc:write') throw new Error('db down');
+            return table('rbac', { alice: { 'doc:read': P(isPublic) } })(req);
+          },
+        },
+        () => ({ model: 'rbac', permissions: [entry('doc:read'), entry('doc:write')] }),
+      );
+      expect(pairs(await make({ models: [rbac] }).summary(alice))).to.deep.equal([['doc:read', true]]);
+    });
   });
 });

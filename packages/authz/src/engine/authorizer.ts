@@ -9,15 +9,16 @@ import type { Ceiling, Principal, PrincipalRef, ResourceRef, ResourceType } from
 import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttributeStore, ScopeResolver } from '../contracts/adapter.js';
 import type { AccessSummary, CheckInput, DecisionAudit, DecisionCache } from '../contracts/service.js';
-import { subtractFieldGlobs } from '../contracts/fields.js';
+import { subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
+import { CONDITION_UNKNOWN } from '../conditions/compiler.js';
 import { BUILTIN_COMBINATORS, normalizeVote } from './combinators.js';
 import { DEFAULT_COMBINE, compileRoutes } from './routes.js';
 import type { CombineConfig, RouteTable } from './routes.js';
 import { defaultAttribute, evaluateResidual } from './evaluate.js';
 import type { SubjectEnv, Truth } from './evaluate.js';
 import { selectDenyReason, staticTruths } from './reasons.js';
-import { ceilingOutcome, mergeCeilings, readCeiling } from './ceiling.js';
+import { ceilingOutcome, mergeCeilings, readCeiling, scopeCovers } from './ceiling.js';
 import type { CeilingOutcome } from './ceiling.js';
 import { resolveDelegation, stripPrincipalOps } from './delegation.js';
 import type { Delegation } from './delegation.js';
@@ -430,8 +431,12 @@ export class Authorizer {
    * B25: a quiet check per candidate permission at `at`, sharing one scope.
    * Candidates: the registered names the routed models' summaries list, or
    * every permission checkable at `at` when some routed model gives no
-   * summary (none, a failure or a timeout). A check that throws or rests on
-   * an engine fault leaves its permission out, and so does every check left
+   * summary (none, a failure or a timeout). An allowed check gives the entry.
+   * A check that denies gives a conditional entry when a summary entry left
+   * by the principal's ceilings lists the name (RFC L1-3: a check at
+   * `$global` is concrete and misses grants below it), with the union of
+   * those entries' fields less neverRead. A check that throws or rests on an
+   * engine fault leaves its permission out, and so does every check left
    * when the call's deadline (DEADLINE_FACTOR × modelTimeoutMs) passes.
    */
   async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
@@ -450,6 +455,7 @@ export class Authorizer {
       const summaries = await this.modelSummaries(gate.principal, ref, defs, { ...run, nested: newNested() });
       out.models = summaries.list;
       const candidates = summaries.names === undefined ? defs : defs.filter((d) => summaries.names!.has(d.name));
+      const listed = this.summaryEntries(gate.principal, summaries.list, defs, run.instant) ?? new Map<Permission, SummaryItem[]>();
       const checked = await this.checkEach(gate.principal, candidates, ref, run, limit);
       const faulted = candidates
         .filter((_, i) => {
@@ -460,7 +466,16 @@ export class Authorizer {
       if (faulted.length > 0) this.logAt('error', `${this.where}: summary left out ${faulted.length} permission(s) whose decision rests on an engine fault: ${faulted.slice(0, 10).join(', ')}${faulted.length > 10 ? ', …' : ''}`);
       out.permissions = candidates.flatMap((def, i) => {
         const c = checked[i];
-        return c === undefined || c === THREW || c.faulted || !c.decision.allowed ? [] : [summaryEntry(def, c.decision.residual.op !== 'true', c.decision.fields)];
+        if (c === undefined || c === THREW || c.faulted) return [];
+        if (c.decision.allowed) return [summaryEntry(def, c.decision.residual.op !== 'true', c.decision.fields)];
+        const entries = listed.get(def.name);
+        if (entries === undefined) return [];
+        try {
+          return [summaryEntry(def, true, def.fields === true ? this.listedFields(entries) : NO_FIELDS)];
+        } catch (e) {
+          this.logAt('error', `${this.where}: summary left out ${def.name}: the fields its model summaries list could not be combined: ${describeError(e)}`);
+          return [];
+        }
       });
       return deepFreeze(out);
     } finally {
@@ -470,10 +485,17 @@ export class Authorizer {
 
   /**
    * B26: the holder's combined set at `at` strictly contains the target's,
-   * over every permission checkable at `at`. False for a target (or a holder
-   * other than SYSTEM) that the principal gate or the onBehalfOf resolution
-   * refuses, when any check throws or rests on an engine fault, when a field
-   * comparison throws, and past the call's deadline.
+   * over every permission checkable at `at`. RFC L1-3, asymmetric so that a
+   * summary can only shrink what the holder covers: the holder's set is its
+   * checks at `at`; the target's is its checks at `at` and the entries of
+   * every model routed for the permission (at `$global`, also for each of
+   * its types) after the target's ceilings. A summary entry needs an
+   * unconditional holder with its fields; it is ignored only when the
+   * target's own checks deny the permission for every row (deniedEverywhere).
+   * False for a target (or a holder other than SYSTEM) that the principal
+   * gate or the onBehalfOf resolution refuses, when a model routed for the
+   * target gives no summary, when any check throws or rests on an engine
+   * fault, when a field comparison throws, and past the call's deadline.
    */
   async covers(holder: Principal, target: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<boolean> {
     const ref = this.requireRef(at);
@@ -487,6 +509,20 @@ export class Authorizer {
     const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
     let strict = false;
     try {
+      const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
+      if (summarized === EXPIRED) {
+        this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+        return false;
+      }
+      if (summarized.names === undefined) {
+        this.logAt('error', `${this.where}: covers is false: a model routed for the target gave no summary`);
+        return false;
+      }
+      const listed = this.summaryEntries(target, summarized.list, defs, run.instant);
+      if (listed === undefined) {
+        this.logAt('error', `${this.where}: covers is false: the onBehalfOf chain of the target does not resolve`);
+        return false;
+      }
       for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
         const batch = defs.slice(i, i + SUMMARY_BATCH);
         const pairs = await limit.race(Promise.all(batch.map((def) => Promise.all([this.quietCheck(holder, def, ref, run), this.quietCheck(target, def, ref, run)]))));
@@ -502,7 +538,17 @@ export class Authorizer {
           }
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
           if (t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision)) return false;
-          if (h.decision.allowed && !entryCovers(t.decision, h.decision)) strict = true;
+          const def = batch[k];
+          let entries = listed.get(def.name) ?? [];
+          if (entries.some((e) => !this.summaryCovered(h.decision, e, def))) {
+            if (t.decision.allowed || !(await this.deniedEverywhere(target, def, ref, run, limit))) {
+              if (limit.expired) this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+              return false;
+            }
+            entries = [];
+          }
+          // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
+          if (h.decision.allowed && !entryCovers(t.decision, h.decision) && !entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) strict = true;
         }
       }
     } catch (e) {
@@ -630,9 +676,9 @@ export class Authorizer {
   }
 
   /**
-   * The summaries of the models routed for `defs` at `ref` that serve the
-   * principal the models run with. `names` is undefined when one of them gave
-   * no usable summary: then every checkable permission is a candidate.
+   * The summaries of the models routed for `defs` at `ref` (at `$global`, also
+   * at each of a permission's types) that serve the principal the models run
+   * with. `names` is undefined when one of them gave no usable summary.
    */
   private async modelSummaries(principal: Principal, ref: ResourceRef, defs: readonly PermissionDef[], run: Run): Promise<{ readonly list: readonly ModelSummary[]; readonly names: ReadonlySet<string> | undefined }> {
     let runAs: Principal;
@@ -646,7 +692,10 @@ export class Authorizer {
       return { list: [], names: undefined };
     }
     const routed = new Set<AuthorizationModel>();
-    for (const def of defs) for (const m of this.table.get(def.name, ref.type)?.models ?? []) routed.add(m);
+    for (const def of defs) {
+      // A check at $global is concrete: the models routed for the permission's types hold what lies below it.
+      for (const type of ref.type === GLOBAL_TYPE ? [ref.type, ...def.types] : [ref.type]) for (const m of this.table.get(def.name, type)?.models ?? []) routed.add(m);
+    }
     const host = this.hostFor(run);
     const cacheId = principalCacheId(runAs);
     let complete = true;
@@ -713,6 +762,74 @@ export class Authorizer {
   /** `run`: the call's quietRun; each check is its own call tree, so it gets its own nested record. */
   private quietCheck(principal: Principal, def: PermissionDef, ref: ResourceRef, run: Run): Promise<Checked> {
     return runAsync(this.pipeline({ principal, permission: def.name }, { ...run, nested: newNested() }, { ref, subject: undefined }));
+  }
+
+  /**
+   * The summary entries for `defs` by name, under the ceilings of the
+   * principal's onBehalfOf resolution (the ones its checks apply); undefined
+   * when the resolution throws or denies.
+   */
+  private summaryEntries(principal: Principal, list: readonly ModelSummary[], defs: readonly PermissionDef[], instant: Date): Map<Permission, SummaryItem[]> | undefined {
+    let ceilings: readonly unknown[];
+    try {
+      const d = this.delegation(principal, undefined, this.config.maxDelegation);
+      if (d.denial) return undefined;
+      ceilings = d.ceilings;
+    } catch {
+      return undefined;
+    }
+    const names = new Set(defs.map((d) => d.name));
+    const out = new Map<Permission, SummaryItem[]>();
+    for (const summary of list) {
+      for (const entry of summary.permissions) {
+        if (!names.has(entry.name)) continue;
+        const kept = underCeilings(ceilings, entry, instant);
+        if (kept === undefined) continue;
+        const entries = out.get(entry.name);
+        if (entries) entries.push(kept);
+        else out.set(entry.name, [kept]);
+      }
+    }
+    return out;
+  }
+
+  /** The union of the entries' fields (none listed: every field), less neverRead. Throws AuthzConfigError past the field budget. */
+  private listedFields(entries: readonly SummaryItem[]): Fields {
+    const union = (k: 'read' | 'write') => subtractFieldGlobs(unionFieldGlobs(...entries.map((e) => e.fields?.[k] ?? ['*'])), this.config.neverRead);
+    return { read: union('read'), write: union('write') };
+  }
+
+  /**
+   * An entry has no residual to compare, so only an unconditional holder
+   * covers it, with every field it lists (none listed: every field but
+   * neverRead). `hide` only narrows the target, so it is not read.
+   */
+  private summaryCovered(holder: Decision, entry: SummaryItem, def: PermissionDef): boolean {
+    if (!holder.allowed || holder.residual.op !== 'true') return false;
+    if (def.fields !== true) return true;
+    const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.config.neverRead), holder.fields[k]).length === 0;
+    return inside('read') && inside('write');
+  }
+
+  /**
+   * The target's own checks prove it lacks `def` on every row: at `$global`
+   * on each of its types (`$global` itself when it has none), else at `ref`.
+   * Rests on engine checks only, never on a summary: quiet explain checks,
+   * whose votes the trace shows. A throw, a fault or the deadline: not proven.
+   */
+  private async deniedEverywhere(target: Principal, def: PermissionDef, ref: ResourceRef, run: Run, limit: Deadline): Promise<boolean> {
+    const refs: readonly ResourceRef[] = ref.type !== GLOBAL_TYPE ? [ref] : def.types.length > 0 ? def.types.map((type) => Object.freeze({ type })) : [GLOBAL];
+    for (const r of refs) {
+      let checked: Checked | typeof EXPIRED;
+      try {
+        checked = await limit.race(runAsync(this.pipeline({ principal: target, permission: def.name, explain: true }, { ...run, nested: newNested() }, { ref: r, subject: undefined })));
+      } catch (e) {
+        this.logAt('debug', `${this.where}: covers could not prove that the target lacks ${def.name} on ${resourceKey(r)}: ${describeError(e)}`);
+        return false;
+      }
+      if (checked === EXPIRED || !deniedForEveryRow(checked)) return false;
+    }
+    return true;
   }
 
   // ---- the check pipeline (design §10.1) ----
@@ -1873,6 +1990,52 @@ function earliest(dates: readonly (Date | undefined)[]): Date | undefined {
 
 function summaryEntry(def: PermissionDef, conditional: boolean, fields: Fields): AccessSummary['permissions'][number] {
   return def.fields === true ? { name: def.name, conditional, fields: { read: [...fields.read], write: [...fields.write] } } : { name: def.name, conditional };
+}
+
+type SummaryItem = ModelSummary['permissions'][number];
+
+/**
+ * A summary entry under its principal's ceilings, judged at GLOBAL and
+ * `instant`: dropped (undefined) when a ceiling's permissions, expiry or
+ * empty resources rule it out, or the ceiling is malformed; conditional
+ * when a ceiling's resources lie below GLOBAL.
+ */
+function underCeilings(ceilings: readonly unknown[], entry: SummaryItem, instant: Date): SummaryItem | undefined {
+  let conditional = entry.conditional;
+  for (const raw of ceilings) {
+    const read = readCeiling(raw);
+    if (!read.ok) return undefined;
+    if (read.ceiling === undefined) continue;
+    const { resources, ...rest } = read.ceiling;
+    if (ceilingOutcome(rest, entry.name, GLOBAL, undefined, instant).denials.length > 0) return undefined;
+    if (resources === undefined) continue;
+    if (resources.length === 0) return undefined;
+    if (!resources.some((r) => scopeCovers(r, GLOBAL))) conditional = true;
+  }
+  return conditional === entry.conditional ? entry : { ...entry, conditional };
+}
+
+/**
+ * An explain decision denied under deny-overrides by a vote with a deny
+ * entry that holds for every row (TRUE, or UNKNOWN, which binds to a deny)
+ * and is part of the vote's denyWhen, which the combinator reads. Not under
+ * the other algorithms: a permit hidden at type level may win on a row. Not
+ * for a needs_subject entry (B19): it stands for a condition on the row.
+ */
+function deniedForEveryRow(c: Checked): boolean {
+  const d = c.decision;
+  const trace = d.trace;
+  if (c.faulted || d.allowed || trace === undefined || trace.algorithm !== 'deny-overrides') return false;
+  const same = (a: unknown, b: unknown) => sameTree(a, b, 0, { left: COMPARE_NODES });
+  try {
+    return trace.votes.some((v) => {
+      if (v.error !== undefined) return false;
+      const combined = v.denyWhen.op === 'or' ? [v.denyWhen, ...v.denyWhen.args] : [v.denyWhen];
+      return (v.denies ?? []).some((e) => e.reason?.code !== 'needs_subject' && (e.when.op === 'true' || same(e.when, CONDITION_UNKNOWN)) && combined.some((w) => same(w, e.when)));
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** A validated copy; a malformed ceiling (every check denies then) is left out. */

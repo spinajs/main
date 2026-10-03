@@ -3,7 +3,7 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { CORE_FILTER_OPS, FALSE, GLOBAL, TRUE } from '../../src/index.js';
-import type { DecisionRequest, EvaluationContext, Vote } from '../../src/index.js';
+import type { DecisionRequest, EvaluationContext, ModelSummary, Principal, Vote } from '../../src/index.js';
 import { FakeAdapter, FakeNativeFilter, FakeRow, RecordingAudit, RecordingLog, StaticModel, fakeClock, principal, registryOf } from './fakes.js';
 
 const expect = chai.expect;
@@ -45,6 +45,11 @@ class SelfMemo extends StaticModel {
         return vote(known === true);
       }) as never,
     });
+  }
+  // What the votes can give, so summary() keeps its candidates and covers sees no extra entry.
+  summarize(p: Principal): Promise<ModelSummary> {
+    const names = [...(grants[p.id] ?? []), ...(p.id === 'bob' ? ['doc:write'] : [])];
+    return Promise.resolve({ model: 'rbac', permissions: names.map((name) => ({ name, conditional: false })) });
   }
 }
 
