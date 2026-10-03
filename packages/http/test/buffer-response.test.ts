@@ -63,6 +63,18 @@ describe('BufferResponse', () => {
     expect(res.headers['Content-Type']).to.eq('image/png');
   });
 
+  it('does not touch cookies when Coockies is empty or absent', async () => {
+    for (const options of [undefined, { Coockies: [] }]) {
+      const res = fakeRes();
+      res.cookie = sinon.stub();
+      const fn = await new BufferResponse(BYTES, 'image/png', options).execute({} as any, res);
+      (fn as (a: any, b: any) => void)({} as any, res);
+
+      expect(res.cookie.called).to.be.false;
+      expect(res.send.calledOnce).to.be.true;
+    }
+  });
+
   it('rejects non-binary input and an empty mime type', () => {
     expect(() => new BufferResponse('abc' as any, 'image/png')).to.throw(InvalidArgument);
     expect(() => new BufferResponse(BYTES, '')).to.throw(InvalidArgument);

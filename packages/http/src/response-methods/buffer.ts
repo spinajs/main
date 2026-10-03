@@ -14,6 +14,7 @@ export class BufferResponse extends Response<Buffer> {
 
   protected Bytes: Buffer;
 
+  /** The bytes are sent as given, not copied: do not mutate them after this returns. */
   constructor(bytes: Buffer | Uint8Array, protected MimeType: string, options?: IResponseOptions) {
     super(null, options);
 

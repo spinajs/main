@@ -296,6 +296,7 @@ describe('http & controller tests', function () {
 
     expect(response).to.have.status(200);
     expect(response.header['content-type']).to.eq('image/png');
+    expect(response.header['content-length']).to.eq('256');
     expect(Buffer.compare(response.body, Buffer.from(Array.from({ length: 256 }, (_, i) => i)))).to.eq(0);
   });
 
