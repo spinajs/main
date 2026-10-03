@@ -39,6 +39,18 @@ describe('SocketClient durable commands', () => {
     expect(stub.runs.get(key)).to.equal(1);
   });
 
+  it('gives each generated key its own nonce', async () => {
+    serveDurable(server, 'docs.submit');
+    const client = makeClient(server);
+
+    await client.durable('docs.submit', { n: 1 });
+    await client.durable('docs.submit', { n: 2 });
+
+    const keys = server.requests.map((r) => r.idempotencyKey as string);
+    expect(keys[0]).to.not.equal(keys[1]);
+    for (const key of keys) expect(key).to.have.length.greaterThan('client-1:'.length);
+  });
+
   it('resumes the given outbox and reports resumed commands through acked', async () => {
     serveDurable(server, 'docs.submit');
     const outbox = new MemoryOutboxStore();
