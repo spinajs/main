@@ -12,6 +12,9 @@ export interface TokenUseRecorder {
   touch(id: string, ctx: AuthnContext, intervalSeconds: number): Promise<boolean>;
 }
 
+// Far above any minted token; a longer value is not ours and is never hashed or looked up.
+const MAX_TOKEN_LENGTH = 1024;
+
 const recordsUse = (s: unknown): s is TokenUseRecorder => typeof (s as Partial<TokenUseRecorder> | null)?.touch === 'function';
 
 function checkInterval(value: unknown): number {
@@ -57,21 +60,37 @@ export class TokenStrategy extends AuthenticationStrategy {
 
   /** N1's CredentialSelector hook: true only for a bearer value in this strategy's format. */
   public accepts(c: Credentials): boolean {
-    const prefix = this.Prefix;
-    // Credentials does not narrow by kind, so every field is checked at runtime.
-    const token = typeof c === 'object' && c !== null && c.kind === 'bearer' ? (c as { token?: unknown }).token : undefined;
-    return typeof token === 'string' && typeof prefix === 'string' && prefix.length > 0 && token.startsWith(prefix);
+    return this.tokenOf(c) !== null;
+  }
+
+  /**
+   * Reads the credential once: a getter or proxy could answer differently on a second read and slip an
+   * out-of-format value past the format gate. A hostile object reads as "not ours".
+   */
+  protected tokenOf(c: Credentials): string | null {
+    try {
+      const prefix = this.Prefix;
+      // Credentials does not narrow by kind, so every field is checked at runtime.
+      if (typeof c !== 'object' || c === null || c.kind !== 'bearer') {
+        return null;
+      }
+      const token: unknown = (c as { token?: unknown }).token;
+      if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH || typeof prefix !== 'string' || prefix.length === 0 || !token.startsWith(prefix)) {
+        return null;
+      }
+      return token;
+    } catch {
+      return null;
+    }
   }
 
   public throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[] {
-    if (!this.accepts(c)) {
+    const token = this.tokenOf(c);
+    if (token === null) {
       return [];
     }
 
-    const id = `token:${createHash('sha256')
-      .update(`authn-token-throttle:${(c as { token: string }).token}`)
-      .digest('hex')
-      .slice(0, 32)}`;
+    const id = `token:${createHash('sha256').update(`authn-token-throttle:${token}`).digest('hex').slice(0, 32)}`;
     return [
       { kind: 'account', value: id },
       { kind: 'account-ip', value: `${id}|${ctx?.ip ?? ''}` },
@@ -79,11 +98,12 @@ export class TokenStrategy extends AuthenticationStrategy {
   }
 
   public async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
-    if (!this.accepts(c)) {
+    const token = this.tokenOf(c);
+    if (token === null) {
       return { ok: false, reason: 'unsupported_credentials' };
     }
 
-    const v = await this.tokens.validate((c as { token: string }).token, ctx);
+    const v = await this.tokens.validate(token, ctx);
     if (!v.ok) {
       return { ok: false, reason: v.reason };
     }

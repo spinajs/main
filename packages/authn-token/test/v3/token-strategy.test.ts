@@ -201,6 +201,26 @@ describe('TokenStrategy', function () {
       ['a JWT', { kind: 'bearer', token: 'eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.c2lnbmF0dXJl' }],
       ['null', null],
       ['undefined', undefined],
+      ['a value above 1024 characters', { kind: 'bearer', token: `spt_${'a'.repeat(1021)}` }],
+      [
+        'a throwing token getter',
+        Object.defineProperty({ kind: 'bearer' }, 'token', {
+          get() {
+            throw new Error('hostile getter');
+          },
+        }),
+      ],
+      [
+        'a throwing proxy',
+        new Proxy(
+          {},
+          {
+            get() {
+              throw new Error('hostile proxy');
+            },
+          },
+        ),
+      ],
     ];
 
     for (const [label, c] of rows) {
@@ -212,6 +232,15 @@ describe('TokenStrategy', function () {
         expect(tokens.validated).to.deep.equal([]);
       });
     }
+
+    it('reads the token once per call, so a getter cannot swap the value after the format check', async () => {
+      const values = [`spt_${'b'.repeat(43)}`, 'eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.c2lnbmF0dXJl'];
+      let reads = 0;
+      const shifting = Object.defineProperty({ kind: 'bearer' }, 'token', { get: () => values[Math.min(reads++, 1)] }) as Credentials;
+      expect(await strategy.verify(shifting, ctx())).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+      expect(reads).to.equal(1);
+      expect(tokens.validated).to.deep.equal([values[0]]);
+    });
 
     it('reads the prefix from the config at call time', async () => {
       const token = `key_${'a'.repeat(43)}`;
