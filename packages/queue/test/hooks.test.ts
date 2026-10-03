@@ -3,7 +3,7 @@ import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { QueueJob, Job, QueueService, JobModel, QueueClient, QueueMessageHook, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -163,6 +163,20 @@ describe('queue message hooks', function () {
   it('@Job() stores only the type; @Job({ runAs }) stores runAs too', () => {
     expect(Reflect.getMetadata('queue:options', PlainJob)).to.deep.equal({ type: 'job' });
     expect(Reflect.getMetadata('queue:options', SystemJob)).to.deep.equal({ type: 'job', runAs: 'system' });
+  });
+
+  it('jobOptions returns runAs for a known value and nothing for an unknown one', () => {
+    expect(jobOptions(new SystemJob())).to.deep.equal({ runAs: 'system' });
+    expect(jobOptions(new PlainJob())).to.deep.equal({});
+
+    @Job({ runAs: 'root' as never })
+    class Typo extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+    expect(jobOptions(new Typo())).to.deep.equal({});
+    expect(jobOptions({})).to.deep.equal({});
   });
 
   it('beforeEmit runs for every hook, in order, before the transport sees the message', async () => {

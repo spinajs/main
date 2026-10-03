@@ -29,6 +29,15 @@ export function Job(opts?: JobOptions) {
 }
 
 /**
+ * The `@Job` options of a message's class. A `runAs` other than the two known values is dropped:
+ * the job then runs with no authority.
+ */
+export function jobOptions(message: object): JobOptions {
+  const options: { runAs?: unknown } | undefined = Reflect.getMetadata('queue:options', message.constructor);
+  return options?.runAs === 'initiator' || options?.runAs === 'system' ? { runAs: options.runAs } : {};
+}
+
+/**
  * Mark class as event
  *
  * @param connection - event connection name for use, if not set default connection is used
