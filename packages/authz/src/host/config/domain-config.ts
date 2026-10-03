@@ -1,6 +1,6 @@
-import { AuthzConfigError } from '../contracts/errors.js';
-import { DEFAULT_COMBINE } from '../engine/routes.js';
-import type { CombineConfig, CombineEntry } from '../engine/routes.js';
+import { AuthzConfigError } from '../../contracts/errors.js';
+import { DEFAULT_COMBINE } from '../../engine/routes.js';
+import type { CombineConfig, CombineEntry } from '../../engine/routes.js';
 import { AUTHZ_DEFAULTS } from './defaults.js';
 
 export interface PermissionConfig {

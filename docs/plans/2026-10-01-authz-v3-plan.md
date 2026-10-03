@@ -540,7 +540,8 @@ F0a first, alone (§0a).
 
 ### F4 — host (2.5 d)
 
-- **Owns:** `packages/authz/src/host/**`, `packages/authz/src/config/**`,
+- **Owns:** `packages/authz/src/host/**` (G1b: the config schema and loader moved from
+  `src/config/` to `src/host/config/`; configuration loads `lib/*/config/**` as config files),
   `packages/authz/test/host/**`.
 - **Tasks:**
   1. ALS storage contract `IAuthzAsyncStorage { Principal, AuthzCache, AuthzDecision, Unscoped }`

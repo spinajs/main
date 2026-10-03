@@ -1,4 +1,4 @@
-import { DEFAULT_COMBINE } from '../engine/routes.js';
+import { DEFAULT_COMBINE } from '../../engine/routes.js';
 
 export const AUTHZ_DEFAULTS = Object.freeze({
   combine: DEFAULT_COMBINE,
