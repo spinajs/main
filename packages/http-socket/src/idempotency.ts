@@ -35,15 +35,20 @@ interface IMemoryEntry {
   expiresAt: number;
 }
 
-/** Process memory: exactly-once across disconnects and graceful restarts, not across crashes. */
+/**
+ * Process memory: exactly-once across disconnects and graceful restarts, not across crashes.
+ * `maxEntries` caps completed keys only: running claims are not counted and stay until their command completes or releases them.
+ */
 @Injectable(IdempotencyStore)
 export class MemoryIdempotencyStore extends IdempotencyStore {
   protected entries = new Map<string, IMemoryEntry>();
   protected maxEntries: number;
+  protected doneCount = 0;
 
   constructor(options: Partial<ISocketIdempotencyConfig> = {}, protected now: () => number = () => Date.now()) {
     super();
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    assertMaxEntries(this.maxEntries);
   }
 
   public get Size(): number {
@@ -53,7 +58,7 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
   public async claim(key: string): Promise<IdempotencyRecord | null> {
     const held = this.lookup(key);
     if (held) {
-      return held;
+      return copy(held);
     }
 
     this.entries.set(key, { record: { state: 'running' }, expiresAt: Number.POSITIVE_INFINITY });
@@ -61,9 +66,18 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
   }
 
   public async complete(key: string, reply: IdempotentReply, ttlMs: number): Promise<void> {
+    // NaN would never expire
+    if (!(ttlMs > 0)) {
+      throw new RangeError(`idempotency ttlMs must be above 0, got ${String(ttlMs)}`);
+    }
+
+    // the handler may keep and mutate what it returned
+    const record: IdempotencyRecord = { state: 'done', reply: structuredClone(reply) };
+
     // re-inserted: Map order is the LRU order
-    this.entries.delete(key);
-    this.entries.set(key, { record: { state: 'done', reply }, expiresAt: this.now() + ttlMs });
+    this.drop(key);
+    this.entries.set(key, { record, expiresAt: this.now() + ttlMs });
+    this.doneCount++;
     this.evict();
   }
 
@@ -74,7 +88,8 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
   }
 
   public async get(key: string): Promise<IdempotencyRecord | null> {
-    return this.lookup(key);
+    const held = this.lookup(key);
+    return held && copy(held);
   }
 
   protected lookup(key: string): IdempotencyRecord | null {
@@ -84,7 +99,7 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
     }
 
     if (entry.expiresAt <= this.now()) {
-      this.entries.delete(key);
+      this.drop(key);
       return null;
     }
 
@@ -96,23 +111,38 @@ export class MemoryIdempotencyStore extends IdempotencyStore {
     return entry.record;
   }
 
+  protected drop(key: string): void {
+    if (this.entries.get(key)?.record.state === 'done') {
+      this.doneCount--;
+    }
+    this.entries.delete(key);
+  }
+
   protected evict(): void {
     const now = this.now();
-    let done = [...this.entries.values()].filter((e) => e.record.state === 'done').length;
 
     for (const [key, entry] of this.entries) {
       if (entry.record.state === 'running') {
         continue;
       }
 
-      if (done <= this.maxEntries && entry.expiresAt > now) {
+      if (this.doneCount <= this.maxEntries && entry.expiresAt > now) {
         // under the cap: the remaining expired keys go lazily, on lookup
         break;
       }
 
-      this.entries.delete(key);
-      done--;
+      this.drop(key);
     }
+  }
+}
+
+function copy(record: IdempotencyRecord): IdempotencyRecord {
+  return record.state === 'done' ? { state: 'done', reply: structuredClone(record.reply) } : record;
+}
+
+function assertMaxEntries(maxEntries: unknown): asserts maxEntries is number {
+  if (!(Number.isInteger(maxEntries) && (maxEntries as number) > 0)) {
+    throw new RangeError(`http.socket.idempotency.maxEntries must be an integer above 0, got ${String(maxEntries)}`);
   }
 }
 
@@ -125,9 +155,7 @@ export function assertIdempotencyConfig(options: ISocketIdempotencyConfig): void
     throw new RangeError(`http.socket.idempotency.ttlMs must be within (0, ${MAX_TIMER_MS}], got ${String(options.ttlMs)}`);
   }
 
-  if (!(Number.isInteger(options.maxEntries) && options.maxEntries > 0)) {
-    throw new RangeError(`http.socket.idempotency.maxEntries must be an integer above 0, got ${String(options.maxEntries)}`);
-  }
+  assertMaxEntries(options.maxEntries);
 }
 
 /** Retry hint when another instance runs the key: this one cannot join it. */
