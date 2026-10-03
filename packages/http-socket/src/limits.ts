@@ -190,10 +190,10 @@ export const SHUTDOWN_FLUSH_MS = 1_000;
 
 /** The http server destroys every connection `http.shutdownTimeout` after it starts closing; a drain that may outlast that is cut short. */
 export function shutdownOverrun(drainMs: number, shutdownTimeoutMs: number): string | null {
-  const worst = drainMs + 2 * SHUTDOWN_FLUSH_MS;
+  const worst = drainMs + 3 * SHUTDOWN_FLUSH_MS;
   if (worst < shutdownTimeoutMs) {
     return null;
   }
 
-  return `http.socket.drainMs ( ${drainMs} ms ) plus ${2 * SHUTDOWN_FLUSH_MS} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written`;
+  return `http.socket.drainMs ( ${drainMs} ms ) plus ${3 * SHUTDOWN_FLUSH_MS} ms of grace and flushing reaches http.shutdownTimeout ( ${shutdownTimeoutMs} ms ): the http server may destroy connections before their replies are written`;
 }

@@ -556,5 +556,8 @@ describe('socket graceful shutdown', function () {
   it('warns when the http server would cut the drain short', () => {
     expect(shutdownOverrun(5_000, 10_000)).to.be.null;
     expect(shutdownOverrun(8_000, 10_000)).to.match(/http\.shutdownTimeout/);
+    // the drain, the keyed grace and the transport flush each add up to SHUTDOWN_FLUSH_MS
+    expect(shutdownOverrun(6_999, 10_000)).to.be.null;
+    expect(shutdownOverrun(7_000, 10_000)).to.match(/http.shutdownTimeout/);
   });
 });
