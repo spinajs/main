@@ -1,115 +1,37 @@
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import _ from 'lodash';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { DI, Bootstrapper } from '@spinajs/di';
-import '../src/index.js';
-import { DbSessionStore } from '../src/index.js';
+import { DI } from '@spinajs/di';
 import { DbSession } from '../src/models/DbSession.js';
-import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/users';
+import { UserSession as Session, encodeSessionData, decodeSessionData } from '@spinajs/authn-session';
+import type { ISession } from '@spinajs/authn-session';
 import { DateTime } from 'luxon';
 import { Orm } from '@spinajs/orm';
 import { columnNativeType, isMySqlDialect } from '../src/migration-support.js';
-import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { runSessionProviderConformance, IConformanceExpiration } from '../../users/test/conformance/session-provider-conformance.js';
+import { runSessionProviderConformance, IConformanceExpiration, SessionProviderFactory } from '../../authn-session/test/conformance/session-provider-conformance.js';
+import { bootStore, disposeStore, seedLegacyRow } from './support.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
 
-// Current expiration strategy config the ConnectionConf will publish. The
-// conformance factory swaps this per strategy before (re)resolving DI.
-let CURRENT_EXPIRATION: IConformanceExpiration = { service: 'SlidingExpiration', ttl: 60 };
-
-export function mergeArrays(target: any, source: any) {
-  if (_.isArray(target)) {
-    return target.concat(source);
-  }
-}
-
-export class ConnectionConf extends FrameworkConfiguration {
-  public async resolve(): Promise<void> {
-    await super.resolve();
-
-    _.mergeWith(
-      this.Config,
-      {
-        authn: {
-          session: {
-            db: {
-              cleanupInterval: 1000,
-            },
-            expiration: CURRENT_EXPIRATION,
-          },
-        },
-        db: {
-          DefaultConnection: 'sqlite',
-          Connections: [
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'session-provider-connection',
-              Migration: {
-                OnStartup: true,
-              },
-            },
-            {
-              Driver: 'orm-driver-sqlite',
-              Filename: ':memory:',
-              Name: 'sqlite',
-              Migration: {
-                OnStartup: true,
-              },
-            },
-          ],
-        },
-        logger: {
-          targets: [
-            {
-              name: 'Empty',
-              type: 'BlackHoleTarget',
-              layout: '${datetime} ${level} ${message} ${error} duration: ${duration} (${logger})',
-            },
-          ],
-
-          rules: [{ name: '*', level: 'trace', target: 'Empty' }],
-        },
-      },
-      mergeArrays,
-    );
-  }
-}
-
-async function boot() {
-  DI.clearCache();
-
-  // importing @spinajs/users registers ORM query middleware that depends on the
-  // AccessControl instance provided by RbacBootstrapper — run bootstrappers as a
-  // real app would before touching the Orm.
-  const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-  for (const b of bootstrappers) {
-    await b.bootstrap();
-  }
-
-  await DI.resolve(Configuration);
-  await DI.resolve(Orm);
-  return DI.resolve(DbSessionStore);
-}
+const user = (id: string) => ({ type: 'user', id });
 
 async function makeProvider(expiration: IConformanceExpiration) {
-  CURRENT_EXPIRATION = expiration;
-  return boot();
+  return bootStore({ expiration });
 }
+
+// The suite types the provider against authn-session's sources, the store against its build.
+const conformanceFactory = makeProvider as unknown as SessionProviderFactory;
 
 describe('db session provider', function () {
   this.timeout(15000);
 
-  before(() => {
-    DI.register(ConnectionConf).as(Configuration);
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  after(async () => {
+    await disposeStore();
   });
 
-  // Full provider contract under multiple expiration strategies (E — reused kit).
-  runSessionProviderConformance(makeProvider);
+  runSessionProviderConformance(conformanceFactory, {
+    seedLegacy: async (_provider, row) => seedLegacyRow(row),
+  });
 
   describe('DbSessionStore regressions', () => {
     it('reads the correctly-spelled authn.session.db.cleanupInterval config key (B2)', async () => {
@@ -128,7 +50,8 @@ describe('db session provider', function () {
       const fixed = DateTime.fromISO('2031-05-06T07:08:09.000Z');
       const session = new Session({
         SessionId: 'b3-verbatim',
-        UserId: 3,
+        Subject: user('u-3'),
+        State: 'active',
         Expiration: fixed,
         Data: new Map<string, unknown>([['foo', 'bar']]),
       });
@@ -146,7 +69,8 @@ describe('db session provider', function () {
 
       const session = new Session({
         SessionId: 'b3-initial',
-        UserId: 4,
+        Subject: user('u-4'),
+        State: 'active',
         Expiration: undefined,
         Data: new Map<string, unknown>(),
       });
@@ -171,7 +95,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'expired-one',
-          UserId: 10,
+          Subject: user('u-10'),
+          State: 'active',
           Expiration: DateTime.now().minus({ hours: 1 }),
           Data: new Map<string, unknown>(),
         }),
@@ -180,7 +105,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'live-one',
-          UserId: 11,
+          Subject: user('u-11'),
+          State: 'active',
           Expiration: DateTime.now().plus({ hours: 1 }),
           Data: new Map<string, unknown>(),
         }),
@@ -198,6 +124,72 @@ describe('db session provider', function () {
       await store.truncate();
 
       expect(await store.cleanupExpired()).to.equal(0);
+    });
+  });
+
+  describe('3.0 columns', () => {
+    it('stores Subject, ImpersonatorId and State in their own columns as principal keys', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-cols', Subject: user('u-1'), Impersonator: { type: 'svc:ops', id: 'a:b' }, State: 'active', Data: new Map() }));
+      const row = (await DbSession.where({ SessionId: 'k-cols' }).first()) as DbSession;
+
+      expect(row.Subject).to.equal('user:u-1');
+      expect(row.ImpersonatorId).to.equal('svc%3Aops:a:b');
+      expect(row.State).to.equal('active');
+      expect(row.UserId ?? null, 'a 3.0 row has no numeric owner').to.equal(null);
+
+      const back = (await store.restore('k-cols'))!;
+      expect({ ...back.Impersonator }).to.deep.equal({ type: 'svc:ops', id: 'a:b' });
+    });
+
+    it('SR-07 a stored State other than active comes back pending (fail closed)', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-odd', Subject: user('u-1'), State: 'active', Data: new Map() }));
+      await DbSession.update({ State: 'Active' } as Partial<DbSession>).where('SessionId', 'k-odd');
+
+      expect((await store.restore('k-odd'))!.State).to.equal('pending');
+    });
+
+    it('SR-07 touch with an active view never extends a row stored as pending', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const fixed = DateTime.now().plus({ minutes: 5 });
+      await store.save(new Session({ SessionId: 'k-pending', Subject: user('u-1'), State: 'pending', Expiration: fixed, Data: new Map() }));
+      const forged = new Session({ SessionId: 'k-pending', Subject: user('u-1'), State: 'active', Expiration: fixed, Data: new Map() });
+
+      expect(await store.touch(forged)).to.be.false;
+      const after = (await store.restore('k-pending'))!;
+      expect(after.State).to.equal('pending');
+      expect(after.Expiration!.toMillis()).to.equal(fixed.toMillis());
+    });
+
+    it('SR-07 a 2.x row written after the upgrade has a NULL State, not a default that activates it', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      const rawId = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+      const creation = DateTime.now().minus({ minutes: 1 });
+      await seedLegacyRow({ rawId, user: 'u-2fa', authorized: false, creation, expiration: creation.plus({ minutes: 30 }) });
+
+      const row = (await DbSession.where({ SessionId: rawId }).first()) as DbSession;
+      expect(row.State ?? null).to.equal(null);
+      expect((await store.restore(rawId))!.State).to.equal('pending');
+    });
+
+    it('deleteBySubject counts only live rows, and also deletes the expired ones', async () => {
+      const store = await makeProvider({ service: 'SlidingExpiration', ttl: 60 });
+      await store.truncate();
+
+      await store.save(new Session({ SessionId: 'k-live', Subject: user('u-1'), State: 'active', Data: new Map() }));
+      await store.save(new Session({ SessionId: 'k-dead', Subject: user('u-1'), State: 'active', Expiration: DateTime.now().minus({ minutes: 1 }), Data: new Map() }));
+
+      expect(await store.deleteBySubject(user('u-1'))).to.equal(1);
+      expect(await DbSession.where({ SessionId: 'k-dead' }).first()).to.not.exist;
     });
   });
 
@@ -238,7 +230,10 @@ describe('db session provider', function () {
     function row(data: unknown): DbSession {
       return {
         SessionId: 'representation-probe',
-        UserId: 42,
+        Subject: 'user:72beaf78-0000-4000-8000-000000000001',
+        ImpersonatorId: null,
+        State: 'active',
+        UserId: null,
         CreatedAt: CREATED,
         Expiration: EXPIRES,
         Data: data,
@@ -274,8 +269,8 @@ describe('db session provider', function () {
       const asObject = JSON.parse(encoded) as unknown;
       expect(typeof asObject, 'the json-column representation must be an object, not a string').to.equal('object');
 
-      const fromJsonColumn = (store as any).toSession(row(asObject));
-      const fromTextColumn = (store as any).toSession(row(encoded));
+      const fromJsonColumn = (store as any).toSession(row(asObject)) as ISession;
+      const fromTextColumn = (store as any).toSession(row(encoded)) as ISession;
 
       assertPayload(fromJsonColumn.Data, 'json column (object)');
       assertPayload(fromTextColumn.Data, 'text column (string)');
@@ -283,7 +278,7 @@ describe('db session provider', function () {
       // identical, entry for entry, not merely both non-empty
       expect([...fromJsonColumn.Data.keys()]).to.deep.equal([...fromTextColumn.Data.keys()]);
       expect(fromJsonColumn.SessionId).to.equal(fromTextColumn.SessionId);
-      expect(fromJsonColumn.UserId).to.equal(fromTextColumn.UserId);
+      expect({ ...fromJsonColumn.Subject }).to.deep.equal({ ...fromTextColumn.Subject });
     });
 
     it('rebuilds the tagged payload from an object without going through JSON text', () => {
@@ -325,6 +320,7 @@ describe('db session provider', function () {
       expect(names, 'create migration must be recorded').to.include('UserSessionDBSqlMigration_2022_06_28_01_20_00');
       expect(names, 'json converging migration must be recorded').to.include('UserSessionDataJson_2026_07_31_00_00_00');
       expect(names, 'timestamp converging migration must be recorded').to.include('UserSessionTimestamps_2026_07_31_00_00_01');
+      expect(names, 'session id hash migration must be recorded').to.include('UserSessionIdHash_2026_10_02_00_00_00');
     });
 
     // The skip is the whole point of the probes, so it is asserted directly
@@ -349,6 +345,15 @@ describe('db session provider', function () {
       // guard 2 of the timestamps migration: sqlite stores dateTime as TEXT,
       // which is not `date`, so there is nothing to widen.
       expect(await columnNativeType(connection, 'user_sessions', 'CreatedAt')).to.equal('text');
+
+      // UserSessionIdHash: the SessionId widen has nothing to do here, but the
+      // impersonator column and its index must exist (SR-06).
+      expect(await columnNativeType(connection, 'user_sessions', 'ImpersonatorId'), 'ImpersonatorId column').to.not.equal(null);
+      const indexes = (await connection.select().from('sqlite_master').where('type', 'index').where('tbl_name', 'user_sessions')) as Array<{ sql: string | null }>;
+      expect(
+        indexes.some((i) => (i.sql ?? '').includes('(`ImpersonatorId`)')),
+        'ImpersonatorId index',
+      ).to.equal(true);
     });
 
     it('round-trips a saved session back out of the store with its structural types intact', async () => {
@@ -358,7 +363,8 @@ describe('db session provider', function () {
       await store.save(
         new Session({
           SessionId: 'round-trip',
-          UserId: 42,
+          Subject: user('u-42'),
+          State: 'active',
           Expiration: EXPIRES,
           Data: payload(),
         }),

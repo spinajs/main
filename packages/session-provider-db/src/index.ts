@@ -1,60 +1,68 @@
-import { SessionProvider, ISession, UserSession, encodeSessionData, decodeSessionData } from '@spinajs/users';
+import { SessionProvider, UserSession, encodeSessionData, decodeSessionData, adaptLegacySession } from '@spinajs/authn-session';
+import type { ISession } from '@spinajs/authn-session';
+import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
 import { Logger, Log } from '@spinajs/log';
 import { DbSession } from './models/DbSession.js';
-import { InsertBehaviour } from '@spinajs/orm';
+import { DeleteQueryBuilder, InsertBehaviour, createQuery } from '@spinajs/orm';
+import type { IUpdateResult } from '@spinajs/orm';
 import { Config } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
+import { refKey, refOf, sessionDataFromColumn } from './session-row.js';
 
 export * from './models/DbSession.js';
 export * from './migrations/UserSessionDBSqlMigration_2022_06_28_01_20_00.js';
 export * from './migrations/UserSessionDataJson_2026_07_31_00_00_00.js';
 export * from './migrations/UserSessionTimestamps_2026_07_31_00_00_01.js';
+export * from './migrations/UserSessionIdHash_2026_10_02_00_00_00.js';
+
+const sameRef = (a: IdentityRef | undefined, b: IdentityRef) => !!a && a.type === b.type && a.id === b.id;
+
+const belongsTo = (s: ISession, subject: IdentityRef, includeImpersonations?: boolean) => sameRef(s.Subject, subject) || (includeImpersonations === true && sameRef(s.Impersonator, subject));
+
+const rowsAffected = (result: unknown) => (result as IUpdateResult | undefined)?.RowsAffected ?? 0;
 
 /**
- * Relational-db backed session store. Conforms to the `@spinajs/users`
- * `SessionProvider` contract: ownership is the numeric `UserId`, expiration is
- * owned by the injected strategy (`this.Expiration`) and persisted verbatim, and
- * `Data` is (de)serialized with the shared session codec.
+ * Relational-db backed session store. Subject, Impersonator and State live in
+ * their own indexed columns (principal keys); rows written by 2.x have none of
+ * them and are adapted from their Data on every read.
  */
 @Injectable(SessionProvider)
 export class DbSessionStore extends SessionProvider {
   @Logger('db-session-store')
   protected Log: Log;
 
-  /**
-   * How often expired rows are swept, in milliseconds. Reads the correctly
-   * spelled `authn.session.db.cleanupInterval` key (fixes B2 — the historic typo
-   * `cleanupInteval` meant the configured value was ignored).
-   */
   @Config('authn.session.db.cleanupInterval', {
     defaultValue: 100000,
   })
   protected CleanupInterval: number;
 
+  protected CleanupTimer: ReturnType<typeof setInterval> | undefined;
+
   public async resolve() {
-    const timer = setInterval(async () => {
+    this.CleanupTimer = setInterval(async () => {
       const count = await this.cleanupExpired();
 
       this.Log.info(`Cleaned up expired session, count: ${count}`);
     }, this.CleanupInterval);
 
     // do not keep the process alive solely for the cleanup timer
-    timer.unref?.();
+    this.CleanupTimer.unref?.();
+  }
+
+  public async dispose() {
+    clearInterval(this.CleanupTimer);
+    this.CleanupTimer = undefined;
   }
 
   /**
    * Removes every session whose expiration has passed.
    *
-   * Extracted from the cleanup timer so it can be exercised directly.
-   *
    * @returns how many sessions were removed
    */
   public async cleanupExpired(): Promise<number> {
-    // NOTE: same reason as in deleteByUser — destroy() only builds a DELETE
-    // bounded by primary keys, so the expired rows are looked up first.
-    // `destroy().where(...)` threw on every tick and no session was ever
-    // cleaned up.
+    // destroy() only builds a DELETE bounded by primary keys, so the expired
+    // rows are looked up first.
     const expired = await DbSession.where('Expiration', '<=', DateTime.now());
 
     if (expired.length === 0) {
@@ -77,8 +85,7 @@ export class DbSessionStore extends SessionProvider {
 
     const session = this.toSession(row);
 
-    // an expired row is treated as absent
-    if (this.isExpired(session)) {
+    if (!session || this.isExpired(session)) {
       return null;
     }
 
@@ -86,8 +93,6 @@ export class DbSessionStore extends SessionProvider {
   }
 
   public async save(session: ISession): Promise<void> {
-    // Persist `Expiration` verbatim (fixes B3). Only a brand-new session with no
-    // scheduled expiration is given its initial expiry via the strategy.
     if (session.Expiration === undefined) {
       this.applyInitialExpiration(session);
     }
@@ -100,65 +105,112 @@ export class DbSessionStore extends SessionProvider {
     s.CreatedAt = session.Creation;
     // column is nullable; a never-expiring session persists a NULL Expiration
     s.Expiration = (session.Expiration ?? null) as DateTime;
-    s.UserId = session.UserId;
+    s.UserId = null;
+    s.Subject = refKey(session.Subject);
+    s.ImpersonatorId = session.Impersonator ? refKey(session.Impersonator) : null;
+    s.State = session.State;
     s.Data = encodeSessionData(session.Data);
 
     await s.insert(InsertBehaviour.InsertOrUpdate);
   }
 
+  /** Update-only: a row deleted since the read stays deleted, and a row stored in another State is left alone (SR-07). */
   public async touch(session: ISession): Promise<boolean> {
     const current = session.Expiration;
-    const renewed = this.Expiration.renew(session);
+    this.applyRenewedExpiration(session);
 
-    // unchanged (e.g. AbsoluteExpiration) — skip the write, report false
-    if (this.expirationEquals(current, renewed)) {
+    const result = await DbSession.update({
+      Expiration: (session.Expiration ?? null) as DateTime,
+      Data: encodeSessionData(session.Data),
+    })
+      .where('SessionId', session.SessionId)
+      .where(function () {
+        this.whereNull('State').orWhere('State', session.State);
+      });
+
+    if (rowsAffected(result) === 0) {
+      session.Expiration = current;
       return false;
     }
 
-    session.Expiration = renewed;
-    await DbSession.update({
-      Expiration: renewed,
-    }).where('SessionId', session.SessionId);
-
-    return true;
+    return !this.expirationEquals(current, session.Expiration);
   }
 
   public async delete(sessionId: string): Promise<void> {
     await DbSession.destroy(sessionId);
   }
 
-  public async deleteByUser(userId: number): Promise<void> {
-    // NOTE: destroy() refuses to build an unbounded DELETE, so the sessions of
-    // the user are resolved to their primary keys first. `destroy().where(...)`
-    // threw "Cannot destroy without primary keys", which broke every forced
-    // logout ( admin "log out user" route included ).
-    const sessions = await DbSession.where('UserId', userId);
+  /**
+   * Live rows are deleted by key so the count is exact; a second DELETE by
+   * Subject / ImpersonatorId then also ends 3.0 rows saved since the read
+   * (a rotation racing a ban). 2.x rows are found by decoding their Data.
+   */
+  public async deleteBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean; except?: string }): Promise<number> {
+    const targets = (await this.matching(subject, opts?.includeImpersonations)).filter((s) => s.SessionId !== opts?.except);
+    const live = targets.filter((s) => !this.isExpired(s)).map((s) => s.SessionId);
+    const dead = targets.filter((s) => this.isExpired(s)).map((s) => s.SessionId);
 
-    if (sessions.length === 0) {
-      return;
+    const count = live.length > 0 ? rowsAffected(await DbSession.destroy(live)) : 0;
+    if (dead.length > 0) {
+      await DbSession.destroy(dead);
     }
 
-    await DbSession.destroy(sessions.map((s) => s.SessionId));
+    const key = refKey(subject);
+    const { query } = createQuery(DbSession, DeleteQueryBuilder);
+    query.where(function () {
+      this.where('Subject', key);
+      if (opts?.includeImpersonations === true) {
+        this.orWhere('ImpersonatorId', key);
+      }
+    });
+    if (opts?.except !== undefined) {
+      query.where('SessionId', '!=', opts.except);
+    }
+    await query;
+
+    return count;
   }
 
-  public async listByUser(userId: number): Promise<ISession[]> {
-    const rows = await DbSession.where('UserId', userId);
-
-    return rows.map((r) => this.toSession(r)).filter((s) => !this.isExpired(s));
+  public async listBySubject(subject: IdentityRef, opts?: { includeImpersonations?: boolean }): Promise<ISession[]> {
+    return (await this.matching(subject, opts?.includeImpersonations)).filter((s) => !this.isExpired(s));
   }
 
   public async truncate(): Promise<void> {
     await DbSession.truncate();
   }
 
-  private toSession(row: DbSession): ISession {
-    return new UserSession({
+  /** Rows of the subject, expired ones included: 3.0 rows through the indexed columns, 2.x rows (Subject NULL) by their Data. */
+  protected async matching(subject: IdentityRef, includeImpersonations?: boolean): Promise<ISession[]> {
+    const key = refKey(subject);
+    const rows = await DbSession.where(function () {
+      this.where('Subject', key);
+      if (includeImpersonations === true) {
+        this.orWhere('ImpersonatorId', key);
+      }
+    });
+    const legacy = await DbSession.where('Subject', null);
+
+    return [...rows, ...legacy].map((r) => this.toSession(r)).filter((s): s is ISession => !!s && belongsTo(s, subject, includeImpersonations));
+  }
+
+  /** The 3.0 view of a row; null for a 2.x row without an owner. */
+  protected toSession(row: DbSession): ISession | null {
+    const session = new UserSession({
       SessionId: row.SessionId,
-      UserId: row.UserId,
       Creation: row.CreatedAt,
       Expiration: row.Expiration ?? undefined,
       Data: decodeSessionData(sessionDataFromColumn(row.Data)),
     });
+
+    const subject = refOf(row.Subject);
+    if (!subject) {
+      return adaptLegacySession(session);
+    }
+
+    session.Subject = subject;
+    session.Impersonator = refOf(row.ImpersonatorId);
+    session.State = row.State === 'active' ? 'active' : 'pending';
+    return session;
   }
 
   private expirationEquals(a: DateTime | undefined, b: DateTime | undefined): boolean {
@@ -167,36 +219,4 @@ export class DbSessionStore extends SessionProvider {
     }
     return a.toMillis() === b.toMillis();
   }
-}
-
-/**
- * Presents whatever the driver hands back for `user_sessions.Data` in one of the
- * two shapes {@link decodeSessionData} understands - a JSON string, or an
- * already-parsed object graph.
- *
- * `Data` is a MySQL `json` column, so mysql2 parses it for us and this function
- * passes the OBJECT straight through: no `JSON.stringify` / `JSON.parse`
- * round-trip, the decoder walks the graph natively. Strings pass through just as
- * untouched - sqlite has no json type and returns the stored text, and a
- * connection configured otherwise (`typeCast`, an older column, a text-typed
- * table that has not run the converging migration yet) may still yield one.
- *
- * The only value actually converted is a `Buffer`: a blob-ish column or a driver
- * in binary mode delivers one, and neither the object walk nor `JSON.parse` can
- * read it. Note it is decoded to text rather than handed over as an object -
- * treating a Buffer as an object graph would walk its byte indices and decode to
- * an empty session.
- *
- * The write path is untouched: `encodeSessionData` still stores a string, which
- * a `json` column accepts verbatim (mysql2 does NOT auto-serialize objects into
- * json columns, and `DbSession.Data` deliberately carries no `@Json()`
- * decorator - the ORM's JsonValueConverter would `JSON.stringify` the already
- * encoded string and double-encode every session).
- */
-function sessionDataFromColumn(data: unknown): string | unknown {
-  if (Buffer.isBuffer(data)) {
-    return data.toString('utf8');
-  }
-
-  return data;
 }
