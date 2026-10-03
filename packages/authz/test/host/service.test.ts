@@ -5,7 +5,7 @@ import type { IContainer } from '@spinajs/di';
 import { RecordingAudit, StaticModel, userPrincipal } from '@spinajs/authz-testing';
 import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
-import { DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
+import { DefaultAuthzAdmin, DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
 import type { AuthzChange, AuthzService, ModelInitContext, ResourceRef, LruDecisionCacheOptions, DefaultAuthzDomains } from '@spinajs/authz';
 import { domains, installHost, instance, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost } from './support.js';
 
@@ -547,9 +547,9 @@ describe('DefaultAuthzService', function () {
   });
 
   describe('admin', () => {
-    it('throws without an AuthzAdmin and returns the registered one', async () => {
+    it('returns the default DefaultAuthzAdmin, or the one a domain registers', async () => {
       const root = await rootService();
-      expect(() => root.admin()).to.throw(AuthzConfigError, /no AuthzAdmin is registered in domain "root"/);
+      expect(root.admin()).to.be.instanceOf(DefaultAuthzAdmin);
       const fake = { fake: true } as unknown as AuthzAdmin;
       const d = await domains();
       d.create('adm').register(instance(fake)).as(AuthzAdmin);
