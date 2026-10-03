@@ -71,6 +71,7 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 10000;
  */
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 const DEFAULT_HEARTBEAT_MS = 4000;
+const DEFAULT_PREFETCH = 1;
 
 /**
  * STOMP header carrying the number of times a job has already been retried.
@@ -118,6 +119,7 @@ export class StompQueueClient extends QueueClient {
   protected ReadyWaiters: Array<() => void> = [];
 
   protected Disposing = false;
+  protected PrefetchSize = DEFAULT_PREFETCH;
 
   /** Publisher-side resilience: retry each receipt-confirmed publish with backoff so a transient
    * broker hiccup / receipt timeout doesn't fail the emit. Duplicates are handled by consumer dedup. */
@@ -192,7 +194,24 @@ export class StompQueueClient extends QueueClient {
     return new WebSocket(this.Options.host, Stomp.Versions.default.protocolVersions()) as unknown as Stomp.IStompSocket;
   }
 
+  /** Reads `options.prefetch`; same key as queue-amqp-transport. */
+  protected readPrefetch(): number {
+    const raw = this.Options.options?.prefetch;
+    if (raw === undefined) {
+      return DEFAULT_PREFETCH;
+    }
+
+    const value = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      throw new InvalidArgument(`Queue connection ${this.Options.name}: options.prefetch must be a positive integer, got ${JSON.stringify(raw)}`);
+    }
+
+    return value;
+  }
+
   public async resolve() {
+    this.PrefetchSize = this.readPrefetch();
+
     this.Log.info(`Connecting to STOMP queue at ${this.Options.host} with client-id: ${this.ClientId} ...`);
 
     this.Client = this.createClient({
@@ -407,7 +426,7 @@ export class StompQueueClient extends QueueClient {
    * Called on initial subscribe and replayed for every descriptor on reconnect.
    */
   protected applySubscription(desc: ISubscriptionDescriptor) {
-    const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': '1' };
+    const headers: Stomp.StompHeaders = { ack: 'client-individual', 'activemq.prefetchSize': `${this.PrefetchSize}` };
 
     if (desc.subscriptionId) {
       headers.id = desc.subscriptionId;
@@ -469,7 +488,7 @@ export class StompQueueClient extends QueueClient {
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(message.headers?.[RETRY_COUNT_HEADER] ?? '0');
 
     if (attempt < maxRetries) {

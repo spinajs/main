@@ -385,7 +385,7 @@ export class AmqpQueueClient extends QueueClient {
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(msg.properties.headers?.[RETRY_COUNT_HEADER] ?? 0);
 
     if (attempt < maxRetries) {
@@ -416,7 +416,7 @@ export class AmqpQueueClient extends QueueClient {
     });
 
     this.ConsumeChannel.ack(msg);
-    this.Log.warn(`Job ${qMessage.Name} failed on ${workQueue}, retry ${nextAttempt}/${(qMessage as IQueueJob).RetryCount} scheduled in ${delay}ms. ${reason}`);
+    this.Log.warn(`Job ${qMessage.Name} failed on ${workQueue}, retry ${nextAttempt}/${(qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0} scheduled in ${delay}ms. ${reason}`);
   }
 
   /**

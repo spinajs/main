@@ -133,6 +133,14 @@ export class DefaultQueueService extends QueueService {
             const ev = DI.resolve<QueueMessage>(event);
             ev.hydrate(e);
 
+            // routing default applies before the tracking row is created, so MaxAttempts matches
+            if (ev instanceof QueueJob && (ev.RetryCount === undefined || ev.RetryCount === null)) {
+              const routed = conn.getMaxRetriesForMessage(event);
+              if (routed !== undefined) {
+                ev.RetryCount = routed;
+              }
+            }
+
             /**
              * Handle job type of message
              * To preserve result & handle delay, errors etc..

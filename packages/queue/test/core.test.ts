@@ -50,6 +50,13 @@ class CoreConnectionConf extends FrameworkConfiguration {
       },
       queue: {
         default: 'memory',
+        routing: {
+          RoutedRetryJob: { channel: '/queue/retry', maxRetries: 2 },
+          RoutedArrayJob: ['/queue/a', { channel: '/queue/b', maxRetries: 4 }],
+          RoutedBadJob: { channel: '/queue/bad', maxRetries: -1 },
+          RoutedZeroJob: { channel: '/queue/zero', maxRetries: 0 },
+          RoutedFractionJob: { channel: '/queue/fraction', maxRetries: 1.5 },
+        },
         connections: [{ service: 'InMemoryQueueClient', name: 'memory', defaultQueueChannel: '/queue/test', defaultTopicChannel: '/topic/test' }],
         retention: { service: 'DefaultJobRetentionService', enabled: false },
       },
@@ -75,6 +82,41 @@ class SampleEvent extends QueueEvent {
 class FailingJob extends QueueJob {
   public async execute() {
     throw new Error('kaboom');
+  }
+}
+
+@Job()
+class RoutedRetryJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedArrayJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedBadJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedZeroJob extends QueueJob {
+  public async execute() {
+    return 'ok';
+  }
+}
+
+@Job()
+class RoutedFractionJob extends QueueJob {
+  public async execute() {
+    return 'ok';
   }
 }
 
@@ -216,5 +258,92 @@ describe('queue core - dedup & persistence', function () {
     const remaining = await JobModel.all();
     expect(remaining).to.have.lengthOf(1);
     expect(remaining[0].Status).to.eq('created');
+  });
+});
+
+describe('queue core - routing maxRetries', function () {
+  this.timeout(20000);
+
+  beforeEach(async () => {
+    DI.clearCache();
+    InMemoryQueueClient.Subs.clear();
+    InMemoryQueueClient.Last = undefined;
+    DI.register(CoreConnectionConf).as(Configuration);
+    await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  afterEach(async () => {
+    sinon.restore();
+    const queue = await q();
+    await queue.dispose();
+  });
+
+  async function maxAttemptsOf(job: { emit: (v: any) => Promise<unknown> }, val: Record<string, unknown> = {}) {
+    const queue = await q();
+    await queue.consume(job as any);
+    await job.emit(val);
+    const model = await JobModel.where({ JobId: (InMemoryQueueClient.Last as any).JobId }).first();
+    return model.MaxAttempts;
+  }
+
+  it('looks up maxRetries from a single routing entry', async () => {
+    const queue = await q();
+    const client = queue.get('memory');
+    expect(client.getMaxRetriesForMessage(RoutedRetryJob)).to.eq(2);
+  });
+
+  it('uses the first array entry that declares maxRetries', async () => {
+    const queue = await q();
+    expect(queue.get('memory').getMaxRetriesForMessage(RoutedArrayJob)).to.eq(4);
+  });
+
+  it('returns undefined for unrouted jobs without warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(SampleJob)).to.be.undefined;
+    expect(warn.called).to.be.false;
+  });
+
+  it('ignores a negative maxRetries with one warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
+    expect(warn.calledOnce).to.be.true;
+  });
+
+  it('warns once per message name across repeated lookups', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    for (let i = 0; i < 3; i++) {
+      expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
+    }
+    expect(warn.calledOnce).to.be.true;
+  });
+
+  it('accepts maxRetries 0', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(RoutedZeroJob)).to.eq(0);
+    expect(warn.called).to.be.false;
+  });
+
+  it('ignores a fractional maxRetries with one warning', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    expect(client.getMaxRetriesForMessage(RoutedFractionJob)).to.be.undefined;
+    expect(warn.calledOnce).to.be.true;
+  });
+
+  it('defaults RetryCount from routing when the message carries none ( MaxAttempts = maxRetries + 1 )', async () => {
+    expect(await maxAttemptsOf(RoutedRetryJob)).to.eq(3);
+  });
+
+  it('keeps an explicit RetryCount over the routing default, including 0', async () => {
+    expect(await maxAttemptsOf(RoutedRetryJob, { RetryCount: 0 })).to.eq(1);
+  });
+
+  it('leaves unrouted jobs at RetryCount 0', async () => {
+    expect(await maxAttemptsOf(SampleJob, { Foo: 'x' })).to.eq(1);
   });
 });

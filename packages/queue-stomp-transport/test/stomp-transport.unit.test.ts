@@ -124,6 +124,7 @@ class ConnectionConf extends FrameworkConfiguration {
           TestEventDurable: '/topic/durable',
           // job whose failures dead-letter to a per-route channel
           RoutedJob: { channel: '/queue/routed-src', deadLetterChannel: '/queue/routed-dlq' },
+          RetryRoutedJob: { channel: '/queue/retry-src', deadLetterChannel: '/queue/retry-dlq', maxRetries: 1 },
         },
       },
       logger: {
@@ -318,6 +319,41 @@ describe('stomp queue transport - unit', function () {
       expect(sub!.headers['activemq.prefetchSize']).to.eq('1');
     });
 
+    it('uses options.prefetch for activemq.prefetchSize', async () => {
+      const c = await connected({ options: { prefetch: 4 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('4');
+    });
+
+    it('accepts a numeric string prefetch ( env / json config )', async () => {
+      const c = await connected({ options: { prefetch: '8' } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('8');
+    });
+
+    it('re-applies the configured prefetch on reconnect', async () => {
+      const c = await connected({ options: { prefetch: 3 } });
+      await c.subscribe('/queue/work', sinon.stub().resolves());
+      c.fake.subscriptions.length = 0;
+
+      c.fake.simulateDrop();
+      c.fake.simulateConnect();
+
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/work');
+      expect(sub!.headers['activemq.prefetchSize']).to.eq('3');
+    });
+
+    for (const bad of [0, -2, 1.5, 'many', null, '', '  ', '1e1', '0x10']) {
+      it(`rejects resolve() for an invalid prefetch ( ${String(bad)} )`, async () => {
+        const c = new TestableStompClient(options({ options: { prefetch: bad } }));
+        await expect(c.resolve()).to.be.rejectedWith(InvalidArgument, /prefetch/i);
+      });
+    }
+
     it('records a subscription made before connect and applies it on connect', async () => {
       const c = new TestableStompClient(options());
 
@@ -424,7 +460,7 @@ describe('stomp queue transport - unit', function () {
     });
 
     it('rejects when the broker never confirms the publish ( receipt timeout )', async () => {
-      const c = await connected({ options: { receiptTimeout: 30 } });
+      const c = await connected({ options: { receiptTimeout: 30, emitRetries: 0 } });
       c.fake.autoReceipt = false;
 
       await expect(c.emit(qMessage())).to.be.rejectedWith(UnexpectedServerError, /receipt/i);
@@ -522,6 +558,43 @@ describe('stomp queue transport - unit', function () {
   });
 
   describe('job retry ( RetryCount )', () => {
+    it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const first = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }));
+      sub.callback(first);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/retry-src');
+      expect(retry, 'first failure is retried').to.exist;
+      expect(retry!.headers['x-retry-count']).to.eq('1');
+
+      const second = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }), { 'x-retry-count': '1' });
+      sub.callback(second);
+      await tick();
+
+      expect(second.ack.calledOnce).to.be.true;
+      const dlq = c.fake.published.find((p) => p.destination === '/queue/retry-dlq');
+      expect(dlq, 'second failure dead-letters').to.exist;
+      expect(dlq!.headers['x-retry-count']).to.eq('1');
+      expect(c.fake.published.filter((p) => p.destination === '/queue/retry-src'), 'no second republish').to.have.length(1);
+    });
+
+    it('prefers an explicit RetryCount on the job over the routing default', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const msg = brokerMessage(jobMessage({ Name: 'RetryRoutedJob', RetryCount: 0 } as any));
+      sub.callback(msg);
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-src'), 'no retry republish').to.be.false;
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-dlq')).to.be.true;
+    });
+
     it('reschedules a failed job to the same channel with an incremented retry header', async () => {
       const c = await connected();
       await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));
