@@ -70,6 +70,15 @@ export class FenceSocket extends BaseSocketController {
     return p.tag;
   }
 
+  /** hangs like `hang`, but only a disconnect or a cancel aborts it */
+  @Command('wait', { idempotent: true, ordered: 'client' })
+  public async wait(@Payload() p: { tag: string }) {
+    fenceLog.push(p.tag);
+    await fenceGate.promise;
+    fenceLog.push(`${p.tag}:end`);
+    return p.tag;
+  }
+
   @Command('create', { idempotent: true, ordered: 'client' })
   public async create(@Payload() p: { id: string; ms?: number }) {
     fenceLog.push(`create:${p.id}`);
@@ -104,12 +113,12 @@ describe('durable command order: the after fence', function () {
   let t: ITestServer;
   let sockets: ClientSocket[] = [];
 
-  const connect = async (clientId: string, cfg?: Record<string, unknown>) => {
+  const connect = async (clientId: string, cfg?: Record<string, unknown>, token?: string) => {
     if (cfg) {
       await t.close();
       t = await startServer(cfg);
     }
-    const socket = await open(t, { auth: { clientId } });
+    const socket = await open(t, { auth: { clientId, ...(token ? { token } : {}) } });
     sockets.push(socket);
     return socket;
   };
@@ -211,22 +220,71 @@ describe('durable command order: the after fence', function () {
     expect(fenceLog).to.deep.equal(['a', 'a:end', 'b']);
   });
 
-  it('lets a resend during the abort grace join the hung handler instead of running it again', async () => {
-    const first = await connect('fence-grace', { http: { socket: { ordering: { abortGraceMs: 2_000 } } } });
-    expect(errorOf(await command(first, 'fence.hang', { tag: 'a' }, { idempotencyKey: 'a' })).code).to.equal('deadline_exceeded');
+  it('keeps a resend that joined during the abort grace waiting past the cut-loose, and answers it the late result', async () => {
+    const first = await connect('fence-grace', { http: { socket: { ordering: { abortGraceMs: 200 } } } });
+    void command(first, 'fence.wait', { tag: 'a' }, { idempotencyKey: 'a' }).catch(() => undefined);
+    await waitFor(() => fenceLog.includes('a'));
+    first.close();
+    await delay(50);
 
-    expect(killConnections(t)).to.equal(1);
     const second = await connect('fence-grace');
-
-    expect(errorOf(await command(second, 'fence.hang', { tag: 'a' }, { idempotencyKey: 'a' })).code).to.equal('deadline_exceeded');
+    const resent = command(second, 'fence.wait', { tag: 'a' }, { idempotencyKey: 'a' });
+    // the grace ends while the resend is joined to the hung run
+    await delay(400);
     expect(fenceLog).to.deep.equal(['a']);
+
+    fenceGate.open();
+    expect(resultOf(await resent)).to.equal('a');
+    expect(fenceLog).to.deep.equal(['a', 'a:end']);
+  });
+
+  it('cuts loose a handler a disconnect aborted while it ran, skips its successor aborted while queued, and runs each once', async () => {
+    const first = await connect('fence-drop', { http: { socket: { ordering: { abortGraceMs: 200 } } } });
+    void command(first, 'fence.wait', { tag: 'a' }, { idempotencyKey: 'a' }).catch(() => undefined);
+    void command(first, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' }).catch(() => undefined);
+    await waitFor(() => fenceLog.includes('a'));
+    await delay(20);
+    first.close();
+    // past the grace: a is cut loose, and b, aborted while it waited, never started
+    await delay(300);
+    expect(fenceLog).to.deep.equal(['a']);
+
+    const second = await connect('fence-drop');
+    expect(errorOf(await command(second, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' }))).to.deep.include({ code: 'unavailable', details: { after: 'a' } });
 
     fenceGate.open();
     await waitFor(() => fenceLog.includes('a:end'));
     await delay(20);
 
-    expect(resultOf(await command(second, 'fence.hang', { tag: 'a' }, { idempotencyKey: 'a' }))).to.equal('a');
-    expect(fenceLog).to.deep.equal(['a', 'a:end']);
+    expect(resultOf(await command(second, 'fence.wait', { tag: 'a' }, { idempotencyKey: 'a' }))).to.equal('a');
+    expect(resultOf(await command(second, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' }))).to.equal('b');
+    expect(fenceLog).to.deep.equal(['a', 'a:end', 'b']);
+  });
+
+  it('holds a successor sent on a second connection of the client until the predecessor on the first completes', async () => {
+    const first = await connect('fence-two');
+    const second = await connect('fence-two');
+    const a = command(first, 'fence.wait', { tag: 'a' }, { idempotencyKey: 'a' });
+    await waitFor(() => fenceLog.includes('a'));
+
+    const b = command(second, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' });
+    await delay(100);
+    expect(fenceLog).to.deep.equal(['a']);
+
+    fenceGate.open();
+    expect([resultOf(await a), resultOf(await b)]).to.deep.equal(['a', 'b']);
+    expect(fenceLog).to.deep.equal(['a', 'a:end', 'b']);
+  });
+
+  it("looks the predecessor up under the sender's principal, so another principal with the same clientId cannot pass the fence", async () => {
+    const alice = await connect('fence-shared', undefined, 'good');
+    expect(resultOf(await command(alice, 'fence.step', { tag: 'a' }, { idempotencyKey: 'a' }))).to.equal('a');
+
+    const anonymous = await connect('fence-shared');
+    expect(errorOf(await command(anonymous, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' }))).to.deep.include({ code: 'unavailable', details: { after: 'a' } });
+
+    expect(resultOf(await command(alice, 'fence.step', { tag: 'b' }, { idempotencyKey: 'b', after: 'a' }))).to.equal('b');
+    expect(fenceLog).to.deep.equal(['a', 'b']);
   });
 
   it('never runs a cut-loose handler twice when its key is resent after a drop', async () => {
