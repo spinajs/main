@@ -2,6 +2,7 @@ import { DI, Autoinject, TypedArray, isClass } from '@spinajs/di';
 import { ParameterType, IRouteParameter, IRouteCall, IRoute, Request } from './../interfaces.js';
 import * as express from 'express';
 import { ArgHydrator } from './ArgHydrator.js';
+import { ArgInputFilter } from '../arg-input-filter.js';
 import _ from 'lodash';
 import { DataValidator, ValidationFailed } from '@spinajs/validation';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -70,6 +71,10 @@ export abstract class RouteArgs implements IRouteArgs {
       ]);
     }
 
+    if (!this.isRuntimeType(routeParameter) && arg !== null && arg !== undefined) {
+      arg = await this.filterInput(arg, routeParameter, route);
+    }
+
     let result = null;
     let schema = null;
     let hydrator = null;
@@ -107,6 +112,33 @@ export abstract class RouteArgs implements IRouteArgs {
     }
 
     return result;
+  }
+
+  protected async filterInput(arg: unknown, routeParameter: IRouteParameter, route: IRoute): Promise<unknown> {
+    const filters = (await DI.resolve(Array.ofType(ArgInputFilter))) as ArgInputFilter[];
+    if (filters.length === 0) {
+      return arg;
+    }
+
+    // Only JSON objects and arrays are parsed: a plain string (an ISO date for DateTimeHydrator, say) must reach the
+    // hydrator as it came, and a bad JSON string keeps failing where it failed before.
+    let input = arg;
+    if (_.isString(input)) {
+      try {
+        const parsed = JSON.parse(input);
+        if (parsed !== null && typeof parsed === 'object') {
+          input = parsed;
+        }
+      } catch {
+        // left as is
+      }
+    }
+
+    for (const filter of filters) {
+      input = await filter.filter(input, routeParameter, route);
+    }
+
+    return input;
   }
 
   protected async tryHydrateObject(arg: any, route: IRouteParameter, hydrator: any) {
