@@ -124,6 +124,7 @@ class ConnectionConf extends FrameworkConfiguration {
           TestEventDurable: '/topic/durable',
           // job whose failures dead-letter to a per-route channel
           RoutedJob: { channel: '/queue/routed-src', deadLetterChannel: '/queue/routed-dlq' },
+          RetryRoutedJob: { channel: '/queue/retry-src', deadLetterChannel: '/queue/retry-dlq', maxRetries: 1 },
         },
       },
       logger: {
@@ -557,6 +558,40 @@ describe('stomp queue transport - unit', function () {
   });
 
   describe('job retry ( RetryCount )', () => {
+    it('retries up to the routing maxRetries when the job carries no RetryCount, then dead-letters', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const first = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }));
+      sub.callback(first);
+      await tick();
+
+      const retry = c.fake.published.find((p) => p.destination === '/queue/retry-src');
+      expect(retry, 'first failure is retried').to.exist;
+      expect(retry!.headers['x-retry-count']).to.eq('1');
+
+      const second = brokerMessage(jobMessage({ Name: 'RetryRoutedJob' }), { 'x-retry-count': '1' });
+      sub.callback(second);
+      await tick();
+
+      expect(second.ack.calledOnce).to.be.true;
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-dlq'), 'second failure dead-letters').to.be.true;
+    });
+
+    it('prefers an explicit RetryCount on the job over the routing default', async () => {
+      const c = await connected();
+      await c.subscribe('/queue/retry-src', sinon.stub().rejects(new Error('boom')));
+      const sub = c.fake.subscriptions.find((s) => s.destination === '/queue/retry-src')!;
+
+      const msg = brokerMessage(jobMessage({ Name: 'RetryRoutedJob', RetryCount: 0 } as any));
+      sub.callback(msg);
+      await tick();
+
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-src'), 'no retry republish').to.be.false;
+      expect(c.fake.published.some((p) => p.destination === '/queue/retry-dlq')).to.be.true;
+    });
+
     it('reschedules a failed job to the same channel with an incremented retry header', async () => {
       const c = await connected();
       await c.subscribe('/queue/job', sinon.stub().rejects(new Error('boom')));

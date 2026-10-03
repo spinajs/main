@@ -488,7 +488,7 @@ export class StompQueueClient extends QueueClient {
       return;
     }
 
-    const maxRetries = (qMessage as IQueueJob).RetryCount ?? 0;
+    const maxRetries = (qMessage as IQueueJob).RetryCount ?? this.getMaxRetriesForMessage(qMessage) ?? 0;
     const attempt = Number(message.headers?.[RETRY_COUNT_HEADER] ?? '0');
 
     if (attempt < maxRetries) {
