@@ -23,7 +23,10 @@ export interface SocketClientOptions {
   autoConnect?: boolean;
   /** Passed to socket.io-client; reconnection, autoConnect, forceNew, retries and auth stay owned by the client. */
   io?: IoOptions;
-  /** Where durable commands wait for their reply, eg. IndexedDbOutboxStore ( `/browser` ); a MemoryOutboxStore when omitted. */
+  /**
+   * Where durable commands wait for their reply. The MemoryOutboxStore default does not survive a reload: browsers pass
+   * IndexedDbOutboxStore ( `/browser` ), Node passes FileOutboxStore ( `/node` ). Requires an explicit `clientId`.
+   */
   outbox?: OutboxStore;
   durable?: DurableOptions;
   onListenerError?: (error: unknown) => void;
@@ -42,8 +45,6 @@ export interface ClientLifecycleEvents {
   /** A durable command was refused as unauthenticated and stays queued; the queue sends nothing until the connection comes online again. */
   held: (event: HeldCommand) => void;
 }
-
-export type { FailedCommand };
 
 export type LifecycleEventName = keyof ClientLifecycleEvents;
 
@@ -72,6 +73,10 @@ export class SocketClient {
 
   constructor(options: SocketClientOptions) {
     const onListenerError = options.onListenerError ?? rethrowAsync;
+    // persisted keys are `${clientId}:…`: a fresh random id after a reload would break exactly-once and ordering
+    if (options.outbox !== undefined && options.clientId === undefined) {
+      throw new RangeError('an outbox requires a stable clientId, persisted by the app');
+    }
     this.clientId = options.clientId ?? randomId();
     this.lifecycle = new Emitter<ClientLifecycleEvents>(onListenerError);
     this.serverEvents = new Emitter<ServerEvents>(onListenerError);
@@ -145,7 +150,10 @@ export class SocketClient {
     return this.commands.execute(name, payload, options) as Promise<R>;
   }
 
-  /** Persisted, ordered and retried until the server answers ( spec §6 ); the server command must be idempotent and ordered: 'client'. */
+  /**
+   * Persisted, ordered and retried until the server answers ( spec §6 ); the server command must be idempotent and ordered: 'client'.
+   * With the default MemoryOutboxStore the queue is lost on reload; pass `outbox` ( IndexedDbOutboxStore in browsers, FileOutboxStore in Node ) to keep it.
+   */
   public durable<R = unknown>(name: string, payload?: unknown, options?: DurableCommandOptions): Promise<R> {
     return this.durableQueue.submit(name, payload, options) as Promise<R>;
   }

@@ -364,8 +364,9 @@ export class DurableQueue {
     // the credentials ran out, not the command
     if (error.code === 'unauthenticated') {
       this.requeue(item);
+      const alreadyHeld = this.heldUntilOnline;
       this.heldUntilOnline = true;
-      this.events.emit('held', { entry: item.entry, error });
+      if (!alreadyHeld) this.events.emit('held', { entry: item.entry, error });
       return;
     }
 
