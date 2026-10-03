@@ -87,6 +87,8 @@ export interface ITestServer {
   host: TestHttpHost;
   url: string;
   path: string;
+  /** the config the server started with, reused by the fault kit restart */
+  cfg: Record<string, unknown>;
   close(): Promise<void>;
 }
 
@@ -105,6 +107,7 @@ export async function startServer(cfg: Record<string, unknown> = {}, prepare?: (
 
   return {
     server,
+    cfg,
     host,
     url: `http://127.0.0.1:${boundPort}`,
     path: DI.get(Configuration)!.get<string>('http.socket.path'),
