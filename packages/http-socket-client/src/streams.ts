@@ -22,6 +22,7 @@ const NO_FRAME: SocketError = { code: 'deadline_exceeded', message: 'no stream f
 const CANCELLED: SocketError = { code: 'cancelled', message: 'the stream was cancelled', retryable: false };
 const NOT_A_STREAM: SocketError = { code: 'failed_precondition', message: 'the command does not reply with a stream; use command()', retryable: false };
 const MALFORMED_REPLY: SocketError = { code: 'internal', message: 'malformed reply', retryable: false };
+const MALFORMED_FAIL: SocketError = { code: 'internal', message: 'malformed stream fail frame', retryable: false };
 const OUT_OF_ORDER: SocketError = { code: 'internal', message: 'stream frames arrived out of order', retryable: false };
 const OVER_CREDIT: SocketError = { code: 'internal', message: 'the server sent more chunks than it had credit for', retryable: false };
 
@@ -64,6 +65,7 @@ export class StreamDispatcher implements StreamHost {
     });
     connection.listen(WIRE_EVENTS.fail, (frame: unknown) => {
       if (isStreamFail(frame)) this.open.get(frame.id)?.onFail(frame.error);
+      else if (typeof (frame as { id?: unknown } | null)?.id === 'string') this.open.get((frame as { id: string }).id)?.onFail(MALFORMED_FAIL);
     });
     connection.events.on('state', (state, previous) => this.onState(state, previous));
   }

@@ -234,6 +234,25 @@ describe('client stream replies', () => {
     expect(error.toWire()).to.deep.equal({ code: 'internal', message: 'the server sent more chunks than it had credit for', retryable: false });
   });
 
+  for (const error of [null, { code: 'teapot', message: 'x', retryable: false }]) {
+    it(`fails the reader with internal on a malformed fail frame ( error ${JSON.stringify(error)} ), after the chunks before it`, async () => {
+      server.rawReplies.set('n.badfail', (request, socket) => {
+        setTimeout(() => {
+          socket.emit(WIRE_EVENTS.chunk, { id: request.id, seq: 0, data: 'a' });
+          socket.emit(WIRE_EVENTS.fail, { id: request.id, error });
+        }, 10);
+        return streamReply(request.id);
+      });
+      const { streams } = await onlineStreams(server);
+      const items = streams.stream<string>('n.badfail', null, { timeoutMs: 1000 });
+
+      expect((await items.next()).value).to.equal('a');
+      const failure = await rejectionOf(items.next());
+      expect(failure.toWire()).to.deep.equal({ code: 'internal', message: 'malformed stream fail frame', retryable: false });
+      expect(streams.activeStreams).to.equal(0);
+    });
+  }
+
   it('rejects a malformed reply with internal', async () => {
     server.rawReplies.set('n.garbage', () => 'not a reply');
     const { streams } = await onlineStreams(server);
