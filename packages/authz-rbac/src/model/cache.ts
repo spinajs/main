@@ -95,6 +95,26 @@ export class AssignmentCache {
   }
 
   /**
+   * The rows held for every subject at `at`, in subject order, without IO or waiting on a load in
+   * flight: first the settled snapshot of the request in `ctx` (it outlives the TTL, a TTL of 0
+   * included), else the entries across requests; undefined when any subject is missing there (not
+   * preloaded, expired or invalidated).
+   */
+  peek(subjects: readonly AssignmentSubject[], at: Date, ctx?: EvaluationContext): Rows | undefined {
+    const keys = [...new Set(subjects.map(subjectKey))];
+    const memo = ctx?.cache.get(MEMO_PREFIX + JSON.stringify(keys)) as Snapshot | undefined;
+    if (memo !== undefined && memo.generation === this.generation && memo.at <= at.getTime() && !(memo.rows instanceof Promise)) return memo.rows;
+    const clock = this.opts.clock.now().getTime();
+    const parts: Rows[] = [];
+    for (const key of keys) {
+      const entry = this.entries.get(key);
+      if (entry === undefined || clock >= entry.until || clock < entry.until - this.opts.ttlMs || entry.at > at.getTime()) return undefined;
+      parts.push(entry.rows);
+    }
+    return Object.freeze(parts.flat());
+  }
+
+  /**
    * `subject:<principalKey>` drops that subject and every subject set (a set's members change with
    * principals' assignments); `model:<this model>` drops everything; `policy:`, `rule:` and other
    * models' tags drop no entry; any other tag, a non-string tag or a non-array drops everything.

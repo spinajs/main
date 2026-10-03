@@ -9,3 +9,4 @@ export * from './evaluate.js';
 export * from './memory.js';
 export * from './model.js';
 export * from './contributor.js';
+export * from './service.js';

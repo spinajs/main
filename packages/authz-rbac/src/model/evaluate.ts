@@ -274,13 +274,28 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
-  const ceiling = ceilingRoles(input.request.principal);
-  const state: RbacState = { input, permission: input.request.permission, ...(ceiling ? { ceilingRoles: ceiling } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
+  const state = newState(input, true);
   for (const name of RBAC_STEP_NAMES) {
     steps[name](state);
     if (name === 'grant' && state.candidates.length === 0) state.reasons.push(steps.noGrantReason(state));
   }
   return toVote(state);
+}
+
+/**
+ * Steps 1–3 (collect, restrict, cap) over the input: the assignments that hold at the request's
+ * resource (`live`) and, on a type-level request, those below it (`scoped`). `ceiling: false` skips
+ * the principal's `ceiling.roles`, for callers that need the assigned roles (a role switch).
+ */
+export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boolean } = {}, steps: RbacSteps = RBAC_STEPS): { readonly live: readonly LiveAssignment[]; readonly scoped: readonly LiveAssignment[] } {
+  const state = newState(input, opts.ceiling !== false);
+  for (const name of ['collect', 'restrict', 'cap'] as const) steps[name](state);
+  return { live: state.live, scoped: state.scoped };
+}
+
+function newState(input: RbacInput, ceiling: boolean): RbacState {
+  const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
 }
 
 // OR is order-free, but the residual enters the L2 key and SQL statement caches: equal states must give equal JSON.
@@ -362,6 +377,12 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
     ),
   );
   return isThenable(input) ? Promise.resolve(input) : input;
+}
+
+/** Merges the extensions' `gather` results into `input`, in list order; synchronous while each gather is. */
+export function extendRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, input: RbacInput): RbacInput | Promise<RbacInput> {
+  const out = extendInput(request, ctx, sources, 0, input);
+  return isThenable(out) ? Promise.resolve(out) : out;
 }
 
 function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, from: number, input: RbacInput): Maybe<RbacInput> {
