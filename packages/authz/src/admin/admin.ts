@@ -9,7 +9,7 @@ import { AuthzConfigError } from '../contracts/errors.js';
 import type { Permission } from '../contracts/permission.js';
 import { SYSTEM, principalKey } from '../contracts/principal.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
-import { GLOBAL, resourceKey } from '../contracts/resource.js';
+import { GLOBAL } from '../contracts/resource.js';
 import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit } from '../contracts/service.js';
 import { readDomainConfig } from '../host/config/domain-config.js';
 import { AuthzClock } from '../host/clock.js';
@@ -19,6 +19,7 @@ import { AuthzAdminBackend } from './backend.js';
 import { mapPermission, readAdminConfig } from './config.js';
 import type { AdminConfig } from './config.js';
 import type { AdminCallContext } from './context.js';
+import { requirePermitted } from './permit.js';
 import { AuthzAdminReader } from './ports.js';
 // The default AuthzEventSink registration.
 import './sink.js';
@@ -206,13 +207,8 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     });
   }
 
-  /** Allowed and unconditional, else forbidden; a command or a read has no row to evaluate a residual against. */
   private async permit(env: Env, actor: Principal, permission: Permission, resource: ResourceRef): Promise<void> {
-    const d = await env.service.check({ principal: actor, permission, resource });
-    if (!d.allowed || d.residual?.op !== 'true') {
-      const why = d.allowed ? 'only conditionally' : d.reason?.code ?? 'denied';
-      throw new AuthzAdminFailure('forbidden', `${principalKey(actor)} may not ${permission} on ${resourceKey(resource)} (${why})`);
-    }
+    await requirePermitted(env.service, actor, permission, resource);
   }
 
   private async run(actor: Principal, commands: readonly AuthzCommand[], opts: AuthzAdminOptions | undefined, what: string, needs: Needs = {}): Promise<{ results: readonly AuthzCommandResult[]; rows: readonly unknown[]; replayed: boolean; dryRun: boolean }> {

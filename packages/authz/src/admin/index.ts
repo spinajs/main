@@ -5,3 +5,4 @@ export * from './admin.js';
 export * from './sink.js';
 export * from './scope-attributes/index.js';
 export * from './forget.js';
+export * from './permit.js';
