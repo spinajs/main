@@ -44,6 +44,47 @@ function counter(log: ISourceLog, n = Number.POSITIVE_INFINITY): AsyncGenerator<
   })();
 }
 
+interface ICountedSource {
+  iterator: AsyncIterator<unknown>;
+  returnCalls: number;
+}
+
+/** Counts return() calls on top of a source, which ServerStream must make exactly once on every failure path. */
+function counted(source: AsyncIterator<unknown>): ICountedSource {
+  const counter: ICountedSource = {
+    returnCalls: 0,
+    iterator: {
+      next: () => source.next(),
+      return: (value?: unknown) => {
+        counter.returnCalls++;
+        return source.return ? source.return(value) : Promise.resolve({ done: true, value: undefined });
+      },
+    },
+  };
+  return counter;
+}
+
+/** A source whose next() settles only when the test says so. */
+function manual() {
+  const pending: Array<(result: IteratorResult<unknown>) => void> = [];
+  let returnCalls = 0;
+  const iterator: AsyncIterator<unknown> = {
+    next: () => new Promise((resolve) => pending.push(resolve)),
+    return: () => {
+      returnCalls++;
+      return Promise.resolve({ done: true, value: undefined });
+    },
+  };
+  return {
+    iterator,
+    pending,
+    get returnCalls() {
+      return returnCalls;
+    },
+    push: (value: unknown) => pending.shift()?.({ done: false, value }),
+  };
+}
+
 function setup(iterator: AsyncIterator<unknown>, patch: Partial<IServerStreamInit> = {}) {
   const controller = new AbortController();
   const frames: IFrame[] = [];
@@ -76,14 +117,17 @@ function setup(iterator: AsyncIterator<unknown>, patch: Partial<IServerStreamIni
 describe('ServerStream', () => {
   it('sends no more chunks than its credit, and asks the source for nothing beyond it', async () => {
     const log: ISourceLog = { produced: 0, finallyRan: false };
-    const { stream, data } = setup(counter(log));
+    const { stream, data, controller } = setup(counter(log));
 
-    void stream.run();
+    const outcome = stream.run();
     await tick();
 
     expect(data()).to.deep.equal([0, 1]);
     expect(log.produced).to.equal(2);
     expect(stream.sent).to.equal(2);
+
+    controller.abort(new SocketException('cancelled', 'test over'));
+    expect(await outcome).to.equal('cancelled');
   });
 
   it('continues as credit arrives and ends with the number of chunks sent', async () => {
@@ -216,5 +260,213 @@ describe('ServerStream', () => {
     expect(await stream.run()).to.equal('unavailable');
     expect(log.produced).to.equal(0);
     expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.fail]);
+  });
+
+  it('ignores a grant that is not an integer above 0', async () => {
+    const log: ISourceLog = { produced: 0, finallyRan: false };
+    const { stream, data, controller } = setup(counter(log), { credits: 2, maxCredits: 4 });
+
+    const outcome = stream.run();
+    await tick();
+    for (const bad of [Number.NaN, -1, 0, 1.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      stream.grant(bad);
+    }
+    await tick();
+    expect(data()).to.deep.equal([0, 1]);
+
+    stream.grant(1);
+    await tick();
+    stream.grant(1);
+    await tick();
+
+    expect(data()).to.deep.equal([0, 1, 2, 3]);
+    expect(controller.signal.aborted).to.be.false;
+    controller.abort(new SocketException('cancelled', 'test over'));
+    expect(await outcome).to.equal('cancelled');
+  });
+
+  it('a second run() returns the first outcome and pulls nothing more', async () => {
+    const log: ISourceLog = { produced: 0, finallyRan: false };
+    const { stream, frames } = setup(counter(log, 1));
+
+    const first = stream.run();
+    const second = stream.run();
+
+    expect(await first).to.equal('ok');
+    expect(await second).to.equal('ok');
+    expect(log.produced).to.equal(1);
+    expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.end]);
+  });
+
+  it('still sends an internal fail frame and resolves when toWire throws', async () => {
+    const { stream, frames } = setup(
+      (async function* () {
+        yield 'a';
+        throw new Error('source broke');
+      })(),
+      {
+        toWire: () => {
+          throw new Error('the mapper broke too');
+        },
+      },
+    );
+
+    expect(await stream.run()).to.equal('internal');
+    expect(frames[frames.length - 1].event).to.equal(WIRE_EVENTS.fail);
+    expect((frames[frames.length - 1].frame.error as SocketError).code).to.equal('internal');
+  });
+
+  it('a second abort sends no second fail frame', async () => {
+    const log: ISourceLog = { produced: 0, finallyRan: false };
+    const { stream, frames, controller } = setup(counter(log), { credits: 1 });
+
+    const outcome = stream.run();
+    await tick();
+    controller.abort(new SocketException('cancelled', 'cancelled by the client'));
+    controller.abort(new SocketException('cancelled', 'cancelled again'));
+    stream.grant(1);
+    expect(await outcome).to.equal('cancelled');
+    await tick();
+
+    expect(frames.filter((f) => f.event === WIRE_EVENTS.fail)).to.have.length(1);
+  });
+
+  it('returns cancelled promptly when aborted while next() never settles', async () => {
+    const source = manual();
+    const { stream, frames, controller } = setup(source.iterator, { credits: 1 });
+
+    const outcome = stream.run();
+    await tick();
+    expect(source.pending).to.have.length(1);
+
+    const started = Date.now();
+    controller.abort(new SocketException('cancelled', 'cancelled by the client'));
+
+    expect(await outcome).to.equal('cancelled');
+    expect(Date.now() - started).to.be.below(100);
+    expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.fail]);
+    expect(source.returnCalls).to.equal(1);
+  });
+
+  it('a grant during a pending next() counts once that item is sent', async () => {
+    const source = manual();
+    const { stream, data, controller } = setup(source.iterator, { credits: 1, maxCredits: 4 });
+
+    const outcome = stream.run();
+    await tick();
+    stream.grant(1);
+    source.push('a');
+    await tick();
+    expect(source.pending).to.have.length(1);
+    source.push('b');
+    await tick();
+
+    expect(data()).to.deep.equal(['a', 'b']);
+    // no credit left: the stream waits instead of asking for a third item
+    expect(source.pending).to.have.length(0);
+    controller.abort(new SocketException('cancelled', 'test over'));
+    expect(await outcome).to.equal('cancelled');
+  });
+
+  it('counts a grant during a pending next() against maxCredits', async () => {
+    const source = manual();
+    const { stream, last } = setup(source.iterator, { credits: 1, maxCredits: 4 });
+
+    const outcome = stream.run();
+    await tick();
+    stream.grant(1);
+    stream.grant(1);
+    stream.grant(1);
+    stream.grant(1);
+
+    expect(await outcome).to.equal('invalid_argument');
+    expect(last().frame.error).to.deep.include({ code: 'invalid_argument', details: { limit: 4 } });
+  });
+
+  it('a grant after an abort is a no-op', async () => {
+    const log: ISourceLog = { produced: 0, finallyRan: false };
+    const { stream, frames, controller } = setup(counter(log), { credits: 1, maxCredits: 4 });
+
+    const outcome = stream.run();
+    await tick();
+    controller.abort(new SocketException('cancelled', 'cancelled by the client'));
+    expect(await outcome).to.equal('cancelled');
+
+    stream.grant(100);
+    stream.grant(1);
+    await tick();
+
+    expect((controller.signal.reason as SocketException).code).to.equal('cancelled');
+    expect(frames.map((f) => f.event)).to.deep.equal([WIRE_EVENTS.chunk, WIRE_EVENTS.fail]);
+    expect(log.produced).to.equal(1);
+  });
+
+  describe('calls return() on the source exactly once', () => {
+    it('when the source throws', async () => {
+      const source = counted(
+        (async function* () {
+          yield 'a';
+          throw new SocketException('not_found', 'gone');
+        })(),
+      );
+      const { stream } = setup(source.iterator);
+
+      expect(await stream.run()).to.equal('not_found');
+      await tick();
+      expect(source.returnCalls).to.equal(1);
+    });
+
+    it('when cancelled', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const source = counted(counter(log));
+      const { stream, controller } = setup(source.iterator, { credits: 1 });
+
+      const outcome = stream.run();
+      await tick();
+      controller.abort(new SocketException('cancelled', 'cancelled by the client'));
+
+      expect(await outcome).to.equal('cancelled');
+      await until(() => log.finallyRan);
+      expect(source.returnCalls).to.equal(1);
+    });
+
+    it('when it stalls', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const source = counted(counter(log));
+      const { stream } = setup(source.iterator, { credits: 1, stallTimeoutMs: 30 });
+
+      expect(await stream.run()).to.equal('deadline_exceeded');
+      await until(() => log.finallyRan);
+      expect(source.returnCalls).to.equal(1);
+    });
+
+    it('when a chunk cannot be sent', async () => {
+      const source = counted(
+        (async function* () {
+          yield 1n;
+        })(),
+      );
+      const { stream } = setup(source.iterator, {
+        send: (event) => {
+          if (event === WIRE_EVENTS.chunk) {
+            throw new TypeError('Do not know how to serialize a BigInt');
+          }
+        },
+      });
+
+      expect(await stream.run()).to.equal('internal');
+      await tick();
+      expect(source.returnCalls).to.equal(1);
+    });
+
+    it('never on a clean end', async () => {
+      const log: ISourceLog = { produced: 0, finallyRan: false };
+      const source = counted(counter(log, 1));
+      const { stream } = setup(source.iterator);
+
+      expect(await stream.run()).to.equal('ok');
+      await tick();
+      expect(source.returnCalls).to.equal(0);
+    });
   });
 });

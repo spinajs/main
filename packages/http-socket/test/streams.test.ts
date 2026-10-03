@@ -8,7 +8,7 @@ import { SocketException, WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { BaseSocketController } from '../src/controller.js';
 import { Command, Payload, Signal, SocketController } from '../src/decorators.js';
 import { ITestServer, command, delay, errorOf, open, startServer, waitFor } from './harness.js';
-import { rawStream } from './stream-client.js';
+import { consumeAsClient, rawStream } from './stream-client.js';
 
 export const strmLog = {
   produced: new Map<string, number>(),
@@ -219,6 +219,49 @@ describe('stream replies', function () {
     const s = rawStream(socket, 'strm.count', { key: 'after-garbage', n: 1 }, 2);
     await s.finished;
     expect(s.end).to.deep.equal({ id: s.id, seq: 1 });
+  });
+
+  it('sends exactly one fail frame for a cancel, even a repeated one', async () => {
+    const s = rawStream(socket, 'strm.count', { key: 'once' }, 1);
+    let fails = 0;
+    socket.on(WIRE_EVENTS.fail, (frame: { id: string }) => {
+      if (frame.id === s.id) {
+        fails++;
+      }
+    });
+    await waitFor(() => s.chunks.length === 1);
+
+    s.cancel();
+    s.cancel();
+    s.grant(1);
+    await s.finished;
+    await waitFor(() => strmLog.finallyRan.has('once'));
+    await delay(100);
+
+    expect(fails).to.equal(1);
+  });
+
+  describe('a consumer that grants as it reads', () => {
+    beforeEach(async () => {
+      socket.close();
+      await t.close();
+      t = await startServer({ http: { socket: { streams: { maxCredits: 64, maxPerConnection: 8, stallTimeoutMs: 300 } } } });
+      socket = await open(t);
+    });
+
+    // 8 is the client's DEFAULT_STREAM_CREDITS; the end costs one credit, which the client's grants always cover
+    for (const window of [1, 2, 3, 8]) {
+      it(`reaches the end without a stall for any item count, window ${window}`, async () => {
+        for (const n of [0, 1, window - 1, window, window + 1, 2 * window, 2 * window + 1]) {
+          const s = consumeAsClient(socket, 'strm.count', { key: `w${window}-n${n}`, n }, window);
+          await s.finished;
+
+          expect(s.fail, `window ${window}, ${n} items`).to.be.null;
+          expect(s.end, `window ${window}, ${n} items`).to.deep.equal({ id: s.id, seq: n });
+          expect(s.overCredit).to.be.false;
+        }
+      });
+    }
   });
 
   describe('limits', () => {

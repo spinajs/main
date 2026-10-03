@@ -80,3 +80,38 @@ export function rawStream(socket: ClientSocket, name: string, payload: unknown, 
     },
   };
 }
+
+/**
+ * Consumes every chunk on arrival and grants credit with the client's rule ( http-socket-client ClientStream.replenish ):
+ * keep granted - consumed <= window, grant in batches of at least max(1, floor(window / 2)).
+ */
+export function consumeAsClient(socket: ClientSocket, name: string, payload: unknown, window: number): IRawStream & { readonly overCredit: boolean } {
+  const id = nextId();
+  let granted = window;
+  let consumed = 0;
+  let overCredit = false;
+
+  const s = rawStream(socket, name, payload, window, { id });
+  const onChunk = (frame: Chunk) => {
+    if (frame.id !== id) {
+      return;
+    }
+    if (frame.seq >= granted) {
+      overCredit = true;
+    }
+    consumed++;
+    const free = window - (granted - consumed);
+    if (free >= Math.max(1, Math.floor(window / 2))) {
+      granted += free;
+      s.grant(free);
+    }
+  };
+  socket.on(WIRE_EVENTS.chunk, onChunk);
+  void s.finished.then(() => socket.off(WIRE_EVENTS.chunk, onChunk));
+
+  return Object.assign(Object.create(s) as IRawStream, {
+    get overCredit() {
+      return overCredit;
+    },
+  });
+}

@@ -19,6 +19,7 @@ export interface IServerStreamInit {
   /** credit sent with the request, at most `maxCredits` */
   readonly credits: number;
   readonly maxCredits: number;
+  /** covers only the wait for credit; a next() that hangs is bounded by an abort ( cancel, disconnect, shutdown ) */
   readonly stallTimeoutMs: number;
   /** emits one frame; throws when socket.io cannot encode it */
   send(event: StreamFrameEvent, frame: Chunk | StreamEnd | StreamFail): void;
@@ -35,6 +36,7 @@ export class ServerStream {
   protected credits: number;
   protected seq = 0;
   protected wake: (() => void) | null = null;
+  protected outcome: Promise<StreamOutcome> | null = null;
 
   constructor(protected readonly init: IServerStreamInit) {
     this.credits = init.credits;
@@ -46,7 +48,7 @@ export class ServerStream {
   }
 
   public grant(credits: number): void {
-    if (this.init.signal.aborted) {
+    if (this.init.signal.aborted || !Number.isInteger(credits) || credits < 1) {
       return;
     }
 
@@ -59,8 +61,12 @@ export class ServerStream {
     this.wake?.();
   }
 
-  /** Runs the stream to its `end` or `fail` frame; never rejects. */
-  public async run(): Promise<StreamOutcome> {
+  /** Runs the stream to its `end` or `fail` frame; never rejects. A second call returns the first outcome. */
+  public run(): Promise<StreamOutcome> {
+    return (this.outcome ??= this.pump());
+  }
+
+  protected async pump(): Promise<StreamOutcome> {
     const id = this.init.id;
 
     try {
@@ -86,7 +92,12 @@ export class ServerStream {
   }
 
   protected fail(err: unknown): ErrorCode {
-    const error = this.init.toWire(err);
+    let error: SocketError;
+    try {
+      error = this.init.toWire(err);
+    } catch {
+      error = { code: 'internal', message: `stream ${this.init.name} failed`, retryable: false };
+    }
     // a source still awaiting something learns to stop; a no-op when an abort is what ended the stream
     this.init.abort(SocketException.fromWire(error));
 
