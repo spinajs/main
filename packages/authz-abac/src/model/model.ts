@@ -1,5 +1,5 @@
-import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, DefaultConditionCompiler, FALSE, GLOBAL, and, or } from '@spinajs/authz';
-import type { AuthzContribution, CompiledCondition, ConditionFunction, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, PermissionDef, PermissionRegistry, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, or } from '@spinajs/authz';
+import type { AuthzContribution, CompiledCondition, ConditionFunction, DecisionRequest, DenyReason, EvaluationContext, FieldSet, ModelCapabilities, ModelInitContext, ModelSummary, PermissionDef, PermissionRegistry, Principal, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets } from './policies.js';
@@ -154,6 +154,41 @@ export class AbacModel extends AuthorizationModel {
       ...(expiries.length > 0 ? { validUntil: new Date(Math.min(...expiries)) } : {}),
       cacheable,
     };
+  }
+
+  /**
+   * H18 (design §6.2): the permissions this principal's permit policies give at `at`, with the
+   * conditions bound for the principal and now; an entry is conditional when a condition or the
+   * policy scope still depends on the resource. Deny policies add no entry: `summary` and
+   * `covers` check every candidate permission, and the checks apply them.
+   */
+  async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
+    await this.fresh();
+    const now = ctx.now;
+    const root = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
+    let ancestors: readonly ResourceRef[] | undefined = root ? [GLOBAL] : undefined;
+    if (!root && at.id !== undefined && at.id !== null) ancestors = (await ctx.ancestors(at)) ?? undefined;
+    const out: { name: string; conditional: boolean; fields?: FieldSet }[] = [];
+    for (const name of [...this.index().permissions()].sort()) {
+      const def = ctx.permissions.get(name);
+      if (!def || (at.type !== GLOBAL.type && !def.types.includes(at.type))) continue;
+      const req: DecisionRequest = { principal, permission: name, resource: at, env: { now } };
+      let best: { conditional: boolean; fields?: FieldSet } | undefined;
+      for (const p of this.index().candidates(name, at.type)) {
+        if (p.policy.effect !== 'permit' || !targets(p, req, now)) continue;
+        const scope = scopeFilter(p.policy.scope, ancestors);
+        if (scope === FALSE) continue;
+        let conditional = scope !== TRUE;
+        if (p.when) {
+          const c = await this.compile(p, req, ctx);
+          if (c.filter.op === 'false' && !c.needsSubject) continue;
+          if (c.needsSubject || c.filter.op !== 'true') conditional = true;
+        }
+        if (!best || (best.conditional && !conditional)) best = { conditional, ...(def.fields === true && p.policy.fields ? { fields: p.policy.fields } : {}) };
+      }
+      if (best) out.push({ name, ...best });
+    }
+    return { model: this.name, permissions: out };
   }
 
   /** Boot refs for validateBoot (design §6.5 rules 7 and 10), fed through AbacContributor. */
