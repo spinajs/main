@@ -14,8 +14,8 @@ const name = (v: unknown): string => (isObject(v) && typeof v.constructor === 'f
 
 function scopeOf(c: AuthzCommand): ResourceRef {
   const scope: unknown = (c as { scope?: unknown }).scope;
+  if (isObject(scope) && scope.type === GLOBAL.type) throw new AuthzAdminFailure('conflict', 'GLOBAL cannot be forgotten', 'scope');
   if (!isObject(scope) || typeof scope.type !== 'string' || scope.type === '' || typeof scope.id !== 'string' || scope.id === '') throw new AuthzAdminFailure('conflict', 'scope.forget needs one node: a resource ref with a type and an id', 'scope');
-  if (scope.type === GLOBAL.type) throw new AuthzAdminFailure('conflict', 'GLOBAL cannot be forgotten', 'scope');
   return { type: scope.type, id: scope.id };
 }
 
@@ -48,11 +48,11 @@ export class ScopeForgetHandler extends AuthzWriteHandler {
     for (const f of forgetters) {
       if (!isObject(f) || typeof f.forget !== 'function') throw new AuthzConfigError(`${where}: ${name(f)} is not a ScopeForgetter`);
       const out: unknown = await f.forget(scope, ctx, tx);
-      if (!isObject(out) || typeof out.affected !== 'number' || !Number.isInteger(out.affected) || out.affected < 0 || !Array.isArray(out.tags) || !Array.isArray(out.events)) {
-        throw new AuthzConfigError(`${where}: ${name(f)}.forget() must return { affected, tags, events }`);
+      if (!isObject(out) || typeof out.affected !== 'number' || !Number.isInteger(out.affected) || out.affected < 0 || !Array.isArray(out.tags) || !out.tags.every((t) => typeof t === 'string') || !Array.isArray(out.events) || !out.events.every((e) => isObject(e) && typeof e.type === 'string' && isObject(e.data))) {
+        throw new AuthzConfigError(`${where}: ${name(f)}.forget() must return { affected, tags: string[], events: { type, data }[] }`);
       }
       affected += out.affected;
-      for (const t of out.tags as unknown[]) if (typeof t === 'string') tags.add(t);
+      for (const t of out.tags as string[]) tags.add(t);
       events.push(...(out.events as AuthzEvent[]));
     }
 

@@ -34,8 +34,15 @@ class RowForgetter extends ScopeForgetter {
 }
 
 class BrokenForgetter extends ScopeForgetter {
+  static answer: unknown = { affected: -1 };
   async forget(): Promise<{ affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
-    return { affected: -1 } as never;
+    return BrokenForgetter.answer as never;
+  }
+}
+
+class OtherForgetter extends ScopeForgetter {
+  async forget(scope: ResourceRef): Promise<{ affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }> {
+    return { affected: 2, tags: [`link:${scope.id}`], events: [{ type: 'LinkRevoked', data: { id: 'l1' } } as unknown as AuthzEvent] };
   }
 }
 
@@ -107,6 +114,7 @@ describe('scope.forget', function () {
     const d = await domain({ forgetter, store });
     const out = await d.admin.execute(alice, [forget(p1), { kind: 'assignment.grant', subject: { type: 'user', id: 'x' }, role: 'guarded', scope: p1 }]);
     expect(out[1].ok).to.equal(false);
+    expect(forgetter.seen).to.have.length(1);
     expect(forgetter.rows.get('project:p1')).to.deep.equal(['r1', 'r2']);
     expect(await store.get(p1)).to.deep.equal({ a: 1 });
     expect(d.bus.published).to.deep.equal([]);
@@ -128,11 +136,37 @@ describe('scope.forget', function () {
     expect(d.model.requests.map((r) => `${r.permission}@${r.resource.type}:${r.resource.id}`)).to.deep.equal(['authz:scope.forget@project:p1']);
   });
 
-  it('a forgetter answering the wrong shape rolls back and rejects with AuthzConfigError', async () => {
-    const store = new MemoryScopeAttributeStore({ values: [{ scope: p1, attributes: { a: 1 } }] });
-    const d = await domain({ store, extra: (c) => c.register(BrokenForgetter).as(ScopeForgetter) });
-    expect(await rejection(d.admin.execute(alice, [forget(p1)]))).to.be.instanceOf(AuthzConfigError);
-    expect(await store.get(p1)).to.deep.equal({ a: 1 });
+  for (const [what, answer] of [
+    ['a negative count', { affected: -1, tags: [], events: [] }],
+    ['a tag that is not a string', { affected: 0, tags: [undefined], events: [] }],
+    ['an event without a type', { affected: 0, tags: [], events: [{ data: {} }] }],
+  ] as const) {
+    it(`a forgetter answering ${what} rolls back and rejects with AuthzConfigError`, async () => {
+      BrokenForgetter.answer = answer;
+      const forgetter = new RowForgetter();
+      const store = new MemoryScopeAttributeStore({ values: [{ scope: p1, attributes: { a: 1 } }] });
+      const d = await domain({ forgetter, store, extra: (c) => c.register(BrokenForgetter).as(ScopeForgetter) });
+      expect(await rejection(d.admin.execute(alice, [forget(p1)]))).to.be.instanceOf(AuthzConfigError);
+      expect(forgetter.seen).to.have.length(1);
+      expect(forgetter.rows.get('project:p1')).to.deep.equal(['r1', 'r2']);
+      expect(await store.get(p1)).to.deep.equal({ a: 1 });
+      expect(d.bus.published).to.deep.equal([]);
+    });
+  }
+
+  it('sums the counts, tags and events of several forgetters', async () => {
+    const forgetter = new RowForgetter();
+    const d = await domain({ forgetter, extra: (c) => c.register(OtherForgetter).as(ScopeForgetter) });
+    const out = await d.admin.execute(alice, [forget(p1)]);
+    expect(out).to.deep.equal([{ ok: true, kind: 'scope.forget', affected: 4 }]);
+    expect([...d.bus.published[0].tags].sort()).to.deep.equal(['link:p1', 'rule:r1', 'rule:r2', 'scope:project:p1']);
+    expect(d.sink.events.map((e) => e.type).sort()).to.deep.equal(['LinkRevoked', 'RuleChanged', 'RuleChanged', 'ScopeForgotten']);
+  });
+
+  it('names GLOBAL in its refusal', async () => {
+    const d = await domain();
+    const out = await d.admin.execute(alice, [forget(GLOBAL)]);
+    expect((out[0] as { error: { message: string } }).error.message).to.contain('GLOBAL');
   });
 
   it('forgetScope sugar sends the command', async () => {
