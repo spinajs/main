@@ -52,7 +52,8 @@ describe('behaviour fixtures under the reference engine', () => {
   });
 
   describe('a wrong expectation fails', () => {
-    const MUTATIONS: readonly { readonly id: BehaviourId; readonly part: string; readonly case: string; readonly mutate: (c: Case) => Case }[] = [
+    // `step`: which step the mutation targets, for a case mutated more than once.
+    const MUTATIONS: readonly { readonly id: BehaviourId; readonly part: string; readonly case: string; readonly step?: number; readonly mutate: (c: Case) => Case }[] = [
       { id: 'B01', part: 'core', case: 'deny-overrides: no routed model has an opinion', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'model_error' })) },
       { id: 'B03', part: 'core', case: 'deny-overrides: a deny beats a permit', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, allowed: true, residual: 'TRUE' })) },
       { id: 'B03', part: 'core', case: 'deny-overrides: a conditional deny cuts the permit row by row (UNKNOWN stays out)', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, residual: { selects: ['r1', 'r3'] } })) },
@@ -71,10 +72,18 @@ describe('behaviour fixtures under the reference engine', () => {
       { id: 'B36', part: 'core', case: 'a model deny with priority 100 beats the ceiling (200)', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'out_of_scope' })) },
       { id: 'B36', part: 'core', case: "the core's delegate deny (200) beats the principal's own no_access (400)", mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'no_access' })) },
       { id: 'B17', part: 'core', case: 'a permitting vote without fields contributes every field, before hide and neverRead', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, fields: { read: { allows: ['b'] } } })) },
+      { id: 'B17', part: 'core', case: 'authz.fields.neverRead from config is removed from read and write', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, fields: { write: { allows: ['secret'] } } })) },
+      { id: 'B22', part: 'core', case: "sync: 'after-preload' preloaded for one principal makes filterNow for another return undefined", mutate: (c) => withStep(c, 1, { filterNow: { as: 'bob', permission: 'file:read', type: 'file' }, expect: { selects: ['r1'] } }) },
+      { id: 'B22', part: 'core', case: "sync: 'after-preload' under inherit is gated on the delegate the models run with, not on the agent", mutate: (c) => withStep(c, 1, { filterNow: { as: 'bot', permission: 'file:read', type: 'file' }, expect: { selects: ['r1'] } }) },
+      { id: 'B22', part: 'core', case: "sync: 'after-preload' under inherit is gated on the delegate the models run with, not on the agent", step: 3, mutate: (c) => withStep(c, 3, { filterNow: { as: 'bot', permission: 'file:read', type: 'file' }, expect: 'undefined' }) },
+      { id: 'B22', part: 'core', case: "sync: 'after-preload' does not gate async checks without preload", mutate: (c) => withExpect(c, 0, (e) => ({ ...e, allowed: false })) },
+      { id: 'B39', part: 'core', case: 'a ref to an ancestor node no resolver knows makes the vote indeterminate: deny model_error', mutate: (c) => withExpect(c, 1, (e) => ({ ...e, reason: 'no_access' })) },
+      { id: 'B39', part: 'core', case: 'a type-level request reading scope.<type>.* for a type other than $global makes the vote indeterminate: deny model_error', mutate: (c) => withExpect(c, 0, (e) => ({ ...e, reason: 'no_access' })) },
+      { id: 'B39', part: 'core', case: 'scope.<type>.* reads adapter scope attributes for adapter types', mutate: (c) => withExpect(c, 2, (e) => ({ ...e, reason: 'no_access' })) },
     ];
 
     for (const m of MUTATIONS) {
-      it(`${m.id}.${m.part} ${m.case}`, async () => {
+      it(`${m.id}.${m.part} ${m.case}${m.step === undefined ? '' : ` (step ${m.step})`}`, async () => {
         const p = part(m.id, m.part);
         const original = findCase(p, m.case);
         assert.equal((await runOne(m.id, p, original)).state, 'passed', 'the case as written passes');

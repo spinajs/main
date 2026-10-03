@@ -30,6 +30,7 @@ const world = (read: FieldSet, write: FieldSet, extra: Partial<World> = {}): Wor
 
 const GET = { method: 'GET', path: '/users/u1', as: 'alice' } as const;
 const PATCH = { method: 'PATCH', path: '/users/u1', as: 'alice', body: { name: 'M', salary: 10 } } as const;
+const PATCH_PASSWORD = { ...PATCH, body: { name: 'M', Password: 'new' } } as const;
 
 const users: World = {
   permissions: [{ name: 'user:read', fields: true }],
@@ -50,6 +51,8 @@ export const B17Lanes = extension('B17', [
       { name: 'the output filter drops authz.fields.neverRead even under *', world: world({ read: ['*'] }, {}), steps: [http(GET, { status: 200, body: { name: 'N', salary: 9 }, absent: ['Password'] })] },
       { name: 'input outside fields.write is stripped', world: world({}, { write: ['name'] }), steps: [http(PATCH, { status: 200, body: { name: 'M' }, absent: ['salary'] })] },
       { name: "input outside fields.write is 400 in 'reject' mode", world: world({}, { write: ['name'] }, { config: { fields: { write: { mode: 'reject' } } } }), steps: [http(PATCH, { status: 400 })] },
+      { name: 'input in authz.fields.neverRead is stripped even under write *', world: world({}, { write: ['*'] }), steps: [http(PATCH_PASSWORD, { status: 200, body: { name: 'M' }, absent: ['Password'] })] },
+      { name: "input in authz.fields.neverRead is 400 in 'reject' mode even under write *", world: world({}, { write: ['*'] }, { config: { fields: { write: { mode: 'reject' } } } }), steps: [http(PATCH_PASSWORD, { status: 400 })] },
     ],
   },
   {

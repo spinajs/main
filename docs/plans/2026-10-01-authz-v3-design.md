@@ -153,6 +153,8 @@ changed.
    data that its dependency list lacks. None is decided here. (r6, F4)
    F4 settled the first two: `service` is async, and `create` is an
    instance method (§5.7). (r6, F3) The L2 key is settled in §10.1.
+   (G1b) The last is settled: `DefaultAdminGuard` lives in
+   `@spinajs/authz-rbac`, next to the RBAC data it reads (§4.1, §6.6.2).
 
 ## Changes in revision r4 (2026-10-02)
 
@@ -505,12 +507,12 @@ the install adds no package that authz does not already pull in.
 |---|---|---|---|
 | `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per domain (root and `AuthzDomains.create` containers), F4, r5; r6, F4), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
 | `@spinajs/authz-testing` | new (dev) | fake models (incl. `FakeTupleModel`), fake adapters and scope resolvers with attributes, model and adapter conformance suites, behaviour fixtures B01–B46, fast-check properties, bench harness, the canvas C6 conformance suite (vendored fixtures plus the two r3 cases, lane K1) | authz |
-| `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
+| `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); (G1b) `DefaultAdminGuard` (§6.6.2); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
 | `@spinajs/authz-abac` | new | ABAC model (uses the core condition compiler), `actorTypes`, `ConfigPolicyStore`, `DbPolicyStore`, policy write handler, migration `authz_policy`, `summarize` for the impersonation rule | authz, orm |
 | `@spinajs/authz-convert` | new (dev tool) | `spinajs-authz-convert` bin: 2.x `rbac.*` config → `authz.*`, `users.*` and (r3) `authn.*` | configuration |
 | `@spinajs/authz-orm` | new | ORM adapter: `@AccessResource`, `@Owner`, `@ScopeColumn`, `@OrmScope` + `OrmScopePolicy`, scope attributes from scope rows, query middleware, filter compiler, field filtering helpers, `DbDecisionAudit` + `authz_audit`, (r3) `DbScopeAttributeStore` + `authz_scope_attribute` | authz, orm, di (r5) |
 | `@spinajs/authz-http` | new | `PrincipalSource`, principal middleware, `ServicePrincipalSource`, (r4) `AuthnPrincipalSource`, `LinkPrincipalSource`, `@Access`, `AccessPolicy`, `@AllowAnonymous`, `@Unscoped`, resource extractors, `@CurrentPrincipal`, `AccessController` (`/user/access`, `/user/access/check`), explain route (dev/test only, H19), `ACCESS_DESCRIPTOR`, input/output field filters | authz, http, orm (r5: `fromModel`), di (r5) |
-| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); `DefaultAdminGuard` (was `RoleGuard`); (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz (r5: `DefaultAdminGuard` reads holders and ladders from RBAC data, which this list lacks; open) |
+| `@spinajs/authz-http-admin` | new (r2, split from `rbac-http-admin`) | routes over `AuthzAdmin`: `/authz/commands` (batch), `/authz/assignments`, `/authz/links`, `/authz/rules`, `/authz/policies`, `/authz/scopes/:type/:id/attributes` (§6.6.5); (G1b) no guard of its own: `AuthzAdmin` runs whichever `AdminGuard` DI provides; (r5, F0b) until C4 it also holds the 2.x `Roles` controller, the abstract `RoleGuard` and `DefaultRoleGuard` under `src/legacy/` | authz-http, authz |
 | `@spinajs/authz-queue` | new | `Initiator` stamping, handler `runAs`, `job` adapter with `initiator` relation, queue-backed `ChangeBus`, (r3) `QueueAuthzEventSink` (`RoleAssigned`, `RoleRevoked`, `AuthzDataChanged`) | authz, queue |
 | `@spinajs/authz-fs` | new, in the 3.0 gate (H20) | fs adapter, guarded-fs proxy, `FsDecorator` impl, `FileMetadataStore`, `fs-inherit` model, upload middleware, `fromFsPath` | authz, fs |
 | `@spinajs/authz-rebac` | reserved, not in 3.0 | §6.3 | — |
@@ -526,7 +528,7 @@ the install adds no package that authz does not already pull in.
 | `@spinajs/http` | `ArgInputFilter` hook in `RouteArgs.tryHydrateParam` (+ http-socket copy); (r3) `RealIp` reads `X-Forwarded-For` only from trusted proxies (`http.trustProxy`); CORS with an empty origin list allows no cross-origin request (§23 SR-03, SR-12) |
 | `@spinajs/orm` | `QueryMiddleware.order` (authz before intl-orm) |
 | `@spinajs/fs`, `fs-s3` | `FsDecorator` hook; `signedUrl(path, { until })` |
-| `@spinajs/queue` | `QueueMessageHook`; `JobModel.Initiator*` columns |
+| `@spinajs/queue` | `QueueMessageHook` and `JobOptions` (`src/hooks.ts`, G1b); `JobModel.Initiator*` columns |
 | `configuration-http`, `configuration-db-source`, `telemetry`, `http-swagger`, `queue-http-progress`, `email`, `http-lazy-file-uploader` | migrated (§11–§14); imports follow the renames |
 | `@spinajs/orm-api` | **removed** (H5) |
 
@@ -541,7 +543,7 @@ dropped.
 | `@spinajs/rbac` | `@spinajs/users` (identity), `@spinajs/authn-local`, `@spinajs/authn-session`, `@spinajs/authz-rbac` | **users:** `User`, `UserMetadata`, lifecycle actions, mails, templates, profile, user CLI (create, ban, activate, delete, find), cron, migrations. **authn-local:** `auth.ts` (`SimpleDbAuthProvider` → `LocalPasswordStrategy`), `password.ts` (hasher, generator, policy), `login`, `confirmPasswordReset`, `issuePasswordResetToken`, `changeUserPassword`, lockout helpers, CLI `user:password`. **authn-session:** `session.ts`, `session-codec.ts`, `session-expiration.ts`, `regenerateSession`, `revokeUserSessions`. **authz-rbac:** `grant`/`revoke` → `AuthzAdmin.assign/revoke`, CLI `rbac:user-grant/revoke` → `authz:assign/revoke`, default grants → `authz.rbac.roles` fragment. **Deleted (R1):** `permission-service.ts`, `orm-permission.ts`, `middleware.ts`, `ownership.ts`, `util.ts`, `impersonation.ts` (rule now `AuthzService.covers`), the `AccessControl` bootstrap, `User.can*`, `User.Role` (H13) |
 | `@spinajs/rbac-http` | `@spinajs/authn-http` (+ `authz-http` replacements) | **authn-http:** session middleware (`RbacMiddleware` → `AuthnMiddleware` + the session principal resolver; r4: handed to authz-http through `req.storage.AuthnPrincipal`), session policies (`AuthorizedPolicy` → `Authenticated`, `LoggedPolicy`, `NotLoggedPolicy`, `NoSessionPolicy`, `AllowGuest`, `BlockGuest`), route args, session context. (r5, F0b) The `TwoFactorAuthProvider` abstract class (→ `MfaStep`) went to `authn-totp`, not `authn-http`, to avoid an `authn-totp` ↔ `authn-http` cycle. **Replaced by authz-http:** `RbacPolicy`, `@Permission`, `@Resource`, `GrantsController`, `AttributeFilter`, `UserDataTransformer` (deleted in R1) |
 | `@spinajs/rbac-http-user` | `@spinajs/authn-http`, `@spinajs/authn-totp`, `@spinajs/users-http` | **authn-http:** `LoginController`, `PasswordResetController`, `SessionsController`, `TwoFactorAuth*Controller`s, `ActiveRoleController`, `ImpersonationController` + `ImpersonationService` (→ authn core), logout handlers, `SessionCookies`. (r4) **users:** `services/grants.ts` → `AccessResponseExtension`, the impersonation rule → `AuthzImpersonationGuard`, the role list for the switch → `RbacRoleSource` (D26; F0b parks them in `authn-http`, plan C3 moves them). **authn-totp:** `2fa/Default2FaToken.ts`, `2fa/otpUrl.ts`, `actions/2fa.ts`, 2FA CLI, (r5, F0b) the `User2Fa*` events (not `authn-http/account`, to avoid a cycle). **users-http:** `UserController` (profile part), `UserMetadataController`, `UserMetadataService`, `FilterableUserMetadata` |
-| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard`/`DefaultAdminGuard`. (r5, F0b) Until C4, the 2.x `Roles` controller, the abstract `RoleGuard` (`interfaces.ts`) and `DefaultRoleGuard` sit in `authz-http-admin/src/legacy/`, not in `users-http`, to avoid a cycle; `users-http` imports `RoleGuard` from there |
+| `@spinajs/rbac-http-admin` | `@spinajs/users-http`, `@spinajs/authn-http`, `@spinajs/authz-http-admin` | **users-http:** `Users`, `Profile` controllers, lifecycle routes of `Security` (activate, deactivate, ban, unban). **authn-http:** credential routes of `Security` (password, reset request, expire password, 2FA reset/enable/disable) under `/authn/admin/users/:uuid/*` with a target guard (A25). **authz-http-admin:** `Roles` controller → assignment routes on `AuthzAdmin`; `RoleGuard`/`DefaultRoleGuard` → `AdminGuard` (core) and `DefaultAdminGuard` (authz-rbac, G1b). (r5, F0b) Until C4, the 2.x `Roles` controller, the abstract `RoleGuard` (`interfaces.ts`) and `DefaultRoleGuard` sit in `authz-http-admin/src/legacy/`, not in `users-http`, to avoid a cycle; `users-http` imports `RoleGuard` from there |
 | `@spinajs/rbac-http-token` | `@spinajs/authn-token`, `@spinajs/authn-http` | **authn-token:** model, generator, validation, role policy (→ ceiling builder), CLI, migrations (class names kept). **authn-http** (r5, F0b: the whole token HTTP layer, i.e. controllers, `middlewares.ts`, `policies/**` and `dto/**`, sits in `authn-http/src/token/`; leaving policies and middleware in `authn-token` made an `authn-token` ↔ `authn-http` cycle)**:** `AccessTokenController` (`/user/tokens`), `TokenAuthMiddleware` → the token principal resolver (r4: handed over through `req.storage.AuthnPrincipal`), `NoTokenAuthPolicy`, `NoImpersonationPolicy`. **Deleted:** `TokenPolicy` |
 | `@spinajs/session-provider-*` | same names | now implement the `authn-session` contract |
 | `@spinajs/orm-api` | — | removed (H5) |
@@ -1043,8 +1045,8 @@ export abstract class ScopeResolver {              // for types without an adapt
   attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
 }
 // Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
-// A condition or rule that reads a missing scope attribute makes the vote indeterminate (B04, fail closed; B39).
-// (r6, F3) A vote whose permitWhen, denyWhen or denies hold a scope.* ref that cannot be resolved (attribute absent, node unknown, or a type-level request for a type other than $global) is indeterminate: model_error, and the error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
+// (r6, G1b) A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
+// (r6, F3) The model_error names the ref. A ref left in the combined residual binds by polarity (missing ⇒ FALSE under an even number of `not`, TRUE under an odd number).
 
 /** (r3, D23) Scope attributes as authz data. ctx.attributes(ref) = schema defaults ⊕ adapter/resolver attributes ⊕ store rows (store wins). */
 export interface ScopeAttributeSchema {
@@ -1234,6 +1236,7 @@ export abstract class AssignmentStore {
   abstract readonly name: string;
   abstract forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
   abstract holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;   // AdminGuard last-holder
+  abstract byId(id: string): Promise<Assignment | null>;   // (G1b) AdminGuard, id-only commands; expired rows too
   // (r3) the write methods below are called only by the RBAC write handlers of AuthzAdmin (§6.6), inside its transaction
   assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
   revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
@@ -1650,10 +1653,11 @@ export type AuthzAdminQuery =
 export abstract class AuthzWriteHandler {
   abstract readonly kinds: readonly AuthzCommand['kind'][];
   abstract validate(c: AuthzCommand, ctx: AdminContext): Promise<void>;          // throws AuthzAdminFailure(code)
-  abstract permission(c: AuthzCommand): { permission: Permission; resource: ResourceRef };   // what the actor must hold
+  /** What the actor must hold. Id-only commands (revoke, tags, expiry) carry no scope, so the handler may load the row to find it (G1b). */
+  abstract permission(c: AuthzCommand, ctx: AdminContext): { permission: Permission; resource: ResourceRef } | Promise<{ permission: Permission; resource: ResourceRef }>;
   abstract apply(c: AuthzCommand, ctx: AdminContext, tx: AuthzTx): Promise<{ id?: string; token?: string; affected: number; tags: readonly string[]; events: readonly AuthzEvent[] }>;
 }
-export abstract class AdminGuard {                 // DefaultAdminGuard; was RoleGuard (r2)
+export abstract class AdminGuard {                 // DefaultAdminGuard in @spinajs/authz-rbac (G1b); was RoleGuard (r2)
   abstract check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void>;   // escalation, last holder, self-lockout, protected roles
 }
 export abstract class AuthzCommandValidator {      // app hook, Array.ofType; canvas: refuse external invites when its product rule says so
@@ -1676,7 +1680,7 @@ execute(actor, commands, opts):
                                         # rule in SQL form (D24), policy and rule conditions compile, attribute patch
                                         # matches the scope type's ScopeAttributeSchema, tags non-empty strings
     AuthzCommandValidator[*].validate   # app rules
-    { permission, resource } = h.permission(c)
+    { permission, resource } = await h.permission(c, ctx)   # (G1b) may load the row of an id-only command
     authz().check(actor, permission, resource) must allow (SYSTEM passes, audited)
     AdminGuard.check(actor, c)          # B26 RoleGuard part, generalised to every kind
   begin transaction
@@ -1709,6 +1713,25 @@ scope (no escalation; for ladder roles, rank ≤ the actor's rank there); a
 system role is never granted through the API; no self-lockout; the last
 holder of `privilegedPermission` at GLOBAL keeps it; links and rules may
 not grant or require a role above the actor's own at that scope.
+
+(G1b) `DefaultAdminGuard` lives in `@spinajs/authz-rbac`, which registers
+it: it reads roles and ladders (`RoleStore`), assignments by subject and
+by id and the holders of a role (`AssignmentStore`), subject sets
+(`SubjectResolver`) and `RbacService.covers`/`rolesOf`. `authz-http-admin`
+and the core know only `AdminGuard`. authz-rbac's config fragment ships
+the `authz.admin.guard` defaults of §8.2; without it the key is absent,
+which fails closed like an unregistered name (below): an app without
+authz-rbac that uses `AuthzAdmin` registers its own guard. Boot never depends on a guard: the host resolves
+`AuthzAdmin` during its own boot, and apps without authz-rbac must still
+boot. `AuthzAdmin` resolves the service named in
+`authz.admin.guard.service` lazily, on its first call (`execute`, a sugar
+method or `list`), and keeps it. When no service is registered under that
+name, that call and every later one fail closed with an
+`AuthzConfigError` naming `authz.admin.guard.service`; no command runs
+unguarded and there is no permissive fallback. The guard must not inject
+`AuthzService` eagerly: the service resolves `AuthzAdmin` during its own
+boot, which would deadlock (F4). It reads `ctx.authz` or resolves the
+service lazily.
 
 #### 6.6.3 Data kinds and storage
 
@@ -2658,10 +2681,11 @@ export abstract class QueueMessageHook {
 export interface JobOptions { runAs?: 'initiator' | 'system' }               // @Job(opts?); today @Job() takes none (queue/src/decorators.ts:14)
 ```
 
-(r5, F1) Until lane L6 adds these types to `@spinajs/queue`, authz-queue
-declares mirrors of `QueueMessageHook` and `JobOptions`, plus an
-`Initiator` interface (`{ type, id, ceiling? }`); L6 replaces the mirrors
-with re-exports (integrator approval at G1, or an RFC). After a JSON
+(G1b) Both types live in `@spinajs/queue` (`src/hooks.ts`, exported from
+its barrel); authz-queue re-exports them from its frozen `api.ts`
+(approved at G1), so their signatures are frozen through the authz-queue
+snapshot. authz-queue declares only the `Initiator` interface
+(`{ type, id, ceiling? }`), which needs authz types. After a JSON
 broker, `Initiator.ceiling.expiresAt` must be revived to a `Date`.
 
 - `beforeEmit`: stamps `message.Initiator = { type, id, ceiling? }` from

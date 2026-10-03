@@ -1,5 +1,5 @@
-import { AuthzConfigError } from '../contracts/errors.js';
-import type { EngineLog } from '../engine/authorizer.js';
+import { AuthzConfigError } from '../../contracts/errors.js';
+import type { EngineLog } from '../../engine/authorizer.js';
 
 export interface LegacyKeyRow {
   readonly from: string;

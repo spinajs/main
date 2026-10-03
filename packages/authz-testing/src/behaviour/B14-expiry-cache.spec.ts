@@ -109,8 +109,7 @@ export const B14 = fixture('B14', [
   {
     name: 'abac',
     facets: ['engine', 'abac'],
-    lanes: [],
-    note: "No lane names it: L3's runBehaviour list lacks B14; L3 should add B14.abac.",
+    lanes: ['L3'],
     world: abacWorld,
     cases: [
       { name: 'an expired policy contributes nothing', steps: [{ check: { as: 'alice', permission: 'file:read', resource: f1 }, expect: { allowed: false } }] },

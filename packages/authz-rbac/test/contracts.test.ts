@@ -105,11 +105,29 @@ describe('authz-rbac contracts', () => {
       async holders(_role: string, _scope: ResourceRef, _at: Date) {
         return [];
       }
+      async byId(_id: string): Promise<Assignment | null> {
+        return null;
+      }
     }
     const a = new A();
     expect(a.assign).to.equal(undefined);
     expect(a.revoke).to.equal(undefined);
     expect(await a.holders('admin', scope, new Date())).to.have.length(0);
+    expect(await a.byId('missing')).to.equal(null);
+  });
+
+  it('AssignmentStore requires byId (AdminGuard and handlers resolve id-only commands)', () => {
+    // @ts-expect-error byId is abstract
+    class NoById extends AssignmentStore {
+      readonly name = 'a';
+      async forSubjects() {
+        return [];
+      }
+      async holders() {
+        return [];
+      }
+    }
+    expect(NoById).to.be.a('function');
   });
 
   it('AssignmentStore fake with write methods taking an AuthzTx', async () => {
@@ -120,6 +138,9 @@ describe('authz-rbac contracts', () => {
       }
       async holders() {
         return [];
+      }
+      async byId() {
+        return null;
       }
       async assign(a: Omit<Assignment, 'id' | 'source'>, _actor: PrincipalRef, _tx: AuthzTx): Promise<Assignment> {
         return { ...a, id: '1', source: 'db' };
@@ -208,6 +229,7 @@ describe('authz-rbac pinned shapes', () => {
           readonly name: string;
           forSubjects(subjects: readonly AssignmentSubject[], at: Date): Promise<readonly Assignment[]>;
           holders(role: string, scope: ResourceRef, at: Date): Promise<readonly AssignmentSubject[]>;
+          byId(id: string): Promise<Assignment | null>;
           assign?(a: Omit<Assignment, 'id' | 'source'>, actor: PrincipalRef, tx: AuthzTx): Promise<Assignment>;
           revoke?(id: string, actor: PrincipalRef, tx: AuthzTx): Promise<void>;
         }

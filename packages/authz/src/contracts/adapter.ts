@@ -26,7 +26,7 @@ export abstract class ScopeResolver {
   attributes?(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null>;
 }
 // Unregistered type: ancestors = [ref, GLOBAL]; attributes = {}.
-// A condition or rule that reads a missing scope attribute makes the vote indeterminate (B04, fail closed; B39).
+// A missing scope attribute, or a scope.<type>.* ref the engine cannot resolve (unknown node; a type-level request for a type other than $global), makes the vote indeterminate: B04, fail closed, reason model_error (B39).
 
 export abstract class RelationResolver {
   abstract readonly type: ResourceType;

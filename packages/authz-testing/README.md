@@ -107,14 +107,15 @@ runBehaviour(['B01', 'B03', 'B04.core'], engineHarness);
 ### World → system
 
 Where each key of a `World` goes. "Engine" is an `Authorizer`-style harness (F3); "host" is a test
-domain built from `AuthzService`/`AuthzDomains` (F4 and the lanes). The kit cannot import host code,
-so each host lane follows this table. A shared host harness helper is a follow-up once F4's host exists
-(not yet planned).
+domain built from `AuthzService`/`AuthzDomains` (F4 and the lanes). `hostHarness` ("Shared host
+harness" below) does the host column for the kit's keys; a lane adds its own keys (`rbac`, `abac`,
+`scopeAttributes` with its own store, `lane`) through its options. `<test>` is the test domain's name;
+the test domain is a child of root.
 
 | World key | Engine harness | Host harness (test domain) |
 |---|---|---|
-| `permissions` | `kit.permissions` (a `FakePermissionRegistry`) | `authz.permissions` config, or registered by the lane's models and adapters at boot |
-| `combine` | the Authorizer's routes | `authz.combine` (or `authz.domains.<test>.combine` when the test domain is a child) |
+| `permissions` | `kit.permissions` (a `FakePermissionRegistry`) | `authz.domains.<test>.permissions`, or registered by the lane's models and adapters at boot |
+| `combine` | the Authorizer's routes | `authz.domains.<test>.combine` |
 | `models` (kit specs) | `kit.models`, in order | the very instances of `kit.models`, registered under `AuthorizationModel` in the test domain |
 | `adapters` | `kit.adapters` | `kit.adapters` registered as `ResourceAdapter` in the test domain |
 | `scopes` | `kit.scopeResolvers` | registered as `ScopeResolver` |
@@ -125,10 +126,12 @@ so each host lane follows this table. A shared host harness helper is a follow-u
 | `domains` | — | `AuthzDomains.create(name, parent)` per entry, its kit models (`kit.domainModels.get(name)`) registered in that child, `combine` and `disable` as `authz.domains.<name>.*` |
 | `rbac`, `abac`, `rebac` | — | the lane's real model named `rbac` / `abac` / `rebac`, loaded with this data |
 | `scopeAttributes` | — | the lane's `ScopeAttributeStore` and schemas |
-| `config.engine`, `config.fields`, `config.cache`, `config.audit`, `config.principals` | the Authorizer's options | the same keys under `authz.*` |
+| `config.engine`, `config.fields`, `config.cache`, `config.audit` | the Authorizer's options | `authz.domains.<test>.*` (the host reads these keys per domain); without the `cache` facet and without `config.cache`, `hostHarness` sets `cache.maxEntries: 0` |
+| `config.principals` | the Authorizer's options | `authz.principals` (root only) |
 | `config.<model>` | — | the model's section (`authz.<model>.*`) |
 | `config.admin`, `config.impersonation` | — | `authz.admin.*` (AdminGuard options, command permissions) and `authz.impersonation.*` (users' impersonation guard) |
-| `config.http`, `config.fs`, `config.token`, `config.domains` | — | `authz.http.*`, `authz.fs.*`, `authz.token.*`, `authz.domains.*` |
+| `config.http`, `config.fs`, `config.token` | — | `authz.http.*`, `authz.fs.*`, `authz.token.*` |
+| `config.domains` | — | `authz.domains.*`; the keys `hostHarness` derives for `<test>` and the world's domains win |
 | `lane` | — | what the lane builds with its own decorators and classes (routes, ORM models, filesystems, jobs, configuration rows, socket handlers); see "Lane data and handles" |
 | (audit, bus facets) | `kit.audit`, `kit.bus` | `kit.audit` and `kit.bus` registered as the host's `DecisionAudit` and `ChangeBus` |
 
@@ -208,6 +211,59 @@ const rbacHarness = (): BehaviourHarness => ({
   },
 });
 ```
+
+### Shared host harness
+
+`hostHarness(options)` is the harness every host lane starts from (F4 wrote it for its own host
+tests). Each case gets a fresh test domain, made by `AuthzDomains.create(<test>, 'root')` and booted
+by the real `DefaultAuthzService`, holding the world's kit fakes, audit, bus and clock. It has the
+facets `engine`, `boot`, `audit`, `clock`, `cache`, `host` and `bus`, plus the ones in `facets`.
+
+```ts
+import { AuthorizationModel } from '@spinajs/authz';
+import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
+
+runBehaviour(
+  ['B11', 'B12', 'B13'],
+  () =>
+    hostHarness({
+      facets: ['rbac'],
+      // After the kit's registrations, before the case's first service().
+      register(host) {
+        // RbacModel and storeHandle are the lane's own code.
+        host.container.register(testHost.instance(new RbacModel(host.world.rbac))).as(AuthorizationModel);
+        host.setConfig(['authz', 'rbac', 'roles'], host.world.rbac?.roles ?? []);
+      },
+      // Extra session handles; a `dispose` it returns runs before the domain is disposed.
+      extend: (host) => ({ lane: { rbacStore: storeHandle(host.container) } }),
+    }),
+  { strict: true },
+);
+```
+
+- Options: `domain` (default `test`; `$domain` in expected messages), `facets`, `register(host)`,
+  `extend(host, session)`, and `kitScopeAttributes: false` for a lane that registers its own
+  `ScopeAttributeStore`. `host` (`HostSetup`) carries the test domain's `container`, the world
+  domains' `containers`, `world`, `kit`, `ctx`, `domain` and `setConfig(path, value)`.
+- Write config only through `host.setConfig`: the case's cleanup restores every key it set. A world
+  section replaces the lane's section at that key for the case; it is not merged into it.
+- Root boots once, inside the first case and under that case's config, and stays booted. Keep the
+  lane's models out of root (register them in the test domain), and expect a root-only key of a world
+  (`config.principals`) to reach root only in the first case.
+- Load the host from the lib (`@spinajs/authz`, which this kit imports), never from authz `src`: two
+  copies register two `DefaultAuthzService` classes in one DI root.
+- Register a child domain's models before the first `service()` of that domain: `register` runs
+  before the harness asks for the services, so register there, not in `extend`.
+- `AuthzDomains.create` needs the DI `Configuration`: the harness installs `testHost`'s
+  `TestConfiguration` in `beforeAll` unless `testHost.installHost()` already ran, and removes it in
+  `afterAll`. A lane that uses the harness has no `Configuration` of its own; it writes config
+  through `host.setConfig`.
+- Uncache only what you created: `testHost.registerInRoot` returns its own undo, and
+  `testHost.uninstallHost` uncaches only the root types it found uncached. Never call
+  `DI.clearCache()`.
+- `testHost` also holds the helpers F4's host tests use without the harness: `installHost`,
+  `uninstallHost`, `resetHost`, `config`, `domains`, `rootDomains`, `disposeDomains`, `resetRoot`,
+  `registerInRoot`, `instance`.
 
 ## Adding fixtures
 

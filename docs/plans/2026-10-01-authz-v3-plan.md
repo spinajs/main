@@ -43,6 +43,7 @@ what changed. The design (r6) holds the decisions behind them.
    | B27.policyEvents | L9 | `policy.put` and `policy.delete` run through L9's ABAC handler (task 4). |
    | B12.http | C4 | The write cases go through `POST /authz/commands`. |
    | B16.fs | L7 | The part needs the RBAC model; L7 now depends on L1. |
+   | B02.adapter (G1b) | L7 | Only the fs adapter declares `operations()` (its operation table, design §13); L7 proposes the case. |
 3. **F3 hand-offs.** L4 gets the relation and SQL hand-offs (see its section).
    F4, L1, L1b, L3 and L5 read the "Hand-offs" of `F3-report.md` before
    they start (one `Authorizer` and one `DecisionCache` per domain, the
@@ -269,6 +270,10 @@ the r3 change list above.
    A01–A27 and (r4) A30–A32 live in `@spinajs/authn-testing` (F7) and are
    run the same way:
    `runAuthnBehaviour(['A02', 'A05'], () => harness)`.
+   (G1b) A lane that runs fixtures through the host does not write its own
+   host harness: it uses `hostHarness` from `@spinajs/authz-testing`, wiring
+   its models and handles through the options `register` and `extend`
+   (kit README, "Shared host harness").
 5. **Old APIs are not deleted by consumer lanes.** Consumer lanes stop using
    them and mark them `@deprecated`; R1 deletes them after every consumer has
    merged. This keeps `feat/authz-v3` building after every merge. Exception
@@ -536,7 +541,8 @@ F0a first, alone (§0a).
 
 ### F4 — host (2.5 d)
 
-- **Owns:** `packages/authz/src/host/**`, `packages/authz/src/config/**`,
+- **Owns:** `packages/authz/src/host/**` (G1b: the config schema and loader moved from
+  `src/config/` to `src/host/config/`; configuration loads `lib/*/config/**` as config files),
   `packages/authz/test/host/**`.
 - **Tasks:**
   1. ALS storage contract `IAuthzAsyncStorage { Principal, AuthzCache, AuthzDecision, Unscoped }`
@@ -547,8 +553,9 @@ F0a first, alone (§0a).
      models/adapters/scope resolvers/relations/native filters/combinators
      with `resolveChain`, builds an `Authorizer`, runs `init()` of models and
      the boot validator in `resolve()`); `authz(domain?)`.
-  3. `AuthzDomains`: `create`, `container`, `service`, `names`; fan-out of
-     `AuthzChange`; disposal (B29).
+  3. `AuthzDomains`: `create`, `container`, `service`, `names`; (G1b) no fan-out:
+     each domain subscribes to the `ChangeBus` its container resolves and
+     `AuthzDomains` forwards nothing (design §10.3); disposal (B29).
   4. Config: AJV schema for `authz.*` core keys (design §8.1) registered
      like other packages; per-domain overrides; old-key detector for every
      `rbac.*` key (design §8.1) failing boot with the converter's name.
@@ -793,8 +800,9 @@ After G1 the rule in §1.3 applies.
      `authz_link`, `authz_version` (sqlite + postgres tests). No
      `authz_role*` (H14).
   3. `DbAssignmentStore`: `forSubjects` (principals and subject sets,
-     expiry), `holders`; (r3) `assign`/`revoke` take an `AuthzTx` and are
-     called only by L9's RBAC handlers; tag normalisation (`,a,b,`, sorted,
+     expiry), `holders`, (G1b) `byId` (expired rows too); (r3)
+     `assign`/`revoke` take an `AuthzTx` and are called only by L9's RBAC
+     handlers; tag normalisation (`,a,b,`, sorted,
      deduplicated); version bump inside the transaction (B27 store part).
   4. Migration `AuthzRbacUserRoles_2026_10_01_00_01_00` copying
      `users.<authz.rbac.migration.roleColumn>` into `$global` assignments;
@@ -999,10 +1007,19 @@ After G1 the rule in §1.3 applies.
   migration), `packages/authz-queue/**` (except api/index),
   `packages/http-lazy-file-uploader/src/**`.
 - **Depends on:** G1; L4 for task 4.
+- (G1b) `QueueMessageHook` and `JobOptions` already exist in
+  `queue/src/hooks.ts`, and authz-queue's `api.ts` re-exports them
+  (approved at G1). Their signatures are frozen through the authz-queue
+  snapshot: changing them needs an RFC although `packages/queue/src/**` is
+  L6's. Add the `Initiator` field that task 3 stamps to `IQueueMessage` in
+  `@spinajs/queue` itself: `api-snapshot --check` rejects a
+  `declare module '@spinajs/queue'` augmentation.
 - **Tasks:**
-  1. `QueueMessageHook` resolved with `Array.ofType` in `QueueService.emit`
+  1. Wire the existing `QueueMessageHook` (G1b): resolved with
+     `Array.ofType` in `QueueService.emit`
      (`queue/src/interfaces.ts:57`) and around `ev.execute`
-     (`queue/src/index.ts:191`); `@Job(opts?)` (`queue/src/decorators.ts:14`).
+     (`queue/src/index.ts:191`); `@Job(opts?: JobOptions)`
+     (`queue/src/decorators.ts:14`).
   2. `JobModel.InitiatorType/InitiatorId` + migration on connection `queue`
      (table `queue_jobs`, `JobModel.ts:62-64`).
   3. authz-queue hook: stamp `Initiator`; `aroundHandle` with
@@ -1027,7 +1044,9 @@ After G1 the rule in §1.3 applies.
      `signedUrl` on `fs`; `fs-s3` TTL parameter.
   2. Path normalisation and refs (`..` above root refused, `\` → `/`).
   3. Proxy guard with the operation table; modes off/audit/enforce (B28);
-     unmapped method throws unless `SYSTEM`.
+     unmapped method throws unless `SYSTEM`. (G1b) The table's permissions
+     reach boot rule 7 (design §6.5) as `permissionRefs` through
+     `AuthzContributor`, so an unregistered one fails boot (B02.adapter).
   4. Permissions `fs:*` with `types` and `implies`.
   5. `OrmFileMetadataStore` (+ migration `fs_object`), `S3ObjectMetadataStore`;
      `owner` relation; stamping on write.
@@ -1037,7 +1056,8 @@ After G1 the rule in §1.3 applies.
   8. Upload middleware; signed-URL gate (`fs:share`, TTL rule).
   9. `fromFsPath` extractor.
   10. Tests on local, temp-over-local and S3 (localstack, as `fs-s3` tests do);
-      `runBehaviour(['B16','B28','B29'], fsHarness)`.
+      `runBehaviour(['B02','B16','B28','B29'], fsHarness)` (G1b: part
+      B02.adapter, the case L7 proposes for its operation table).
 - **Merge order:** last in wave 1, before IC2. (r2) It must merge before X1;
   a late L7 delays the RC instead of moving to 3.0.x.
 
@@ -1065,7 +1085,8 @@ After G1 the rule in §1.3 applies.
 - **Inputs:** design §5.6 (scope attributes), §6.6, §8.2 (`authz.admin`),
   §9.1, §10.3.
 - **Outputs:** `AuthzAdmin` implementation (root and per domain),
-  `DefaultAdminGuard`, handlers for every command kind, `DbScopeAttributeStore`,
+  `DefaultAdminGuard` (G1b: in `packages/authz-rbac/src/admin/**`,
+  registered by authz-rbac), handlers for every command kind, `DbScopeAttributeStore`,
   `LogAuthzEventSink`; the API `authz-http-admin` (C4), K1 and canvas call.
 - **Tasks:**
   1. Command bus: handler registry by kind (`resolveChain`), per-command
@@ -1092,6 +1113,19 @@ After G1 the rule in §1.3 applies.
      `covers` and ladder rank at the scope, system role, self-lockout, last
      privileged holder, links and rules not above the actor (B26 guard
      part); `authz.admin.permissions` mapping per kind and scope type.
+     (G1b) The guard lives in `packages/authz-rbac/src/admin/**` and
+     reads `RoleStore`, `AssignmentStore` (`forSubjects`, `holders`,
+     `byId`), `SubjectResolver` and `RbacService`; it reads `ctx.authz`
+     or resolves `AuthzService` lazily, never injects it eagerly (F4: boot
+     deadlock). authz-rbac's config fragment ships the `authz.admin.guard`
+     defaults. `AuthzAdmin` resolves the guard lazily on its first call;
+     when the key is absent or no guard is registered under
+     `authz.admin.guard.service`, every
+     call fails closed with an `AuthzConfigError` naming the key, and boot
+     is untouched (design §6.6.2).
+     (G1b) Open: 3.0 has no `rbac.systemRole` and SYSTEM is a principal, so
+     L9 decides what `authz.admin.guard.protectSystemRole` protects (e.g.
+     refuses roles with `assignable: false`) or drops the key from design §8.2.
   8. After commit: version bump, `ChangeBus.publish`, `AuthzEventSink`s,
      `DecisionAudit` kind `admin` with secrets removed (B27, B43).
   9. `runBehaviour(['B26','B27','B39','B43','B46'], adminHarness)` on memory
@@ -1705,9 +1739,12 @@ All consumer lanes follow §1.5 and §1.6. Package names are the r3 names
   1. Routes of design §6.6.5 on `AuthzAdmin`: `POST /authz/commands`,
      assignments, links (token once), rules, policies, scope attributes;
      `@Access` checks authentication only; per-command permission and
-     guard inside `AuthzAdmin`.
-  2. Delete `src/legacy/**` (2.x `Roles` controller and `RoleGuard`, moved
-     by F0b) after porting their tests to the new routes.
+     guard inside `AuthzAdmin`. (G1b) The package uses only the abstract
+     `AdminGuard` from `@spinajs/authz` and never lists `authz-rbac` for
+     the guard; `DefaultAdminGuard` is authz-rbac's (L9).
+  2. Delete `src/legacy/**` (2.x `Roles` controller, `RoleGuard` and
+     `DefaultRoleGuard`, moved by F0b) after porting their tests to the
+     new routes.
   3. Swagger descriptions for the command shapes.
   4. Adapt tests.
 - **Acceptance:** B12 (http part, r6), B13 (via API), B26 (guard via HTTP),

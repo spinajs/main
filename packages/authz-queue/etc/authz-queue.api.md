@@ -8,17 +8,26 @@ Entries: `src/api.ts`.
 
 ```ts
 import type { Ceiling, PrincipalType } from "@spinajs/authz";
-import type { IQueueMessage } from "@spinajs/queue";
-export declare abstract class QueueMessageHook {
-    abstract beforeEmit(message: IQueueMessage): void | Promise<void>;
-    abstract aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T>;
-}
-export interface JobOptions {
-    runAs?: "initiator" | "system";
-}
+export { QueueMessageHook } from "@spinajs/queue";
+export type { JobOptions } from "@spinajs/queue";
 export interface Initiator {
     readonly type: PrincipalType;
     readonly id: string;
     readonly ceiling?: Ceiling;
+}
+```
+
+## Re-exported from other packages
+
+```ts
+// JobOptions (@spinajs/queue)
+export interface JobOptions {
+    runAs?: "initiator" | "system";
+}
+
+// QueueMessageHook (@spinajs/queue)
+export declare abstract class QueueMessageHook {
+    abstract beforeEmit(message: IQueueMessage): void | Promise<void>;
+    abstract aroundHandle<T>(message: IQueueMessage, next: () => Promise<T>): Promise<T>;
 }
 ```

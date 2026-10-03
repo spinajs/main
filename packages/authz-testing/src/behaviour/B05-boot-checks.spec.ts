@@ -57,8 +57,8 @@ export const B05 = fixture('B05', [
   {
     name: 'rbac',
     facets: ['engine', 'boot', 'rbac'],
-    lanes: [],
-    note: 'Rule 8. No lane lists B05 for RBAC grants (L1b lists only its §6.5.9 part); L1 should add B05.rbac.',
+    lanes: ['L1'],
+    note: 'Rule 8, when the RBAC model compiles its grants.',
     cases: [refused('rule 8: a grant relation with no RelationResolver for the type', rbacWorld({ roles: [role('owner', [{ permission: 'file:read', relation: 'owner' }])], assignments: [assignment('a1', alice, 'owner')] }, { adapters: [{ types: ['file'] }] }), ['$domain', 'rbac', 'file', 'file:read'])],
   },
   {
@@ -92,8 +92,8 @@ export const B05 = fixture('B05', [
   {
     name: 'abac',
     facets: ['engine', 'boot', 'abac', 'conditions'],
-    lanes: [],
-    note: 'Rule 10 for a policy condition. No lane lists B05 for ABAC; L3 should add B05.abac.',
+    lanes: ['L3'],
+    note: 'Rule 10 for a policy condition.',
     cases: [refused('rule 10: a scope.<type>.* ref for a type no adapter or scope resolver returns as an ancestor', { permissions: [READ], principals: { alice }, combine: combine('deny-overrides', 'abac'), abac: { policies: [{ id: 'p1', effect: 'permit', permissions: ['file:read'], when: { attr: 'scope.galaxy.open', eq: true }, source: 'test' }] } }, ['$domain', 'abac', 'galaxy'])],
   },
   {

@@ -41,9 +41,9 @@ const core: Case[] = [
     steps: [{ check: { as: 'alice', permission: 'user:read', resource: u1 }, expect: { allowed: true, fields: { read: { allows: ['name'], denies: ['Password'] }, write: { allows: ['name'], denies: ['Password'] } } } }],
   },
   {
-    name: 'authz.fields.neverRead from config is removed',
-    world: world([permitting('m1', { read: ['*'] })], { config: { fields: { neverRead: ['secret'] } } }),
-    steps: [{ check: { as: 'alice', permission: 'user:read', resource: u1 }, expect: { allowed: true, fields: { read: { allows: ['name'], denies: ['secret'] } } } }],
+    name: 'authz.fields.neverRead from config is removed from read and write',
+    world: world([permitting('m1', { read: ['*'], write: ['*'] })], { config: { fields: { neverRead: ['secret'] } } }),
+    steps: [{ check: { as: 'alice', permission: 'user:read', resource: u1 }, expect: { allowed: true, fields: { read: { allows: ['name'], denies: ['secret'] }, write: { allows: ['name'], denies: ['secret'] } } } }],
   },
   {
     name: '!X negations and A.* globs work',

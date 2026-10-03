@@ -52,6 +52,6 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
-    "@spinajs/configuration": "2.0.548"
+    "@spinajs/configuration": "2.0.549"
   }
 }

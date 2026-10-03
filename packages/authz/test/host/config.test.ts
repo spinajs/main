@@ -6,6 +6,8 @@ import ajvKeywords from 'ajv-keywords';
 
 import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const expect = chai.expect;
 
@@ -391,5 +393,14 @@ describe('AuthzConfigBootstrapper', () => {
     }
     expect(schemas()).to.not.include(AUTHZ_CONFIGURATION_SCHEMA);
     expect(schemas()).to.have.length(before.length);
+  });
+});
+
+describe('authz package layout', () => {
+  // Configuration loads every module under node_modules/@spinajs/*/lib/{mjs,cjs}/config as a config file.
+  it('ships no code modules in lib/*/config', () => {
+    for (const flavour of ['mjs', 'cjs']) {
+      expect(existsSync(join(process.cwd(), 'lib', flavour, 'config')), `lib/${flavour}/config`).to.eq(false);
+    }
   });
 });
