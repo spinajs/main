@@ -26,7 +26,9 @@ for (const kind of DB_KINDS) {
         const params = throttleParams(ctx.config);
         return { throttle: { throttle: new DbAuthnThrottle(db.driver, params), params } };
       },
-      { title: `throttle conformance (${kind})`, timeoutMs: 30000 },
+      // A06 SR-05 makes 10,000 attempts; on a loaded shared postgres it can pass 300 s, and a timed-out case keeps
+      // writing rows into the next cases.
+      { title: `throttle conformance (${kind})`, timeoutMs: 900_000 },
     );
   });
 }

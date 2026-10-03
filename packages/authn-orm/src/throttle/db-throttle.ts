@@ -4,12 +4,12 @@ import { AuthnThrottle } from '@spinajs/authn/contracts';
 import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 import { Configuration } from '@spinajs/configuration';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
-import { InvalidArgument, InvalidOption, ResourceDuplicated } from '@spinajs/exceptions';
-import { Orm, OrmDriver, RawQuery } from '@spinajs/orm';
-import type { IUpdateResult, WhereBuilder } from '@spinajs/orm';
-import { DateTime } from 'luxon';
+import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { Orm, OrmDriver } from '@spinajs/orm';
+import type { RawQuery, WhereBuilder } from '@spinajs/orm';
 
-import { fromUtcColumn } from '../models/utc.js';
+import { checkedMs, columnText, driverDialect, isDuplicate, rowsAffected, selectTime, sqlTime, textMs } from '../support/sql.js';
+import type { Dialect } from '../support/sql.js';
 import { THROTTLE_FLOWS, backoffDelayMs, checkThrottleParams, readThrottleConfig } from './params.js';
 import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from './params.js';
 
@@ -23,49 +23,7 @@ const FAIL_CLOSED_MS = 1000;
 // known login can be tested against it.
 const DEFAULT_HASH_KEY = 'spinajs:authn-orm:throttle';
 
-// Four-digit years keep the text form of a datetime ordered on sqlite, where the column holds text.
-const MIN_MS = Date.UTC(1000, 0, 1);
-const MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-
 type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
-
-/** @internal */
-export type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
-
-const DIALECT_CLASSES: readonly (readonly [string, Dialect])[] = [
-  ['SqliteOrmDriver', 'sqlite'],
-  ['PostgresOrmDriver', 'postgres'],
-  ['MySqlOrmDriver', 'mysql'],
-  ['MsSqlOrmDriver', 'mssql'],
-];
-
-/** @internal The driver's SQL dialect, from its class chain, else from the name it was registered under. */
-export function driverDialect(driver: OrmDriver): Dialect {
-  for (let p = Object.getPrototypeOf(driver); p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
-    const hit = DIALECT_CLASSES.find(([name]) => p.constructor?.name === name);
-    if (hit) return hit[1];
-  }
-  const registered = String((driver as { Options?: { Driver?: unknown } }).Options?.Driver ?? '');
-  for (const d of ['sqlite', 'postgres', 'mysql', 'mssql'] as const) {
-    if (registered.includes(d)) return d;
-  }
-  return 'other';
-}
-
-// A datetime read as text comes back exactly as stored; node-postgres would parse it in the local zone (D10).
-function textColumn(dialect: Dialect, column: string, alias: string): RawQuery | undefined {
-  switch (dialect) {
-    case 'sqlite':
-    case 'postgres':
-      return RawQuery.create(`CAST(${column} AS TEXT) AS ${alias}`);
-    case 'mysql':
-      return RawQuery.create(`CAST(${column} AS CHAR) AS ${alias}`);
-    case 'mssql':
-      return RawQuery.create(`CONVERT(varchar(23), ${column}, 121) AS ${alias}`);
-    default:
-      return undefined;
-  }
-}
 
 /** @internal "now" and the staleness cutoff of one call, as UTC wall-clock text in the column format. */
 export interface StoreTimes {
@@ -98,36 +56,6 @@ export interface DbThrottleOptions {
   readonly hashKey?: string | null;
   /** Where the Orm and the Configuration come from; default the root container. */
   readonly container?: IContainer;
-}
-
-const rowsAffected = (r: unknown): number => (r as IUpdateResult | undefined)?.RowsAffected ?? 0;
-
-function sqlTime(ms: number): string {
-  return DateTime.fromMillis(Math.min(Math.max(ms, MIN_MS), MAX_MS), { zone: 'utc' }).toFormat('yyyy-MM-dd HH:mm:ss.SSS');
-}
-
-function textMs(text: string): number {
-  return fromUtcColumn(text)?.getTime() ?? NaN;
-}
-
-function checkedMs(now: unknown, where: string): number {
-  const ms = now instanceof Date ? now.getTime() : NaN;
-  if (!Number.isFinite(ms) || ms < MIN_MS || ms > MAX_MS) {
-    throw new InvalidArgument(`DbAuthnThrottle.${where} must be a valid Date`);
-  }
-  return ms;
-}
-
-// sqlite: ResourceDuplicated; postgres: 23505; mysql: ER_DUP_ENTRY / 1062; mssql: 2627 (key) or 2601 (index).
-function isDuplicate(err: unknown): boolean {
-  let current = err as { code?: unknown; errno?: unknown; number?: unknown; inner?: unknown; cause?: unknown; originalError?: unknown } | undefined;
-  for (let depth = 0; current && depth < 5; depth++) {
-    if (current instanceof ResourceDuplicated || current.code === '23505' || current.code === 'ER_DUP_ENTRY' || current.errno === 1062 || current.number === 2627 || current.number === 2601) {
-      return true;
-    }
-    current = (current.inner ?? current.cause ?? current.originalError) as typeof current;
-  }
-  return false;
 }
 
 /**
@@ -197,7 +125,7 @@ export class DbAuthnThrottle extends AuthnThrottle {
 
   public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
     const now = ctx?.now;
-    const nowMs = checkedMs(now, 'attempt: ctx.now');
+    const nowMs = checkedMs(now, 'DbAuthnThrottle.attempt: ctx.now');
     await this.init();
     const f = this.flowParams(flow);
     const gates = new Map<string, BackoffParams>();
@@ -262,7 +190,7 @@ export class DbAuthnThrottle extends AuthnThrottle {
 
   /** Deletes up to one batch of stale rows (idle for resetAfterSeconds and delaying nobody); returns how many went. */
   public async purge(now: Date = new Date()): Promise<number> {
-    const nowMs = checkedMs(now, 'purge: now');
+    const nowMs = checkedMs(now, 'DbAuthnThrottle.purge: now');
     await this.init();
     const db = this.driver!;
     const t = this.times(nowMs);
@@ -395,15 +323,11 @@ export class DbAuthnThrottle extends AuthnThrottle {
   }
 
   private withTimes<Q extends { select(column: string | RawQuery): Q }>(query: Q, column: string, alias: string): Q {
-    const text = textColumn(this.dialect, column, alias);
-    return text ? query.select(text) : query.select(column);
+    return selectTime(this.dialect, query, column, alias);
   }
 
-  /** Other drivers return the column itself; it is turned into the text form this store writes. */
   private textOf(row: Record<string, unknown>, column: string, alias: string): string {
-    if (textColumn(this.dialect, column, alias)) return String(row[alias]);
-    const at = fromUtcColumn(row[column] as string | Date | DateTime | null | undefined);
-    return at ? sqlTime(at.getTime()) : String(row[column]);
+    return columnText(this.dialect, row, column, alias) ?? String(row[alias] ?? row[column]);
   }
 
   // Stale: idle for resetAfterSeconds and delaying nobody; a delay longer than that still runs to its end.

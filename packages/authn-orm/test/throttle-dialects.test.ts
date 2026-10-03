@@ -1,88 +1,16 @@
 /** Compiles the throttle's queries with the MySQL and MSSQL dialects, against fake drivers: no server needed. */
 import { DEFAULT_THROTTLE, pwKeys } from '@spinajs/authn-testing';
-import { DI } from '@spinajs/di';
 import '@spinajs/log';
-import { IColumnDescriptor, OrmDriver, OrmException, QueryContext } from '@spinajs/orm';
-import { MsSqlOrmDriver } from '@spinajs/orm-mssql';
-import { MySqlOrmDriver } from '@spinajs/orm-mysql';
+import { OrmException, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
 import 'mocha';
 
 import { DbAuthnThrottle } from '../src/index.js';
-import { driverDialect } from '../src/throttle/db-throttle.js';
-
-interface Executed {
-  stmt: string;
-  params: unknown[];
-  context: QueryContext;
-}
-
-type Respond = (stmt: string, context: QueryContext) => unknown;
-
-interface Recording {
-  executed: Executed[];
-  respond: Respond;
-}
-
-class FakeMySql extends MySqlOrmDriver implements Recording {
-  public executed: Executed[] = [];
-  public respond: Respond = () => [];
-
-  public async executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<any> {
-    this.executed.push({ stmt, params, context });
-    return this.respond(stmt, context);
-  }
-
-  public async ping(): Promise<boolean> {
-    return true;
-  }
-
-  public async connect(): Promise<OrmDriver> {
-    return this;
-  }
-
-  public async disconnect(): Promise<OrmDriver> {
-    return this;
-  }
-
-  public tableInfo(): Promise<IColumnDescriptor[]> {
-    return Promise.resolve([]);
-  }
-}
-
-class FakeMsSql extends MsSqlOrmDriver implements Recording {
-  public executed: Executed[] = [];
-  public respond: Respond = () => [];
-
-  public async executeOnDb(stmt: string, params: unknown[], context: QueryContext): Promise<any> {
-    this.executed.push({ stmt, params, context });
-    return this.respond(stmt, context);
-  }
-
-  public async ping(): Promise<boolean> {
-    return true;
-  }
-
-  public async connect(): Promise<OrmDriver> {
-    return this;
-  }
-
-  public async disconnect(): Promise<OrmDriver> {
-    return this;
-  }
-
-  public tableInfo(): Promise<IColumnDescriptor[]> {
-    return Promise.resolve([]);
-  }
-}
+import { driverDialect } from '../src/support/sql.js';
+import { FakeMsSql, FakeMySql, fake, sql } from './support/fake-drivers.js';
 
 const NOW = new Date('2026-06-01T10:00:00.000Z');
 const ctx = { now: NOW, purpose: 'login' as const };
-const sql = (e: Executed) => e.stmt.replace(/\s+/g, ' ').trim();
-
-async function fake(type: typeof FakeMySql | typeof FakeMsSql, name: string): Promise<OrmDriver & Recording> {
-  return (await DI.child().resolve<OrmDriver>(type, [{ Name: name, Driver: name, Database: 'test' }])) as OrmDriver & Recording;
-}
 
 const DIALECTS = [
   {
