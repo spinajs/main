@@ -66,6 +66,12 @@ Live connections re-check their principal, so a revoked or expired credential st
 - The default `revalidate()` re-authenticates the current handshake. It answers `'invalid'` when the source throws `AuthenticationFailed` or an `unauthenticated` `SocketException` without `retryAfterMs`, and `'unavailable'` on any other throw, a throttled refusal included. It answers `'invalid'` when the source returns no principal or a principal with another `principalKey`.
 - `UNATTENDED` connections are never re-checked.
 
+### `AuthzService.current()` and `runAs` in socket handlers (G1)
+
+- With the authz-v3 host (F4) merged, `AuthzService.current()` returns the connection principal in commands, events and connect hooks, and `UNATTENDED` for a connection without credentials. The socket layer calls no `runAs` itself.
+- A handler's own `runAs(principal, reason, fn)` switches the principal for `fn` only and is audited as on http. The outer principal is current again after it returns.
+- `ISocketCallStorage` now extends authz's `IAuthzAsyncStorage`, so `AuthzCache` and `Unscoped` are typed keys of the call store. This is a type-only change; the runtime exports are unchanged.
+
 ### Configuration
 
 - `http.socket.transports` (default `['websocket', 'polling']`): the engine.io transports. Prefer `['websocket']` when a principal source reads cookies.

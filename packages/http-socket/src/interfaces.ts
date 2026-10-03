@@ -4,7 +4,7 @@ import { principalKey } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 import type { IPolicyGroup, IResolvedRoutePolicies } from '@spinajs/http';
-import type { Decision, IAuthnPrincipalStorage } from '@spinajs/authz';
+import type { Decision, IAuthnPrincipalStorage, IAuthzAsyncStorage } from '@spinajs/authz';
 import type { SocketConnection } from './connection.js';
 import type { BaseSocketController } from './controller.js';
 import { SocketException } from '@spinajs/http-socket-common';
@@ -216,10 +216,10 @@ export interface IRegisteredHandler {
 
 /**
  * The AsyncLocalStorage store of one call ( D14 ). `Principal` is the key authz-v3's
- * `AuthzService.current()` reads ( F4 `IAuthzAsyncStorage`, as http's `req.storage.Principal` );
+ * `AuthzService.current()` and `runAs` read ( F4 `IAuthzAsyncStorage`, as http's `req.storage.Principal` );
  * `AuthnPrincipal` is authn's hand-off key: the principal when a source resolved it, else null.
  */
-export interface ISocketCallStorage extends IAuthnPrincipalStorage {
+export interface ISocketCallStorage extends IAuthnPrincipalStorage, IAuthzAsyncStorage {
   Principal: Principal;
   /** written by SocketAccessPolicy, as authz-http's AccessPolicy writes req.storage.AuthzDecision */
   AuthzDecision?: Decision;
