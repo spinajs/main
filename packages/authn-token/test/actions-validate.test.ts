@@ -78,6 +78,33 @@ describe('access token actions - validate & cleanup', function () {
     expect(err).to.be.instanceOf(AccessTokenExpired);
   });
 
+  // Both look like an unknown token, so a caller cannot probe which rows exist.
+  it('rejects a revoked token as an unknown token', async () => {
+    const owner = await activeUser('v11@spinajs.com', 'v11', ['user']);
+    const { Token, Plaintext } = await createToken(owner, 'revoked', ['user'], null);
+
+    const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    row.RevokedAt = DateTime.now();
+    await row.update();
+
+    const err = await validateToken(Plaintext).catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(AccessTokenNotFound);
+    expect((err as Error).message).to.equal('Access token not found');
+  });
+
+  it('rejects a 3.0 agent token as an unknown token', async () => {
+    const owner = await activeUser('v12@spinajs.com', 'v12', ['user']);
+    const { Token, Plaintext } = await createToken(owner, 'agent', ['user'], null);
+
+    const row = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
+    row.Kind = 'agent';
+    await row.update();
+
+    const err = await validateToken(Plaintext).catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(AccessTokenNotFound);
+    expect((err as Error).message).to.equal('Access token not found');
+  });
+
   it('rejects token of deactivated owner', async () => {
     const owner = await activeUser('v4@spinajs.com', 'v4', ['user']);
     const { Plaintext } = await createToken(owner, 'inactive owner', ['user'], null);

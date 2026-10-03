@@ -287,7 +287,8 @@ export interface ITokenValidationResult {
 /**
  * Validates a presented plaintext token.
  *
- * Checks, in order: token exists ( by hash ), token not expired, owner active /
+ * Checks, in order: token exists ( by hash ) and is neither revoked nor an agent
+ * token ( both answered as unknown ), token not expired, owner active /
  * not soft-deleted / not banned, effective role intersection non-empty.
  * Throws {@link AccessTokenException} subclasses on every failure path.
  *
@@ -316,7 +317,9 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
   const hash = generator.hash(plaintext);
 
   const token = await AccessToken.where('Token', hash).first();
-  if (!token) {
+
+  // An agent token on this path would authenticate as its owner with full rights.
+  if (!token || token.RevokedAt || token.Kind === 'agent') {
     throw new AccessTokenNotFound('Access token not found');
   }
 

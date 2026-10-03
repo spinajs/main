@@ -1,4 +1,5 @@
-import { Connection, CreatedAt, DateTime as DT, Hidden, Model, ModelBase, Primary, Set } from '@spinajs/orm';
+import { Connection, CreatedAt, DateTime as DT, Hidden, Json, Model, ModelBase, Primary, Set } from '@spinajs/orm';
+import type { TokenKind, TokenScope } from '@spinajs/authn/contracts';
 import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _default } from '@spinajs/util';
@@ -13,6 +14,9 @@ export class AccessToken extends ModelBase<AccessToken> {
   public constructor(data?: Partial<AccessToken>) {
     super(data);
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
+
+    // The column is NOT NULL with a db default, but the sqlite converter refuses an unset non-null field.
+    this.Kind ??= 'pat';
   }
 
   /**
@@ -78,8 +82,25 @@ export class AccessToken extends ModelBase<AccessToken> {
   @Hidden()
   public user_id!: number;
 
+  public Kind!: TokenKind;
+
+  /**
+   * JSON `TokenScope`; null for a token without scope limits.
+   */
+  @Json()
+  public Scope?: TokenScope;
+
+  /**
+   * Set once the token is revoked. Optional for the reason given on `ExpiresAt`.
+   */
+  @DT()
+  public RevokedAt?: DateTime<true>;
+
+  public LastUsedIp?: string;
+
   /**
    * True when the token carries an expiration in the past.
+   * 3.0 code decides expiry from `ctx.now`, not from this getter.
    */
   public get IsExpired(): boolean {
     return !!this.ExpiresAt && this.ExpiresAt <= DateTime.now();
