@@ -490,8 +490,9 @@ export class Authorizer {
    * checks at `at`; the target's is its checks at `at` and the entries of
    * every model routed for the permission (at `$global`, also for each of
    * its types) after the target's ceilings. A summary entry needs an
-   * unconditional holder with its fields; it is ignored only when the
-   * target's own checks deny the permission for every row (deniedEverywhere).
+   * unconditional holder with its fields, and keeps an equal holder from being
+   * strictly above; it is ignored only when the target's own checks deny the
+   * permission for every row (deniedEverywhere).
    * False for a target (or a holder other than SYSTEM) that the principal
    * gate or the onBehalfOf resolution refuses, when a model routed for the
    * target gives no summary, when any check throws or rests on an engine
@@ -508,6 +509,7 @@ export class Authorizer {
     const run = this.quietRun(scope);
     const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
     let strict = false;
+    const blockedByEntries: PermissionDef[] = [];
     try {
       const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
       if (summarized === EXPIRED) {
@@ -547,8 +549,20 @@ export class Authorizer {
             }
             entries = [];
           }
-          // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
-          if (h.decision.allowed && !entryCovers(t.decision, h.decision) && !entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) strict = true;
+          if (h.decision.allowed && !entryCovers(t.decision, h.decision)) {
+            // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
+            if (!entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) strict = true;
+            else if (!t.decision.allowed) blockedByEntries.push(def);
+          }
+        }
+      }
+      // Proofs cost explain checks, so they run only when no other permission already makes the holder strictly above.
+      for (const def of blockedByEntries) {
+        if (strict) break;
+        if (await this.deniedEverywhere(target, def, ref, run, limit)) strict = true;
+        else if (limit.expired) {
+          this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
+          return false;
         }
       }
     } catch (e) {

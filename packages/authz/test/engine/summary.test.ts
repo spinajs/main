@@ -1141,6 +1141,43 @@ describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
       expect(await world(denying(TRUE, 'policy', isPublic)).covers(alice, bob)).to.equal(false);
     });
 
+    describe('an entry the holder covers that alone keeps it from being strictly above', () => {
+      // alice also holds doc:delete, so only bob's doc:delete entry makes the two sets equal.
+      const level: Grants = { alice: { 'doc:read': P(), 'doc:delete': P() }, bob: { 'doc:read': P() } };
+      const levelWorld = (deny: StaticModel | undefined, algorithm = 'deny-overrides') => make({ models: [rbacOf(level, { bob: [entry('doc:delete')] }), ...(deny ? [deny] : [])], combine: { default: { algorithm } } });
+
+      it('is cleared by a row-universal deny of the target', async () => {
+        expect(await levelWorld(undefined).covers(alice, bob)).to.equal(false);
+        expect(await levelWorld(denying(TRUE, 'policy')).covers(alice, bob)).to.equal(true);
+        expect(await levelWorld(denying(CONDITION_UNKNOWN, 'policy')).covers(alice, bob)).to.equal(true);
+      });
+
+      it('not for a needs_subject deny, not under permit-overrides, not for a deny on a resource field', async () => {
+        expect(await levelWorld(denying(TRUE, 'needs_subject')).covers(alice, bob)).to.equal(false);
+        expect(await levelWorld(denying(TRUE, 'policy'), 'permit-overrides').covers(alice, bob)).to.equal(false);
+        expect(await levelWorld(denying(isPublic, 'policy')).covers(alice, bob)).to.equal(false);
+      });
+
+      it('the proof is not sought once the holder is already strictly above', async () => {
+        const bobWrite = (req: DecisionRequest) => req.principal.id === 'bob' && req.permission === 'doc:write';
+        const denyWrite = () =>
+          new Summarizing('abac', {
+            vote: (req: DecisionRequest) => ({ model: 'abac', permitWhen: FALSE, denyWhen: bobWrite(req) ? TRUE : FALSE, ...(bobWrite(req) ? { denies: [{ when: TRUE, reason: { code: 'policy' } }] } : {}), cacheable: true }),
+          });
+        const explains = (m: StaticModel) => m.calls.filter((c) => c.req.explain === true).length;
+        // doc:delete sorts first and already makes alice strictly above bob.
+        const ahead = denyWrite();
+        const a = make({ models: [rbacOf({ alice: { 'doc:delete': P(), 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }, { bob: [entry('doc:write')] }), ahead] });
+        expect(await a.covers(alice, bob)).to.equal(true);
+        expect(explains(ahead)).to.equal(0);
+        // Control: without doc:delete the proof decides, so it runs.
+        const level = denyWrite();
+        const b = make({ models: [rbacOf({ alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } }, { bob: [entry('doc:write')] }), level] });
+        expect(await b.covers(alice, bob)).to.equal(true);
+        expect(explains(level)).to.be.greaterThan(0);
+      });
+    });
+
     it('a target check that allows never lets the entry go', async () => {
       const allowing = { ...grants, alice: { ...grants.alice, 'doc:delete': P(isPublic) }, bob: { 'doc:read': P(), 'doc:delete': P(isPublic) } };
       const a = make({ models: [rbacOf(allowing, { bob: [entry('doc:delete')] })] });
