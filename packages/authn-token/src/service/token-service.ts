@@ -16,6 +16,8 @@ const MAX_NAME_LENGTH = 128;
 /** Width of the comma-joined `Roles` column. */
 const MAX_ROLES_LENGTH = 512;
 const MAX_SCOPE_ENTRIES = 1000;
+/** Width of the `LastUsedIp` column. */
+const MAX_IP_LENGTH = 64;
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
@@ -338,6 +340,33 @@ export class DbTokenService extends TokenService {
     };
   }
 
+  /**
+   * Stamps LastUsedAt and LastUsedIp unless the stored stamp is younger than `intervalSeconds`; true when it wrote.
+   * Not part of the TokenService contract: TokenStrategy calls it after a successful validate.
+   */
+  public async touch(id: string, ctx: AuthnContext, intervalSeconds: number): Promise<boolean> {
+    const now = this.nowOf(ctx);
+    if (typeof intervalSeconds !== 'number' || !Number.isFinite(intervalSeconds) || intervalSeconds < 0) {
+      throw new Error('the last-used interval must be a non-negative number of seconds');
+    }
+    if (!isNonEmptyString(id)) {
+      return false;
+    }
+
+    const ip = typeof ctx.ip === 'string' && ctx.ip.length > 0 ? ctx.ip.slice(0, MAX_IP_LENGTH) : null;
+    // The model types LastUsedIp as optional, but a use without an ip must clear the previous one, so null is written.
+    const values = { LastUsedAt: DateTime.fromMillis(now) as DateTime<true>, LastUsedIp: ip } as unknown as Partial<AccessToken>;
+    const staleBefore = DateTime.fromMillis(now - intervalSeconds * 1000);
+    // The interval sits in the WHERE clause, so of several requests racing past the same stale read only one writes.
+    const result = await AccessToken.update(values)
+      .where('Uuid', id)
+      .where(function () {
+        this.whereNull('LastUsedAt');
+        this.orWhere('LastUsedAt', '<', staleBefore);
+      });
+    return this.affected(result) > 0;
+  }
+
   protected recordOf(t: AccessToken, owner: IdentityRef): TokenRecord {
     // The Set converter reads an empty column back as [''].
     const roles = (t.Roles ?? []).filter(isNonEmptyString);
@@ -394,10 +423,18 @@ export class DbTokenService extends TokenService {
       data,
     };
 
-    // Resolved per event, so a sink registered after this service still gets it.
-    const sinks = await DI.resolve(Array.ofType(AuthnEventSink));
-    for (const sink of sinks ?? []) {
-      // The token is stored or revoked by now; a failing sink must not make the caller lose the plaintext or retry.
+    // The token is stored or revoked by now; neither a sink that cannot be built nor one that fails may make the caller
+    // lose the plaintext or retry.
+    let sinks: readonly AuthnEventSink[];
+    try {
+      // Resolved per event, so a sink registered after this service still gets it.
+      sinks = (await DI.resolve(Array.ofType(AuthnEventSink))) ?? [];
+    } catch (err) {
+      this.Log.error(err as Error, `AuthnEventSink resolution failed; publishing ${type} to the sinks already built`);
+      sinks = DI.get(Array.ofType(AuthnEventSink)) ?? [];
+    }
+
+    for (const sink of sinks) {
       try {
         await sink.publish(event);
       } catch (err) {

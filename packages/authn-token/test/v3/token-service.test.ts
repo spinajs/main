@@ -45,6 +45,18 @@ class ThrowingTokenSink extends AuthnEventSink {
   }
 }
 
+class UnbuildableTokenSink extends AuthnEventSink {
+  public static attempts = 0;
+
+  constructor() {
+    super();
+    UnbuildableTokenSink.attempts++;
+    throw new Error('sink misconfigured');
+  }
+
+  public async publish(_event: AuthnEvent): Promise<void> {}
+}
+
 class ViewerRoleSource extends RoleSource {
   public static readonly asked: Principal[] = [];
 
@@ -831,6 +843,27 @@ describe('DbTokenService', function () {
       } finally {
         DI.unregister(ThrowingTokenSink);
         DI.uncache(ThrowingTokenSink);
+        DI.uncache(Array.ofType(AuthnEventSink));
+      }
+    });
+
+    it('keeps a stored token and a completed revoke when a sink cannot be constructed', async () => {
+      DI.register(UnbuildableTokenSink).as(AuthnEventSink);
+      try {
+        const a = await owner();
+        sink.clear();
+
+        const t = await pat(a);
+        expect(t.plaintext).to.match(/^spt_/);
+        expect((await validate(t.plaintext)).ok).to.equal(true);
+        expect(await tokens.revoke(a, t.record.id, ctx())).to.equal(true);
+        expect(await validate(t.plaintext)).to.deep.equal({ ok: false, reason: 'revoked' });
+
+        expect(UnbuildableTokenSink.attempts).to.be.greaterThan(0);
+        expect(sink.all().map((e) => e.type)).to.deep.equal(['token.create', 'token.revoke']);
+      } finally {
+        DI.unregister(UnbuildableTokenSink);
+        DI.uncache(UnbuildableTokenSink);
         DI.uncache(Array.ofType(AuthnEventSink));
       }
     });

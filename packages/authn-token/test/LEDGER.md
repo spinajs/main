@@ -69,7 +69,7 @@ the check-time half stays with T3 in `authz-rbac/test/ported/token/`.
 | 9 | 153 | access token actions - validate & cleanup > effective roles shrink when user loses a role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07, B11): roles shrink with the owner assignments; `User.Role` and `revoke(user, role)` are replaced by assignments |
 | 10 | 163 | access token actions - validate & cleanup > rejects when intersection is empty | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): empty role intersection; 3.0 builds a principal with no roles (RBAC denies) instead of throwing `AccessTokenRoleNotAllowed` in validation |
 | 11 | 186 | access token actions - validate & cleanup > deleteExpiredTokens removes only expired rows | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) |
-| 12 | 208 | access token actions - validate & cleanup > touchToken stamps first use and then throttles writes | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
+| 12 | 208 | access token actions - validate & cleanup > touchToken stamps first use and then throttles writes | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory). Status N6 (task 3): replaced by `TokenStrategy`'s last-used stamp (`v3/token-strategy.test.ts`); the 2.x test is deleted |
 | 13 | 251 | access token actions - validate & cleanup > profiles > rejects a token whose profile the owner no longer passes | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): profile gate of the role policy |
 | 14 | 264 | access token actions - validate & cleanup > profiles > intersects effective roles against the profile-relative allowed set | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): intersection against the profile-relative allowed set |
 | 15 | 278 | access token actions - validate & cleanup > profiles > leaves a legacy token without a profile untouched by the profile gate | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): a token without a profile ignores the profile gate |
@@ -80,7 +80,10 @@ rows 2, 3 → "answers invalid_credentials for unknown and degenerate input with
 row 4 → "answers expired at and after the expiry";
 rows 6, 7, 8 → "answers invalid_credentials for a deactivated / soft-deleted / banned owner, on every use" (owner status through `FakeIdentityStore`).
 Row 5 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" (a null-expiry row answers `expired`).
-Rows 11, 12 stay in `test/actions-validate.test.ts` (2.x housekeeping API).
+Row 11 stays in `test/actions-validate.test.ts` (2.x housekeeping API).
+N6 task 3: row 12 deleted from `test/actions-validate.test.ts`; it now lives in `v3/token-strategy.test.ts`:
+`TokenStrategy` > `last-used stamp` (first use stamps, a use inside the interval writes nothing, a use after it writes again;
+racing requests write once; a throwing stamp still answers ok) and `DbTokenService.touch`.
 
 ## test/cli.test.ts
 

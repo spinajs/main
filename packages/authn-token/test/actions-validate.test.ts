@@ -11,7 +11,7 @@ import { DateTime } from 'luxon';
 
 import { DbTestConfiguration } from './db-common.js';
 import { AccessToken } from '../src/models/AccessToken.js';
-import { createToken, deleteExpiredTokens, touchToken, validateToken } from '../src/legacy/actions.js';
+import { createToken, deleteExpiredTokens, validateToken } from '../src/legacy/actions.js';
 import { DbTokenService, NoTokenProfilesPolicy, UsersTableTokenOwnerResolver } from '../src/service/index.js';
 import '../src/generator.js';
 import '../src/legacy/role-policy.js';
@@ -168,26 +168,5 @@ describe('access token actions - validate & cleanup', function () {
     // was taken beyond the one expired row
     const remaining = await AccessToken.where('user_id', owner.Id);
     expect(remaining.map((t) => t.Name)).to.have.members(['live', 'future']);
-  });
-
-  it('touchToken stamps first use and then throttles writes', async () => {
-    const owner = await activeUser('v9@spinajs.com', 'v9', ['user']);
-    const { Token } = await createToken(owner, 'touch', ['user'], null);
-
-    await touchToken(Token, 60);
-    const stamped = await AccessToken.where('Uuid', Token.Uuid).firstOrFail();
-    expect(stamped.LastUsedAt).to.be.instanceOf(DateTime);
-
-    // inside the throttle window nothing is written - the untouched in-memory
-    // stamp is the proof, an update() would have overwritten it with now()
-    const recent = DateTime.now().minus({ seconds: 5 });
-    Token.LastUsedAt = recent;
-    await touchToken(Token, 60);
-    expect(Token.LastUsedAt.toMillis()).to.equal(recent.toMillis());
-
-    // outside the window it writes again
-    Token.LastUsedAt = DateTime.now().minus({ seconds: 120 });
-    await touchToken(Token, 60);
-    expect(Token.LastUsedAt.toMillis()).to.be.gt(recent.toMillis());
   });
 });
