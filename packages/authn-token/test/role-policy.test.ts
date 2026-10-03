@@ -6,7 +6,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { User } from '@spinajs/users';
 
-import { OwnRolesTokenRolePolicy, _role_excluded } from '../src/role-policy.js';
+import { OwnRolesTokenRolePolicy, _role_excluded } from '../src/legacy/role-policy.js';
 import { DbTestConfiguration } from './db-common.js';
 
 /**

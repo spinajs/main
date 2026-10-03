@@ -4,37 +4,11 @@
 import type { User } from '@spinajs/users';
 import type {} from '@spinajs/http';
 
-export interface IGeneratedToken {
-  /**
-   * Full token as handed to the user, e.g. `spt_<base64url>`. Shown exactly once.
-   */
-  Plaintext: string;
-
-  /**
-   * SHA-256 hex digest of the plaintext - the only thing that is persisted.
-   */
-  Hash: string;
-}
-
-/**
- * Token generation algorithm. Replaceable via config
- * `authn.token.generation.service` - same pattern as `authn.local.hasher.service`.
- */
-export abstract class AccessTokenGenerationProvider {
-  /**
-   * Generates a fresh token. Plaintext leaves the server once; only the hash is stored.
-   */
-  public abstract generate(): Promise<IGeneratedToken>;
-
-  /**
-   * Deterministic hash of a presented plaintext, used for DB lookup.
-   */
-  public abstract hash(plaintext: string): string;
-}
-
 /**
  * Marker stored on request async storage when a request was authenticated
  * with an access token instead of a session.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export interface ITokenAuthInfo {
   /**
@@ -55,7 +29,7 @@ export interface ITokenAuthInfo {
  *
  * ONE method, FOUR call sites - `createToken`, `grantTokenRole`,
  * `validateToken`, and the `GET user/tokens/roles` controller route (all
- * through the shared `_allowed_roles` helper in `src/actions.ts`). That is
+ * through the shared `_allowed_roles` helper in `src/legacy/actions.ts`). That is
  * deliberate: creation time and request time have to answer the same
  * question, otherwise a role a user was allowed to pick could be one their
  * token silently loses on the next request.
@@ -67,7 +41,7 @@ export interface ITokenAuthInfo {
  * `validateToken` are handed a base `User` with only `Metadata` populated
  * ( `_owner()` / a direct `User.where(...)` lookup, deliberately unscoped by
  * any application model override - see `_owner()`'s comments in
- * `src/actions.ts` ). A correct implementation MUST NOT rely on anything
+ * `src/legacy/actions.ts` ). A correct implementation MUST NOT rely on anything
  * beyond the base `User` model plus `Metadata` being present on `owner` -
  * that is the only shape all four call sites agree on. Any
  * application-specific field a policy reads may be populated on a
@@ -78,6 +52,8 @@ export interface ITokenAuthInfo {
  * `authn.token.generation.service` uses for the token generator. The shipped
  * default ( `OwnRolesTokenRolePolicy` ) answers with the owner's own roles,
  * which is the behaviour this package had before the seam existed.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export abstract class AccessTokenRolePolicy {
   /**
@@ -109,6 +85,8 @@ declare module '@spinajs/users' {
   interface IRbacAsyncStorage {
     /**
      * Set by TokenAuthMiddleware when the request carries a valid access token.
+     *
+     * @deprecated 2.x API; use TokenService. R1 removes it.
      */
     TokenAuth?: ITokenAuthInfo;
   }
@@ -124,6 +102,8 @@ declare module '@spinajs/http' {
   interface IActionLocalStoregeContext {
     /**
      * Set by TokenAuthMiddleware when the request carries a valid access token.
+     *
+     * @deprecated 2.x API; use TokenService. R1 removes it.
      */
     TokenAuth?: ITokenAuthInfo;
   }

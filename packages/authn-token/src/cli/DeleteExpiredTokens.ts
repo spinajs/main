@@ -2,7 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Command } from '@spinajs/cli';
 import { RbacCliCommand } from '@spinajs/users';
 
-import { deleteExpiredTokens } from '../actions.js';
+import { deleteExpiredTokens } from '../legacy/actions.js';
 
 /**
  * Intended for cyclic execution from a worker process

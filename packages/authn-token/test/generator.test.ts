@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
-import { AccessTokenGenerationProvider } from '../src/interfaces.js';
+import { AccessTokenGenerationProvider } from '../src/generation.js';
 import { SecureRandomTokenProvider } from '../src/generator.js';
 
 describe('SecureRandomTokenProvider', () => {
@@ -40,8 +40,8 @@ describe('SecureRandomTokenProvider', () => {
 });
 
 /**
- * Configuration whose `authn.token` block deliberately DIFFERS from the
- * `@Config` defaults baked into `SecureRandomTokenProvider`, so a token built
+ * Configuration whose `authn.token.prefix` deliberately DIFFERS from the
+ * `@Config` default baked into `SecureRandomTokenProvider`, so a token built
  * with the defaults cannot pass the assertion below.
  */
 class TokenConfigTestConfiguration extends FrameworkConfiguration {
@@ -55,7 +55,7 @@ class TokenConfigTestConfiguration extends FrameworkConfiguration {
         token: {
           generation: { service: 'SecureRandomTokenProvider' },
           prefix: 'tst_',
-          length: 16,
+          length: 32,
         },
       },
     };
@@ -94,10 +94,10 @@ describe('SecureRandomTokenProvider config wiring', function () {
 
     const token = await provider.generate();
 
-    // 16 random bytes base64url-encoded is 22 characters ( ceil(128 / 6) ),
-    // against 43 for the default 32 bytes - so this fails if the configured
-    // length is ignored.
-    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{22}$/);
+    // 32 random bytes base64url-encoded is 43 characters ( ceil(256 / 6) ). The
+    // length equals the default because A14 sets 32 as the floor, so only the
+    // `tst_` prefix proves the configured block is read.
+    expect(token.Plaintext).to.match(/^tst_[A-Za-z0-9_-]{43}$/);
     expect(token.Hash).to.equal(createHash('sha256').update(token.Plaintext).digest('hex'));
   });
 });

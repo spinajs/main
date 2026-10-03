@@ -2,7 +2,7 @@ import { Log, Logger } from '@spinajs/log';
 import { Argument, Command } from '@spinajs/cli';
 import { RbacCliCommand } from '@spinajs/users';
 
-import { deleteToken } from '../actions.js';
+import { deleteToken } from '../legacy/actions.js';
 
 @Command('rbac:token-delete', 'Deletes ( revokes ) an access token')
 @Argument('uuid', true, 'token uuid')

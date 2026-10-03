@@ -8,12 +8,15 @@ import { ev } from '@spinajs/queue';
 import { AccessTokenExpired, AccessTokenNotFound, AccessTokenOwnerInvalid, AccessTokenRoleNotAllowed } from './exceptions.js';
 import { DI } from '@spinajs/di';
 
-import { AccessToken } from './models/AccessToken.js';
-import { AccessTokenGenerationProvider, AccessTokenRolePolicy } from './interfaces.js';
+import { AccessToken } from '../models/AccessToken.js';
+import { AccessTokenGenerationProvider } from '../generation.js';
+import { AccessTokenRolePolicy } from './interfaces.js';
 import { AccessTokenCreated, AccessTokenDeleted, AccessTokenRoleGranted, AccessTokenRoleRevoked } from './events/index.js';
 
 /**
  * Resolves an AccessToken from an instance or its uuid.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function getToken(token: AccessToken | string): Promise<AccessToken> {
   if (_.isString(token)) {
@@ -26,6 +29,8 @@ export async function getToken(token: AccessToken | string): Promise<AccessToken
 /**
  * Resolves the owning user by instance, numeric id or uuid, with metadata
  * populated ( needed for IsBanned checks downstream ).
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function getOwner(user: User | number | string): Promise<User> {
   if (_.isString(user)) {
@@ -43,6 +48,8 @@ export async function getOwner(user: User | number | string): Promise<User> {
 
 /**
  * Thunk form of {@link getToken}.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export function _token(token: AccessToken | string): () => Promise<AccessToken> {
   return () => getToken(token);
@@ -50,6 +57,8 @@ export function _token(token: AccessToken | string): () => Promise<AccessToken> 
 
 /**
  * Thunk form of {@link getOwner}.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export function _owner(user: User | number | string): () => Promise<User> {
   return () => getOwner(user);
@@ -76,6 +85,8 @@ export function _owner(user: User | number | string): () => Promise<User> {
  * and `['__proto__']` all resolve truthy through the prototype chain even though no role by
  * that name was ever registered. A policy returning `'constructor'` would otherwise survive
  * this filter, get offered by `GET user/tokens/roles`, and be mintable onto a token.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function _allowed_roles(owner: User, profile?: string): Promise<string[]> {
   const policy = await service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy);
@@ -89,6 +100,8 @@ export async function _allowed_roles(owner: User, profile?: string): Promise<str
 /**
  * Profiles the configured {@link AccessTokenRolePolicy} lets `owner` pin a
  * token to. Same live-resolution rationale as `_allowed_roles`.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function _allowed_profiles(owner: User): Promise<string[]> {
   const policy = await service<AccessTokenRolePolicy>('rbac.token.rolePolicy', AccessTokenRolePolicy);
@@ -140,6 +153,8 @@ async function assertRolesSubset(owner: User, roles: string[], profile?: string)
  * @param profile - role the token is pinned to, from what the configured
  *                  {@link AccessTokenRolePolicy} offers the owner; omitted
  *                  leaves the token unpinned ( legacy behaviour )
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function createToken(user: User | number | string, name: string, roles: string[], expiresAt: DateTime<true> | null, profile?: string): Promise<{ Token: AccessToken; Plaintext: string }> {
   name = _check_arg(_trim(), _non_empty(), _max_length(128))(name, 'name');
@@ -176,6 +191,8 @@ export async function createToken(user: User | number | string, name: string, ro
  * Permanently deletes ( revokes ) a token.
  *
  * @param token - {@link AccessToken} instance or its uuid
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function deleteToken(token: AccessToken | string): Promise<void> {
   const t = await getToken(token);
@@ -190,6 +207,8 @@ export async function deleteToken(token: AccessToken | string): Promise<void> {
  *
  * @param token - {@link AccessToken} instance or its uuid
  * @param role - role name to grant
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function grantTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
@@ -223,6 +242,8 @@ export async function grantTokenRole(token: AccessToken | string, role: string):
  * @param token - {@link AccessToken} instance or its uuid
  * @param role - role name to revoke
  * @throws AccessTokenRoleNotAllowed when `role` is the token's last role
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function revokeTokenRole(token: AccessToken | string, role: string): Promise<AccessToken> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
@@ -251,6 +272,7 @@ export async function revokeTokenRole(token: AccessToken | string, role: string)
   return t;
 }
 
+/** @deprecated 2.x API; use TokenService. R1 removes it. */
 export interface ITokenValidationResult {
   User: User;
   Token: AccessToken;
@@ -274,6 +296,8 @@ export interface ITokenValidationResult {
  * callers need to tell an expired token from a banned account.
  *
  * @param plaintext - token exactly as presented by the client
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function validateToken(plaintext: string): Promise<ITokenValidationResult> {
   // Degenerate input is a failed authentication like any other, so it has to
@@ -340,6 +364,8 @@ export async function validateToken(plaintext: string): Promise<ITokenValidation
  * Intended for cyclic execution from a worker ( see `rbac:token-delete-expired` ).
  * Expired tokens are already refused by {@link validateToken}, so this is
  * housekeeping, not enforcement.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function deleteExpiredTokens(): Promise<number> {
   // `whereNotNull` is not redundant next to `<=`: a null expiry means "never
@@ -363,6 +389,8 @@ export async function deleteExpiredTokens(): Promise<number> {
  *
  * @param token - token to stamp
  * @param intervalSeconds - minimum time between two writes
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export async function touchToken(token: AccessToken, intervalSeconds: number): Promise<void> {
   const now = DateTime.now();

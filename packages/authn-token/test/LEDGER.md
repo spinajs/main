@@ -42,6 +42,8 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 | 11 | 222 | access token actions - crud > profiles > grantTokenRole validates against the profile the token is pinned to | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); profile-relative validation is covered by line 208 |
 | 12 | 239 | access token actions - crud > R5: revoking a role the token does not carry emits no event and keeps the row | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role revoke event on a token |
 
+Status (N6): rows 1, 3, 8, 9, 10 moved to `legacy-v2/actions-crud.test.ts`; rows 6, 7, 11, 12 deleted (N6 task 0).
+
 ## test/actions-validate.test.ts
 
 15 tests; dominant class adapt (adapt 8, rewrite 7).
@@ -64,6 +66,8 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 | 14 | 264 | access token actions - validate & cleanup > profiles > intersects effective roles against the profile-relative allowed set | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): intersection against the profile-relative allowed set |
 | 15 | 278 | access token actions - validate & cleanup > profiles > leaves a legacy token without a profile untouched by the profile gate | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): a token without a profile ignores the profile gate |
 
+Status (N6): rows 1, 5, 9, 10, 13, 14, 15 moved to `legacy-v2/actions-validate.test.ts` (N6 task 0).
+
 ## test/cli.test.ts
 
 9 tests; dominant class adapt (adapt 6, rewrite 1, drop 2).
@@ -79,6 +83,8 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 | 7 | 118 | access token cli commands > rbac:token-grant / rbac:token-revoke mutate roles | drop | N6 | N6 task 6 moves only `authn:token-create\|delete\|delete-expired`; the grant/revoke commands are not carried over (3.0 has no token role editing, design §22.9, N8b; see actions-crud line 127) |
 | 8 | 131 | access token cli commands > rbac:token-revoke refuses the last role, leaving the row untouched | drop | N6 | last-role refusal of the removed `token-revoke` command; N6 task 6 lists no grant/revoke commands |
 | 9 | 152 | access token cli commands > rbac:token-delete-expired removes only expired tokens | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) |
+
+Status (N6): row 1 moved to `legacy-v2/cli.test.ts`; rows 7, 8 deleted (N6 task 0).
 
 ## test/generator.test.ts
 
@@ -117,6 +123,8 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 | 6 | 156 | access token actions - role policy > never puts a role the policy returns but AccessControl does not know onto a token | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a role the policy returns but RBAC does not know never reaches a token |
 | 7 | 178 | access token actions - role policy > never lets a prototype-chain property name through as an allowed role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): prototype-chain names (`constructor`, `__proto__`) are never roles; keep this guard against a policy-supplied name with the new role lookup |
 | 8 | 188 | access token actions - role policy > never puts a policy-returned unknown role into EffectiveRoles | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a policy-returned unknown role never enters the effective roles |
+
+Status (N6): file moved to `legacy-v2/role-policy-actions.test.ts` with rows 1, 2, 4-8; row 3 deleted (N6 task 0).
 
 ## test/role-policy.test.ts
 

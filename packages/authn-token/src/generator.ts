@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'crypto';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 
-import { AccessTokenGenerationProvider, IGeneratedToken } from './interfaces.js';
+import { AccessTokenGenerationProvider, IGeneratedToken } from './generation.js';
 
 /**
  * Default token algorithm: `<prefix>` + N crypto-random bytes base64url encoded.

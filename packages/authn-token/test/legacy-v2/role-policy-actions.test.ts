@@ -6,13 +6,13 @@ import { Configuration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/users';
-import { AccessTokenRoleNotAllowed } from '../src/exceptions.js';
+import { AccessTokenRoleNotAllowed } from '../../src/legacy/exceptions.js';
 
-import { DbTestConfiguration } from './db-common.js';
-import { AccessTokenRolePolicy } from '../src/interfaces.js';
-import { _allowed_roles, createToken, grantTokenRole, validateToken } from '../src/actions.js';
-import '../src/generator.js';
-import '../src/role-policy.js';
+import { DbTestConfiguration } from '../db-common.js';
+import { AccessTokenRolePolicy } from '../../src/legacy/interfaces.js';
+import { _allowed_roles, createToken, validateToken } from '../../src/legacy/actions.js';
+import '../../src/generator.js';
+import '../../src/legacy/role-policy.js';
 
 /**
  * A policy that answers with whatever the test told it to, so the suite can
@@ -99,19 +99,8 @@ describe('access token actions - role policy', function () {
       () => expect.fail('createToken should have refused'),
       (err: unknown) => {
         expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
-        
       },
     );
-  });
-
-  it('grants a role the policy allows', async () => {
-    const user = await owner('policy.grant');
-    StubTokenRolePolicy.Allowed = ['reports.read', 'reports.write'];
-
-    const { Token } = await createToken(user, 'grow', ['reports.read'], null);
-    const updated = await grantTokenRole(Token, 'reports.write');
-
-    expect(updated.Roles).to.have.members(['reports.read', 'reports.write']);
   });
 
   it('authenticates with the effective roles the policy still allows', async () => {
@@ -161,7 +150,7 @@ describe('access token actions - role policy', function () {
       () => expect.fail('createToken should have refused the unknown role'),
       (err: unknown) => {
         expect(err).to.be.instanceOf(AccessTokenRoleNotAllowed);
-        
+
         expect((err as AccessTokenRoleNotAllowed).data).to.deep.equal({ roles: ['ghost-role'] });
       },
     );

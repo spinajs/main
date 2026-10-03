@@ -3,7 +3,7 @@ import { Argument, Command, Option } from '@spinajs/cli';
 import { RbacCliCommand } from '@spinajs/users';
 import { DateTime } from 'luxon';
 
-import { createToken } from '../actions.js';
+import { createToken } from '../legacy/actions.js';
 
 interface ICreateTokenOptions {
   name: string;
