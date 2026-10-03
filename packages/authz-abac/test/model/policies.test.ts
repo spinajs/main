@@ -66,8 +66,11 @@ describe('authz-abac: policies', () => {
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: ['a b'] } }, /fields.read must be a list of field globs/);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { hide: ['a'] } }, /fields.hide belongs on a deny policy/);
       fails({ id: 'p1', effect: 'deny', permissions: ['file:read'], fields: { read: ['a'] } }, /fields.read and fields.write belong on a permit policy/);
-      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 'high' }, /priority must be an integer/);
-      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 99.5 }, /priority must be an integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 'high' }, /priority must be a 32-bit integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 99.5 }, /priority must be a 32-bit integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], priority: 2 ** 31 }, /priority must be a 32-bit integer/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], scope: { type: 'org', id: '' } }, /scope id must not be empty/);
+      fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: Array.from({ length: 1001 }, (_, i) => `f${i}`) } }, /fields.read: /);
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], scope: { type: '$global', id: 'x' } }, /a \$global scope has no id/);
       expect(load({ id: 'p1', effect: 'permit', permissions: ['file:read'], fields: { read: ['*', '!salary', 'a.*'] } }).policy.fields).to.deep.equal({ read: ['*', '!salary', 'a.*'] });
       fails({ id: 'p1', effect: 'permit', permissions: ['file:read'], expiresAt: 'soon' }, /expiresAt must be a Date/);

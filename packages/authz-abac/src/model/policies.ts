@@ -1,4 +1,4 @@
-import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob } from '@spinajs/authz';
+import { AuthzConfigError, FALSE, GLOBAL, TRUE, UnknownPermission, isFieldGlob, isPermission, isPermissionGlob, normalizeFieldGlobs } from '@spinajs/authz';
 import type { Condition, DecisionRequest, FieldSet, ParsedCondition, Permission, PermissionRegistry, Policy, PrincipalType, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
 
 export const DEFAULT_POLICY_PRIORITY = 500;
@@ -53,6 +53,8 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
     const s = raw.scope;
     if (!isObject(s) || typeof s.type !== 'string' || s.type === '' || (s.id !== undefined && s.id !== null && typeof s.id !== 'string')) fail('scope must be a resource ref { type, id? }');
     const sr0 = s as { type: string; id?: unknown };
+    // The DB stores "no id" as '', so an empty id would come back as any node of the type.
+    if (sr0.id === '') fail('scope id must not be empty');
     if (sr0.type === GLOBAL.type && sr0.id !== undefined && sr0.id !== null) fail('a $global scope has no id');
     const sr = s as { type: string; id?: string | null };
     scope = Object.freeze(sr.id === undefined || sr.id === null ? { type: sr.type } : { type: sr.type, id: sr.id });
@@ -67,6 +69,11 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
       const list = (f as Record<string, unknown>)[k];
       if (list === undefined) continue;
       if (!Array.isArray(list) || list.some((x) => !isFieldGlob(x))) fail(`fields.${k} must be a list of field globs ('name', 'a.*', '*', '!salary')`);
+      try {
+        normalizeFieldGlobs(list as string[]);
+      } catch (e) {
+        fail(`fields.${k}: ${e instanceof Error ? e.message : String(e)}`);
+      }
       out[k] = Object.freeze([...(list as string[])]);
     }
     fields = Object.freeze(out) as FieldSet;
@@ -76,7 +83,8 @@ export function loadPolicy(raw: unknown, order: number, defaults: { readonly sou
   }
 
   if (raw.reason !== undefined && (typeof raw.reason !== 'string' || raw.reason === '')) fail('reason must be a non-empty string');
-  if (raw.priority !== undefined && !Number.isSafeInteger(raw.priority)) fail('priority must be an integer');
+  // The DB column is a 32-bit int.
+  if (raw.priority !== undefined && (!Number.isInteger(raw.priority) || (raw.priority as number) < -(2 ** 31) || (raw.priority as number) >= 2 ** 31)) fail('priority must be a 32-bit integer');
   if (raw.source !== undefined && typeof raw.source !== 'string') fail('source must be a string');
 
   let expiresAt: Date | undefined;

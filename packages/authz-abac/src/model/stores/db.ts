@@ -62,6 +62,7 @@ export class DbPolicyStore extends PolicyStore {
   async put(policy: Omit<Policy, 'source'>, actor: PrincipalRef | undefined, tx: AuthzTx, now: Date = new Date()): Promise<{ readonly affected: number; readonly tags: readonly string[] }> {
     loadPolicy({ ...policy, source: 'db' }, 0, { source: 'db' }, (c, where) => parseCondition(c, { functions: { has: () => true }, where }));
     fits(policy);
+    if (actor && principalKey(actor).length > 100) throw new AuthzConfigError('DbPolicyStore: the actor key is longer than the created_by column (100)');
     const driver = writeDriver(tx);
     await driver.del().from(AUTHZ_POLICY_TABLE).where('id', policy.id);
     await driver.insert().into(AUTHZ_POLICY_TABLE).values(policyToRow(policy, actor, now));

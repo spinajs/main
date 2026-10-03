@@ -47,8 +47,11 @@ export class AbacModel extends AuthorizationModel {
   private loaded: readonly LoadedPolicy[] = [];
   private versions = '';
   private built: PolicyIndex | undefined;
-  private stale = false;
+  /** The generation the loaded policies are current for; behind `generation` means a load is due. */
+  private loadedGeneration = 0;
   private reload: Promise<void> | undefined;
+  /** The last load failed; routing falls back to the last good index until one succeeds. */
+  private failed = false;
 
   constructor(options: AbacModelOptions = {}) {
     super();
@@ -77,17 +80,26 @@ export class AbacModel extends AuthorizationModel {
 
   /**
    * Static routing; the first call builds the index, so an unregistered permission fails the boot
-   * (B02). While a reload is due every pair routes here, so a new policy on a pair this model did
-   * not route yet applies at once: `evaluate` waits for the reload.
+   * (B02). While a load is due every pair routes here, so a new policy on a pair this model did
+   * not route yet applies at once: `evaluate` waits for the load. After a failed load the last good
+   * index routes, so only this model's pairs are indeterminate while its store is down.
    */
   applies(permission: PermissionDef, type: ResourceType): boolean {
-    if (this.stale || this.reload) return true;
+    if (this.due()) return true;
     return this.index().candidates(permission.name, type).length > 0;
   }
 
-  /** The loaded policies' hash, and a generation that moves at every invalidation so the host recompiles routes at once. */
+  /**
+   * The loaded policies' hash, the generation of invalidations, and whether a load is due: it moves
+   * at an invalidation and again when the load lands or fails, so the host recompiles the routes
+   * each time, also when the load brought the same data.
+   */
   version(): string {
-    return `${this.versions}#${this.generation}`;
+    return `${this.versions}#${this.generation}${this.due() ? '~' : ''}`;
+  }
+
+  private due(): boolean {
+    return this.loadedGeneration < this.generation && !this.failed;
   }
 
   /**
@@ -98,18 +110,23 @@ export class AbacModel extends AuthorizationModel {
   invalidate(tags: readonly string[]): void {
     if (!this.registry || (this.stores ?? []).every((s) => s instanceof ConfigPolicyStore)) return;
     if (!tags.some((t) => t === '*' || t === 'policy' || t.startsWith('policy:') || t === `model:${this.name}`)) return;
-    this.stale = true;
     this.generation++;
-    // Started now, so routes recompiled for the new version see the data soon; a failure stays for the next request.
-    this.fresh().catch(() => undefined);
+    this.failed = false;
+    if (!this.reload) this.startLoad();
   }
 
   async preload(): Promise<void> {
-    await this.fresh();
+    await this.upTo(this.generation);
   }
 
   evaluate(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
-    if (this.stale || this.reload) return this.fresh().then(() => this.evaluate(req, ctx));
+    // Current as of the request's arrival: later invalidations do not keep it waiting.
+    const target = this.generation;
+    if (this.loadedGeneration < target) return this.upTo(target).then(() => this.evaluateNow(req, ctx));
+    return this.evaluateNow(req, ctx);
+  }
+
+  private evaluateNow(req: DecisionRequest, ctx: EvaluationContext): Vote | Promise<Vote> {
     const now = ctx.now;
     const live = this.index()
       .candidates(req.permission, req.resource.type)
@@ -192,7 +209,7 @@ export class AbacModel extends AuthorizationModel {
    * `covers` check every candidate permission, and the checks apply them.
    */
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
-    await this.fresh();
+    await this.upTo(this.generation);
     const index = this.index();
     const now = ctx.now;
     const root = (at.id === undefined || at.id === null) && at.type === GLOBAL.type;
@@ -268,35 +285,41 @@ export class AbacModel extends AuthorizationModel {
     this.built = built;
     // From what was loaded, not a second read of the stores, which a write in between could make disagree.
     this.versions = createHash('sha256')
-      .update(
-        JSON.stringify(
-          loaded.map((p) => p.policy),
-          (_k, v: unknown) => (v instanceof Date ? v.toISOString() : v),
-        ),
-      )
+      .update(JSON.stringify(loaded.map((p) => p.policy)))
       .digest('hex')
       .slice(0, 16);
   }
 
-  /** Reloads the stores once after an invalidation; concurrent requests share the load, a failed one is retried by the next. */
-  private fresh(): Promise<void> {
-    if (this.reload) return this.reload;
-    if (!this.stale) return Promise.resolve();
-    this.stale = false;
+  /** Waits until the policies are current for `target`, starting loads as needed; rejects when a load fails. */
+  private async upTo(target: number): Promise<void> {
+    while (this.loadedGeneration < target) {
+      if (!this.reload) this.startLoad();
+      await this.reload;
+    }
+  }
+
+  /**
+   * One load at a time. It serves the generation current when it starts; if invalidations came
+   * meanwhile, the next one starts when it lands, so the data catches up without a request.
+   */
+  private startLoad(): void {
     const generation = this.generation;
-    this.reload = this.load(true)
-      .then(() => {
-        // Invalidated again while loading: the data just read may already be old.
-        if (this.generation !== generation) this.stale = true;
-      })
-      .catch((e) => {
-        this.stale = true;
+    const run = this.load(true).then(
+      () => {
+        this.loadedGeneration = Math.max(this.loadedGeneration, generation);
+        this.failed = false;
+      },
+      (e: unknown) => {
+        this.failed = true;
         throw e;
-      })
-      .finally(() => {
-        this.reload = undefined;
-      });
-    return this.reload;
+      },
+    );
+    this.reload = run.finally(() => {
+      this.reload = undefined;
+      if (!this.failed && this.loadedGeneration < this.generation) this.startLoad();
+    });
+    // Waiters see the failure; nobody else must get an unhandled rejection.
+    this.reload.catch(() => undefined);
   }
 }
 

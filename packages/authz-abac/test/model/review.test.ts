@@ -2,7 +2,7 @@ import * as chai from 'chai';
 import 'mocha';
 import { Authorizer, AuthzConfigError, DefaultConditionCompiler, FALSE, PermissionRegistryImpl, TRUE } from '@spinajs/authz';
 import type { DecisionRequest, EvaluationContext, Policy, Vote } from '@spinajs/authz';
-import { agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { StaticModel, agentPrincipal, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 
 import { AbacModel, ConfigPolicyStore, DbPolicyStore, MemoryPolicyStore, storesFromConfig } from '../../src/index.js';
 
@@ -103,6 +103,64 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       store.put(policy('no-delete', { effect: 'deny', permissions: ['file:delete'] }));
       a.invalidate(['policy:no-delete']);
       expect(await del()).to.equal(false);
+    });
+
+    it('a reload that brings the same data gives the routes back to the sync model (r2 I-a)', async () => {
+      const reg = registry();
+      const store = new GatedStore([policy('read')]);
+      const m = await model({ stores: [store] }, reg);
+      const rbac = new StaticModel({ name: 'rbac', votes: () => ({ permitWhen: TRUE }) });
+      const a = new Authorizer({ domain: 'root', models: [rbac, m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      const sync = () => a.filterNow(alice, 'file:delete', 'file');
+      expect(sync()).to.deep.equal(TRUE);
+      let open!: () => void;
+      store.gate = new Promise((r) => (open = r));
+      a.invalidate(['*']);
+      expect(m.version()).to.match(/~$/);
+      const during = a.check({ principal: alice, permission: 'file:delete', resource: F1 });
+      expect(sync()).to.equal(undefined);
+      open();
+      store.gate = undefined;
+      expect((await during).allowed).to.equal(true);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(m.version()).to.not.match(/~$/);
+      expect(sync()).to.deep.equal(TRUE);
+    });
+
+    it('after a failed reload only the pairs the model governs are indeterminate, and it retries (r2 I-b)', async () => {
+      const reg = registry();
+      const store = new MemoryPolicyStore([policy('read')]);
+      const m = await model({ stores: [store] }, reg);
+      const rbac = new StaticModel({ name: 'rbac', votes: () => ({ permitWhen: TRUE }) });
+      const a = new Authorizer({ domain: 'root', models: [rbac, m], registry: reg, conditions: new DefaultConditionCompiler(), clock: () => NOW });
+      const load = store.load.bind(store);
+      let down = true;
+      store.load = async () => {
+        if (down) throw new Error('db down');
+        return load();
+      };
+      a.invalidate(['policy']);
+      const read = await a.check({ principal: alice, permission: 'file:read', resource: F1 });
+      expect(read.reason?.code).to.equal('model_error');
+      const del = await a.check({ principal: alice, permission: 'file:delete', resource: F1 });
+      expect(del.allowed).to.equal(true);
+      down = false;
+      expect((await a.check({ principal: alice, permission: 'file:read', resource: F1 })).allowed).to.equal(true);
+    });
+
+    it('an invalidation during a load starts the next one when it lands (r2 M-b)', async () => {
+      const store = new GatedStore([policy('read')]);
+      const m = await model({ stores: [store] });
+      let open!: () => void;
+      store.gate = new Promise((r) => (open = r));
+      m.invalidate(['policy']);
+      m.invalidate(['policy']);
+      const loads = store.loads;
+      open();
+      store.gate = undefined;
+      await new Promise((r) => setTimeout(r, 10));
+      expect(store.loads).to.equal(loads + 1);
+      expect(m.version()).to.not.match(/~$/);
     });
 
     it('a model over config stores only ignores invalidations and stays sync (M1)', async () => {
