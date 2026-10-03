@@ -71,6 +71,12 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
   public readonly protocol: number;
   public readonly handshake: ISocketHandshake;
   public readonly connectedAt: number;
+  /**
+   * Restored by connection state recovery after a short drop: rooms and `data` survived, and the connect hooks run again.
+   * The same id is reused, and the dropped connection's disconnect hooks may still be running, or finish after these
+   * connect hooks: a hook keeping per-connection state should key it by the connection object, not its id.
+   */
+  public readonly recovered: boolean;
 
   protected readonly lifetime = new AbortController();
 
@@ -92,6 +98,7 @@ export class SocketConnection<D extends Record<string, unknown> = Record<string,
     this.protocol = client.protocol;
     this.handshake = handshake;
     this.connectedAt = Date.now();
+    this.recovered = socket.recovered;
 
     if (!socket.data.app) {
       socket.data.app = {};

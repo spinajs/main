@@ -159,6 +159,19 @@ export class SocketPrincipalGuard {
   }
 
   /**
+   * @internal A recovered connection skipped the handshake, so its principal is checked with its source
+   * now, whatever `revalidateMs` says. A session restored through a serializing adapter carries a flattened
+   * `Principal.identity`; a 'valid' answer that carries the principal brings the real one back.
+   */
+  public async recheck(connection: SocketConnection): Promise<void> {
+    if (connection.auth.source === null || this.closing.has(connection)) {
+      return;
+    }
+
+    await (this.pending.get(connection) ?? this.check(connection));
+  }
+
+  /**
    * @internal Whether a session stored by connection state recovery may be restored. socket.io writes its
    * missed packets before any middleware or `connection` handler runs, so this is the last place to refuse them.
    */

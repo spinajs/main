@@ -67,6 +67,9 @@ export class SocketDispatcher extends AsyncService {
 
   protected runtimes = new Map<string, IConnectionRuntime>();
 
+  /** recovered connections the re-check refused before their connect hooks; their disconnect hooks are skipped too */
+  protected unhooked = new WeakSet<IConnectionRuntime>();
+
   /** the socket of each runtime, which stream frames are written to */
   protected sockets = new WeakMap<IConnectionRuntime, Socket>();
   protected drainListeners = new WeakMap<Socket, Set<() => void>>();
@@ -101,7 +104,7 @@ export class SocketDispatcher extends AsyncService {
     socket.on(WIRE_EVENTS.event, (frame: unknown) => {
       this.onEvent(runtime, frame).catch((err: Error) => this.Log.error(err, `Socket event from connection ${connection.id} failed outside its handler`));
     });
-    runtime.ready = this.connectHooks(runtime);
+    runtime.ready = connection.recovered ? this.afterRecovery(runtime) : this.connectHooks(runtime);
 
     return runtime;
   }
@@ -355,8 +358,30 @@ export class SocketDispatcher extends AsyncService {
     return Promise.race([hooks, timeout]).finally(() => clearTimeout(timer));
   }
 
+  /** Commands and hooks of a recovered connection wait for its principal to be checked again. */
+  protected async afterRecovery(runtime: IConnectionRuntime): Promise<void> {
+    const connection = runtime.connection;
+
+    try {
+      await this.Guard.recheck(connection);
+    } catch (err) {
+      this.Log.error(err as Error, `Socket ${connection.id}: re-checking the principal of a recovered connection failed`);
+    }
+
+    if (this.Guard.isClosing(connection)) {
+      this.unhooked.add(runtime);
+      return;
+    }
+
+    await this.connectHooks(runtime);
+  }
+
   /** Hooks run in registration order and no policies ( D9 ); a throwing hook is logged and never refuses the connection. */
   protected async runHooks(runtime: IConnectionRuntime, kind: 'connect' | 'disconnect', reason?: string): Promise<void> {
+    if (this.unhooked.has(runtime)) {
+      return;
+    }
+
     const connection = runtime.connection;
     // the connection's signal is already aborted when the disconnect hooks start
     const signal = kind === 'connect' ? connection.signal : new AbortController().signal;
