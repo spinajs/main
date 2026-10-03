@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { ArgHydrator, BasePolicy, Hydrator } from '@spinajs/http';
+import { ArgHydrator, ArgInputFilter, BasePolicy, Hydrator, ParameterType } from '@spinajs/http';
+import type { IRoute, IRouteParameter } from '@spinajs/http';
 import { DataValidator, Schema, ValidationFailed } from '@spinajs/validation';
 import { UNATTENDED } from '@spinajs/authz';
 import { BaseSocketController } from '../src/controller.js';
@@ -217,6 +218,34 @@ describe('socket controller model', function () {
       const [validator] = await resolver.resolve(call(await handlerOf('plain'), undefined));
       expect(validator).to.be.instanceOf(DataValidator);
       expect(await resolver.resolve(call(await handlerOf('left'), undefined, { reason: 'transport close' }))).to.deep.equal(['transport close']);
+    });
+
+    it('runs the registered ArgInputFilters on the payload before validation and hydration', async () => {
+      const seen: { input: unknown; parameter: IRouteParameter; route?: IRoute }[] = [];
+      class StripExtra extends ArgInputFilter {
+        public filter(input: unknown, parameter: IRouteParameter, route?: IRoute): unknown {
+          seen.push({ input, parameter, route });
+          const { extra: _extra, ...rest } = input as Record<string, unknown>;
+          return rest;
+        }
+      }
+
+      DI.register(StripExtra).as(ArgInputFilter);
+      try {
+        const [doc] = await resolver.resolve(call(await handlerOf('create'), { title: 'a', extra: 1 }));
+        expect(doc).to.be.instanceOf(ModelCreateDoc);
+        expect(doc).to.deep.equal(new ModelCreateDoc({ title: 'a' }));
+        expect(seen).to.have.length(1);
+        expect(seen[0].parameter).to.include({ Name: 'payload', Type: ParameterType.FromBody, Index: 0, RuntimeType: ModelCreateDoc });
+        expect(seen[0].route).to.equal(undefined);
+
+        await resolver.resolve(call(await handlerOf('plain'), undefined));
+        expect(seen).to.have.length(1);
+      } finally {
+        DI.unregister(StripExtra);
+        DI.uncache(StripExtra);
+        DI.uncache(ArgInputFilter);
+      }
     });
 
     it('passes an untyped payload through unchanged', async () => {
