@@ -4,3 +4,4 @@ export * from './options/index.js';
 export * from './models/index.js';
 export * from './migrations/index.js';
 export * from './registry/index.js';
+export * from './jws/index.js';
