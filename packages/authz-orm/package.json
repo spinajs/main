@@ -53,7 +53,12 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/orm": "2.0.549"
+  },
+  "devDependencies": {
+    "@spinajs/log": "2.0.549",
+    "@spinajs/orm-sqlite": "2.0.549"
   }
 }

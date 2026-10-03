@@ -15,10 +15,10 @@ const carol = userPrincipal('carol');
 const p1: ResourceRef = { type: 'project', id: 'p1' };
 const ALICE = { type: 'user', id: 'alice' };
 
-/** Every kind the fake assignment handler does not claim: records the command, fails on id 'missing'. */
+/** Every kind neither the fake assignment handler nor the core's ScopeAttributeHandler claims: records the command, fails on id 'missing'. */
 class EchoHandler extends AuthzWriteHandler {
   static seen: AuthzCommand[] = [];
-  readonly kinds = ['link.revoke', 'assignment.setTags', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.setAttributes', 'scope.forget'] as const;
+  readonly kinds = ['link.revoke', 'assignment.setTags', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.forget'] as const;
 
   async validate(c: AuthzCommand): Promise<void> {
     if ('id' in c && c.id === 'missing') throw new AuthzAdminFailure('not_found', 'no such row', 'id');
@@ -216,7 +216,6 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
       await d.admin.deleteRule(alice, 'r1');
       await d.admin.putPolicy(alice, policy);
       await d.admin.deletePolicy(alice, 'pol1');
-      await d.admin.setScopeAttributes(alice, p1, { policies: { x: true } });
       await d.admin.forgetScope(alice, p1);
       expect(EchoHandler.seen).to.deep.equal([
         { kind: 'link.revoke', id: 'l1' },
@@ -225,7 +224,6 @@ describe('DefaultAuthzAdmin sugar methods and list', function () {
         { kind: 'rule.delete', id: 'r1' },
         { kind: 'policy.put', policy },
         { kind: 'policy.delete', id: 'pol1' },
-        { kind: 'scope.setAttributes', scope: p1, patch: { policies: { x: true } } },
         { kind: 'scope.forget', scope: p1 },
       ]);
     });
