@@ -6,8 +6,8 @@ import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, ExternalSubject, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
-import type { JWK, JWTVerifyGetKey } from 'jose';
+import { createLocalJWKSet, createRemoteJWKSet, customFetch, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
+import type { FetchImplementation, JWK, JWTVerifyGetKey } from 'jose';
 
 /** One item of `authn.jwt.issuers` (design §22.5). Exactly one of `jwksUri` and `keys`. */
 export interface JwtIssuerConfig {
@@ -52,7 +52,9 @@ const JWKS_REFRESH_MS = 60_000;
 const JWKS_MAX_AGE_MS = 600_000;
 const JWKS_TIMEOUT_MS = 5_000;
 
-const KEY_LOOKUP_CODES = new Set(['ERR_JWKS_NO_MATCHING_KEY', 'ERR_JWKS_MULTIPLE_MATCHING_KEYS', 'ERR_JOSE_NOT_SUPPORTED']);
+/** The curve jose's JWKS lookup requires for each EC/OKP algorithm (jose 6 selects only Ed25519 for EdDSA). */
+const ALGORITHM_CURVES: Readonly<Record<string, string>> = { ES256: 'P-256', ES384: 'P-384', ES512: 'P-521', EdDSA: 'Ed25519' };
+const MIN_RSA_BITS = 2048;
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -64,31 +66,54 @@ function isLoopback(hostname: string): boolean {
 
 /**
  * jose counts its cooldown from the last good fetch only, so while the JWKS host is failing it would fetch on
- * every request. After a failure this answers from the cached set (while still fresh) and does not fetch again
- * within the refresh limit.
+ * every request. This fetch hook refuses to fetch again within the refresh limit after a failed fetch; jose
+ * keeps answering from its cached set while that is fresh. Only the fetch itself starts the window: a member
+ * that fails to import is chosen by the caller's `kid` and must not hold back the refresh of a rotated key.
  */
 function remoteKeys(url: URL, onFetchFailure: (err: unknown) => void): JWTVerifyGetKey {
-  const remote = createRemoteJWKSet(url, { cooldownDuration: JWKS_REFRESH_MS, cacheMaxAge: JWKS_MAX_AGE_MS, timeoutDuration: JWKS_TIMEOUT_MS });
   let failedAt = Number.NEGATIVE_INFINITY;
-
-  return async (header, token) => {
-    if (Date.now() < failedAt + JWKS_REFRESH_MS) {
-      const cached = remote.jwks();
-      if (!cached || !remote.fresh) {
-        throw new Error('JWKS unavailable');
-      }
-      return createLocalJWKSet(cached)(header, token);
-    }
-    try {
-      return await remote(header, token);
-    } catch (err) {
-      if (!KEY_LOOKUP_CODES.has(codeOf(err) as string)) {
-        failedAt = Date.now();
-        onFetchFailure(err);
-      }
-      throw err;
-    }
+  const failed = (err: unknown): never => {
+    failedAt = Date.now();
+    onFetchFailure(err);
+    throw err;
   };
+
+  const fetchJwks: FetchImplementation = async (href, init) => {
+    if (Date.now() < failedAt + JWKS_REFRESH_MS) {
+      throw new Error('JWKS fetch skipped after a recent failure');
+    }
+    let response: Response;
+    try {
+      response = await fetch(href, init);
+    } catch (err) {
+      return failed(err);
+    }
+    if (response.status !== 200) {
+      return failed(new Error(`JWKS answered HTTP ${response.status}`));
+    }
+    let body: string;
+    let json: unknown;
+    try {
+      body = await response.text();
+      json = JSON.parse(body);
+    } catch (err) {
+      return failed(err);
+    }
+    if (!isPlainObject(json) || !Array.isArray(json.keys) || !json.keys.every(isPlainObject)) {
+      return failed(new Error('JWKS body is not a JSON Web Key Set'));
+    }
+    return new Response(body, { status: 200 });
+  };
+
+  return createRemoteJWKSet(url, { cooldownDuration: JWKS_REFRESH_MS, cacheMaxAge: JWKS_MAX_AGE_MS, timeoutDuration: JWKS_TIMEOUT_MS, [customFetch]: fetchJwks });
+}
+
+/** True when jose's JWKS lookup can select a key of this type and curve for `alg`. */
+function algorithmFits(alg: string, kty: unknown, crv: unknown): boolean {
+  if (alg.startsWith('RS') || alg.startsWith('PS')) {
+    return kty === 'RSA';
+  }
+  return kty === (alg === 'EdDSA' ? 'OKP' : 'EC') && crv === ALGORITHM_CURVES[alg];
 }
 
 /** A typ compares case-insensitively and may omit `application/` (RFC 7515 §4.1.9). */
@@ -181,9 +206,10 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       throw new Error(`${at}.provider must be a non-empty string of at most ${MAX_PROVIDER} characters`);
     }
 
-    const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys, at) });
+    const allowed = [...(algorithms as string[])];
+    const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys, allowed, at) });
 
-    return { issuer: o.issuer, audience: o.audience, algorithms: [...(algorithms as string[])], clockSkewSeconds, subjectClaim, provider, keys };
+    return { issuer: o.issuer, audience: o.audience, algorithms: allowed, clockSkewSeconds, subjectClaim, provider, keys };
   }
 
   protected remoteOf(jwksUri: unknown, issuer: string, at: string): JWTVerifyGetKey {
@@ -202,21 +228,44 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     return remoteKeys(url, (err) => this.Log.warn(`Could not fetch the JWKS of JWT issuer ${issuer}: ${err instanceof Error ? err.message : String(err)}`));
   }
 
-  protected publicKeysOf(keys: unknown, at: string): JWK[] {
+  /** Refuses any key jose would never select or verify with, so a config error does not look like an attack. */
+  protected publicKeysOf(keys: unknown, algorithms: readonly string[], at: string): JWK[] {
     if (!Array.isArray(keys) || keys.length === 0) {
       throw new Error(`${at}.keys must be a non-empty array of public JWKs`);
     }
     return keys.map((key: unknown, j: number) => {
+      const atKey = `${at}.keys[${j}]`;
       if (!isPlainObject(key) || !KEY_TYPES.has(key.kty as string)) {
-        throw new Error(`${at}.keys[${j}] must be an RSA, EC or OKP public JWK`);
+        throw new Error(`${atKey} must be an RSA, EC or OKP public JWK`);
       }
       if (PRIVATE_JWK_MEMBERS.some((m) => m in key)) {
-        throw new Error(`${at}.keys[${j}] holds private key material`);
+        throw new Error(`${atKey} holds private key material`);
       }
+      let modulusLength: number | undefined;
       try {
-        createPublicKey({ key: key as NodeJwk, format: 'jwk' });
+        modulusLength = createPublicKey({ key: key as NodeJwk, format: 'jwk' }).asymmetricKeyDetails?.modulusLength;
       } catch {
-        throw new Error(`${at}.keys[${j}] is not a valid public JWK`);
+        throw new Error(`${atKey} is not a valid public JWK`);
+      }
+      if (key.kty === 'RSA' && !((modulusLength ?? 0) >= MIN_RSA_BITS)) {
+        throw new Error(`${atKey} is an RSA key under ${MIN_RSA_BITS} bits`);
+      }
+      if (key.use !== undefined && key.use !== 'sig') {
+        throw new Error(`${atKey}.use must be sig`);
+      }
+      const ops = key.key_ops;
+      if (ops !== undefined && !(Array.isArray(ops) && ops.every((op) => typeof op === 'string') && new Set(ops).size === ops.length && ops.includes('verify'))) {
+        throw new Error(`${atKey}.key_ops must be distinct strings that include verify`);
+      }
+      if (key.ext !== undefined && typeof key.ext !== 'boolean') {
+        throw new Error(`${atKey}.ext must be a boolean`);
+      }
+      if (key.alg !== undefined && !algorithms.includes(key.alg as string)) {
+        throw new Error(`${atKey}.alg is not one of the issuer's algorithms`);
+      }
+      const candidates = key.alg !== undefined ? [key.alg as string] : algorithms;
+      if (!candidates.some((alg) => algorithmFits(alg, key.kty, key.crv))) {
+        throw new Error(`${atKey} fits none of the issuer's algorithms`);
       }
       return { ...key } as JWK;
     });
@@ -264,6 +313,12 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     }
 
     try {
+      // Checked here so the strategy fails closed whatever the jose version does with an invalid currentDate.
+      const now: number = Date.prototype.getTime.call(ctx.now);
+      if (!Number.isFinite(now)) {
+        return { ok: false, reason: 'invalid_credentials' };
+      }
+
       const iss = decodeJwt(token).iss;
       const issuer = typeof iss === 'string' ? this.issuers.get(iss) : undefined;
       if (!issuer) {
@@ -279,7 +334,7 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
         audience: issuer.audience,
         algorithms: [...issuer.algorithms],
         clockTolerance: issuer.clockSkewSeconds,
-        currentDate: ctx.now,
+        currentDate: new Date(now),
         requiredClaims: ['exp'],
       });
 

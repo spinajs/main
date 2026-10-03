@@ -50,6 +50,32 @@ async function startFailingServer(status: number): Promise<{ url: string; hits()
   };
 }
 
+/** A loopback http server whose answer the test sets with `answer`; counts the GETs. */
+async function startScriptedServer(): Promise<{ url: string; hits(): number; answer(status: number, body: unknown): void; close(): Promise<void> }> {
+  let hits = 0;
+  let status = 200;
+  let body = '{"keys":[]}';
+  const server = createServer((_req, res) => {
+    hits += 1;
+    res.writeHead(status, { 'content-type': 'application/json' }).end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}/jwks.json`,
+    hits: () => hits,
+    answer(nextStatus, nextBody) {
+      status = nextStatus;
+      body = typeof nextBody === 'string' ? nextBody : JSON.stringify(nextBody);
+    },
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  };
+}
+
 describe('JwtBearerStrategy', function () {
   this.timeout(15000);
 
@@ -138,6 +164,9 @@ describe('JwtBearerStrategy', function () {
         ['skew 0', remote({ clockSkewSeconds: 0 })],
         ['skew 60', remote({ clockSkewSeconds: 60 })],
         ['a custom subject claim and provider', remote({ subjectClaim: 'oid', provider: 'jwt:corp' })],
+        ['a key without alg, use or key_ops', without(remote({ keys: [{ ...kp1.publicJwk }] }), 'jwksUri')],
+        ['a key with key_ops verify', without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify'] }] }), 'jwksUri')],
+        ['a P-521 key for ES512', without(remote({ keys: [generateKeyPairSync('ec', { namedCurve: 'P-521' }).publicKey.export({ format: 'jwk' })], algorithms: ['ES512'] }), 'jwksUri')],
       ];
       for (const [label, issuer] of allowed) {
         expect(await bootError([issuer]), label).to.equal(null);
@@ -197,6 +226,18 @@ describe('JwtBearerStrategy', function () {
         ['a default provider above 128 characters', () => [remote({ issuer: `https://${'i'.repeat(120)}.test` })]],
         ['two issuers with one provider', () => [remote({ provider: 'jwt:shared' }), remote({ issuer: 'https://other.unit.test', provider: 'jwt:shared' })]],
         ['an unknown member', () => [remote({ clockSkew: 10 })]],
+        ['a key whose alg is not in algorithms', () => [without(remote({ keys: [jwkOf(kp2)], algorithms: ['EdDSA'] }), 'jwksUri')]],
+        ['a key whose alg does not fit its type', () => [without(remote({ keys: [{ ...jwkOf(kp1), alg: 'ES256' }] }), 'jwksUri')]],
+        ['an encryption key', () => [without(remote({ keys: [{ ...jwkOf(kp1), use: 'enc' }] }), 'jwksUri')]],
+        ['key_ops without verify', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['encrypt'] }] }), 'jwksUri')]],
+        ['key_ops with a duplicate', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify', 'verify'] }] }), 'jwksUri')]],
+        ['a non-boolean ext', () => [without(remote({ keys: [{ ...jwkOf(kp1), ext: 'true' }] }), 'jwksUri')]],
+        ['key_ops that are not an array', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: 'verify' }] }), 'jwksUri')]],
+        ['an X25519 key', () => [without(remote({ keys: [generateKeyPairSync('x25519').publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
+        ['an Ed448 key, which jose never selects for EdDSA', () => [without(remote({ keys: [generateKeyPairSync('ed448').publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
+        ['an RSA key under 2048 bits', () => [without(remote({ keys: [generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey.export({ format: 'jwk' })], algorithms: ['RS256'] }), 'jwksUri')]],
+        ['an EC key on a curve no algorithm allows', () => [without(remote({ keys: [generateKeyPairSync('ec', { namedCurve: 'P-384' }).publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
+        ['an RSA key without an RSA algorithm', () => [without(remote({ keys: [generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
       ];
 
       for (const [label, issuers] of rows) {
@@ -487,10 +528,25 @@ describe('JwtBearerStrategy', function () {
         await refused(s, sign(kp2));
       });
 
-      it('a context without a valid now', async () => {
+      it('a context without a valid now, before any JWKS fetch', async () => {
         const s = await make([remote()]);
-        await refused(s, sign(kp1), 'invalid_credentials', { purpose: 'request', now: new Date(Number.NaN) });
+        const before = jwks.hits();
+        const nows: unknown[] = [new Date(Number.NaN), new Date('not a date'), NOW.getTime(), NOW.toISOString(), { getTime: () => NOW.getTime() }, Object.create(Date.prototype), undefined];
+        for (const now of nows) {
+          await refused(s, sign(kp1), 'invalid_credentials', { purpose: 'request', now } as unknown as AuthnContext);
+        }
         await refused(s, sign(kp1), 'invalid_credentials', null as unknown as AuthnContext);
+        expect(jwks.hits() - before).to.equal(0);
+      });
+
+      it('reads ctx.now once and verifies at that instant', async () => {
+        const s = await make([remote()]);
+        const past = new Date('2020-01-01T00:00:00.000Z');
+        const pastS = past.getTime() / 1000;
+        let reads = 0;
+        const c = Object.defineProperty({ purpose: 'request' }, 'now', { get: () => (reads++ === 0 ? past : NOW) }) as AuthnContext;
+        expect((await s.verify(bearer(sign(kp1, { iat: pastS, exp: pastS + 300 })), c)).ok).to.equal(true);
+        expect(reads).to.equal(1);
       });
     });
 
@@ -564,6 +620,132 @@ describe('JwtBearerStrategy', function () {
           await flaky.close().catch(() => undefined);
         }
       });
+
+      it('logs one warning per failed fetch, however many requests wait on it', async () => {
+        const failing = await startFailingServer(500);
+        try {
+          const s = await make([remote({ jwksUri: failing.url })]);
+          const warnings: unknown[][] = [];
+          Object.defineProperty(s, 'Log', { value: { warn: (...args: unknown[]) => warnings.push(args) } });
+
+          const outcomes = await Promise.all(Array.from({ length: 5 }, () => s.verify(bearer(sign(kp1)), ctx())));
+          for (const outcome of outcomes) {
+            expect(outcome).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+          }
+          expect(failing.hits()).to.equal(1);
+          expect(warnings.length).to.equal(1);
+        } finally {
+          await failing.close();
+        }
+      });
+
+      it('does not import the cached keys again on every request while a refresh is failing', async () => {
+        const clock = new FakeClock();
+        clock.install();
+        const flaky = await startJwksServer([kp1]);
+        const subtle = globalThis.crypto.subtle;
+        const importKey = subtle.importKey;
+        let imports = 0;
+        try {
+          const s = await make([remote({ jwksUri: flaky.url })]);
+          Object.defineProperty(s, 'Log', { value: { warn: () => undefined } });
+          const at = () => ctx(clock.now());
+          const iatNow = () => Math.floor(clock.now().getTime() / 1000);
+          const token = (key: KitKeyPair) => sign(key, { iat: iatNow(), exp: iatNow() + 300 });
+
+          expect((await s.verify(bearer(token(kp1)), at())).ok).to.equal(true);
+          clock.tick(61_000);
+          await flaky.close();
+          expect(await s.verify(bearer(token(kp2)), at())).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+
+          Object.defineProperty(subtle, 'importKey', {
+            configurable: true,
+            writable: true,
+            value: function (this: SubtleCrypto, ...args: Parameters<SubtleCrypto['importKey']>) {
+              imports += 1;
+              return (importKey as (...a: unknown[]) => unknown).apply(this, args);
+            },
+          });
+          for (let i = 0; i < 3; i++) {
+            clock.tick(1000);
+            expect((await s.verify(bearer(token(kp1)), at())).ok).to.equal(true);
+          }
+          expect(imports).to.equal(0);
+        } finally {
+          delete (subtle as unknown as Record<string, unknown>).importKey;
+          clock.uninstall();
+          await flaky.close().catch(() => undefined);
+        }
+      });
+
+      it('refuses a known key once the cached set is older than ten minutes, even inside a failure window', async () => {
+        const clock = new FakeClock();
+        clock.install();
+        const server = await startScriptedServer();
+        try {
+          server.answer(200, { keys: [jwkOf(kp1)] });
+          const s = await make([remote({ jwksUri: server.url })]);
+          Object.defineProperty(s, 'Log', { value: { warn: () => undefined } });
+          const at = () => ctx(clock.now());
+          const iatNow = () => Math.floor(clock.now().getTime() / 1000);
+          const token = (key: KitKeyPair) => sign(key, { iat: iatNow(), exp: iatNow() + 300 });
+          const refusedNow = { ok: false, reason: 'invalid_credentials' };
+
+          expect((await s.verify(bearer(token(kp1)), at())).ok).to.equal(true);
+          clock.tick(595_000);
+          server.answer(500, 'down');
+          expect(await s.verify(bearer(token(kp2)), at())).to.deep.equal(refusedNow);
+          expect(server.hits(), 'the failed refresh').to.equal(2);
+
+          clock.tick(1_000);
+          expect((await s.verify(bearer(token(kp1)), at())).ok, 'cached set 596 s old').to.equal(true);
+          clock.tick(5_000);
+          expect(await s.verify(bearer(token(kp1)), at()), 'cached set 601 s old').to.deep.equal(refusedNow);
+          expect(server.hits(), 'no fetch inside the window').to.equal(2);
+
+          clock.tick(55_000);
+          expect(await s.verify(bearer(token(kp1)), at())).to.deep.equal(refusedNow);
+          expect(server.hits(), 'one fetch after the window').to.equal(3);
+        } finally {
+          clock.uninstall();
+          await server.close();
+        }
+      });
+
+      const unusableMembers: Array<[string, () => Record<string, unknown>]> = [
+        ['private key material', () => ({ ...generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }), kid: 'bad', alg: 'ES256', use: 'sig' })],
+        ['a malformed key', () => ({ kty: 'EC', crv: 'P-256', x: 'AAAA', y: 'BBBB', kid: 'bad', alg: 'ES256', use: 'sig' })],
+      ];
+      for (const [label, member] of unusableMembers) {
+        it(`a token choosing a JWKS member with ${label} by kid does not hold back a rotated key or log a fetch failure`, async () => {
+          const clock = new FakeClock();
+          clock.install();
+          const server = await startScriptedServer();
+          try {
+            const bad = member();
+            server.answer(200, { keys: [jwkOf(kp1), bad] });
+            const s = await make([remote({ jwksUri: server.url })]);
+            const warnings: unknown[][] = [];
+            Object.defineProperty(s, 'Log', { value: { warn: (...args: unknown[]) => warnings.push(args) } });
+            const at = () => ctx(clock.now());
+            const iatNow = () => Math.floor(clock.now().getTime() / 1000);
+            const token = (key: KitKeyPair, header: Record<string, unknown> = {}) => sign(key, { iat: iatNow(), exp: iatNow() + 300 }, header);
+
+            expect((await s.verify(bearer(token(kp1)), at())).ok).to.equal(true);
+            clock.tick(61_000);
+            expect(await s.verify(bearer(token(kp2, { kid: 'bad' })), at())).to.deep.equal({ ok: false, reason: 'invalid_credentials' });
+
+            server.answer(200, { keys: [jwkOf(kp1), bad, jwkOf(kp2)] });
+            clock.tick(1_000);
+            expect((await s.verify(bearer(token(kp2)), at())).ok, 'the rotated key').to.equal(true);
+            expect(server.hits()).to.equal(2);
+            expect(warnings).to.deep.equal([]);
+          } finally {
+            clock.uninstall();
+            await server.close();
+          }
+        });
+      }
     });
   });
 });
