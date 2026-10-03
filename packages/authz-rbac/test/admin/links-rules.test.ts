@@ -3,11 +3,11 @@ import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
 
 import { AuthzAdminFailure, ConditionCompiler, ConditionFunction, SYSTEM, TRUE } from '@spinajs/authz';
-import type { AuthzCommand, Condition, EvaluationContext, PrincipalRef, ResourceFilter } from '@spinajs/authz';
+import type { AdminCallContext, AuthzCommand, Condition, EvaluationContext, PrincipalRef, ResourceFilter } from '@spinajs/authz';
 
-import { AdminRuleStore, MemoryRuleStore, RuleStore } from '../../src/index.js';
+import { AdminRuleStore, MemoryRuleStore, RbacRuleHandler, RuleStore } from '../../src/index.js';
 import type { RuleDef } from '../../src/index.js';
-import { G, HOUR, O1, P1, P2, START, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
+import { G, HOUR, O1, P1, P2, START, TestBackend, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
 import type { RbacDomain } from './support.js';
 
 const expect = chai.expect;
@@ -321,6 +321,22 @@ describe('RBAC link, rule, reader and forget commands', function () {
       await d.admin.putRule(alice, threshold());
       expect(failure(await d.admin.execute(alice, [put(threshold({ scope: P2 }))]))).to.deep.equal({ at: 0, code: 'conflict', field: 'rule.id' });
       expect(failure(await d.admin.execute(alice, [put(threshold({ id: 'n', scope: P2 })), put(threshold({ id: 'n' }))]))).to.deep.equal({ at: 1, code: 'conflict', field: 'rule.id' });
+    });
+
+    it('rule.delete checks the scope again inside the transaction: a rule moved meanwhile is refused', async () => {
+      await d.admin.putRule(alice, threshold());
+      const h = new RbacRuleHandler();
+      const cmd: AuthzCommand = { kind: 'rule.delete', id: 'r1' };
+      const ctx: AdminCallContext = { domain: 'test', now: START, authz: d.service, actor: bob, container: d.container, dryRun: false };
+      expect(await h.permission(cmd, ctx)).to.deep.equal({ permission: 'authz:rules.manage', resource: P1 });
+      // Another admin moves r1 to p2, which bob does not manage, between permission() and apply().
+      ok(await d.admin.execute(alice, [{ kind: 'rule.delete', id: 'r1' }]));
+      ok(await d.admin.execute(alice, [put(threshold({ scope: P2 }))]));
+      const backend = (await d.container.resolve(TestBackend)) as TestBackend;
+      const e = await rejection(backend.transaction('test', (tx) => h.apply(cmd, ctx, tx)));
+      expect(e).to.be.instanceOf(AuthzAdminFailure);
+      expect((e as AuthzAdminFailure).code).to.equal('forbidden');
+      expect((await d.rules.byId('r1'))?.scope).to.deep.equal(P2);
     });
 
     it('the permission is checked at the rule scope; rule.delete loads the rule first', async () => {

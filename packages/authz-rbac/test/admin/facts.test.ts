@@ -126,3 +126,48 @@ describe('CheckRbacAdminFacts', function () {
     expect(await facts.effectiveRole(alice, 'bare', P1, ctx())).to.equal(undefined);
   });
 });
+
+describe('CheckRbacAdminFacts field sets', function () {
+  this.timeout(20000);
+  let d: RbacDomain;
+  const facts = new CheckRbacAdminFacts();
+  const carol = userPrincipal('carol');
+  const dave = userPrincipal('dave');
+  const FIELD_ROLES: RoleDef[] = [role('fullDoc', { grants: grants('doc:read') }), role('nameDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name'] } }] }), role('bodyDoc', { grants: [{ permission: 'doc:read', fields: { read: ['name', 'body'] } }] })];
+
+  before(async () => {
+    await installHost();
+  });
+
+  after(async () => {
+    await uninstallHost();
+  });
+
+  beforeEach(async () => {
+    await resetHost();
+    // carol reads only the name of a doc; dave reads every field.
+    const fieldModel = new StaticModel({
+      name: 'fields',
+      capabilities: { fields: true },
+      votes: (req): ScriptedVote => {
+        if (req.permission !== 'doc:read') return {};
+        if (req.principal.id === 'carol') return { permitWhen: TRUE, fields: { read: ['name'] } };
+        if (req.principal.id === 'dave') return { permitWhen: TRUE };
+        return {};
+      },
+    });
+    d = await rbacDomain('test', { roleStores: [new StaticRoleStore('fields', FIELD_ROLES, [])], model: fieldModel, permissions: { 'doc:read': { types: ['project'], fields: true } as { types: string[] } } });
+  });
+
+  const ctx = (actor: Principal): AdminCallContext => ({ domain: 'test', now: START, authz: d.service, actor, container: d.container, dryRun: false });
+
+  it('an actor limited to some fields covers a role limited to those fields only', async () => {
+    expect(await facts.covers(carol, 'nameDoc', P1, ctx(carol))).to.equal(true);
+    expect(await facts.covers(carol, 'bodyDoc', P1, ctx(carol))).to.equal(false);
+    expect(await facts.covers(carol, 'fullDoc', P1, ctx(carol))).to.equal(false);
+  });
+
+  it('an actor with every field covers each of them', async () => {
+    for (const r of ['nameDoc', 'bodyDoc', 'fullDoc']) expect(await facts.covers(dave, r, P1, ctx(dave)), r).to.equal(true);
+  });
+});

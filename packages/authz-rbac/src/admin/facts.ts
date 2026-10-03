@@ -1,4 +1,4 @@
-import { AuthzConfigError, isPermission } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, isPermission, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
 import type { AdminContext, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -36,17 +36,36 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     // A `descendants` implied role is not held at the scope, but checks reach no lower; L1 judges it exactly.
     const { defs, unknown, bypass } = await grantClosure(roles, role, holds);
     if (unknown.length > 0 || bypass) return false;
-    const wanted = new Set<Permission>();
+    // Per permission: the field sets its grants give; undefined = a grant without fields, which gives every field.
+    const wanted = new Map<Permission, { read: string[]; write: string[] } | undefined>();
     for (const def of defs) {
       for (const g of def.grants) {
         if (!isPermission(g.permission)) return false;
-        wanted.add(g.permission);
+        const prev = wanted.has(g.permission) ? wanted.get(g.permission) : { read: [], write: [] };
+        if (prev === undefined || g.fields === undefined) {
+          wanted.set(g.permission, undefined);
+          continue;
+        }
+        const hide = g.fields.hide ?? [];
+        wanted.set(g.permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(g.fields.read ?? [], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(g.fields.write ?? [], hide)) });
       }
     }
     if (wanted.size === 0) return true;
+    const perms = [...wanted.keys()];
     try {
-      const decisions = await ctx.authz.checkMany(actor, [...wanted], scope);
-      return [...wanted].every((p) => unconditional(decisions.get(p)));
+      const decisions = await ctx.authz.checkMany(actor, perms, scope);
+      if (!perms.every((p) => unconditional(decisions.get(p)))) return false;
+      // SYSTEM gets every field the engine lets anyone have (authz.fields.neverRead removed): the most a grant gives.
+      const most = await ctx.authz.checkMany(SYSTEM, perms, scope);
+      return perms.every((p) => {
+        const cap = most.get(p)?.fields;
+        const own = decisions.get(p)!.fields;
+        if (!cap) return false;
+        const set = wanted.get(p);
+        const read = set === undefined ? cap.read : subtractFieldGlobs(set.read, subtractFieldGlobs(set.read, cap.read));
+        const write = set === undefined ? cap.write : subtractFieldGlobs(set.write, subtractFieldGlobs(set.write, cap.write));
+        return subtractFieldGlobs(read, own.read).length === 0 && subtractFieldGlobs(write, own.write).length === 0;
+      });
     } catch (e) {
       if (e instanceof AuthzConfigError) return false;
       throw e;

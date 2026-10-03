@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzWriteHandler, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzWriteHandler, assertAdminPermission, ConditionCompiler, ConditionFunction, DefaultConditionCompiler, GLOBAL, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, AuthzTx, Condition, DecisionRequest, EvaluationContext, Permission, PermissionRegistry, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
@@ -131,6 +131,8 @@ export class RbacRuleHandler extends AuthzWriteHandler {
       return { id: rule.id, affected: 1, tags: [`rule:${rule.id}`], events: [event(ctx, 'RuleChanged', { id: rule.id, scope: rule.scope, op: 'put' })] };
     }
     const row = await this.row(c as Extract<AuthzCommand, { kind: 'rule.delete' }>, ctx);
+    // Again inside the transaction: another batch may have moved the rule since permission() read its scope.
+    await assertAdminPermission(ctx, 'rule.delete', row.scope, MANAGE);
     await store.delete(row.id, tx);
     return { id: row.id, affected: 1, tags: [`rule:${row.id}`], events: [event(ctx, 'RuleChanged', { id: row.id, scope: row.scope, op: 'delete' })] };
   }
