@@ -124,7 +124,7 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 
 - **Rate limit.** Every `cmd` frame takes a token from the connection's bucket when it arrives, including frames without an ack, malformed frames and duplicate ids. A refused frame without an ack is dropped silently. Ack-less frames are logged with one warn per connection per 10 s, the rest at debug.
 - **Ordering.** `ordered: 'client'` queues are keyed by the principal (`principalKey`) and the `clientId`, so another principal sending the same `clientId` never waits on that queue.
-- **Shutdown.** `dispose()` aborts running commands with `unavailable` at once and closes the connections. The drain (`sys.shutdown`, `drainMs`) comes with W3.
+- **Shutdown.** W3 replaces the immediate abort with a graceful drain; see W3, Graceful shutdown.
 - **Connection state recovery.** A recovered connection keeps its socket id. Its disconnect hooks ran at the drop, and its connect hooks run again on recovery with the same id. A stored session is restored, with its missed pushes, only while its principal is unexpired, not due for revalidation and not revoked (closed by the principal guard). Otherwise the client gets a full handshake and a new id, without the missed pushes. The restore filter wraps socket.io 4.8 internals (`adapter.restoreSession`, `Namespace._initAdapter`): `test/recovery.test.ts` must pass before any socket.io upgrade.
 
 ## Notes for W3 (resilience)
@@ -140,6 +140,14 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - `STAGE_ORDER.Ordering` moves from `800` to `550`, after idempotency (`500`) and before policies (`600`) and arguments (`700`). Policies and hydrators of an `ordered` command now run inside its queue place, so they see what the commands before it changed. A durable edit pipelined right behind its create is no longer hydrated before the create ran (its `not_found` would be stored as final).
 - `ordered: 'connection'` and `ordered: 'client'` commands without `after` get the same, stronger ordering. A custom stage ordered between `550` and `800` now runs inside the queue place.
 
+### Graceful shutdown
+
+- `SocketServer.shutdown()` is idempotent. `dispose()` awaits it, and the host's own HttpServer starts it with `http.server.closing`; a closing event of another http server is ignored.
+- During the drain, new handshakes, recovered connections and new commands are refused with `unavailable` and `retryAfterMs = http.socket.shutdownRetryAfterMs` (new, default `5_000`). A recovered connection gets `sys.shutdown` before its refusal. New events are dropped.
+- Every local connection gets `sys.shutdown {retryAfterMs}` through `SocketConnection.notify()`. Running commands, open streams and their stage chains get up to `drainMs` to finish. After that, the rest are answered `unavailable`, and open streams get `fail unavailable`, except keyed commands whose handler already started: they get 1 s more to answer, and record, their real outcome.
+- The server then disconnects only its own clients (`io.local`), waits up to 1 s for the transports to write the last replies and frames and up to `drainMs` for the disconnect hooks (which can still push), and closes. An adapter whose `close()` does not settle within 1 s is not waited for.
+- Startup warns when `drainMs + 2 000` reaches `http.shutdownTimeout`, after which `@spinajs/http` destroys the connections.
+
 ### Known limits
 
 - No idempotency store has a lease yet: a handler that never settles keeps its key running forever, and every resend of it waits or is refused. A lease belongs to the first shared store (Redis, ORM).
@@ -148,3 +156,5 @@ The handler registry refuses to start with `InvalidOperation` when a command or 
 - Unauthenticated connections share one principal key, so their idempotency keys and `after` fences are scoped by `clientId` only.
 - The `after` fence and the `ordered: 'client'` queues are per instance; several instances need sticky sessions.
 - A stream command cannot be `idempotent` (refused at startup for an async generator, answered `failed_precondition` for another async iterable), cannot take `after`, and is never a fence predecessor: its reply is never stored.
+- Exactly-once across a graceful restart needs a shared idempotency store, and handlers that finish within `drainMs` + 1 s or roll back when their signal aborts. A keyed handler still running after that is answered `unavailable` and its key stays running, because it may have committed. With a shared store, its resends are then refused until the store expires the claims of the dead instance. With the memory store, the key dies with the process and a resend to the next instance runs the command again. The editor's opId dedupe is the backstop.
+- Polling clients do not drain. `@spinajs/http` stops listening before it emits `http.server.closing`, so a polling client gets `sys.shutdown` and then loses its transport at its next poll. The replies of its running commands are lost, though a keyed command's outcome is still recorded for the resend. WebSocket clients drain fully. Draining polling clients needs the http server to stop listening only after the socket drain.
