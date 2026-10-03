@@ -62,6 +62,8 @@
   },
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.0-alpha.0",
+    "@spinajs/orm-mssql": "2.0.549",
+    "@spinajs/orm-mysql": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549"
   }
