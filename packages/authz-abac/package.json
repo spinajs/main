@@ -54,5 +54,8 @@
   "dependencies": {
     "@spinajs/authz": "3.0.0-alpha.0",
     "@spinajs/orm": "2.0.549"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0"
   }
 }
