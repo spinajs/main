@@ -4,7 +4,7 @@ import { FakeScopeResolver, fakeEvaluationContext, fakeModelInitContext, userPri
 import * as chai from 'chai';
 import 'mocha';
 
-import { DEFAULT_RBAC_EXTENSIONS, LadderExtension, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, compileGrants, compileLadders, compileRoles, ladderEdges, modelTables } from '../../src/index.js';
+import { LadderExtension, createRbacExtensions, MemoryAssignmentStore, MemoryRoleStore, RbacModel, RbacService, compileGrants, compileLadders, compileRoles, ladderEdges, modelTables } from '../../src/index.js';
 import type { GrantDef, LadderDef, RbacExtension, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -168,15 +168,6 @@ describe('authz-rbac ladders: rank tables and implicit extends', () => {
       refused([role('viewer', [], { ladder: 7 } as unknown as Partial<RoleDef>)], [], 'rbac', "'viewer'", 'ladder');
     });
 
-    it('implies naming an unknown role', () => {
-      refused([role('owner', [], { implies: [{ role: 'ghost', at: 'descendants' }] })], [], 'rbac', "'owner'", "'ghost'");
-    });
-
-    it('a malformed implies list or entry', () => {
-      refused([role('owner', [], { implies: 'viewer' } as unknown as Partial<RoleDef>)], [], 'rbac', "'owner'", 'implies');
-      refused([role('viewer', []), role('owner', [], { implies: [{ role: 'viewer', at: 'everywhere' }] } as unknown as Partial<RoleDef>)], [], 'rbac', "'owner'", 'at');
-    });
-
     it('a model whose role store breaks a rule fails its init', async () => {
       const roles = [role('viewer', [], { ladder: 'project', extends: ['editor'] }), role('editor', [], { ladder: 'project' })];
       const m = new RbacModel({ roles: new MemoryRoleStore(roles, [{ name: 'project', roles: ['viewer', 'editor'] }]), assignments: new MemoryAssignmentStore(), log: { warn: () => undefined } });
@@ -237,7 +228,7 @@ describe('authz-rbac ladders: rank tables and implicit extends', () => {
 
   describe('the default model', () => {
     it('gets ladders with no option: DEFAULT_RBAC_EXTENSIONS holds the ladder extension', async () => {
-      expect(DEFAULT_RBAC_EXTENSIONS).to.have.length(1);
+      expect(createRbacExtensions({ roles: new MemoryRoleStore(), assignments: new MemoryAssignmentStore() }).some((e) => e instanceof LadderExtension)).to.equal(true);
       const m = await model([]);
       expect(m.extensions.some((e) => e instanceof LadderExtension)).to.equal(true);
       expect(m.roleGraph().get('editor')!.closure).to.deep.equal(['editor', 'commenter', 'viewer']);

@@ -39,6 +39,9 @@ export class RbacService {
    * - requiresTag: equal; grantedAt: w's types are a subset of h's;
    * - ladder `resourceTypes`: of the types the permission is checked on (its `types` and `$global`),
    *   h applies on every one w applies on.
+   * The wanted roles count with the roles they imply (at any `at`). Role names held everywhere
+   * count with what they imply at 'self-and-descendants' (held wherever the wanted role is handed
+   * out); a principal's names already hold the implied roles live at `at`, after its ceiling.
    * Conditions compare as role definitions, not as resolved rows: `home/{principal.id}` and `owner`
    * cover themselves, although the assignee gets its own home and its own rows, not the actor's. That
    * is "an actor may hand out its own role". So an unconditional grant covers a conditional one and
@@ -47,9 +50,10 @@ export class RbacService {
    * unknown wanted role is refused; unknown holder roles give nothing.
    *
    * `holder` is either:
-   * - a list of role names, held everywhere: `at` is not read and no ceiling applies, so a caller
-   *   that passes `rolesOf(...)` names must apply the actor's `ceiling.permissions`, `resources`
-   *   and `expiresAt` itself (coversAt does);
+   * - a list of role definitions held everywhere: `at` is not read and no ceiling applies. Never
+   *   pass `rolesOf(...)` output: those names are held at one scope after the ceiling, and this
+   *   overload adds what they imply, which could bring back an implied role the ceiling dropped.
+   *   Use coversAt for a principal;
    * - a principal the models run with (never an agent with `onBehalfOf`), whose assignments are
    *   preloaded. Without IO, covers reads the request snapshot in `ctx` (else the cache across
    *   requests, which a TTL of 0 leaves empty), and only the assignments at GLOBAL and at `at` itself
@@ -60,7 +64,7 @@ export class RbacService {
    *   (or GLOBAL) by key, assignments not preloaded, or stale roles
    */
   covers(holder: Principal | readonly string[], wanted: readonly string[], at?: ResourceRef, ctx?: EvaluationContext): boolean {
-    if (isRoleList(holder)) return this.coversRoles(holder, wanted);
+    if (isRoleList(holder)) return this.coversRoles(this.withImpliedEverywhere(holder), wanted);
     const where = at ?? GLOBAL;
     const limit = this.ceilingLimit(holder, ctx);
     if (limit.resources && !limit.resources.has(resourceKey(where)) && !limit.resources.has(resourceKey(GLOBAL))) {
@@ -91,14 +95,31 @@ export class RbacService {
     return this.coversRoles(names, wanted, limit);
   }
 
+  private withImpliedEverywhere(held: readonly string[]): readonly string[] {
+    const { implies } = modelTables(this.model);
+    return implies
+      ? [
+          ...held,
+          ...held.flatMap((r) =>
+            implies
+              .of(r)
+              .filter((e) => e.at === 'self-and-descendants')
+              .map((e) => e.role),
+          ),
+        ]
+      : held;
+  }
+
   private coversRoles(held: readonly string[], wanted: readonly string[], limit?: CeilingLimit): boolean {
     const graph = this.model.roleGraph();
     const index = this.model.grantIndex();
     if (wanted.some((r) => !graph.has(r))) return false;
     const holding = [...new Set(held)].filter((r) => graph.has(r));
-    const { ladders } = modelTables(this.model);
+    const { ladders, implies } = modelTables(this.model);
     const registry = this.model.permissions();
-    for (const role of new Set(wanted)) {
+    // Assigning a role hands out what it implies too, so those grants must be covered as well.
+    const handedOut = new Set(wanted.flatMap((r) => [r, ...(implies?.of(r).map((e) => e.role) ?? [])]));
+    for (const role of handedOut) {
       for (const permission of index.permissions(role)) {
         if (limit && !limit.allows(permission)) return false;
         const types = ladders ? [...registry.require(permission).types, GLOBAL.type] : [];

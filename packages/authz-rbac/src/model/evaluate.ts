@@ -1,13 +1,16 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
+import { ceilingRoles, withinCeiling } from './ceiling.js';
 import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import { ladderExtension } from './ladder/extension.js';
+import { addImplied, impliesExtension } from './ladder/implies.js';
+import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
 import type { RbacModelOptions } from './model.js';
@@ -75,6 +78,8 @@ export interface RbacInput {
   readonly grants: GrantIndex;
   /** Rank tables (RbacExtension.tables); absent: no role has a rank and every grant applies on every type. */
   readonly ladders?: LadderIndex;
+  /** What each role implies (RbacExtension.tables); absent: no role implies another. */
+  readonly implies?: ImpliesIndex;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -92,6 +97,8 @@ export interface LiveAssignment {
   readonly bypass: Set<'restrict' | 'cap'>;
   /** Set on an implied role's assignment: the assignment that implies it. */
   readonly impliedBy?: LiveAssignment;
+  /** Set on an implied role with at: 'descendants': it holds below `scope`, not at it. */
+  readonly onlyBelow?: boolean;
   /** Rank on the role's ladder; `cap` may lower it. */
   rank?: number;
 }
@@ -157,27 +164,6 @@ const collect: RbacStep = (s) => {
     (here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
-
-/**
- * Whether `role` passes the principal's `ceiling.roles` (§6.1.2 step 1, B07): the assigned role's
- * own name, never a role it extends, so a ceiling of a lower role does not keep a higher role's
- * assignment. Every contribution `collect` adds must pass it, implied roles included (D19).
- */
-export function withinCeiling(s: RbacState, role: string): boolean {
-  return s.ceilingRoles === undefined || s.ceilingRoles.has(role);
-}
-
-/**
- * The request principal's ceiling roles; the engine has already narrowed them for a delegate. Names,
- * not globs. Null counts as absent, as in the engine's ceiling reader.
- * @throws Error for a value that is not an array of strings (the engine makes it model_error)
- */
-export function ceilingRoles(principal: Principal): ReadonlySet<string> | undefined {
-  const roles: unknown = principal.ceiling?.roles;
-  if (roles === undefined || roles === null) return undefined;
-  if (!Array.isArray(roles) || !roles.every((r) => typeof r === 'string')) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
-  return new Set(roles);
-}
 
 const grant: RbacStep = (s) => {
   const holders = new Map<CompiledGrant, LiveAssignment[]>();
@@ -254,27 +240,46 @@ function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
 
 export const MAX_UNDER_SCOPES = 10_000;
 
-/** The rows below the holders' scopes, canonical: sorted by key, without duplicates. */
+/**
+ * The rows below the holders' scopes, canonical: sorted by key, without duplicates. An implied role
+ * with at: 'descendants' (`onlyBelow`) leaves its scope itself out, which only a row of the scope's
+ * own type can be.
+ */
 function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceFilter {
+  const type = s.input.request.resource.type;
   if (s.input.scopedResidual === 'native') {
+    // The term holds on every assignment of the stored role on the row's path, the row itself included.
+    const strict = holders.find((h) => h.onlyBelow && mayBeAssignedAt(s.input.roles, h.assignment.role, type));
+    if (strict) throw new Error(`rbac: role '${strict.role}' is implied by '${strict.assignment.role}' below its scope only, which ${RBAC_ASSIGNMENT_OP} cannot express on type '${type}'`);
     return {
       op: RBAC_ASSIGNMENT_OP,
       args: rbacAssignmentArgs(
         s.input.subjects ?? defaultSubjects(s.input.request.principal),
-        holders.map((h) => h.role),
+        holders.map((h) => h.assignment.role),
       ),
     };
   }
   const scopes = new Map<string, ResourceRef>();
-  for (const h of holders) scopes.set(resourceKey(h.scope), { type: h.scope.type, id: h.scope.id });
+  const below = new Map<string, ResourceRef>();
+  for (const h of holders) (h.onlyBelow && h.scope.type === type ? below : scopes).set(resourceKey(h.scope), { type: h.scope.type, id: h.scope.id });
+  for (const key of scopes.keys()) below.delete(key);
   // A list this long belongs in SQL through rbacAssignmentExtension; failing closed beats an unbounded residual.
-  if (scopes.size > MAX_UNDER_SCOPES) throw new Error(`rbac: ${scopes.size} assignment scopes exceed the ${MAX_UNDER_SCOPES} an under term may hold; use rbacAssignmentExtension for this type`);
-  return { op: 'under', scopes: [...scopes].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, ref]) => ref) };
+  if (scopes.size + below.size > MAX_UNDER_SCOPES) throw new Error(`rbac: ${scopes.size + below.size} assignment scopes exceed the ${MAX_UNDER_SCOPES} an under term may hold; use rbacAssignmentExtension for this type`);
+  const sorted = (m: Map<string, ResourceRef>) => [...m].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([, ref]) => ref);
+  const terms: ResourceFilter[] = scopes.size > 0 ? [{ op: 'under', scopes: sorted(scopes) }] : [];
+  for (const ref of sorted(below)) terms.push(and({ op: 'under', scopes: [ref] }, { op: 'cmp', field: 'id', cmp: 'ne', value: ref.id! }));
+  return or(...terms);
+}
+
+function mayBeAssignedAt(roles: RoleGraph, role: string, type: ResourceType): boolean {
+  const types = roles.get(role)?.scopeTypes;
+  return types === undefined || types.includes(type);
 }
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({
   collect: (s: RbacState) => {
     collect(s);
+    addImplied(s);
     rankAssignments(s);
   },
   restrict: noop,
@@ -417,9 +422,10 @@ function extendInput(request: DecisionRequest, ctx: EvaluationContext, sources: 
 /** Tables compiled from the role graph, which RbacService reads too; one source each. */
 export interface RbacTables {
   readonly ladders?: LadderIndex;
+  readonly implies?: ImpliesIndex;
 }
 
-const TABLE_KEYS: readonly (keyof RbacTables)[] = ['ladders'];
+const TABLE_KEYS: readonly (keyof RbacTables)[] = ['ladders', 'implies'];
 
 /**
  * The extensions' tables for `graph`, merged; the gathering phase puts them in every input.
@@ -497,7 +503,7 @@ export interface RbacExtension {
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
 /** One factory per extension, so every model gets its own instances. */
-export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension]);
+export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension, impliesExtension]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */
 export function createRbacExtensions(opts: RbacModelOptions, factories: readonly RbacExtensionFactory[] = DEFAULT_RBAC_EXTENSIONS): readonly RbacExtension[] {
