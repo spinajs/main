@@ -30,6 +30,7 @@ const ENVS: [string | undefined, boolean][] = [
   ['development', false],
   ['dev', false],
   ['test', false],
+  ['Development', true],
   ['qa-eu-1', true],
   ['', true],
   [undefined, true],
@@ -220,6 +221,21 @@ describe('shipped session cookie configuration', () => {
 
 describe('appEnvOf', () => {
   afterEach(() => uncacheOwned());
+
+  it('SR-16 the env the deployment resolved, not NODE_ENV, reaches the cookie builder', async () => {
+    await withNodeEnv(undefined, () => withSessionConfig({ process: { env: { APP_ENV: 'staging' } } }));
+    const env = appEnvOf(DI.get(Configuration)!);
+    const cookie = withNodeEnv(undefined, () => sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, DateTime.now().plus({ minutes: 30 }), env));
+
+    expect(cookie.Name).to.equal('__Host-ssid');
+    expect(cookie.Options.secure).to.equal(true);
+  });
+
+  it('an unparsable flag value counts as on, in any env', () => {
+    const config = { secure: 'yes', hostPrefix: 'TRUE' } as unknown as ISessionCookieConfig;
+    expect(sessionCookieName(config, 'development')).to.equal('__Host-ssid');
+    expect(sessionCookieOptions(config, undefined, 'development').secure).to.equal(true);
+  });
 
   it('reads the app env the configuration resolved', async () => {
     await withSessionConfig({ process: { env: { APP_ENV: 'staging' } } });
