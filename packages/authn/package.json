@@ -68,5 +68,8 @@
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/log-common": "2.0.549"
+  },
+  "devDependencies": {
+    "@spinajs/authn-testing": "3.0.0-alpha.0"
   }
 }
