@@ -168,6 +168,19 @@ describe('PrincipalMiddleware', function () {
     }
   });
 
+  it('a configured service header wins over the authn principal (ServicePrincipalSource, order 40)', async () => {
+    testHost.config().set(['authz', 'http', 'services'], [{ name: 'telemetry', header: 'X-Telemetry-Token', token: 's3cret' }]);
+    try {
+      const res = await app.request().get('/whoami').set('x-authn', 'alice').set('x-telemetry-token', 's3cret');
+      expect(res.body.stored).to.deep.include({ type: 'service', id: 'telemetry' });
+
+      const wrong = await app.request().get('/whoami').set('x-authn', 'alice').set('x-telemetry-token', 'nope');
+      expect(wrong.body.stored).to.deep.include({ type: 'user', id: 'alice' });
+    } finally {
+      testHost.config().unset(['authz', 'http', 'services']);
+    }
+  });
+
   it('a source that throws Unauthenticated answers 401', async () => {
     const res = await app.request().get('/whoami').set('x-fail', '1');
 
