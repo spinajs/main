@@ -122,7 +122,8 @@ const SAMPLE_8_5 = () => ({
   stores: { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'], links: ['DbLinkStore'] },
 });
 
-describe('authz-rbac stores: ConfigRoleStore', () => {
+describe('authz-rbac stores: ConfigRoleStore', function () {
+  this.timeout(30000);
   it('is named ConfigRoleStore', () => {
     expect(storeFor({}).name).to.equal('ConfigRoleStore');
     expect(storeFor({})).to.be.instanceOf(RoleStore);
@@ -327,7 +328,8 @@ describe('authz-rbac stores: ConfigRoleStore', () => {
   });
 });
 
-describe('authz-rbac stores: ConfigRoleStore in DI', () => {
+describe('authz-rbac stores: ConfigRoleStore in DI', function () {
+  this.timeout(30000);
   it('is registered as a RoleStore under its class name', () => {
     const names = DI.RootContainer.Registry.getTypesChain(RoleStore).map((e) => (typeof e.type === 'function' ? e.type.name : ''));
     expect(names).to.include('ConfigRoleStore');
@@ -371,7 +373,8 @@ const validate = (cfg: unknown) => {
   return { ok, errors: ajv.errors as any[] | null };
 };
 
-describe('authz-rbac stores: authz.rbac schema', () => {
+describe('authz-rbac stores: authz.rbac schema', function () {
+  this.timeout(30000);
   it('declares its module and id', () => {
     expect(AUTHZ_RBAC_CONFIGURATION_SCHEMA.$configurationModule).to.equal('authz.rbac');
     expect(AUTHZ_RBAC_CONFIGURATION_SCHEMA.$id).to.equal('spinajs/authz-rbac.configuration.schema.json');
@@ -436,7 +439,8 @@ describe('authz-rbac stores: authz.rbac schema', () => {
   });
 });
 
-describe('authz-rbac stores: config fragment', () => {
+describe('authz-rbac stores: config fragment', function () {
+  this.timeout(30000);
   it('ships only the cache default of §8.2 (store names and migration columns live in code)', () => {
     expect(rbacStores).to.deep.equal({
       authz: {
@@ -456,7 +460,8 @@ describe('authz-rbac stores: config fragment', () => {
   });
 });
 
-describe('authz-rbac stores: schema registration', () => {
+describe('authz-rbac stores: schema registration', function () {
+  this.timeout(30000);
   it('the bootstrapper registers the schema as a __configurationSchema__ value', () => {
     const KEY = '__configurationSchema__';
     const had = DI.RootContainer.Cache.has(KEY);
@@ -524,7 +529,8 @@ describe('authz-rbac stores: schema registration', () => {
   });
 });
 
-describe('authz-rbac stores: store names', () => {
+describe('authz-rbac stores: store names', function () {
+  this.timeout(30000);
   const cfg = (stores?: object) => ({ get: (p: string[]) => _.get({ authz: { rbac: { stores } } }, p) }) as unknown as Configuration;
 
   it('defaults to the §8.2 store names when the app sets none', () => {

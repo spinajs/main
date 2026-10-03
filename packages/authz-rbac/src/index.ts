@@ -4,3 +4,4 @@ export * from './admin/index.js';
 export * from './migrations/index.js';
 export * from './stores/index.js';
 export * from './orm/index.js';
+export * from './cli/index.js';
