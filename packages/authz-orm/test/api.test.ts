@@ -3,6 +3,7 @@ import 'mocha';
 
 import { AccessResource, OrmNativeCompiler, OrmScope, OrmScopePolicy, Owner, ScopeColumn, filterFields, ownsBy, registerAccessResource } from '../src/index.js';
 import * as root from '../src/index.js';
+import * as stubs from '../src/api.js';
 import type { Decision, Permission, Principal, RelationResolver, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 import type { IWhereBuilder, InsertQueryBuilder, ModelBase, UpdateQueryBuilder } from '@spinajs/orm';
@@ -32,7 +33,9 @@ class FakeCompiler extends OrmNativeCompiler {
 }
 
 describe('authz-orm api', () => {
-  it('every stub throws not implemented', () => {
+  // api.ts is frozen and keeps its stubs; src/index.ts exports the implementations in their place.
+  it('every stub of api.ts throws not implemented', () => {
+    const { AccessResource, Owner, ScopeColumn, OrmScope, filterFields, registerAccessResource, ownsBy } = stubs;
     expect(() => AccessResource('file')).to.throw(Error, notImplemented('AccessResource'));
     expect(() => AccessResource('file', { relationScope: 'join', permissions: { read: 'file:read' }, attributes: ['policies'] })).to.throw(Error, notImplemented('AccessResource'));
     expect(() => Owner()).to.throw(Error, notImplemented('Owner'));
