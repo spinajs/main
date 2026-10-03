@@ -335,6 +335,30 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   }
 
   /**
+   * Routing-level default retry count for a job, or undefined when none is configured.
+   * Invalid values are ignored with a warning: this runs inside the transports' failure handlers,
+   * where a throw would go unhandled.
+   */
+  public getMaxRetriesForMessage(event: IQueueMessage | Constructor<QueueMessage>): number | undefined {
+    const eName = (event as IQueueMessage).Name ?? (event as Constructor<QueueMessage>).name ?? event.constructor.name;
+    const rOption = this.Routing?.[eName];
+    const entries = _.isArray(rOption) ? rOption : [rOption];
+
+    const declared = entries.find((x) => x && !_.isString(x) && (x as IMessageRoutingOption).maxRetries !== undefined) as IMessageRoutingOption | undefined;
+    if (!declared) {
+      return undefined;
+    }
+
+    const value = declared.maxRetries;
+    if (!Number.isInteger(value) || (value as number) < 0) {
+      this.Log.warn(`Routing for ${eName} has invalid maxRetries ${JSON.stringify(value)}, ignoring ( expected a non-negative integer )`);
+      return undefined;
+    }
+
+    return value;
+  }
+
+  /**
    *
    * Gets event channel from routing table or default if non is set
    *
@@ -482,6 +506,12 @@ export interface IMessageRoutingOption {
   channel?: string;
   deadLetterChannel?: string;
   connection?: string;
+
+  /**
+   * Default retry count for jobs routed here that carry no `RetryCount` of their own.
+   * An explicit `RetryCount` on the job always wins.
+   */
+  maxRetries?: number;
 }
 
 export interface IQueueConnectionOptions {
