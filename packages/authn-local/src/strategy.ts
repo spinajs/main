@@ -8,6 +8,9 @@ import { PasswordHasher } from './hasher.js';
 import { isLoginLength } from './policy.js';
 
 const INVALID: StrategyOutcome = { ok: false, reason: 'invalid_credentials' };
+const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentials' };
+
+const isPasswordKind = (c: Credentials) => c !== null && typeof c === 'object' && c.kind === 'password';
 
 /** The part of `Log` the strategy uses. */
 export interface LocalPasswordStrategyLog {
@@ -81,7 +84,7 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
     // An empty password keeps the dummy verify cheap for an over-long input; the work is the same argon2 verify.
     if (!fields || !isLoginLength(fields.password)) {
       await hasher.verify(null, '');
-      return INVALID;
+      return isPasswordKind(c) ? INVALID : UNSUPPORTED;
     }
 
     const id = await this.identities().findByLogin(fields.login);

@@ -137,9 +137,9 @@ describe('LocalPasswordStrategy', function () {
       expect(await strategy.verify(pw(LOGIN, 'Spaced-Out-9'), CTX)).to.deep.equal(INVALID);
     });
 
-    it('a non-password credential fails without throwing', async () => {
+    it('a credential of another kind is unsupported_credentials, without throwing', async () => {
       const { strategy } = await setup();
-      expect(await strategy.verify({ kind: 'bearer', token: 'spt_x' }, CTX)).to.deep.equal(INVALID);
+      expect(await strategy.verify({ kind: 'bearer', token: 'spt_x' }, CTX)).to.deep.equal({ ok: false, reason: 'unsupported_credentials' });
     });
 
     it('a password credential with non-string fields fails without throwing', async () => {
@@ -147,7 +147,7 @@ describe('LocalPasswordStrategy', function () {
       for (const c of [pw(42, PASSWORD), pw(LOGIN, 42), pw(undefined, undefined), pw({ toString: () => LOGIN }, PASSWORD), pw(LOGIN, [PASSWORD])]) {
         expect(await strategy.verify(c, CTX)).to.deep.equal(INVALID);
       }
-      expect(await strategy.verify(null as unknown as Credentials, CTX)).to.deep.equal(INVALID);
+      expect(await strategy.verify(null as unknown as Credentials, CTX)).to.deep.equal({ ok: false, reason: 'unsupported_credentials' });
     });
   });
 
