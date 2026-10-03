@@ -67,7 +67,8 @@ export class TestConfiguration extends FrameworkConfiguration {
           rules: [{ name: '*', level: 'trace', target: 'Empty' }],
         },
         configuration: { isProduction: false },
-        http: { socket: _.cloneDeep(socketConfig.http.socket) },
+        // W1's tests close servers with handlers still running; without a drain they close as fast as before
+        http: { socket: { ..._.cloneDeep(socketConfig.http.socket), drainMs: 0 } },
       },
       overrides,
     );

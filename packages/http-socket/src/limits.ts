@@ -170,3 +170,17 @@ export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promi
     void promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
   });
 }
+
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+export function assertShutdownConfig(options: Pick<ISocketServerConfig, 'drainMs' | 'shutdownRetryAfterMs'>): void {
+  const { drainMs, shutdownRetryAfterMs } = options;
+
+  if (!(typeof drainMs === 'number' && drainMs >= 0 && drainMs <= MAX_TIMER_MS)) {
+    throw new RangeError(`http.socket.drainMs must be within [0, ${MAX_TIMER_MS}], got ${String(drainMs)}`);
+  }
+
+  if (!(typeof shutdownRetryAfterMs === 'number' && shutdownRetryAfterMs > 0 && Number.isFinite(shutdownRetryAfterMs))) {
+    throw new RangeError(`http.socket.shutdownRetryAfterMs must be a finite number above 0, got ${String(shutdownRetryAfterMs)}`);
+  }
+}

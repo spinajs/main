@@ -62,7 +62,10 @@ export interface ISocketServerConfig {
   maxInFlightEventsPerConnection: number;
   rate: ISocketRateConfig;
   idempotency: ISocketIdempotencyConfig;
+  /** shutdown: how long running commands may finish before they are answered `unavailable` */
   drainMs: number;
+  /** shutdown: the `retryAfterMs` of `sys.shutdown` and of every refusal during the drain */
+  shutdownRetryAfterMs: number;
   /** `ordered` commands: how long an aborted command whose handler is still running keeps its queue place */
   ordering: { abortGraceMs: number };
   /**

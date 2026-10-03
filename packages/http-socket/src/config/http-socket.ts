@@ -45,6 +45,7 @@ const config: ISocketConfigFile = {
         stallTimeoutMs: 60_000,
       },
       drainMs: 5_000,
+      shutdownRetryAfterMs: 5_000,
       adapter: undefined,
       transports: ['websocket', 'polling'],
     },

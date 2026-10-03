@@ -1,11 +1,11 @@
 import type { EventEmitter } from 'events';
 import { Namespace, Server, ServerOptions, Socket } from 'socket.io';
-import { AsyncService, Autoinject, ClassInfo, Injectable } from '@spinajs/di';
+import { AsyncService, Autoinject, ClassInfo, DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
 import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
-import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
+import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, ShutdownNotice, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
 import { SocketDispatcher } from './dispatcher.js';
@@ -18,6 +18,7 @@ import { trackConnection } from './metrics.js';
 import './host.js';
 import './authn-source.js';
 import { assertIdempotencyConfig } from './idempotency.js';
+import { assertShutdownConfig } from './limits.js';
 
 /** socket.io hands `data` to the client as the `connect_error` payload. */
 function refusal(wire: SocketError): Error & { data: SocketError } {
@@ -27,6 +28,28 @@ function refusal(wire: SocketError): Error & { data: SocketError } {
 }
 
 type Listener = (...args: unknown[]) => void;
+
+/**
+ * A closing engine.io connection writes its buffered packets before it closes its transport, but `engine.close()`
+ * discards them: waiting here keeps the last replies, stream frames and disconnect packets.
+ */
+function transportsClosed(transports: Array<Socket['conn']>, ms: number): Promise<boolean> {
+  const open = transports.filter((conn) => conn.readyState !== 'closed');
+  if (open.length === 0) {
+    return Promise.resolve(true);
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  const closed = Promise.all(open.map((conn) => new Promise<void>((resolve) => conn.once('close', () => resolve())))).then(() => true);
+
+  return Promise.race([closed, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** How long the replies and stream `fail` frames of commands aborted at the end of a drain get to reach their transport. */
+const REPLY_FLUSH_MS = 1_000;
 
 const HOST_EVENTS = ['request', 'upgrade', 'close', 'listening'] as const;
 
@@ -94,6 +117,15 @@ export class SocketServer extends AsyncService {
   /** Built once per socket by the handshake middleware and handed to its SocketConnection. */
   protected handshakes = new WeakMap<Socket, ISocketHandshake>();
 
+  /** Set when shutdown starts; handshakes and recovered sockets are refused with it. */
+  protected closing: SocketException | null = null;
+
+  protected stopping: Promise<void> | null = null;
+
+  protected onHttpClosing = (): void => {
+    this.shutdown().catch((err: Error) => this.Log.error(err, 'Socket server shutdown failed'));
+  };
+
   public get Io(): Server | null {
     return this._io;
   }
@@ -101,6 +133,7 @@ export class SocketServer extends AsyncService {
   public async resolve(): Promise<void> {
     await super.resolve();
     assertIdempotencyConfig(this.Options.idempotency);
+    assertShutdownConfig(this.Options);
     await this.ControllerFiles;
     // a duplicate or orphan handler rejects here, before socket.io attaches: no partial routing
     await this.Registry.build();
@@ -121,23 +154,69 @@ export class SocketServer extends AsyncService {
     this.Hub.attach(io);
     this._io = io;
     this.Guard.start(() => this.Hub.Connections.values());
+    DI.on('http.server.closing', this.onHttpClosing);
+  }
+
+  /**
+   * Graceful shutdown ( spec §5.5 ): refuse new connections and commands, tell the clients when to come
+   * back, let running commands and streams finish for up to `drainMs`, answer the rest `unavailable`, then close.
+   * Also started by the http server's `http.server.closing`; idempotent.
+   */
+  public shutdown(): Promise<void> {
+    return (this.stopping ??= this.drainAndClose());
   }
 
   public async dispose(): Promise<void> {
+    await this.shutdown();
+  }
+
+  protected async drainAndClose(): Promise<void> {
     const io = this._io;
     if (!io) {
       return;
     }
 
-    this._io = null;
+    DI.off('http.server.closing', this.onHttpClosing);
+
+    const retryAfterMs = this.Options.shutdownRetryAfterMs;
+    const unavailable = new SocketException('unavailable', 'server is shutting down', { retryAfterMs });
+    this.closing = unavailable;
+    this.Dispatcher.refuseNew(unavailable);
     this.Guard.stop();
-    this.Dispatcher.abortAll(new SocketException('unavailable', 'server is shutting down'));
+
+    const notice: ShutdownNotice = { retryAfterMs };
+    // per connection, not io.emit: with an adapter that would reach the clients of the other instances
+    for (const connection of this.Hub.Connections.values()) {
+      connection.notify(SYSTEM_EVENTS.shutdown, notice);
+    }
+
+    if (!(await this.Dispatcher.drained(this.Options.drainMs))) {
+      this.Log.warn(`Socket commands still running after a ${this.Options.drainMs} ms drain are answered unavailable`);
+      this.Dispatcher.abortAll(unavailable);
+      // the abort answers at once, but the replies are written in later microtasks; closing first would drop them
+      if (!(await this.Dispatcher.drained(REPLY_FLUSH_MS))) {
+        this.Log.warn(`Socket command handlers still running ${REPLY_FLUSH_MS} ms after their abort ignore its signal; an idempotency key they hold stays claimed`);
+      }
+    }
+
+    const transports = [...io.of('/').sockets.values()].map((socket) => socket.conn);
     io.disconnectSockets(true);
+
+    // disconnect hooks may still push to rooms, so the hub stays attached until they are done
+    const [flushed, hooksDone] = await Promise.all([transportsClosed(transports, REPLY_FLUSH_MS), this.Dispatcher.hooksDone(this.Options.drainMs)]);
+    if (!flushed) {
+      this.Log.warn(`Socket transports still writing ${REPLY_FLUSH_MS} ms after the disconnect, closing anyway`);
+    }
+    if (!hooksDone) {
+      this.Log.warn(`Socket disconnect hooks still running after ${this.Options.drainMs} ms, closing anyway`);
+    }
+
     // not io.close(): that also closes the http server, which the host owns
     await Promise.allSettled([...io._nsps.values()].map((nsp) => nsp.adapter.close()));
     io.engine.close();
     this.releaseHost?.();
     this.releaseHost = null;
+    this._io = null;
     this.Hub.detach();
   }
 
@@ -211,6 +290,10 @@ export class SocketServer extends AsyncService {
 
   protected async authenticate(socket: Socket): Promise<void> {
     try {
+      if (this.closing) {
+        throw this.closing;
+      }
+
       // first: no principal source may read the credentials of a hijacked cross-site socket
       if (!isAllowedOrigin(socket.handshake.headers, this.Options.cors.origins, socket.handshake.secure)) {
         throw new SocketException('forbidden', 'origin not allowed');
@@ -268,6 +351,12 @@ export class SocketServer extends AsyncService {
   protected onConnection(socket: Socket): void {
     const handshake = this.handshakes.get(socket) ?? toHandshake(socket);
     this.handshakes.delete(socket);
+
+    // a recovered socket skipped the handshake middleware, and a handshake may have passed it just before shutdown began
+    if (this.closing) {
+      this.refuseConnected(socket, this.closing.toWire());
+      return;
+    }
 
     let connection: SocketConnection;
     try {

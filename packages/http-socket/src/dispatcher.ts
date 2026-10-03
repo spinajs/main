@@ -37,6 +37,20 @@ function unsentPackets(socket: Socket): number {
   return (socket.conn as unknown as { writeBuffer?: unknown[] }).writeBuffer?.length ?? 0;
 }
 
+/** True once every promise settled; false when `ms` passes first. */
+function within(work: Array<Promise<unknown>>, ms: number): Promise<boolean> {
+  if (work.length === 0) {
+    return Promise.resolve(true);
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+
+  return Promise.race([Promise.all(work).then(() => true), timeout]).finally(() => clearTimeout(timer));
+}
+
 @Injectable()
 export class SocketDispatcher extends AsyncService {
   @Logger('http-socket')
@@ -73,6 +87,17 @@ export class SocketDispatcher extends AsyncService {
   /** the socket of each runtime, which stream frames are written to */
   protected sockets = new WeakMap<IConnectionRuntime, Socket>();
   protected drainListeners = new WeakMap<Socket, Set<() => void>>();
+
+  /** From arrival to written reply, or to the end of its stream; the shutdown drain waits for them. */
+  protected replies = new Set<Promise<void>>();
+
+  /** Stage chains, which can outlive an aborted reply; an idempotency claim settles only when its chain does. */
+  protected chains = new Set<Promise<void>>();
+
+  protected hookRuns = new Set<Promise<void>>();
+
+  /** Set by shutdown: every new command is answered with it. */
+  protected refusal: SocketException | null = null;
 
   public async resolve(): Promise<void> {
     await super.resolve();
@@ -119,7 +144,10 @@ export class SocketDispatcher extends AsyncService {
     this.runtimes.delete(connection.id);
     this.abortRunning(runtime, new SocketException('unavailable', 'connection closed'));
     // a client that leaves while its connect hooks still run gets its disconnect hooks after them
-    void runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error(err, `Socket disconnect hooks of connection ${connection.id} failed`));
+    this.track(
+      this.hookRuns,
+      runtime.ready.then(() => this.runHooks(runtime, 'disconnect', reason)).catch((err: Error) => this.Log.error(err, `Socket disconnect hooks of connection ${connection.id} failed`)),
+    );
   }
 
   /** @internal Aborts every running command on every connection ( shutdown ). */
@@ -127,6 +155,30 @@ export class SocketDispatcher extends AsyncService {
     for (const runtime of this.runtimes.values()) {
       this.abortRunning(runtime, reason);
     }
+  }
+
+  /** @internal From now on every new command is answered with `refusal` ( shutdown ). */
+  public refuseNew(refusal: SocketException): void {
+    this.refusal = refusal;
+  }
+
+  /**
+   * @internal True once every command received so far has been answered, its stream ( if any ) has ended and its stage
+   * chain has settled, so its idempotency claim is recorded or released; false when `ms` passes first.
+   */
+  public drained(ms: number): Promise<boolean> {
+    return within([...this.replies, ...this.chains], ms);
+  }
+
+  /** @internal True once every disconnect hook started so far is done; false when `ms` passes first. */
+  public hooksDone(ms: number): Promise<boolean> {
+    return within([...this.hookRuns], ms);
+  }
+
+  protected track(set: Set<Promise<void>>, work: Promise<void>): void {
+    set.add(work);
+    const forget = () => set.delete(work);
+    work.then(forget, forget);
   }
 
   /** Runs one command through the stages and the handler; never rejects. */
@@ -141,7 +193,13 @@ export class SocketDispatcher extends AsyncService {
       // D14: stages, hydrators and the handler all see the principal ( AuthzService.current() once F4 lands )
       const chain = this.Als.run(ctx.storage, () => this.next(ctx, 0));
       // An abort answers at once; the chain keeps running ( and holds its in-flight slot ) until the handler settles.
-      chain.catch(() => undefined);
+      this.track(
+        this.chains,
+        chain.then(
+          () => undefined,
+          () => undefined,
+        ),
+      );
       const abort = aborted(ctx.signal);
       abort.catch(() => undefined);
 
@@ -214,6 +272,11 @@ export class SocketDispatcher extends AsyncService {
       return;
     }
 
+    if (this.refusal) {
+      this.refuse(reply, raw.id, raw.name, this.refusal);
+      return;
+    }
+
     if (runtime.running.has(raw.id)) {
       this.refuse(reply, raw.id, raw.name, limited ?? new SocketException('invalid_argument', 'request id already in flight'));
       return;
@@ -224,13 +287,15 @@ export class SocketDispatcher extends AsyncService {
       // answered by the rate stage, so the size stage still comes first ( spec §5.2 )
       ctx.rateRefusal = limited;
     }
-    void this.execute(ctx).then((answer) => {
-      this.send(reply, answer, raw.name);
-      // after the ack, so the client knows the id is a stream before its first chunk
-      if (ctx.stream) {
-        this.runStream(ctx, ctx.stream);
-      }
-    });
+    // a stream acks at once, so its run is tracked too: the shutdown drain must see open streams
+    this.track(
+      this.replies,
+      this.execute(ctx).then((answer) => {
+        this.send(reply, answer, raw.name);
+        // after the ack, so the client knows the id is a stream before its first chunk
+        return ctx.stream ? this.runStream(ctx, ctx.stream) : undefined;
+      }),
+    );
   }
 
   protected refuse(reply: (reply: CommandReply) => void, id: string, name: string | null, err: unknown): void {
@@ -550,18 +615,20 @@ export class SocketDispatcher extends AsyncService {
     return () => listeners.delete(listener);
   }
 
-  protected runStream(ctx: SocketCommandContext, stream: ServerStream): void {
+  /** Resolves when the stream sent its `end` or `fail` frame, not when its source settles: one that ignores its signal must not hold up a shutdown. */
+  protected runStream(ctx: SocketCommandContext, stream: ServerStream): Promise<void> {
     const runtime = ctx.runtime;
     const started = performance.now();
 
-    void stream.run().then((outcome) => {
+    const ended = stream.run().then((outcome) => {
       if (runtime.running.get(ctx.request.id) === ctx) {
         runtime.running.delete(ctx.request.id);
       }
       this.streamEnded(ctx, stream, outcome, performance.now() - started);
     });
-    // a source that ignores its signal still runs, so it keeps its slot until it settles
+    // after run(): settled waits for its outcome. A source that ignores its signal still runs, so it keeps its slot until it settles
     void stream.settled.then(() => runtime.streams--);
+    return ended;
   }
 
   protected streamEnded(ctx: SocketCommandContext, stream: ServerStream, outcome: StreamOutcome, ms: number): void {
