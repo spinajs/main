@@ -204,6 +204,24 @@ export enum USER_COMMON_METADATA {
 export const USER_SECURITY_METADATA_KEYS: string[] = [USER_COMMON_METADATA.USER_2FA_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, USER_COMMON_METADATA.USER_INVITE_PENDING, USER_COMMON_METADATA.USER_BAN_IS_BANNED, USER_COMMON_METADATA.USER_BAN_START_DATE, USER_COMMON_METADATA.USER_BAN_DURATION, USER_COMMON_METADATA.USER_BAN_REASON, USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
 
 /**
+ * Key prefixes of account security state (2FA secrets, reset and invite tokens, throttle and ban
+ * state). The generic metadata API neither writes nor shows a key under them (design A12).
+ */
+export const USER_RESERVED_METADATA_PREFIXES: readonly string[] = Object.freeze(['2fa:', 'user:2fa:', 'user:pwd_reset:', 'user:pwd:', 'user:login:', 'user:ban:', 'user:invite:']);
+
+/**
+ * Whether a metadata key falls under {@link USER_RESERVED_METADATA_PREFIXES}.
+ *
+ * The database compares keys by its collation, and MySQL's default one ignores case and
+ * width, so `2FA:Token` or `２fa:token` addresses the `2fa:token` row. The key is normalized
+ * the same way before the prefix check; refusing too much is safe, refusing too little is not.
+ */
+export function isReservedMetadataKey(key: string): boolean {
+  const normalized = String(key).normalize('NFKC').trim().toLowerCase();
+  return USER_RESERVED_METADATA_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+/**
  * Base model for users used by auth and ACL system
  *
  * To add / extend fields simply extend this model and register as default user model in ACL service
