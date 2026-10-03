@@ -312,6 +312,15 @@ describe('queue core - routing maxRetries', function () {
     expect(warn.calledOnce).to.be.true;
   });
 
+  it('warns once per message name across repeated lookups', async () => {
+    const client = (await q()).get('memory') as any;
+    const warn = sinon.stub(client.Log, 'warn');
+    for (let i = 0; i < 3; i++) {
+      expect(client.getMaxRetriesForMessage(RoutedBadJob)).to.be.undefined;
+    }
+    expect(warn.calledOnce).to.be.true;
+  });
+
   it('accepts maxRetries 0', async () => {
     const client = (await q()).get('memory') as any;
     const warn = sinon.stub(client.Log, 'warn');

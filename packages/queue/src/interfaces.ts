@@ -257,6 +257,8 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
   @Config('queue.routing')
   protected Routing: IQueueMessageRoutingOptions;
 
+  protected readonly WarnedInvalidMaxRetries = new Set<string>();
+
   public get Name(): string {
     return this.Options.name;
   }
@@ -351,7 +353,10 @@ export abstract class QueueClient extends AsyncService implements IInstanceCheck
 
     const value = declared.maxRetries;
     if (!Number.isInteger(value) || (value as number) < 0) {
-      this.Log.warn(`Routing for ${eName} has invalid maxRetries ${JSON.stringify(value)}, ignoring ( expected a non-negative integer )`);
+      if (!this.WarnedInvalidMaxRetries.has(eName)) {
+        this.WarnedInvalidMaxRetries.add(eName);
+        this.Log.warn(`Routing for ${eName} has invalid maxRetries ${JSON.stringify(value)}, ignoring ( expected a non-negative integer )`);
+      }
       return undefined;
     }
 
