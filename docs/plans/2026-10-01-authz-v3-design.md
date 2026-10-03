@@ -4,7 +4,8 @@ Date: 2026-10-01 (revision r2 the same day; revisions r3 and r4
 2026-10-02; r5 syncs the text with the code merged by F0b, F1a, F1 and
 F2). The r1 to r4 text was design only; r5 changes no decision, only
 names, shapes and locations that the merged code fixed. r6 (2026-10-02)
-does the same for what F3, F5, F6, F7 and F7b built and decided.
+does the same for what F3, F4 (host), F5, F6, F7 and F7b built
+and decided.
 
 - **Source of truth for code facts:** this checkout (`packages/*/package.json` say
   2.0.546; head `f1604f4`; canvas pins 2.0.548 with the same RBAC code paths).
@@ -27,7 +28,7 @@ does the same for what F3, F5, F6, F7 and F7b built and decided.
 ## Changes in this revision (r6, as built after F3–F7)
 
 The code on `feat/authz-v3` and the reports of F3 (engine, decisions 1–30
-of `F3-conventions.md`), F5 (authz test kit, D-F5-1 to D-F5-11), F6 (authn
+of `F3-conventions.md`), (r6, F4) F4 (host, `F4-report.md`), F5 (authz test kit, D-F5-1 to D-F5-11), F6 (authn
 contracts, `F6-final-review.md`), F7 and F7b (authn test kit, rules A01–A32,
 C8 tickets) are authoritative for everything below. r6 settles open
 points and fixes text; it adds no feature. Each item names the section it
@@ -92,6 +93,15 @@ changed.
     written only in a doc comment is frozen after G1 and changes only by
     RFC (D3 changed the snapshot tool to keep them). Open: a last-holder
     check on `deactivate`; B26 covers `AuthzAdmin` commands only (plan C2).
+17. **Host as built (§5.7, §6.6.1, §10.3, §13, §15.3; r6, F4).**
+    `AuthzDomains.service(name)` returns a `Promise`; `create`,
+    `container` and `names` stay synchronous instance methods (§15.3's
+    static call was an erratum). `authz()` is synchronous and throws until
+    the domain's service has booted. Each domain has its own `Authorizer`
+    and at most one `DecisionCache`, merges models level by level and
+    subscribes to the `ChangeBus` its container resolves; `AuthzDomains`
+    forwards no change. §15.3 lists the per-domain config keys. This
+    settles the first two r5 open items (r5 item 9).
 
 ## Changes in this revision (r5, as built after F1)
 
@@ -140,7 +150,9 @@ changed.
    and `service` are synchronous while `AuthzService` resolves
    asynchronously; §15.3 calls `AuthzDomains.create` as a static; the L2
    key omits delegation and authn facts; `DefaultAdminGuard` needs RBAC
-   data that its dependency list lacks. None is decided here.
+   data that its dependency list lacks. None is decided here. (r6, F4)
+   F4 settled the first two: `service` is async, and `create` is an
+   instance method (§5.7). (r6, F3) The L2 key is settled in §10.1.
 
 ## Changes in revision r4 (2026-10-02)
 
@@ -491,7 +503,7 @@ the install adds no package that authz does not already pull in.
 
 | Package | New? | Contents | Runtime deps |
 |---|---|---|---|
-| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per child container, F4, r5), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
+| `@spinajs/authz` | new | contracts (§5), `Authorizer` engine, combinators, `ResourceFilter` AST + simplifier + in-memory evaluator, condition language + compiler + named functions (`time.between`, `ip.in`, `glob`, `wildcard`) (D16), scope attributes + (r3) `ScopeAttributeStore` contract and schema registry, deny-reason ordering, field-glob matcher (replaces `notation`), permission registry, trace, L1/L2 caches, `AuthzService` (abstract DI token in the contracts; the host implements it per domain (root and `AuthzDomains.create` containers), F4, r5; r6, F4), `AuthzDomains` (abstract token likewise), ALS principal, `runAs`, re-exports of the principal contracts from `@spinajs/authn/contracts` (r4), config schema + loader + old-key detector, boot validator, in-process `ChangeBus`, (r3) `AuthzAdmin` + `AdminGuard` + `AuthzEventSink` (§6.6) | authn (`contracts` subpath only, r4), di, exceptions, configuration, log-common |
 | `@spinajs/authz-testing` | new (dev) | fake models (incl. `FakeTupleModel`), fake adapters and scope resolvers with attributes, model and adapter conformance suites, behaviour fixtures B01–B46, fast-check properties, bench harness, the canvas C6 conformance suite (vendored fixtures plus the two r3 cases, lane K1) | authz |
 | `@spinajs/authz-rbac` | new | RBAC model with ladders, implied roles, subject sets, tags, provenance and rules (`restrict`, `cap`, `threshold`); `ConfigRoleStore`, `ConfigRuleStore`, `DbRuleStore`, `DbAssignmentStore`, `DbLinkStore`, link principal factory; write handlers for `AuthzAdmin` (assignments, sets, tags, links, rules); migrations (`authz_assignment`, `authz_rule`, `authz_rule_subject`, `authz_link`, `authz_version`, `users.Role` copy, `users.Role` drop); `RbacOrmCompiler` (`native:rbac.assignment` with rules, §12.4), `covers()`, CLI `authz:assign/revoke/explain/check-config` | authz, authz-orm, orm, configuration |
 | `@spinajs/authz-abac` | new | ABAC model (uses the core condition compiler), `actorTypes`, `ConfigPolicyStore`, `DbPolicyStore`, policy write handler, migration `authz_policy`, `summarize` for the impersonation rule | authz, orm |
@@ -1056,8 +1068,8 @@ export abstract class RelationResolver {           // ownership and every other 
 
 (r5, F1) `AuthzService` and `AuthzDomains` are abstract DI tokens in
 `contracts/service.ts`; F4 implements them as `@Injectable` subclasses
-(`@PerChildInstance()` for the service) and adds `export const authz`,
-which sits outside the API snapshot unless added to its config.
+(`@PerChildInstance()` for the service) and adds `authz()`, which sits
+outside the API snapshot ((r6, F4) it stays out).
 
 ```ts
 export abstract class AuthzService extends AsyncService {   // the implementation is @PerChildInstance()
@@ -1078,15 +1090,16 @@ export abstract class AuthzService extends AsyncService {   // the implementatio
   preload(principal: Principal): Promise<void>;
   invalidate(tags: readonly string[]): void;
   models(): readonly AuthorizationModel[];
-  admin(): AuthzAdmin;                             // (r5) this domain's AuthzAdmin; AuthzDomains.service(name).admin() reaches a per-domain variant (§6.6.1)
+  admin(): AuthzAdmin;                             // (r5) this domain's AuthzAdmin; (r6, F4) (await AuthzDomains.service(name)).admin() reaches a per-domain variant (§6.6.1)
 }
 export type CheckInput = Omit<DecisionRequest, 'resource'> & { readonly resource?: ResourceRef | object };
-export const authz: (domain?: string) => AuthzService;   // F4, not in the F1 contracts
+export function authz(domain?: string): AuthzService;   // (r6, F4) default 'root'; host, not in the API snapshot; synchronous: the booted service, else throws AuthzConfigError
 
 export abstract class AuthzDomains {               // root singleton; abstract token (r5)
-  abstract create(name: string, parent?: string): IContainer;   // child of 'root' by default
+  abstract create(name: string, parent?: string): IContainer; // child of 'root' by default
   abstract container(name: string): IContainer;
-  abstract service(name: string): AuthzService;
+  // Async: a domain's models are registered after create(), and AuthzService is an AsyncService.
+  abstract service(name: string): Promise<AuthzService>;   // (r6, F4)
   abstract names(): readonly string[];
 }
 
@@ -1118,11 +1131,25 @@ export class Unauthenticated extends AuthenticationFailed {}                  //
 export class NeedsAsync extends Error {}           // filterNow could not answer synchronously
 ```
 
-Open for F4 or before G1 (F1 report): `AuthzDomains.service()` and
-`create()` are synchronous, while `AuthzService` resolves asynchronously.
-F4 must resolve the child service in `create()` and read it child-only, or
-the signatures turn async. §15.3 calls `AuthzDomains.create` as a static
-function, while this block declares an instance method.
+(r6, F4; settles the F1 open point) `service()` is async: a domain's
+models are registered on its container after `create()`, and
+`AuthzService` is an `AsyncService`. `create()`, `container()` and
+`names()` stay synchronous instance methods; resolve `AuthzDomains` from
+DI to call them. `create()` needs `Configuration` resolved first.
+Register a child's models before its first `service()` call; a booted
+domain does not see later registrations.
+
+- `authz(domain = 'root')` never resolves anything. It returns the
+  domain's booted service, or throws `AuthzConfigError` telling the caller
+  to await `DI.resolve(AuthzService)` or `AuthzDomains.service(name)`
+  first. Code outside a request injects or resolves `AuthzService` at boot.
+- Only the root container and containers made by `AuthzDomains.create`
+  are domains. Resolving `AuthzService` in any other child throws.
+- Each domain has one `Authorizer` and at most one `DecisionCache`. The default
+  `DecisionCache` is a root factory: each domain gets a fresh
+  `LruDecisionCache`. Boot fails when the resolved cache was already used
+  by an `Authorizer`. `authz.cache.maxEntries: 0` means no L2 and keeps
+  L1; `ttlSeconds: 0` turns off L1 as well.
 
 ### 5.8 Model-package store contracts (frozen with the core)
 
@@ -1596,7 +1623,7 @@ export interface AuthzAdminOptions {
   readonly dryRun?: boolean;                       // validate and guard, then roll back (admin UIs)
 }
 
-export abstract class AuthzAdmin {                 // root singleton; per-domain variants via AuthzDomains.service(name).admin()
+export abstract class AuthzAdmin {                 // root singleton; per-domain variants via (await AuthzDomains.service(name)).admin() (r6, F4)
   /** All commands in one transaction; the first failure rolls back the batch and is reported with its index. */
   abstract execute(actor: Principal, commands: readonly AuthzCommand[], opts?: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]>;
   // typed sugar over execute([one command])
@@ -2272,12 +2299,18 @@ authn, or dual ESM and CJS loading, would otherwise let a foreign
 also adds `scope:*`). Any other tag (`role:`, `policy:`, `rule:`, unknown)
 flushes the whole domain L2, because votes carry no tags. Host rule (F4):
 one `Authorizer` and one `DecisionCache` per domain; a rebuilt `Authorizer`
-gets a fresh cache.
+gets a fresh cache. (r6, F4) A cache instance an `Authorizer` has used is
+never adopted again (§5.7).
 
 Stores publish `AuthzChange { domain?, tags }` on the `ChangeBus` after
-commit. Every `AuthzService` in every domain subscribes (via `AuthzDomains`)
-and calls `invalidate(tags)` on its L2 and its models (B27). The
-queue-backed bus (authz-queue) carries changes to other nodes.
+commit. (r6, F4) Every `AuthzService` in every domain subscribes to the
+`ChangeBus` its container resolves and calls `invalidate(tags)` on its L2
+and its models (B27). `AuthzDomains` forwards nothing. A change with
+domain `d` reaches `d` and its descendants; one without a domain reaches
+all. A domain buffers the changes that arrive during its boot and applies
+them once it ends. A domain that registers its own bus does not hear the
+root bus. The queue-backed bus (authz-queue) carries changes to other
+nodes; one registered in root reaches every domain.
 
 ---
 
@@ -2561,8 +2594,9 @@ these changes:
   fsNative`, `http/src/route-args/FromForm.ts:115`, and `Options.basePath`,
   `http/src/response-methods/file.ts:94`).
 - Each filesystem may name a domain: `authz.fs.uploads.domain: 'fs'`. The
-  authz-fs bootstrap creates it with `AuthzDomains.create('fs')` and registers
-  there `FsInheritModel` (name `fs-inherit`: permits `fs:<op>` on a file when
+  authz-fs bootstrap creates it with `create('fs')` on the resolved
+  `AuthzDomains` and registers there, (r6, F4) before the first
+  `service('fs')` call, `FsInheritModel` (name `fs-inherit`: permits `fs:<op>` on a file when
   `ctx.check(principal, '<parent type>:<mapped op>', parent)` permits for the
   domain parent from `FsPathResolver`) and, if configured, an ABAC model with
   fs-only policies (`authz.fs.policies`, model name `fs-abac`). Root never
@@ -2741,12 +2775,25 @@ registered as arrow functions with `register(fn).as(name)` (e.g.
   from `resolveChain(ResourceAdapter)`, relations, native filters and
   combinators likewise. A model listed in `authz.domains.<name>.disable` is
   dropped.
+- (r6, F4) Model merge, level by level, root first: drop the level's
+  `disable` names, then add its own models. A model with an ancestor's
+  `name` replaces it in place; two models with one name in one level go
+  to `validateBoot` (rule 2). `disable` is cumulative; a name that no
+  ancestor registers logs a warning. `validateBoot` runs per domain on the
+  merged list. A model's `init` runs once per instance; the host records
+  what it registered and replays it in every other domain that lists the
+  model. The last domain that lists a model disposes it.
 - `AuthzDomains` (root singleton) creates named children, keeps
-  `name → container`, resolves their `AuthzService`, forwards `AuthzChange`
-  to all of them, and disposes them with the root.
+  `name → container`, resolves their `AuthzService` ((r6, F4) async), and
+  disposes them with the root. (r6, F4) It forwards no `AuthzChange`: each
+  domain subscribes to the `ChangeBus` its container resolves (§10.3).
 - Config per domain: `authz.domains.<name>.combine` overrides
   `authz.combine`; model sections stay under `authz.<model>.*` unless the
-  domain's owner passes a different path to its model.
+  domain's owner passes a different path to its model. (r6, F4)
+  `authz.domains.<name>.*` also overrides `engine`, `fields`, `cache` and
+  `audit`, adds to `permissions`, and drops models by `disable`. A domain
+  inherits its parent's values. `bus` and `principals` come from the root
+  only.
 - Examples:
   - **fs:** §13 (`fs-inherit`, `fs-abac` in domain `fs`).
   - **canvas (r2):** no child domain and no canvas model are needed; canvas
@@ -2755,8 +2802,9 @@ registered as arrow functions with `register(fn).as(name)` (e.g.
     `@Access('file:edit', { resource: fromParam('id', 'file') })`. A child
     domain stays possible if canvas wants its rules isolated from instance
     roles later.
-  - **tests:** `const c = AuthzDomains.create('test'); c.register(FakeModel).as(AuthorizationModel)`;
-    dispose after the test; nothing leaks into root.
+  - **tests:** (r6, F4) `await DI.resolve(Configuration); const domains = await DI.resolve(AuthzDomains); const c = domains.create('test'); c.register(FakeModel).as(AuthorizationModel); const svc = await domains.service('test');`
+    (register before the first `service()` call); dispose after the test;
+    nothing leaks into root.
   - **tenants:** possible (one domain per tenant) but not built; per-org
     roles and policies already cover the known cases (§6.1.3, `authz_policy.scope_*`).
 
