@@ -22,6 +22,10 @@ export const PERMISSIONS: Record<string, { types?: string[] }> = {
   'app:members.manage': { types: ['project', 'doc'] },
   'app:project.share': { types: ['project', 'doc'] },
   'app:any.share': { types: ['project', 'doc'] },
+  'authz:assignments.read': { types: ['project', 'doc'] },
+  'authz:links.read': { types: ['project', 'doc'] },
+  'authz:policies.read': { types: ['project', 'doc'] },
+  'app:grants.read': { types: ['project', 'doc'] },
 };
 
 export interface Row {
@@ -54,6 +58,8 @@ async function storeOf(ctx: AdminContext): Promise<FakeStore> {
 type Grant = Extract<AuthzCommand, { kind: 'assignment.grant' }>;
 type LinkCreate = Extract<AuthzCommand, { kind: 'link.create' }>;
 type Revoke = Extract<AuthzCommand, { kind: 'assignment.revoke' }>;
+
+type Applied = Awaited<ReturnType<AuthzWriteHandler['apply']>>;
 
 const FORGED = { domain: 'forged', actor: { type: 'user', id: 'forged' }, at: new Date(1) };
 
@@ -99,7 +105,7 @@ export class FakeAssignmentHandler extends AuthzWriteHandler {
       const row: Row = { id, subject: { type: 'link', id }, role: c.role, scope: c.scope };
       s.rows.set(id, row);
       undo.onRollback(() => s.rows.delete(id));
-      return { id, token: `tok-${id}`, affected: 1, tags: [`link:${id}`], events: [{ ...FORGED, type: 'LinkCreated', data: { id, scope: c.scope, token: `tok-${id}` } }] };
+      return { id, token: `tok-${id}`, affected: 1, tags: [`link:${id}`], events: [{ ...FORGED, type: 'LinkCreated', data: { id, scope: c.scope, token: `tok-${id}` } }], row: { id, scope: c.scope, attributes: {}, createdBy: { type: 'user', id: 'x' } } } as Applied;
     }
     const g = c as Grant;
     if (g.role === 'boom') throw new Error('driver exploded');
@@ -108,7 +114,7 @@ export class FakeAssignmentHandler extends AuthzWriteHandler {
     const row: Row = { id, subject: g.subject as PrincipalRef, role: g.role, scope: g.scope };
     s.rows.set(id, row);
     undo.onRollback(() => s.rows.delete(id));
-    return { id, affected: 1, tags: [`subject:${principalKey(row.subject)}`, `role:${g.role}`], events: [{ ...FORGED, type: 'RoleAssigned', data: { id, role: g.role, scope: g.scope } }] };
+    return { id, affected: 1, tags: [`subject:${principalKey(row.subject)}`, `role:${g.role}`], events: [{ ...FORGED, type: 'RoleAssigned', data: { id, role: g.role, scope: g.scope } }], row: { id, subject: row.subject, role: g.role, scope: g.scope, source: 'fake' } } as Applied;
   }
 }
 

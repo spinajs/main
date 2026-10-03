@@ -2,13 +2,15 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AuthzConfigError, MemoryAuthzAdminBackend, memoryTx } from '@spinajs/authz';
-import type { AuthzCommandResult, AuthzTx } from '@spinajs/authz';
+import type { AuthzCommandResult, AuthzTx, RememberedBatch } from '@spinajs/authz';
 
 const expect = chai.expect;
 
 const T0 = new Date('2026-10-03T00:00:00.000Z');
 const later = (ms: number) => new Date(T0.getTime() + ms);
 const RESULTS: readonly AuthzCommandResult[] = [{ ok: true, kind: 'assignment.grant', id: 'a1', affected: 1 }];
+const BATCH: RememberedBatch = { results: RESULTS, rows: [{ id: 'a1' }] };
+const EMPTY: RememberedBatch = { results: [], rows: [] };
 
 async function rejection(p: Promise<unknown>): Promise<Error> {
   try {
@@ -99,11 +101,11 @@ describe('MemoryAuthzAdminBackend', () => {
 
   it('remembers results by domain, actor and key until they expire', async () => {
     const b = new MemoryAuthzAdminBackend();
-    const stored = await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', RESULTS, later(1000), tx));
+    const stored = await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', BATCH, later(1000), tx));
     expect(stored).to.equal('stored');
     const got = await b.recall('d', 'user:alice', 'k', later(999));
-    expect(got).to.deep.equal(RESULTS);
-    expect(got).to.not.equal(RESULTS);
+    expect(got).to.deep.equal(BATCH);
+    expect(got?.results).to.not.equal(RESULTS);
     expect(await b.recall('d', 'user:bob', 'k', T0)).to.equal(undefined);
     expect(await b.recall('e', 'user:alice', 'k', T0)).to.equal(undefined);
     expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.equal(undefined);
@@ -111,18 +113,18 @@ describe('MemoryAuthzAdminBackend', () => {
 
   it('answers exists for a stored key, and stores again once a recall found it expired', async () => {
     const b = new MemoryAuthzAdminBackend();
-    await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', RESULTS, later(1000), tx));
-    expect(await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', [], later(2000), tx))).to.equal('exists');
+    await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', BATCH, later(1000), tx));
+    expect(await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', EMPTY, later(2000), tx))).to.equal('exists');
     expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.equal(undefined);
-    expect(await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', [], later(5000), tx))).to.equal('stored');
-    expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.deep.equal([]);
+    expect(await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', EMPTY, later(5000), tx))).to.equal('stored');
+    expect(await b.recall('d', 'user:alice', 'k', later(1000))).to.deep.equal(EMPTY);
   });
 
   it('drops a remembered entry when its transaction rolls back', async () => {
     const b = new MemoryAuthzAdminBackend();
     await rejection(
       b.transaction('d', async (tx) => {
-        await b.remember('d', 'user:alice', 'k', RESULTS, later(1000), tx);
+        await b.remember('d', 'user:alice', 'k', BATCH, later(1000), tx);
         throw new Error('no');
       }),
     );
@@ -132,8 +134,10 @@ describe('MemoryAuthzAdminBackend', () => {
   it('keeps a copy: changing the caller’s results changes nothing stored', async () => {
     const b = new MemoryAuthzAdminBackend();
     const mine = [{ ok: true, kind: 'assignment.grant', id: 'a1', affected: 1 }] as AuthzCommandResult[];
-    await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', mine, later(1000), tx));
+    const row = { id: 'a1' };
+    await b.transaction('d', (tx) => b.remember('d', 'user:alice', 'k', { results: mine, rows: [row] }, later(1000), tx));
     (mine[0] as { affected: number }).affected = 99;
-    expect(await b.recall('d', 'user:alice', 'k', T0)).to.deep.equal(RESULTS);
+    row.id = 'changed';
+    expect(await b.recall('d', 'user:alice', 'k', T0)).to.deep.equal(BATCH);
   });
 });

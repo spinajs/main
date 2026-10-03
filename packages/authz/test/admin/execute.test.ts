@@ -316,8 +316,8 @@ describe('DefaultAuthzAdmin.execute', function () {
       const first = await d.admin.execute(alice, [link], { idempotencyKey: 'k-link' });
       expect(first).to.deep.equal([{ ok: true, kind: 'link.create', id: 'a1', token: 'tok-a1', affected: 1 }]);
       const stored = await d.backend.recall('test', 'user:alice', 'k-link', d.clock.now());
-      expect(stored).to.deep.equal([{ ok: true, kind: 'link.create', id: 'a1', affected: 1 }]);
-      expect(await d.admin.execute(alice, [link], { idempotencyKey: 'k-link' })).to.deep.equal(stored);
+      expect(stored?.results).to.deep.equal([{ ok: true, kind: 'link.create', id: 'a1', affected: 1 }]);
+      expect(await d.admin.execute(alice, [link], { idempotencyKey: 'k-link' })).to.deep.equal(stored?.results);
     });
 
     it('stores nothing for a dry run or a failed batch', async () => {

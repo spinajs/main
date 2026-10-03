@@ -4,16 +4,22 @@ import type { AuthzCommandResult, AuthzTx } from '../contracts/admin.js';
 import { AuthzConfigError } from '../contracts/errors.js';
 import { engineLog } from '../host/log.js';
 
+/** What a committed batch leaves under its idempotency key; rows[i] is the row command i wrote (for the sugar methods), or null. */
+export interface RememberedBatch {
+  readonly results: readonly AuthzCommandResult[];
+  readonly rows: readonly unknown[];
+}
+
 /** Where AuthzAdmin runs a batch: one transaction, the domain's version and the idempotency store. */
 export abstract class AuthzAdminBackend {
   /** Commits when fn resolves, rolls back when it rejects (the rejection propagates). */
   abstract transaction<T>(domain: string, fn: (tx: AuthzTx) => Promise<T>): Promise<T>;
   /** Inside fn: bump authz_version(domain). */
   abstract bumpVersion(domain: string, tx: AuthzTx): Promise<void>;
-  /** Results a committed batch stored under (domain, actorKey, key), unless older than their expiry. */
-  abstract recall(domain: string, actorKey: string, key: string, now: Date): Promise<readonly AuthzCommandResult[] | undefined>;
-  /** Inside fn: store them; 'exists' when another batch stored the key first (the caller rolls back and recalls). */
-  abstract remember(domain: string, actorKey: string, key: string, results: readonly AuthzCommandResult[], expiresAt: Date, tx: AuthzTx): Promise<'stored' | 'exists'>;
+  /** What a committed batch stored under (domain, actorKey, key), unless older than its expiry. */
+  abstract recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined>;
+  /** Inside fn: store it; 'exists' when another batch stored the key first (the caller rolls back and recalls). */
+  abstract remember(domain: string, actorKey: string, key: string, batch: RememberedBatch, expiresAt: Date, tx: AuthzTx): Promise<'stored' | 'exists'>;
 }
 
 /** The `driver` of a memory transaction; memory stores register how to undo each write. */
@@ -40,13 +46,16 @@ export function memoryTx(tx: AuthzTx): MemoryTx {
 }
 
 interface Remembered {
-  readonly results: readonly AuthzCommandResult[];
+  readonly batch: RememberedBatch;
   readonly expiresAt: number;
 }
 
 const copy = <T>(v: T): T => structuredClone(v);
 
-/** Transactions run one at a time; a rollback undoes the writes in reverse order. */
+/**
+ * Transactions run one at a time; a rollback undoes the writes in reverse order.
+ * Memory stores write in place, so a reader outside the batch sees its writes before it commits or rolls back.
+ */
 @Singleton()
 @Injectable(AuthzAdminBackend)
 export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
@@ -74,7 +83,7 @@ export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
     return this.versions.get(domain) ?? 0;
   }
 
-  async recall(domain: string, actorKey: string, key: string, now: Date): Promise<readonly AuthzCommandResult[] | undefined> {
+  async recall(domain: string, actorKey: string, key: string, now: Date): Promise<RememberedBatch | undefined> {
     const id = entryKey(domain, actorKey, key);
     const entry = this.remembered.get(id);
     if (!entry) return undefined;
@@ -82,15 +91,15 @@ export class MemoryAuthzAdminBackend extends AuthzAdminBackend {
       this.remembered.delete(id);
       return undefined;
     }
-    return copy(entry.results);
+    return copy(entry.batch);
   }
 
-  async remember(domain: string, actorKey: string, key: string, results: readonly AuthzCommandResult[], expiresAt: Date, tx: AuthzTx): Promise<'stored' | 'exists'> {
+  async remember(domain: string, actorKey: string, key: string, batch: RememberedBatch, expiresAt: Date, tx: AuthzTx): Promise<'stored' | 'exists'> {
     const undo = memoryTx(tx);
     const id = entryKey(domain, actorKey, key);
     // remember() has no clock: recall() drops an entry once it expires, and AuthzAdmin recalls before it remembers.
     if (this.remembered.has(id)) return 'exists';
-    this.remembered.set(id, { results: copy(results), expiresAt: expiresAt.getTime() });
+    this.remembered.set(id, { batch: copy(batch), expiresAt: expiresAt.getTime() });
     undo.onRollback(() => this.remembered.delete(id));
     return 'stored';
   }

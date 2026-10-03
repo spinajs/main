@@ -9,7 +9,7 @@ import { AuthzConfigError } from '../contracts/errors.js';
 import type { Permission } from '../contracts/permission.js';
 import { SYSTEM, principalKey } from '../contracts/principal.js';
 import type { Principal, PrincipalRef, ResourceRef } from '../contracts/principal.js';
-import { resourceKey } from '../contracts/resource.js';
+import { GLOBAL, resourceKey } from '../contracts/resource.js';
 import { AuthzDomains, AuthzService, ChangeBus, DecisionAudit } from '../contracts/service.js';
 import { readDomainConfig } from '../host/config/domain-config.js';
 import { AuthzClock } from '../host/clock.js';
@@ -19,13 +19,14 @@ import { AuthzAdminBackend } from './backend.js';
 import { mapPermission, readAdminConfig } from './config.js';
 import type { AdminConfig } from './config.js';
 import type { AdminCallContext } from './context.js';
+import { AuthzAdminReader } from './ports.js';
 // The default AuthzEventSink registration.
 import './sink.js';
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const SECRET_KEY = /token|secret|password/i;
 
-type Applied = { readonly id?: string; readonly token?: string; readonly affected: number; readonly tags: readonly string[]; readonly events: readonly AuthzEvent[] };
+type Applied = { readonly id?: string; readonly token?: string; readonly affected: number; readonly tags: readonly string[]; readonly events: readonly AuthzEvent[]; readonly row?: unknown };
 type Checked = { readonly handler: AuthzWriteHandler; readonly permission: Permission; readonly resource: ResourceRef };
 type OkResult = Extract<AuthzCommandResult, { ok: true }>;
 
@@ -56,7 +57,7 @@ const kindOf = (c: unknown): AuthzCommand['kind'] => (isObject(c) && typeof c.ki
 const refOf = (p: Principal): PrincipalRef => Object.freeze({ type: p.type, id: p.id });
 
 /** A deep copy without keys that look like secrets; a link token never reaches events, audit or the idempotency store. */
-export function redact<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
+function redact<T>(value: T, seen: WeakSet<object> = new WeakSet()): T {
   if (value instanceof Date) return new Date(value.getTime()) as T;
   if (!isObject(value)) return value;
   if (seen.has(value)) return '[circular]' as T;
@@ -100,29 +101,141 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   }
 
   async execute(actor: Principal, commands: readonly AuthzCommand[], opts?: AuthzAdminOptions): Promise<readonly AuthzCommandResult[]> {
-    const env = await this.env();
-    if (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string') throw new AuthzConfigError(`${env.where}: AuthzAdmin.execute needs a principal as the actor, got ${q(actor)}`);
-    if (!Array.isArray(commands)) throw new AuthzAdminFailure('invalid_batch', 'commands must be an array');
-    if (commands.length > env.cfg.maxBatch) throw new AuthzAdminFailure('invalid_batch', `a batch holds at most ${env.cfg.maxBatch} commands (authz.admin.maxBatch), got ${commands.length}`);
-    const options = readOptions(opts);
-    if (commands.length === 0) return [];
-    const list: readonly AuthzCommand[] = [...commands];
+    return (await this.run(actor, commands, opts, 'execute')).results;
+  }
 
-    const now = env.clock.now();
-    const ctx: AdminCallContext = Object.freeze({
+  async assign(actor: Principal, a: Omit<Extract<AuthzCommand, { kind: 'assignment.grant' }>, 'kind'>, opts?: AuthzAdminOptions): Promise<Assignment> {
+    const { row } = await this.one(actor, { ...a, kind: 'assignment.grant' }, opts);
+    if (!isObject(row) || typeof row.id !== 'string') throw new AuthzConfigError('AuthzAdmin.assign: the handler of "assignment.grant" returned no Assignment row');
+    return row as unknown as Assignment;
+  }
+
+  async revoke(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'assignment.revoke', id }, opts);
+  }
+
+  async createLink(actor: Principal, l: Omit<Extract<AuthzCommand, { kind: 'link.create' }>, 'kind'>, opts?: AuthzAdminOptions): Promise<{ link: LinkDef; token: string }> {
+    const { result, row, replayed, dryRun } = await this.one(actor, { ...l, kind: 'link.create' }, opts);
+    if (!isObject(row) || typeof row.id !== 'string') throw new AuthzConfigError('AuthzAdmin.createLink: the handler of "link.create" returned no LinkDef row');
+    const link = row as unknown as LinkDef;
+    // A dry run never had a token worth showing: the link was rolled back.
+    if (dryRun) return { link, token: '' };
+    if (replayed) throw new AuthzAdminFailure('conflict', 'the link token is shown once; this idempotency key already created the link', 'idempotencyKey');
+    if (typeof result.token !== 'string') throw new AuthzConfigError('AuthzAdmin.createLink: the handler of "link.create" returned no token');
+    return { link, token: result.token };
+  }
+
+  async revokeLink(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'link.revoke', id }, opts);
+  }
+
+  async setTags(actor: Principal, assignmentId: string, tags: readonly string[], opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'assignment.setTags', id: assignmentId, tags }, opts);
+  }
+
+  async putRule(actor: Principal, rule: Omit<RuleDef, 'source'>, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'rule.put', rule }, opts);
+  }
+
+  async deleteRule(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'rule.delete', id }, opts);
+  }
+
+  async putPolicy(actor: Principal, policy: Omit<Policy, 'source'>, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'policy.put', policy }, opts);
+  }
+
+  async deletePolicy(actor: Principal, id: string, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'policy.delete', id }, opts);
+  }
+
+  async setScopeAttributes(actor: Principal, scope: ResourceRef, patch: Readonly<Record<string, unknown>>, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'scope.setAttributes', scope, patch }, opts);
+  }
+
+  async forgetScope(actor: Principal, scope: ResourceRef, opts?: AuthzAdminOptions): Promise<void> {
+    await this.one(actor, { kind: 'scope.forget', scope }, opts);
+  }
+
+  async list(actor: Principal, query: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }> {
+    const env = await this.env();
+    assertActor(actor, env.where, 'list');
+    const qn = readQuery(query);
+    const ctx = this.context(env, actor, env.clock.now(), undefined, false);
+    const resource = qn.scope ?? GLOBAL;
+    const permission = mapPermission(env.cfg.permissions, `list.${qn.kind}`, resource.type, `authz:${qn.kind}.read`);
+    await this.permit(env, actor, permission, resource);
+
+    const readers = new Map<string, AuthzAdminReader>();
+    for (const r of await this.chain(AuthzAdminReader)) {
+      if (!isObject(r) || !Array.isArray(r.kinds) || typeof r.list !== 'function') throw new AuthzConfigError(`${env.where}: ${className(r)} is not an AuthzAdminReader (kinds, list)`);
+      for (const kind of r.kinds) {
+        const other = readers.get(kind);
+        if (other !== undefined && other !== r) throw new AuthzConfigError(`${env.where}: two AuthzAdminReaders claim query kind ${q(kind)}: ${className(other)} and ${className(r)}`);
+        readers.set(kind, r);
+      }
+    }
+    const reader = readers.get(qn.kind);
+    if (!reader) throw new AuthzAdminFailure('not_found', `no AuthzAdminReader answers query kind ${q(qn.kind)}`, 'kind');
+    const out: unknown = await reader.list(qn, ctx);
+    if (!isObject(out) || !Array.isArray(out.items) || typeof out.total !== 'number') throw new AuthzConfigError(`${env.where}: ${className(reader)}.list() must return { items, total }, got ${q(out)}`);
+    return { items: out.items as unknown[], total: out.total };
+  }
+
+  /** One command through run(); a failed result throws its error. */
+  private async one(actor: Principal, command: AuthzCommand, opts: AuthzAdminOptions | undefined): Promise<{ result: OkResult; row: unknown; replayed: boolean; dryRun: boolean }> {
+    const out = await this.run(actor, [command], opts, command.kind);
+    const r = out.results[0];
+    if (!r) throw new AuthzConfigError(`AuthzAdmin: ${q(command.kind)} produced no result`);
+    if (!r.ok) throw new AuthzAdminFailure(r.error.code, r.error.message, r.error.field);
+    return { result: r, row: out.rows[0] ?? undefined, replayed: out.replayed, dryRun: out.dryRun };
+  }
+
+  private context(env: Env, actor: Principal, now: Date, reason: string | undefined, dryRun: boolean): AdminCallContext {
+    return Object.freeze({
       domain: env.domain,
       now,
       authz: env.service,
-      ...(options.reason === undefined ? {} : { reason: options.reason }),
+      ...(reason === undefined ? {} : { reason }),
       actor,
       container: this.container,
-      dryRun: options.dryRun,
+      dryRun,
     });
+  }
+
+  /** Allowed and unconditional, else forbidden; a command or a read has no row to evaluate a residual against. */
+  private async permit(env: Env, actor: Principal, permission: Permission, resource: ResourceRef): Promise<void> {
+    const d = await env.service.check({ principal: actor, permission, resource });
+    if (!d.allowed || d.residual?.op !== 'true') {
+      const why = d.allowed ? 'only conditionally' : d.reason?.code ?? 'denied';
+      throw new AuthzAdminFailure('forbidden', `${principalKey(actor)} may not ${permission} on ${resourceKey(resource)} (${why})`);
+    }
+  }
+
+  private async run(actor: Principal, commands: readonly AuthzCommand[], opts: AuthzAdminOptions | undefined, what: string): Promise<{ results: readonly AuthzCommandResult[]; rows: readonly unknown[]; replayed: boolean; dryRun: boolean }> {
+    const env = await this.env();
+    assertActor(actor, env.where, what);
+    if (!Array.isArray(commands)) throw new AuthzAdminFailure('invalid_batch', 'commands must be an array');
+    if (commands.length > env.cfg.maxBatch) throw new AuthzAdminFailure('invalid_batch', `a batch holds at most ${env.cfg.maxBatch} commands (authz.admin.maxBatch), got ${commands.length}`);
+    const options = readOptions(opts);
+    const none = { rows: [], replayed: false, dryRun: options.dryRun };
+    if (commands.length === 0) return { results: [], ...none };
+    // One frozen copy: the command checked is the command applied, audited and evented.
+    const list: readonly AuthzCommand[] = commands.map((c, i) => {
+      try {
+        return deepFreeze(structuredClone(c));
+      } catch (e) {
+        throw new AuthzAdminFailure('invalid_batch', `command ${i} is not plain data: ${describeError(e)}`, String(i));
+      }
+    });
+
+    const now = env.clock.now();
+    const ctx = this.context(env, actor, now, options.reason, options.dryRun);
     const actorKey = principalKey(actor);
     const key = options.dryRun ? undefined : options.idempotencyKey;
     if (key !== undefined) {
       const stored = await env.backend.recall(env.domain, actorKey, key, now);
-      if (stored !== undefined) return structuredClone(stored);
+      if (stored !== undefined) return { results: structuredClone(stored.results), rows: structuredClone(stored.rows), replayed: true, dryRun: false };
     }
 
     // Phase A, outside the transaction: validate, app validators, permission check.
@@ -133,7 +246,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       try {
         checked.push(await this.check(env, handlers, validators, actor, c, ctx));
       } catch (e) {
-        if (e instanceof AuthzAdminFailure) return failedAt(list, i, e);
+        if (e instanceof AuthzAdminFailure) return { results: failedAt(list, i, e), ...none };
         throw e;
       }
     }
@@ -158,7 +271,8 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
         }
         await env.backend.bumpVersion(env.domain, tx);
         const results = applied.map((a, i) => okResult(list[i].kind, a));
-        if (key !== undefined && (await env.backend.remember(env.domain, actorKey, key, results.map(withoutToken), new Date(now.getTime() + IDEMPOTENCY_TTL_MS), tx)) === 'exists') {
+        const rows = applied.map((a) => (a.row === undefined ? null : redact(a.row)));
+        if (key !== undefined && (await env.backend.remember(env.domain, actorKey, key, { results: results.map(withoutToken), rows }, new Date(now.getTime() + IDEMPOTENCY_TTL_MS), tx)) === 'exists') {
           state.raced = true;
           throw rollback;
         }
@@ -167,66 +281,22 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
         if (options.dryRun) throw rollback;
       });
     } catch (e) {
-      if (e !== rollback) throw e;
+      // A backend may wrap the rejection of fn.
+      if (e !== rollback && !(isObject(e) && (e as { cause?: unknown }).cause === rollback)) throw e;
     }
 
-    if (state.failure) return failedAt(list, state.failure.index, state.failure.error);
+    if (state.failure) return { results: failedAt(list, state.failure.index, state.failure.error), ...none };
     if (state.raced) {
       const stored = await env.backend.recall(env.domain, actorKey, key!, now);
       if (stored === undefined) throw new AuthzConfigError(`${env.where}: idempotency key ${q(key)} was taken by another batch whose results the backend no longer holds`);
-      return structuredClone(stored);
+      return { results: structuredClone(stored.results), rows: structuredClone(stored.rows), replayed: true, dryRun: false };
     }
-    const results = state.results!;
-    if (!options.dryRun) await this.afterCommit(env, actor, list, checked, state.applied!, ctx);
-    return results;
-  }
-
-  assign(_actor: Principal, _a: Omit<Extract<AuthzCommand, { kind: 'assignment.grant' }>, 'kind'>, _opts?: AuthzAdminOptions): Promise<Assignment> {
-    return notYet();
-  }
-
-  revoke(_actor: Principal, _id: string, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  createLink(_actor: Principal, _l: Omit<Extract<AuthzCommand, { kind: 'link.create' }>, 'kind'>, _opts?: AuthzAdminOptions): Promise<{ link: LinkDef; token: string }> {
-    return notYet();
-  }
-
-  revokeLink(_actor: Principal, _id: string, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  setTags(_actor: Principal, _assignmentId: string, _tags: readonly string[], _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  putRule(_actor: Principal, _rule: Omit<RuleDef, 'source'>, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  deleteRule(_actor: Principal, _id: string, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  putPolicy(_actor: Principal, _policy: Omit<Policy, 'source'>, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  deletePolicy(_actor: Principal, _id: string, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  setScopeAttributes(_actor: Principal, _scope: ResourceRef, _patch: Readonly<Record<string, unknown>>, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  forgetScope(_actor: Principal, _scope: ResourceRef, _opts?: AuthzAdminOptions): Promise<void> {
-    return notYet();
-  }
-
-  list(_actor: Principal, _q: AuthzAdminQuery): Promise<{ items: readonly unknown[]; total: number }> {
-    return notYet();
+    if (!state.results || !state.applied) throw new AuthzConfigError(`${env.where}: ${className(env.backend)}.transaction() ended without running the batch`);
+    const applied = state.applied;
+    const rows = applied.map((a) => a.row);
+    if (options.dryRun) return { results: state.results.map(withoutToken), rows, replayed: false, dryRun: true };
+    await this.afterCommit(env, actor, list, checked, applied, ctx);
+    return { results: state.results, rows, replayed: false, dryRun: false };
   }
 
   private async check(env: Env, handlers: ReadonlyMap<string, AuthzWriteHandler>, validators: readonly AuthzCommandValidator[], actor: Principal, c: AuthzCommand, ctx: AdminCallContext): Promise<Checked> {
@@ -241,12 +311,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     }
     const resource = wanted.resource as unknown as ResourceRef;
     const permission = mapPermission(env.cfg.permissions, kind, resource.type, wanted.permission);
-    const d = await env.service.check({ principal: actor, permission, resource });
-    // A conditional allow is a refusal: a command has no row to evaluate the residual against.
-    if (!d.allowed || d.residual?.op !== 'true') {
-      const why = d.allowed ? 'only conditionally' : d.reason?.code ?? 'denied';
-      throw new AuthzAdminFailure('forbidden', `${principalKey(actor)} may not ${permission} on ${resourceKey(resource)} (${why})`);
-    }
+    await this.permit(env, actor, permission, resource);
     return { handler, permission, resource };
   }
 
@@ -264,7 +329,12 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       }
     }
 
-    const events = deepFreeze(applied.flatMap((a) => a.events).map((e): AuthzEvent => ({ type: e.type, domain: env.domain, actor: { ...actorRef }, at: new Date(ctx.now.getTime()), data: redact(e.data) })));
+    let events: readonly AuthzEvent[] = [];
+    try {
+      events = deepFreeze(applied.flatMap((a) => a.events).map((e): AuthzEvent => ({ type: e.type, domain: env.domain, actor: { ...actorRef }, at: new Date(ctx.now.getTime()), data: redact(e.data) })));
+    } catch (e) {
+      fail('preparing the AuthzEvents')(e);
+    }
     if (events.length > 0) {
       let sinks: AuthzEventSink[] = [];
       try {
@@ -362,10 +432,6 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
   }
 }
 
-function notYet(): Promise<never> {
-  return Promise.reject(new Error('not implemented yet (L9 task 2)'));
-}
-
 function readOptions(opts: unknown): { readonly reason?: string; readonly idempotencyKey?: string; readonly dryRun: boolean } {
   if (opts === undefined || opts === null) return { dryRun: false };
   if (!isObject(opts)) throw new AuthzAdminFailure('invalid_batch', `options must be an object, got ${q(opts)}`);
@@ -390,7 +456,43 @@ function appliedOf(out: unknown, kind: string, where: string): Applied {
   if (!Array.isArray(out.events) || !out.events.every((e) => isObject(e) && typeof e.type === 'string' && isObject(e.data))) bad('events without a type and a data object');
   if (out.id !== undefined && typeof out.id !== 'string') bad(`id ${q(out.id)}`);
   if (out.token !== undefined && typeof out.token !== 'string') bad('a token that is not a string');
+  if (out.row !== undefined && !isObject(out.row)) bad(`row ${q(out.row)}`);
   return out as unknown as Applied;
+}
+
+function assertActor(actor: unknown, where: string, what: string): asserts actor is Principal {
+  if (!isObject(actor) || typeof actor.type !== 'string' || typeof actor.id !== 'string') throw new AuthzConfigError(`${where}: AuthzAdmin.${what} needs a principal as the actor, got ${q(actor)}`);
+}
+
+const DEFAULT_PAGE = Object.freeze({ limit: 50, offset: 0 });
+const MAX_LIMIT = 500;
+
+/** A copy of the query with its page normalised; malformed input is an AuthzAdminFailure('invalid_query'). */
+function readQuery(query: unknown): AuthzAdminQuery {
+  const bad = (message: string, field?: string): never => {
+    throw new AuthzAdminFailure('invalid_query', message, field);
+  };
+  if (!isObject(query)) return bad(`a query must be an object, got ${q(query)}`);
+  const kind = query.kind;
+  if (typeof kind !== 'string' || kind === '') return bad(`a query needs a kind, got ${q(kind)}`, 'kind');
+  const scope = query.scope;
+  if (scope !== undefined && (!isObject(scope) || typeof scope.type !== 'string' || (scope.id !== undefined && typeof scope.id !== 'string'))) bad(`scope must be a resource ref, got ${q(scope)}`, 'scope');
+  if (kind === 'attributes') {
+    if (scope === undefined) bad('an attributes query needs a scope', 'scope');
+    return structuredClone(query) as unknown as AuthzAdminQuery;
+  }
+  // An unknown kind passes here and finds no reader (not_found).
+  let page: { limit: number; offset: number } = { ...DEFAULT_PAGE };
+  if (query.page !== undefined) {
+    const p = query.page;
+    if (!isObject(p)) return bad(`page must be { limit, offset }, got ${q(p)}`, 'page');
+    const limit = p.limit ?? DEFAULT_PAGE.limit;
+    const offset = p.offset ?? DEFAULT_PAGE.offset;
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) bad(`page.limit must be an integer >= 1, got ${q(limit)}`, 'page.limit');
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) bad(`page.offset must be an integer >= 0, got ${q(offset)}`, 'page.offset');
+    page = { limit: Math.min(limit as number, MAX_LIMIT), offset: offset as number };
+  }
+  return { ...(structuredClone(query) as object), page } as unknown as AuthzAdminQuery;
 }
 
 function okResult(kind: AuthzCommand['kind'], a: Applied): OkResult {
