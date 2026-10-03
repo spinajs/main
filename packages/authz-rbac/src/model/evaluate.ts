@@ -85,6 +85,8 @@ export interface RbacDeny {
 export interface RbacState {
   readonly input: RbacInput;
   readonly permission: Permission;
+  /** The request principal's `ceiling.roles`; undefined: no filter. Read it through `withinCeiling`. */
+  readonly ceilingRoles?: ReadonlySet<string>;
   /** collect, restrict, cap */
   live: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
@@ -110,7 +112,8 @@ const collect: RbacStep = (s) => {
   const { assignments, path, roles, now, onUnknownRole } = s.input;
   const scopes = new Set(path.map(resourceKey));
   for (const a of assignments) {
-    if (!scopes.has(resourceKey(a.scope))) continue;
+    // An assignment the ceiling drops cannot change the vote, so its row is never parsed.
+    if (!scopes.has(resourceKey(a.scope)) || !withinCeiling(s, a.role)) continue;
     const expires = expiryTime(a);
     // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
     if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
@@ -122,6 +125,27 @@ const collect: RbacStep = (s) => {
     s.live.push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
+
+/**
+ * Whether `role` passes the principal's `ceiling.roles` (§6.1.2 step 1, B07): the assigned role's
+ * own name, never a role it extends, so a ceiling of a lower role does not keep a higher role's
+ * assignment. Every contribution `collect` adds must pass it, implied roles (L1b) included (D19).
+ */
+export function withinCeiling(s: RbacState, role: string): boolean {
+  return s.ceilingRoles === undefined || s.ceilingRoles.has(role);
+}
+
+/**
+ * The request principal's ceiling roles; the engine has already narrowed them for a delegate. Names,
+ * not globs. Null counts as absent, as in the engine's ceiling reader.
+ * @throws Error for a value that is not an array of strings (the engine makes it model_error)
+ */
+export function ceilingRoles(principal: Principal): ReadonlySet<string> | undefined {
+  const roles: unknown = principal.ceiling?.roles;
+  if (roles === undefined || roles === null) return undefined;
+  if (!Array.isArray(roles) || !roles.every((r) => typeof r === 'string')) throw new Error(`rbac: the ceiling.roles of ${principal.type}:${principal.id} is not a list of role names`);
+  return new Set(roles);
+}
 
 const grant: RbacStep = (s) => {
   const holders = new Map<CompiledGrant, LiveAssignment[]>();
@@ -189,7 +213,8 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
-  const state: RbacState = { input, permission: input.request.permission, live: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
+  const ceiling = ceilingRoles(input.request.principal);
+  const state: RbacState = { input, permission: input.request.permission, ...(ceiling ? { ceilingRoles: ceiling } : {}), live: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
   for (const name of RBAC_STEP_NAMES) {
     steps[name](state);
     if (name === 'grant' && state.candidates.length === 0) state.reasons.push(steps.noGrantReason(state));

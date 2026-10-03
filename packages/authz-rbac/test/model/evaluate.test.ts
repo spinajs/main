@@ -1,6 +1,6 @@
 import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, compileFieldGlobs } from '@spinajs/authz';
-import type { Assignment, FieldSet, PermissionInput, ResourceRef } from '@spinajs/authz';
-import { FakeScopeResolver, fakeEvaluationContext, userPrincipal } from '@spinajs/authz-testing';
+import type { Assignment, FieldSet, PermissionInput, Principal, ResourceRef } from '@spinajs/authz';
+import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -294,6 +294,76 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect(run('exact', f1)).to.deep.equal(TRUE);
       expect(run('exact', { type: 'file', id: 'f2' })).to.deep.equal(FALSE);
       expect(run('exact', { type: 'file' })).to.deep.equal({ op: 'under', scopes: [f1] });
+    });
+  });
+
+  describe('ceiling.roles (B07)', () => {
+    const run = (principal: Principal, assignments: readonly Assignment[], permission: string) => {
+      const base = input(assignments, permission);
+      return runRbacPipeline({ ...base, request: { ...base.request, principal } });
+    };
+    const viewerAndWriter = [assignment('a1', 'viewer'), assignment('a2', 'writer')];
+
+    it('absent (or null) roles filter nothing', () => {
+      for (const p of [alice, withCeiling(alice, { permissions: ['file:*'] }), { ...alice, ceiling: { roles: null } } as unknown as Principal]) {
+        expect(run(p, viewerAndWriter, 'file:read').permitWhen).to.deep.equal(TRUE);
+        expect(run(p, viewerAndWriter, 'file:write').permitWhen).to.deep.equal(TRUE);
+      }
+    });
+
+    it('keeps only the assignments whose role it lists', () => {
+      const asViewer = withCeiling(alice, { roles: ['viewer', 'ghost'] });
+      expect(run(asViewer, viewerAndWriter, 'file:read').permitWhen).to.deep.equal(TRUE);
+      const write = run(asViewer, viewerAndWriter, 'file:write');
+      expect(write.permitWhen).to.deep.equal(FALSE);
+      expect(write.reason).to.deep.equal(NO_ACCESS);
+    });
+
+    it('[] keeps no assignment', () => {
+      const v = run(withCeiling(alice, { roles: [] }), viewerAndWriter, 'file:read');
+      expect(v.permitWhen).to.deep.equal(FALSE);
+      expect(v.reason).to.deep.equal(NO_ACCESS);
+    });
+
+    it('matches the assigned role name, not the roles it extends: a role switch to an extended role keeps nothing', () => {
+      const editor = [assignment('a1', 'editor')];
+      expect(run(withCeiling(alice, { roles: ['viewer'] }), editor, 'file:read').permitWhen).to.deep.equal(FALSE);
+      expect(run(withCeiling(alice, { roles: ['editor'] }), editor, 'file:read').permitWhen).to.deep.equal(TRUE);
+      expect(run(withCeiling(alice, { roles: ['editor'] }), editor, 'file:write').permitWhen).to.deep.equal(TRUE);
+    });
+
+    it('roles are names, not globs', () => {
+      for (const roles of [['*'], ['view*'], ['VIEWER']]) {
+        expect(run(withCeiling(alice, { roles }), viewerAndWriter, 'file:read').permitWhen, JSON.stringify(roles)).to.deep.equal(FALSE);
+      }
+    });
+
+    it("applies the principal's ceiling to its companions' assignments too", () => {
+      const bot = { type: 'service', id: 'bot' };
+      const p = withCeiling(withCompanions(alice, [bot]), { roles: ['viewer'] });
+      const assignments = [assignment('a1', 'viewer'), assignment('b1', 'writer', { subject: bot })];
+      expect(run(p, assignments, 'file:read').permitWhen).to.deep.equal(TRUE);
+      expect(run(p, assignments, 'file:write').permitWhen).to.deep.equal(FALSE);
+    });
+
+    it('a filtered assignment does not bound validUntil', () => {
+      const soon = new Date(NOW.getTime() + 60_000);
+      const v = run(withCeiling(alice, { roles: ['viewer'] }), [assignment('a1', 'viewer'), assignment('a2', 'editor', { expiresAt: soon })], 'file:read');
+      expect(v.permitWhen).to.deep.equal(TRUE);
+      expect(v).not.to.have.property('validUntil');
+    });
+
+    it('an assignment the ceiling drops is never parsed: its unreadable expiresAt does not throw', () => {
+      const corrupt = assignment('a2', 'writer', { expiresAt: 'soon' as unknown as Date });
+      expect(run(withCeiling(alice, { roles: ['viewer'] }), [assignment('a1', 'viewer'), corrupt], 'file:read').permitWhen).to.deep.equal(TRUE);
+      expect(() => run(alice, [assignment('a1', 'viewer'), corrupt], 'file:read')).to.throw(/unreadable expiresAt/);
+    });
+
+    it('a malformed ceiling.roles throws, so the vote is model_error', () => {
+      for (const roles of ['viewer', [1], {}]) {
+        const p = { ...alice, ceiling: { roles } } as unknown as Principal;
+        expect(() => run(p, viewerAndWriter, 'file:read'), JSON.stringify(roles)).to.throw(/ceiling\.roles/);
+      }
     });
   });
 

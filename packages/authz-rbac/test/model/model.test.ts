@@ -1,6 +1,6 @@
 import { AuthzConfigError, CORE_FILTER_OPS, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, PermissionRegistryImpl, TRUE, UnknownPermission } from '@spinajs/authz';
 import type { Assignment, ModelInitContext, NativeFilter, PermissionInput, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
-import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCompanions } from '@spinajs/authz-testing';
+import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModelInitContext, servicePrincipal, userPrincipal, withCeiling, withCompanions } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
@@ -174,6 +174,14 @@ describe('authz-rbac model: RbacModel', () => {
       const { model: m } = await model({ config: { serviceRoles: { 'service:telemetry': ['telemetry'] } } });
       expect((await check(m, servicePrincipal('telemetry'), 'file:write')).permitWhen).to.deep.equal(TRUE);
       expect((await check(m, servicePrincipal('other'), 'file:write')).reason?.code).to.equal('no_access');
+    });
+
+    it('config roles pass the ceiling.roles filter like stored assignments (B07)', async () => {
+      const { model: m } = await model({ config: { anonymousRoles: ['guest'], serviceRoles: { 'service:telemetry': ['telemetry'] } } });
+      expect((await check(m, withCeiling(anonymousPrincipal(), { roles: ['viewer'] }), 'file:read')).reason?.code).to.equal('no_access');
+      expect((await check(m, withCeiling(anonymousPrincipal(), { roles: ['guest'] }), 'file:read')).permitWhen).to.deep.equal(TRUE);
+      expect((await check(m, withCeiling(servicePrincipal('telemetry'), { roles: [] }), 'file:write')).reason?.code).to.equal('no_access');
+      expect((await check(m, withCeiling(servicePrincipal('telemetry'), { roles: ['telemetry'] }), 'file:write')).permitWhen).to.deep.equal(TRUE);
     });
 
     for (const [name, config, fragment] of [
