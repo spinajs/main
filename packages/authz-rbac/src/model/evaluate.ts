@@ -1,6 +1,7 @@
 import { DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, Vote } from '@spinajs/authz';
 
+import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
 import { compileFieldSet, intersectFieldGlobs, voteFieldGlobs } from './fields.js';
@@ -9,6 +10,7 @@ import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
 import { patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
+import { rbacAssignmentArgs, scopeMatcher } from './native.js';
 import type { CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
@@ -26,6 +28,14 @@ import type { CompileRolesOptions, RoleGraph } from './roles.js';
  *   only while nothing permits; it never denies, so another model's permit still wins under
  *   permit-overrides. A deny entry (step 8) goes to `state.denies`, which feeds Vote.denies and
  *   denyWhen only: the engine reads each entry's reason where its `when` holds.
+ * - On a type-level request `collect` puts live assignments off the path `[type, GLOBAL]` in
+ *   `state.scoped`; `residual` turns each grant they reach into a row filter (`under` their scopes,
+ *   or `native:rbac.assignment`) ANDed with the grant's own residual. Scoped grants never become
+ *   `candidates`, so steps 5–8 do not see them. Steps that drop or clamp assignments (restrict,
+ *   cap, implies) must treat `state.scoped` as they treat `state.live`. A scoped grant with
+ *   `requiresTag`, `grantedAt` or a threshold rule depends on which holder applies to each row, so
+ *   it must carry that part in the term (args v2, or one term per holder with its own check),
+ *   never be emitted bare: a bare term would list rows the check refuses.
  * - `state.fields` set by a step before `residual` is a cap: `residual` intersects the grants'
  *   fields with it, and keeps it as it is when no contributing grant carries fields.
  */
@@ -47,6 +57,13 @@ export interface RbacInput {
   readonly now: Date;
   /** Scopes whose assignments apply to the resource, nearest first: the resource, its ancestors in order, GLOBAL last. */
   readonly path: readonly ResourceRef[];
+  /** The principal's subjects the assignments were read for; default: the principal and its companions. */
+  readonly subjects?: readonly AssignmentSubject[];
+  /**
+   * How a type-level vote lists rows that only scoped assignments reach: `under` over their scopes
+   * (default, core ops), or `native` (`native:rbac.assignment`, set by rbacAssignmentExtension).
+   */
+  readonly scopedResidual?: 'under' | 'native';
   /** Assignments of the principal's subjects, config roles included; `collect` keeps the live ones. */
   readonly assignments: readonly Assignment[];
   readonly roles: RoleGraph;
@@ -89,6 +106,8 @@ export interface RbacState {
   readonly ceilingRoles?: ReadonlySet<string>;
   /** collect, restrict, cap */
   live: LiveAssignment[];
+  /** collect, type-level requests only: live assignments off the path, which permit the rows below their scopes. */
+  scoped: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
   /** aggregate: the union of live tags. */
@@ -110,10 +129,13 @@ const noop: RbacStep = () => undefined;
 
 const collect: RbacStep = (s) => {
   const { assignments, path, roles, now, onUnknownRole } = s.input;
-  const scopes = new Set(path.map(resourceKey));
+  const onPath = scopeMatcher(s.input.request.resource.type, path);
+  const typeLevel = s.input.request.resource.id == null;
   for (const a of assignments) {
+    const here = onPath(a.scope);
+    // Off the path only a scope with an id can reach rows of a type-level request (state.scoped).
     // An assignment the ceiling drops cannot change the vote, so its row is never parsed.
-    if (!scopes.has(resourceKey(a.scope)) || !withinCeiling(s, a.role)) continue;
+    if ((!here && (!typeLevel || a.scope.id == null)) || !withinCeiling(s, a.role)) continue;
     const expires = expiryTime(a);
     // Dropping the row would read as a clean, cacheable "no"; the engine makes a throw model_error (fail closed).
     if (Number.isNaN(expires)) throw new Error(`rbac: assignment '${a.id}' (source: ${a.source}, role '${a.role}') has an unreadable expiresAt`);
@@ -122,7 +144,7 @@ const collect: RbacStep = (s) => {
       onUnknownRole?.(a);
       continue;
     }
-    s.live.push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
+    (here ? s.live : s.scoped).push({ assignment: a, role: a.role, scope: a.scope, tags: a.tags ?? [], ...(expires !== undefined ? { expiresAt: new Date(expires) } : {}), bypass: new Set() });
   }
 };
 
@@ -193,10 +215,49 @@ const residual: RbacStep = (s) => {
     }
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
+  for (const [g, holders] of scopedGrants(s)) {
+    const permits = and(scopedRows(s, holders), grantResidual(g, at));
+    s.permit.push(permits);
+    if (permits.op !== 'false') conditional.push(g.fieldGlobs);
+    for (const h of holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
+  }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
   const fields = voteFieldGlobs(unconditional, conditional);
   if (fields) s.fields = s.fields ? intersectFieldGlobs(fields, compileFieldSet(s.fields, 'rbac: the fields an earlier step set')) : fields;
 };
+
+/** The grants of the permission that scoped assignments reach, with those assignments. */
+function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
+  const out = new Map<CompiledGrant, LiveAssignment[]>();
+  for (const live of s.scoped) {
+    for (const g of s.input.grants.grants(live.role, s.permission)) {
+      const list = out.get(g);
+      if (list) list.push(live);
+      else out.set(g, [live]);
+    }
+  }
+  return out;
+}
+
+export const MAX_UNDER_SCOPES = 10_000;
+
+/** The rows below the holders' scopes, canonical: sorted by key, without duplicates. */
+function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceFilter {
+  if (s.input.scopedResidual === 'native') {
+    return {
+      op: RBAC_ASSIGNMENT_OP,
+      args: rbacAssignmentArgs(
+        s.input.subjects ?? defaultSubjects(s.input.request.principal),
+        holders.map((h) => h.role),
+      ),
+    };
+  }
+  const scopes = new Map<string, ResourceRef>();
+  for (const h of holders) scopes.set(resourceKey(h.scope), { type: h.scope.type, id: h.scope.id });
+  // A list this long belongs in SQL through rbacAssignmentExtension; failing closed beats an unbounded residual.
+  if (scopes.size > MAX_UNDER_SCOPES) throw new Error(`rbac: ${scopes.size} assignment scopes exceed the ${MAX_UNDER_SCOPES} an under term may hold; use rbacAssignmentExtension for this type`);
+  return { op: 'under', scopes: [...scopes].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, ref]) => ref) };
+}
 
 export const RBAC_STEPS: RbacSteps = Object.freeze({
   collect,
@@ -214,7 +275,7 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
   const ceiling = ceilingRoles(input.request.principal);
-  const state: RbacState = { input, permission: input.request.permission, ...(ceiling ? { ceilingRoles: ceiling } : {}), live: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
+  const state: RbacState = { input, permission: input.request.permission, ...(ceiling ? { ceilingRoles: ceiling } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
   for (const name of RBAC_STEP_NAMES) {
     steps[name](state);
     if (name === 'grant' && state.candidates.length === 0) state.reasons.push(steps.noGrantReason(state));
@@ -222,8 +283,16 @@ export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS)
   return toVote(state);
 }
 
+// OR is order-free, but the residual enters the L2 key and SQL statement caches: equal states must give equal JSON.
+function canonicalOrder(terms: readonly ResourceFilter[]): ResourceFilter[] {
+  return terms
+    .map((t) => [JSON.stringify(t), t] as const)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, t]) => t);
+}
+
 function toVote(s: RbacState): Vote {
-  const permitWhen = s.permit.length > 0 ? or(...s.permit) : FALSE;
+  const permitWhen = s.permit.length > 0 ? or(...canonicalOrder(s.permit)) : FALSE;
   const denies = s.denies.filter((d) => or(d.when).op !== 'false');
   const denyWhen = denies.length > 0 ? or(...denies.map((d) => d.when)) : FALSE;
   const reason = permitWhen.op === 'true' ? undefined : [...s.reasons].sort(compareDenyReasons)[0];
@@ -262,6 +331,7 @@ export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationC
     request,
     now: ctx.now,
     path: await resourcePath(request.resource, ctx),
+    subjects,
     assignments: [...stored, ...(sources.configAssignments?.(subjects) ?? [])],
     roles: sources.roles,
     grants: sources.grants,
@@ -275,11 +345,12 @@ export async function gatherRbacInput(request: DecisionRequest, ctx: EvaluationC
 
 /**
  * The scopes whose assignments apply to `resource` (B13), nearest first: the resource, its
- * ancestors in order, GLOBAL last, each once. A type-level request gets GLOBAL only: a scoped
- * assignment must never permit every row, it needs a row filter (`native:rbac.assignment`).
+ * ancestors in order, GLOBAL last, each once. A type-level request gets `[type, GLOBAL]` (§6.1.2): an
+ * assignment at the bare type ref permits every row of the type; any other scoped assignment needs a
+ * row filter, which `residual` builds from `state.scoped`.
  */
 export async function resourcePath(resource: ResourceRef, ctx: EvaluationContext): Promise<readonly ResourceRef[]> {
-  if (resource.id == null) return [GLOBAL];
+  if (resource.id == null) return resource.type === GLOBAL.type ? [GLOBAL] : [{ type: resource.type }, GLOBAL];
   const ancestors = await ctx.ancestors(resource);
   // The engine denies unknown_resource before the models run; a "no" here would look like a clean answer.
   if (ancestors === null) throw new Error(`rbac: unknown resource ${resourceKey(resource)}: ancestors answered null`);

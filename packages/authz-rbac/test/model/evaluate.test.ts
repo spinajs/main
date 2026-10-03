@@ -4,8 +4,8 @@ import { FakeScopeResolver, fakeEvaluationContext, userPrincipal, withCeiling, w
 import * as chai from 'chai';
 import 'mocha';
 
-import { MemoryAssignmentStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, gatherRbacInput, runRbacPipeline } from '../../src/index.js';
-import type { RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
+import { MAX_UNDER_SCOPES, MemoryAssignmentStore, MemoryRoleStore, RBAC_STEPS, RBAC_STEP_NAMES, compileGrants, compileRoles, gatherRbacInput, rbacAssignmentExtension, runRbacPipeline } from '../../src/index.js';
+import type { RbacExtension, RbacInput, RbacState, RbacSteps, RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
 
@@ -27,6 +27,16 @@ function input(assignments: readonly Assignment[], permission: string, opts: { r
   registry.freeze();
   const roles = compileRoles(opts.roles ?? ROLES);
   return { request: { principal: alice, permission, resource: f1 }, now: NOW, path: [GLOBAL], assignments, roles, grants: compileGrants(roles, registry), onUnknownRole: opts.onUnknownRole };
+}
+
+async function rejects(p: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await p;
+  } catch (err) {
+    expect((err as Error).message).to.match(message);
+    return;
+  }
+  throw new Error('expected a rejection');
 }
 
 const NO_ACCESS = { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access };
@@ -224,8 +234,8 @@ describe('authz-rbac model: the evaluation pipeline', () => {
     });
 
     it('grants of one permission with different relations are OR-ed, within a role and across roles', () => {
-      expect(vote(['two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
-      expect(vote(['owner-reader', 'member-reader']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+      expect(vote(['two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('member'), rel('owner')] });
+      expect(vote(['owner-reader', 'member-reader']).permitWhen).to.deep.equal({ op: 'or', args: [rel('member'), rel('owner')] });
     });
 
     it('a grant without relation is unconditional and absorbs the relation grants', () => {
@@ -234,7 +244,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
     });
 
     it('one relation reached through two roles appears once', () => {
-      expect(vote(['owner-reader', 'two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('owner'), rel('member')] });
+      expect(vote(['owner-reader', 'two-grants']).permitWhen).to.deep.equal({ op: 'or', args: [rel('member'), rel('owner')] });
     });
 
     it('a refused relation grant adds nothing to permitWhen', () => {
@@ -528,7 +538,7 @@ describe('authz-rbac model: the evaluation pipeline', () => {
         ],
       });
 
-    async function evaluate(assignments: readonly Assignment[], resource: ResourceRef, ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] })) {
+    async function evaluate(assignments: readonly Assignment[], resource: ResourceRef, ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] }), opts: { extensions?: readonly RbacExtension[]; principal?: Principal } = {}) {
       const registry = new PermissionRegistryImpl();
       registry.register(
         ['file:read', 'file:write'].map((name) => ({ name, types: ['org', 'project', 'file'] })),
@@ -536,8 +546,9 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       );
       registry.freeze();
       const roles = compileRoles(ROLES);
-      const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource }, ctx, { roles, grants: compileGrants(roles, registry), assignments: new MemoryAssignmentStore(assignments) });
-      return { input: gathered, vote: runRbacPipeline(gathered), ctx };
+      const store = new MemoryAssignmentStore(assignments);
+      const gathered = await gatherRbacInput({ principal: opts.principal ?? alice, permission: 'file:read', resource }, ctx, { roles, grants: compileGrants(roles, registry), assignments: store, extensions: opts.extensions });
+      return { input: gathered, vote: runRbacPipeline(gathered), ctx, store };
     }
 
     // A fresh ref, equal by value only: scopes match by resourceKey, not by identity.
@@ -592,14 +603,110 @@ describe('authz-rbac model: the evaluation pipeline', () => {
       expect(gathered.path).to.deep.equal([f1, P1, O1, GLOBAL]);
     });
 
-    it('a type-level request counts GLOBAL assignments only and reads no ancestors', async () => {
-      const typeLevel: ResourceRef = { type: 'file' };
-      const scoped = await evaluate([at(P1), at(f1, 'a2'), assignment('a3', 'viewer', { scope: { type: 'file' } })], typeLevel);
-      expect(scoped.vote.permitWhen).to.deep.equal(FALSE);
-      expect(scoped.vote.reason).to.deep.equal(NO_ACCESS);
-      expect(scoped.input.path).to.deep.equal([GLOBAL]);
-      expect(scoped.ctx.stats.ancestors.calls).to.equal(0);
-      expect((await evaluate([assignment('g1', 'viewer')], typeLevel)).vote.permitWhen).to.deep.equal(TRUE);
+    describe('type-level requests (B06)', () => {
+      const FILES: ResourceRef = { type: 'file' };
+
+      it('the path is [type, GLOBAL]; GLOBAL and bare type-ref assignments permit every row, without reading ancestors', async () => {
+        const global = await evaluate([assignment('g1', 'viewer')], FILES);
+        expect(global.vote.permitWhen).to.deep.equal(TRUE);
+        expect(global.input.path).to.deep.equal([{ type: 'file' }, GLOBAL]);
+        expect(global.ctx.stats.ancestors.calls).to.equal(0);
+        expect((await evaluate([at({ type: 'file' })], FILES)).vote.permitWhen).to.deep.equal(TRUE);
+        expect((await evaluate([], { type: '$global' })).input.path).to.deep.equal([GLOBAL]);
+      });
+
+      it('scoped assignments permit the rows under their scopes: under, sorted and without duplicates', async () => {
+        const v = (await evaluate([at(P2), at(P1, 'a2'), at(f1, 'a3'), at(P1, 'a4')], FILES)).vote;
+        expect(v.permitWhen).to.deep.equal({ op: 'under', scopes: [f1, P1, P2] });
+        expect(v.reason).to.deep.equal(NO_ACCESS);
+        const otherType = (await evaluate([at({ type: 'project' })], FILES)).vote;
+        expect(otherType.permitWhen).to.deep.equal(FALSE);
+      });
+
+      it("a scoped term is ANDed with the grant's own residual, per grant", async () => {
+        const roles = [
+          withGrantsOf('owner-viewer', [
+            { permission: 'file:read', relation: 'owner' },
+            { permission: 'file:read', on: [{ type: 'file', id: 'f*' }] },
+          ]),
+        ];
+        const registry = new PermissionRegistryImpl();
+        registry.register([{ name: 'file:read', types: ['org', 'project', 'file'] }], 'test');
+        registry.freeze();
+        const graph = compileRoles(roles);
+        const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] });
+        const gathered = await gatherRbacInput({ principal: alice, permission: 'file:read', resource: FILES }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore([assignment('a1', 'owner-viewer', { scope: P1 })]) });
+        const under = { op: 'under', scopes: [P1] };
+        expect(runRbacPipeline(gathered).permitWhen).to.deep.equal({
+          op: 'or',
+          args: [
+            { op: 'and', args: [under, { op: 'cmp', field: 'id', cmp: 'glob', value: 'f*' }] },
+            { op: 'and', args: [under, { op: 'relation', relation: 'owner' }] },
+          ],
+        });
+      });
+
+      it('the OR terms are in canonical order, whatever the order of the stored assignments', async () => {
+        const roles = [withGrantsOf('owners', [{ permission: 'file:read', relation: 'owner' }]), withGrantsOf('members', [{ permission: 'file:read', relation: 'member' }]), withGrantsOf('all', [{ permission: 'file:read', on: [{ type: 'file', id: 'f*' }] }])];
+        const registry = new PermissionRegistryImpl();
+        registry.register([{ name: 'file:read', types: ['org', 'project', 'file'] }], 'test');
+        registry.freeze();
+        const graph = compileRoles(roles);
+        const rows = [assignment('a1', 'owners', { scope: P2 }), assignment('a2', 'members', { scope: P1 }), assignment('a3', 'all'), assignment('a4', 'owners')];
+        const permitWhen = async (list: readonly Assignment[], resource: ResourceRef) => {
+          const ctx = fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes()] });
+          return JSON.stringify(runRbacPipeline(await gatherRbacInput({ principal: alice, permission: 'file:read', resource }, ctx, { roles: graph, grants: compileGrants(graph, registry), assignments: new MemoryAssignmentStore(list) })).permitWhen);
+        };
+        for (const resource of [FILES, f1]) expect(await permitWhen([...rows].reverse(), resource)).to.equal(await permitWhen(rows, resource));
+      });
+
+      it('expired, ceiling-dropped and unknown-role assignments add no term; the others bound validUntil', async () => {
+        const soon = new Date(NOW.getTime() + 60_000);
+        const expired = new Date(NOW.getTime() - 1);
+        const v = (await evaluate([at(P1), assignment('a2', 'viewer', { scope: P2, expiresAt: soon }), assignment('a3', 'viewer', { scope: O1, expiresAt: expired }), assignment('a4', 'ghost', { scope: O1 })], FILES)).vote;
+        expect(v.permitWhen).to.deep.equal({ op: 'under', scopes: [P1, P2] });
+        expect(v.validUntil).to.deep.equal(soon);
+        const capped = (await evaluate([at(P1), assignment('a2', 'writer', { scope: P2 })], FILES, undefined, { principal: withCeiling(alice, { roles: ['writer'] }) })).vote;
+        expect(capped.permitWhen).to.deep.equal(FALSE);
+      });
+
+      it('a concrete request ignores assignments off its path; a bare type-ref assignment applies to rows of that type only', async () => {
+        expect((await evaluate([at(P2)], f1)).vote.permitWhen).to.deep.equal(FALSE);
+        expect((await evaluate([at({ type: 'file' })], f1)).vote.permitWhen).to.deep.equal(TRUE);
+        expect((await evaluate([at({ type: 'project' })], f1)).vote.permitWhen).to.deep.equal(FALSE);
+        expect((await evaluate([at({ type: 'project' })], P1)).vote.permitWhen).to.deep.equal(TRUE);
+      });
+
+      it('with rbacAssignmentExtension the term is native:rbac.assignment with canonical args', async () => {
+        const bot = { type: 'service', id: 'bot' };
+        const principal = withCompanions(alice, [bot]);
+        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
+        const v = (await evaluate([at(P1), assignment('a2', 'editor', { scope: P2, subject: bot }), at(P2, 'a3')], FILES, undefined, { principal, extensions: [rbacAssignmentExtension(opts)] })).vote;
+        expect(v.permitWhen).to.deep.equal({
+          op: 'native:rbac.assignment',
+          args: {
+            v: 1,
+            subjects: [
+              { type: 'service', id: 'bot' },
+              { type: 'user', id: 'alice' },
+            ],
+            roles: ['editor', 'viewer'],
+          },
+        });
+      });
+
+      it('rbacAssignmentExtension with types emits the native term for those types only', async () => {
+        const opts = { roles: new MemoryRoleStore([]), assignments: new MemoryAssignmentStore([]) };
+        const forFiles = (await evaluate([at(P1)], FILES, undefined, { extensions: [rbacAssignmentExtension(opts, { types: ['file'] })] })).vote;
+        expect(forFiles.permitWhen.op).to.equal('native:rbac.assignment');
+        const forProjects = (await evaluate([at(P1)], FILES, undefined, { extensions: [rbacAssignmentExtension(opts, { types: ['project'] })] })).vote;
+        expect(forProjects.permitWhen).to.deep.equal({ op: 'under', scopes: [P1] });
+      });
+
+      it('a list of scopes past MAX_UNDER_SCOPES throws (fail closed)', async () => {
+        const many = Array.from({ length: MAX_UNDER_SCOPES + 1 }, (_, i) => assignment(`a${i}`, 'viewer', { scope: { type: 'project', id: `p${i}` } }));
+        await rejects(evaluate(many, FILES), /MAX_UNDER_SCOPES|exceed/);
+      });
     });
   });
 
