@@ -9,6 +9,7 @@ import type { ExternalSubject, IdentityRef } from '@spinajs/authn/contracts';
 
 import { OIDC_PRESET_IDS, OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import type { OidcAppPath, OidcAuthorizationParams, OidcClaimPath, OidcClaimsMapping, OidcClientConfig, OidcConfig, OidcEndpoints, OidcEntraTenantId, OidcExternalSubject, OidcMappedClaims, OidcPreset, OidcPresetId, OidcProviderConfig, OidcProviderSource, OidcReservedParam, OidcSecretRef, OidcSigningAlgorithm, OidcStrategyName, OidcTokenEndpointAuth } from '../src/contracts.js';
+import * as contracts from '../src/contracts.js';
 import * as index from '../src/index.js';
 
 const expect = chai.expect;
@@ -65,8 +66,8 @@ class GroupSync extends ExternalLoginHook {
 
 describe('authn-oidc contracts', () => {
   describe('runtime', () => {
-    it('exports only the preset ids and the signing algorithms as values', () => {
-      expect(Object.keys(index).sort()).to.deep.eq(['OIDC_PRESET_IDS', 'OIDC_SIGNING_ALGORITHMS']);
+    it('the contracts export only the preset ids and the signing algorithms as values, and the index re-exports them', () => {
+      expect(Object.keys(contracts).sort()).to.deep.eq(['OIDC_PRESET_IDS', 'OIDC_SIGNING_ALGORITHMS']);
       expect(index.OIDC_PRESET_IDS).to.eq(OIDC_PRESET_IDS);
       expect(index.OIDC_SIGNING_ALGORITHMS).to.eq(OIDC_SIGNING_ALGORITHMS);
     });
