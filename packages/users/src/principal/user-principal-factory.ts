@@ -32,12 +32,18 @@ export const IDENTITY_PRINCIPAL_SOURCE = 'identity';
 export class UserPrincipalFactory extends PrincipalFactory {
   /** authn's side: loads the user by Uuid through the application's user model. `source` is 'session' with a session handle, else 'token'. */
   public principalOf(id: IdentityRef, facts: AuthnFacts, extra: Extra): Promise<Principal>;
-  /** For a user record in hand; `source` is {@link IDENTITY_PRINCIPAL_SOURCE} and there are no authn facts. */
+  /**
+   * For a user record in hand; `source` is {@link IDENTITY_PRINCIPAL_SOURCE} and there are no authn facts.
+   * A record without populated `Metadata` is read again (by Uuid, as SYSTEM), so its ban is never missed;
+   * the principal's `identity` is then the record read, not the one passed.
+   */
   public principalOf(user: User, opts?: UserPrincipalOptions): Promise<Principal>;
   public async principalOf(subject: IdentityRef | User, factsOrOpts?: AuthnFacts | UserPrincipalOptions, extra?: Extra): Promise<Principal> {
     if (subject instanceof UserBase) {
       const opts = (factsOrOpts ?? {}) as UserPrincipalOptions;
-      return this.build(subject, { source: IDENTITY_PRINCIPAL_SOURCE, ...(opts.ceiling ? { ceiling: opts.ceiling } : {}) }, undefined);
+      // A ban lives in the metadata; a record read without it would pass as not banned.
+      const user = subject.Metadata?.Populated === true || subject.DeletedAt ? subject : await this.load({ type: 'user', id: subject.Uuid });
+      return this.build(user, { source: IDENTITY_PRINCIPAL_SOURCE, ...(opts.ceiling ? { ceiling: opts.ceiling } : {}) }, undefined);
     }
 
     const facts = factsOrOpts as AuthnFacts;

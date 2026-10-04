@@ -180,5 +180,32 @@ describe('UserPrincipalFactory', function () {
 
       await expect((await factory()).principalOf(inactive)).to.be.rejectedWith(UserNotActive);
     });
+
+    it('refuses a soft-deleted record', async () => {
+      const deleted = await User.query().withDeleted().whereLogin('test-deleted').populate('Metadata').firstOrFail();
+
+      await expect((await factory()).principalOf(deleted)).to.be.rejectedWith(ResourceNotFound);
+    });
+
+    it('refuses a banned record loaded without its metadata: the ban is read again', async () => {
+      const banned = await User.query().whereUuid(TEST_USER_UUID_3).firstOrFail();
+      expect(banned.IsBanned, 'without metadata the record itself cannot tell').to.eq(false);
+
+      await expect((await factory()).principalOf(banned)).to.be.rejectedWith(UserIsBanned);
+    });
+
+    it('reloads a record without metadata as SYSTEM, and keeps a record with metadata as it is', async () => {
+      const runAs = sinon.spy(await rootAuthz(), 'runAs');
+      const bare = await User.query().whereLogin('test').firstOrFail();
+      const full = await User.query().whereLogin('test').populate('Metadata').firstOrFail();
+
+      const fromBare = await (await factory()).principalOf(bare);
+      expect(runAs.calledOnce).to.eq(true);
+      expect((fromBare.identity as User).Metadata['test:test']).to.eq('test');
+
+      const fromFull = await (await factory()).principalOf(full);
+      expect(runAs.calledOnce, 'no second lookup').to.eq(true);
+      expect(fromFull.identity).to.eq(full);
+    });
   });
 });
