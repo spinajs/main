@@ -139,13 +139,19 @@ export class LocalPasswordService extends PasswordService {
       return { status: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
     }
 
-    if (!(await this.verifyPassword(id, oldPassword))) {
+    const verified = await this.verifiedHash(id, oldPassword);
+    if (verified === null) {
       await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'wrong_password', session: handle });
       return INVALID;
     }
     await throttle.succeed(keys, 'reauth');
 
-    await this.storePassword(id, newPassword);
+    // Only over the hash the old password matched: an expiry, reset or set that landed meanwhile wins, and the old password
+    // must not buy a new one after it (A30). No retry: the old password no longer verifies.
+    if (!(await this.storePassword(id, newPassword, verified))) {
+      await this.audit(ctx, { type: 'password.change', outcome: 'failure', identity: id, reason: 'stale', session: handle });
+      return INVALID;
+    }
     await sessions.revokeAll(id, { except: session, includeImpersonations: true });
     const rotated = await sessions.rotate(session);
 
@@ -319,19 +325,25 @@ export class LocalPasswordService extends PasswordService {
     return true;
   }
 
-  /** One argon2 verify on every path, like the login strategy: the fixed login bound, then the stored hash or the dummy. */
-  protected async verifyPassword(id: IdentityRef, password: string): Promise<boolean> {
+  /**
+   * The stored hash `password` matches, or null. One argon2 verify on every path, like the login strategy: the fixed login bound,
+   * then the stored hash or the dummy.
+   */
+  protected async verifiedHash(id: IdentityRef, password: string): Promise<string | null> {
     const hasher = await this.hasher();
     if (!isLoginLength(password)) {
       await hasher.verify(null, '');
-      return false;
+      return null;
     }
-    return hasher.verify(await this.passwords().get(id), password);
+    const stored = await this.passwords().get(id);
+    return (await hasher.verify(stored, password)) ? stored : null;
   }
 
-  protected async storePassword(id: IdentityRef, password: string): Promise<void> {
+  /** With `expected`, writes only over that stored hash and answers whether it wrote; without it, writes unconditionally. */
+  protected async storePassword(id: IdentityRef, password: string, expected?: string): Promise<boolean> {
     const hasher = await this.hasher();
-    await this.passwords().set(id, await hasher.hash(password));
+    const hash = await hasher.hash(password);
+    return this.passwords().set(id, hash, expected);
   }
 
   protected async revokeTokensOf(id: IdentityRef, ctx: AuthnContext, actor?: PrincipalRef): Promise<void> {
