@@ -1,6 +1,6 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
 import { registerAccessResource } from '@spinajs/authz-orm';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { DbConfig, requireSystemPrincipal } from '@spinajs/configuration-db-source';
 
 /**
  * `DbConfig` lives in `@spinajs/configuration-db-source`, which does not depend on authz. Its
@@ -11,5 +11,6 @@ import { DbConfig } from '@spinajs/configuration-db-source';
 export class ConfigurationHttpBootstrapper extends Bootstrapper {
   public bootstrap(): void {
     registerAccessResource(DbConfig, 'configuration');
+    requireSystemPrincipal();
   }
 }

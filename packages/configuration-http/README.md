@@ -17,8 +17,10 @@ lets operators tune existing values.
 | PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`) |
 
 Every route is guarded by `@Access` (`@spinajs/authz-http`): 401 without a principal, 403 without the
-permission. `GET /:slug` and `PATCH /:slug` check the permission on the resource
-`{ type: 'configuration', id: <slug> }`, so a grant can cover single slugs.
+permission. The checks are type-level. Row limits come from the ORM: the package registers `DbConfig` as the
+`configuration` access resource (`registerAccessResource`), so a conditional grant limits the list and the
+entries `GET` and `PATCH` load. A principal that may update but not read gets 403 on `PATCH`, because the
+entry load needs `configuration:read`.
 
 Incoming values are validated against the entry `Type` and `Meta` constraints
 (min/max, oneOf/manyOf, date bounds) and stored in their canonical string form.
@@ -94,7 +96,14 @@ role `admin.configuration`, which holds both. It is not assignable; `admin` exte
 gets access, because values can hold secrets.
 
 All routes use `fields: 'filter'`: a grant with `fields.read` hides the other fields (for example
-`Value`) in responses, and `fields.write` limits what `PATCH` accepts.
+`Value`) in responses, and `fields.write` limits what `PATCH` accepts. The `PATCH` response is filtered by
+the `fields.read` of the update decision, not of the read grant.
+
+`ConfigFileUploads.commit` does no authz check of its own. Guard the project's upload route with
+`@Access('configuration:update')`.
+
+Persistence of exposed options and the watch poll of `@spinajs/configuration-db-source` run as `SYSTEM`.
+This package opts in with `requireSystemPrincipal()`; they start after the root authz service boots.
 
 ## Notes
 

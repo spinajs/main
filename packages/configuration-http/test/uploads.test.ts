@@ -4,15 +4,17 @@ import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { FileInfoService, FsBootsrapper, fsService } from '@spinajs/fs';
 import type { IUploadedFile } from '@spinajs/http';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { AuthzService, SYSTEM, authz } from '@spinajs/authz';
+import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { DateTime } from 'luxon';
-import 'mocha';
+import { it as mochaIt } from 'mocha';
 
 import { TestConfiguration, FakeFileInfo, FILES_DIR, FILES_FS, UPLOAD_DIR, seed, seedFileEntries, xlsx } from './common.js';
+import '../src/bootstrap.js';
 import { ConfigFileUploads } from '../src/uploads.js';
 import { ConfigFileRejected, NotAFileEntry } from '../src/errors.js';
 import { storedFileName } from '../src/files.js';
@@ -23,6 +25,9 @@ function uploaded(content: Buffer, name: string): IUploadedFile {
   writeFileSync(filepath, content);
   return { Name: name, BaseName: name, Size: content.length, Type: '', OriginalFile: { filepath } } as unknown as IUploadedFile;
 }
+
+// every DbConfig query of these tests runs as SYSTEM: the ORM guard refuses a query without a principal
+const it = Object.assign((name: string, fn: () => Promise<void>) => mochaIt(name, () => authz().runAs(SYSTEM, 'test', fn)), mochaIt);
 
 const entry = async (slug: string) => (await DbConfig.where('Slug', slug).first()) as DbConfig;
 
@@ -53,8 +58,8 @@ describe('ConfigFileUploads', function () {
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
-      // db-source installs a watch timer that would keep the event loop alive; the http one needs L4
-      if (b.constructor.name === 'DbConfigSourceBotstrapper' || b.constructor.name === 'ConfigurationHttpBootstrapper') {
+      // db-source installs a watch timer that would keep the event loop alive
+      if (b.constructor.name === 'DbConfigSourceBotstrapper') {
         continue;
       }
       await b.bootstrap();
@@ -63,6 +68,7 @@ describe('ConfigFileUploads', function () {
     await DI.resolve(Configuration);
     await DI.resolve(fsService);
     await DI.resolve(Orm);
+    await DI.resolve(AuthzService);
     uploads = await DI.resolve(ConfigFileUploads);
   });
 
@@ -70,15 +76,18 @@ describe('ConfigFileUploads', function () {
     const orm = DI.get(Orm);
     orm?.dispose();
     DI.uncache(Orm);
+    resetSystemPrincipal();
     for (const d of [FILES_DIR, UPLOAD_DIR]) {
       rmSync(d, { recursive: true, force: true });
     }
   });
 
   beforeEach(async () => {
-    await DbConfig.truncate();
-    await seed();
-    await seedFileEntries();
+    await authz().runAs(SYSTEM, 'test', async () => {
+      await DbConfig.truncate();
+      await seed();
+      await seedFileEntries();
+    });
 
     for (const d of [FILES_DIR, UPLOAD_DIR]) {
       rmSync(d, { recursive: true, force: true });

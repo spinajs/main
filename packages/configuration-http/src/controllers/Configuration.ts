@@ -1,5 +1,5 @@
 import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Query, ServerError } from '@spinajs/http';
-import { Access, fromParam } from '@spinajs/authz-http';
+import { Access } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
@@ -20,8 +20,6 @@ function present(entry: DbConfig) {
   out.Meta = entry.Meta ?? null;
   return out;
 }
-
-const ENTRY = fromParam('slug', 'configuration', { by: 'Slug' });
 
 /**
  * HTTP api for database stored configuration values.
@@ -72,7 +70,7 @@ export class ConfigurationController extends BaseController {
    * @response 404 Configuration entry not found
    */
   @Get(':slug')
-  @Access('configuration:read', { resource: ENTRY, fields: 'filter' })
+  @Access('configuration:read', { fields: 'filter' })
   public async get(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
     return new Ok(present(entry));
   }
@@ -93,7 +91,7 @@ export class ConfigurationController extends BaseController {
    * @response 500 Registered schema for this slug cannot be compiled
    */
   @Patch(':slug')
-  @Access('configuration:update', { resource: ENTRY, fields: 'filter' })
+  @Access('configuration:update', { fields: 'filter' })
   public async update(
     @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
     @Body() data: UpdateConfigDto,
