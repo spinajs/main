@@ -29,6 +29,7 @@ describe('authn-oidc request origin', () => {
   it('keeps only http or https as the scheme, and falls back to the Host header', () => {
     expect(requestOrigin(facts({ forwardedProto: 'javascript' }), trustedPeer(true))).to.eq('http://public.example.test');
     expect(requestOrigin(facts({ forwardedHost: undefined }), trustedPeer(true))).to.eq('https://app.example.test');
+    expect(requestOrigin(facts({ forwardedProto: 'HTTPS' }), trustedPeer(true))).to.eq('https://public.example.test');
   });
 
   it('refuses a trust entry that is no address', () => {

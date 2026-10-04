@@ -15,7 +15,7 @@ const unmapped = (addr: string): string => (addr.startsWith('::ffff:') && isIP(a
 /**
  * Whether the immediate peer is a trusted proxy, by the same setting ClientIp reads. true counts as one hop and false
  * as none (never trust-all); a hop count trusts the peer; addresses and CIDRs trust a peer inside them. An entry that
- * is no address throws, so a typo fails boot instead of trusting nobody silently.
+ * is no address throws (the OIDC routes then answer 500), so a typo never silently trusts nobody.
  */
 export function trustedPeer(setting: TrustProxySetting): (peer: string | undefined) => boolean {
   if (setting === undefined || setting === null || setting === false || setting === 0) return () => false;
@@ -48,7 +48,7 @@ export interface OriginFacts {
   readonly forwardedHost: string | undefined;
 }
 
-const firstOf = (v: string | undefined): string | undefined => v?.split(',')[0]?.trim() || undefined;
+const firstOf = (v: string | undefined): string | undefined => v?.split(',')[0]?.trim().toLowerCase() || undefined;
 
 /**
  * The app's origin as the client sees it, for the default redirect_uri (contract: through authn.http.trustProxy as
