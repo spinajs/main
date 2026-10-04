@@ -1,5 +1,7 @@
 import { Log, Logger } from '@spinajs/log';
 import { Command, Option } from '@spinajs/cli';
+import { DI } from '@spinajs/di';
+import { AuthzService, SYSTEM } from '@spinajs/authz';
 import { RbacCliCommand } from './RbacCliCommand.js';
 import { create } from '../actions.js';
 
@@ -12,7 +14,7 @@ interface UserCreationOptions {
 
 @Command('rbac:user-create', 'Creates user with given credentials')
 @Option('-e, --email <email>', true, 'user email')
-@Option('-r, --roles <roles>', true, 'user roles, comma separated')
+@Option('-r, --roles <roles>', true, 'user roles, comma separated; granted at global scope through AuthzAdmin')
 @Option('-l, --login <login>', true, 'user login')
 @Option('-p, --password <password>', false, 'user password, if not set will be generated and printed out to console')
 export class CreateUser extends RbacCliCommand {
@@ -21,7 +23,8 @@ export class CreateUser extends RbacCliCommand {
 
   public async execute(options: UserCreationOptions): Promise<void> {
     try {
-      const { Password } = await create(options.email, options.login, options.roles.split(','), { password: options.password });
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const { Password } = await authz.runAs(SYSTEM, 'cli', () => create(options.email, options.login, options.roles.split(','), { password: options.password }));
       this.Log.success(`User created`);
 
       // `-p` documents that an unset password is "generated and printed out to
