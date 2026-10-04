@@ -271,6 +271,24 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(await store.get('uploads', 'gone-dir/x.txt')).to.equal(null);
     });
 
+    it('a directory copied to a new path never inherits stale child rows; a key store keeps the rows of other keys (re-review R1)', async () => {
+      const g = guard(local('uploads', { 'src/a.txt': 'A' }), 'uploads', STAMPED);
+      await store.set('uploads', 'newdir/a.txt', { owner: userPrincipal('x') });
+      principal = bob;
+      await g.copy('src', 'newdir');
+      expect(existsSync(join(dir, 'uploads', 'newdir', 'a.txt'))).to.equal(true);
+      expect(store.owner('uploads', 'newdir')).to.equal('user:bob');
+      expect(await store.get('uploads', 'newdir/a.txt')).to.equal(null);
+
+      const { provider } = keyStoreFs('keys');
+      const k = guard(provider, 'keys', STAMPED);
+      await store.set('keys', 'photo', { owner: alice });
+      await store.set('keys', 'photo/1.jpg', { owner: alice });
+      await k.write('photo', 'P');
+      expect(store.owner('keys', 'photo')).to.equal('user:bob');
+      expect(store.owner('keys', 'photo/1.jpg')).to.equal('user:alice');
+    });
+
     it('append stamps a file it creates and keeps the first owner of an existing one', async () => {
       const g = guard(local('uploads', { 'old.txt': 'O' }), 'uploads', STAMPED);
       await store.set('uploads', 'old.txt', { owner: bob });
@@ -345,11 +363,15 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'aborted.txt')).to.equal(undefined);
     });
 
-    it('a denied write stamps nothing, and a failing IO touches no metadata', async () => {
+    it('a denied write stamps nothing, and a failing IO writes no metadata', async () => {
       const g = guard(local('uploads', { 'a.txt': 'A' }), 'uploads', STAMPED, new FakeAuthz((p, r) => !(p === 'fs:write' && r === 'file:uploads:no.txt')));
+      await store.set('uploads', 'a.txt', { owner: bob });
+      store.calls.length = 0;
       await g.write('no.txt', 'x').catch(() => undefined);
       await g.copy('missing.txt', 'b.txt').catch(() => undefined);
-      expect(store.calls.filter((c) => !c.startsWith('get'))).to.deep.equal([]);
+      // The stale cleanup of the missing destination runs before the IO (D10 rev. 2); nothing else is written.
+      expect(store.calls.filter((c) => !c.startsWith('get'))).to.deep.equal(['deleteTree uploads b.txt']);
+      expect([...store.rows.keys()]).to.deep.equal(['uploads:a.txt']);
     });
   });
 

@@ -114,7 +114,9 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
   } else {
     const next: FileMeta | null = p.target.stampOwner && p.owner ? { owner: p.owner } : null;
     if (next) checkMeta(store, p, next);
-    await clearStale(store, p, effect.probe === 'dirExists');
+    // A copy or upload can create a directory where `exists` was false; no directory there either means its subtree
+    // rows are stale. Key stores (S3) report every directory as existing, so they only lose the row.
+    await clearStale(store, p, effect.probe === 'dirExists' || !(await probe(p, 'dirExists')));
     if (next) task = () => stampIfAbsent(store, p, next);
   }
   if (!task) return undefined;

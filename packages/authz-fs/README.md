@@ -98,13 +98,15 @@ authz: {
   `zip` (the archive) and `unzip` (the destination directory) stamp a path only when they create it. A path that
   existed before keeps its metadata, also when it has none, so `fs:write` on a file or a directory gives no owner
   rights over it. A path that did not exist starts empty: before the IO, rows left there (by an `rm` outside the
-  guard, or a failed update) are deleted, the row of a file and the subtree of a directory the provider reports
-  missing. After the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a
+  guard, or a failed update) are deleted: the row of the path, and the rows under it too when the provider reports
+  no directory there either (a key store such as S3 reports every directory, so there only the row goes). After the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a
   slow write does not take over what others created at that path while it ran.
 - First-writer works both ways: in a writable tree several principals share, whoever creates a path first (even an
   empty file, or a `writeStream` left open) owns what others later write there, and reads it through an owner
   grant. Where reads go by owner, grant `fs:write` on per-user prefixes
-  (`{ type: 'dir', id: 'uploads:users/{principal.id}' }`) rather than on one shared directory.
+  (`{ type: 'dir', id: 'uploads:users/{principal.id}' }`) rather than on one shared directory. With an owner
+  grant of `fs:delete`, the owner of a directory can `rm` it, files others wrote under it included, since `rm` is
+  checked on the directory only.
 - Only a definite allow stamps: an `audit`-mode denial or a conditional answer writes no owner. The owner is the
   principal the decision ran for: under `inherit` delegation the delegate, as the owner relation is then evaluated
   for the delegate too; under `intersect` the agent. SYSTEM, UNATTENDED, anonymous and `link` principals own
