@@ -30,9 +30,14 @@ Each one is registered under its class name, so configuration can name it:
 | `AuthnThrottle` | `DbAuthnThrottle` | `authn.throttle.service: 'DbAuthnThrottle'` |
 | `SecretStore` | `DbSecretStore` | — |
 | `IdentityLinkStore` | `DbIdentityLinkStore` | — |
-| `AuthnEventSink` | `DbAuthnAuditSink` | listed in `authn.audit.sinks` |
+| `AuthnEventSink` | `DbAuthnAuditSink` | gets every event; may be listed in `authn.audit.sinks` to run first |
 | — | `DbNonceStore` (`NonceStore`, `MemoryNonceStore`) | — |
 | — | `DbMfaStore` | for MFA steps (authn-totp) |
+
+The package's shipped config sets `authn.throttle.service: 'DbAuthnThrottle'`: the core refuses to
+choose between it and `MemoryAuthnThrottle` by itself. An app that wants the memory throttle names it
+in its own config. `DbAuthnAuditSink` gets every event once registered; it is not listed in
+`authn.audit.sinks`, since config arrays concatenate and an app could never take it out again.
 
 The MFA cipher (`mfaKeyFrom`, `encryptMfaSecret`, `decryptMfaSecret`) uses AES-256-GCM.
 The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is

@@ -3704,7 +3704,7 @@ export default {
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
     },
     throttle: {                                    // r4, H31: backoff per key, never a lock (§22.13)
-      service: 'DbAuthnThrottle',                  // 'MemoryAuthnThrottle' for one instance
+      service: 'DbAuthnThrottle',                  // shipped by authn-orm's config (K6); 'MemoryAuthnThrottle' for one instance
       // after `free` counted attempts on a key, attempt n+1 waits min(baseDelayMs × 2^(n − free), maxDelayMs) after attempt n
       login:  { account: { free: 5,  baseDelayMs: 1000,  maxDelayMs: 60000 },     // 1 s, 2 s, 4 s … 60 s
                 ip:      { free: 20, baseDelayMs: 1000,  maxDelayMs: 300000 } },  // … 5 min
