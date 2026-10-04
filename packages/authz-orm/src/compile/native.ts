@@ -1,5 +1,5 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import { IdentifierQuoter, JoinStatement, LazyQueryStatement, QueryStatement, WhereBoolean, WhereBuilder, WhereQueryStatement } from '@spinajs/orm';
+import { DatetimeValueConverter, ExistsQueryStatement, IdentifierQuoter, JoinStatement, LazyQueryStatement, QueryStatement, WhereBoolean, WhereBuilder, WhereQueryStatement } from '@spinajs/orm';
 import type { IQueryStatement, IQueryStatementResult, IWhereBuilder, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 import type { ModelClass } from '../registry.js';
@@ -154,14 +154,50 @@ export class NativeCorrelation extends AuthzStatement {
   }
 }
 
+const groupOf = (s: IQueryStatement): object | undefined => (s instanceof WhereQueryStatement ? (s as unknown as { _builder?: object })._builder : undefined);
+
+const existsOf = (s: IQueryStatement): object | undefined => (s instanceof ExistsQueryStatement ? (s as unknown as { _builder?: object })._builder : undefined);
+
+// A correlation, or a where group or an EXISTS / NOT EXISTS over a correlatedQuery sub that holds one.
+const holds = (s: IQueryStatement): boolean => {
+  if (s instanceof NativeCorrelation) return true;
+  const group = groupOf(s);
+  if (group !== undefined) return holdsCorrelation(group);
+  const sub = existsOf(s);
+  return sub !== undefined && isCorrelated(sub) && holdsCorrelation(sub);
+};
+
+const holdsCorrelation = (b: object): boolean => rawStatements(b).some(holds);
+
+// The SQL joins statements with their own connectors, AND binding tighter: split at each OR.
+const orOperands = (statements: readonly IQueryStatement[]): IQueryStatement[][] => {
+  const out: IQueryStatement[][] = [];
+  statements.forEach((s, i) => {
+    if (i === 0 || s.Boolean === WhereBoolean.OR) out.push([s]);
+    else out[out.length - 1].push(s);
+  });
+  return out;
+};
+
 /**
- * A correlatedQuery sub-query compiles `correlations AND (the rest)`. With no correlation at its top
- * level (they sit in where groups, or in SQL fragments), an OR there would reach around them.
+ * A correlatedQuery sub-query and each where group compile `correlations AND (the rest)`. With no
+ * correlation at the sub's top level, an OR there would reach around the ones in its groups. In any
+ * list, an OR operand without a correlation reaches around a sibling that holds one, so either all
+ * operands hold one (onPath) or none does (an OR that the correlations around it contain).
  */
-export function assertTopLevelAnd(sub: object): void {
+export function assertCorrelationsHold(sub: object): void {
   const statements = rawStatements(sub);
-  if (statements.some((s) => s instanceof NativeCorrelation)) return;
-  if (statements.slice(1).some((s) => s.Boolean === WhereBoolean.OR)) throw new AuthzConfigError('authz-orm: a correlatedQuery sub-query with no correlate() at its top level has an orWhere there, which reaches around the correlations in its where groups; put the OR inside a where group');
+  if (!statements.some((s) => s instanceof NativeCorrelation) && statements.slice(1).some((s) => s.Boolean === WhereBoolean.OR)) throw new AuthzConfigError('authz-orm: a correlatedQuery sub-query with no correlate() at its top level has an orWhere there, which reaches around the correlations in its where groups; put the OR inside a where group');
+  const visit = (b: object): void => {
+    const rest = rawStatements(b).filter((s) => !(s instanceof NativeCorrelation));
+    const holding = orOperands(rest).map((operand) => operand.some(holds));
+    if (holding.includes(true) && holding.includes(false)) throw new AuthzConfigError('authz-orm: a where group of a correlatedQuery sub-query that holds a correlate() is joined by orWhere with a condition that holds none, which reaches around the correlation; correlate every operand of the OR, or move the OR inside the correlated group');
+    for (const s of rest) {
+      const group = groupOf(s);
+      if (group !== undefined) visit(group);
+    }
+  };
+  visit(sub);
 }
 
 /** The filtered row's column, resolved when the fragment builds. */
@@ -181,22 +217,96 @@ class Bound {
 
 type Part = string | OuterColumn | Identifier | Bound;
 
+const refuse = (why: string): AuthzConfigError => new AuthzConfigError(`authz-orm: an sql fragment ${why}`);
+
+// SQLite takes these, and any character above ASCII, as part of a parameter name.
+const isNameChar = (c: string): boolean => /[A-Za-z0-9_$]/.test(c) || c.codePointAt(0)! >= 0x80;
+
+/**
+ * The fragment is wrapped in brackets, so its literal text must not close them, end the statement or
+ * comment out the rest. Quoted literals are skipped, which needs a scanner that reads them as both
+ * dialects do: so no backslash in them (PG E'…' escapes) and no `[…]` (SQLite) or `$…$` (PG) quoting.
+ * A `?` would shift the bindings (orm-postgres turns one inside a literal into `$n` too), and so would
+ * SQLite's named parameters `:x` and `@x`; PG's `::` cast and `@>` / `<@` stay. It scans the parts
+ * with nested fragments spliced in, as a `-` at the end of one and a `-` at the start of the next
+ * make a comment too. A doubled quote inside a literal toggles twice, which leaves the state as the
+ * escape does.
+ */
+function assertContained(parts: readonly Part[]): void {
+  let depth = 0;
+  let quote: string | undefined;
+  let prev2 = '';
+  let prev = '';
+  for (const part of parts) {
+    if (typeof part !== 'string') {
+      if (quote !== undefined) throw refuse('has a value inside a quoted literal; bind the whole value instead');
+      prev2 = prev = '';
+      continue;
+    }
+    for (const c of part) {
+      if (quote !== undefined) {
+        if (c === '\\') throw refuse('has a backslash in a quoted literal');
+        if (c === '?') throw refuse("has a '?' in a quoted literal; bind the value instead");
+        if (c === quote) quote = undefined;
+      } else if (c === "'" || c === '"' || c === '`') quote = c;
+      else if (c === '(') depth++;
+      else if (c === ')' && --depth < 0) throw refuse("closes a bracket it did not open: ')' before its '('");
+      else if (prev === '-' && c === '-') throw refuse("has a '--' comment");
+      else if (prev === '/' && c === '*') throw refuse("has a '/*' comment");
+      else if (((prev === ':' && prev2 !== ':') || prev === '@') && isNameChar(c)) throw refuse(`has '${prev}${c}', which SQLite reads as a named parameter`);
+      else if (';#[]$?'.includes(c)) throw refuse(`has a '${c}' outside a quoted literal`);
+      prev2 = prev;
+      prev = c;
+    }
+  }
+  if (quote !== undefined) throw refuse(`leaves a ${quote} quote open`);
+  if (depth > 0) throw refuse(`leaves ${depth} bracket(s) open`);
+}
+
+const isBindable = (v: unknown): boolean => v === null || ['string', 'number', 'bigint', 'boolean'].includes(typeof v) || v instanceof Date || Buffer.isBuffer(v);
+
+const describeValue = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'an array' : typeof v === 'object' ? `an object (${(v as object).constructor?.name ?? 'no prototype'})` : typeof v);
+
 /** SQL text with late-bound column references (`sql` tag of `@spinajs/authz-orm/native`). */
 export class SqlFragment {
   readonly parts: readonly Part[];
 
   constructor(strings: readonly string[], values: readonly unknown[]) {
     const parts: Part[] = [];
+    const bind = (v: unknown, what: string) => {
+      if (!isBindable(v)) throw refuse(`cannot bind ${describeValue(v)} ${what}; pass a string, number, bigint, boolean, null, Date or Buffer`);
+      parts.push(new Bound(v));
+    };
     strings.forEach((s, i) => {
       parts.push(s);
       if (i >= values.length) return;
       const v = values[i];
       if (v instanceof SqlFragment) parts.push(...v.parts);
       else if (v instanceof OuterColumn || v instanceof Identifier) parts.push(v);
-      else parts.push(new Bound(v));
+      else if (Array.isArray(v)) {
+        // One binding per element: `IN (${list})`. Empty, it would render `IN ()`.
+        if (v.length === 0) throw refuse('cannot bind an empty array; test the empty list in the compiler (IN of nothing is FALSE)');
+        v.forEach((x, j) => {
+          if (j > 0) parts.push(', ');
+          bind(x, 'as an array element');
+        });
+      } else bind(v, 'as a value');
     });
+    assertContained(parts);
     this.parts = parts;
   }
+}
+
+/**
+ * node-sqlite3 binds a Date as a REAL (epoch ms) and a bigint as NULL, while the orm stores datetimes
+ * as TEXT, which SQLite sorts above every number. So a Date goes through the connection's datetime
+ * converter (the form the orm writes) and a bigint becomes a number when exact, else its decimal
+ * text (an integer column's affinity on SQLite, a cast on Postgres, reads it back exactly).
+ */
+function bindingOf(value: unknown, driver: OrmDriver): unknown {
+  if (value instanceof Date) return driver.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter).toDB(value, undefined as never, undefined as never);
+  if (typeof value === 'bigint') return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+  return value;
 }
 
 /** A `SqlFragment` in a native builder, a correlatedQuery sub-query or a where group of either, parenthesised. */
@@ -216,7 +326,7 @@ export class NativeSql extends QueryStatement {
         if (typeof p === 'string') return p;
         if (p instanceof OuterColumn) return `${q(outer)}.${q(p.column)}`;
         if (p instanceof Identifier) return p.names.map(q).join('.');
-        bindings.push(p.value);
+        bindings.push(bindingOf(p.value, root.site.driver));
         return '?';
       })
       .join('');

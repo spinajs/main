@@ -5,7 +5,7 @@ import { RawQuery, SelectQueryBuilder, extractModelDescriptor } from '@spinajs/o
 import type { IWhereBuilder, ModelBase } from '@spinajs/orm';
 
 import { columnsOf } from './columns.js';
-import { Identifier, NativeCorrelation, NativeSql, NativeWhereBuilder, OuterColumn, SqlFragment, assertTopLevelAnd, correlatedSubOf, markCorrelated, nativeRootOf } from './compile/native.js';
+import { Identifier, NativeCorrelation, NativeSql, NativeWhereBuilder, OuterColumn, SqlFragment, assertCorrelationsHold, correlatedSubOf, markCorrelated, nativeRootOf } from './compile/native.js';
 import { entryOf } from './registry.js';
 import { keepBooleans, shield } from './shield.js';
 
@@ -35,7 +35,7 @@ const assertColumn = (model: unknown, column: string): void => {
 /** The sub-query's own where, ANDed after its correlations, also in its clones. */
 function guardSub(sub: SelectQueryBuilder): SelectQueryBuilder {
   markCorrelated(sub);
-  shield(sub, assertTopLevelAnd);
+  shield(sub, assertCorrelationsHold);
   const clone = sub.clone;
   Object.defineProperty(sub, 'clone', {
     configurable: true,

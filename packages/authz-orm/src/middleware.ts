@@ -42,17 +42,27 @@ export function scopeOf(builder: object): QueryScope | undefined {
   return scopes.get(builder);
 }
 
+// The engine may read a hidden, symbol-keyed or getter field that Object.keys does not list.
+const dataOnly = (v: object): boolean =>
+  Reflect.ownKeys(v).every((k) => {
+    if (k === 'length' && Array.isArray(v)) return true;
+    const d = Reflect.getOwnPropertyDescriptor(v, k);
+    return typeof k === 'string' && d !== undefined && d.enumerable === true && 'value' in d;
+  });
+
 const plain = (v: object): boolean => {
   const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
+  return (proto === Object.prototype || proto === null) && dataOnly(v);
 };
 
-/** Equal data: plain objects and arrays by their entries, dates by time, anything else (an `identity` model, a class instance) by reference. */
+const plainArray = (v: unknown): v is unknown[] => Array.isArray(v) && Object.getPrototypeOf(v) === Array.prototype && dataOnly(v);
+
+/** Equal data: plain objects and arrays by their entries, dates by time, anything else (an `identity` model, a class instance, an Array subclass) by reference. */
 function sameData(a: unknown, b: unknown, depth: number): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || depth > 16) return false;
   if (a instanceof Date || b instanceof Date) return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
-  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => sameData(x, b[i], depth + 1));
+  if (Array.isArray(a) || Array.isArray(b)) return plainArray(a) && plainArray(b) && a.length === b.length && a.every((x, i) => sameData(x, b[i], depth + 1));
   if (!plain(a) || !plain(b)) return false;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameData((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], depth + 1));

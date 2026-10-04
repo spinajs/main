@@ -310,6 +310,223 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
           expect(() => q.toDB()).to.throw(AuthzConfigError, /orWhere/);
         });
 
+        /** Runs `fn` with a compiler for `op` that builds `shape` into the native builder. */
+        const withShape = async (op: `native:${string}`, shape: (builder: IWhereBuilder<unknown>, principal: Principal, args: any) => void, fn: () => Promise<void>) => {
+          // DI keys its instances by class name: one name per op.
+          const name = `ShapeCompiler_${op.replace(/\W/g, '_')}`;
+          const Shape = {
+            [name]: class extends OrmNativeCompiler {
+              readonly op = op;
+              compile(args: unknown, builder: IWhereBuilder<unknown>, _model: never, principal: Principal): void {
+                shape(builder, principal, args);
+              }
+            },
+          }[name];
+          DI.register(Shape).as(OrmNativeCompiler);
+          try {
+            await fn();
+          } finally {
+            DI.unregister(Shape);
+            // The instance is cached by class name, and the next dialect's shape closes over its own tables.
+            DI.uncache(Shape);
+            DI.uncache(OrmNativeCompiler);
+          }
+        };
+
+        const fails = (p: Promise<unknown>) =>
+          p.then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+
+        systemIt('an orWhere next to a where group that holds a correlation is refused at any depth, as it reaches around it', async () => {
+          type Shape = 'group' | 'deep' | 'besideOwn' | 'existsOr' | 'orOfGroups' | 'existsOrExists' | 'plainOr';
+          /** A correlatedQuery over the rules, correlated with the row's id, in `g`. */
+          const ruleExists = (g: IWhereBuilder<unknown>) => {
+            const r = correlatedQuery(g, fixture.rules!);
+            correlate(r, 'scope_id', 'id');
+            return r;
+          };
+          const SHAPE = 'native:test.shape' as const;
+          const viewerOr = (g: IWhereBuilder<unknown>, column: string, outer: string) =>
+            g
+              .where(function (this: IWhereBuilder<unknown>) {
+                correlate(this, column, outer);
+              })
+              .orWhere('role', 'viewer');
+          await withShape(
+            SHAPE,
+            (builder, principal, shape: Shape) => {
+              const m = correlatedQuery(builder, fixture.table!);
+              m.where('principal_id', principal.id);
+              if (shape === 'group')
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  viewerOr(this, 'scope_id', 'org_id');
+                });
+              else if (shape === 'deep')
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  this.where(function (this: IWhereBuilder<unknown>) {
+                    viewerOr(this, 'scope_id', 'org_id');
+                  });
+                });
+              else if (shape === 'besideOwn') {
+                correlate(m, 'scope_id', 'org_id');
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  viewerOr(this, 'scope_id', 'id');
+                });
+              } else if (shape === 'existsOr')
+                // The correlation sits in a nested sub-query: OR-ed with a plain condition it is reached around too.
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  this.whereExist(ruleExists(this)).orWhere('role', 'viewer');
+                });
+              else if (shape === 'existsOrExists')
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  this.whereExist(ruleExists(this)).orWhere(function (this: IWhereBuilder<unknown>) {
+                    this.whereNotExists(ruleExists(this));
+                    this.where('role', 'nobody');
+                  });
+                });
+              else if (shape === 'orOfGroups')
+                // onPath without its own group: both operands hold a correlation.
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  this.where(function (this: IWhereBuilder<unknown>) {
+                    correlate(this, 'scope_id', 'org_id');
+                  }).orWhere(function (this: IWhereBuilder<unknown>) {
+                    this.where('scope_type', 'ndoc');
+                    correlate(this, 'scope_id', 'id');
+                  });
+                });
+              else {
+                // An OR with no correlation on either side, ANDed with one: it cannot reach around it.
+                correlate(m, 'scope_id', 'org_id');
+                m.where(function (this: IWhereBuilder<unknown>) {
+                  this.where('role', 'editor').orWhere('role', 'viewer');
+                });
+              }
+              builder.whereExist(m);
+            },
+            async () => {
+              for (const shape of ['group', 'deep', 'besideOwn', 'existsOr'] as const) {
+                for (const f of [{ op: SHAPE, args: shape } as ResourceFilter, not({ op: SHAPE, args: shape } as ResourceFilter)]) {
+                  const e = await fails(sqlIds(Doc, f, alice));
+                  expect(e, `${dialect} ${shape} ${f.op}`).to.be.instanceOf(AuthzConfigError);
+                  expect((e as Error).message).to.match(/orWhere/);
+                }
+              }
+              const f = (args: Shape): ResourceFilter => ({ op: SHAPE, args } as ResourceFilter);
+              expect(await sqlIds(Doc, f('orOfGroups'), alice)).to.deep.equal(['d1', 'd2', 'd3', 'd6']);
+              // A rule names d1 only; no membership has role 'nobody'.
+              expect(await sqlIds(Doc, f('existsOrExists'), alice)).to.deep.equal(['d1']);
+              expect(await sqlIds(Doc, not(f('existsOrExists')), alice)).to.deep.equal(['d2', 'd3', 'd4', 'd5', 'd6', 'd7']);
+              expect(await sqlIds(Doc, f('plainOr'), alice)).to.deep.equal(['d1', 'd2', 'd6']);
+              expect(await sqlIds(Doc, not(f('plainOr')), alice)).to.deep.equal(['d3', 'd4', 'd5', 'd7']);
+            },
+          );
+        });
+
+        systemIt('an sql fragment cannot close the brackets it is wrapped in', async () => {
+          const ESCAPE = 'native:test.escape' as const;
+          await withShape(
+            ESCAPE,
+            (builder, principal, args: 'brackets' | 'named@' | 'named:') => {
+              if (args === 'brackets') whereSql(builder, sql`1 = 0)) OR ((1 = 1`);
+              else {
+                // SQLite reads @x and :x as parameters that take the next binding: the restriction below would lose its principal.
+                const m = correlatedQuery(builder, fixture.table!);
+                correlate(m, 'scope_id', 'org_id');
+                whereSql(m, args === 'named@' ? sql`@x IS NULL` : sql`:x IS NULL`);
+                m.where('principal_id', principal.id);
+                builder.whereNotExists(m);
+              }
+            },
+            async () => {
+              for (const [args, message] of [
+                ['brackets', /bracket/],
+                ['named@', /parameter/],
+                ['named:', /parameter/],
+              ] as const) {
+                const op = { op: ESCAPE, args } as ResourceFilter;
+                for (const f of [op, not(op), and(cmp('s', 'eq', 'zzz'), op)]) {
+                  const e = await fails(sqlIds(Doc, f, alice));
+                  expect(e, `${dialect} ${JSON.stringify(f)}`).to.be.instanceOf(AuthzConfigError);
+                  expect((e as Error).message).to.match(message);
+                }
+              }
+            },
+          );
+        });
+
+        systemIt('an array in an sql fragment binds one value per element, so IN (…) and NOT EXISTS read the list', async () => {
+          const IN = 'native:test.in' as const;
+          await withShape(
+            IN,
+            (builder, _principal, args: { ids: string[]; negate?: boolean }) => {
+              const m = correlatedQuery(builder, fixture.table!);
+              correlate(m, 'scope_id', 'org_id');
+              whereSql(m, sql`${subColumn(m, 'principal_id')} IN (${args.ids})`);
+              if (args.negate) builder.whereNotExists(m);
+              else builder.whereExist(m);
+            },
+            async () => {
+              const f = (ids: string[], negate = false): ResourceFilter => ({ op: IN, args: { ids, negate } } as ResourceFilter);
+              expect(await sqlIds(Doc, f(['alice', 'bob']), alice)).to.deep.equal(['d1', 'd2', 'd6']);
+              expect(await sqlIds(Doc, f(['alice', 'bob'], true), alice)).to.deep.equal(['d3', 'd4', 'd5', 'd7']);
+              expect(await sqlIds(Doc, f(['carol']), alice)).to.deep.equal(['d1', 'd3']);
+              expect(await sqlIds(Doc, f(['carol'], true), alice)).to.deep.equal(['d2', 'd4', 'd5', 'd6', 'd7']);
+              const e = await fails(sqlIds(Doc, f([]), alice));
+              expect(e).to.be.instanceOf(AuthzConfigError);
+              expect((e as Error).message).to.match(/empty array/);
+            },
+          );
+        });
+
+        systemIt('a Date binds as the orm stores datetimes and a bigint as an integer, so an expiry check and its NOT EXISTS hold', async () => {
+          // The orm writes datetimes as `yyyy-MM-dd HH:mm:ss.SSS` (SQLite TEXT, which sorts above any number).
+          const Grant = await db.define(
+            {
+              name: 'Grant',
+              columns: { principal_id: 'TEXT', scope_id: 'TEXT', expires_at: dialect === 'sqlite' ? 'DATETIME' : 'TIMESTAMP', n: dialect === 'sqlite' ? 'INTEGER' : 'BIGINT' },
+              rows: [
+                { id: 'g1', principal_id: 'alice', scope_id: 'o1', expires_at: '2020-01-01 00:00:00.000', n: 1 },
+                { id: 'g2', principal_id: 'alice', scope_id: 'o2', expires_at: '2099-01-01 00:00:00.000', n: '9007199254740993' },
+              ],
+            },
+            dialect,
+          );
+          const grants = db.table(Grant);
+          const EXPIRY = 'native:test.expiry' as const;
+          type Args = { test: 'live' | 'expired' | 'small' | 'big'; negate?: boolean };
+          await withShape(
+            EXPIRY,
+            (builder, principal, args: Args) => {
+              const m = correlatedQuery(builder, grants);
+              correlate(m, 'scope_id', 'org_id');
+              m.where('principal_id', principal.id);
+              const now = new Date();
+              const at = subColumn(m, 'expires_at');
+              if (args.test === 'live') whereSql(m, sql`${at} > ${now}`);
+              else if (args.test === 'expired') whereSql(m, sql`${at} < ${now}`);
+              else if (args.test === 'small') whereSql(m, sql`1 IN (${[1n, 2n]})`);
+              else whereSql(m, sql`${subColumn(m, 'n')} = ${9007199254740993n}`);
+              if (args.negate) builder.whereNotExists(m);
+              else builder.whereExist(m);
+            },
+            async () => {
+              const f = (test: Args['test'], negate = false): ResourceFilter => ({ op: EXPIRY, args: { test, negate } } as ResourceFilter);
+              // g1 (o1) expired in 2020, g2 (o2) lives until 2099.
+              expect(await sqlIds(Doc, f('live'), alice)).to.deep.equal(['d2', 'd6']);
+              expect(await sqlIds(Doc, f('live', true), alice)).to.deep.equal(['d1', 'd3', 'd4', 'd5', 'd7']);
+              // The restriction form: an expired grant hides its org's rows.
+              expect(await sqlIds(Doc, f('expired', true), alice)).to.deep.equal(['d2', 'd3', 'd4', 'd5', 'd6', 'd7']);
+              expect(await sqlIds(Doc, f('expired'), alice)).to.deep.equal(['d1']);
+              expect(await sqlIds(Doc, f('small'), alice)).to.deep.equal(['d1', 'd2', 'd6']);
+              expect(await sqlIds(Doc, f('small', true), alice)).to.deep.equal(['d3', 'd4', 'd5', 'd7']);
+              expect(await sqlIds(Doc, f('big'), alice)).to.deep.equal(['d2', 'd6']);
+              expect(await sqlIds(Doc, f('big', true), alice)).to.deep.equal(['d1', 'd3', 'd4', 'd5', 'd7']);
+            },
+          );
+        });
+
         systemIt("the sub-query's own orWhere stays inside its correlation", async () => {
           // `scope = org AND (principal = ? OR role = 'public')`, never `… OR role = 'public'` on any org.
           expect((await verify(member({ loose: true }), bob)).yes).to.deep.equal(['d2', 'd3', 'd6']);
@@ -568,4 +785,60 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
       });
     });
   }
+});
+
+describe('authz-orm native sql fragments', () => {
+  const refused = (make: () => unknown, message: RegExp) => expect(make).to.throw(AuthzConfigError, message);
+
+  it('refuse literal text that could leave the brackets the fragment is wrapped in, or comment the rest out', () => {
+    refused(() => sql`1 = 0)) OR ((1 = 1`, /bracket/);
+    refused(() => sql`(1 = 1`, /bracket/);
+    refused(() => sql`1 = 1)`, /bracket/);
+    refused(() => sql`) OR (`, /bracket/);
+    refused(() => sql`1 = 1; DROP TABLE x`, /;/);
+    refused(() => sql`1 = 1 -- rest`, /--/);
+    refused(() => sql`1 = 1 /* rest */`, /\/\*/);
+    refused(() => sql`1 = 1 # rest`, /#/);
+    refused(() => sql`'unterminated`, /quote/);
+    refused(() => sql`${'a'} = 'b`, /quote/);
+    refused(() => sql`x = '${'v'}'`, /quoted/);
+    const pgEscaped = `x = E'${String.fromCharCode(92)}'' OR 1 = 1`;
+    refused(() => sql(Object.assign([pgEscaped], { raw: [pgEscaped] }) as unknown as TemplateStringsArray), /backslash/);
+    // SQLite reads [a] and PG reads $$a$$ as quoted names and strings: their contents are not scanned here.
+    refused(() => sql`[x'] OR (1 = 1) OR [']`, /\[/);
+    refused(() => sql`$$x'$$ OR (1 = 1) OR $$'$$`, /\$/);
+    refused(() => sql`x = ?`, /\?/);
+    // A comment made of the end of one part and the start of a nested fragment.
+    refused(() => sql`(0 -${sql`-x`}\n= 1) OR (1 = 1)`, /--/);
+    refused(() => sql`1 = 1 /${sql`* x */`}`, /\/\*/);
+    refused(() => sql`x = '${sql`a`}${'v'}'`, /quoted/);
+    // SQLite named parameters take the next binding.
+    refused(() => sql`@x IS NULL`, /parameter/);
+    refused(() => sql`:x IS NULL`, /parameter/);
+    refused(() => sql`${'a'}:b = 1`, /parameter/);
+    refused(() => sql`x = @${sql`y`}`, /parameter/);
+    // orm-postgres turns every ? into $n, also inside a literal.
+    refused(() => sql`role <> '?'`, /\?/);
+  });
+
+  it('accept brackets, quotes and comment marks inside quoted literals, PG casts and containment, and nested fragments', () => {
+    expect(() => sql`'(' <> ')' AND '--;/*[$#:x@y' <> ''''`).to.not.throw();
+    expect(() => sql`"a""(b" IS NULL AND \`c\`\`)\` IS NULL`).to.not.throw();
+    expect(() => sql`x::text = 'a' AND a @> b AND a <@ b AND ${'v'}::int = 1`).to.not.throw();
+    expect(() => sql`NOT (${sql`(1 = ${1})`}) AND COALESCE((${sql`SELECT 1`}), ${2}) = ${2}`).to.not.throw();
+  });
+
+  it('bind scalars, dates and buffers; expand arrays one binding per element; refuse other values', () => {
+    expect(() => sql`${'a'} ${1} ${1n} ${true} ${null} ${new Date(0)} ${Buffer.from('x')}`).to.not.throw();
+    const f = sql`x IN (${['a', 1, null]})`;
+    const bound = f.parts.filter((p) => typeof p !== 'string').map((p) => (p as { value: unknown }).value);
+    expect(bound).to.deep.equal(['a', 1, null]);
+    expect(f.parts.filter((p) => typeof p === 'string').join('')).to.equal('x IN (, , )');
+    refused(() => sql`x IN (${[]})`, /empty array/);
+    refused(() => sql`x IN (${[['a']]})`, /array/);
+    refused(() => sql`x = ${{ a: 1 }}`, /object/);
+    refused(() => sql`x IN (${[{ a: 1 }]})`, /object/);
+    refused(() => sql`x = ${undefined}`, /undefined/);
+    refused(() => sql`x = ${() => 1}`, /function/);
+  });
 });

@@ -437,6 +437,47 @@ describe('authz-orm junction, populate and cloned builders', function () {
           expect(idsOf(await as(aal2, () => inner.q))).to.deep.equal(['t1', 't3']);
         });
 
+        it('a principal with a hidden, symbol-keyed or getter field, at any depth, is compared by reference', async () => {
+          await host({ [READ.task]: permit(rel('owner')) });
+          const { Task } = await tasks();
+          const built = (p: Principal): Promise<{ q: any }> => as(p, () => ({ q: Task.query() }));
+          const forbidden = async (build: Principal, run: Principal, what: string) => {
+            const q = (await built(build)).q;
+            expect(await fails(as(run, () => q)), what)
+              .to.be.instanceOf(Forbidden)
+              .with.property('message')
+              .that.matches(/another principal/);
+          };
+          // The engine reads the hidden ceiling: alice's builder must not run for this principal.
+          const ceiling = Object.defineProperty({ ...alice }, 'ceiling', { value: { permissions: [] }, enumerable: false }) as Principal;
+          await forbidden(alice, ceiling, 'hidden ceiling');
+
+          const hidden = Object.defineProperty({ ...alice }, 'tag', { value: 'x', enumerable: false }) as Principal;
+          const symbol = { ...alice, [Symbol('tag')]: 'x' } as Principal;
+          const getter = Object.defineProperty({ ...alice }, 'tag', { get: () => 'x', enumerable: true }) as Principal;
+          const deep = { ...alice, attributes: Object.defineProperty({}, 'tier', { value: 'gold', enumerable: false }) } as Principal;
+          const plainArray = { ...alice, attributes: { tiers: ['a'] } } as Principal;
+          const hiddenOnArray = { ...alice, attributes: { tiers: Object.defineProperty(['a'], 'tier', { value: 'gold', enumerable: false }) } } as Principal;
+          class Tiers extends Array<string> {}
+          const subclassArray = { ...alice, attributes: { tiers: Tiers.from(['a']) } } as Principal;
+          for (const [p, other, what] of [
+            [hidden, alice, 'hidden'],
+            [symbol, alice, 'symbol'],
+            [getter, alice, 'getter'],
+            [deep, alice, 'hidden in attributes'],
+            [hiddenOnArray, plainArray, 'hidden on an array'],
+            [subclassArray, plainArray, 'an Array subclass'],
+          ] as const) {
+            await forbidden(p, other, what);
+            await forbidden(other, p, `${what}, reversed`);
+          }
+
+          const same = (await built(symbol)).q;
+          expect(idsOf(await as(symbol, () => same))).to.deep.equal(['t1', 't3']);
+          const copy = (await built(plainArray)).q;
+          expect(idsOf(await as({ ...plainArray, attributes: { tiers: ['a'] } }, () => copy))).to.deep.equal(['t1', 't3']);
+        });
+
         it('a sub-select built as another principal is Forbidden in whereIn and whereExist', async () => {
           await host({ [READ.task]: permit(rel('owner')) });
           const { Task, Note } = await tasks();

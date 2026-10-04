@@ -54,7 +54,9 @@ table likewise compiles once, after the gate passed it in `beforeQueryExecution`
 - A builder runs only for the principal it was built for: the same object, or one with equal data
   (id, attributes, authn facts, ceiling, delegation and the rest). Run by any other principal (the
   same user with other attributes or without MFA included) it fails with `Forbidden`; SYSTEM may run
-  it.
+  it. Data is compared only in plain objects and arrays whose own properties are all enumerable,
+  string-keyed values; a principal with a hidden, symbol-keyed or getter field anywhere is the same
+  only as the very same object.
 - `whereExist` and `whereNotExists` on a many-to-many relation with a scoped target test the target
   rows the residual allows. Inside a nested `where(fn)` they are refused with `Forbidden`: the orm
   builds that sub-query on the junction table alone.
@@ -71,6 +73,39 @@ Residuals compile for SQLite and PostgreSQL. Both must store text as UTF-8 (SQLi
 encoding, a PostgreSQL database created with `ENCODING 'UTF8'`): string order and the one-character
 `_` of `like` follow code points only then.
 
+## Field filtering
+
+`filterFields(decision, data, mode)` keeps the fields of `data` that `decision.fields[mode]` allows
+(field globs, `filterObject` semantics). Values come back JSON-shaped: `toJSON` runs first, so a
+model gives the record its `toJSON()` returns (a `@Hidden` column is never there). An array is a
+list of records: each element is filtered on its own, and paths do not name array indexes.
+`removed` lists the dropped paths sorted, a subtree dropped whole as one path, an array's path for
+the scalar elements dropped from it. A denied decision keeps nothing: `{}` for a record, `[]` for an
+array.
+
+## Database audit
+
+`DbDecisionAudit` (from `@spinajs/authz-orm/audit`) writes one `authz_audit` row per audit record:
+`id` (uuid), `at`, `kind`, `principal` (`type:id`), `permission`, `resource` (`resourceKey`),
+`reason`, `trace` (JSON; for an `admin` record the command). Longer values are cut to the column
+widths. A failed write is logged (`authz-audit`) and the record dropped; it never fails a check.
+
+1. Import `@spinajs/authz-orm/audit` before the ORM boots. It registers the `AuthzAuditEntry` model
+   and the migration `AuthzAudit_2026_10_01_00_00_00`, both on the connection named `authz-audit`.
+2. Map that name: `db.Aliases: { 'authz-audit': 'default' }`, or configure a connection of that
+   name. Without one the migration is skipped with a warning and every record fails.
+3. Register and select it:
+   `DI.register(DbDecisionAudit).as(DecisionAudit)` (or in a domain's container), with
+   `authz.audit.service: 'DbDecisionAudit'` (or `authz.domains.<name>.audit.service`).
+
+The import does not register it as the `DecisionAudit`: without `authz.audit.service` the host
+takes the last one registered, so loading the module would silently replace the log audit.
+
+`at` holds UTC time without an offset, whatever the server's time zone, so rows from hosts in
+other zones compare and the hour repeated when daylight saving ends sorts right. Through the model
+it reads back as a luxon `DateTime` in the local zone; `at.setZone('utc', { keepLocalTime: true })`
+gives the instant.
+
 ## Native compilers
 
 An `OrmNativeCompiler` writes its condition into the builder it is handed; the compiler wraps it in
@@ -86,13 +121,25 @@ as authz-rbac's `native:rbac.assignment` does), import the helpers from
   after the correlations, so an `orWhere` there cannot reach past them. In a group the correlation
   is ANDed with that group's conditions, so `onPath` is one `EXISTS`: a group per path column,
   joined with `orWhere(fn)`. A sub-query with no correlation at its top level refuses an `orWhere`
-  there (it would reach around the groups);
+  there (it would reach around the groups). At any depth, an `orWhere` that joins a group holding a
+  correlation with a condition holding none is refused when the query compiles: correlate every
+  operand of such an OR, or keep the OR inside the correlated group. An `EXISTS` or `NOT EXISTS`
+  over a correlated sub-query counts as holding a correlation; one written in an `sql` fragment
+  does not;
 - `whereSql(holder, fragment)` adds an `` sql`…` `` fragment, in which `outerColumn(builder, col)`
   is the filtered row's column, `subColumn(sub, col)` a sub-query's own column and `identifier(name)`
   a quoted name. It writes SQL the helpers above cannot build, such as `below` (a `CASE` over the
   row's path columns) or `attr()` (`COALESCE((SELECT …), :default)` with the row's column in the
-  scalar sub-select). Other values in the template are bound; the fragment is parenthesised, and its
-  NULL handling (Kleene) is the compiler's job;
+  scalar sub-select). Other values in the template are bound: a string, number, boolean, `null` or
+  `Buffer` as one parameter; a `Date` in the form the orm writes datetimes (the connection's
+  datetime converter: local time text, so it compares with columns the orm wrote); a `bigint` as a
+  number when exact, else as its decimal text; an array as one parameter per element
+  (`IN (${roles})`; an empty array is refused, so test the empty list in the compiler); anything
+  else is refused. The fragment is parenthesised, and `sql` refuses literal text that could leave
+  those parentheses or shift the bindings: unbalanced brackets, `;`, `--`, `/*`, `#`, `[`, `]`,
+  `$`, `?`, SQLite named parameters (`:x`, `@x`; PG's `::type`, `@>` and `<@` are fine), an
+  unclosed quote, and a backslash, a `?` or a value inside a quoted literal, also where a nested
+  fragment meets the text around it. Its NULL handling (Kleene) is the compiler's job;
 - `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first.
 
 Every name is resolved when the query compiles, so an alias given later (`populate()`,

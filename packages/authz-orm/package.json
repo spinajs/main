@@ -14,6 +14,11 @@
       "types": "./lib/mjs/native.d.ts",
       "import": "./lib/mjs/native.js",
       "require": "./lib/cjs/native.js"
+    },
+    "./audit": {
+      "types": "./lib/mjs/audit/index.d.ts",
+      "import": "./lib/mjs/audit/index.js",
+      "require": "./lib/cjs/audit/index.js"
     }
   },
   "type": "module",
@@ -61,12 +66,14 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
-    "@spinajs/orm": "2.0.549"
+    "@spinajs/orm": "2.0.549",
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/log": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",
-    "@spinajs/orm-sqlite": "2.0.549"
+    "@spinajs/orm-sqlite": "2.0.549",
+    "@types/luxon": "^3.6.1"
   }
 }
