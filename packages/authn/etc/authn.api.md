@@ -875,8 +875,10 @@ export declare abstract class AuthenticationStrategy extends AsyncService {
     /**
      * Throttle keys this attempt counts against (account key needs the login string).
      * Non-interactive strategies (token, keys, jwt) return an account key and an account-ip key derived from the credential's stable id
-     * (e.g. token id, key id; never the raw secret), so succeed gives the attempt back and healthy API clients never back off.
-     * They count in the 'login' flow like every authenticate call.
+     * (e.g. token id, key id; never the raw secret). Non-interactive strategies count only their failures in the 'login' flow: the
+     * service peeks before verify and counts after a failure, so parallel requests on a valid credential never back off (K5), and it
+     * scopes their account key by the client ip, so failures sent from elsewhere never delay the credential's owner (K6). A parallel
+     * burst is verified in full, so they must take only unguessable credentials (128 bits or more, or signatures).
      */
     abstract throttleKeys(c: Credentials, ctx: AuthnContext): readonly ThrottleKey[];
     /** Verify only; no session, no MFA, no events: AuthnService does those. Must take the same time for unknown accounts (A02). */
@@ -897,7 +899,8 @@ export type ThrottleFlow = "login" | "mfa" | "reset" | "reauth";
 /** Backoff, never a lock (H31). MemoryAuthnThrottle (core), DbAuthnThrottle (authn-orm). */
 export declare abstract class AuthnThrottle {
     /**
-     * Counts the attempt before verification and claims its slot atomically; a refused attempt is not counted (A05, A06).
+     * Counts the attempt and claims its slot atomically: before verification for interactive strategies, after a failure for
+     * per-request ones (K5); a refused attempt is not counted (A05, A06).
      * A refusal means: verify nothing, answer as A02 with Retry-After = retryAfterSeconds.
      */
     abstract attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{
