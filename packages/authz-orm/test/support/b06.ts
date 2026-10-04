@@ -1,7 +1,7 @@
-import { AccessDenied, AuthorizationModel, CORE_FILTER_OPS, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthorizationModel, runWithPrincipal } from '@spinajs/authz';
 import type { AuthzService, Principal, ResourceFilter } from '@spinajs/authz';
-import { FAKE_TUPLE_OP, hostHarness, testHost } from '@spinajs/authz-testing';
-import type { BehaviourHarness, CombineConfig, FakeTupleSchema, SqlPagesHandle, Tuple, World } from '@spinajs/authz-testing';
+import { FAKE_TUPLE_OP, testHost } from '@spinajs/authz-testing';
+import type { CombineConfig, FakeTupleSchema, Tuple } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IWhereBuilder, ModelBase } from '@spinajs/orm';
 
@@ -13,11 +13,10 @@ import { TestDb } from './db.js';
 import type { Dialect } from './db.js';
 import { allRows, sqlIds } from './residual.js';
 import type { Model } from './residual.js';
-import { asSystem } from './system.js';
 
 export type ColumnKind = 'text' | 'int' | 'real' | 'bool';
 
-const SQL_TYPES: Record<Dialect, Record<ColumnKind, string>> = {
+export const SQL_TYPES: Readonly<Record<Dialect, Readonly<Record<ColumnKind, string>>>> = {
   sqlite: { text: 'TEXT', int: 'INTEGER', real: 'REAL', bool: 'BOOLEAN' },
   postgres: { text: 'TEXT', int: 'INTEGER', real: 'DOUBLE PRECISION', bool: 'BOOLEAN' },
 };
@@ -90,14 +89,14 @@ export class OrmTables {
 }
 
 // node-sqlite3 binds a boolean as text; the orm writes 1 and 0.
-const sqliteRow = (row: Row): Row => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === 'boolean' ? (v ? 1 : 0) : v])) as Row;
+export const sqliteRow = (row: Readonly<Record<string, unknown>>): Record<string, unknown> => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === 'boolean' ? (v ? 1 : 0) : v]));
 
 /**
  * Deletes every row of the table and inserts `rows` in one statement (a missing key is NULL),
  * unscoped. On Postgres it also analyses the table: without statistics the planner estimates a
  * correlated sub-query high enough to JIT-compile it, which takes seconds per query.
  */
-async function replaceRows(db: TestDb, table: string, dialect: Dialect, rows: readonly Readonly<Record<string, unknown>>[]): Promise<void> {
+export async function replaceRows(db: TestDb, table: string, dialect: Dialect, rows: readonly Readonly<Record<string, unknown>>[]): Promise<void> {
   await db.raw(`DELETE FROM "${table}"`, [], dialect);
   if (rows.length > 0) {
     const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
@@ -314,123 +313,4 @@ export async function agree(service: AuthzService, tables: OrmTables, principals
     }
   }
   return into;
-}
-
-// ---------------------------------------------------------------------------------------------
-// The kit's B06.sql through the host harness
-
-const MAPPED_OPS = new Set<string>([...CORE_FILTER_OPS, FAKE_TUPLE_OP]);
-
-/** The world's permissions of `type`: a permission's `types` when it names them, else its `<type>:` prefix. */
-function permissionsOf(world: World, type: string): string[] {
-  return world.permissions.flatMap((p) => {
-    const name = typeof p === 'string' ? p : p.name;
-    const types = typeof p === 'string' ? undefined : (p as { types?: readonly string[] }).types;
-    return (types ? types.includes(type) : name.startsWith(`${type}:`)) ? [name] : [];
-  });
-}
-
-/**
- * The ORM tables a kit world's single adapter describes, and their rows. What it cannot map
- * (task 11 reuses it) throws rather than run another world: several adapters or types, adapter
- * attributes or permission defs, world-level relations or scope resolvers, ops beyond the core and
- * native:fake.tuple, a relation other than an owner column, a parent that has a parent itself, a
- * column of several value types.
- */
-export function tablesOf(world: World): { spec: TableSpec; rows: Row[] } {
-  const fail = (what: string): never => {
-    throw new Error(`ormHarness: ${what}`);
-  };
-  const adapters = world.adapters ?? [];
-  if (adapters.length !== 1 || adapters[0].types.length !== 1) fail('a world needs one adapter with one type');
-  if ((world.relations ?? []).length > 0 || (world.scopes ?? []).length > 0) fail('world-level relations and scope resolvers do not map to the ORM');
-  const a = adapters[0];
-  const type = a.types[0];
-  if (a.attributes !== undefined || a.permissions !== undefined) fail('adapter attributes and permission defs do not map to the ORM');
-  if ('compiles' in a && a.compiles === undefined) fail('an adapter that is not list-scoped does not map to the ORM');
-  for (const op of a.compiles ?? []) if (!MAPPED_OPS.has(op)) fail(`op ${op} has no compiler here`);
-  const source = a.rows?.[type] ?? [];
-  const links = a.parents ?? [];
-  if (links.some(([c]) => c.type !== type)) fail('parents of another type than the rows');
-  if (links.some(([, p]) => links.some(([c]) => c.type === p.type && c.id === p.id))) fail('a parent with a parent of its own (the ORM adapter lists one level of scope columns)');
-  const parents = new Map(links.map(([c, p]) => [String(c.id), p]));
-  const scopeTypes = [...new Set([...parents.values()].map((p) => p.type))];
-  const owner = (a.relations ?? []).map((r) => (!('column' in r) || r.relation !== 'owner' || r.type !== type ? fail('only an owner column relation of the type maps to the ORM') : r.column))[0];
-
-  const columns: Record<string, ColumnKind> = {};
-  for (const field of new Set(source.flatMap((r) => Object.keys(r)))) {
-    if (field === 'id') continue;
-    const kinds = new Set(
-      source
-        .map((r) => r[field])
-        .filter((v) => v !== null && v !== undefined)
-        .map((v) => (typeof v === 'boolean' ? 'bool' : typeof v === 'number' ? (Number.isInteger(v) ? 'int' : 'real') : typeof v === 'string' ? 'text' : 'other')),
-    );
-    if (kinds.has('other') || (kinds.size > 1 && !(kinds.size === 2 && kinds.has('int') && kinds.has('real')))) throw new Error(`ormHarness: column ${field} holds values of several types`);
-    columns[field] = kinds.has('real') ? 'real' : (kinds.values().next().value as ColumnKind | undefined) ?? 'text';
-  }
-  const scopeColumns = scopeTypes.map((scopeType) => ({ column: `${scopeType}_id`, scopeType }));
-  for (const s of scopeColumns) {
-    if (s.column in columns) fail(`the scope column ${s.column} is also a field of the rows`);
-    columns[s.column] = 'text';
-  }
-
-  const rows = source.map((r): Row => {
-    const parent = parents.get(r.id);
-    return { ...r, ...(parent ? { [`${parent.type}_id`]: parent.id } : {}) };
-  });
-  const permissions = permissionsOf(world, type);
-  if (permissions.length === 0) fail(`no permission of ${type}`);
-  return { spec: { type, permissions, columns, ...(owner ? { owner } : {}), scopeColumns }, rows };
-}
-
-/**
- * hostHarness with the world's adapter replaced by ORM tables: the OrmResourceAdapter serves the
- * type, `list` is the middleware's select and `load` the ORM row, so `agree` compares the engine's
- * check with the SQL. A FakeTupleModel's tuples and schema are loaded for the tuple compiler.
- */
-export function ormHarness(db: () => TestDb, dialect: Dialect): BehaviourHarness {
-  let world: World | undefined;
-  let tables: OrmTables | undefined;
-  let release: (() => void) | undefined;
-  const base = hostHarness({
-    facets: ['list', 'sql'],
-    // Before the domain boots, so the adapter serves the type when the boot checks run.
-    async register(host) {
-      host.setConfig(['authz', 'orm', 'domain'], host.domain);
-      // What a case that failed half-way left behind.
-      await db().clear();
-      const { spec, rows } = tablesOf(world!);
-      tables = await OrmTables.define(db(), spec, dialect);
-      await tables.load(rows);
-      const tuple = (world!.models ?? []).find((m) => m.kind === 'fake-tuple');
-      if (tuple?.kind === 'fake-tuple') await (await TupleTables.define(db(), dialect)).load(tuple.tuples ?? [], tuple.schema);
-    },
-    extend() {
-      const t = tables!;
-      const sqlPages: SqlPagesHandle = { page: (principal, permission, _type, p) => t.page(principal, permission, p.limit, p.offset) };
-      return {
-        list: async (principal, permission) => (await t.scoped(principal, permission)) ?? [],
-        load: async (ref) => (await asSystem(() => (t.classFor(t.spec.permissions[0]) as any).where('id', ref.id).first())) ?? null,
-        lane: { sqlPages },
-        dispose: () => db().clear(),
-      };
-    },
-  });
-  return {
-    ...base,
-    async beforeAll() {
-      release = useTupleCompiler();
-      await base.beforeAll?.();
-    },
-    async afterAll() {
-      await base.afterAll?.();
-      release?.();
-    },
-    // The kit's FakeAdapter would serve the type too: the ORM tables take its place.
-    setup: (w, ctx) => {
-      world = w;
-      return base.setup({ ...w, adapters: [] }, ctx);
-    },
-  };
 }

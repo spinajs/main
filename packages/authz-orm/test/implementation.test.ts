@@ -3,6 +3,7 @@ import 'mocha';
 
 import * as api from '../src/api.js';
 import * as root from '../src/index.js';
+import * as scopeAttributes from '../src/scope-attributes/index.js';
 
 const expect = chai.expect;
 
@@ -27,7 +28,7 @@ describe('authz-orm exports', () => {
     expect(root.OrmNativeCompiler).to.equal(api.OrmNativeCompiler);
   });
 
-  it('exports nothing beyond the contract', () => {
-    expect(Object.keys(root).sort()).to.deep.equal(Object.keys(api).sort());
+  it('exports nothing beyond the contract and the scope attribute store', () => {
+    expect(Object.keys(root).sort()).to.deep.equal([...new Set([...Object.keys(api), ...Object.keys(scopeAttributes)])].sort());
   });
 });
