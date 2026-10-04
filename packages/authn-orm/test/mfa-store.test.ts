@@ -81,6 +81,88 @@ for (const kind of DB_KINDS) {
       expect(await store.confirm(BOB, 'totp')).to.eq(false);
     });
 
+    it('confirm without an expected cipher text still confirms a confirmed row again', async () => {
+      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      expect(await store.confirm(ALICE, 'totp', T0)).to.eq(true);
+      const later = new Date(T0.getTime() + 1000);
+      expect(await store.confirm(ALICE, 'totp', later)).to.eq(true);
+      expect((await store.get(ALICE, 'totp'))?.confirmedAt).to.deep.eq(later);
+    });
+
+    it('putPending inserts an unconfirmed row and replaces a pending one', async () => {
+      expect(await store.putPending(ALICE, 'totp', CIPHER, 'kid-a')).to.eq(true);
+      expect(await store.get(ALICE, 'totp')).to.deep.eq({ secretEnc: CIPHER, keyId: 'kid-a', confirmedAt: null, lastStep: null, createdAt: T0 });
+      expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(true);
+
+      clock.tick(60_000);
+      expect(await store.putPending(ALICE, 'totp', 'v1.other', 'kid-b')).to.eq(true);
+
+      expect(await store.get(ALICE, 'totp')).to.deep.eq({ secretEnc: 'v1.other', keyId: 'kid-b', confirmedAt: null, lastStep: null, createdAt: new Date(T0.getTime() + 60_000) });
+      expect(await rawQuery(db.driver, 'SELECT step FROM authn_mfa')).to.have.length(1);
+    });
+
+    it('putPending over a confirmed row is false and changes nothing', async () => {
+      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      expect(await store.confirm(ALICE, 'totp', T0)).to.eq(true);
+      expect(await store.acceptStep(ALICE, 'totp', 1000)).to.eq(true);
+      const before = await store.get(ALICE, 'totp');
+
+      clock.tick(60_000);
+      expect(await store.putPending(ALICE, 'totp', 'v1.other', 'kid-b')).to.eq(false);
+
+      expect(await store.get(ALICE, 'totp')).to.deep.eq(before);
+      await store.remove(ALICE, 'totp');
+      expect(await store.putPending(ALICE, 'totp', 'v1.other', 'kid-b')).to.eq(true);
+    });
+
+    it('putPending refuses bad arguments as put does', async () => {
+      for (const call of [() => store.putPending(ALICE, '', CIPHER, 'kid'), () => store.putPending(ALICE, 'totp', '', 'kid'), () => store.putPending(ALICE, 'totp', CIPHER, 'k'.repeat(33))]) {
+        expect(await rejection(call())).to.be.instanceOf(InvalidArgument);
+      }
+      expect(await rawQuery(db.driver, 'SELECT step FROM authn_mfa')).to.deep.eq([]);
+    });
+
+    it('leaves one row after 20 parallel putPending calls', async () => {
+      const texts = Array.from({ length: 20 }, (_, i) => `v1.parallel-${i}`);
+      const results = await Promise.all(texts.map((t) => store.putPending(ALICE, 'totp', t, 'kid-a')));
+      expect(results.every((r) => r)).to.eq(true);
+      const rows = (await rawQuery(db.driver, 'SELECT secret_enc, confirmed_at FROM authn_mfa')) as Record<string, unknown>[];
+      expect(rows).to.have.length(1);
+      expect(texts).to.include(rows[0].secret_enc);
+      expect(rows[0].confirmed_at).to.eq(null);
+    });
+
+    it('lets no parallel putPending replace a confirmed row', async () => {
+      await store.put(ALICE, 'totp', CIPHER, 'kid-a');
+      await store.confirm(ALICE, 'totp', T0);
+      const results = await Promise.all(Array.from({ length: 20 }, (_, i) => store.putPending(ALICE, 'totp', `v1.parallel-${i}`, 'kid-b')));
+      expect(results.some((r) => r)).to.eq(false);
+      expect(await store.get(ALICE, 'totp')).to.deep.include({ secretEnc: CIPHER, keyId: 'kid-a', confirmedAt: T0 });
+    });
+
+    it('confirm with an expected cipher text is true once, for the row holding it', async () => {
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+
+      expect(await store.confirm(ALICE, 'totp', T0, 'v1.other')).to.eq(false);
+      expect((await store.get(ALICE, 'totp'))?.confirmedAt).to.eq(null);
+      expect(await store.confirm(ALICE, 'totp', T0, CIPHER)).to.eq(true);
+      expect(await store.confirm(ALICE, 'totp', new Date(T0.getTime() + 1000), CIPHER)).to.eq(false);
+      expect((await store.get(ALICE, 'totp'))?.confirmedAt).to.deep.eq(T0);
+      expect(await store.confirm(BOB, 'totp', T0, CIPHER)).to.eq(false);
+    });
+
+    it('lets exactly one of 20 parallel conditional confirms win', async () => {
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      const results = await Promise.all(Array.from({ length: 20 }, () => store.confirm(ALICE, 'totp', T0, CIPHER)));
+      expect(results.filter((r) => r)).to.have.length(1);
+    });
+
+    it('confirm refuses an empty expected cipher text', async () => {
+      await store.putPending(ALICE, 'totp', CIPHER, 'kid-a');
+      expect(await rejection(store.confirm(ALICE, 'totp', T0, ''))).to.be.instanceOf(InvalidArgument);
+      expect((await store.get(ALICE, 'totp'))?.confirmedAt).to.eq(null);
+    });
+
     it('SR-15 acceptStep is true once per time step and refuses older steps', async () => {
       await store.put(ALICE, 'totp', CIPHER, 'kid-a');
 

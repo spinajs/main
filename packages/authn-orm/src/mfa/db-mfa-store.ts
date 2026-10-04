@@ -3,12 +3,13 @@ import { randomUUID } from 'node:crypto';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, UnexpectedServerError } from '@spinajs/exceptions';
-import { OrmDriver } from '@spinajs/orm';
+import { OrmDriver, RawQuery } from '@spinajs/orm';
 import type { WhereBuilder } from '@spinajs/orm';
 
 import { identityKey } from '../identity.js';
 import { StoreConnection } from '../support/connection.js';
 import type { StoreOptions } from '../support/connection.js';
+import type { Dialect } from '../support/sql.js';
 import { checkedMs, checkedText, columnText, isDuplicate, rowsAffected, selectTime, sha256hex, sqlTime, textMs } from '../support/sql.js';
 
 const MFA = 'authn_mfa';
@@ -36,6 +37,21 @@ function lastStepOf(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(String(value));
   if (!Number.isSafeInteger(n)) throw new UnexpectedServerError(`DbMfaStore: last_step ${String(value)} is not a safe integer`);
   return n;
+}
+
+/**
+ * `secret_enc = ?` where the plain comparison is wrong: `secret_enc` is TEXT, which SQL Server cannot compare with
+ * `=`, and MySQL compares under a case-blind collation by default. Undefined: the plain comparison is exact.
+ */
+function exactSecretEnc(dialect: Dialect, value: string): RawQuery | undefined {
+  switch (dialect) {
+    case 'mssql':
+      return RawQuery.create('CAST([secret_enc] AS NVARCHAR(MAX)) = ?', [value]);
+    case 'mysql':
+      return RawQuery.create('CAST(`secret_enc` AS BINARY) = ?', [value]);
+    default:
+      return undefined;
+  }
 }
 
 function timeOf(text: string | null): Date | null {
@@ -102,13 +118,54 @@ export class DbMfaStore {
     throw new UnexpectedServerError(`DbMfaStore.put: the ${name} row kept changing under this call`);
   }
 
-  /** Sets `confirmed_at` (default now); true when the step exists. */
-  public async confirm(id: IdentityRef, step: string, at: Date = new Date()): Promise<boolean> {
+  /**
+   * As `put`, but never overwrites a confirmed step: false means a confirmed row exists and nothing changed. The
+   * replacing update is conditional on `confirmed_at IS NULL`, so a confirmation that lands first always wins.
+   */
+  public async putPending(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean> {
+    const identity = identityKey(id);
+    const name = stepName(step);
+    checkedText(secretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: secretEnc');
+    checkedText(keyId, 32, 'DbMfaStore: keyId');
+    const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.putPending: the clock'));
+    const { driver } = await this.connection.get();
+
+    const fields = { secret_enc: secretEnc, key_id: keyId, confirmed_at: null, last_step: null, created_at: now };
+    for (let i = 0; i < MAX_TRIES; i++) {
+      try {
+        await driver
+          .insert()
+          .into(MFA)
+          .values({ identity, step: name, ...fields });
+        return true;
+      } catch (err) {
+        if (!isDuplicate(err)) throw err;
+      }
+      if (rowsAffected(await driver.update().in(MFA).update(fields).where('identity', identity).where('step', name).whereNull('confirmed_at')) === 1) return true;
+      // No row updated: either it is confirmed, or a parallel remove deleted it and the insert is worth retrying.
+      if ((await this.get(id, name))?.confirmedAt) return false;
+    }
+    throw new UnexpectedServerError(`DbMfaStore.putPending: the ${name} row kept changing under this call`);
+  }
+
+  /**
+   * Sets `confirmed_at` (default now); true when the step exists. With `expectedSecretEnc`, only an unconfirmed step
+   * holding that cipher text is confirmed, so the answer is true for exactly the call that confirmed it.
+   */
+  public async confirm(id: IdentityRef, step: string, at: Date = new Date(), expectedSecretEnc?: string): Promise<boolean> {
     const identity = identityKey(id);
     const name = stepName(step);
     const t = sqlTime(checkedMs(at, 'DbMfaStore.confirm: at'));
-    const { driver } = await this.connection.get();
-    return rowsAffected(await driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name)) === 1;
+    if (expectedSecretEnc !== undefined) checkedText(expectedSecretEnc, Number.MAX_SAFE_INTEGER, 'DbMfaStore: expectedSecretEnc');
+    const { driver, dialect } = await this.connection.get();
+    const q = driver.update().in(MFA).update({ confirmed_at: t }).where('identity', identity).where('step', name);
+    if (expectedSecretEnc !== undefined) {
+      const exact = exactSecretEnc(dialect, expectedSecretEnc);
+      q.whereNull('confirmed_at');
+      if (exact) q.where(exact);
+      else q.where('secret_enc', expectedSecretEnc);
+    }
+    return rowsAffected(await q) === 1;
   }
 
   /** True once per time step, and never for a step at or below the last accepted one (SR-15); false when the step does not exist. */

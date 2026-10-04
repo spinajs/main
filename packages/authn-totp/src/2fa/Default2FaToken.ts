@@ -12,6 +12,7 @@ export enum TWO_FA_METATADATA_KEYS {
     OTP = "2fa:otp",
 }
 
+/** @deprecated Use `TotpMfaStep`, which encrypts the secret and accepts each code once. */
 @Injectable(TwoFactorAuthProvider)
 export class Default2FaToken extends TwoFactorAuthProvider {
     @Config('authn.mfa.totp')

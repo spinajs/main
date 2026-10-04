@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./cipher": {
+      "types": "./lib/mjs/mfa/cipher.d.ts",
+      "import": "./lib/mjs/mfa/cipher.js",
+      "require": "./lib/cjs/mfa/cipher.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "cipher": [
+        "lib/cjs/mfa/cipher.d.ts"
+      ]
     }
   },
   "type": "module",
