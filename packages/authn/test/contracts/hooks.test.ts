@@ -102,7 +102,9 @@ describe('hand-off and hook contracts', () => {
       expect(c.ExternalLoginHook.doc).to.contain('Array.ofType');
       expect(c.ExternalLoginHook.doc).to.contain('after a successful external login');
       expect(c.ExternalLoginHook.doc).to.contain('group');
-      expect(c.ExternalLoginHook.doc).to.contain('after the identity is resolved and before the session is issued');
+      expect(c.ExternalLoginHook.doc).to.contain('AuthnService calls every hook');
+      expect(c.ExternalLoginHook.doc).to.contain('before MFA and the session are issued');
+      expect(c.ExternalLoginHook.doc).to.contain('issues no session');
       expect(c.ExternalLoginHook.doc).to.contain('a throw fails the login with the A02 answer');
       expect(c.ExternalLoginHook.doc).to.contain('not rolled back');
       expect(c.ExternalLoginHook.doc).to.contain('idempotent');

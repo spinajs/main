@@ -9,6 +9,7 @@ import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
+import { ExternalLoginHook } from '../contracts/hooks.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
@@ -405,6 +406,11 @@ export class DefaultAuthnService extends AuthnService {
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
     const refused = await this.statusRefusal(r.delegation?.onBehalfOf ?? id);
     if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
+    // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new link.
+    if (s.interactive && r.external) {
+      const hookError = await this.runLoginHooks(id, r.external);
+      if (hookError !== null) return this.refuse(ctx, s, 'hook_error', 'invalid_credentials', { identity: id, data: { error: hookError } });
+    }
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
     await this.throttle.succeed(keys, 'login');
@@ -434,6 +440,20 @@ export class DefaultAuthnService extends AuthnService {
     await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
     await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
+  }
+
+  /**
+   * Every ExternalLoginHook of this container's lineage (as AuthnAudit takes its sinks), resolved per login so hooks
+   * registered late run; the error class of the first that throws, or null.
+   */
+  private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
+    try {
+      const hooks = (await this.container.resolveChain(ExternalLoginHook as unknown as Class<ExternalLoginHook>)) as readonly ExternalLoginHook[];
+      for (const hook of hooks) await hook.afterLogin(id, external);
+      return null;
+    } catch (err) {
+      return errorClass(err);
+    }
   }
 
   /** Only a subject of a type strategies vouch for skips the store, so an unknown type fails closed (D4, D4b). */

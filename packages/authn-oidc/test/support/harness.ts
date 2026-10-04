@@ -75,7 +75,6 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
     strategies: new Map([[KIT_PROVIDER, strategy]]),
     service,
     sessions,
-    hooks: () => [],
     redirects: { success: '/', failure: '/' },
     env: ENV,
     sessionCookie: (h: SessionHandle) => ({ Name: SESSION_COOKIE, Value: h.id, Options: { httpOnly: true, sameSite: 'strict', path: '/' } }),

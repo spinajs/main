@@ -182,6 +182,7 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
         sessions,
         sinks: [new RecordingEventSink()],
         principals: new RecordingPrincipalFactory(),
+        hooks: () => DI.resolve(Array.ofType(ExternalLoginHook)),
       });
       current.service = service;
       register(OidcController, BaseController);

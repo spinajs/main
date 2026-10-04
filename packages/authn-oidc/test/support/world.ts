@@ -1,6 +1,6 @@
 import { MemoryNonceStore } from '@spinajs/authn-orm';
 import { ExternalLoginHook } from '@spinajs/authn/contracts';
-import type { AuthnContext, AuthnEvent, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from '../../src/options/options.js';
@@ -73,7 +73,7 @@ export interface WorldOptions {
   readonly throttle?: Record<string, unknown>;
 }
 
-/** One provider over a fake IdP, with the kit's fake AuthnService, stores and a recording hook. */
+/** One provider over a fake IdP, with the kit's fake AuthnService (which runs the recording hook), stores. */
 export async function world(o: WorldOptions = {}) {
   const idp = o.idp ?? (await FakeIdp.create());
   const name = o.name ?? 'corp';
@@ -86,6 +86,7 @@ export async function world(o: WorldOptions = {}) {
   const strategy = new OidcStrategy({ provider, links, identities, linking });
   const sessions = new MemorySessionIssuer();
   const events = new RecordingEventSink();
+  const hook = new RecordingHook();
   const service = new FakeAuthnService({
     strategies: [strategy],
     throttle: new FakeBackoffThrottle(throttleParams(o.throttle ? ({ authn: { throttle: o.throttle } } as never) : {})),
@@ -97,20 +98,15 @@ export async function world(o: WorldOptions = {}) {
     sessions,
     sinks: [events],
     principals: new RecordingPrincipalFactory(),
+    hooks: () => [hook],
   });
-  const hook = new RecordingHook();
   const linker = new FakeAccountLinks(sessions, links);
-  const audited: AuthnEvent[] = [];
   const login = new OidcLogin({
     linker,
     links,
-    audit: async (e: AuthnEvent) => {
-      audited.push(e);
-    },
     strategies: new Map([[name, strategy]]),
     service,
     sessions,
-    hooks: () => [hook],
     redirects: { success: '/home', failure: '/login' },
     env: ENV,
     sessionCookie: (h: SessionHandle) => ({ Name: SESSION_COOKIE, Value: h.id, Options: { httpOnly: true } }),
@@ -128,5 +124,5 @@ export async function world(o: WorldOptions = {}) {
     return { begun, query, done, flow: flowOf(begun) };
   }
 
-  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, audited, login, ctx, request, flowOf, roundTrip };
+  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, login, ctx, request, flowOf, roundTrip };
 }

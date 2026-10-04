@@ -190,8 +190,9 @@ export declare abstract class RoleSource {
 }
 /**
  * Registered with Array.ofType; runs after a successful external login (OIDC), e.g. an app's group sync through AuthzAdmin.
- * Runs after the identity is resolved and before the session is issued; a throw fails the login with the A02 answer (the reason
- * goes to audit). Earlier hooks are not rolled back, so hooks must be idempotent.
+ * AuthnService calls every hook for an interactive strategy's external outcome, after the identity is resolved and its status
+ * checked and before MFA and the session are issued; a throw fails the login with the A02 answer and issues no session (audit
+ * reason hook_error). Earlier hooks are not rolled back, so hooks must be idempotent.
  */
 export declare abstract class ExternalLoginHook {
     abstract afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void>;

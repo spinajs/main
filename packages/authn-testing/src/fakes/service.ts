@@ -1,5 +1,5 @@
 import { AuthnService } from '@spinajs/authn/contracts';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalLoginHook, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -13,6 +13,8 @@ export interface FakeAuthnServiceDeps {
   /** Read at publish time, so a sink may be added after the service is built. */
   readonly sinks: readonly AuthnEventSink[];
   readonly principals: PrincipalFactory;
+  /** ExternalLoginHooks, read per login; they run for an interactive external outcome before MFA and the session (RFC N10-1). */
+  readonly hooks?: () => readonly ExternalLoginHook[];
 }
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
@@ -30,7 +32,8 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
  * with `peek`: peek before verify and count failures only, K5), audit every failure with its real
- * reason, answer status refusals as invalid_credentials, link or provision external subjects, issue a pending
+ * reason, answer status refusals as invalid_credentials, link or provision external subjects, run the external login
+ * hooks before any session, issue a pending
  * session when MFA is required, elevate on completeMfa, and re-authenticate without touching the session.
  * A fake, not N1's implementation.
  */
@@ -126,6 +129,14 @@ export class FakeAuthnService extends AuthnService {
     if (refused) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: refused });
       return failure('invalid_credentials');
+    }
+    if (s.interactive && r.external && this.d.hooks) {
+      try {
+        for (const hook of this.d.hooks()) await hook.afterLogin(id, r.external);
+      } catch (err) {
+        await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, identity: id, reason: 'hook_error', data: { error: err instanceof Error ? err.name : typeof err } });
+        return failure('invalid_credentials');
+      }
     }
     await this.d.throttle.succeed(keys, 'login');
     const facts = { method: r.method, strategy: s.name, assurance: 'aal1' as const, mfa: [] as string[] };

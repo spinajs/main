@@ -1,4 +1,4 @@
-import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnService, Credentials, ExternalLoginHook, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, IdentityLinkStore, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
 import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, flowSecrets, sessionBindingOf } from './flow/cookie.js';
@@ -54,8 +54,6 @@ export interface OidcLoginDeps {
   readonly strategies: ReadonlyMap<string, OidcStrategy>;
   readonly service: AuthnService;
   readonly sessions: SessionIssuer;
-  /** Read per login, so hooks registered late still run. */
-  readonly hooks: () => readonly ExternalLoginHook[];
   readonly redirects: { readonly success: OidcAppPath; readonly failure: OidcAppPath };
   readonly env: string | undefined;
   /** The session cookie for a handle the service issued (authn-http's cookie rules). */
@@ -67,11 +65,6 @@ export interface OidcLoginDeps {
   readonly linker?: OidcAccountLinks | null;
   /** Finds the link a DELETE names by provider. */
   readonly links?: IdentityLinkStore | null;
-  /**
-   * Audit (the core's AuthnAudit). The core audits the login before the hooks run, so a login the hooks refuse gets
-   * its own failure event; without it the audit trail would show only the success.
-   */
-  readonly audit?: (e: AuthnEvent) => Promise<void>;
 }
 
 /** An answer without a body that says nothing about why: the link routes' refusals. */
@@ -97,7 +90,7 @@ const errorName = (err: unknown): string => (err instanceof Error ? err.name : t
 
 /**
  * The login routes without a framework: `GET /auth/oidc/:provider` starts a flow, `/callback` completes it through
- * AuthnService and fans the mapped subject out to every ExternalLoginHook (D6). Every failure is one answer (D3).
+ * AuthnService, which runs every ExternalLoginHook before it issues the session (D6). Every failure is one answer (D3).
  */
 export class OidcLogin {
   constructor(protected readonly d: OidcLoginDeps) {}
@@ -137,28 +130,6 @@ export class OidcLogin {
     const handle = result.status === 'success' ? result.session : result.pending;
     if (!handle) {
       // An interactive strategy always gets a session from the core; without one the browser could not stay logged in.
-      return this.failure(req);
-    }
-    let ok = false;
-    let identity: IdentityRef | null = null;
-    let reason = 'hook_error';
-    try {
-      identity = await this.identityOf(result, handle);
-      const external = strategy.verified(credentials);
-      if (identity === null || external === undefined) {
-        reason = identity === null ? 'no_identity' : 'no_verified_subject';
-        this.d.log?.error(`authn-oidc: the login with provider ${provider} lost its ${reason === 'no_identity' ? 'identity' : 'verified subject'} after authentication`);
-      } else {
-        ok = await this.runHooks(identity, external);
-      }
-    } catch (err) {
-      this.d.log?.error(`authn-oidc: the login with provider ${provider} failed after authentication: ${errorName(err)}`);
-    }
-    if (!ok) {
-      await this.d.sessions.revoke(handle).catch((err: unknown) => this.d.log?.error(`authn-oidc: could not revoke the session of a refused login: ${errorName(err)}`));
-      await this.d
-        .audit?.({ type: 'login', outcome: 'failure', at: req.ctx.now, strategy: strategy.name, reason, ...(identity ? { identity } : {}), ...(req.ctx.ip ? { ip: req.ctx.ip } : {}), ...(req.ctx.userAgent ? { userAgent: req.ctx.userAgent } : {}) })
-        .catch(() => undefined);
       return this.failure(req);
     }
     const returnTo = decodeFlow(flow)?.r ?? this.d.redirects.success;
@@ -237,24 +208,6 @@ export class OidcLogin {
       this.d.log?.error(`authn-oidc: unlinking ${strategy.name} failed: ${errorName(err)}`);
       return { status: 403, cookies: [], body: REFUSED_BODY };
     }
-  }
-
-  protected async identityOf(result: AuthenticationResult, handle: SessionHandle): Promise<IdentityRef | null> {
-    if (result.status === 'success') return result.identity;
-    return (await this.d.sessions.restore(handle.id))?.identity ?? null;
-  }
-
-  /** A throwing hook fails the login (design §22.15), so hooks must be idempotent. */
-  protected async runHooks(identity: IdentityRef, external: Parameters<ExternalLoginHook['afterLogin']>[1]): Promise<boolean> {
-    for (const hook of this.d.hooks()) {
-      try {
-        await hook.afterLogin(identity, external);
-      } catch (err) {
-        this.d.log?.error(`authn-oidc: an ExternalLoginHook failed the login of ${external.provider}: ${errorName(err)}`);
-        return false;
-      }
-    }
-    return true;
   }
 
   /** D3: one answer for every failure; a browser goes to the failure page with no reason in the URL. */

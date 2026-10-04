@@ -23,12 +23,6 @@ export interface OidcStrategyDeps {
   readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
 }
 
-/**
- * Verified subjects by credentials object, for the login route's hook fan-out. Module-wide, not per instance: the core's
- * registry may build its own strategy instance per container, and the route must still find what that instance verified.
- */
-const verifiedSubjects = new WeakMap<object, OidcExternalSubject>();
-
 const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
 const QUERY_KEYS = ['code', 'state', 'iss', 'error'] as const;
@@ -53,8 +47,7 @@ const UNSUPPORTED: StrategyOutcome = { ok: false, reason: 'unsupported_credentia
 /**
  * `oidc:<name>` (design §22.15, A27): verifies an OIDC callback (state, code, ID token, userinfo) and answers the mapped
  * external subject; AuthnService links, provisions and issues the session. The provider's own linking switches are
- * enforced here (D5), since the core applies only the global ones. The subject of each successful verify is kept for the
- * login route's ExternalLoginHook fan-out (`verified`).
+ * enforced here (D5), since the core applies only the global ones. The core runs the ExternalLoginHooks.
  */
 export class OidcStrategy extends AuthenticationStrategy {
   public readonly name: OidcStrategyName;
@@ -84,12 +77,6 @@ export class OidcStrategy extends AuthenticationStrategy {
     return [];
   }
 
-  /** The subject a successful verify of exactly these credentials answered. */
-  public verified(c: Credentials): OidcExternalSubject | undefined {
-    const s = isPlainObject(c) ? verifiedSubjects.get(c) : undefined;
-    return s?.provider === this.name ? s : undefined;
-  }
-
   public async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
     const input = this.callbackOf(c);
     if (input === null) return UNSUPPORTED;
@@ -107,7 +94,6 @@ export class OidcStrategy extends AuthenticationStrategy {
       return FAILED;
     }
     if (gated === null) return NOT_LINKED;
-    verifiedSubjects.set(c, gated);
     return { ok: true, external: gated, method: 'oidc' };
   }
 

@@ -3,7 +3,7 @@ import 'mocha';
 import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
@@ -793,6 +793,129 @@ describe('DefaultAuthnService', function () {
       const p = await boot(undefined, { omit: ['IdentityLinkStore'] }, { authn: { linking: { jit: true } } });
       p.externalSubjects.set('sub-1', subject());
       failure(await p.service.authenticate(external, ctx()), 'not_linked');
+    });
+  });
+
+  describe('external login hooks (RFC N10-1)', () => {
+    const subject = (over: object = {}) => ({ provider: 'kit-idp', subject: 'sub-1', email: ALICE.login, emailVerified: true, ...over });
+    const external = { kind: 'external', provider: 'kit-idp', payload: { subject: 'sub-1' } } as Credentials;
+
+    interface HookCall {
+      readonly hook: string;
+      readonly identity: IdentityRef;
+      readonly external: ExternalSubject;
+      readonly sessionsAtCall: number;
+    }
+
+    /** Two hooks in registration order; `failing` names the one that throws. */
+    async function bootHooks(o: { linking?: object; failing?: 'first' | 'second'; strategies?: FakeStrategy[]; broken?: boolean } = {}) {
+      const calls: HookCall[] = [];
+      let p!: CoreParts;
+      const record = async (hook: 'first' | 'second', identity: IdentityRef, ext: ExternalSubject): Promise<void> => {
+        calls.push({ hook, identity, external: ext, sessionsAtCall: (await p.sessions.storage.storedKeys()).length });
+        if (o.failing === hook) throw new RangeError('group sync down');
+      };
+      class FirstHook extends ExternalLoginHook {
+        afterLogin = (identity: IdentityRef, ext: ExternalSubject) => record('first', identity, ext);
+      }
+      class SecondHook extends ExternalLoginHook {
+        afterLogin = (identity: IdentityRef, ext: ExternalSubject) => record('second', identity, ext);
+      }
+      class Broken extends ExternalLoginHook {
+        constructor() {
+          super();
+          throw new TypeError('cannot build');
+        }
+        async afterLogin(): Promise<void> {}
+      }
+      p = await boot(o.strategies, { register: (c) => [FirstHook, SecondHook, ...(o.broken ? [Broken] : [])].forEach((h) => c.register(h).as(ExternalLoginHook)) }, { authn: { linking: o.linking ?? {} } });
+      p.externalSubjects.set('sub-1', subject());
+      return { p, calls };
+    }
+
+    it('runs every hook with the identity and the mapped subject before the session is issued', async () => {
+      const { p, calls } = await bootHooks();
+      const a = await seedAlice(p);
+      await p.links.link(a, subject());
+      const r = success(await p.service.authenticate(external, ctx()));
+      assert.deepStrictEqual(r.identity, a);
+      assert.deepStrictEqual(
+        calls.map((c) => c.hook),
+        ['first', 'second'],
+      );
+      for (const c of calls) {
+        assert.deepStrictEqual(c.identity, a);
+        assert.deepStrictEqual(c.external, subject());
+        assert.strictEqual(c.sessionsAtCall, 0, 'no session exists while a hook runs');
+      }
+      assert.strictEqual(throttle!.succeeds.length, 1);
+    });
+
+    for (const failing of ['first', 'second'] as const) {
+      it(`a throwing ${failing} hook fails the login: no session, no success event, no throttle reset`, async () => {
+        const { p, calls } = await bootHooks({ failing });
+        const a = await seedAlice(p);
+        await p.links.link(a, subject());
+        failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+        assert.deepStrictEqual(
+          calls.map((c) => c.hook),
+          failing === 'first' ? ['first'] : ['first', 'second'],
+        );
+        assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+        assert.strictEqual(throttle!.succeeds.length, 0);
+        assert.ok(!p.events.all().some((e) => e.outcome === 'success'), JSON.stringify(p.events.all()));
+        const refused = loginFailures(p);
+        assert.strictEqual(refused.length, 1);
+        assert.deepStrictEqual({ type: refused[0].type, reason: refused[0].reason, strategy: refused[0].strategy, identity: refused[0].identity, data: refused[0].data }, { type: 'login', reason: 'hook_error', strategy: 'fake-idp', identity: a, data: { error: 'RangeError' } });
+      });
+    }
+
+    it('a throwing hook issues no pending session either', async () => {
+      const { p } = await bootHooks({ failing: 'first' });
+      const a = await seedAlice(p);
+      p.step.enrol(a);
+      await p.links.link(a, subject());
+      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+      assert.ok(!p.events.all().some((e) => e.type === 'mfa.challenge'));
+    });
+
+    it('a hook that cannot be built fails the login closed', async () => {
+      const { p } = await bootHooks({ broken: true });
+      const a = await seedAlice(p);
+      await p.links.link(a, subject());
+      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+      assert.ok(loginFailures(p).some((e) => e.reason === 'hook_error'));
+    });
+
+    it('a login a hook refuses creates no link by verified email', async () => {
+      const { p } = await bootHooks({ linking: { byVerifiedEmail: true }, failing: 'second' });
+      await seedAlice(p);
+      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+      assert.strictEqual(p.links.links.length, 0);
+      assert.ok(!p.events.all().some((e) => e.type === 'identity.link'));
+    });
+
+    it('runs no hook when the status refuses the identity or the subject is not linked', async () => {
+      const { p, calls } = await bootHooks();
+      const a = await seedAlice(p, { banned: true });
+      failure(await p.service.authenticate(external, ctx()), 'not_linked');
+      await p.links.link(a, subject());
+      failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
+      assert.strictEqual(calls.length, 0);
+    });
+
+    it('runs no hook for an identity outcome or a per-request external outcome', async () => {
+      const OWNER: IdentityRef = { type: 'user', id: 'owner-1' };
+      const perRequest = strategy('jwt', { verify: (c) => (tokenOf(c) === 'ext' ? { ok: true, external: { provider: 'kit-idp', subject: 'sub-1' }, method: 'jwt' } : { ok: true, identity: OWNER, method: 'jwt' }) });
+      const { p, calls } = await bootHooks({ strategies: [perRequest] });
+      p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
+      const a = await seedAlice(p);
+      await p.links.link(a, subject());
+      assert.deepStrictEqual(success(await p.service.authenticate(bearer('ext'), ctx({ purpose: 'request' }))).identity, a);
+      success(await p.service.authenticate(bearer('own'), ctx({ purpose: 'request' })));
+      assert.strictEqual(calls.length, 0);
     });
   });
 

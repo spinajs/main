@@ -1,10 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import type { Credentials, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
+import type { IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
 
-import { encodeFlow, flowCookieName } from '../src/flow/cookie.js';
-import { OidcStrategy } from '../src/strategy.js';
-import { ENV, ORIGIN, world } from './support/world.js';
+import { flowCookieName } from '../src/flow/cookie.js';
+import { ENV, world } from './support/world.js';
 
 type World = Awaited<ReturnType<typeof world>>;
 const FLOW = flowCookieName(ENV);
@@ -64,18 +63,6 @@ describe('authn-oidc login hardening', () => {
     expect(done.headers?.['retry-after']).to.match(/^[1-9][0-9]*$/);
   });
 
-  it('hands the verified subject over between strategy instances of one provider only', async () => {
-    const w = await world();
-    await w.links.link({ type: 'user', id: 'u-1' }, { provider: 'oidc:corp', subject: 'kc-1' });
-    const { flow, location } = await w.provider.begin({ redirectUri: `${ORIGIN}/cb`, now: new Date(), mode: 'login' });
-    const c: Credentials = { kind: 'external', provider: 'oidc:corp', payload: { flow: encodeFlow(flow), query: w.idp.authorize(location, { claims: { sub: 'kc-1' } }) } };
-    const other = new OidcStrategy({ provider: w.provider, links: w.links });
-    expect((await other.verify(c, w.ctx())).ok).to.eq(true);
-    expect(w.strategy.verified(c)?.subject).to.eq('kc-1');
-    const elsewhere = await world({ name: 'other' });
-    expect(elsewhere.strategy.verified(c)).to.eq(undefined);
-  });
-
   it('starts a link flow only same-origin or from the address bar', async () => {
     const w = await world();
     const alice = w.identities.add({ login: 'alice' });
@@ -110,25 +97,15 @@ describe('authn-oidc login hardening', () => {
     expect(await w.links.find('oidc:corp', 'a')).to.not.eq(null);
   });
 
-  it('a hook source that throws fails the login and revokes the session', async () => {
-    const w = await world();
-    const alice = w.identities.add({ login: 'alice' });
-    await w.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });
-    (w.login as unknown as { d: { hooks: () => never } }).d.hooks = () => {
-      throw new Error('DI failed');
-    };
-    const { done } = await w.roundTrip({ claims: { sub: 'kc-1' } });
-    expect(done.status).to.eq(401);
-    expect(await w.sessions.storage.storedKeys()).to.deep.eq([]);
-  });
-
-  it('audits a login the hooks refuse, after the core audited its success', async () => {
+  it('a login the hooks refuse is audited once, as a failure, and never as a success', async () => {
     const w = await world();
     const alice = w.identities.add({ login: 'alice' });
     await w.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });
     w.hook.fail = true;
     expect((await w.roundTrip({ claims: { sub: 'kc-1' } })).done.status).to.eq(401);
-    expect(w.audited).to.have.length(1);
-    expect(w.audited[0]).to.deep.include({ type: 'login', outcome: 'failure', strategy: 'oidc:corp', reason: 'hook_error', identity: alice });
+    const logins = w.events.all().filter((e) => e.type === 'login' || e.type === 'session.issue');
+    expect(logins).to.have.length(1);
+    expect(logins[0]).to.deep.include({ type: 'login', outcome: 'failure', strategy: 'oidc:corp', reason: 'hook_error', identity: alice });
+    expect(await w.sessions.storage.storedKeys()).to.deep.eq([]);
   });
 });
