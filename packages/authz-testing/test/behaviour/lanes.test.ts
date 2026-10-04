@@ -274,6 +274,18 @@ describe('lane fixtures', () => {
       await assert.rejects(run(orm({ op: 'select', model: 'Task' }, {}), d), /Access denied/);
     });
 
+    it('orm: compares populated exactly, null included (RFC L4-1)', async () => {
+      const seen: OrmQuery[] = [];
+      const res = { ids: ['n1', 'n2'], sql: ['select * from note left join task on note.task_id = task.id and task.owner = ?'], populated: { n1: null, n2: 't2' } };
+      const c = ctx({ orm: { run: async (q) => (seen.push(q), res), rows: async () => [] } });
+      const q = { op: 'select', model: 'Note', populate: 'task' } as const;
+      await run(orm(q, { ids: ['n1', 'n2'], populated: { n1: null, n2: 't2' }, where: false }), c);
+      assert.deepEqual(seen, [q]);
+      await fails(orm(q, { populated: { n2: 't2' } }), c, /populate task: populated/);
+      await fails(orm(q, { populated: { n1: 't1', n2: 't2' } }), c, /populated/);
+      await fails(orm(q, { populated: {} }), ctx({ orm: { run: async () => ({ ids: [], sql: [] }), rows: async () => [] } }), /populated/);
+    });
+
     it('fs: calls the method with its args, and reads raw', async () => {
       const seen: unknown[] = [];
       const c = ctx({ fs: { call: async (fs, method, args) => void seen.push([fs, method, args]), isRaw: (fs) => fs === 'plain' } });

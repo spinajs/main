@@ -1,5 +1,5 @@
-import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, NativeFilter, TRUE, principalKey, resourceKey } from '@spinajs/authz';
-import type { DecisionRequest, EvaluationContext, FilterOp, ModelCapabilities, ModelInitContext, Permission, PermissionDef, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, CORE_FILTER_OPS, FALSE, GLOBAL, NativeFilter, TRUE, principalKey, resourceKey } from '@spinajs/authz';
+import type { DecisionRequest, EvaluationContext, FilterOp, ModelCapabilities, ModelInitContext, ModelSummary, Permission, PermissionDef, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { TupleStore } from '../rebac.js';
 import type { Tuple } from '../rebac.js';
@@ -45,6 +45,13 @@ export class FakeTupleStore extends TupleStore {
     this.writes.push({ add, remove, actor, version });
     for (const fn of [...this.listeners]) fn(version);
     return version;
+  }
+
+  /** Every object of `type` that some tuple names as its object. */
+  async objects(type: ResourceType): Promise<readonly ResourceRef[]> {
+    const out = new Map<string, ResourceRef>();
+    for (const t of this.tuples.values()) if (t.object.type === type) out.set(resourceKey(t.object), t.object);
+    return [...out.values()];
   }
 
   onWrite(fn: (version: string) => void): () => void {
@@ -151,6 +158,36 @@ export class FakeTupleModel extends AuthorizationModel {
     }
   }
 
+  /**
+   * Every mapped permission the principal holds on some object at or below `at`. A proof starts
+   * with a tuple of the object, so only objects some tuple names can hold anything; each is walked
+   * as evaluate walks it. An entry is unconditional only when `at` is the object itself: a tuple
+   * grants per object, not on every row below `at`. A walk past maxDepth counts as held, and an
+   * object whose ancestors are unknown as below `at` (both conditional), so covers can only refuse more.
+   */
+  async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
+    const who = { type: principal.type, id: principal.id };
+    const conditional = new Map<Permission, boolean>();
+    const verdicts = new Map<string, Promise<boolean | 'too-deep'>>();
+    const verdict = (object: ResourceRef, name: string): Promise<boolean | 'too-deep'> => {
+      const key = `${resourceKey(object)}#${name}`;
+      let v = verdicts.get(key);
+      if (!v) verdicts.set(key, (v = this.holds(object, name, who).catch((e: unknown) => (e instanceof DepthExceeded ? ('too-deep' as const) : Promise.reject(e)))));
+      return v;
+    };
+    for (const [permission, target] of this.mapping) {
+      for (const object of await this.store.objects(target.type)) {
+        const placed = await placement(object, at, ctx);
+        if (placed === 'outside') continue;
+        const held = await verdict(object, target.name);
+        if (held === false) continue;
+        const firm = placed === 'at' && held === true;
+        conditional.set(permission, (conditional.get(permission) ?? true) && !firm);
+      }
+    }
+    return { model: this.name, permissions: [...conditional].map(([name, c]) => ({ name, conditional: c })) };
+  }
+
   invalidate(tags: readonly string[]): void {
     this.invalidations.push(tags);
   }
@@ -244,6 +281,17 @@ export class FakeTupleModel extends AuthorizationModel {
       this.mapping.set(permission, { type, name });
     }
   }
+}
+
+/** Where `object` lies against `at`: the node itself, below it, outside it, or unknown (no ancestors). */
+async function placement(object: ResourceRef, at: ResourceRef, ctx: EvaluationContext): Promise<'at' | 'below' | 'outside' | 'unknown'> {
+  if (sameRef(object, at)) return 'at';
+  if (sameRef(at, GLOBAL)) return 'below';
+  if (at.id == null && object.type === at.type) return 'below';
+  const chain = await ctx.ancestors(object);
+  if (chain == null) return 'unknown';
+  const inside = at.id == null ? chain.some((a) => a.type === at.type && a.id != null) : chain.some((a) => sameRef(a, at));
+  return inside ? 'below' : 'outside';
 }
 
 function parseTerm(term: string): Term {

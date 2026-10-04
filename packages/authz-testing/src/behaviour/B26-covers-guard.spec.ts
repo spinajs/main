@@ -113,9 +113,9 @@ const abacCases: Case[] = [
     steps: [covers('ops', 't', false), covers('root2', 't', true)],
   },
   {
-    name: 'a deny policy on an attribute the target lacks is UNKNOWN for it, which denies (RFC L3-1)',
+    name: 'a deny policy on an attribute the target lacks denies it, but does not shrink its set in covers (RFC L3-1, RFC E1-1)',
     world: abacWorld([OPS_NO_DELETE]),
-    steps: [{ check: { as: 't', permission: 'doc:delete' }, expect: { allowed: false } }, covers('ops', 't', true), covers('root2', 't', true)],
+    steps: [{ check: { as: 't', permission: 'doc:delete' }, expect: { allowed: false } }, covers('ops', 't', false), covers('root2', 't', true)],
   },
   {
     name: "an ABAC permit policy adds to the target's set",
@@ -243,7 +243,7 @@ export const B26 = fixture('B26', [
     name: 'abac',
     facets: ['engine', 'abac', 'conditions'],
     lanes: ['L3', 'C3'],
-    note: "H18: ABAC permit and deny policies count in covers (L3 task 7 summarize; C3). L3's run list lacks B26: L3 should add B26.abac.",
+    note: "H18: ABAC permit and deny policies count in covers (L3 task 7 summarize; C3). L3 runs B26.abac strictly. RFC E1-1: only the holder's deny policies shrink a set in covers; a target's deny may rest on session facts (authn, actor) that change under impersonation, so it leaves the target's set as it is.",
     cases: abacCases,
   },
   {

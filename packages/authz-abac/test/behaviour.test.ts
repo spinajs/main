@@ -1,8 +1,8 @@
 import 'mocha';
 import { AccessDenied, Authorizer, DefaultConditionCompiler, LruDecisionCache, validateBoot } from '@spinajs/authz';
 import type { AuthorizationModel, AuthorizerOptions, CheckInput, Decision, Permission, Principal, RequestScope, ResourceRef, ResourceType } from '@spinajs/authz';
-import { BEHAVIOUR_FIXTURES, fakeModelInitContext, instantiateWorld, runBehaviour } from '@spinajs/authz-testing';
-import type { BehaviourAuthz, BehaviourHarness, BehaviourSelector, Case, Step } from '@spinajs/authz-testing';
+import { fakeModelInitContext, instantiateWorld, runBehaviour } from '@spinajs/authz-testing';
+import type { BehaviourAuthz, BehaviourHarness, BehaviourSelector } from '@spinajs/authz-testing';
 
 import { AbacModel, ConfigPolicyStore } from '../src/index.js';
 
@@ -78,11 +78,4 @@ export const abacHarness = (): BehaviourHarness => ({
   },
 });
 
-const RFC_E1_1_CASE = 'a deny policy on an attribute the target lacks is UNKNOWN for it, which denies (RFC L3-1)';
-const opsCoversT = (s: Step): Step => ('covers' in s && s.covers.holder === 'ops' && s.covers.target === 't' ? { ...s, expect: false } : s);
-const patchCase = (c: Case): Case => (c.name === RFC_E1_1_CASE ? { ...c, steps: c.steps.map(opsCoversT) } : c);
-
-// RFC E1-1: t's deny policy does not clear its summary entry for doc:delete, so ops does not cover t. Drop once the kit carries it.
-const FIXTURES = BEHAVIOUR_FIXTURES.map((f) => (f.id !== 'B26' ? f : { ...f, parts: f.parts.map((p) => (p.name !== 'abac' ? p : { ...p, cases: p.cases.map(patchCase) })) }));
-
-runBehaviour(ABAC_PARTS, abacHarness, { strict: true, fixtures: FIXTURES });
+runBehaviour(ABAC_PARTS, abacHarness, { strict: true });

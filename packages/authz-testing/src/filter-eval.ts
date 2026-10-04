@@ -42,13 +42,18 @@ export const isAllowed = (result: Kleene): boolean => result === true;
  * - eq/ne/in/nin with a literal null are UNKNOWN (never IS NULL).
  * - in [] = FALSE and nin [] = TRUE whatever the field holds (simplify folds them so).
  * - A literal list holding anything but strings and finite numbers, or with holes, is missing (UNKNOWN in
- *   every polarity), as bindRefs reads it. in/nin: a match decides; else a string vs number mismatch makes
- *   it UNKNOWN.
- * - Type mismatch (string vs number vs boolean, non-scalar field, array where a scalar is expected) is
- *   UNKNOWN, not FALSE: it stays UNKNOWN under `not`, so negation never turns it into access.
- * - Dates (field or ref) compare as ISO strings, the form bindRefs gives `env.now`.
- * - Strings order by code point (SQLite BINARY, Postgres COLLATE "C"); booleans false < true;
- *   non-finite numbers are not comparable.
+ *   every polarity), as bindRefs reads it. in/nin: a match decides; else an element that does not compare
+ *   with the field (after coercion) makes it UNKNOWN.
+ * - Coercion follows the engine's evaluator, the reference: a canonical number string
+ *   (`String(Number(s)) === s`, finite) compares with a number as that number, either side; a boolean
+ *   equals 0 or 1 (eq, ne, in, nin), and other numbers are UNKNOWN against it.
+ * - Any other type mismatch (string vs number, string vs boolean, non-scalar field, array where a scalar
+ *   is expected) is UNKNOWN, not FALSE: it stays UNKNOWN under `not`, so negation never turns it into
+ *   access.
+ * - Dates (field or ref) compare as ISO strings, the form bindRefs gives `env.now`. An invalid Date field
+ *   is NULL (`null` is TRUE); one outside the years 0000-9999 is not comparable.
+ * - Strings order by code point (SQLite BINARY, Postgres COLLATE "C"); booleans do not order (lt, lte,
+ *   gt, gte are UNKNOWN); non-finite numbers are not comparable.
  * - like: Postgres semantics: case-sensitive, '%' any run, '_' one code point, '\' escapes.
  * - glob: '*' is a run without '/', '**' (or more stars) any run; no other metacharacters.
  * - wildcard: '*' is any run, '/' included; no other metacharacters.
@@ -118,13 +123,13 @@ class Evaluation {
     if (!CMPS.has(f.cmp)) throw new TypeError(`evaluateFilter: unknown cmp ${JSON.stringify(f.cmp)}`);
 
     const read = this.env.attribute ? this.env.attribute(this.subject, f.field) : readPath(this.subject, f.field);
-    if (f.cmp === 'null') return read == null;
-    if (f.cmp === 'notnull') return read != null;
+    const field = toField(read);
+    if (f.cmp === 'null') return field === null;
+    if (f.cmp === 'notnull') return field !== null;
 
     const value = await this.value(f.value);
     if (Array.isArray(value) && value.length === 0 && (f.cmp === 'in' || f.cmp === 'nin')) return f.cmp === 'nin';
 
-    const field = toField(read);
     if (value === UNRESOLVED || value === null || field === null || field === NOT_COMPARABLE) return null;
 
     switch (f.cmp) {
@@ -138,13 +143,14 @@ class Evaluation {
     }
 
     if (Array.isArray(value)) return null;
-    const c = compare(field, value as Scalar);
-    if (c === null) return null;
+    const pair = coerce(field, value as Scalar);
+    if (pair === null) return null;
+    const [a, b] = pair;
+    if (f.cmp === 'eq') return a === b;
+    if (f.cmp === 'ne') return a !== b;
+    if (typeof a === 'boolean') return null;
+    const c = typeof a === 'string' ? compareCodePoints(a, b as string) : Math.sign(a - (b as number));
     switch (f.cmp) {
-      case 'eq':
-        return c === 0;
-      case 'ne':
-        return c !== 0;
       case 'lt':
         return c < 0;
       case 'lte':
@@ -164,7 +170,7 @@ class Evaluation {
       if (!isPlainObject(v) || Object.keys(v).length !== 1 || typeof ref !== 'string') return UNRESOLVED;
       return toRefValue(await this.ref(ref));
     }
-    return typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number' ? v : UNRESOLVED;
+    return typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ? v : UNRESOLVED;
   }
 
   private async ref(ref: string): Promise<unknown> {
@@ -228,7 +234,13 @@ function toField(v: unknown): Field {
   if (v == null) return null;
   if (typeof v === 'string' || typeof v === 'boolean') return v;
   if (typeof v === 'number') return Number.isFinite(v) ? v : NOT_COMPARABLE;
-  if (v instanceof Date) return Number.isNaN(v.getTime()) ? NOT_COMPARABLE : v.toISOString();
+  if (v instanceof Date) {
+    const time = v.getTime();
+    if (Number.isNaN(time)) return null;
+    const year = v.getUTCFullYear();
+    // Outside 0000-9999 the ISO form carries a sign, and code point order stops following time.
+    return year < 0 || year > 9999 ? NOT_COMPARABLE : v.toISOString();
+  }
   return NOT_COMPARABLE;
 }
 
@@ -249,19 +261,34 @@ function toRefValue(v: unknown): Resolved {
   return UNRESOLVED;
 }
 
-function compare(a: Scalar, b: Scalar): number | null {
-  if (typeof a !== typeof b) return null;
-  if (typeof a === 'string') return compareCodePoints(a, b as string);
-  if (typeof a === 'number') return Number.isFinite(b) ? Math.sign(a - (b as number)) : null;
-  return Number(a) - Number(b);
+// 'NaN' and 'Infinity' survive the round trip, so finiteness is checked too.
+function numericString(s: string): number | undefined {
+  const n = Number(s);
+  return Number.isFinite(n) && String(n) === s ? n : undefined;
+}
+
+/** The engine's coercion of a field and a value into one type; null where they do not compare. */
+function coerce(a: Scalar, b: Scalar): readonly [Scalar, Scalar] | null {
+  if (typeof a === typeof b) return [a, b];
+  if (typeof a === 'number' && typeof b === 'string') {
+    const n = numericString(b);
+    return n === undefined ? null : [a, n];
+  }
+  if (typeof a === 'string' && typeof b === 'number') {
+    const n = numericString(a);
+    return n === undefined ? null : [n, b];
+  }
+  if (typeof a === 'boolean' && typeof b === 'number') return b === 0 || b === 1 ? [a, b === 1] : null;
+  if (typeof a === 'number' && typeof b === 'boolean') return a === 0 || a === 1 ? [a === 1, b] : null;
+  return null;
 }
 
 function member(field: Scalar, list: readonly (string | number)[], positive: boolean): Kleene {
   let unknown = false;
   for (const x of list) {
-    const c = compare(field, x);
-    if (c === 0) return positive;
-    if (c === null) unknown = true;
+    const pair = coerce(field, x);
+    if (pair !== null && pair[0] === pair[1]) return positive;
+    if (pair === null) unknown = true;
   }
   return unknown ? null : !positive;
 }
