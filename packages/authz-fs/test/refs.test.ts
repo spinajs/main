@@ -43,18 +43,18 @@ describe('authz-fs refs: normalizeFsPath', () => {
     ['a/../../x', undefined],
     ['a\\..\\..\\x', undefined],
     ['a\0b', undefined],
-    ['/etc/passwd', undefined],
     ['C:\\x', undefined],
     ['c:/x', undefined],
     ['C:x', undefined],
     ['\\\\server\\share\\x', undefined],
+    ['/..', undefined],
     ['/..', '/data/up'],
-    ['/data/upload/x', '/data/up'],
-    ['/data/up/../other/x', '/data/up'],
-    ['/etc/passwd', '/data/up'],
+    ['/a/../../x', '/data/up'],
     ['D:\\data\\up\\x', 'C:\\data\\up'],
     ['C:\\data\\upload\\x', 'C:\\data\\up'],
-    ['/data/up/../../x', '/data/up'],
+    ['C:\\x', '/data/up'],
+    ['\\\\server\\share\\x', '/data/up'],
+    ['\\\\server\\other\\x', '\\\\server\\share'],
   ];
   for (const [input, base] of refused) {
     it(`refuses ${JSON.stringify(input)}${base ? ` under ${base}` : ''}`, () => {
@@ -79,6 +79,8 @@ describe('authz-fs refs: normalizeFsPath', () => {
     ['C:\\data\\up', 'C:\\data\\up\\', ''],
     ['relative/x', '/data/up', 'relative/x'],
     ['/', '/data/up', ''],
+    ['\\\\server\\share\\up\\a.txt', '\\\\server\\share\\up', 'a.txt'],
+    ['\\\\Server\\Share\\a.txt', '\\\\server\\share', 'a.txt'],
   ];
   for (const [input, base, expected] of inside) {
     it(`${JSON.stringify(input)} under ${JSON.stringify(base)} -> ${JSON.stringify(expected)}`, () => {
@@ -86,8 +88,27 @@ describe('authz-fs refs: normalizeFsPath', () => {
     });
   }
 
+  // As fsNative.resolvePath: a rooted path without a drive that is not inside the base path starts at the fs root.
+  const rooted: [string, string | undefined, string][] = [
+    ['/etc/passwd', undefined, 'etc/passwd'],
+    ['\\x\\y', undefined, 'x/y'],
+    ['/a/b/', undefined, 'a/b'],
+    ['///x', undefined, 'x'],
+    ['/etc/passwd', '/data/up', 'etc/passwd'],
+    ['/data/upload/x', '/data/up', 'data/upload/x'],
+    ['/data/up/../other/x', '/data/up', 'data/other/x'],
+    ['/data/up/../../x', '/data/up', 'x'],
+    ['/x', 'C:\\data\\up', 'x'],
+    ['/data/up/x', '\\\\server\\share', 'data/up/x'],
+  ];
+  for (const [input, base, expected] of rooted) {
+    it(`rooted ${JSON.stringify(input)}${base ? ` under ${JSON.stringify(base)}` : ''} -> ${JSON.stringify(expected)}`, () => {
+      expect(normalizeFsPath(input, base)).to.equal(expected);
+    });
+  }
+
   it('compares posix base paths case-sensitively', () => {
-    expect(() => normalizeFsPath('/Data/up/a.txt', '/data/up')).to.throw(InvalidArgument);
+    expect(normalizeFsPath('/Data/up/a.txt', '/data/up')).to.equal('Data/up/a.txt');
   });
 
   it('is idempotent', () => {
@@ -164,17 +185,12 @@ describe('authz-fs refs: fsRef and parseFsRef', () => {
 });
 
 describe('authz-fs refs: fsAncestors', () => {
-  const task: ResourceRef = { type: 'task', id: '42' };
-  const project: ResourceRef = { type: 'project', id: 'p1' };
-
-  it('orders a file: self, parent dirs nearest first, fs, resolver parents, GLOBAL', () => {
-    expect(fsAncestors({ type: 'file', id: 'uploads:a/b/c.pdf' }, [task, project])).to.deep.equal([
+  it('orders a file: self, parent dirs nearest first, fs, GLOBAL', () => {
+    expect(fsAncestors({ type: 'file', id: 'uploads:a/b/c.pdf' })).to.deep.equal([
       { type: 'file', id: 'uploads:a/b/c.pdf' },
       { type: 'dir', id: 'uploads:a/b' },
       { type: 'dir', id: 'uploads:a' },
       { type: 'fs', id: 'uploads' },
-      task,
-      project,
       GLOBAL,
     ]);
   });
@@ -188,11 +204,12 @@ describe('authz-fs refs: fsAncestors', () => {
   });
 
   it('orders the fs root', () => {
-    expect(fsAncestors({ type: 'fs', id: 'uploads' }, [task])).to.deep.equal([{ type: 'fs', id: 'uploads' }, task, GLOBAL]);
+    expect(fsAncestors({ type: 'fs', id: 'uploads' })).to.deep.equal([{ type: 'fs', id: 'uploads' }, GLOBAL]);
   });
 
-  it('drops GLOBAL and repeated refs among the parents', () => {
-    expect(fsAncestors({ type: 'fs', id: 'uploads' }, [task, GLOBAL, task, { type: 'fs', id: 'uploads' }])).to.deep.equal([{ type: 'fs', id: 'uploads' }, task, GLOBAL]);
+  it("keeps the tree rule: a parent's chain is the tail of its child's", () => {
+    const chain = fsAncestors({ type: 'file', id: 'uploads:a/b/c.pdf' })!;
+    for (let i = 1; i < chain.length - 1; i++) expect(fsAncestors(chain[i])).to.deep.equal(chain.slice(i));
   });
 
   it('gives null for a foreign ref', () => {

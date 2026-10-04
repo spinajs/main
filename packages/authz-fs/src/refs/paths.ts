@@ -1,18 +1,24 @@
 import { InvalidArgument } from '@spinajs/exceptions';
 
 const DRIVE = /^([A-Za-z]):/;
+const UNC = /^\/\/[^/]/;
 
 interface AbsolutePath {
-  // '/' or an upper-case drive such as 'C:'
+  // '/', '//' (UNC) or an upper-case drive such as 'C:'
   readonly root: string;
   readonly segments: readonly string[];
 }
 
 /**
  * The path a filesystem's ref ids use (design §13, lane D3): '/' separators, no '.' or '..' segments, no
- * leading or trailing '/', '' for the root. An absolute path inside `basePath` becomes relative to it.
+ * leading or trailing '/', '' for the root. An absolute path inside `basePath` becomes relative to it; any
+ * other rooted path without a drive (`/x`, `\x`) is relative to the filesystem root, as fsNative.resolvePath
+ * reads it. The guard hands this normalised path, not the caller's, to the raw provider, so the path it
+ * checks is the path the provider touches, also on providers that use keys verbatim (S3: `/x` and `x`
+ * would be two keys).
  *
- * @throws InvalidArgument for a path that climbs above the root, holds a NUL byte, or is absolute and outside `basePath`
+ * @throws InvalidArgument for a path that climbs above the root, holds a NUL byte, or is a drive or UNC path
+ * outside `basePath`
  */
 export function normalizeFsPath(path: string, basePath?: string): string {
   if (typeof path !== 'string') {
@@ -28,23 +34,24 @@ export function normalizeFsPath(path: string, basePath?: string): string {
     return walk(slashed.split('/'), path).join('/');
   }
 
-  // A bare '/' is the root idiom of every provider (list('/')), with or without a base path.
-  if (absolute.root === '/' && absolute.segments.length === 0) {
-    return '';
-  }
-
   const base = basePath === undefined ? undefined : parseAbsolute(basePath.replace(/\\/g, '/'), basePath);
   if (base && isInside(absolute, base)) {
     return absolute.segments.slice(base.segments.length).join('/');
   }
+  if (absolute.root === '/') {
+    return absolute.segments.join('/');
+  }
 
-  throw new InvalidArgument(`fs path ${JSON.stringify(path)} is absolute and outside the filesystem base path`, 'path');
+  throw new InvalidArgument(`fs path ${JSON.stringify(path)} is a drive or UNC path outside the filesystem base path`, 'path');
 }
 
 function parseAbsolute(slashed: string, original: string): AbsolutePath | undefined {
   const drive = DRIVE.exec(slashed);
   if (drive) {
     return { root: `${drive[1].toUpperCase()}:`, segments: walk(slashed.slice(2).split('/'), original) };
+  }
+  if (UNC.test(slashed)) {
+    return { root: '//', segments: walk(slashed.split('/'), original) };
   }
   if (slashed.startsWith('/')) {
     return { root: '/', segments: walk(slashed.split('/'), original) };
@@ -68,7 +75,7 @@ function walk(parts: readonly string[], original: string): string[] {
   return out;
 }
 
-// Drive paths follow win32 rules (case-insensitive, as path.win32.relative in fsNative); posix paths compare exactly.
+// Drive and UNC paths follow win32 rules (case-insensitive, as path.win32.relative in fsNative); posix paths compare exactly.
 function isInside(path: AbsolutePath, base: AbsolutePath): boolean {
   if (path.root !== base.root || path.segments.length < base.segments.length) {
     return false;

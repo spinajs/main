@@ -1,4 +1,4 @@
-import { GLOBAL, resourceKey } from '@spinajs/authz';
+import { GLOBAL } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
 
@@ -52,10 +52,10 @@ export function parseFsRef(ref: ResourceRef): ParsedFsRef | undefined {
 }
 
 /**
- * Lane D4: `[self, parent dirs nearest first, fs, ...parents, GLOBAL]`, null for a ref parseFsRef refuses.
- * `parents` are the resolver's domain parents, nearest first; GLOBAL and repeats among them are dropped.
+ * Lane D4: `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. Resolver
+ * (domain) parents are not ancestors; the fs-inherit model reads them.
  */
-export function fsAncestors(ref: ResourceRef, parents: readonly ResourceRef[] = []): readonly ResourceRef[] | null {
+export function fsAncestors(ref: ResourceRef): readonly ResourceRef[] | null {
   const parsed = parseFsRef(ref);
   if (!parsed) {
     return null;
@@ -69,17 +69,7 @@ export function fsAncestors(ref: ResourceRef, parents: readonly ResourceRef[] = 
       chain.push({ type: 'dir', id: `${parsed.fs}:${segments.slice(0, n).join('/')}` });
     }
   }
-  chain.push({ type: 'fs', id: parsed.fs });
-
-  const seen = new Set(chain.map(resourceKey));
-  seen.add(resourceKey(GLOBAL));
-  for (const parent of parents) {
-    const key = resourceKey(parent);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    chain.push(parent);
-  }
-  chain.push(GLOBAL);
+  chain.push({ type: 'fs', id: parsed.fs }, GLOBAL);
   return chain;
 }
 
