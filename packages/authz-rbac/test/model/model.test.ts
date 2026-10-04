@@ -4,7 +4,7 @@ import { FakeScopeResolver, anonymousPrincipal, fakeEvaluationContext, fakeModel
 import * as chai from 'chai';
 import 'mocha';
 
-import { MemoryAssignmentStore, MemoryRoleStore, RBAC_RESIDUALS, RbacContributor, RbacModel, SubjectResolver, createRbacExtensions } from '../../src/index.js';
+import { DEFAULT_RBAC_EXTENSIONS, MemoryAssignmentStore, MemoryRoleStore, RBAC_RESIDUALS, RbacContributor, RbacModel, SubjectResolver, createRbacExtensions, isTokenRoleExtension } from '../../src/index.js';
 import type { AssignmentSubject, GrantIndex, RbacExtension, RoleDef, RoleGraph } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -348,10 +348,12 @@ describe('authz-rbac model: extensions', () => {
     expect(ctx.registered.nativeFilters).to.deep.equal([filter]);
   });
 
-  // Becomes meaningful once DEFAULT_RBAC_EXTENSIONS has an entry (L1b): then assert two models hold distinct instances.
-  it('each model gets its own extensions from the default factories', () => {
+  it('each model gets its own extensions from the default factories, then the token role rules', () => {
     const a = new RbacModel({ roles: new MemoryRoleStore(), assignments: new MemoryAssignmentStore(), log });
-    expect(a.extensions).to.deep.equal([]);
+    const b = new RbacModel({ roles: new MemoryRoleStore(), assignments: new MemoryAssignmentStore(), log });
+    expect(a.extensions).to.have.length(DEFAULT_RBAC_EXTENSIONS.length + 1);
+    expect(isTokenRoleExtension(a.extensions[a.extensions.length - 1])).to.equal(true);
+    a.extensions.forEach((e, i) => expect(e).to.not.equal(b.extensions[i]));
     expect(Object.isFrozen(a.extensions)).to.equal(true);
   });
 });

@@ -120,9 +120,9 @@ async function assertProfile(owner: User, profile: string): Promise<void> {
 
 /**
  * Ensures every role in `roles` is one the configured policy allows for
- * `owner`. Deliberately not "one the owner literally holds" - a policy may
- * permit roles beyond the owner's own `Role` list, or withhold ones on it;
- * that flexibility is the entire point of the policy seam.
+ * `owner`. A policy should only withhold roles: a token is never above its owner
+ * (design §18.3(g), B24, B07), and in 3.0 authz-rbac drops every token role
+ * the owner does not hold, whatever the policy answers here.
  *
  * With `profile` given the question is asked relative to that profile, which a
  * policy may answer more narrowly than the owner-wide union.

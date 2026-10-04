@@ -190,6 +190,8 @@ Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
 `/user/tokens/roles` and `/profiles` routes and role-policy driven create. Class: rewrite per plan T3 (token ceiling, B24); lane C5, replacement by T3. Open: 3.0 home of the token roles/profiles read routes is undecided (D26); integrator decides.
 
+Status (C5): not moved yet. The file tests the live 2.x `AccessTokenController` under `src/token/` (N8b's folder), so N8b moves it to `test/legacy-v2/` when it replaces the routes; T3 writes the replacements. The policy side the routes read now exists: `loadTokenRoleRules` and `TokenRoleRules.allowedRoles|allowedProfiles` in authz-rbac (C5), for whichever lane hosts `/user/tokens/roles` and `/profiles` (proposed: C2).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24) |
@@ -200,7 +202,7 @@ Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 | 6 | 163 | AccessTokenController - scopes route > refuses a token-authenticated caller on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; token caller refused on the profiles route (A14); route home undecided (D26) |
 | 7 | 174 | AccessTokenController - scopes route > refuses an impersonated session on the profiles route | rewrite | C5 → T3 | authn-http/test/v3/; impersonated session refused on the profiles route (A20); route home undecided (D26) |
 | 8 | 197 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > reports the policy answer, not the callers own roles | rewrite | C5 → T3 | authz-rbac/test/ported/; policy answer, not the caller roles (B24) |
-| 9 | 215 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > accepts POST user/tokens with a role this route just reported, even though the caller does not hold it | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles ∩ owner roles ∩ role policy at use time (B24, B07); the creation check may differ from 2.x. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows. |
+| 9 | 215 | AccessTokenController - scopes route > with a policy that diverges from the caller own roles > accepts POST user/tokens with a role this route just reported, even though the caller does not hold it | rewrite | C5 → T3 | authz-rbac/test/ported/; token roles ∩ owner roles ∩ role policy at use time (B24, B07); the creation check may differ from 2.x. Decided (r6, D3): never above the owner; check time drops every token role the owner lacks (C5, `authz-rbac/test/token/`, B07.token, B24.token). |
 | 10 | 264 | AccessTokenController - scopes route > profiles > GET user/tokens/profiles answers what the policy offers the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; profiles offered by the policy (B24) |
 | 11 | 274 | AccessTokenController - scopes route > profiles > narrows GET user/tokens/roles to the profile named in the query | rewrite | C5 → T3 | authz-rbac/test/ported/; roles narrowed to a profile (B24) |
 | 12 | 290 | AccessTokenController - scopes route > profiles > POST user/tokens pins the token to the requested profile, on the wire and in the row | rewrite | C5 → T3 | authn-http/test/v3/; profile pinned on the token, source of `attributes.profile` (B24, design §14); route home undecided (D26) |
@@ -213,12 +215,14 @@ Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
 Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3; a few rows adapt, two drop; lane C5.
 
+Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder): N8b moves the rewrite rows to `test/legacy-v2/` with its route change, handles the adapt rows and deletes the drop rows; T3 ports the rest. The check-time half of row 4 is covered by B07.token and B24.token in `authz-rbac/test/token/behaviour.test.ts` (C5).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 91 | AccessTokenController > rejects anonymous access | adapt | C5 | authn-http/test/ (`src/token/`); anonymous refused (B10, B23) |
 | 2 | 96 | AccessTokenController > creates a token and returns plaintext exactly once | rewrite | C5 → T3 | authn-http/test/v3/; plaintext shown once, wire shape kept; create needs an expiry and fresh auth, the 2.x test posts none (A14, A13, `SR-08 token without expiry refused`); the stranger-token-not-listed IDOR check goes to the T3 IDOR suite, as row 5 does |
 | 3 | 135 | AccessTokenController > returns ExpiresAt as an ISO instant too | adapt | C5 | authn-http/test/ (`src/token/`); ISO `ExpiresAt` within `maxTtlDays` (A14) |
-| 4 | 153 | AccessTokenController > rejects creating token with role caller does not hold | rewrite | C5 → T3 | authz-rbac/test/ported/; a role the owner lacks is refused by the token role policy (B24); like the row at line 215, the check may move to use time (B07: the ceiling drops roles the owner lacks), so the expectation may change. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows. |
+| 4 | 153 | AccessTokenController > rejects creating token with role caller does not hold | rewrite | C5 → T3 | authz-rbac/test/ported/; a role the owner lacks is refused by the token role policy (B24); like the row at line 215, the check may move to use time (B07: the ceiling drops roles the owner lacks), so the expectation may change. Decided (r6, D3): never above the owner; check time drops every token role the owner lacks (C5, `authz-rbac/test/token/`, B07.token, B24.token). |
 | 5 | 161 | AccessTokenController > deletes own token, foreign uuid not found | rewrite | C5 → T3 | authn-http/test/v3/; IDOR: a foreign token uuid is a 404 (keep verbatim in the T3 IDOR suite); revoke sets `RevokedAt`, the row is not deleted (A14) |
 | 6 | 177 | AccessTokenController > grants and revokes role on own token | drop | C5 | N8b token routes are list, create and revoke; `TokenService` and the routes have no role edit (N6 task 2, N8b task 3); grant and revoke role routes have no 3.0 counterpart |
 | 7 | 191 | AccessTokenController > refuses to revoke the last role with 400, not 500 | drop | C5 | Same: the revoke-role route is gone (N6 task 2, N8b task 3), so "last role" has no 3.0 case |
@@ -253,6 +257,8 @@ Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3;
 
 `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`. `TokenPolicy` rows rewrite or drop, the two kept policies adapt (C5 task 3); lane C5.
 
+Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is now `@deprecated` (R1 deletes it; its rewrite rows go to T3 and its drop rows go with R1); `NoTokenAuthPolicy` and `NoImpersonationPolicy` stay and their adapt rows pass unchanged. The file stays until R1.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 41 | token policies > TokenPolicy rejects request without token auth | rewrite | C5 → T3 | authz-rbac/test/ported/; `TokenPolicy` is gone, `@Access` accepts tokens; no credential gives 401 (B23, B10) |
@@ -269,6 +275,8 @@ Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3;
 ## test/token-policy-e2e.test.ts
 
 Token authentication plus RBAC grants through a real server. Class: rewrite per plan T3 (B24, B07); lane C5, replacement by T3.
+
+Status (C5): not moved yet: it drives the live 2.x token middleware and RBAC policy, which N8a/N8b retire; that lane moves it to `test/legacy-v2/` and T3 replaces it. The 3.0 behaviour it checks (token roles, never above the owner, excluded roles) runs end to end with RBAC in `authz-rbac/test/token/` (B07.token, B24.token, B37.token).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
