@@ -121,6 +121,31 @@ await authz().runAs(SYSTEM, 'nightly-cleanup', async () => { /* … */ });
 Other methods: `checkMany`, `filterNow` (sync, after `preload`), `explain` (adds a trace), `summary`,
 `covers(holder, target)` (the impersonation rule, B26) and `admin()`.
 
+**`covers` and `summary` (E1).** Both count what each model lists in its `summarize` answer, so a
+scoped, bare-type or pattern-limited grant counts too (RFC L1-3).
+
+- The target's set is its own checks plus every summary entry of the models routed for the
+  permission. At `$global`, holder and target are compared on `$global` and on each type of the
+  permission. The holder's set is its checks only, never a summary.
+- A summary entry counts as covered only when the holder is unconditional on every compared
+  resource and has the entry's fields. The holder's fields come from unconditional permits only.
+- A deny on the target never drops its summary entries, because a deny may rest on session facts
+  that change under impersonation.
+- `covers` is false, never a guess, when a routed model gives no summary for the target (no
+  `summarize`, a failure, a timeout or a malformed answer) and when any compared plan uses a custom
+  combinator. **A model you write must implement `summarize`**, or `covers` stays false in every
+  domain that routes it. The test kit's `FakeTupleModel` has none.
+- `summary` shows a name that a model's summary lists but the check denies as `conditional: true`.
+  Its fields are the union over the entries, less `neverRead`.
+- `covers` costs up to 2 × (1 + number of types) checks per permission at `$global`, and its holder
+  checks skip the cache. The call's deadline still bounds it.
+- The ABAC and RBAC `summarize` answers list scoped permits as conditional, and union the fields of
+  every permit they find. An ABAC permit that reads env, time, `actor.*`, `principal.authn.*` or a
+  function is listed as conditional.
+- `covers` judges one instant, with the target object you give it. Build the target the way the
+  session will carry it: no strategy attributes, no ceiling, the companions and the actor the
+  session will have.
+
 ## Config: `authz.*`
 
 Config goes under `authz.*` (H3). AJV validates the core keys at boot. Other packages own their
@@ -223,10 +248,69 @@ authz: {
 > `threshold`) and share links. The design fixes the shapes (§6.1.1, §8.2, §8.5). Fill in the config
 > keys and samples from the L1b report when the lane merges.
 
-> **TODO(L2):** the stores that read `authz.rbac.roles` from config and assignments from the database
-> (`ConfigRoleStore`, `DbAssignmentStore`), the migrations (`authz_assignment` and the others), the
-> `users.Role` copy and drop, the CLI commands `authz:assign`, `authz:revoke` and `authz:check-config`,
-> and how an app registers the RBAC model. Fill in from the L2 report.
+**Stores.** The model reads roles, assignments, rules and links through four ports. You name the
+classes in `authz.rbac.stores`. The defaults live in code, not in a config file, so you can replace
+them:
+
+```ts
+authz: {
+  rbac: {
+    stores: {
+      roles: ['ConfigRoleStore'],          // authz.rbac.roles from config
+      assignments: ['DbAssignmentStore'],  // table authz_assignment
+      rules: ['ConfigRuleStore'],          // a class of lane L1b, which has not merged
+      links: ['DbLinkStore'],              // table authz_link
+    },
+    connection: 'default',                 // else authz.admin.connection, else the default connection
+    links: { secret: '<32 or more characters>' },   // no default
+    cache: { assignmentsTtlSeconds: 60 },
+    migration: { idColumn: 'Uuid', roleColumn: 'Role' },   // migration guide, section 7
+  },
+}
+```
+
+- `ConfigRoleStore` checks `authz.rbac.roles` and `ladders` when it loads. A bad key fails boot with
+  an `AuthzConfigError` that names it.
+- `DbAssignmentStore` and `DbLinkStore` read and write `authz_assignment` and `authz_link`. A write
+  runs only inside the transaction of `DbAuthzAdminBackend` ([AuthzAdmin](#authzadmin)) and bumps
+  `authz_version` there. Granting the same subject, role and scope again updates the row and keeps
+  its id, `created_at` and `source`.
+- `DbRuleStore` keeps scoped rules in `authz_rule`, each with a SQL form, so a list query can filter
+  in the database. It refuses a rule it cannot compile exactly (`rule_not_compilable`): permission
+  globs other than `*`, the ops `in`, `nin` and `pattern` in `when`, numeric strings, and order ops on
+  values that are not numbers. So the SQL is never wider than the evaluator.
+- **Share link tokens.** A token is 32 random bytes in base64url. The table keeps only `v1:` and an
+  HMAC-SHA256 of the token under `authz.rbac.links.secret`, which needs at least 32 characters. The
+  store checks the key at first use, not at boot, and throws `AuthzConfigError` when it is missing.
+  Changing the secret kills every link.
+- **Connections.** The stores use `authz.rbac.connection`, else `authz.admin.connection`, else the
+  `default` connection. A write whose transaction runs on another connection is refused. The
+  migrations run on `default` only.
+- **Registering.** A store class registers under its class name only.
+  `registerRbacStores(container, configuration)` registers the classes that `authz.rbac.stores`
+  names under their ports (`RoleStore`, `AssignmentStore`, `RuleStore`, `LinkStore`) and, for the DB
+  stores, under the `AuthzAdmin` ports too. A name that is no registered class, or the wrong kind,
+  throws `AuthzConfigError` and registers nothing.
+
+> **TODO(host wiring, no lane named):** nothing calls `registerRbacStores` yet, and nothing builds
+> the `RbacModel` and its `RbacContributor` from config. An app does both by hand until a host lane
+> wires them. Replace this note then.
+
+**Tables.** The migration `AuthzRbac_2026_10_01_00_00_00` creates `authz_assignment`, `authz_rule`,
+`authz_rule_subject`, `authz_link` and `authz_version`. `authz_rule` has eight columns that the
+design's DDL lacks: `principal_types`, `rank_ladder`, `rank_at`, `rank_min`, `rank_max`,
+`resource_not_like`, `resource_glob` and `resource_not_glob`. The `users.Role` copy and drop are two
+more migrations, described in [the migration guide](./migration-guide.md#7-data-migration).
+
+**CLI.** `@spinajs/authz-rbac` ships four commands. They run as `SYSTEM` with the reason `cli`. On
+failure they print one line and set the exit code to 1.
+
+| Command | Does |
+|---|---|
+| `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
+| `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
+| `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
+| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads the connection from `authz.rbac.connection`. |
 
 ## The ABAC model
 
@@ -451,9 +535,11 @@ default backend keeps data in memory.
 `RoleAssigned`, `RoleRevoked` and `AuthzDataChanged` (replacing the 2.x `UserRoleGranted` and
 `UserRoleRevoked`).
 
-> **TODO(L2):** the DB stores for assignments, links and rules that `DbAuthzAdminBackend` writes to,
-> and the migration names. Fill in from the L2 report.
->
+`DbAuthzAdminBackend` writes through `DbAssignmentStore`, `DbRuleStore` and `DbLinkStore` (see
+[the RBAC model](#the-rbac-model)). Their tables come from `AuthzRbac_2026_10_01_00_00_00`. The
+backend's table of idempotency keys comes from `AuthzAdminIdempotency_2026_10_02_00_01_00`. An admin
+batch bumps `authz_version` more than once, in one transaction; do not rely on the count.
+
 > **TODO(C4):** the `/authz/commands` and `/authz/assignments` routes of `authz-http-admin`.
 >
 > **TODO(L6):** `QueueAuthzEventSink`.

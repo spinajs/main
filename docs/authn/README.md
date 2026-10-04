@@ -69,31 +69,58 @@ and `RoleSource` (the roles for a role switch).
 
 The design fixes the order of `AuthnService.authenticate(credentials, ctx)` (§22.4):
 
-1. Pick the strategy in `authn.strategies` that accepts the credential kind. None: failure
+1. Pick the candidates: the strategies in `authn.strategies` that accept the credential kind and,
+   when a strategy has `accepts(credentials)`, the credential itself. None: failure
    `unsupported_credentials`. A strategy that is not listed never runs (A01).
-2. Count the attempt in the throttle, before verification. A refused attempt is neither verified nor
-   counted. The answer carries `Retry-After` (A05, A06).
-3. The strategy verifies. It takes the same time for an unknown account as for a known one (A02).
-4. Map the result to an identity: directly, through `authn_identity` (an external subject), or by
-   JIT provisioning when `authn.linking.jit` is on. Otherwise `not_linked`.
-5. Check the identity status: inactive, banned and deleted are a failure. The caller sees one
-   answer for every failure: HTTP 401 `E_AUTH_FAILED`. The real reason goes to audit only (A02).
-6. Reset the account throttle key.
+2. Count the attempt in the throttle, before verification. The throttle keys of all candidates are
+   counted once, as a union. A refused attempt is neither verified nor counted. The answer carries
+   `Retry-After` (A05, A06).
+3. The first candidate verifies. It takes the same time for an unknown account as for a known one
+   (A02). Only an `unsupported_credentials` answer passes the credential to the next candidate. Two
+   strategies of one kind, such as `token` and `jwt` (both `bearer`), rely on this: a value in the
+   other format gets `unsupported_credentials` with no I/O. Nothing checks at boot that one strategy
+   shadows another.
+4. Map the result to an identity: directly, through `authn_identity` (an external subject), by a
+   verified email, or by JIT provisioning. Email matching needs `authn.linking.byVerifiedEmail`, the
+   provider's verified flag, **and** an email that the identity store itself holds for the identity.
+   JIT needs `authn.linking.jit`. Otherwise `not_linked`.
+5. Check the identity status: inactive, banned and deleted are a failure. The core asks for every
+   subject except `service` and `agent`, which their strategies vouch for. Only `user` identities get
+   sessions. The caller sees one answer for every failure: HTTP 401 `E_AUTH_FAILED`. The real reason
+   goes to audit only (A02).
+6. Reset the account throttle key. A success removes only that account's attempts from the IP key.
 7. For an interactive strategy: ask the `MfaPolicy`. Steps required means a *pending* session and an
    `mfa_required` result. Otherwise issue a session.
    A per-request strategy (token, key, signature) returns a result with no session.
 
-`completeMfa(pending, step, response)` counts into the `mfa` throttle, verifies the step and elevates the
-session to `aal2`, with a new session id (A07).
+`completeMfa(pending, step, response, ctx)` counts into the `mfa` throttle and asks the policy again for the
+required steps of the pending session. Passing any one of them, or a recovery code, elevates the
+session to `aal2`, with a new session id (A07). An account banned or deleted between the two steps gets
+no session.
 
-The result becomes a `Principal` through `PrincipalFactory`, with `authn` facts: `method`, `strategy`,
-`assurance` (`aal1` or `aal2`), `mfa` steps passed, `authenticatedAt`, `impersonator` and
-`sessionHandle`. Authorization conditions can read `principal.authn.*` (A23).
+`DefaultAuthnService` is the core service. It is created once per container, so a child container
+reads its own `authn.strategies`. The result becomes a `Principal` through `PrincipalFactory`, with
+`authn` facts: `method`, `strategy`, `assurance` (`aal1` or `aal2`), `mfa` steps passed,
+`authenticatedAt`, `impersonator` and `sessionHandle`. Authorization conditions can read
+`principal.authn.*` (A23).
 
-> **TODO(N1):** `AuthnService`, the strategy registry by `authn.strategies` (service names, and the
-> failure of an unknown service name at boot), `DefaultMfaPolicy`, the bearer dispatch between
-> `TokenStrategy` and `JwtBearerStrategy`, the boot checks and `authn:check-config`. Fill in the
-> class names and config as built from the N1 report.
+**Strategy registry.** `StrategyRegistry` reads `authn.strategies` as `{ name, service }` entries in
+list order, and finds each service among the registered `AuthenticationStrategy` classes by class
+name (a child container also sees its ancestors'). Boot fails on a service that is not registered, a
+duplicate name, an entry name that differs from the strategy's own `name`, and a strategy with no
+boolean `interactive` or no credential kind. Registered but unlisted strategies never run. An exact
+repeat of one entry in two config files is dropped.
+
+**`DefaultMfaPolicy`.** It returns the steps of `authn.mfa.steps` that the identity is enrolled in, for
+password logins only. When none is enrolled, `force`, or a role from `forceForRoles` (asked through
+`RoleSource`), requires the first configured step, so the pending session can only enrol. Boot fails
+when `force` or `forceForRoles` has no step to require, and when `forceForRoles` has no `RoleSource` or
+`PrincipalFactory`. A step that stores secrets declares `storesSecrets: true`, which makes the boot
+require `authn.mfa.encryptionKey`.
+
+Boot checks, the old-key detector and `authn:check-config` are in
+[the migration guide](../authz/migration-guide.md#34-keys-that-other-config-files-own). The
+check is the function `checkAuthnConfig`; the command that calls it is TODO(N8a).
 
 ## Strategies
 
@@ -144,7 +171,10 @@ it verifies against a dummy hash made at boot with the same parameters, so the t
   `policy.blocklist` (for example a breach check) (A04).
 - **Change (`PasswordService.change`):** needs the owner's own active session (not one that someone
   impersonates). It keeps every API and agent token (H32, A30), revokes the identity's other sessions,
-  including sessions where it is the impersonator, and rotates the current one.
+  including sessions where it is the impersonator, and rotates the current one. The write is a
+  compare-and-set against the hash that the old password matched. When another write got there first
+  (a rehash, a reset, another change), the change answers `invalid`, audits the failure with the
+  reason `stale`, and neither revokes nor rotates any session. It does not retry.
 - **Reset and invite:** `requestReset` answers at once with the same body whether or not the account
   exists, and issues a single-use secret through `SecretStore`. `redeemReset` is single use, revokes
   all sessions and, with `reset.revokeTokens` (default true), all API tokens. It accepts a secret of
@@ -348,6 +378,19 @@ Set `http.trustProxy` (a hop count or CIDRs) when the app runs behind a proxy. A
 a stable credential id, so each API request writes the store twice. Sub-second delays are not
 supported on MySQL and MSSQL (their `datetime` is coarser).
 
+`MemoryAuthnThrottle` is the throttle of one process. It keeps one table per flow, capped by
+`authn.throttle.maxRows` (1,000,000 when unset; memory grows with 4 × `maxRows`). When a table is
+full it evicts in two tiers and never drops a row that still delays someone. An app with several
+instances sets `authn.throttle.service: 'DbAuthnThrottle'`: the boot fails when the named throttle is
+not registered, and never falls back to memory, which would count each instance apart. The service
+builds the `account-ip` key itself from the account and the IP and ignores the one a strategy sends.
+
+**Known issue (open for IC1).** A per-request credential counts in the `login` flow before it is
+verified, so valid API credentials can be throttled under parallel load: more than 5 calls in flight
+with one token or key, or more than 20 from one IP, get 401 with `Retry-After`. The choice between
+sending no account key for well-formed credentials, a separate flow (an RFC) and counting failures
+only waits with the controller.
+
 ## Audit and events
 
 Every `AuthnEvent` goes to every `AuthnEventSink` (A21). The event types are `login`, `logout`,
@@ -355,8 +398,13 @@ Every `AuthnEvent` goes to every `AuthnEventSink` (A21). The event types are `lo
 `impersonation.*` and `throttle.block`. Events never carry passwords, tokens, secrets or raw session
 ids, and identifiers are keyed hashes (SR-19).
 
-- `LogAuthnAuditSink` and `DbAuthnAuditSink` (table `authn_audit`) are on by default in
-  `authn.audit.sinks`. Token and key *use* is sampled (`authn.audit.sampleUse`, default 0.01).
+- `AuthnAudit` gives each event to every registered sink, one at a time, each bounded by
+  `authn.audit.sinkTimeoutMs` (default 2000). A sink that fails or times out is logged by error class
+  and never fails a login. `authn.audit.sinks` names sinks that must be registered; they run first.
+  The package default lists `LogAuthnAuditSink`. `DbAuthnAuditSink` (table `authn_audit`) from
+  `authn-orm` gets the events once it is registered; list it too to make boot fail when it is missing.
+  With no sink at all, boot logs a warning. Token and key *use* is sampled (`authn.audit.sampleUse`,
+  default 0.01).
 - `users` adds `QueueAuthnEventSink`, which re-emits the 2.x queue events (`UserLogged`,
   `UserLoginFailed`, `UserPasswordChanged`, `UserImpersonationStarted`, `User2FaEnabled`, …) so 2.x
   subscribers keep working.
@@ -376,16 +424,26 @@ one.
   policies included, must be a strict subset of the caller's. Equal is refused. Protected roles
   (`authz.impersonation.protectedRoles`) are refused. An instance admin has no implicit org rights
   (H26).
-- **How (authn):** `ImpersonationService` owns the session block. A start needs an `Authenticated`
-  and `MfaSatisfied` session and fresh auth (the password, when `authn.impersonation.requirePassword`).
-  It rotates the session. The principal is the target, with `authn.impersonator` set.
-- **End:** an explicit stop, logout, `authn.impersonation.maxMinutes` (default 60), or any revocation
-  of the impersonator (a ban, a deactivation, a password change on other sessions, a reset, or a lost
-  `user:impersonate`) (A20, SR-06).
+- **How (authn):** `AuthnImpersonationService` owns the session block. Without a registered
+  `ImpersonationGuard` every start is refused (`no_guard`). A start needs an active session of the
+  actor that is `aal2` (when `authn.impersonation.requireMfa`) and fresh, or re-authenticated inline
+  with the password (when `authn.impersonation.requirePassword`). The actor and the target must be
+  active. The target must be a `user` and not the actor, and nesting is refused. A start issues a new
+  session and revokes the old one. The principal is the target, with `authn.impersonator` set.
+- **Sessions of an impersonation:** such a session is never fresh, and `reauthenticate` refuses it, so the
+  target's password cannot act as the impersonator's proof.
+- **End:** an explicit stop, logout, `authn.impersonation.maxMinutes` (default 60),
+  `authn.session.expiration.maxLifetime` counted from the actor's login, or any revocation of the
+  impersonator (a ban, a deactivation, a password change on other sessions, a reset, or a lost
+  `user:impersonate`) (A20, SR-06). A stop issues a new session for the impersonator. An ended
+  impersonation resolves to no principal, never to the impersonator, because a request cannot rotate
+  the cookie.
 - Every start, end and expiry is audited.
 
 > **TODO(N8a/C3):** the impersonation routes (`GET/POST/DELETE /auth/impersonate`) and
-> `AuthzImpersonationGuard`. Until they land, `authn-http` still reads `rbac.impersonation.protectedRoles`.
+> `AuthzImpersonationGuard`, the `ImpersonationGuard` that `users` registers. Until they land,
+> `authn-http` still reads `rbac.impersonation.protectedRoles`, and nothing reads
+> `authz.impersonation.protectedRoles`.
 
 ## Package set per app type
 
@@ -438,16 +496,17 @@ export default {
 
 | Key | Package that reads it | Notes |
 |---|---|---|
-| `authn.strategies` | N1 | TODO(N1). |
+| `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
 | `authn.local.*` | `authn-local` | `hasher.service` is not read yet while `users` ships the 2.x value (TODO(C1)). `pepper.previous` is new in the build. |
 | `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). |
 | `authn.mfa.*` | `authn-orm` (storage), N5 | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. |
-| `authn.throttle.*` | `authn-orm` (`DbAuthnThrottle`), N1 | The schema holds the defaults. |
+| `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, the only registered one runs. `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
-| `authn.linking.*`, `authn.oidc.*` | N10 | `jit` is read by `authn-token` for JWT too. |
-| `authn.impersonation.*` | N8a, `users` | `requirePassword` is read today; `requireMfa` and `maxMinutes` wait for N8a. |
-| `authn.audit.*` | `authn-orm`, N1 | `audit.hashKey.secret` keys the throttle hashes. |
+| `authn.linking.*` | `DefaultAuthnService` (N1), `authn-token`, `authn-oidc` | The core reads the global switches. `authn-token` reads `jit` for JWT too. |
+| `authn.oidc.*` | `authn-oidc` | See [oidc.md](./oidc.md). |
+| `authn.impersonation.*` | `AuthnImpersonationService` (N1) | All three keys are read by the core service. The routes that call it wait for N8a. |
+| `authn.audit.*` | `AuthnAudit` (N1), `authn-orm` | `sinks` names sinks that must be registered; they run first. `sinkTimeoutMs` (default 2000) bounds each sink. `hashKey.secret` (32+ characters) keys the hashes of `LogAuthnAuditSink`, and the throttle hashes of `authn-orm`. |
 | `authn.http.*` | N8a | CSRF and trusted proxy. |
 
 Secrets you set (`authn.mfa.encryptionKey`, `authn.local.pepper.secret`, `authn.audit.hashKey.secret`,
@@ -457,8 +516,29 @@ boot refuses a public or missing value for the cookie secret outside development
 The schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
 
-> **TODO(N1):** the final schema, the old-key detector (`authn.config.rejectLegacyKeys`) and the table
-> of `rbac.*` keys it reports.
+Keys the schema adds to the sample above: `authn.local.pepper.previous`, `authn.throttle.maxRows`,
+`authn.audit.hashKey` and `authn.audit.sinkTimeoutMs`. `AuthnConfigBootstrapper` registers the schema.
+
+**Old keys.** `authn.config.rejectLegacyKeys` (default `false`) controls the 2.x key detector. The
+boot always warns about the keys it finds. With the switch on, it fails instead. The warning names each
+key, never a value. The detector reports these `rbac.*` keys:
+
+| 2.x | 3.0 |
+|---|---|
+| `rbac.auth.service` | `authn.strategies` (the `local` entry) |
+| `rbac.password.service` | `authn.local.hasher.service` |
+| `rbac.password.validation.*`, `.generator.*` | `authn.local.policy.*`, `authn.local.generator.*` |
+| `rbac.password.passwordResetWaitTime`, `.invite.waitTime`, `.resetUrl` | `authn.local.reset.ttlSeconds`, `authn.local.invite.ttlSeconds`, `authn.local.reset.url` |
+| `rbac.password.blockAfterAttempts` | `authn.throttle.login.account.free` (the converter has no off switch: 2.x 0 maps to the default) |
+| `rbac.password.lockoutTime` | dropped: 3.0 backs off and never locks |
+| `rbac.password.expiration.*` | `authn.local.expiration.*` (`passwordExpirationTime` seconds become `maxAgeDays`) |
+| `rbac.session.*` | `authn.session.*` |
+| `rbac.twoFactorAuth.enabled`, `.service`, `.forceUser` | `authn.mfa.steps` (the `totp` entry), `authn.mfa.policy.force` |
+| `rbac.otpauth.*` | `authn.mfa.totp.*` |
+| `rbac.token.{prefix,length,generation,headerName,lastUsedUpdateInterval}` | `authn.token.*` |
+| `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` |
+
+`rbac.user`, `rbac.email` and `rbac.actions` move to `users.*` and belong to the `users` detector.
 
 ## Testing
 
