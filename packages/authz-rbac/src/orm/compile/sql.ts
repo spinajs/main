@@ -95,7 +95,8 @@ export function rsql(strings: TemplateStringsArray, ...values: readonly RbacSqlA
     parts.push(s);
     if (i >= values.length) return;
     const v: unknown = values[i];
-    if (v instanceof RbacSql) parts.push(...v.parts);
+    // A loop, not a spread: a large fragment would overflow the argument stack.
+    if (v instanceof RbacSql) for (const part of v.parts) parts.push(part);
     else if (v instanceof RbacOuterColumn || v instanceof RbacIdentifier) parts.push(v);
     else if (Array.isArray(v)) {
       if (v.length === 0) throw refuse('cannot bind an empty array; fold the empty list in the compiler (IN of nothing is FALSE)');
@@ -129,7 +130,7 @@ export function joinSql(parts: readonly RbacSql[], separator: string): RbacSql {
   const out: RbacSqlPart[] = [];
   parts.forEach((p, i) => {
     if (i > 0) out.push(separator);
-    out.push(...p.parts);
+    for (const part of p.parts) out.push(part);
   });
   return new RbacSql(out);
 }
