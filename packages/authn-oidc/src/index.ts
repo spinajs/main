@@ -7,3 +7,6 @@ export * from './discovery.js';
 export * from './jwks.js';
 export * from './flow/cookie.js';
 export * from './flow/authorize.js';
+export * from './token/exchange.js';
+export * from './token/id-token.js';
+export * from './token/userinfo.js';
