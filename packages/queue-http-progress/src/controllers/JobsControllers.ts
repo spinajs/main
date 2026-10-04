@@ -1,22 +1,29 @@
-﻿import { BaseController, BasePath, Get, Ok, Param } from "@spinajs/http";
+import { AuthzDomains, AuthzService, authzStorage } from "@spinajs/authz";
+import { Access } from "@spinajs/authz-http";
+import { DI } from "@spinajs/di";
+import { ResourceNotFound } from "@spinajs/exceptions";
+import { BaseController, BasePath, Get, Ok, Param, Req } from "@spinajs/http";
+import type { Request } from "@spinajs/http";
 import { JobModel } from "@spinajs/queue";
 import { IJobStatusResponse } from "../models/JobEntry.js";
 
 @BasePath("jobs/v1")
 export class JobsController extends BaseController {
   @Get(":jobId/status")
-  public async getStatus(@Param() jobId: string): Promise<Ok> {
-    const row = await JobModel.select().where("JobId", jobId).first();
+  @Access("job:read")
+  public async getStatus(@Param() jobId: string, @Req() req: Request): Promise<Ok> {
+    const row = await authzStorage().run(
+      req.storage as unknown as Record<string, unknown>,
+      async () => {
+        const found = await JobModel.select().where("JobId", jobId).first();
+        // The job resource id is the integer Id, not the uuid JobId (RFC L6-2).
+        return found && (await this.canRead(req, found)) ? found : undefined;
+      },
+    );
 
+    // An unknown and a denied job answer alike, so the route does not reveal which jobs exist.
     if (!row) {
-      return new Ok({
-        jobId,
-        status: "queued",
-        progress: 0,
-        result: undefined,
-        message: undefined,
-        createdAt: undefined,
-      });
+      throw new ResourceNotFound(`Job ${jobId} not found`);
     }
 
     const failed = row.Status === "dead" || row.Status === "error";
@@ -38,5 +45,17 @@ export class JobsController extends BaseController {
     };
 
     return new Ok(response);
+  }
+
+  protected async canRead(req: Request, row: JobModel): Promise<boolean> {
+    const principal = req.storage.Principal;
+    if (!principal) return false;
+    const domain = req.storage.AuthzHttpRoute?.domain ?? "root";
+    const authz =
+      domain === "root"
+        ? ((await DI.resolve(AuthzService)) as AuthzService)
+        : await ((await DI.resolve(AuthzDomains)) as AuthzDomains).service(domain);
+    // The row is the subject: a ref alone leaves the grant's `initiator` relation unchecked.
+    return authz.can(principal, "job:read", { type: "job", id: String(row.Id) }, row);
   }
 }
