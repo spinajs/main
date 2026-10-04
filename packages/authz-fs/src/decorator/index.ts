@@ -3,7 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { FsDecorator } from '@spinajs/fs';
 import type { IProviderConfiguration, fs } from '@spinajs/fs';
 
-import { fsAccessConfig } from '../config/index.js';
+import { fsAccessConfig } from '../access-config/index.js';
 import { assertFsDomainConfig, ensureFsDomain } from '../domain/index.js';
 import { guardFs } from '../guard/index.js';
 

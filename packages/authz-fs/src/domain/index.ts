@@ -4,8 +4,8 @@ import { AbacModel, ConfigPolicyStore } from '@spinajs/authz-abac';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { fsAccessConfigs } from '../config/index.js';
-import type { FsAccessConfig } from '../config/index.js';
+import { fsAccessConfigs } from '../access-config/index.js';
+import type { FsAccessConfig } from '../access-config/index.js';
 import { FsInheritModel } from '../inherit/index.js';
 
 export const ROOT_DOMAIN = 'root';

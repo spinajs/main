@@ -8,6 +8,14 @@ import { FS_RESOURCE_TYPES, parseFsRef } from '../refs/index.js';
 
 export type FsAccessMode = 'off' | 'audit' | 'enforce';
 
+/** `authz.fs.<name>.signedUrl` (D9). */
+export interface FsSignedUrlConfig {
+  /** Cap on every signed URL's lifetime. */
+  readonly maxTtlSeconds?: number;
+  /** Lifetime when the caller asks for no `until`; default 900 (the S3 signer's own default). */
+  readonly defaultTtlSeconds?: number;
+}
+
 /** `authz.fs.<name>` (design §13). */
 export interface FsAccessConfig {
   readonly mode: FsAccessMode;
@@ -20,7 +28,7 @@ export interface FsAccessConfig {
   readonly resolver?: string;
   /** fs permission → action checked on the resolver's domain parent. */
   readonly inherit?: Readonly<Record<Permission, string>>;
-  readonly signedUrl?: { readonly maxTtlSeconds?: number };
+  readonly signedUrl?: FsSignedUrlConfig;
   readonly policies?: readonly Policy[];
   /** Method → permission(s), added to or replacing the operation table. */
   readonly operations?: Readonly<Record<string, Permission | readonly Permission[]>>;
@@ -116,15 +124,21 @@ function parseInherit(value: unknown, at: string): Readonly<Record<Permission, s
   return Object.freeze(out);
 }
 
-function parseSignedUrl(value: unknown, at: string): { readonly maxTtlSeconds?: number } {
+const SIGNED_URL_KEYS = ['maxTtlSeconds', 'defaultTtlSeconds'] as const;
+
+function parseSignedUrl(value: unknown, at: string): FsSignedUrlConfig {
   if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object, got ${show(value)}`);
   for (const key of Object.keys(value)) {
-    if (key !== 'maxTtlSeconds') throw new AuthzConfigError(`${at}.${key} is not a known key (expected maxTtlSeconds)`);
+    if (!(SIGNED_URL_KEYS as readonly string[]).includes(key)) throw new AuthzConfigError(`${at}.${key} is not a known key (expected ${SIGNED_URL_KEYS.join(', ')})`);
   }
-  if (value.maxTtlSeconds === undefined) return Object.freeze({});
-  const ttl = value.maxTtlSeconds;
-  if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) throw new AuthzConfigError(`${at}.maxTtlSeconds must be a positive finite number, got ${show(ttl)}`);
-  return Object.freeze({ maxTtlSeconds: ttl });
+  const out: Record<string, number> = {};
+  for (const key of SIGNED_URL_KEYS) {
+    const ttl = value[key];
+    if (ttl === undefined) continue;
+    if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) throw new AuthzConfigError(`${at}.${key} must be a positive finite number, got ${show(ttl)}`);
+    out[key] = ttl;
+  }
+  return Object.freeze(out);
 }
 
 const FS_TYPES = new Set<string>(FS_RESOURCE_TYPES);

@@ -130,6 +130,13 @@ describe('authz-fs AuthzUploadMiddleware', function () {
     expect(domains).to.deep.equal([]);
   });
 
+  it('checks the filesystem the uploader copies to: file.Provider when set, before options.fs', async () => {
+    const authz = new FakeAuthz();
+    await middleware(authz).beforeUpload({ ...upload(), Provider: { Name: 'invoices' } as IUploadedFile['Provider'] }, { fs: 'uploads' });
+    expect(authz.keys()).to.deep.equal(['fs:write file:invoices:upload_7f3a']);
+    expect(authz.calls.map((c) => c.kind)).to.deep.equal(['check']);
+  });
+
   it(`without options.fs it checks the default upload filesystem ${DEFAULT_FS}, as FromFile does`, async () => {
     for (const options of [undefined, {}, { fs: '' }] as (IUploadOptions | undefined)[]) {
       const authz = new FakeAuthz();

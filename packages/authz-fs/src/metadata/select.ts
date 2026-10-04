@@ -3,8 +3,8 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
 import { FileMetadataStore } from '../api.js';
-import { fsAccessConfig } from '../config/index.js';
-import type { FsAccessConfig } from '../config/index.js';
+import { fsAccessConfig } from '../access-config/index.js';
+import type { FsAccessConfig } from '../access-config/index.js';
 
 // A found store per container and class name; the config is still read on every call.
 const found = new WeakMap<IContainer, Map<string, FileMetadataStore>>();

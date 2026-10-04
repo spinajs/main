@@ -3,7 +3,7 @@ import type { AuthzContribution, PermissionRefDecl } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { fsAccessConfigs } from '../config/index.js';
+import { fsAccessConfigs } from '../access-config/index.js';
 import { assertFsDomainConfig } from '../domain/index.js';
 import { effectiveFsOperations } from '../operations/index.js';
 

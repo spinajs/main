@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
 import { FsPathResolver } from '../api.js';
-import { fsAccessConfig } from '../config/index.js';
+import { fsAccessConfig } from '../access-config/index.js';
 
 /**
  * Domain parents of a path, nearest first, without repeats. They come from the FsPathResolver that

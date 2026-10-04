@@ -81,10 +81,19 @@ The guard protects filesystems from principals, not from application code:
 ## Signed URLs
 
 `signedUrl(path, opts?)` and `getSignedUrl(path, until?)` need `fs:share` on the file. The URL expires at the
-earliest of the asked `until`, now + `authz.fs.<name>.signedUrl.maxTtlSeconds` and the `validUntil` of the
-`fs:share` decision (an expiring grant); a term that is absent does not count, and with none the provider
-default applies. Now is the `AuthzClock` of the filesystem's domain. The rule also holds in `audit`: it can only
-shorten a URL. An asked `until` that is not a valid luxon `DateTime` is an `InvalidArgument`.
+earliest of:
+
+- the asked `until`, or, when the caller asks none, now + `authz.fs.<name>.signedUrl.defaultTtlSeconds`
+  (default 900, the S3 signer's own default);
+- now + `signedUrl.maxTtlSeconds`, when set;
+- the `validUntil` of the `fs:share` decision (an expiring grant), when it has one.
+
+So a URL nobody asked a lifetime for lives 900 s at most, whatever the caps or grants say. Now is the
+`AuthzClock` of the filesystem's domain. The rule also holds in `audit`. An asked `until` that is not a valid
+luxon `DateTime` is an `InvalidArgument`; the guard signs a copy of it, in its zone.
+
+The S3 signer turns `until` into a lifetime with the wall clock (`diffNow`). With a custom `AuthzClock` that
+runs ahead of the system time, S3 URLs live longer by that skew.
 
 `getSignedUrl` is served through the provider's `signedUrl` when it has one; a provider with neither method
 has nothing to call, as without the guard.
@@ -92,16 +101,20 @@ has nothing to call, as without the guard.
 ## Uploads
 
 `AuthzUploadMiddleware` is a `FileUploadMiddleware` of `@spinajs/http`. Before the uploader copies a form
-file, it checks `fs:write` on `file.BaseName` in the filesystem the route uploads to (`IUploadOptions.fs`,
-else `__file_upload_default_provider__`), with that filesystem's mode and domain. `enforce` answers 403 and the
-formidable temp file is removed, not copied; `audit` warns; `off` (or no entry) does nothing. The guarded copy
-checks the destination again; the middleware gives the early answer.
+file, it checks `fs:write` on `file.BaseName` in the filesystem the uploader copies to (`file.Provider`, else
+`IUploadOptions.fs`, else `__file_upload_default_provider__`), with that filesystem's mode and domain. `enforce`
+answers 403 and the formidable temp file is removed, not copied; `audit` warns; `off` (or no entry) does
+nothing. The guarded copy checks the destination again, but `ImmediateFileUploader` turns its denial into an
+`IOFail` (500); the middleware gives the 403.
 
-It is not in the defaults. Add it to `http.upload.middlewares`, or to a route's `middlewares`, after any
-middleware that renames the file (`ZipFileTransformer`, `UnzipFileTransformer`):
+It is not in the defaults. `FromFile` runs `http.upload.middlewares` first, then the route's `middlewares`:
+
+- without transformers, add it to `http.upload.middlewares` (config arrays are concatenated, so this follows
+  http's own `FileInfoMiddleware`);
+- on a route with a middleware that renames the file (`ZipFileTransformer`, `UnzipFileTransformer`), put it in
+  that route's `middlewares`, after the transformer.
 
 ```ts
-// config arrays are concatenated: this follows http's own FileInfoMiddleware
 http: { upload: { middlewares: ['AuthzUploadMiddleware'] } },
 authz: { fs: { uploads: { mode: 'enforce' }, '__file_upload_default_provider__': { mode: 'off' } } },
 ```
@@ -110,22 +123,30 @@ Keep the default upload filesystem `off`: the uploader reads and deletes the tem
 principal.
 
 With a lazy uploader (`http-lazy-file-uploader`), the middleware checks the route's filesystem, not the
-uploader's `fs`; the copy runs later in a queue job, whose guarded `copy` checks the destination as the job's
-principal (`@Job` `runAs`, authz-queue).
+uploader's `fs`. The copy runs later in `LazyUploadJob` (`runAs: 'initiator'`), whose guarded `copy` checks the
+destination as the principal that uploaded. authz-queue does not stamp a delegated, impersonated or
+`onBehalfOf` principal: its lazy upload runs unattended and is denied by an enforced destination.
 
 ## `fromFsPath`
 
 `fromFsPath(fsName, param)` is a resource extractor for authz-http's `@Access`. It reads the url parameter
 `param` (only url parameters, as `fromParam`), normalises it as the guard does, with the base path of the
 published provider, and gives `{ type: 'file', id: '<fs>:<path>' }`, or `{ type: 'fs', id: <fs> }` for the
-root. A missing or non-string parameter, or a refused path (`..` above the root), is an `InvalidArgument`
-(400).
+root. An Express 5 wildcard (`*path`) gives the segments as an array: they are joined with `/`, and a segment
+the normaliser refuses on its own (`..`, `.`, an empty one, one holding `/` or `\`) is refused. A missing
+parameter, one that is neither a string nor a non-empty string array, or a refused path (`..` above the root)
+is an `InvalidArgument` (400).
 
 ```ts
-@Get('files/:path(*)')
-@Access('fs:read', { resource: fromFsPath('uploads', 'path') })
-public async download(@Param() path: string) { … }
+@Get('files/*path')
+@Access('fs:read', { resource: fromFsPath('uploads', 'path'), domain: 'fs' })
+public async download(@Param() path: string[]) {
+  return getFs('uploads').read(path.join('/'));   // the path checked is the path read
+}
 ```
+
+The extractor carries no domain: for a filesystem whose `authz.fs.<name>.domain` is not `root`, set the same
+`domain` in `@Access`, or the route is checked in root.
 
 The ref is always a `file` (or the `fs` root): a grant on a `dir` ref covers it through its ancestors, but a
 route that lists a directory checks a `file` ref with the directory's path, which a `dir` grant on that same

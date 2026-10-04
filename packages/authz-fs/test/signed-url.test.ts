@@ -83,7 +83,7 @@ describe('authz-fs signed URLs (D9)', function () {
 
     expect(await g.signedUrl!('./docs//a.txt')).to.equal('https://signed/url');
     expect(authz.calls.map((c) => [c.kind, c.permission, c.resource, c.subject])).to.deep.equal([['assert', 'fs:share', 'file:uploads:docs/a.txt', { id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' }]]);
-    expect(calls).to.deep.equal([['signedUrl', 'docs/a.txt']]);
+    expect(calls.map((c) => [c[0], c[1]])).to.deep.equal([['signedUrl', 'docs/a.txt']]);
   });
 
   it('enforce: a denial is AccessDenied and nothing is signed', async () => {
@@ -104,7 +104,7 @@ describe('authz-fs signed URLs (D9)', function () {
     expect(calls).to.deep.equal([]);
   });
 
-  describe('until = min(asked, now + signedUrl.maxTtlSeconds, decision.validUntil)', () => {
+  describe('until = min(asked or now + defaultTtlSeconds, now + maxTtlSeconds, decision.validUntil)', () => {
     type Term = 'asked' | 'ttl' | 'validUntil';
     const TERMS: readonly Term[] = ['asked', 'ttl', 'validUntil'];
     const subsets = [1, 2, 3, 4, 5, 6, 7].map((mask) => TERMS.filter((_, i) => mask & (1 << i)));
@@ -112,7 +112,7 @@ describe('authz-fs signed URLs (D9)', function () {
     for (const present of subsets) {
       for (const smallest of present) {
         it(`${present.join(' + ')}: ${smallest} is the minimum`, async () => {
-          // The smallest term ends in 5 minutes, the others in 10 and 15.
+          // The smallest term ends in 5 minutes, the others in 10 and 15; an absent asked term is the 15-minute default.
           const minutes = new Map<Term, number>();
           let next = 10;
           for (const t of present) minutes.set(t, t === smallest ? 5 : (next += 5) - 5);
@@ -130,21 +130,54 @@ describe('authz-fs signed URLs (D9)', function () {
       }
     }
 
-    it('no term: the caller options go to the provider unchanged', async () => {
+    it('nothing asked: the URL lives signedUrl.defaultTtlSeconds, 900 s unless configured (D9 rev.)', async () => {
       const calls: Call[] = [];
       const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
       const opts = { disposition: 'inline' };
       await g.signedUrl!('a.txt', opts);
-      expect(calls).to.deep.equal([['signedUrl', 'a.txt', { disposition: 'inline' }]]);
+      expect(calls.map((c) => [c[0], c[1], (c[2] as { disposition?: string }).disposition])).to.deep.equal([['signedUrl', 'a.txt', 'inline']]);
+      expect(untilOf(calls[0])).to.equal(at(15).getTime());
+      expect(opts).to.deep.equal({ disposition: 'inline' });
+
+      const configured = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { defaultTtlSeconds: 120 } }, new FakeAuthz());
+      await configured.signedUrl!('a.txt');
+      expect(untilOf(calls[1])).to.equal(at(2).getTime());
     });
 
-    it('keeps the asked DateTime when it is the minimum and never changes the caller options', async () => {
+    it('nothing asked: a longer cap or a far validUntil never lengthens the URL beyond the default', async () => {
+      const calls: Call[] = [];
+      const authz = new FakeAuthz();
+      authz.validUntil = () => at(60 * 24 * 30);
+      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 86400 } }, authz);
+      await g.signedUrl!('a.txt');
+      expect(untilOf(calls[0])).to.equal(at(15).getTime());
+    });
+
+    it('nothing asked: a default above maxTtlSeconds is capped by it', async () => {
+      const calls: Call[] = [];
+      const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 60, defaultTtlSeconds: 3600 } }, new FakeAuthz());
+      await g.signedUrl!('a.txt');
+      expect(untilOf(calls[0])).to.equal(at(1).getTime());
+    });
+
+    it('an asked until beyond the default stands when no cap applies: the default only fills an absent term', async () => {
+      const calls: Call[] = [];
+      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
+      await g.signedUrl!('a.txt', { until: DateTime.fromJSDate(at(60)) });
+      expect(untilOf(calls[0])).to.equal(at(60).getTime());
+    });
+
+    it('passes a copy of the asked DateTime in its zone, never the caller object, and never changes the caller options', async () => {
       const calls: Call[] = [];
       const g = guard(signer('uploads', calls), { mode: 'enforce', signedUrl: { maxTtlSeconds: 3600 } }, new FakeAuthz());
       const until = DateTime.fromJSDate(at(5), { zone: 'Europe/Warsaw' });
       const opts = { until };
       await g.signedUrl!('a.txt', opts);
-      expect((calls[0][2] as { until: DateTime }).until).to.equal(until);
+      const passed = (calls[0][2] as { until: DateTime }).until;
+      expect(passed).to.not.equal(until);
+      expect(passed).to.be.instanceOf(DateTime);
+      expect(passed.toMillis()).to.equal(at(5).getTime());
+      expect(passed.zoneName).to.equal('Europe/Warsaw');
       expect(opts).to.deep.equal({ until });
 
       const later = { until: DateTime.fromJSDate(at(120)) };
@@ -167,6 +200,18 @@ describe('authz-fs signed URLs (D9)', function () {
       expect(untilOf(calls[0])).to.equal(at(1).getTime());
       expect(warnings).to.have.length(1);
       expect(warnings[0]).to.match(/lacks fs:share on file:uploads:a\.txt/);
+    });
+
+    it('reads an asked until once: a value that changes between reads is signed as first read', async () => {
+      const calls: Call[] = [];
+      const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
+      let reads = 0;
+      const shifty = { isLuxonDateTime: true, isValid: true, zone: undefined, toMillis: () => at(5 + 1000 * reads++).getTime() };
+      await g.signedUrl!('a.txt', { until: shifty as unknown as DateTime });
+      const passed = (calls[0][2] as { until: DateTime }).until;
+      expect(passed).to.be.instanceOf(DateTime);
+      expect(passed.toMillis()).to.equal(at(5).getTime());
+      expect(reads).to.equal(1);
     });
 
     it('refuses an asked until that is not a valid luxon DateTime, before any check or signing', async () => {
@@ -196,11 +241,12 @@ describe('authz-fs signed URLs (D9)', function () {
       expect(untilOf(calls[0])).to.equal(at(7).getTime());
     });
 
-    it('without a term it asks signedUrl with no until', async () => {
+    it('without an asked until it signs for the default lifetime', async () => {
       const calls: Call[] = [];
       const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz());
       await (g as unknown as { getSignedUrl(p: string): Promise<string> }).getSignedUrl('a.txt');
-      expect(calls).to.deep.equal([['signedUrl', 'a.txt', {}]]);
+      expect(calls.map((c) => [c[0], c[1]])).to.deep.equal([['signedUrl', 'a.txt']]);
+      expect(untilOf(calls[0])).to.equal(at(15).getTime());
     });
 
     it('a provider with getSignedUrl only gets the narrowed until as its second argument', async () => {
@@ -311,10 +357,16 @@ describe('authz-fs signed URLs through the engine', function () {
     expect(untilOf(calls[0])).to.equal(at(2).getTime());
   });
 
-  it('without a TTL config the decision validUntil alone sets until', async () => {
+  it('without a TTL config an expiring permit shorter than the default sets until', async () => {
     const { g, calls } = await setup(new ExpiringModel(at(3)), {});
     await g.signedUrl!('a.txt');
     expect(untilOf(calls[0])).to.equal(at(3).getTime());
+  });
+
+  it('a permit that expires in 30 days and nothing asked: the default 900 s, not 30 days', async () => {
+    const { g, calls } = await setup(new ExpiringModel(at(60 * 24 * 30)), {});
+    await g.signedUrl!('a.txt');
+    expect(untilOf(calls[0])).to.equal(at(15).getTime());
   });
 
   it('the TTL counts from the domain clock', async () => {
@@ -323,9 +375,9 @@ describe('authz-fs signed URLs through the engine', function () {
     expect(untilOf(calls[0])).to.equal(at(4).getTime());
   });
 
-  it('a permit that never expires, no TTL and no asked until: the provider default', async () => {
+  it('a permit that never expires, no TTL and nothing asked: the default, from the domain clock', async () => {
     const { g, calls } = await setup(new ExpiringModel(), {});
     await g.signedUrl!('a.txt');
-    expect(calls).to.deep.equal([['signedUrl', 'a.txt']]);
+    expect(untilOf(calls[0])).to.equal(at(15).getTime());
   });
 });

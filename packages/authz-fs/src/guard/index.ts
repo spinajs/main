@@ -10,8 +10,8 @@ import { fsNative, fsTemp } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 
 import type { FileMetadataStore } from '../api.js';
-import { fsAccessConfig } from '../config/index.js';
-import type { FsAccessConfig } from '../config/index.js';
+import { fsAccessConfig } from '../access-config/index.js';
+import type { FsAccessConfig } from '../access-config/index.js';
 import { FS_UNCHECKED_METHODS, effectiveFsOperations } from '../operations/index.js';
 import type { FsOperation, FsPathSpec } from '../operations/index.js';
 import { FS_NO_OWNER_TYPES } from '../metadata/meta.js';
@@ -39,7 +39,7 @@ export interface FsGuardOptions {
   readonly log?: FsGuardLog;
   /** How long a writeStream's 'close' waits for the metadata store; default 30 s. */
   readonly metadataTimeoutMs?: number;
-  /** The time a signed URL's maxTtlSeconds counts from; default the AuthzClock of the filesystem's domain, else the system time. */
+  /** The time signed URL lifetimes count from; default the AuthzClock of the filesystem's domain, else the system time. */
   readonly now?: () => Date;
 }
 
@@ -215,10 +215,10 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   for (const need of plan.needs) decisions.push(await decide(need, principal));
   let call = { fn, args: plan.args };
   if (signing) {
-    // D9: the URL never outlives the asked until, the TTL or the permit; audit mode narrows it too.
-    const maxTtlSeconds = guard.config.signedUrl?.maxTtlSeconds;
-    const now = maxTtlSeconds === undefined ? undefined : await guard.env.now(guard.config.domain);
-    const until = signingUntil({ asked, maxTtlSeconds, now, decisions: decisions.filter((_, i) => plan.needs[i].arg === 0) });
+    // D9 rev.: the URL never outlives the asked until (else the default lifetime), the TTL cap or the permit; audit mode narrows it too.
+    const { maxTtlSeconds, defaultTtlSeconds } = guard.config.signedUrl ?? {};
+    const now = await guard.env.now(guard.config.domain);
+    const until = signingUntil({ asked, defaultTtlSeconds, maxTtlSeconds, now, decisions: decisions.filter((_, i) => plan.needs[i].arg === 0) });
     call = signingCall(guard.raw, method, fn, plan.args, until);
   }
   const metadataPath = (arg: number): MetadataPath | undefined => {

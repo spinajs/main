@@ -1,7 +1,7 @@
 import { AuthzConfigError } from '@spinajs/authz';
 import type { Permission } from '@spinajs/authz';
 
-import type { FsAccessConfig } from '../config/index.js';
+import type { FsAccessConfig } from '../access-config/index.js';
 import type { FsPathKind } from '../refs/index.js';
 
 /** One path argument of a filesystem method and what it needs. */

@@ -3,7 +3,7 @@ import type { CheckInput, Decision, Permission, Principal, ResourceRef } from '@
 import type { IContainer } from '@spinajs/di';
 import type { fs } from '@spinajs/fs';
 
-import type { FsAccessMode } from '../config/index.js';
+import type { FsAccessMode } from '../access-config/index.js';
 import { ensureFsDomain } from '../domain/index.js';
 import type { FsPathKind, FsRow } from '../refs/index.js';
 

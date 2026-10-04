@@ -3,7 +3,7 @@ import type { DecisionRequest, EvaluationContext, ModelCapabilities, ModelSummar
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { fsAccessConfigs } from '../config/index.js';
+import { fsAccessConfigs } from '../access-config/index.js';
 import { parseFsRef } from '../refs/index.js';
 import { resolveFsParents } from '../resolvers/index.js';
 

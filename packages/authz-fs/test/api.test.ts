@@ -82,8 +82,19 @@ describe('authz-fs fromFsPath', () => {
     }
   });
 
+  it('joins the segments of an Express 5 wildcard parameter (*path) with /', () => {
+    expect(extract({ params: { path: ['docs', 'a.txt'] } })).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+    expect(extract({ params: { path: ['a.txt'] } })).to.deep.equal({ type: 'file', id: 'uploads:a.txt' });
+  });
+
+  it('refuses a wildcard parameter that is empty, holds a non-string, or has a segment the normaliser refuses', () => {
+    for (const path of [[], ['docs', 1], ['docs', null], ['..', 'a.txt'], ['docs', '..', 'a.txt'], ['docs', 'a\0b'], ['docs', 'x::$DATA'], ['docs', '../../a.txt'], ['docs', ''], ['docs', 'a/b'], ['docs', 'a\\b']]) {
+      expect(() => extract({ params: { path } }), JSON.stringify(path)).to.throw(InvalidArgument);
+    }
+  });
+
   it('refuses a missing or non-string parameter, and reads url parameters only', () => {
-    for (const req of [{ params: {} }, { params: { path: 7 } }, { params: { path: ['a', 'b'] } }, { params: { other: 'a' } }, { query: { path: 'a.txt' } }, { params: {}, query: { path: 'a.txt' } }, {}, null, undefined, 'a.txt']) {
+    for (const req of [{ params: {} }, { params: { path: 7 } }, { params: { path: { 0: 'a' } } }, { params: { other: 'a' } }, { query: { path: 'a.txt' } }, { params: {}, query: { path: 'a.txt' } }, {}, null, undefined, 'a.txt']) {
       expect(() => extract(req), JSON.stringify(req)).to.throw(InvalidArgument, /url parameter path/);
     }
     expect(() => extract({ params: Object.create({ path: 'a.txt' }) })).to.throw(InvalidArgument);

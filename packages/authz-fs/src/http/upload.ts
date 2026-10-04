@@ -6,7 +6,7 @@ import { InvalidArgument } from '@spinajs/exceptions';
 import { FileUploadMiddleware } from '@spinajs/http';
 import type { IUploadOptions, IUploadedFile } from '@spinajs/http';
 
-import { fsAccessConfig } from '../config/index.js';
+import { fsAccessConfig } from '../access-config/index.js';
 import { basePathOf, decideFs, domainService, publishedFs, refOf } from '../guard/shared.js';
 import type { FsGuardLog, FsGuardService } from '../guard/shared.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
@@ -25,11 +25,11 @@ export interface AuthzUploadMiddlewareOptions {
 }
 
 /**
- * Checks `fs:write` on the file an upload will be written to (`options.fs`, else the default upload filesystem,
- * at `file.BaseName`) before the uploader copies it, with that filesystem's mode and domain (design §13): enforce
- * refuses with AccessDenied (403) so the formidable temp file is never copied, audit warns, off does nothing. The
- * guarded copy checks the destination again; this gives the early answer. Apps add it to `http.upload.middlewares`,
- * last, after middlewares that rename the file.
+ * Checks `fs:write` on the file an upload will be written to (`file.Provider`, else `options.fs`, else the default
+ * upload filesystem, at `file.BaseName`) before the uploader copies it, with that filesystem's mode and domain
+ * (design §13): enforce refuses with AccessDenied (403) so the formidable temp file is never copied, audit warns,
+ * off does nothing. The guarded copy checks the destination again; this gives the early answer. Apps add it after
+ * middlewares that rename the file.
  */
 @Injectable(FileUploadMiddleware)
 export class AuthzUploadMiddleware extends FileUploadMiddleware {
@@ -38,8 +38,10 @@ export class AuthzUploadMiddleware extends FileUploadMiddleware {
   }
 
   public async beforeUpload(file: IUploadedFile, options?: IUploadOptions): Promise<IUploadedFile> {
-    // FromFile also falls back on an empty name.
-    const fsName = options?.fs || DEFAULT_UPLOAD_FS;
+    // ImmediateFileUploader copies to file.Provider, which an earlier middleware may have replaced; FromFile also
+    // falls back on an empty options.fs.
+    const named: unknown = file.Provider?.Name;
+    const fsName = typeof named === 'string' && named !== '' ? named : options?.fs || DEFAULT_UPLOAD_FS;
     const container = this.options.container ?? DI.RootContainer;
     const config = fsAccessConfig(fsName, container);
     if (config.mode === 'off') return file;
