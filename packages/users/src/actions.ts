@@ -5,7 +5,7 @@ import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
 import { USER_COMMON_METADATA, User, UserBase, isReservedMetadataKey } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserRoleGranted, UserRoleRevoked, UserUnbanned } from './events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
@@ -667,7 +667,6 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 /**
  * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` as SYSTEM.
  * Granting a held role again changes nothing. An unknown or unassignable role is an `InvalidArgument`.
- * Emits a {@link UserRoleGranted} event.
  *
  * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -680,14 +679,12 @@ export async function grant(identifier: number | string | User, role: string): P
   const u = await getUser(identifier);
 
   await assignGlobalRoles(u.Uuid, [role], 'users:grant');
-  await ev(new UserRoleGranted(u, role));
 
   return u;
 }
 
 /**
  * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` as SYSTEM.
- * Emits a {@link UserRoleRevoked} event.
  *
  * @deprecated 3.0: AuthzAdmin.execute(actor, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role }]) or AuthzAdmin.revoke(actor, id). R1 deletes it.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -700,7 +697,6 @@ export async function revoke(identifier: number | string | User, role: string): 
   const u = await getUser(identifier);
 
   await revokeGlobalRole(u.Uuid, role, 'users:revoke');
-  await ev(new UserRoleRevoked(u, role));
 
   return u;
 }

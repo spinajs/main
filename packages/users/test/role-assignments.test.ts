@@ -114,6 +114,15 @@ describe('roles as GLOBAL assignments (H13)', function () {
       expect((await globalRolesOf(TEST_USER_UUID)).filter((r) => r === 'editor')).to.have.lengthOf(1);
     });
 
+    it('grant and revoke publish no users queue event: RoleAssigned and RoleRevoked come from AuthzAdmin (B27)', async () => {
+      const emit = DefaultQueueService.prototype.emit as sinon.SinonStub;
+
+      await grant('test@spinajs.pl', 'editor');
+      await revoke('test@spinajs.pl', 'editor');
+
+      expect(emit.callCount).to.eq(0);
+    });
+
     it('grant refuses an unknown role', async () => {
       const err = await refusal(grant('test@spinajs.pl', 'not-a-role'));
 

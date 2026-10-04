@@ -30,8 +30,6 @@ const usersConfig = {
       UserUnbanned: { connection: 'rbac-user-empty-queue' },
       UserPasswordChanged: { connection: 'rbac-user-empty-queue' },
       UserPasswordChangeRequest: { connection: 'rbac-user-empty-queue' },
-      UserRoleGranted: { connection: 'rbac-user-empty-queue' },
-      UserRoleRevoked: { connection: 'rbac-user-empty-queue' },
       UserImpersonationStarted: { connection: 'rbac-user-empty-queue' },
       UserImpersonationEnded: { connection: 'rbac-user-empty-queue' },
     },
