@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 import { AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
 import { hostHarness, runBehaviour, testHost, userPrincipal } from '@spinajs/authz-testing';
 
-import { asSystem, requireSystemPrincipal, resetSystemPrincipal } from '../src/system.js';
+import { asSystem, requireSystemPrincipal, resetSystemPrincipal, setBootWait } from '../src/system.js';
 import { bootDb } from './support/db.js';
 
 describe('configuration-db-source under authz', function () {
@@ -26,6 +26,24 @@ describe('configuration-db-source under authz', function () {
       } finally {
         root.resolve = resolve;
       }
+    });
+  });
+
+  describe('guarded app without an http server', () => {
+    before(async () => {
+      await testHost.installHost();
+      requireSystemPrincipal();
+      setBootWait(50);
+    });
+
+    after(async () => {
+      setBootWait(15_000);
+      resetSystemPrincipal();
+      await testHost.uninstallHost();
+    });
+
+    it('boots the root service after the bounded wait and runs as SYSTEM', async () => {
+      expect(await asSystem(async () => authz().current())).to.equal(SYSTEM);
     });
   });
 
