@@ -1071,6 +1071,70 @@ describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
     });
   });
 
+  describe('covers at $global compares holder and target on every type of a permission too', () => {
+    const DOC: ResourceRef = { type: 'doc' };
+    const vote = (model: string, permit: boolean | ResourceFilter, deny = false): Vote => ({ model, permitWhen: permit === true ? TRUE : permit === false ? FALSE : permit, denyWhen: deny ? TRUE : FALSE, cacheable: true });
+    /** alice holds everything; bob holds doc:read, and doc:delete on doc rows only unless `bobDeleteGlobal`. */
+    const typedRbac = (bobDeleteGlobal: boolean, listed: Listing = {}) =>
+      new SummaryModel(
+        'rbac',
+        {
+          vote: (req: DecisionRequest) => {
+            if (req.principal.id === 'alice') return vote('rbac', true);
+            if (req.principal.id !== 'bob') return vote('rbac', false);
+            return vote('rbac', req.permission === 'doc:read' || (req.permission === 'doc:delete' && (bobDeleteGlobal || req.resource.type === 'doc')));
+          },
+        },
+        listing(listed),
+      );
+    const aliceDelete = (req: DecisionRequest) => req.principal.id === 'alice' && req.permission === 'doc:delete';
+    const denyModel = (denies: (req: DecisionRequest) => boolean) => new Summarizing('abac', { vote: (req: DecisionRequest) => vote('abac', false, denies(req)) });
+    const typedDeny = () => denyModel((req) => aliceDelete(req) && req.resource.type === 'doc');
+    const noDeny = () => denyModel(() => false);
+    const bobDeleteListed: Listing = { bob: [entry('doc:read'), entry('doc:delete')] };
+
+    it('a holder denied only on the rows of a type does not cover a target holding the permission there by its summary (review P1)', async () => {
+      const a = make({ models: [typedRbac(false, bobDeleteListed), typedDeny()] });
+      expect((await a.check({ principal: alice, permission: 'doc:delete', resource: GLOBAL })).allowed).to.equal(true);
+      expect((await a.check({ principal: alice, permission: 'doc:delete', resource: DOC })).allowed).to.equal(false);
+      expect((await a.check({ principal: bob, permission: 'doc:delete', resource: DOC })).allowed).to.equal(true);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      // Control: without the typed deny alice covers bob.
+      expect(await make({ models: [typedRbac(false, bobDeleteListed), noDeny()] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it("a holder denied only on the rows of a type does not cover a target's global grant that no summary lists", async () => {
+      const a = make({ models: [typedRbac(true), typedDeny()] });
+      expect((await a.check({ principal: bob, permission: 'doc:delete', resource: GLOBAL })).allowed).to.equal(true);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      expect(await make({ models: [typedRbac(true), noDeny()] }).covers(alice, bob)).to.equal(true);
+    });
+
+    it('a deny model routed only for the type (combine.types) counts against the holder (review P1b)', async () => {
+      const combine = { default: { algorithm: 'deny-overrides', models: ['rbac'] }, types: { doc: { algorithm: 'deny-overrides', models: ['rbac', 'abac'] } } };
+      const a = make({ models: [typedRbac(false, bobDeleteListed), denyModel(aliceDelete)], combine });
+      expect((await a.check({ principal: alice, permission: 'doc:delete', resource: GLOBAL })).allowed).to.equal(true);
+      expect((await a.check({ principal: alice, permission: 'doc:delete', resource: DOC })).allowed).to.equal(false);
+      expect(await a.covers(alice, bob)).to.equal(false);
+      expect(await make({ models: [typedRbac(false, bobDeleteListed), noDeny()], combine }).covers(alice, bob)).to.equal(true);
+    });
+
+    it('strictness can come from a type: a holder unconditional on doc rows where the target is conditional, equal elsewhere', async () => {
+      const readOnly = (bobOnDoc: ResourceFilter) =>
+        new Summarizing('rbac', {
+          vote: (req: DecisionRequest) => {
+            if (req.permission !== 'doc:read' || (req.principal.id !== 'alice' && req.principal.id !== 'bob')) return vote('rbac', false);
+            return vote('rbac', req.principal.id === 'bob' && req.resource.type === 'doc' ? bobOnDoc : true);
+          },
+        });
+      const a = make({ models: [readOnly(isPublic)] });
+      expect(await a.covers(alice, bob)).to.equal(true);
+      expect(await a.covers(bob, alice)).to.equal(false);
+      // Control: equal on doc rows too.
+      expect(await make({ models: [readOnly(TRUE)] }).covers(alice, bob)).to.equal(false);
+    });
+  });
+
   describe('the ceiling on summary entries (D3)', () => {
     const past = () => new Date(clock.now.getTime() - 1);
     const future = () => new Date(clock.now.getTime() + 60_000);
@@ -1118,11 +1182,47 @@ describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
   describe('a target entry the engine proves absent everywhere (D5)', () => {
     const grants: Grants = { alice: { 'doc:read': P(), 'doc:write': P() }, bob: { 'doc:read': P() } };
     const bobDelete = (req: DecisionRequest) => req.principal.id === 'bob' && req.permission === 'doc:delete';
-    const denying = (when: ResourceFilter, code: string, denyWhen: ResourceFilter = when) =>
+    const denying = (when: ResourceFilter, code: string, denyWhen: ResourceFilter = when, extra: Partial<Vote> = {}) =>
       new Summarizing('abac', {
-        vote: (req: DecisionRequest) => ({ model: 'abac', permitWhen: FALSE, denyWhen: bobDelete(req) ? denyWhen : FALSE, ...(bobDelete(req) ? { denies: [{ when, reason: { code } }] } : {}), cacheable: true }),
+        vote: (req: DecisionRequest) => ({ model: 'abac', permitWhen: FALSE, denyWhen: bobDelete(req) ? denyWhen : FALSE, ...(bobDelete(req) ? { denies: [{ when, reason: { code } }] } : {}), cacheable: true, ...(bobDelete(req) ? extra : {}) }),
       });
     const world = (deny: StaticModel | undefined, algorithm = 'deny-overrides') => make({ models: [rbacOf(grants, { bob: [entry('doc:delete')] }), ...(deny ? [deny] : [])], combine: { default: { algorithm } } });
+    // alice also holds doc:delete, so only bob's doc:delete entry makes the two sets equal.
+    const level: Grants = { alice: { 'doc:read': P(), 'doc:delete': P() }, bob: { 'doc:read': P() } };
+    const levelWorld = (deny: StaticModel | undefined, algorithm = 'deny-overrides') => make({ models: [rbacOf(level, { bob: [entry('doc:delete')] }), ...(deny ? [deny] : [])], combine: { default: { algorithm } } });
+
+    describe('a deny that holds only in the request context of covers proves nothing (review C2)', () => {
+      const requestBound = (): [string, ResourceFilter, Partial<Vote>][] => [
+        ['UNKNOWN from a missing env value (P2)', CONDITION_UNKNOWN, { cacheable: false }],
+        ['an env.now deny that holds now (P3)', TRUE, { cacheable: false }],
+        ['a deny that expires (P4)', TRUE, { validUntil: new Date(clock.now.getTime() + 3_600_000) }],
+      ];
+
+      const each = async (build: typeof world) => {
+        const got: [string, boolean][] = [];
+        for (const [label, when, extra] of requestBound()) got.push([label, await build(denying(when, 'policy', when, extra)).covers(alice, bob)]);
+        return got;
+      };
+      const allFalse = () => requestBound().map(([label]) => [label, false]);
+
+      it('for an entry the holder misses', async () => {
+        expect(await each(world)).to.deep.equal(allFalse());
+      });
+
+      it('for an entry that alone keeps the holder from being strictly above', async () => {
+        expect(await each(levelWorld)).to.deep.equal(allFalse());
+      });
+
+      it('a deny on a principal attribute the target lacks (B26.abac: UNKNOWN, cacheable, no expiry) still proves', async () => {
+        expect(await world(denying(CONDITION_UNKNOWN, 'policy', CONDITION_UNKNOWN, { cacheable: true })).covers(alice, bob)).to.equal(true);
+        expect(await levelWorld(denying(CONDITION_UNKNOWN, 'policy', CONDITION_UNKNOWN, { cacheable: true })).covers(alice, bob)).to.equal(true);
+      });
+    });
+
+    it('a deny entry is simplified before it is read as TRUE (review M2)', async () => {
+      expect(await world(denying({ op: 'and', args: [TRUE, TRUE] }, 'policy', TRUE)).covers(alice, bob)).to.equal(true);
+      expect(await world(denying({ op: 'and', args: [TRUE, isPublic] }, 'policy', TRUE)).covers(alice, bob)).to.equal(false);
+    });
 
     it('a row-universal deny of the target makes its summary entry not count', async () => {
       expect(await world(undefined).covers(alice, bob)).to.equal(false);
@@ -1142,10 +1242,6 @@ describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
     });
 
     describe('an entry the holder covers that alone keeps it from being strictly above', () => {
-      // alice also holds doc:delete, so only bob's doc:delete entry makes the two sets equal.
-      const level: Grants = { alice: { 'doc:read': P(), 'doc:delete': P() }, bob: { 'doc:read': P() } };
-      const levelWorld = (deny: StaticModel | undefined, algorithm = 'deny-overrides') => make({ models: [rbacOf(level, { bob: [entry('doc:delete')] }), ...(deny ? [deny] : [])], combine: { default: { algorithm } } });
-
       it('is cleared by a row-universal deny of the target', async () => {
         expect(await levelWorld(undefined).covers(alice, bob)).to.equal(false);
         expect(await levelWorld(denying(TRUE, 'policy')).covers(alice, bob)).to.equal(true);

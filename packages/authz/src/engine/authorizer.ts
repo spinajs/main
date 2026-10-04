@@ -485,7 +485,10 @@ export class Authorizer {
 
   /**
    * B26: the holder's combined set at `at` strictly contains the target's,
-   * over every permission checkable at `at`. RFC L1-3, asymmetric so that a
+   * over every permission checkable at `at`. At `$global` both are also
+   * checked on each type of the permission, since the `$global` node does not
+   * speak for the rows below it, and every comparison must hold on each of
+   * those refs (strictly above on any). RFC L1-3, asymmetric so that a
    * summary can only shrink what the holder covers: the holder's set is its
    * checks at `at`; the target's is its checks at `at` and the entries of
    * every model routed for the permission (at `$global`, also for each of
@@ -527,33 +530,39 @@ export class Authorizer {
       }
       for (let i = 0; i < defs.length; i += SUMMARY_BATCH) {
         const batch = defs.slice(i, i + SUMMARY_BATCH);
-        const pairs = await limit.race(Promise.all(batch.map((def) => Promise.all([this.quietCheck(holder, def, ref, run), this.quietCheck(target, def, ref, run)]))));
-        if (pairs === EXPIRED) {
+        const compared = await limit.race(Promise.all(batch.map((def) => Promise.all(comparedRefs(def, ref).map((r) => Promise.all([this.quietCheck(holder, def, r, run), this.quietCheck(target, def, r, run)]))))));
+        if (compared === EXPIRED) {
           this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
           return false;
         }
-        for (const [k, [h, t]] of pairs.entries()) {
+        for (const [k, pairs] of compared.entries()) {
+          const def = batch[k];
           // A denial on missing data is no proof that the target lacks the permission; a holder fault is refused too, to stay simple.
-          if (h.faulted || t.faulted) {
-            this.logAt('error', `${this.where}: covers is false: the ${h.faulted ? 'holder' : 'target'} check of ${batch[k].name} rests on an engine fault`);
+          const fault = pairs.find(([h, t]) => h.faulted || t.faulted);
+          if (fault) {
+            this.logAt('error', `${this.where}: covers is false: the ${fault[0].faulted ? 'holder' : 'target'} check of ${def.name} rests on an engine fault`);
             return false;
           }
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
-          if (t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision)) return false;
-          const def = batch[k];
+          if (pairs.some(([h, t]) => t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision))) return false;
           let entries = listed.get(def.name) ?? [];
-          if (entries.some((e) => !this.summaryCovered(h.decision, e, def))) {
-            if (t.decision.allowed || !(await this.deniedEverywhere(target, def, ref, run, limit))) {
+          if (entries.some((e) => pairs.some(([h]) => !this.summaryCovered(h.decision, e, def)))) {
+            if (pairs.some(([, t]) => t.decision.allowed) || !(await this.deniedEverywhere(target, def, ref, run, limit))) {
               if (limit.expired) this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
               return false;
             }
             entries = [];
           }
-          if (h.decision.allowed && !entryCovers(t.decision, h.decision)) {
+          let above = false;
+          let blocked = false;
+          for (const [h, t] of pairs) {
+            if (!h.decision.allowed || entryCovers(t.decision, h.decision)) continue;
             // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
-            if (!entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) strict = true;
-            else if (!t.decision.allowed) blockedByEntries.push(def);
+            if (entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) blocked = true;
+            else above = true;
           }
+          if (above) strict = true;
+          else if (blocked && pairs.every(([, t]) => !t.decision.allowed)) blockedByEntries.push(def);
         }
       }
       // Proofs cost explain checks, so they run only when no other permission already makes the holder strictly above.
@@ -2029,12 +2038,19 @@ function underCeilings(ceilings: readonly unknown[], entry: SummaryItem, instant
   return conditional === entry.conditional ? entry : { ...entry, conditional };
 }
 
+/** The refs covers compares a permission on: at `$global`, also each of its types, whose type-level check stands for every row (B06). */
+function comparedRefs(def: PermissionDef, ref: ResourceRef): readonly ResourceRef[] {
+  return ref.type === GLOBAL_TYPE ? [ref, ...def.types.map((type) => Object.freeze({ type }))] : [ref];
+}
+
 /**
  * An explain decision denied under deny-overrides by a vote with a deny
  * entry that holds for every row (TRUE, or UNKNOWN, which binds to a deny)
  * and is part of the vote's denyWhen, which the combinator reads. Not under
  * the other algorithms: a permit hidden at type level may win on a row. Not
- * for a needs_subject entry (B19): it stands for a condition on the row.
+ * for a needs_subject entry (B19): it stands for a condition on the row. Only
+ * a cacheable vote without an expiry counts: one that read the request (env,
+ * time) or expires may deny only in the context covers ran with.
  */
 function deniedForEveryRow(c: Checked): boolean {
   const d = c.decision;
@@ -2043,9 +2059,13 @@ function deniedForEveryRow(c: Checked): boolean {
   const same = (a: unknown, b: unknown) => sameTree(a, b, 0, { left: COMPARE_NODES });
   try {
     return trace.votes.some((v) => {
-      if (v.error !== undefined) return false;
+      if (v.error !== undefined || v.cacheable !== true || v.validUntil !== undefined) return false;
       const combined = v.denyWhen.op === 'or' ? [v.denyWhen, ...v.denyWhen.args] : [v.denyWhen];
-      return (v.denies ?? []).some((e) => e.reason?.code !== 'needs_subject' && (e.when.op === 'true' || same(e.when, CONDITION_UNKNOWN)) && combined.some((w) => same(w, e.when)));
+      return (v.denies ?? []).some((e) => {
+        if (e.reason?.code === 'needs_subject') return false;
+        const when = simplify(e.when);
+        return (when.op === 'true' || same(when, CONDITION_UNKNOWN)) && combined.some((w) => same(w, e.when));
+      });
     });
   } catch {
     return false;

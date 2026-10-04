@@ -26,7 +26,9 @@ type Mode = 'throw' | 'hang' | 'ok';
 // writes a placeholder, then asks its store. `loads` counts the store reads of bob's roles.
 class SelfMemo extends StaticModel {
   loads = 0;
-  constructor(mode: Mode) {
+  // summary() needs bob's doc:write listed so that its check runs; covers must not see that entry,
+  // or covers is false whatever bob's doc:write check says.
+  constructor(mode: Mode, public listsWrite = false) {
     super('rbac', {
       vote: (async (req: DecisionRequest, ctx: EvaluationContext) => {
         if (req.principal.id === 'bob' && !ctx.cache.has('roles')) {
@@ -46,9 +48,8 @@ class SelfMemo extends StaticModel {
       }) as never,
     });
   }
-  // What the votes can give, so summary() keeps its candidates and covers sees no extra entry.
   summarize(p: Principal): Promise<ModelSummary> {
-    const names = [...(grants[p.id] ?? []), ...(p.id === 'bob' ? ['doc:write'] : [])];
+    const names = [...(grants[p.id] ?? []), ...(p.id === 'bob' && this.listsWrite ? ['doc:write'] : [])];
     return Promise.resolve({ model: 'rbac', permissions: names.map((name) => ({ name, conditional: false })) });
   }
 }
@@ -74,15 +75,17 @@ describe('Authorizer: memos left by a faulted top-level decision', () => {
   }
 
   it('a summary whose own check faulted does not make covers in the same request true', async () => {
-    const failing = make(new SelfMemo('throw'));
+    const model = new SelfMemo('throw', true);
+    const failing = make(model);
     const scope = new Map<string, unknown>();
     const s = await failing.summary(bob, GLOBAL, { cache: scope });
     expect(s.permissions.map((p) => p.name)).to.deep.equal(['doc:read']);
+    model.listsWrite = false;
     expect(await failing.covers(alice, bob, GLOBAL, { cache: scope })).to.equal(false);
   });
 
   it('a top-level fault leaves later healthy checks their memo and keeps summaries whole', async () => {
-    const model = new SelfMemo('throw');
+    const model = new SelfMemo('throw', true);
     const a = make(model);
     const scope = new Map<string, unknown>();
     expect((await a.check({ principal: bob, permission: 'doc:read', resource: GLOBAL }, { cache: scope })).allowed).to.equal(true);
