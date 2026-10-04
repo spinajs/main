@@ -9,6 +9,18 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./db": {
+      "types": "./lib/mjs/db.d.ts",
+      "import": "./lib/mjs/db.js",
+      "require": "./lib/cjs/db.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "db": [
+        "lib/cjs/db.d.ts"
+      ]
     }
   },
   "type": "module",
@@ -53,6 +65,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/authn-orm": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",

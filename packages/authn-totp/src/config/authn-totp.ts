@@ -22,15 +22,14 @@ const authnTotp = {
   authn: {
     mfa: {
       /**
-       * AES-256-GCM key for the stored TOTP secrets: 32 bytes as 64 hex chars or base64/base64url. On rotation, move
-       * the old key to `previous: [...]` so existing rows still decrypt.
+       * TOTP is off until the app turns it on (README, "Turning TOTP on"): add `{ name: 'totp', service: 'TotpMfaStep' }`
+       * to its own `authn.mfa.steps` (arrays concatenate across config files, so this package lists no step), set
+       * `authn.mfa.encryptionKey.secret` (the AES-256-GCM key: 32 bytes as 64 hex chars or base64/base64url; on
+       * rotation move the old key to `authn.mfa.encryptionKey.previous`) and import `@spinajs/authn-totp/db`.
        *
-       * TOTP is off until the app turns it on: add `{ name: 'totp', service: 'TotpMfaStep' }` to its own
-       * `authn.mfa.steps` (arrays concatenate across config files, so this package lists no step), set this secret,
-       * and register an `MfaSecretStore` (authn-orm's `DbMfaStore`).
+       * No `encryptionKey` default here: every app loads this file, and a null secret would stand in for one the app
+       * never set.
        */
-      encryptionKey: { secret: null },
-
       totp: {
         /**
          * change this to your app name, it will be used as issuer in otpauth token

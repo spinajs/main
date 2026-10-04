@@ -1,7 +1,7 @@
 /** Compiles the claim, compare-and-set and purge queries of the task 3 stores for MySQL and MSSQL: no server needed. */
 import { FakeClock } from '@spinajs/authn-testing';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { ResourceDuplicated } from '@spinajs/exceptions';
+import { ResourceDuplicated, UnexpectedServerError } from '@spinajs/exceptions';
 import '@spinajs/log';
 import { OrmException, QueryContext } from '@spinajs/orm';
 import { expect } from 'chai';
@@ -29,6 +29,8 @@ const DIALECTS = [
     noncePurge: 'SELECT `k` FROM `authn_nonce` WHERE `expires_at` <= ? ORDER BY `k` ASC LIMIT ?',
     acceptStep: 'UPDATE `authn_mfa` SET `last_step` = ? WHERE `identity` = ? AND `step` = ? AND ( `last_step` IS NULL OR `last_step` < ? )',
     redeemCode: 'UPDATE `authn_recovery_code` SET `used_at` = ? WHERE `identity` = ? AND `code_hash` = ? AND `used_at` IS NULL',
+    putPendingUpdate: 'UPDATE `authn_mfa` SET `secret_enc` = ?,`key_id` = ?,`confirmed_at` = ?,`last_step` = ?,`created_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL',
+    confirmExact: 'UPDATE `authn_mfa` SET `confirmed_at` = ? WHERE `identity` = ? AND `step` = ? AND `confirmed_at` IS NULL AND CAST(`secret_enc` AS BINARY) = ?',
   },
   {
     // The table name keeps its backticks: MsSqlOrmDriver.executeOnDb, which these fakes replace, strips them.
@@ -42,6 +44,8 @@ const DIALECTS = [
     noncePurge: 'SELECT [k] FROM `authn_nonce` WHERE [expires_at] <= ? ORDER BY `k` ASC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
     acceptStep: 'UPDATE `authn_mfa` SET [last_step] = ? WHERE [identity] = ? AND [step] = ? AND ( [last_step] IS NULL OR [last_step] < ? )',
     redeemCode: 'UPDATE `authn_recovery_code` SET [used_at] = ? WHERE [identity] = ? AND [code_hash] = ? AND [used_at] IS NULL',
+    putPendingUpdate: 'UPDATE `authn_mfa` SET [secret_enc] = ?,[key_id] = ?,[confirmed_at] = ?,[last_step] = ?,[created_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL',
+    confirmExact: 'UPDATE `authn_mfa` SET [confirmed_at] = ? WHERE [identity] = ? AND [step] = ? AND [confirmed_at] IS NULL AND CAST([secret_enc] AS NVARCHAR(MAX)) = ?',
   },
 ] as const;
 
@@ -108,6 +112,65 @@ for (const d of DIALECTS) {
       expect(driver.executed.map(sql)).to.deep.eq([d.acceptStep, d.redeemCode]);
       expect(driver.executed[0].params).to.deep.eq([58_000_000, `user:${ALICE.id}`, 'totp', 58_000_000]);
       expect(driver.executed[1].params.slice(1)).to.deep.eq([`user:${ALICE.id}`, sha256hex('code-1')]);
+    });
+
+    it('DbMfaStore.putPending retries the insert when a parallel remove deleted the row', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      let inserts = 0;
+      driver.respond = (_stmt, context) => {
+        if (context === QueryContext.Insert && inserts++ === 0) throw d.duplicate();
+        if (context === QueryContext.Update) return { RowsAffected: 0 };
+        return [];
+      };
+
+      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(true);
+
+      expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select, QueryContext.Insert]);
+      expect(sql(driver.executed[1])).to.eq(d.putPendingUpdate);
+      expect(driver.executed[1].params.slice(0, 2)).to.deep.eq(['v1.new', 'kid-a']);
+      expect(driver.executed[1].params.slice(-2)).to.deep.eq([`user:${ALICE.id}`, 'totp']);
+    });
+
+    it('DbMfaStore.putPending is false and writes nothing more when the re-read finds the row confirmed', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = (_stmt, context) => {
+        if (context === QueryContext.Insert) throw d.duplicate();
+        if (context === QueryContext.Update) return { RowsAffected: 0 };
+        return [{ identity: `user:${ALICE.id}`, step: 'totp', secret_enc: 'v1.old', key_id: 'kid-a', last_step: null, confirmed_text: NOW_TEXT, created_text: NOW_TEXT }];
+      };
+
+      expect(await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a')).to.eq(false);
+      expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Insert, QueryContext.Update, QueryContext.Select]);
+    });
+
+    it('DbMfaStore.putPending throws UnexpectedServerError after MAX_TRIES rounds', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = (_stmt, context) => {
+        if (context === QueryContext.Insert) throw d.duplicate();
+        if (context === QueryContext.Update) return { RowsAffected: 0 };
+        return [];
+      };
+
+      let err: unknown;
+      try {
+        await new DbMfaStore(driver).putPending(ALICE, 'totp', 'v1.new', 'kid-a');
+      } catch (e) {
+        err = e;
+      }
+      expect(err).to.be.instanceOf(UnexpectedServerError);
+      expect(String((err as Error).message)).to.not.contain('v1.new');
+      expect(driver.executed.filter((e) => e.context === QueryContext.Insert)).to.have.length(8);
+      expect(driver.executed).to.have.length(24);
+    });
+
+    it('DbMfaStore.confirm with an expected cipher text compares it exactly in one guarded update', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = () => ({ RowsAffected: 1 });
+
+      expect(await new DbMfaStore(driver).confirm(ALICE, 'totp', NOW, 'v1.expected')).to.eq(true);
+
+      expect(driver.executed.map(sql)).to.deep.eq([d.confirmExact]);
+      expect(driver.executed[0].params).to.deep.eq([NOW_TEXT, `user:${ALICE.id}`, 'totp', 'v1.expected']);
     });
 
     it('DbSecretStore.redeem refuses a row that matched only under a case-blind collation', async () => {

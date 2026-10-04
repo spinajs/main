@@ -8,7 +8,9 @@ import { InvalidArgument, InvalidOperation, InvalidOption, UnexpectedServerError
 import { IdentityStore, MfaStep } from '@spinajs/authn/contracts';
 import type { IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 import { base32Decode, FakeClock, parseOtpauth, totp, totpFromProvisioning } from '@spinajs/authn-testing';
-import { mfaKeyFrom, mfaKeyRingFrom } from '../../src/cipher/index.js';
+import { mfaKeyFrom } from '@spinajs/authn-orm';
+import { mfaKeyRingFrom } from '../../src/cipher/index.js';
+import { DbMfaSecretStore } from '../../src/db.js';
 import { MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
 import type { MfaRecord } from '../../src/store/index.js';
 import { DEFAULT_TOTP_OPTIONS, TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep, totpOptions } from '../../src/step/index.js';
@@ -495,10 +497,18 @@ describe('v3 step: TotpMfaStep', () => {
     assert.ok(new TotpEnrolmentChanged() instanceof InvalidOperation);
   });
 
-  it('refuses to work without a store', async () => {
-    const step = new TotpMfaStep({ keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
-    await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOperation && /MfaSecretStore/.test(e.message));
-    await assert.rejects(step.verify(ALICE, '123456'), /MfaSecretStore/);
+  it('refuses to work when no store is registered', async () => {
+    // Store tests in this run import @spinajs/authn-totp/db, which registers DbMfaSecretStore.
+    DI.unregister(DbMfaSecretStore);
+    DI.clearCache();
+    try {
+      const step = new TotpMfaStep({ keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
+      await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOperation && /MfaSecretStore/.test(e.message) && e.message.includes('@spinajs/authn-totp/db'));
+      await assert.rejects(step.verify(ALICE, '123456'), /MfaSecretStore/);
+    } finally {
+      DI.register(DbMfaSecretStore).as(MfaSecretStore);
+      DI.clearCache();
+    }
   });
 
   it('refuses to work without an encryption key', async () => {

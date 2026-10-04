@@ -12,8 +12,8 @@ export interface MfaRecord {
 }
 
 /**
- * `authn_mfa` and `authn_recovery_code` behind `TotpMfaStep`; the methods are those of authn-orm's `DbMfaStore`.
- * Not registered by default: apps register `DbMfaStore` (or `MemoryMfaSecretStore` in tests) as this class.
+ * `authn_mfa` and `authn_recovery_code` behind `TotpMfaStep`. Apps register `DbMfaSecretStore` by importing
+ * `@spinajs/authn-totp/db`; tests register `MemoryMfaSecretStore` as this class.
  */
 export abstract class MfaSecretStore {
   abstract get(id: IdentityRef, step: string): Promise<MfaRecord | null>;

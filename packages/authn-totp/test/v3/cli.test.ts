@@ -4,6 +4,7 @@ import { META_COMMAND } from '@spinajs/cli';
 import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
+import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
@@ -124,7 +125,7 @@ describe('v3 cli: authn:mfa-reset', () => {
   it('the package config lists no MFA step and keeps its defaults', () => {
     const mfa = (authnTotpConfig as unknown as { authn: { mfa: { steps: unknown; encryptionKey: unknown; totp: { recoveryCodes: number; issuer: string } } } }).authn.mfa;
     assert.strictEqual(mfa.steps, undefined, 'arrays concatenate across config files; the app lists the step');
-    assert.deepStrictEqual(mfa.encryptionKey, { secret: null });
+    assert.strictEqual(mfa.encryptionKey, undefined, 'every app loads this file; a null key would stand in for an unset one');
     assert.strictEqual(mfa.totp.recoveryCodes, 10);
     assert.strictEqual(mfa.totp.issuer, 'SpinaJS');
     assert.deepStrictEqual({ ...totpOptions(mfa.totp as never) }, { ...totpOptions(), issuer: 'SpinaJS' }, 'the config passes the options reader');
@@ -154,6 +155,9 @@ describe('v3 cli: authn:mfa-reset', () => {
 
     before(() => {
       DI.clearCache();
+      // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
+      DI.unregister(DbAuthnAuditSink);
+      DI.unregister(DbAuthnThrottle);
       DI.register(KitSink).as(AuthnEventSink);
       DI.register(KitIdentities).as(IdentityStore);
       DI.register(KitTotp).as(TotpService);
@@ -165,6 +169,8 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.unregister(KitIdentities);
       DI.unregister(KitTotp);
       DI.unregister(KitOrm);
+      DI.register(DbAuthnAuditSink).as(AuthnEventSink);
+      DI.register(DbAuthnThrottle).as(AuthnThrottle);
       DI.clearCache();
     });
 

@@ -202,7 +202,7 @@ export class TotpMfaStep extends MfaStep {
     const config = DI.get(Configuration);
     const store = this.deps.store ?? (registered(MfaSecretStore) ? await DI.resolve(MfaSecretStore) : null);
     if (!store) {
-      throw new InvalidOperation('TotpMfaStep: no MfaSecretStore is registered; register DbMfaStore (authn-orm) or MemoryMfaSecretStore as MfaSecretStore');
+      throw new InvalidOperation('TotpMfaStep: no MfaSecretStore is registered; import "@spinajs/authn-totp/db" (DbMfaSecretStore) or register another MfaSecretStore');
     }
     const keys = this.deps.keys ?? mfaKeyRingFrom(config?.get<MfaEncryptionKeyOptions>(['authn', 'mfa', 'encryptionKey']) as MfaEncryptionKeyOptions);
     const options = this.options ?? totpOptions(config?.get<TotpOptionsInput>(['authn', 'mfa', 'totp'], {}) ?? {});

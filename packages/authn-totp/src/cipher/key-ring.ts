@@ -1,7 +1,7 @@
 import type { IdentityRef } from '@spinajs/authn/contracts';
+import { decryptMfaSecret, encryptMfaSecret, mfaKeyFrom } from '@spinajs/authn-orm/cipher';
+import type { MfaKey } from '@spinajs/authn-orm/cipher';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { decryptMfaSecret, encryptMfaSecret, mfaKeyFrom } from './cipher.js';
-import type { MfaKey } from './cipher.js';
 
 /** `authn.mfa.encryptionKey`. */
 export interface MfaEncryptionKeyOptions {
@@ -10,7 +10,7 @@ export interface MfaEncryptionKeyOptions {
   readonly previous?: readonly string[];
 }
 
-/** Writes under the current key; reads with the key whose id the row stores. */
+/** authn-orm's MFA cipher over several keys: writes under the current key, reads with the key whose id the row stores. */
 export class MfaKeyRing {
   private readonly byId = new Map<string, MfaKey>();
 
@@ -45,6 +45,13 @@ export function mfaKeyRingFrom(options: MfaEncryptionKeyOptions): MfaKeyRing {
   }
   return new MfaKeyRing(
     mfaKeyFrom(options.secret),
-    previous.map((p) => mfaKeyFrom(p)),
+    previous.map((p, i) => {
+      try {
+        return mfaKeyFrom(p);
+      } catch {
+        // authn-orm's message names `secret` whichever key failed.
+        throw new InvalidOption(`authn.mfa.encryptionKey.previous[${i}] must be 32 bytes given as 64 hex characters, base64 or base64url`);
+      }
+    }),
   );
 }
