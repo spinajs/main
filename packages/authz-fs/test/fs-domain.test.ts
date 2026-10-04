@@ -4,7 +4,7 @@ import 'mocha';
 import { AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzDomains, FALSE, GLOBAL, TRUE } from '@spinajs/authz';
 import type { AuthzService, DecisionRequest, ModelCapabilities, ModelSummary, Principal, ResourceRef, Vote } from '@spinajs/authz';
 import { AbacModel } from '@spinajs/authz-abac';
-import { testHost, userPrincipal } from '@spinajs/authz-testing';
+import { agentPrincipal, testHost, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
@@ -50,6 +50,7 @@ const FS_ALL = ['fs:read', 'fs:stat', 'fs:list', 'fs:write', 'fs:delete', 'fs:sh
 const alice = userPrincipal('alice');
 const carol = userPrincipal('carol');
 const admin = userPrincipal('admin');
+const bob = userPrincipal('bob');
 
 const failure = (fn: () => unknown): Error => {
   try {
@@ -116,7 +117,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
     const name = fresh();
     domains.create(parent);
     set(['authz', 'domains', name, 'parent'], parent);
-    set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name }, archive: { mode: 'audit', domain: name } });
+    set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, inherit: { 'fs:read': 'read' } }, archive: { mode: 'audit', domain: name } });
 
     expect(scope.resolve(AuthzDomains)).to.equal(domains);
     const child = ensureFsDomain(name, scope)!;
@@ -134,24 +135,37 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
     expect(ownModels(DI.RootContainer).some((t) => t === FsInheritModel)).to.equal(false);
   });
 
-  it('adds fs-inherit to a domain the app created only when one of its filesystems maps inherit, and not over its own', async () => {
+  it('adds fs-inherit only when one of the filesystems of the domain maps inherit, and not over the app’s own', async () => {
     const plain = fresh();
     const mapped = fresh();
     const own = fresh();
-    set(['authz', 'fs'], { a: { mode: 'enforce', domain: plain }, b: { mode: 'enforce', domain: mapped, inherit: { 'fs:read': 'read' } }, c: { mode: 'enforce', domain: own, inherit: { 'fs:read': 'read' } } });
+    const base = fresh();
+    const created = fresh();
+    set(['authz', 'fs'], {
+      a: { mode: 'enforce', domain: plain },
+      b: { mode: 'enforce', domain: mapped, inherit: { 'fs:read': 'read' } },
+      c: { mode: 'enforce', domain: own, inherit: { 'fs:read': 'read' } },
+      d: { mode: 'enforce', domain: base, inherit: { 'fs:read': 'read' } },
+      e: { mode: 'enforce', domain: created },
+    });
     const plainC = domains.create(plain);
     const mappedC = domains.create(mapped);
     const ownC = domains.create(own);
+    const baseC = domains.create(base);
     class AppInheritModel extends FsInheritModel {}
     ownC.register(AppInheritModel).as(AuthorizationModel);
+    baseC.register(FsInheritModel).as(AuthorizationModel);
 
     ensureFsDomain(plain, scope);
     ensureFsDomain(mapped, scope);
     ensureFsDomain(mapped, scope);
     ensureFsDomain(own, scope);
+    ensureFsDomain(base, scope);
     expect(ownModels(plainC)).to.have.length(0);
     expect(ownModels(mappedC)).to.have.length(1);
     expect(ownModels(ownC)).to.deep.equal([AppInheritModel]);
+    expect(ownModels(baseC)).to.deep.equal([FsInheritModel]);
+    expect(ownModels(ensureFsDomain(created, scope)!)).to.have.length(0);
   });
 
   it('refuses to add fs-inherit to a domain that already booted', async () => {
@@ -178,7 +192,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
 
   it('the decorator creates the domain before the guard asks for its service', () => {
     const name = fresh();
-    set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name } });
+    set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, inherit: { 'fs:read': 'read' } } });
     new AuthzFsDecorator(scope).decorate({} as never, { name: 'uploads', service: 'fsNative' } as never);
     expect(domains.names()).to.include(name);
     expect(ownModels(domains.container(name))).to.have.length(1);
@@ -203,7 +217,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
         cache: { maxEntries: 0 },
       });
       const child = ensureFsDomain(name, scope)!;
-      child.register(testHost.instance(new GrantModel({ alice: ['task:read'], carol: ['task:read', 'task:update'], admin: ['task:read', 'task:update', ...FS_ALL] }))).as(AuthorizationModel);
+      child.register(testHost.instance(new GrantModel({ alice: ['task:read'], carol: ['task:read', 'task:update'], admin: ['task:read', 'task:update', ...FS_ALL], helper: ['task:read'] }))).as(AuthorizationModel);
       svc = await domains.service(name);
     });
 
@@ -233,6 +247,18 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       // carol holds more task permissions than alice, but not fs:read on every file.
       expect(await svc.covers(carol, alice)).to.equal(false);
     });
+
+    it('checks the parent as the inherit delegate, under the agent ceiling only for the fs permission', async () => {
+      const bot = agentPrincipal('bot', carol, { permissions: ['fs:read'] });
+      expect(await svc.can(bot, 'fs:read', file('tasks/42/a.pdf'))).to.equal(true);
+      expect(await svc.can(bot, 'fs:write', file('tasks/42/a.pdf'))).to.equal(false);
+      expect(await svc.can(carol, 'fs:write', file('tasks/42/a.pdf'))).to.equal(true);
+    });
+
+    it('needs the intersect delegate to hold the parent permission too', async () => {
+      expect(await svc.can(agentPrincipal('helper', bob, { delegation: 'intersect' }), 'fs:read', file('tasks/42/a.pdf'))).to.equal(false);
+      expect(await svc.can(agentPrincipal('helper', alice, { delegation: 'intersect' }), 'fs:read', file('tasks/42/a.pdf'))).to.equal(true);
+    });
   });
 
   describe('fs-abac', () => {
@@ -245,7 +271,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC] }, archive: { mode: 'audit', domain: name, policies: [NO_TMP] }, other: { mode: 'enforce', domain: 'elsewhere', policies: [{ ...PUBLIC, id: 'other' }] } });
       const child = ensureFsDomain(name, scope)!;
       ensureFsDomain(name, scope);
-      expect(ownModels(child)).to.have.length(2);
+      expect(ownModels(child)).to.have.length(1);
       expect(child.getRegisteredTypes(AuthzContributor, false) ?? []).to.have.length(1);
       const abac = (await modelsOf(name)).find((m) => m.name === 'fs-abac') as AbacModel;
       expect(abac).to.be.instanceOf(AbacModel);
@@ -260,7 +286,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       const plainC = ensureFsDomain(plain, scope)!;
       const appC = domains.create(app);
       ensureFsDomain(app, scope);
-      expect(ownModels(plainC)).to.have.length(1);
+      expect(ownModels(plainC)).to.have.length(0);
       expect(ownModels(appC)).to.have.length(1);
     });
 
@@ -272,6 +298,32 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       expect(error.message).to.include('"public"').and.include('authz.fs.uploads.policies').and.include('authz.fs.archive.policies');
     });
 
+    it('keeps the policies of a filesystem on that filesystem: a permit on uploads does not open archive', async () => {
+      const name = fresh();
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [{ id: 'staff', effect: 'permit', permissions: ['fs:read'] }] }, archive: { mode: 'enforce', domain: name } });
+      set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['fs-abac'] } }, cache: { maxEntries: 0 } });
+      ensureFsDomain(name, scope);
+      const svc = await domains.service(name);
+      expect(await svc.can(alice, 'fs:read', { type: 'file', id: 'uploads:a/b.txt' })).to.equal(true);
+      expect(await svc.can(alice, 'fs:read', { type: 'dir', id: 'uploads:a' })).to.equal(true);
+      expect(await svc.can(alice, 'fs:read', { type: 'file', id: 'archive:a/b.txt' })).to.equal(false);
+      expect(await svc.can(alice, 'fs:read', { type: 'fs', id: 'archive' })).to.equal(false);
+    });
+
+    it('names the filesystem key when a policy fails the domain boot', async () => {
+      const name = fresh();
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [{ id: 'compact', effect: 'permit', permissions: ['fs:compact'] }] } });
+      ensureFsDomain(name, scope);
+      let error: unknown;
+      try {
+        await domains.service(name);
+      } catch (e) {
+        error = e;
+      }
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect((error as Error).message).to.include('authz.fs.uploads.policies').and.include('"compact"');
+    });
+
     it('refuses policies on a filesystem checked in root', () => {
       expect(failure(() => assertFsDomainConfig('uploads', parseFsAccessConfig('uploads', { mode: 'enforce', policies: [PUBLIC] }))).message).to.include('authz.fs.uploads.policies');
       set(['authz', 'fs'], { uploads: { mode: 'audit', policies: [PUBLIC] } });
@@ -281,7 +333,7 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
 
     it('summarises the policy permits as conditional, and the host warns when combine leaves fs-abac out', async () => {
       const name = fresh();
-      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC] } });
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC], inherit: { 'fs:read': 'read' } } });
       set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['fs-inherit'] } }, cache: { maxEntries: 0 } });
       ensureFsDomain(name, scope);
       logLines.length = 0;

@@ -1,8 +1,10 @@
 import { AuthzConfigError, isPermission } from '@spinajs/authz';
-import type { Permission, Policy } from '@spinajs/authz';
+import type { Permission, Policy, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+
+import { FS_RESOURCE_TYPES, parseFsRef } from '../refs/index.js';
 
 export type FsAccessMode = 'off' | 'audit' | 'enforce';
 
@@ -92,7 +94,7 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
   }
   if (entry.inherit !== undefined) out.inherit = parseInherit(entry.inherit, `${at}.inherit`);
   if (entry.signedUrl !== undefined) out.signedUrl = parseSignedUrl(entry.signedUrl, `${at}.signedUrl`);
-  if (entry.policies !== undefined) out.policies = parsePolicies(entry.policies, `${at}.policies`);
+  if (entry.policies !== undefined) out.policies = parsePolicies(entry.policies, `${at}.policies`, fsName);
   if (entry.operations !== undefined) out.operations = parseOperations(entry.operations, `${at}.operations`);
   if (entry.list !== undefined) {
     if (!LISTS.includes(entry.list as string)) throw new AuthzConfigError(`${at}.list must be one of ${LISTS.join(', ')}, got ${show(entry.list)}`);
@@ -125,13 +127,35 @@ function parseSignedUrl(value: unknown, at: string): { readonly maxTtlSeconds?: 
   return Object.freeze({ maxTtlSeconds: ttl });
 }
 
-// The fs-abac model validates each policy; here only the shape the guard relies on.
-function parsePolicies(value: unknown, at: string): readonly Policy[] {
+const FS_TYPES = new Set<string>(FS_RESOURCE_TYPES);
+
+/**
+ * The policies of one filesystem stay on it (design §13: fs-only policies). The fs-abac model holds the policies of
+ * every filesystem of a domain and also answers the domain's other checks (fs-inherit's parent checks), so each
+ * policy names only `fs:` permissions and fs types, and gets the filesystem as its scope. A scope elsewhere (a
+ * resolver parent such as a task, which is no ancestor of a path) would never match. The fs-abac model validates
+ * the rest.
+ */
+function parsePolicies(value: unknown, at: string, fsName: string): readonly Policy[] {
   if (!Array.isArray(value)) throw new AuthzConfigError(`${at} must be a list of policies, got ${show(value)}`);
-  value.forEach((policy, i) => {
-    if (!isRecord(policy)) throw new AuthzConfigError(`${at}[${i}] must be a policy object, got ${show(policy)}`);
-  });
-  return Object.freeze([...value]) as readonly Policy[];
+  return Object.freeze(
+    value.map((policy, i) => {
+      if (!isRecord(policy)) throw new AuthzConfigError(`${at}[${i}] must be a policy object, got ${show(policy)}`);
+      const fail = (text: string): never => {
+        throw new AuthzConfigError(`${at}: policy ${show(policy.id ?? `#${i}`)}: ${text}`);
+      };
+      const permissions = policy.permissions;
+      if (!Array.isArray(permissions) || permissions.length === 0) fail('permissions must be a non-empty list');
+      for (const p of permissions as unknown[]) if (typeof p !== 'string' || !p.startsWith('fs:')) fail(`${show(p)} is not an fs permission or glob (fs:<op>)`);
+      if (policy.resourceTypes !== undefined) {
+        if (!Array.isArray(policy.resourceTypes) || !policy.resourceTypes.every((t) => FS_TYPES.has(t as string))) fail(`resourceTypes must list only ${[...FS_TYPES].join(', ')}`);
+      }
+      const scope = policy.scope ?? { type: 'fs', id: fsName };
+      const ref = isRecord(scope) && typeof scope.id === 'string' ? parseFsRef(scope as unknown as ResourceRef) : undefined;
+      if (ref?.fs !== fsName) fail(`scope ${show(scope)} is not this filesystem or a path of it`);
+      return Object.freeze({ ...policy, scope });
+    }),
+  ) as readonly Policy[];
 }
 
 function parseOperations(value: unknown, at: string): Readonly<Record<string, Permission | readonly Permission[]>> {

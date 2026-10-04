@@ -99,8 +99,9 @@ authz: {
   existed before keeps its metadata, also when it has none, so `fs:write` on a file or a directory gives no owner
   rights over it. A path that did not exist starts empty: before the IO, rows left there (by an `rm` outside the
   guard, or a failed update) are deleted: the row of the path, and the rows under it too when the provider reports
-  no directory there either (a key store such as S3 reports every directory, so there only the row goes). After the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a
-  slow write does not take over what others created at that path while it ran.
+  no directory there either (a key store such as S3 reports every directory, so there only the row goes). After
+  the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a slow write
+  does not take over what others created at that path while it ran.
 - First-writer works both ways: in a writable tree several principals share, whoever creates a path first (even an
   empty file, or a `writeStream` left open) owns what others later write there, and reads it through an owner
   grant. Where reads go by owner, grant `fs:write` on per-user prefixes
@@ -118,8 +119,9 @@ authz: {
   `rename` probe the destination like a write: onto an existing path, the destination keeps its metadata and only
   the source rows are deleted. Otherwise the metadata moves: with one store on both sides the whole tree, also
   between filesystems; between two stores only the row of the moved path, and the files under a moved directory
-  lose their owners (a warning is logged). To a filesystem without a store the metadata is dropped. This happens with or without `stampOwner` once a store is configured. Unchecked
-  calls a provider makes inside an operation keep no metadata.
+  lose their owners (a warning is logged). To a filesystem without a store the metadata is dropped. This happens
+  with or without `stampOwner` once a store is configured. Unchecked calls a provider makes inside an operation
+  keep no metadata.
 - The store checks what it can before the IO (`checkMeta`: column sizes, the S3 limit), so a value it cannot hold
   stops the operation. A metadata update that fails after the IO is logged at error and its error rethrown (for
   `writeStream`: emitted to the stream's `'error'` listeners if it has any), since a lost owner row denies the
@@ -135,7 +137,8 @@ Stores:
 - `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path. The store and its migration
   `AuthzFsObject_2026_10_01_00_00_00` use the connection `authz.fsMetadata.connection` names (not under `authz.fs`,
   which is keyed by filesystem name), else `default`. `delete` removes one row; `deleteTree` and `move` take
-  the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are matched exactly in code and rows changed by their stored key.
+  the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are
+  matched exactly in code and rows changed by their stored key.
   The migration gives the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a
   case-insensitive key (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored,
   and its update fails instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the
@@ -151,19 +154,28 @@ Stores:
 ## Domain and fs-inherit
 
 `authz.fs.<name>.domain` names the authz domain a filesystem is checked in (default `root`). For any other
-domain, `AuthzFsDecorator` (and, for a guard built by hand, the guard's first call) runs `ensureFsDomain`:
-it creates the domain with `AuthzDomains.create(domain)` when it is missing (its parent is
-`authz.domains.<domain>.parent`, else root) and registers `FsInheritModel` (`fs-inherit`) in it, once per domain,
-and `fs-abac` when one of its filesystems has `policies` (see below). Root never holds them.
+domain, `AuthzFsDecorator` (and, for a guard built by hand, the guard's first call) runs `ensureFsDomain` once
+per domain. It creates the domain with `AuthzDomains.create(domain)` when it is missing (its parent is
+`authz.domains.<domain>.parent`, else root). It then registers `FsInheritModel` (`fs-inherit`) there when one of
+the domain's filesystems maps `inherit`, and `fs-abac` when one has `policies` (see below). Root never holds them.
 
 ```ts
 authz: {
   fs: { uploads: { mode: 'enforce', domain: 'fs', resolver: 'TaskAttachmentPathResolver',
                    inherit: { 'fs:read': 'read', 'fs:write': 'update', 'fs:delete': 'update' } } },
-  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-inherit'] } } } },
+  domains: { fs: { parent: 'root',
+                   combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'abac', 'fs-abac', 'fs-inherit'] } } } },
 }
 ```
 
+- The decorator runs while `fsService` resolves, so the parent domain must exist by then; otherwise
+  `fsService.resolve()` fails with `AuthzConfigError`.
+- A child domain's `combine` replaces its parent's, `types` included, for every permission checked in it. That
+  covers the `fs:*` checks and fs-inherit's parent checks (`task:read` above). List every model the parent
+  domain routes for those permissions (`rbac`, `abac`, …) next to `fs-abac` and `fs-inherit`. A model left out
+  is unrouted there: the host logs a warning at boot, and its deny rules do not apply in the fs domain. A
+  `combine` that names `fs-inherit` without any `inherit` mapping fails boot rule 1, since the model is then not
+  registered.
 - `fs-inherit` permits `fs:<op>` on a file or directory when the principal holds `<parent type>:<action>` on a
   domain parent of the path (`FsPathResolver`, `authz.fs.<name>.resolver`, nearest parent first), where `inherit`
   maps `fs:<op>` to `<action>`. A permission also follows from the entries of those that imply it: with
@@ -172,39 +184,52 @@ authz: {
 - The parent check runs in the same domain, as the principal the models run with (the delegate under `inherit`
   delegation), with the request's actor and env. Only an unconditional allow counts: the parent row is not
   loaded, so a parent permit with a condition gives nothing. `fs-inherit` never denies.
+- Votes are cached like any other, while resolver answers carry no invalidation tag. A resolver must therefore
+  answer from the path alone (`tasks/42/…` → task 42). One that reads a table (attachment row → task) can leave
+  a decision in the cache for up to `cache.ttlSeconds` after the link changes.
 - A parent permission that is not registered on the parent's type (`project:update` for a `project` parent), or
   a parent check that throws, makes the vote indeterminate (B04: denied under deny-overrides) unless another
   parent permits. Resolvers do not declare their parent types, so this is found per call, not at boot.
 - Its summary lists every permission it may grant as conditional, so `covers` holds only for a holder that has
   them on every file.
-- A domain the app created itself gets `fs-inherit` only when one of its filesystems maps `inherit`, and not
-  when the domain holds an `FsInheritModel` class of its own. Registering into a domain that already booted is
-  an `AuthzConfigError`: resolve the fs providers before the domain's first `AuthzDomains.service()`.
+- `fs-inherit` is not added to a domain that registers an `FsInheritModel` class of its own.
+- Registering into a domain that already booted is an `AuthzConfigError`: resolve the fs providers before the
+  domain's first `AuthzDomains.service()`. A boot that is still running when the providers resolve is not
+  detected. With a `combine` that lists the fs models, that boot then fails rule 1. Without one, the domain runs
+  without them, and the `fs-abac` deny policies do not apply.
 - `inherit` or `policies` on a filesystem checked in root is an `AuthzConfigError` (decorator, and every domain
   boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
-- Where the domain has a `combine` entry, it must list `fs-inherit` for the model to vote; a registered model that
-  `combine` leaves out is unrouted, and the host logs a warning at boot.
 
 ## fs-abac
 
 `authz.fs.<name>.policies` (the ABAC policy shape of `authz.abac.policies`) become one `AbacModel` named `fs-abac`
-in the filesystem's domain, over a `ConfigPolicyStore` of the policies of every filesystem checked there, with its
-`AbacContributor` (so a policy naming an unregistered permission fails the domain's boot).
+in the filesystem's domain. It runs over a `ConfigPolicyStore` of the policies of every filesystem checked there,
+with a contributor, so a policy naming an unregistered permission fails the domain's boot. Boot errors name the
+`authz.fs.<name>.policies` key of the policy.
 
 ```ts
 authz: {
   fs: { uploads: { mode: 'enforce', domain: 'fs',
                    policies: [{ id: 'public', effect: 'permit', permissions: ['fs:read', 'fs:stat'],
                                 when: { attr: 'resource.id', glob: 'uploads:public/**' } }] } },
-  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-abac', 'fs-inherit'] } } } },
+  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'abac', 'fs-abac', 'fs-inherit'] } } } },
 }
 ```
 
+- A filesystem's policies stay on that filesystem. A policy without a `scope` gets
+  `{ type: 'fs', id: <name> }`, so a permit under `uploads` does not open `archive` in the same domain. Each
+  policy is refused, with an `AuthzConfigError` naming the key and the policy id, when it has:
+  - a `scope` other than that filesystem or a `dir`/`file` of it (a resolver parent such as a task is no
+    ancestor of a path and would never match);
+  - a permission or glob that does not start with `fs:` (it would also answer the domain's other checks, such
+    as fs-inherit's `task:read`);
+  - a resource type other than `fs`, `dir` or `file`.
 - `resource.*` conditions read the path's row `{ id, type, fs, path }` that the guard passes as the subject.
 - Policy ids must be unique within a domain: two filesystems with one id are an `AuthzConfigError` naming both.
-- A domain the app created gets `fs-abac` too, once; as for `fs-inherit`, a domain that already booted is refused.
-  A model of the app named `fs-abac` in that domain fails its boot (two models with one name).
+- A domain the app created gets `fs-abac` too, once; as for `fs-inherit`, a domain that already booted is
+  refused. A model of the app named `fs-abac` in that domain fails its boot (two models with one name).
 - A deny policy beats permits of other models under `deny-overrides`.
-- The model's summary lists each permitted permission, conditional when the policy has a condition or a scope.
+- The model's summary lists each permitted permission. The entry is conditional when the policy has a condition
+  or a scope, which every fs policy has.
 - Importing `@spinajs/authz-fs` also loads `@spinajs/authz-abac`, which registers its `authz_policy` migration and
   its admin handlers.

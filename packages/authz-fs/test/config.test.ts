@@ -35,8 +35,43 @@ describe('authz-fs config: parseFsAccessConfig', () => {
       operations: { thumbnail: 'fs:read', publish: ['fs:read', 'fs:share'] },
       list: 'each',
     };
-    expect(parseFsAccessConfig('uploads', entry)).to.deep.equal(entry);
+    expect(parseFsAccessConfig('uploads', entry)).to.deep.equal({ ...entry, policies: [{ ...entry.policies[0], scope: { type: 'fs', id: 'uploads' } }] });
   });
+
+  it('scopes a policy without a scope to its filesystem, and keeps a scope inside it', () => {
+    const permit = { id: 'p', effect: 'permit', permissions: ['fs:*'] };
+    const cfg = parseFsAccessConfig('uploads', {
+      mode: 'enforce',
+      policies: [permit, { ...permit, id: 'd', scope: { type: 'dir', id: 'uploads:public' }, resourceTypes: ['file', 'dir'] }, { ...permit, id: 'f', scope: { type: 'fs', id: 'uploads' } }],
+    });
+    expect(cfg.policies!.map((p) => p.scope)).to.deep.equal([
+      { type: 'fs', id: 'uploads' },
+      { type: 'dir', id: 'uploads:public' },
+      { type: 'fs', id: 'uploads' },
+    ]);
+  });
+
+  const policy = (extra: Record<string, unknown>) => ({ mode: 'enforce', policies: [{ id: 'staff', effect: 'permit', permissions: ['fs:read'], ...extra }] });
+  const refused: [string, Record<string, unknown>][] = [
+    ['a non-fs permission', { permissions: ['fs:read', 'task:read'] }],
+    ['the * permission glob', { permissions: ['*'] }],
+    ['a permission glob over every resource', { permissions: ['*:read'] }],
+    ['permissions that are not a list', { permissions: 'fs:read' }],
+    ['a resource type outside fs, dir and file', { resourceTypes: ['file', 'task'] }],
+    ['a scope on a domain parent', { scope: { type: 'task', id: '42' } }],
+    ['a scope on another filesystem', { scope: { type: 'fs', id: 'archive' } }],
+    ['a scope on a directory of another filesystem', { scope: { type: 'dir', id: 'archive:public' } }],
+    ['a scope without an id', { scope: { type: 'fs' } }],
+  ];
+  for (const [what, extra] of refused) {
+    it(`refuses a policy with ${what}, naming the filesystem and the policy`, () => {
+      expect(() => parseFsAccessConfig('uploads', policy(extra)))
+        .to.throw(AuthzConfigError)
+        .with.property('message')
+        .that.includes('authz.fs.uploads.policies')
+        .and.includes('"staff"');
+    });
+  }
 
   it('accepts an empty signedUrl', () => {
     expect(parseFsAccessConfig('uploads', { mode: 'enforce', signedUrl: {} }).signedUrl).to.deep.equal({});
