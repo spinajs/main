@@ -259,11 +259,22 @@ describe('convertGrants', () => {
       refused({ grants: { user: { user: { 'update:own': ['*', '!Password'] } } } }, /a 2\.x package grants the same key/);
     });
 
-    it('keeps a plain list or a negation of a field the package never gave, which is the same union in 3.0', () => {
-      const { r, f } = run({ grants: { user: { user: { 'read:own': ['*', '!Password'] } }, 'admin.users': { users: { 'read:any': ['Name'] } } } });
+    it('keeps a plain list, which is the same union in 3.0', () => {
+      const { r, f } = run({ grants: { user: { user: { 'read:own': ['Avatar'] } }, 'admin.users': { users: { 'read:any': ['Name'] } } } });
       expect(f.problems).to.deep.equal([]);
       expect(r.roles.get('admin.users')!.grants).to.deep.equal([{ permission: 'users:read', fields: { read: ['Name'] } }]);
       expect(f.list.filter((x) => x.code === 'package-grant')).to.have.length(2);
+    });
+
+    it('refuses any negation there, globs and nested paths included', () => {
+      refused({ grants: { user: { user: { 'update:own': ['*', '!Pass*'] } } } }, /a 2\.x package grants the same key/);
+      refused({ grants: { user: { user: { 'read:own': ['*', '!Address.city'] } } } }, /a 2\.x package grants the same key/);
+    });
+
+    it("notes that 2.x joined the $extend of the package roles 'system' and 'admin'", () => {
+      const { r, f } = run({ grants: { admin: { $extend: ['x'] }, x: {} } });
+      expect(r.roles.get('admin')!.extends).to.deep.equal(['x']);
+      expect(f.list.map((x) => x.code)).to.include('package-extends');
     });
   });
 
@@ -300,7 +311,7 @@ describe('convertGrants', () => {
     it('produces roles and permissions the 3.0 RBAC compiler accepts', () => {
       const { r, f } = run({
         grants: {
-          user: { $extend: ['base'], user: { 'read:own': ['*', '!Secret'], 'update:own': ['Email'] }, 'user.metadata': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] } },
+          user: { $extend: ['base'], user: { 'update:own': ['Email'] }, member: { 'read:own': ['*', '!Secret'] }, 'user.metadata': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] } },
           admin: { $extend: ['user'], users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] } },
           root: { user: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] } },
           'polsat.backoffice': { ArrowCampaign: { 'create:own': ['scope:polsat'], 'read:own': ['scope:polsat'], 'update:own': ['scope:polsat'], 'delete:own': ['scope:polsat'] } },
@@ -310,8 +321,8 @@ describe('convertGrants', () => {
       expect(f.problems).to.deep.equal([]);
       const index = compile3(r, ['base'], ['user:impersonate']);
       expect(index.permissions('root')).to.deep.equal(['user:create', 'user:delete', 'user:read', 'user:update']);
-      expect(index.permissions('admin')).to.include.members(['users:update', 'user:read', 'user.metadata:delete']);
-      expect(index.grants('user', 'user:read')[0].relations).to.deep.equal(['self']);
+      expect(index.permissions('admin')).to.include.members(['users:update', 'user:update', 'member:read', 'user.metadata:delete']);
+      expect(index.grants('user', 'user:update')[0].relations).to.deep.equal(['self']);
       expect(index.grants('polsat.backoffice', 'ArrowCampaign:delete')[0].relations).to.deep.equal(['polsat']);
       expect(index.unmatchedGlobs).to.deep.equal([]);
       expect(index.droppedFields).to.deep.equal([]);

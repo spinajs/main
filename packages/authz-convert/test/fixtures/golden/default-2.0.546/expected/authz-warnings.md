@@ -29,11 +29,12 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `rbac.session.cookie`: The session cookie becomes '__Host-ssid' outside development and test (authn.session.cookie.hostPrefix 'auto'). Every 2.x session is logged out at the upgrade, and clients that send 'ssid' by name must change. (cookie-rename)
 - [common] `rbac.session.cookie.secure`: secure: false alone no longer relaxes the cookie: hostPrefix 'auto' forces Secure outside development and test. For local http set authn.session.cookie.hostPrefix: false in a development config. (cookie-secure)
 
-## Notes (21)
+## Notes (23)
 
 Converted as the migration guide describes.
 
 - [common] `rbac.grants.guest.UserBase["read:own"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
+- [common] `rbac.grants.system.$extend`: 2.x joined this $extend with the package's ["admin"]; only the app's part was written, and the 3.0 packages define their own 'system'. (package-extends)
 - [common] `rbac.grants["admin.users"].users["create:any"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
 - [common] `rbac.grants["admin.users"].users["read:any"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
 - [common] `rbac.grants["admin.users"].users["update:any"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
@@ -48,6 +49,7 @@ Converted as the migration guide describes.
 - [common] `rbac.grants.user["user.metadata"]["read:own"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
 - [common] `rbac.grants.user["user.metadata"]["update:own"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
 - [common] `rbac.grants.user["user.metadata"]["delete:own"]`: A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union. (package-grant)
+- [common] `rbac.grants.admin.$extend`: 2.x joined this $extend with the package's ["admin.users"]; only the app's part was written, and the 3.0 packages define their own 'admin'. (package-extends)
 - [common] `rbac.password.generator.characters`: 2.x joined rbac.password.generator.characters with the package value ["abcdefghijklmnopqrstuvwxyz","ABCDEFGHIJKLMNOPQRSTUVWXYZ","0123456789"]; both parts were written. (package-array)
 - [common] `rbac.requireKnownRole`: Removed: 3.0 always refuses unknown roles. (removed)
 - [common] `rbac.systemRole`: Removed: SYSTEM is a principal in 3.0; the role 'system' stays an ordinary role. (removed)

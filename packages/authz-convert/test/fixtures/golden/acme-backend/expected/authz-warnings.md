@@ -20,7 +20,7 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `rbac.grants["users.self"].user["update:own"]`: :own on 'user' became relation 'self' (the caller's own account). If the app registered a default OrmPermission policy for 'user', 2.x used it here and 'self' ignores it; pass --self-resources without 'user' to get relation 'owner' instead. (self-relation)
 - [common] `rbac.roles[0]`: Role 'Stock editor' is declared but has no grants; it was written with no grants so it can be assigned. In 2.x a user holding it with other roles got no permission at all (accesscontrol refused the role list); in 3.0 the other roles apply. (declared-without-grants)
 - [common] `authn.mfa.encryptionKey`: TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it. (mfa-key)
-- [common] test/fixtures/golden/acme-backend/config/twoFactorAuth.local.js reads process.env, so the values it gave this run were converted as constants; check the keys it sets. (reads-env)
+- [local] test/fixtures/golden/acme-backend/config/twoFactorAuth.local.js reads process.env, so the values it gave this run were converted as constants; check the keys it sets. (reads-env)
 - [common] `Task`: :own grants on Task became relation 'owner', but no @OrmResource('Task') model was found; a RelationResolver for 'owner' on type 'Task' must exist in 3.0. (owner-relation)
 - [common] `TaskView`: :own grants on TaskView became relation 'owner', but no @OrmResource('TaskView') model was found; a RelationResolver for 'owner' on type 'TaskView' must exist in 3.0. (owner-relation)
 - [common] `CampaignView`: :own grants on CampaignView became relation 'owner', but no @OrmResource('CampaignView') model was found; a RelationResolver for 'owner' on type 'CampaignView' must exist in 3.0. (owner-relation)
@@ -29,7 +29,7 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `users`: :own grants on users became relation 'owner', but its model (UserModel.js) has no @ResourceOwner(): port its default-scope @OrmPermission policy to @OrmScope(Model, 'owner'), or add @Owner(). (owner-relation)
 - [common] `Localisation`: :own grants on Localisation became relation 'owner', but no @OrmResource('Localisation') model was found; a RelationResolver for 'owner' on type 'Localisation' must exist in 3.0. (owner-relation)
 - [common] 2 user(s) hold several roles. 3.0 gives each the union of all their roles' grants unless the session switches to one role (H1, ceiling.roles); check that the union is meant: bob (acme.salesman, partner.backoffice); cid (user, Stock editor) (roles-together)
-- [common] 1 user(s) hold a role rbac.grants does not define next to other roles. 2.x gave them no permission at all; 3.0 ignores that role and applies the others: cid (user, Stock editor) (roles-voided)
+- [common] 1 user(s) or token(s) hold a role rbac.grants does not define next to other roles. 2.x gave them no permission at all; 3.0 ignores that role and applies the others: cid (user, Stock editor) (roles-voided)
 - [common] 1 user(s) or token(s) hold role 'Admin', which matches 'admin' only in case; 3.0 ignores the assignment (with a warning) after the users.Role copy. (held-unknown-role)
 - [common] 1 API token(s) have no expiry; the 3.0 migration gives them CreatedAt + authn.token.maxTtlDays (default 90 days). Tell their owners: 1 (token-no-expiry)
 - [common] `http.trustProxy`: http.trustProxy is not set. Behind a proxy, set it to the hop count or the proxy CIDRs, or every client shares the proxy address for throttling and audit. (trust-proxy)
@@ -37,13 +37,15 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `rbac.session.cookie`: The session cookie becomes '__Host-ssid' outside development and test (authn.session.cookie.hostPrefix 'auto'). Every 2.x session is logged out at the upgrade, and clients that send 'ssid' by name must change. (cookie-rename)
 - [common] `rbac.password.expiration`: 2.x @spinajs/rbac expired passwords after 31 days unless the app turned it off; 3.0 never expires them unless authn.local.expiration.enabled is true. Set it (and maxAgeDays) if the app relied on the 2.x default. (password-expiry-default)
 - [common] `rbac.password.blockAfterAttempts`: 2.x locked an account for 15 minutes after 5 failed logins (3 with @spinajs/rbac-http-user); 3.0 never locks and backs off instead, by default to at most 60 s per attempt (H31, A06). Tune authn.throttle.login if that is too weak. (lockout-default)
-- [common] `rbac.defaultRole`: 2.x gave new users the role 'guest' by default; nothing was written, so new users get what authz.rbac.defaultRoles of the 3.0 packages lists. Set it if the app relied on 'guest'. (default-role-default)
+- [common] `rbac.defaultRole`: 2.x gave new users the role 'guest' by default. Nothing was written, and no 3.0 package lists authz.rbac.defaultRoles, so new users get no role; set it if the app relied on 'guest'. (default-role-default)
 - [prod] `http.cors.origins`: http.cors.origins is empty: 2.x answered every origin, with credentials; 3.0 allows no cross-origin request (H33, A31). List every origin a browser client uses (and in authn.http.csrf.allowedOrigins for cookie sessions). (cors-empty)
 
-## Notes (8)
+## Notes (10)
 
 Converted as the migration guide describes.
 
+- [common] `rbac.grants.system.$extend`: 2.x joined this $extend with the package's ["admin"]; only the app's part was written, and the 3.0 packages define their own 'system'. (package-extends)
+- [common] `rbac.grants.admin.$extend`: 2.x joined this $extend with the package's ["admin.users"]; only the app's part was written, and the 3.0 packages define their own 'admin'. (package-extends)
 - [common] No user or token holds 'admin.campaigns', 'users.self', 'location.subscriptions', 'route.home', 'route.salesman', 'route.user', 'route.admin', 'route.campaigns' and other roles extend them, so they are written 'assignable: false'. (assignable)
 - [common] `CampaignView`: 'scope:partner' on CampaignView became relation 'partner': port @OrmPermission(Model, 'partner') policies to @OrmScope(Model, 'partner') (OrmScopePolicy). (scope-relation)
 - [common] `Campaign`: :own grants on Campaign became relation 'owner'; its model has @ResourceOwner(), which becomes @Owner(). (owner-relation)

@@ -1,7 +1,7 @@
 import { isFieldGlob, isPermission, normalizeFieldGlobs } from '@spinajs/authz';
 
 import type { Findings } from './findings.js';
-import { RBAC_2X_PACKAGE_GRANTS } from './legacy.js';
+import { RBAC_2X_PACKAGE_EXTENDS, RBAC_2X_PACKAGE_GRANTS } from './legacy.js';
 import { isPlain, keyPath, sameList } from './values.js';
 import type { Plain } from './values.js';
 
@@ -259,7 +259,11 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
       if (resource === '$extend') {
         if (!Array.isArray(actions) || !actions.every((r) => typeof r === 'string' && r.trim() !== '')) f.refuse(`${keyPath(at, '$extend')} must be an array of role names`);
         else if ((actions as string[]).includes(role)) f.refuse(`${keyPath(at, '$extend')}: role '${role}' extends itself, which 2.x refused at boot`);
-        else if (actions.length > 0) out.extends = [...new Set(actions as string[])];
+        else if (actions.length > 0) {
+          out.extends = [...new Set(actions as string[])];
+          const pkg = RBAC_2X_PACKAGE_EXTENDS[role];
+          if (pkg) f.info('package-extends', `2.x joined this $extend with the package's ${JSON.stringify(pkg)}; only the app's part was written, and the 3.0 packages define their own '${role}'.`, keyPath(at, '$extend'));
+        }
         continue;
       }
       const rat = keyPath(at, resource);
@@ -283,8 +287,8 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
         const pkg = RBAC_2X_PACKAGE_GRANTS.get(`${role}|${resource}|${key}`);
         if (!pkg || !Array.isArray(attrs)) continue;
         // 2.x joined this list with the package's before it read it; 3.0 keeps the package grant apart, so a
-        // token, or a negation of a field the package list gave, no longer narrows it.
-        const narrows = (a: unknown) => typeof a === 'string' && (a.startsWith(SCOPE_PREFIX) || (a.startsWith('!') && (pkg.includes('*') || pkg.includes(a.slice(1)))));
+        // token or a negation no longer narrows it.
+        const narrows = (a: unknown) => typeof a === 'string' && (a.startsWith(SCOPE_PREFIX) || a.startsWith('!'));
         if (attrs.some(narrows)) {
           f.refuse(`${keyPath(rat, key)}: a 2.x package grants the same key, and 2.x joined the lists, so a negation or scope token here narrowed the package grant; 3.0 keeps the package grant apart. Move the rule to its own role, or narrow it in 3.0 by hand`);
         } else {

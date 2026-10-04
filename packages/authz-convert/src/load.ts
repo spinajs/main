@@ -7,6 +7,7 @@ import { DI } from '@spinajs/di';
 import _ from 'lodash';
 
 import { ConversionError } from './findings.js';
+import { probeFiles } from './probe.js';
 import { firstNonData, isPlain } from './values.js';
 import type { Plain } from './values.js';
 
@@ -14,6 +15,8 @@ import type { Plain } from './values.js';
 interface Sources {
   readonly js: Plain;
   readonly json: Plain;
+  /** Files in the order they were merged. */
+  readonly order: { readonly js: readonly string[]; readonly json: readonly string[] };
 }
 
 /** The common layer and one layer per environment, each merged the way the 3.0 loader merges it. */
@@ -26,8 +29,10 @@ export interface ConfigLayers {
   readonly skipped: readonly string[];
   /** Layer ('common' or an env) → leaf paths whose value changed when the files ran again under another NODE_ENV. */
   readonly computed: ReadonlyMap<string, readonly string[]>;
-  /** Loaded files whose source reads process.env. */
-  readonly envReaders: readonly string[];
+  /** Loaded files whose source reads process.env, with their layer. */
+  readonly envReaders: readonly { readonly file: string; readonly layer: string }[];
+  /** Why the second run under the other NODE_ENV failed; `computed` is empty then. */
+  readonly probeErrors: readonly string[];
   /** The config the loader builds for `env` (null: no env file applies). */
   view(env: string | null): Plain;
 }
@@ -59,8 +64,7 @@ function envOf(file: string): string | null {
 class LayerSource extends BaseFileSource {
   readonly loaded = new Set<string>();
 
-  /** `probe`: load every JS module again, as a new instance (an ES module is cached by its URL). */
-  constructor(dirs: readonly string[], private readonly probe?: string) {
+  constructor(dirs: readonly string[]) {
     super();
     // The app's own config dirs only: package defaults come from the 3.0 packages after the upgrade.
     this.CommonDirs = [...dirs];
@@ -73,20 +77,23 @@ class LayerSource extends BaseFileSource {
 
   public async layer(env: string | null): Promise<Sources> {
     const stem = env === null ? '!(*.*)' : `*.${env}`;
-    const strict = (file: string) => {
-      this.loaded.add(path.resolve(file));
-      return loadStrict(file, this.probe);
+    const order = { js: [] as string[], json: [] as string[] };
+    // BaseFileSource calls this in the order it merges the results.
+    const track = (kind: 'js' | 'json') => (file: string) => {
+      const full = path.resolve(file);
+      this.loaded.add(full);
+      order[kind].push(full);
+      return loadStrict(file);
     };
-    return { js: (await this.load(`${stem}.{cjs,js}`, strict)) as Plain, json: (await this.load(`${stem}.json`, strict)) as Plain };
+    return { js: (await this.load(`${stem}.{cjs,js}`, track('js'))) as Plain, json: (await this.load(`${stem}.json`, track('json'))) as Plain, order };
   }
 }
 
 // JsFileSource logs a broken file and goes on with {}; a converter that did so would drop keys silently.
-async function loadStrict(file: string, probe?: string): Promise<IConfigLike> {
+async function loadStrict(file: string): Promise<IConfigLike> {
   try {
     if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(file, 'utf-8')) as IConfigLike;
-    const url = pathToFileURL(file).href;
-    let cfg = (await DI.__spinajs_require__(probe ? `${url}?${probe}` : url)) as IConfigLike;
+    let cfg = (await DI.__spinajs_require__(pathToFileURL(file).href)) as IConfigLike;
     if (typeof cfg.onConfigLoad === 'function') cfg = (await cfg.onConfigLoad(cfg))!;
     return cfg;
   } catch (err) {
@@ -100,7 +107,7 @@ function leafValues(v: unknown, at: string, out: Map<string, unknown>): Map<stri
   return out;
 }
 
-// Functions are left out as not-data anyway, and every run makes new ones.
+// A function or class instance is left out as not-data anyway, and does not survive the probe's JSON.
 const isData = (v: unknown) => firstNonData(v, '') === undefined;
 
 const overlaps = (a: string, b: string) => a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`);
@@ -111,42 +118,45 @@ interface Read {
   readonly bySuffix: Map<string, Sources>;
 }
 
-async function readAll(dirs: readonly string[], envs: readonly string[], probe?: string): Promise<Read> {
-  const source = new LayerSource(dirs, probe);
+async function readAll(dirs: readonly string[], envs: readonly string[]): Promise<Read> {
+  const source = new LayerSource(dirs);
   const common = await source.layer(null);
   const bySuffix = new Map<string, Sources>();
   for (const env of envs) bySuffix.set(env, await source.layer(env));
   return { source, common, bySuffix };
 }
 
-const viewOf = (r: Read, env: string | null): Plain => {
+type Layered = Pick<Read, 'common' | 'bySuffix'>;
+
+const viewOf = (r: Layered, env: string | null): Plain => {
   const e = env === null ? undefined : r.bySuffix.get(env);
   return e ? mergeLayers(r.common.js, e.js, r.common.json, e.json) : mergeLayers(r.common.js, r.common.json);
 };
 
-/** Runs the files again under the other NODE_ENV and APP_ENV: a leaf that changes was computed at load time. */
-async function computedLeaves(dirs: readonly string[], envs: readonly string[], first: Read): Promise<Map<string, string[]>> {
-  const saved = { NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV };
-  const other = saved.NODE_ENV === 'production' ? 'development' : 'production';
-  let second: Read;
-  try {
-    process.env.NODE_ENV = other;
-    process.env.APP_ENV = other;
-    second = await readAll(dirs, envs, `authz-convert-probe=${other}`);
-  } finally {
-    for (const [k, v] of Object.entries(saved)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-  const out = new Map<string, string[]>();
+/**
+ * Runs the files again, in a child process, under the other NODE_ENV and APP_ENV: a leaf that changes was
+ * computed at load time. Each env reports only what common does not already report.
+ */
+function computedLeaves(envs: readonly string[], first: Read): { computed: Map<string, string[]>; errors: readonly string[] } {
+  const other = process.env.NODE_ENV === 'production' ? 'development' : 'production';
+  const all = [first.common, ...first.bySuffix.values()].flatMap((s) => [...s.order.js, ...s.order.json]);
+  const probe = probeFiles(all, other);
+  const computed = new Map<string, string[]>();
+  if (probe.errors.length > 0) return { computed, errors: probe.errors };
+  const again = (s: Sources): Sources => {
+    const merged = (files: readonly string[]) => mergeLayers(...files.map((f) => probe.values.get(f) as Plain));
+    return { js: merged(s.order.js), json: merged(s.order.json), order: s.order };
+  };
+  const second: Layered = { common: again(first.common), bySuffix: new Map([...first.bySuffix].map(([e, s]) => [e, again(s)])) };
+  let inCommon: string[] = [];
   for (const env of [null, ...envs]) {
     const a = leafValues(viewOf(first, env), '', new Map());
     const b = leafValues(viewOf(second, env), '', new Map());
-    const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => !_.isEqual(a.get(k), b.get(k)) && isData(a.get(k)) && isData(b.get(k)));
-    if (changed.length > 0) out.set(env ?? 'common', changed.sort());
+    const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => !_.isEqual(a.get(k), b.get(k)) && isData(a.get(k)) && isData(b.get(k)) && !inCommon.includes(k));
+    if (env === null) inCommon = changed;
+    if (changed.length > 0) computed.set(env ?? 'common', changed.sort());
   }
-  return out;
+  return { computed, errors: [] };
 }
 
 function leaves(v: unknown, at: string, out: Set<string>): Set<string> {
@@ -213,8 +223,8 @@ export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers>
   }
   if (problems.length > 0) throw new ConversionError(problems);
 
-  const computed = await computedLeaves(resolved, envList, first);
-  const envReaders = files.filter((f) => !f.endsWith('.json') && /process\.env/.test(fs.readFileSync(f, 'utf-8'))).map((f) => path.relative(process.cwd(), f).split(path.sep).join('/'));
+  const { computed, errors: probeErrors } = computedLeaves(envList, first);
+  const envReaders = files.filter((f) => !f.endsWith('.json') && /process\.env/.test(fs.readFileSync(f, 'utf-8'))).map((f) => ({ file: path.relative(process.cwd(), f).split(path.sep).join('/'), layer: envOf(f) ?? 'common' }));
   const flat = (s: Sources) => mergeLayers(s.js, s.json);
   return {
     common: flat(common),
@@ -223,6 +233,7 @@ export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers>
     skipped,
     computed,
     envReaders,
+    probeErrors,
     view: (env) => viewOf(first, env),
   };
 }

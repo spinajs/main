@@ -46,7 +46,7 @@ export function analyze(merged: Plain, layer: string, opts: AnalyzeOptions): Fin
   ownership(merged, opts, f);
   if (opts.db) dbFacts(merged, grants, opts.db, f);
   httpAndSecrets(merged, f);
-  if (layer === 'common') packageDefaults(merged, grants, f);
+  packageDefaults(merged, grants, f);
   return f;
 }
 
@@ -175,11 +175,11 @@ function dbFacts(merged: Plain, grants: Grants2, db: DbFacts, f: Findings): void
     );
   }
   // accesscontrol refused a role list naming a role no rbac.grants (the app's or a package's) defined, declared or not.
-  const voided = db.users.filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r) && !RBAC_2X_PACKAGE_ROLES.has(r)));
+  const voided = [...db.users, ...db.tokens].filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r) && !RBAC_2X_PACKAGE_ROLES.has(r)));
   if (voided.length > 0) {
     f.warn(
       'roles-voided',
-      `${voided.length} user(s) hold a role rbac.grants does not define next to other roles. 2.x gave them no permission at all; 3.0 ignores that role and applies the others: ${voided
+      `${voided.length} user(s) or token(s) hold a role rbac.grants does not define next to other roles. 2.x gave them no permission at all; 3.0 ignores that role and applies the others: ${voided
         .slice(0, 50)
         .map((u) => `${u.id} (${u.roles.join(', ')})`)
         .join('; ')}${voided.length > 50 ? '; …' : ''}`,
@@ -214,7 +214,8 @@ function httpAndSecrets(merged: Plain, f: Findings): void {
   }
   const secret = getPath(merged, ['http', 'cookie', 'secret']);
   if (secret === undefined || secret === HTTP_2X_COOKIE_SECRET) {
-    f.warn('cookie-secret', `http.cookie.secret is ${secret === undefined ? 'not set, so 2.x signed cookies with' : ''} the public @spinajs/http default. Set a secret of your own through a secret reference (env or a secret store).`, 'http.cookie.secret');
+    const what = secret === undefined ? 'http.cookie.secret is not set, so 2.x signed cookies with the public @spinajs/http default.' : 'http.cookie.secret is the public @spinajs/http default.';
+    f.warn('cookie-secret', `${what} Set a secret of your own through a secret reference (env or a secret store).`, 'http.cookie.secret');
   } else if (typeof secret === 'string' && !(CONFIG_PROTOCOL.test(secret) && !WEB_PROTOCOL.test(secret))) {
     f.warn('cookie-secret', 'http.cookie.secret is written in a config file, so everyone with the code has it. Rotate it and load it through a secret reference (env or a secret store).', 'http.cookie.secret');
   }
@@ -264,7 +265,7 @@ function packageDefaults(merged: Plain, grants: Grants2, f: Findings): void {
     f.info('auth-default', "2.x logged users in with @spinajs/rbac's SimpleDbAuthProvider by default; authn.strategies lists the local password strategy.", 'rbac.auth.service');
   }
   if (rbac('defaultRole') === undefined) {
-    f.warn('default-role-default', "2.x gave new users the role 'guest' by default; nothing was written, so new users get what authz.rbac.defaultRoles of the 3.0 packages lists. Set it if the app relied on 'guest'.", 'rbac.defaultRole');
+    f.warn('default-role-default', "2.x gave new users the role 'guest' by default. Nothing was written, and no 3.0 package lists authz.rbac.defaultRoles, so new users get no role; set it if the app relied on 'guest'.", 'rbac.defaultRole');
   }
   if (rbac('enableGuestAccount') === undefined) {
     f.info('guest-default', "2.x had no guest account by default. 3.0 turns the anonymous principal on, with the roles of authz.rbac.anonymousRoles; set authz.principals.anonymous.enabled: false to match 2.x exactly.", 'rbac.enableGuestAccount');

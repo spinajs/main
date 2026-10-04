@@ -129,6 +129,30 @@ function sharedGrantKeys(common: Plain, env: Plain, name: string, f: Findings): 
   }
 }
 
+/**
+ * 2.x logged in through @spinajs/rbac's SimpleDbAuthProvider unless rbac.auth.service said otherwise, and no
+ * 3.0 package lists a strategy, so the first layer with rbac keys gets the local strategy when its view leaves
+ * rbac.auth out. An env file cannot take it back (arrays concatenate), so an env that names another provider
+ * is left for a person.
+ */
+function defaultStrategy(layers: ConfigLayers, outputs: LayerOutput[]): void {
+  const LOCAL = [{ name: 'local', service: 'LocalPasswordStrategy' }];
+  const unset = (view: Plain) => isPlain(view.rbac) && getPath(view, ['rbac', 'auth', 'service']) === undefined;
+  const [common, ...envs] = outputs;
+  if (isPlain(layers.view(null).rbac)) {
+    if (!unset(layers.view(null))) return;
+    setPath(common.out.authn, ['authn', 'strategies'], LOCAL);
+    for (const o of envs) {
+      const service = getPath(layers.envs.get(o.name), ['rbac', 'auth', 'service']);
+      if (service !== undefined && service !== 'SimpleDbAuthProvider') {
+        o.findings.manual('env-array', `Env '${o.name}' sets rbac.auth.service '${String(service)}', but common lists the 2.x default local strategy in authn.strategies; arrays concatenate, so the env would keep password login next to its own. Split authn.strategies by hand.`, 'rbac.auth.service');
+      }
+    }
+    return;
+  }
+  for (const o of envs) if (unset(layers.view(o.name)) && getPath(o.out.authn, ['authn', 'strategies']) === undefined) setPath(o.out.authn, ['authn', 'strategies'], LOCAL);
+}
+
 /** Converts the app's 2.x config dirs. Throws ConversionError, and returns no file, when any layer holds something it refuses. */
 export async function convert(opts: ConvertOptions): Promise<ConvertResult> {
   return convertLayers(await loadLayers(opts.dirs), opts);
@@ -147,6 +171,7 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
   if (problems.length > 0) throw new ConversionError(problems);
 
   const common = outputs[0];
+  defaultStrategy(layers, outputs);
   for (const o of outputs.slice(1)) {
     for (const k of SCALAR_TO_ARRAY_KEYS) {
       const p = k.split('.');
@@ -170,11 +195,6 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
 
   const tail = new Findings();
   for (const s of layers.skipped) tail.warn('file-skipped', `Not converted: ${s}.`);
-  const commonView = layers.view(null);
-  if (isPlain(commonView.rbac) && getPath(commonView, ['rbac', 'auth', 'service']) === undefined && getPath(common.out.authn, ['authn', 'strategies']) === undefined) {
-    // 2.x logged in through @spinajs/rbac's SimpleDbAuthProvider by default; no 3.0 package lists a strategy.
-    setPath(common.out.authn, ['authn', 'strategies'], [{ name: 'local', service: 'LocalPasswordStrategy' }]);
-  }
   if (outputs.some((o) => getPath(o.out.authn, ['authn', 'mfa', 'steps']) !== undefined)) {
     tail.warn('mfa-key', 'TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it.', 'authn.mfa.encryptionKey');
   }
@@ -186,8 +206,13 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
     }
     tail.list.push(...at.list);
   }
-  for (const file of layers.envReaders) {
-    tail.warn('reads-env', `${file} reads process.env, so the values it gave this run were converted as constants; check the keys it sets.`);
+  for (const { file, layer } of layers.envReaders) {
+    const at = new Findings(layer);
+    at.warn('reads-env', `${file} reads process.env, so the values it gave this run were converted as constants; check the keys it sets.`);
+    tail.list.push(...at.list);
+  }
+  for (const e of layers.probeErrors) {
+    tail.manual('probe-failed', `The converter ran the config files a second time, under the other NODE_ENV, to find values they compute; that run failed, so no such value was found: ${e}`);
   }
   if (opts.db) markAssignable(outputs, [layers.view(null), ...[...layers.envs.keys()].map((e) => layers.view(e))], opts.db, tail);
 

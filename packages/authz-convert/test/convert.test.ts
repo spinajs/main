@@ -102,6 +102,23 @@ describe('convert', () => {
     expect(r.findings.map((x) => x.code)).to.include('auth-default');
   });
 
+  it('leaves an env that names another login provider for a person, since common lists the local strategy', async () => {
+    const dir = configDir({
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, auth: undefined } },
+      'rbac.prod.js': { rbac: { auth: { service: 'LdapAuthProvider' } } },
+      'rbac.dev.js': { rbac: { auth: { service: 'SimpleDbAuthProvider' } } },
+    });
+    const r = await convert({ dirs: [dir] });
+    expect(r.findings.filter((x) => x.code === 'env-array').map((x) => x.layer)).to.deep.equal(['prod']);
+    expect(file(r, 'authn-generated.dev.ts')).to.equal(undefined);
+  });
+
+  it('writes the local strategy into an env layer when only env files hold rbac keys', async () => {
+    const dir = configDir({ 'http.js': HTTP, 'rbac.local.js': { rbac: { defaultRole: 'user' } } });
+    const r = await convert({ dirs: [dir] });
+    expect((load(file(r, 'authn-generated.local.ts')!) as any).authn.strategies).to.deep.equal([{ name: 'local', service: 'LocalPasswordStrategy' }]);
+  });
+
   it('asks once for the MFA encryption key, however many layers write the totp step', async () => {
     const dir = configDir({
       'rbac.js': { ...HTTP, rbac: { ...RBAC, twoFactorAuth: { enabled: true } } },

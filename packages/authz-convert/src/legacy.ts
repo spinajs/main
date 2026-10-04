@@ -43,5 +43,8 @@ export const RBAC_2X_PACKAGE_GRANTS: ReadonlyMap<string, readonly string[]> = ne
   ...lists('user', 'user.tokens', CRUD.map((v) => `${v}:own`), ['*']),
 ]);
 
+/** `$extend` lists of the package roles; 2.x joined an app's `$extend` on the same role with them. */
+export const RBAC_2X_PACKAGE_EXTENDS: Readonly<Record<string, readonly string[]>> = Object.freeze({ system: Object.freeze(['admin']), admin: Object.freeze(['admin.users']) });
+
 /** Roles the packages defined in rbac.grants, so accesscontrol knew them in every app. */
 export const RBAC_2X_PACKAGE_ROLES: ReadonlySet<string> = new Set(['guest', 'system', 'admin.users', 'user', 'admin']);

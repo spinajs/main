@@ -78,10 +78,25 @@ describe('loadLayers', () => {
   });
 
   it('finds the values a file computes from NODE_ENV, and the files that read process.env', async () => {
+    const before = { NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV };
     const layers = await loadLayers([fixture('computed')]);
     expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
-    expect(layers.envReaders).to.deep.equal(['test/fixtures/computed/rbac.js']);
-    expect(process.env.NODE_ENV).to.not.equal('authz-convert-probe');
+    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/computed/rbac.js', layer: 'common' }]);
+    expect(layers.probeErrors).to.deep.equal([]);
+    expect({ NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV }).to.deep.equal(before);
+  });
+
+  it('finds a value computed in a module the config file imports', async () => {
+    const layers = await loadLayers([fixture('probe-helper', 'config')]);
+    expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
+    expect(layers.envReaders).to.deep.equal([]);
+  });
+
+  it('reports a second run that fails, instead of refusing the conversion', async () => {
+    const layers = await loadLayers([fixture('probe-fail')]);
+    expect(layers.common).to.deep.equal({ rbac: { defaultRole: 'user' } });
+    expect(layers.computed.size).to.equal(0);
+    expect(layers.probeErrors.join('\n')).to.match(/NODE_ENV=production: APP_SECRET_FOR_TEST is not set/);
   });
 
   it('refuses a missing dir', async () => {
