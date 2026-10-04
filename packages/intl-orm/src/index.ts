@@ -169,6 +169,8 @@ export class IntlModelMiddleware implements IBuilderMiddleware {
  */
 @Injectable(QueryMiddleware)
 export class IntlQueryMiddleware extends QueryMiddleware {
+  public order = 1000;
+
   beforeQueryExecution(builder: QueryBuilder<any>): void {
     // if we dont have configuration module
     // we cannot guess default language
