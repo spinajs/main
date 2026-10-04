@@ -137,7 +137,7 @@ grant carries a field list. A permission you do not register is an error at boot
 | `rbac.password.blockAfterAttempts` | `authn.throttle.login.account` | `free` is the old value; the delays are the schema's defaults. A warning explains the new meaning. 0 turns nothing off. |
 | `rbac.password.lockoutTime` | dropped | Warning. The nearest knob is `authn.throttle.login.account.maxDelayMs`. |
 | `rbac.session.*` | `authn.session.*` | Same sub-paths. |
-| `rbac.twoFactorAuth`, `rbac.otpauth.*` | `authn.mfa.steps`, `authn.mfa.policy.force`, `authn.mfa.totp.*` | `forceUser` becomes `policy.force`. The step it writes is `TotpMfaStep`, which `authn-totp` does not ship yet. While a session strategy is listed, boot fails with "no MfaStep is registered as service 'TotpMfaStep'" until N5 lands (TODO(N5)). |
+| `rbac.twoFactorAuth`, `rbac.otpauth.*` | `authn.mfa.steps`, `authn.mfa.policy.force`, `authn.mfa.totp.*` | `forceUser` becomes `policy.force`. The step it writes is `TotpMfaStep`, which `authn-totp` ships. Boot finds it when the app loads `@spinajs/authn-totp`. The step also needs `authn.mfa.encryptionKey.secret` and `import '@spinajs/authn-totp/db'` (a `MfaSecretStore`); see the [N5 section](#n5-authn-totp). Without the import it fails on first use, not at boot. |
 | `rbac.token.{prefix,length,headerName,lastUsedUpdateInterval,generation}` | `authn.token.*` | A length below 32 is a manual item (boot fails). |
 | `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` | |
 | `rbac.user`, `rbac.email`, `rbac.actions` | `users.user`, `users.email`, `users.actions` | Copied. Functions in `actions` cannot be written to a file: they are manual items. |
@@ -214,11 +214,11 @@ message fails boot. The default is `false`. The `users` keys (`rbac.user`, `rbac
 authorization keys. Several 2.x packages still ship `rbac.*` defaults, so the warning also shows for
 keys you never set. Leave both switches `false` until R1 (TODO(R1)).
 
-> **TODO(C1, N5):** `authn.config.rejectLegacyKeys: true` fails boot today, even for an app with clean
+> **TODO(C1):** `authn.config.rejectLegacyKeys: true` fails boot today, even for an app with clean
 > config. `users` ships `rbac.auth.service`, `rbac.password.blockAfterAttempts` and
-> `rbac.password.lockoutTime`, `authn-http` ships `rbac.password.blockAfterAttempts`, and `authn-totp`
-> ships `rbac.twoFactorAuth.enabled` and `forceUser`. C1 removes the `users` keys and N5 the `authn-totp`
-> keys. The `authn-http` key has no owner named yet (probably N8a).
+> `rbac.password.lockoutTime`, and `authn-http` ships `rbac.password.blockAfterAttempts`. C1 removes
+> the `users` keys. The `authn-http` key has no owner named yet (probably N8a). `authn-totp` ships no
+> `rbac.*` key any more.
 
 **`authn:check-config`.** N1 ships the check as the function `checkAuthnConfig(container)`. It
 returns findings (`topic`, `level`, `message`) and throws nothing. It covers everything boot refuses,
@@ -372,7 +372,8 @@ The status column says whether the 3.0 side is built in the code merged so far.
 | `login(email, password)`, `SimpleDbAuthProvider.authenticate` | `AuthnService.authenticate({ kind: 'password', login, password }, ctx)` | built (`DefaultAuthnService`) |
 | `passwordChangeRequest`, `confirmPasswordReset`, `changeUserPassword` | `PasswordService.requestReset`, `.redeemReset`, `.change` (`LocalPasswordService` in `authn-local`) | built |
 | `SessionProvider`, `UserSession`, `regenerateSession`, `revokeUserSessions` | `SessionProvider` from `@spinajs/authn-session`; `SessionIssuer.rotate`, `.revokeAll(subject)` | built |
-| `TwoFactorAuthProvider`, `Default2FaToken`, `auth2Fa` | `MfaStep`, `TotpMfaStep`, `AuthnService.completeMfa` | TODO(N5) |
+| `TwoFactorAuthProvider`, `Default2FaToken`, `auth2Fa` | `MfaStep`, `TotpMfaStep`, `TotpService`, `AuthnService.completeMfa` | built (`authn-totp`; the 2.x classes stay, `@deprecated`, until R1) |
+| CLI `rbac:user-enable-2fa` | `authn:mfa-reset <login>` (removes the enrolment, prints no secret); the owner enrols through `TotpService` | built; the enrol routes TODO(N8a/N8b) |
 | `validateToken`, `createToken` | `TokenService.validate`, `.create` (`DbTokenService` in `authn-token`) | built |
 | `@Policy(NoTokenAuthPolicy)` | `NoTokenAuthPolicy` from `authn-http` | built (2.x code, moved) |
 | `LoggedPolicy`, `AuthorizedPolicy` | `Authenticated`, and `FreshAuth(seconds)` on sensitive routes | contract built; TODO(N8a) |
@@ -661,8 +662,8 @@ warning that names a `rbac.*` key you have no reason to keep. Note: package defa
 
 | `rbac.*` key | Read today by | Moves in | Without it |
 |---|---|---|---|
-| `twoFactorAuth.enabled`, `twoFactorAuth.forceUser` | `authn-http` `LoginController` (also `TwoFactorAuthController`, `TwoFactorAuthUserController`, `2FaPolicy`); `authn-totp` ships `enabled: true`, `forceUser: false` | N8a, N5 | Forced 2FA turns off |
-| `twoFactorAuth.service` | `authn-totp` 2FA actions and CLI | N5 | The package service `Default2FaToken` runs |
+| `twoFactorAuth.enabled`, `twoFactorAuth.forceUser` | `authn-http` `LoginController` (also `TwoFactorAuthController`, `TwoFactorAuthUserController`, `2FaPolicy`); no package ships them now | N8a, N8b | 2.x 2FA login is off (`enabled` is `false`) and the 2.x 2FA routes answer 500 |
+| `twoFactorAuth.service` | `authn-totp` 2.x actions; no package ships it now | R1 | The package service `Default2FaToken` runs |
 | `roleSwitch.requirePassword` | `authn-http` `ActiveRoleController`; `users` ships `[]` | N8a, C3 | No password is asked for a privileged role switch |
 | `impersonation.protectedRoles` | `authn-http` `ImpersonationController`; `users` ships `['system']` | N8a, C3 | Protection falls back to `['system']` |
 | `admin.roleGuard.*` | `authz-http-admin` `DefaultRoleGuard` (`legacy/services/RoleGuard.ts`); `users-http` `Users.ts` and `Security.ts` | C2, C4 | The package defaults of `authz-http-admin` apply, and a custom guard is lost |
@@ -680,7 +681,7 @@ keys they found and the key each moved to ([section 3.4](#34-keys-that-other-con
 never prints a value. With the switch on, the same text fails boot. The authz detector reports the
 authorization keys, the authn one the authentication keys, so you may see both.
 
-> **TODO(N8a/N5/C1/C2/C3/C4):** each reader in the table moves to its `authz.*`, `authn.*` or
+> **TODO(N8a/N8b/C1/C2/C3/C4):** each reader in the table moves to its `authz.*`, `authn.*` or
 > `users.*` key in the lane named there. Nothing reads `authz.impersonation.protectedRoles` or
 > `authz.principals.roleSwitch.requirePassword` yet, although the converter writes both. Replace each
 > row with the final key and, for impersonation, the `AuthzImpersonationGuard` setup when its lane
@@ -1297,11 +1298,11 @@ upgrades.**
 | SR-06 | An impersonation ends when the impersonator is revoked, and after `authn.impersonation.maxMinutes`. |
 | SR-07 | A session between password and MFA yields no principal. |
 | SR-08 | A reset revokes API tokens (built). **TODO(N8b):** minting a token needs fresh auth and an expiry of at most 90 days. The `/user/tokens` route still mints without either until N8b. |
-| SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest. |
-| SR-10 | **TODO(N8b):** credential admin routes need `users:credentials` and a target guard. The routes do not exist yet. |
+| SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest, and recovery codes are SHA-256 only. |
+| SR-10 | `TotpService.adminReset` and `authn:mfa-reset` return no secret (built). **TODO(N8b):** credential admin routes need `users:credentials` and a target guard. The routes do not exist yet. |
 | SR-11 | An audit trail (log and database) is on by default. `DbAuthnAuditSink` stores raw subject refs, IP and user agent. |
 | SR-12 | **TODO(N8a):** CSRF origin check on cookie requests (`CsrfOriginGuard` is a stub), and CORS with an empty list allows nothing (`@spinajs/http` still allows every origin on an empty list). |
-| SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. **TODO(N5):** a TOTP code works once (`TotpMfaStep` does not exist yet). |
+| SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once, and an older time step is refused (`TotpMfaStep`, SR-15). |
 | SR-16 | Cookie flags follow the app env, not `NODE_ENV=production` alone. **TODO(N8a):** a missing env resolves to development today, so an app with no env set gets the lenient flags and secret checks. |
 | SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. `LogAuthnAuditSink` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
 
@@ -1347,8 +1348,47 @@ so. The rest is for the lane report.
 
 ### N5: authn-totp
 
-> **TODO(N5):** `TotpMfaStep`, recovery codes, the TOTP CLI and the 2FA routes. The design fixes the
-> storage: encrypted secrets in `authn_mfa`, a code works once, ten recovery codes stored as SHA-256.
+Built: `TotpMfaStep`, single-use recovery codes, `TotpService` and `authn:mfa-reset`. The full
+description is in the [authn guide](../authn/README.md#the-totp-step-authn-totp).
+
+Behaviour changes for an app:
+
+- **TOTP is opt-in.** The package lists no step and no key. Add `{ name: 'totp', service: 'TotpMfaStep' }`
+  to `authn.mfa.steps`, set `authn.mfa.encryptionKey.secret` (64 hex characters, or base64 or
+  base64url of 32 bytes) and import `@spinajs/authn-totp/db` once. Keep the old key in
+  `authn.mfa.encryptionKey.previous` on rotation. The converter writes the step entry and leaves the
+  key and the import to you.
+- **Importing `@spinajs/authn-totp/db` runs the authn-orm data migration** (on an Orm that migrates
+  at start-up). It moves 2.x TOTP secrets into `authn_mfa` and deletes the 2.x `2fa:*`, `user:2fa:*`,
+  `user:login:*` and `user:pwd_reset:*` metadata. The 2.x login decides on `2fa:enabled`, so after
+  that it no longer asks those users for a code, and 2.x reset links and lockout counts are gone.
+  Import it only after the app has left the 2.x login.
+- **The package ships no `rbac.twoFactorAuth.*` key.** The 2.x login routes of `authn-http` still read
+  them and now default to 2FA off. An app that stays on those routes sets `enabled` and `forceUser`
+  itself. `2FaPolicy` answers 500 on the 2.x 2FA routes when the key is missing (fail closed).
+- **`rbac:user-enable-2fa` is gone.** It printed a secret. Use `authn:mfa-reset <login>`; the owner
+  enrols again through `TotpService`.
+- **Recovery codes** are 16 base32 characters shown as `XXXX-XXXX-XXXX-XXXX`, 80 bits each, ten by
+  default (`authn.mfa.totp.recoveryCodes`, at most 100), returned once.
+- **Throttle.** Confirming and disabling count into the `mfa` throttle, in the same budget as the
+  login. Pick the `mfa` limits with that in mind.
+
+Hand-offs:
+
+> **TODO(N8a/N8b):** no route calls `TotpService` yet. Wire `/user/mfa/*` (begin, confirm, disable,
+> regenerate), the admin reset (after the A25 target guard with `users:credentials`) and run the A10
+> HTTP rules. Rate-limit the routes: `confirm` audit rows are not bounded. Move the 2.x controllers off
+> `rbac.twoFactorAuth`, so that `2FaPolicy` never reads an undefined config.
+>
+> **TODO(X1/N1):** `FreshAuthCheck` refuses pending sessions, so `TotpService` keeps a copy of
+> `isFresh` for the forced first enrolment. An `allowPending` option would remove the copy.
+>
+> **TODO(R1):** delete the 2.x code (`Default2FaToken`, `actions/2fa.ts`, `User2Fa*`,
+> `test/legacy-v2/`) and the `users` edge of `authn-totp` (`RbacCliCommand`). The F0b RFC names N5 for
+> removing the `authn-totp` edges to `users`, `http` and `queue`; that moves to R1.
+
+Known limits: parallel regeneration can leave two live recovery-code sets (the store has no
+transaction), and the `TotpService` steps lookup uses the root container.
 
 ### N8a and N8b: authn-http
 

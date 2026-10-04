@@ -284,6 +284,8 @@ TOTP is the 3.0 second factor. The design fixes (§22.8):
   part of the first login, and the pending session may call only the enrol and confirm routes.
   `forceForRoles` asks for roles through `RoleSource`.
 
+Packages ship no step. This is what an app that uses TOTP sets:
+
 ```ts
 authn: {
   mfa: {
@@ -298,12 +300,78 @@ authn: {
 `authn-orm` already holds the storage (`DbMfaStore`, the cipher, the recovery-code table). Recovery codes
 there are unsalted SHA-256, so a step must generate codes of at least 80 bits.
 
-> **TODO(N5):** `TotpMfaStep`, the routes (`/user/mfa`, `/auth/mfa/verify`, `/auth/mfa/recovery`),
-> the CLI and the `User2Fa*` events. `authn-totp` has no `TotpMfaStep` yet: a config that lists
-> `{ name: 'totp', service: 'TotpMfaStep' }` (the converter writes it) fails boot with "no MfaStep is
-> registered as service 'TotpMfaStep'" while a session strategy is listed. `authn-totp` still ships
-> the legacy keys `rbac.twoFactorAuth.enabled` and `forceUser`, and `authn-http` still reads them. Fill
-> in from the N5 report.
+### The TOTP step (`authn-totp`)
+
+`TotpMfaStep` (`name: 'totp'`, `storesSecrets: true`) is the `MfaStep` for authenticator apps. It is
+off until the app turns it on, because arrays concatenate across config files and a step the package
+listed could not be removed:
+
+1. List `{ name: 'totp', service: 'TotpMfaStep' }` in your own `authn.mfa.steps`.
+2. Set `authn.mfa.encryptionKey.secret`: 32 random bytes as 64 hex characters, or as base64 or
+   base64url. On rotation, move the old key to `authn.mfa.encryptionKey.previous` (a list). A row
+   stores the id of the key that wrote it, so old rows still decrypt. A row whose key is gone is a
+   server error, never a wrong code. The package ships no default for the key.
+3. Import `@spinajs/authn-totp/db` once. It registers `DbMfaSecretStore` as the `MfaSecretStore`, over
+   `authn-orm`'s `DbMfaStore` (`authn_mfa`, `authn_recovery_code`). Without it, or another registered
+   `MfaSecretStore`, the step fails on first use with an error that names `MfaSecretStore`.
+
+The import loads `authn-orm`, with its migrations and stores. The data migration moves 2.x TOTP
+secrets into `authn_mfa` and deletes the 2.x `2fa:*`, `user:2fa:*`, `user:login:*` and
+`user:pwd_reset:*` metadata, so import it only after the app has left the 2.x login. The root entry
+of the package loads none of this: it takes only the cipher from `@spinajs/authn-orm/cipher`.
+
+How the step behaves:
+
+- **Codes.** RFC 6238 on `otpauth`. `verify` accepts a code once: it stores the last accepted time
+  step and refuses that step and every older one (A10, SR-15). The code must be exactly `digits`
+  digits, spaces allowed.
+- **Secrets.** 20 random bytes, stored AES-256-GCM encrypted with the key id (SR-09). `begin` and
+  `confirm` are race-safe: a conditional write never overwrites a confirmed row.
+- **Recovery codes.** `authn.mfa.totp.recoveryCodes` (default 10, at most 100) codes of 80 bits,
+  shown as `XXXX-XXXX-XXXX-XXXX` (16 base32 characters), stored as SHA-256 only, single use, returned
+  once at confirmation or regeneration. Case and dashes do not matter on entry.
+- **Options.** `authn.mfa.totp`: `issuer` (default `SpinaJS`; set your app name), `algorithm`
+  (`SHA1`, `SHA256` or `SHA512`), `digits`, `period` (at most 300 s), `window` (at most 10 steps on
+  each side) and `recoveryCodes`. A value out of range fails with `InvalidOption`.
+
+`TotpService` is the owner's side: `begin`, `confirm`, `disable`, `regenerateRecoveryCodes` and
+`adminReset`. Each call returns a result object (`{ ok: true, ... }` or `{ ok: false, code }`) and
+throws only for a fault. Rules:
+
+- The identity always comes from the restored session, never from the caller. An impersonated
+  session is refused.
+- `begin`, `disable` and `regenerateRecoveryCodes` need fresh auth (A13), with an optional inline
+  `reauth` credential. `disable` also needs a TOTP or recovery code.
+- A pending session (forced first login) may only `begin` and `confirm`, and only while the identity
+  is enrolled in no MFA step. The login accepts any enrolled step, so a second factor added from a
+  password-only session would pass it.
+- `confirm` and `disable` count into the `mfa` throttle before the code is checked, under the keys
+  that `completeMfa` uses, so enrolment and login share one budget. A refusal is
+  `throttled` with `retryAfterSeconds`.
+- Events go to the audit sinks as `mfa.enrol` and `mfa.disable`. Regeneration is an `mfa.enrol`
+  event with `data.recoveryCodes = 'regenerated'`. No event carries a secret or a code.
+- `adminReset(actor, target, ctx)` removes the enrolment and recovery codes and returns
+  `{ reset }`, never a secret (SR-10). It does not check who may reset whom: the caller applies the
+  target guard (A25, `users:credentials`) first.
+- `TotpService` finds the other MFA steps in the root container. An app that registers steps per
+  child container passes `steps` itself.
+
+**CLI:** `authn:mfa-reset <login>` removes the enrolment and recovery codes of an account and prints no
+secret. It replaces `rbac:user-enable-2fa`, which handed a secret to the operator and is gone.
+`rbac:2fa-qr` (a QR code for a secret or an otpauth URL) is unchanged.
+
+**Legacy keys.** `authn-totp` ships no `rbac.twoFactorAuth.*` and no `rbac.otpauth.*` key, so
+`authn.config.rejectLegacyKeys: true` passes on its config (a test boots the shipped configs with the
+switch on). It still ships `authn.mfa.totp` and the `User2Fa*` queue routes. The 2.x code
+(`Default2FaToken`, `TwoFactorAuthProvider`, the 2.x actions) stays, marked `@deprecated`, until R1.
+
+> **TODO(N8a/N8b):** the routes. Nothing in `authn-totp` mounts any. N8a and N8b wire
+> `/user/mfa/*` (begin, confirm, disable, regenerate) and the admin reset to `TotpService`, and
+> `/auth/mfa/verify` and `/auth/mfa/recovery` to `completeMfa`. The 2.x routes of `authn-http`
+> (`/user/2fa*`, `/auth/2fa/*`) still read `rbac.twoFactorAuth.*`. With no such key set, `enabled`
+> is `false`, so users who enrolled through 2.x log in with the password alone, and `2FaPolicy` finds
+> no config and answers 500 on the 2.x 2FA routes (it fails closed). An app that stays on the 2.x
+> login sets `rbac.twoFactorAuth.enabled` (and `forceUser`) itself until N8a/N8b replace those routes.
 
 ## Tokens
 
@@ -498,7 +566,8 @@ one.
 > | `rbac.*` key | Read today by | Moves in |
 > |---|---|---|
 > | `impersonation.protectedRoles` | `authn-http` `ImpersonationController` | N8a, C3 |
-> | `twoFactorAuth.enabled`, `.forceUser`, `.service` | `authn-http` `LoginController`, `TwoFactorAuth*Controller`, `2FaPolicy`; `authn-totp` actions and CLI | N8a, N5 |
+> | `twoFactorAuth.enabled`, `.forceUser` | `authn-http` `LoginController`, `TwoFactorAuth*Controller`, `2FaPolicy`; no package ships them now | N8a, N8b |
+> | `twoFactorAuth.service` | `authn-totp` 2.x actions (`Default2FaToken` when unset); no package ships it now | R1 |
 > | `roleSwitch.requirePassword` | `authn-http` `ActiveRoleController` | N8a, C3 |
 > | `auth.service` | `authn-http` `LoginController`; `users` actions | C1, N8a |
 > | `admin.roleGuard.*`, `roles`, `systemRole` | `authz-http-admin` `DefaultRoleGuard`; `users-http` `Users.ts`, `Security.ts` | C2, C4 |
@@ -562,7 +631,7 @@ export default {
 | `authn.strategies` | `StrategyRegistry` (N1) | A list of `{ name, service }`. Packages ship no entry. See [How a login runs](#how-a-login-runs). |
 | `authn.local.*` | `authn-local` | `hasher.service` is not read yet while `users` ships the 2.x value (TODO(C1)). `expiration.enabled` is `false` in the code, but `users` ships `true` (TODO(C1)). |
 | `authn.session.*` | `authn-session`, `session-provider-*` | `hashIds: false` fails boot (schema). `users` ships `cookie.secure` as `process.env.NODE_ENV === 'production'` (TODO(C1)). |
-| `authn.mfa.*` | `authn-orm` (storage), N5 | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. No `TotpMfaStep` exists yet (TODO(N5)). |
+| `authn.mfa.*` | `authn-orm` (storage), `authn-totp` (`totp.*`, `encryptionKey`) | The upgrade migration needs `encryptionKey` when a user has a 2FA secret. Boot needs it outside development and test when a listed step stores secrets. `authn-totp` ships `authn.mfa.totp` only: no step and no key ([MFA](#mfa)). |
 | `authn.throttle.*` | N1, `authn-orm` (`DbAuthnThrottle`) | The schema holds the defaults. `service` names the throttle; unset, it works only when exactly one is registered. `authn` and `authn-orm` register one each, so set it (TODO(K6)). `maxRows` caps `MemoryAuthnThrottle` per flow (1,000,000 when unset). |
 | `authn.token.*`, `authn.jwt.issuers` | `authn-token` | |
 | `authn.keys.*` | `authn-keys` | |
@@ -606,10 +675,10 @@ key, never a value. The detector reports these `rbac.*` keys:
 
 `rbac.user`, `rbac.email` and `rbac.actions` move to `users.*` and belong to the `users` detector.
 
-> **TODO(C1, N5):** with the switch on, boot fails today even for clean app config, because packages
+> **TODO(C1):** with the switch on, boot fails today even for clean app config, because packages
 > still ship some of these keys: `users` (`rbac.auth.service`, `rbac.password.blockAfterAttempts`,
-> `rbac.password.lockoutTime`), `authn-http` (`rbac.password.blockAfterAttempts`) and `authn-totp`
-> (`rbac.twoFactorAuth.enabled`, `forceUser`). Leave the switch `false` until those lanes merge.
+> `rbac.password.lockoutTime`) and `authn-http` (`rbac.password.blockAfterAttempts`). `authn-totp` no
+> longer ships any. Leave the switch `false` until those lanes merge.
 
 ## Testing
 
