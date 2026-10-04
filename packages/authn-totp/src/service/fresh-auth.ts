@@ -1,7 +1,8 @@
 import { InvalidOption } from '@spinajs/exceptions';
 import type { AuthnFacts } from '@spinajs/authn/contracts';
 
-// Local copy of N1's isFresh (packages/authn/src/freshauth); replace with FreshAuthCheck once N1 merges.
+// A copy of authn's isFresh: FreshAuthCheck refuses pending sessions, which the forced first enrolment needs, and
+// authn's root entry registers DefaultAuthnService as a side effect.
 
 export const DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS = 300;
 

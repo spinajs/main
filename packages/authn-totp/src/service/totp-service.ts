@@ -17,6 +17,8 @@ export type TotpRegenerateResult = { readonly ok: true; readonly recoveryCodes: 
 /** Left out, a dependency is resolved from DI on first use. */
 export interface TotpServiceDeps {
   readonly step?: TotpMfaStep;
+  /** Every MFA step of the app; a pending session may enrol only while the identity is enrolled in none of them. */
+  readonly steps?: readonly MfaStep[];
   readonly sessions?: SessionIssuer;
   readonly authn?: AuthnService;
   readonly throttle?: AuthnThrottle;
@@ -27,6 +29,7 @@ export interface TotpServiceDeps {
 
 interface Resolved {
   readonly step: TotpMfaStep;
+  readonly steps: readonly MfaStep[];
   readonly sessions: SessionIssuer;
   readonly authn: AuthnService;
   readonly throttle: AuthnThrottle;
@@ -41,9 +44,10 @@ interface Current {
 }
 
 /**
- * The owner's TOTP enrolment (D9): begin, confirm, disable and regenerate act on the identity of the restored session,
+ * The owner's TOTP enrolment: begin, confirm, disable and regenerate act on the identity of the restored session,
  * never on one the caller names. Refusals are results, not exceptions. Begin, disable and regenerate need fresh auth
- * (A13); a pending session may only begin and confirm, and only while the identity is not enrolled (A09). Every code
+ * (A13); a pending session may only begin and confirm, and only while the identity is enrolled in no MFA step (A09): the
+ * login accepts any enrolled step, so a second factor added from a password-only session would pass it. Every code
  * check of confirm and disable counts into the `mfa` throttle first (A10).
  *
  * `adminReset` does not check who may reset whom: the caller applies the target guard (A25, `users:credentials`) first.
@@ -88,6 +92,9 @@ export class TotpService {
       return { ok: false, code: 'no_session' };
     }
     const state = await step.enrolment(c.identity);
+    if (state === 'pending' && c.handle.state === 'pending' && (await this.enrolledElsewhere(c.identity))) {
+      return { ok: false, code: 'no_session' };
+    }
     if (state !== 'pending') {
       const failure = state === 'confirmed' ? 'enrolled' : 'not_begun';
       await this.audit(ctx, c, { type: 'mfa.enrol', outcome: 'failure', reason: failure });
@@ -207,14 +214,24 @@ export class TotpService {
     return s;
   }
 
-  /** As `restored`; a pending session only where allowed and only while the identity is not enrolled. */
+  /** As `restored`; a pending session only where allowed and only while the identity is enrolled in no MFA step. */
   private async current(session: SessionHandle, allowPending: boolean): Promise<Current | null> {
     const step = await this.need('step');
     const s = await this.restored(session);
-    if (s && (s.handle.state === 'active' || (allowPending && !(await step.enrolled(s.identity))))) {
+    if (s && (s.handle.state === 'active' || (allowPending && !(await step.enrolled(s.identity)) && !(await this.enrolledElsewhere(s.identity))))) {
       return s;
     }
     return null;
+  }
+
+  private async enrolledElsewhere(id: IdentityRef): Promise<boolean> {
+    const step = await this.need('step');
+    for (const other of await this.need('steps')) {
+      if (other !== step && other.name !== step.name && (await other.enrolled(id))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** `reauth` is checked only when the session is not fresh, and never for a pending one (reauthenticate refuses it). */
@@ -253,6 +270,8 @@ export class TotpService {
     switch (key) {
       case 'step':
         return d.step ?? (registered(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
+      case 'steps':
+        return d.steps ?? (registered(MfaStep) ? await DI.resolve(Array.ofType(MfaStep)) : []);
       case 'sessions':
         return d.sessions ?? (await resolveOne(SessionIssuer)) ?? missing('SessionIssuer');
       case 'authn':
@@ -276,7 +295,7 @@ async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promis
   return registered(type) ? ((await DI.resolve(t)) as T) : null;
 }
 
-/** N1's `mfa` flow keys. */
+/** The keys AuthnService.completeMfa counts, so enrolment and login share one `mfa` budget. */
 function throttleKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
   return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
 }

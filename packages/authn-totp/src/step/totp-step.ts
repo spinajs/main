@@ -124,7 +124,7 @@ export class TotpMfaStep extends MfaStep {
     return timeStep !== null && (await store.acceptStep(id, this.name, timeStep));
   }
 
-  /** Takes a recovery code only (D8); single use. */
+  /** Takes a recovery code only; single use. */
   async verifyRecovery(id: IdentityRef, code: string): Promise<boolean> {
     const { store } = await this.resolve();
     const normalised = normaliseRecoveryCode(code);

@@ -1,7 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle } from '@spinajs/authn/contracts';
-import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
+import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import { TotpMfaStep, totpOptions } from '../../src/step/index.js';
@@ -164,6 +164,20 @@ describe('v3 service: TotpService', () => {
       assert.ok(r.ok);
       const c = await service.confirm(h, codeAt(r.provisioning), ctx());
       assert.ok(c.ok);
+    });
+
+    it('a pending session may not begin or confirm while the identity is enrolled in another step', async () => {
+      const other = new FakeMfaStep({ name: 'email' });
+      other.enrol(alice);
+      const strict = new TotpService({ step, steps: [other, step], sessions, authn, throttle, sinks: [events], maxAgeSeconds: 300 });
+      const pending = await session({ pending: true });
+      assert.deepStrictEqual(await strict.begin(pending, ctx()), { ok: false, code: 'no_session' });
+      assert.strictEqual(await store.get(alice, 'totp'), null, 'no secret written');
+
+      const begun = await strict.begin(await session(), ctx());
+      assert.ok(begun.ok);
+      assert.deepStrictEqual(await strict.confirm(pending, codeAt(begun.provisioning), ctx()), { ok: false, code: 'no_session' });
+      assert.strictEqual(await step.enrolled(alice), false);
     });
 
     it('a stale pending session is never re-authenticated inline', async () => {
