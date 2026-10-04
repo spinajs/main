@@ -68,7 +68,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         rejectLegacyKeys: { type: 'boolean', description: 'Fail boot on a 2.x key of the old-key table.' },
       },
     },
-    strategies: { ...named, description: 'Strategy services by name.' },
+    strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },
     local: {
       type: 'object',
       properties: {
@@ -83,6 +83,19 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
         pepper: secretRef('HMAC-SHA256 pepper applied before argon2.', {
           version: { type: 'integer', minimum: 1, description: 'Stored in the hash prefix so the pepper can rotate.' },
+          previous: {
+            type: 'array',
+            description: 'Older peppers, so a hash made under one still verifies and is rehashed (A03). Each version differs from the others and from `version` (checked at boot).',
+            uniqueItemProperties: ['version'],
+            items: {
+              type: 'object',
+              properties: {
+                secret: { type: 'string', minLength: 1 },
+                version: { type: 'integer', minimum: 1 },
+              },
+              required: ['secret', 'version'],
+            },
+          },
         }),
         policy: {
           type: 'object',
@@ -159,7 +172,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           type: 'object',
           properties: {
             service: { type: 'string', minLength: 1 },
-            force: { type: 'boolean' },
+            force: { type: 'boolean', description: "Requires a step on logins whose strategy reports method 'password' only (D13): key and OIDC logins get none." },
             forceForRoles: stringList,
           },
         },
@@ -181,7 +194,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     throttle: {
       type: 'object',
       default: {},
-      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global'] },
+      propertyNames: { enum: ['service', 'login', 'mfa', 'reset', 'reauth', 'resetAfterSeconds', 'global', 'maxRows'] },
       properties: {
         service: { type: 'string', minLength: 1 },
         login: flow({ free: 5, baseDelayMs: 1000, maxDelayMs: 60000 }, { free: 20, baseDelayMs: 1000, maxDelayMs: 300000 }),
@@ -189,7 +202,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         reset: flow({ free: 1, baseDelayMs: 60000, maxDelayMs: 3600000 }, { free: 5, baseDelayMs: 10000, maxDelayMs: 900000 }),
         reauth: flow({ free: 3, baseDelayMs: 1000, maxDelayMs: 300000 }),
         resetAfterSeconds: { type: 'integer', minimum: 1, default: 86400, description: 'A key with no counted attempt for this long starts from zero.' },
-        global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login.' },
+        global: { ...backoff(), type: ['object', 'null'], default: null, description: 'Off (null) by default: one attacker could slow every login. Counted per flow: each flow keeps its own global row.' },
+        maxRows: { type: 'integer', minimum: 4, maximum: 16000000, description: 'Rows a MemoryAuthnThrottle keeps per flow (memory grows with 4 × maxRows); 1,000,000 when unset.' },
       },
     },
     freshAuth: {
@@ -278,10 +292,17 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     audit: {
       type: 'object',
+      propertyNames: { enum: ['sinks', 'sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
         sinks: stringList,
         sampleUse: { type: 'number', minimum: 0, maximum: 1 },
         hashIdentifiers: { type: 'boolean', default: true },
+        hashKey: {
+          ...secretRef('HMAC key of LogAuthnAuditSink for hashed identifiers; null: a random key per process.'),
+          propertyNames: { enum: ['secret'] },
+          properties: { secret: { type: ['string', 'null'], minLength: 32 } },
+        },
+        sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, description: 'How long one sink may take; 2000 when unset.' },
       },
     },
     http: {

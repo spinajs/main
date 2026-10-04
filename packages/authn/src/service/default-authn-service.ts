@@ -20,6 +20,10 @@ import { AuthnAudit } from '../audit/authn-audit.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
+import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
+import { checkAuthnLegacyKeys } from './boot/legacy-keys.js';
+import { warnOnce } from './boot/log.js';
+import { checkAuthnSecrets } from './boot/secrets.js';
 
 type Success = Extract<AuthenticationResult, { status: 'success' }>;
 type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
@@ -137,6 +141,9 @@ function refusal(st: IdentityStatus): string | null {
  * registered rather than falling back to memory, which would throttle each instance of a multi-instance app apart.
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
+ *
+ * Boot also fails on the secret checks (A24, `checkAuthnSecrets`) and, when `authn.config.rejectLegacyKeys` is true,
+ * on 2.x keys of the old-key table; otherwise those keys are only warned about.
  */
 @PerChildInstance()
 @Injectable(AuthnService)
@@ -165,6 +172,9 @@ export class DefaultAuthnService extends AuthnService {
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('DefaultAuthnService: the resolved Configuration has no get()');
     }
+    if (authnEnvFellBack(configuration)) warnOnce(AUTHN_ENV_FALLBACK_WARNING);
+    checkAuthnLegacyKeys(configuration, { warn: warnOnce });
+    await checkAuthnSecrets(configuration, this.container, warnOnce);
     this.linking = readLinking(configuration.get('authn.linking'));
     this.globalGate = isObject(configuration.get('authn.throttle.global'));
     this.registry = await this.container.resolve(StrategyRegistry);

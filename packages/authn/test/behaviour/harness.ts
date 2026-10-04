@@ -1,15 +1,16 @@
+import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AccountLinkService, AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AUTHN_PUBLIC_COOKIE_SECRET, AccountLinkService, AuthenticationStrategy, checkAuthnConfig, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
 /** Config keys the harness applies; any other key makes the factory throw UnsupportedConfig. */
-export const CORE_SUPPORTED: readonly string[] = ['authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation'];
+export const CORE_SUPPORTED: readonly string[] = ['env', 'authn.throttle', 'authn.linking', 'authn.session', 'authn.mfa.policy.force', 'authn.freshAuth', 'authn.impersonation'];
 
 /** The service name of the kit MFA step, listed in authn.mfa.steps. */
 export const KIT_MFA_STEP = 'KitMfaStep';
@@ -37,6 +38,10 @@ export interface CoreOptions {
   readonly omit?: readonly Neighbour[];
   /** Extra registrations before the service resolves. */
   readonly register?: (child: IContainer) => void;
+  /** The kit MFA step declares that it stores secrets (D3). */
+  readonly secretStoringStep?: boolean;
+  /** Names no env, as an app started without --env, APP_ENV or NODE_ENV (else `config.env`, else test). */
+  readonly unsetEnv?: boolean;
 }
 
 export interface CoreParts {
@@ -66,8 +71,8 @@ function leafKeys(o: unknown, prefix = ''): string[] {
   return Object.entries(o).flatMap(([k, v]) => leafKeys(v, prefix ? `${prefix}.${k}` : k));
 }
 
-function checkConfig(config: ConfigOverrides): void {
-  const unsupported = leafKeys(config).filter((k) => k !== '' && !CORE_SUPPORTED.some((s) => k === s || k.startsWith(`${s}.`)));
+function checkConfig(config: ConfigOverrides, supported: readonly string[] = CORE_SUPPORTED): void {
+  const unsupported = leafKeys(config).filter((k) => k !== '' && !supported.some((s) => k === s || k.startsWith(`${s}.`)));
   if (unsupported.length > 0) throw new UnsupportedConfig(unsupported);
 }
 
@@ -84,10 +89,24 @@ function deepMerge(base: Record<string, unknown>, over: Readonly<Record<string, 
   return out;
 }
 
-/** A Configuration class per container, so each boot reads its own values. */
-function configurationOf(values: Record<string, unknown>): Class<Configuration> {
+/**
+ * A Configuration class per container, so each boot reads its own values. `env` is the app env it resolves
+ * (`process.env.APP_ENV`); undefined leaves it to the process, as an app started without `--env`. Unless `isolated`,
+ * the file sources run as in an app; they load the package configs of node_modules/@spinajs only in ESM mode.
+ */
+export function configurationOf(values: Record<string, unknown>, env?: string, isolated = false): Class<Configuration> {
   const json = JSON.stringify(values);
   return class HarnessConfiguration extends FrameworkConfiguration {
+    constructor() {
+      super();
+      if (env !== undefined) this.Env = env;
+    }
+
+    protected loadSources(): void {
+      if (isolated) this.Sources = [];
+      else super.loadSources();
+    }
+
     protected onLoad(): unknown {
       return JSON.parse(json) as unknown;
     }
@@ -136,6 +155,17 @@ function kitStrategies(identities: FakeIdentityStore, passwords: MemoryPasswordC
  */
 export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions = {}): Promise<CoreParts> {
   checkConfig(config);
+  const parts = await prepareCore(config, opts);
+  try {
+    return { ...parts, service: await parts.child.resolve(AuthnService) };
+  } catch (e) {
+    await parts.dispose();
+    throw e;
+  }
+}
+
+/** buildCore up to, but not including, resolving the service. The app env is `config.env`, else `test`. */
+async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<Omit<CoreParts, 'service'>> {
   const jit = config.authn?.linking?.jit ?? false;
   const identities = new FakeIdentityStore({ jit });
   const passwords = new MemoryPasswordCredentialStore();
@@ -145,6 +175,7 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
   const principals = new RecordingPrincipalFactory();
   const links = new MemoryLinkStore();
   const step = new FakeMfaStep();
+  if (opts.secretStoringStep) Object.defineProperty(step, 'storesSecrets', { value: true });
   const guard = new FakeImpersonationGuard();
   const tokens = new Map<string, IdentityRef>();
   const externalSubjects = new Map<string, ExternalSubject>();
@@ -155,7 +186,7 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
 
   const child = DI.RootContainer.child();
   try {
-    child.register(configurationOf(values)).as(Configuration);
+    child.register(configurationOf(values, opts.unsetEnv ? undefined : (config.env ?? 'test'))).as(Configuration);
     const configuration = await child.resolve(Configuration);
     const throttle = (opts.throttle ?? ((c) => new MemoryAuthnThrottle(c)))(configuration);
     bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
@@ -174,29 +205,65 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
     bind(child, AuthnEventSink, 'KitEvents', events);
     bind(child, AuthnEventSink, 'KitEvents2', second);
     opts.register?.(child);
-    const service = await child.resolve(AuthnService);
-    return { child, configuration, service, identities, passwords, sessions, throttle, events, second, principals, links, step, guard, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
+    return { child, configuration, identities, passwords, sessions, throttle, events, second, principals, links, step, guard, tokens, externalSubjects, strategies, dispose: () => child.dispose() };
   } catch (e) {
     await child.dispose();
     throw e;
   }
 }
 
+/** Keys a boot spec may set besides CORE_SUPPORTED: they only feed authn:check-config and the boot checks. */
+const BOOT_SUPPORTED: readonly string[] = [...CORE_SUPPORTED, 'authn.strategies', 'authn.http', 'http'];
+
+const strong = (): string => randomBytes(32).toString('hex');
+
+/**
+ * The spec as buildCore input. Secrets left out of the spec are strong, except the pepper, which is off. 'missing' and
+ * 'off' are null: the http package config ships the public cookie secret, and a merge never removes a key.
+ */
+function bootInput(spec: BootSpec): { config: ConfigOverrides; opts: CoreOptions } {
+  const given = spec.config ?? {};
+  checkConfig(given, BOOT_SUPPORTED);
+  const { strategies: listed, http: authnHttp, ...authnRest } = (given.authn ?? {}) as Record<string, unknown>;
+  const s = spec.secrets ?? {};
+  const raw = deepMerge(
+    {
+      http: { cookie: { secret: s.cookie === 'public' ? AUTHN_PUBLIC_COOKIE_SECRET : s.cookie === 'missing' ? null : strong() } },
+      authn: {
+        local: { pepper: { secret: s.pepper === 'strong' ? strong() : null, version: 1 } },
+        mfa: { encryptionKey: { secret: s.mfaKey === 'missing' ? null : strong() } },
+        ...(listed !== undefined ? { strategies: listed } : {}),
+        ...(authnHttp !== undefined ? { http: authnHttp } : {}),
+      },
+    },
+    given.http !== undefined ? { http: given.http } : {},
+  );
+  return {
+    config: { env: spec.env ?? given.env, authn: authnRest },
+    opts: { strategies: spec.strategies ?? [], raw, secretStoringStep: spec.mfaStep === 'secret-storing' },
+  };
+}
+
 function bootPort(): BootPort {
   return {
     async start(spec: BootSpec) {
-      const unsupported = [spec.env && 'env', spec.secrets && 'secrets', spec.mfaStep && spec.mfaStep !== 'none' && 'mfaStep'].filter((x): x is string => typeof x === 'string');
-      if (unsupported.length > 0) throw new UnsupportedConfig(unsupported);
+      const { config, opts } = bootInput(spec);
       try {
-        const parts = await buildCore(spec.config ?? {}, { strategies: spec.strategies ?? [] });
+        const parts = await buildCore(config, opts);
         return { ok: true, service: parts.service, dispose: parts.dispose };
       } catch (error) {
         if (error instanceof UnsupportedConfig) throw error;
         return { ok: false, error };
       }
     },
-    async checkConfig() {
-      throw new Error('authn:check-config is not built yet (N1 task 9)');
+    async checkConfig(spec: BootSpec) {
+      const { config, opts } = bootInput(spec);
+      const parts = await prepareCore(config, opts);
+      try {
+        return await checkAuthnConfig(parts.child);
+      } finally {
+        await parts.dispose();
+      }
     },
   };
 }

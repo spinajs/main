@@ -65,11 +65,13 @@ function record(v: unknown, at: string, allowed: ReadonlySet<string> | readonly 
   return v;
 }
 
-function readBackoff(raw: unknown, base: BackoffParams | undefined, at: string): BackoffParams {
+// All three fields, as the schema requires. An app that sets one field still gives all three: its config merges over
+// the shipped one.
+function readBackoff(raw: unknown, at: string): BackoffParams {
   const o = record(raw, at, FIELDS);
   const out: Record<string, number> = {};
   for (const f of FIELDS) {
-    const v = o[f] ?? base?.[f];
+    const v = o[f];
     if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < MIN[f]) {
       throw new InvalidOption(`${at}.${f} must be an integer >= ${MIN[f]}, got ${v === undefined ? 'nothing' : kindOf(v)}${typeof v === 'number' ? ` ${v}` : ''}`);
     }
@@ -84,7 +86,7 @@ function readFlow(raw: unknown, defaults: ThrottleFlowParams | undefined, at: st
   const out: { account?: BackoffParams; ip?: BackoffParams } = {};
   for (const k of KINDS) {
     const base = defaults?.[k];
-    if (o[k] !== undefined) out[k] = readBackoff(o[k], base, `${at}.${k}`);
+    if (o[k] !== undefined) out[k] = readBackoff(o[k], `${at}.${k}`);
     else if (base) out[k] = base;
   }
   return Object.freeze(out);
@@ -98,7 +100,8 @@ function readResetAfter(v: unknown, at: string): number {
 }
 
 /**
- * `authn.throttle` merged over the §22.5 defaults: per flow and key kind, fields given replace the default's. Throws
+ * `authn.throttle` over the §22.5 defaults: a flow or key kind left out keeps the default, a key kind given replaces it
+ * and needs all three fields. `global` is off unless given, and each flow counts its own global row. Throws
  * InvalidOption on an unknown key or a bad value, so a typo cannot silently turn a gate off.
  */
 export function readThrottleConfig(raw: unknown): ThrottleParams {
@@ -111,7 +114,7 @@ export function readThrottleConfig(raw: unknown): ThrottleParams {
     reset: readFlow(o.reset, d.reset, 'authn.throttle.reset'),
     reauth: readFlow(o.reauth, d.reauth, 'authn.throttle.reauth'),
     resetAfterSeconds: o.resetAfterSeconds === undefined ? d.resetAfterSeconds : readResetAfter(o.resetAfterSeconds, 'authn.throttle.resetAfterSeconds'),
-    global: o.global === undefined || o.global === null ? null : readBackoff(o.global, undefined, 'authn.throttle.global'),
+    global: o.global === undefined || o.global === null ? null : readBackoff(o.global, 'authn.throttle.global'),
   });
 }
 
@@ -128,7 +131,7 @@ export function checkThrottleParams(p: ThrottleParams): ThrottleParams {
     reset: flow('reset'),
     reauth: flow('reauth'),
     resetAfterSeconds: readResetAfter(o.resetAfterSeconds, 'throttle params.resetAfterSeconds'),
-    global: o.global === undefined || o.global === null ? null : readBackoff(o.global, undefined, 'throttle params.global'),
+    global: o.global === undefined || o.global === null ? null : readBackoff(o.global, 'throttle params.global'),
   });
 }
 

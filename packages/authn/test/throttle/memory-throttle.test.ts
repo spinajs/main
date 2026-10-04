@@ -593,7 +593,7 @@ describe('MemoryAuthnThrottle', function () {
     });
 
     it('merges authn.throttle over the defaults per flow and key', async () => {
-      const over = { login: { account: { free: 2 } }, reauth: { ip: { free: 4, baseDelayMs: 500, maxDelayMs: 8000 } }, resetAfterSeconds: 600, global: { free: 100, baseDelayMs: 10, maxDelayMs: 1000 } };
+      const over = { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } }, reauth: { ip: { free: 4, baseDelayMs: 500, maxDelayMs: 8000 } }, resetAfterSeconds: 600, global: { free: 100, baseDelayMs: 10, maxDelayMs: 1000 } };
       const t = await boot({ service: 'MemoryAuthnThrottle', ...over });
       assert.deepStrictEqual(t.params, throttleParams({ authn: { throttle: over } } as Parameters<typeof throttleParams>[0]));
       const k = pwKeys('cfg@example.test', IP_A);
@@ -618,14 +618,17 @@ describe('MemoryAuthnThrottle', function () {
       ['an unknown key', { logn: {} }],
       ['an unknown key kind', { login: { acount: { free: 1, baseDelayMs: 1, maxDelayMs: 1 } } }],
       ['an unknown backoff field', { login: { account: { free: 1, base: 1 } } }],
-      ['a negative free', { login: { account: { free: -1 } } }],
-      ['a fractional delay', { mfa: { ip: { baseDelayMs: 1.5 } } }],
-      ['a zero maxDelayMs', { reset: { account: { maxDelayMs: 0 } } }],
-      ['a string number', { login: { ip: { free: '20' } } }],
+      ['a negative free', { login: { account: { free: -1, baseDelayMs: 1000, maxDelayMs: 60000 } } }],
+      ['a fractional delay', { mfa: { ip: { free: 20, baseDelayMs: 1.5, maxDelayMs: 300000 } } }],
+      ['a zero maxDelayMs', { reset: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 0 } } }],
+      ['a string number', { login: { ip: { free: '20', baseDelayMs: 1000, maxDelayMs: 300000 } } }],
       ['an incomplete new key', { reauth: { ip: { free: 1 } } }],
       ['a zero resetAfterSeconds', { resetAfterSeconds: 0 }],
       ['a malformed global', { global: { free: 1 } }],
       ['a zero maxRows', { maxRows: 0 }],
+      // The schema requires all three fields of a given backoff key; the reader agrees.
+      ['a partial backoff key', { login: { account: { free: 2 } } }],
+      ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }],
     ] as const) {
       it(`fails boot on ${what}`, async () => {
         await assert.rejects(boot(bad), (e: unknown) => e instanceof InvalidOption && e.message.includes('authn.throttle'));
