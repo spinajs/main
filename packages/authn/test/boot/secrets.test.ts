@@ -94,11 +94,13 @@ describe('authn boot: app env', () => {
     expect(session).to.match(/normalized === 'dev' \|\| normalized === 'test'/);
     // authn-session keeps a copy of the authnEnvFellBack condition (SR-16); both must name the same sources.
     const env = readFileSync(join(PACKAGES, 'authn', 'src', 'service', 'boot', 'env.ts'), 'utf8');
-    const sources = env.match(/return (!given\(config\.Env\)[^;]*?) && resolvedAppEnv\(config\) === 'development';/)?.[1];
+    const sources = env.match(/return resolvedAppEnv\(config\) === 'development' && !\[(config\.Env, [^\]]*)\]\.includes\('development'\);/)?.[1];
     expect(sources).to.be.a('string');
-    expect(session).to.contain(`${sources!.replace('given(config.Env)', 'given((config as { Env?: unknown }).Env)')} && env === 'development';`);
+    expect(env).to.contain("const env = config.get<unknown>('process.env.APP_ENV');");
+    expect(session).to.contain("const env = config.get<string | undefined>('process.env.APP_ENV');");
+    expect(session).to.contain(`const fellBack = env === 'development' && ![${sources!.replace('config.Env', '(config as { Env?: unknown }).Env')}].includes('development');`);
+    expect(env).to.contain("const registered = DI.get<NodeJS.ProcessEnv>('process.env');");
     expect(session).to.contain("const registered = DI.get<NodeJS.ProcessEnv>('process.env');");
-    expect(session).to.contain("const given = (v: unknown): boolean => typeof v === 'string' && v !== '';");
     expect(session).to.contain('return fellBack ? undefined : env;');
   });
 
@@ -109,6 +111,18 @@ describe('authn boot: app env', () => {
       expect(authnAppEnv(config('development', {}, false))).to.eq(undefined);
       expect(authnAppEnv(config('development'))).to.eq('development');
       expect(authnAppEnv(config('staging', {}, false))).to.eq('staging');
+    });
+
+    it('stays strict when an env other than development is set after the configuration fell back', async () => {
+      for (const k of ['NODE_ENV', 'APP_ENV']) {
+        process.env[k] = 'production';
+        try {
+          expect(authnAppEnv(config('development', {}, false)), k).to.eq(undefined);
+          expect(levels(await findings('development', values({ cookie: AUTHN_PUBLIC_COOKIE_SECRET }), none, false)), k).to.deep.eq(['secrets:error']);
+        } finally {
+          delete process.env[k];
+        }
+      }
     });
 
     it('takes NODE_ENV or a DI-registered APP_ENV as a named env', () => {

@@ -65,17 +65,15 @@ function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): b
   return flag !== false && flag !== 'false';
 }
 
-const given = (v: unknown): boolean => typeof v === 'string' && v !== '';
-
 /**
- * The app env as the configuration resolved it from `--env`, `APP_ENV` or `NODE_ENV`; undefined when none was set
- * and the configuration fell back to development, so the cookie gets the production flags (SR-16).
+ * The app env as the configuration resolved it from `--env`, `APP_ENV` or `NODE_ENV`; undefined when it resolved
+ * development but no source names development (the fallback), so the cookie gets the production flags (SR-16).
  */
 export function appEnvOf(config: Configuration): string | undefined {
   const env = config.get<string | undefined>('process.env.APP_ENV');
   // The condition of authnEnvFellBack (@spinajs/authn, test-pinned): importing that root entry would register its services.
   const registered = DI.get<NodeJS.ProcessEnv>('process.env');
-  const fellBack = !given((config as { Env?: unknown }).Env) && !given(registered?.APP_ENV) && !given(process.env.APP_ENV) && !given(process.env.NODE_ENV) && env === 'development';
+  const fellBack = env === 'development' && ![(config as { Env?: unknown }).Env, registered?.APP_ENV, process.env.APP_ENV, process.env.NODE_ENV].includes('development');
   return fellBack ? undefined : env;
 }
 

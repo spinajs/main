@@ -278,6 +278,19 @@ describe('appEnvOf', () => {
       expect(cookie.Options).to.not.have.property('domain');
     });
 
+    it('stays production when NODE_ENV or APP_ENV names another env after the configuration fell back', async () => {
+      await withSessionConfig({});
+      const config = DI.get(Configuration)!;
+      for (const k of ['NODE_ENV', 'APP_ENV']) {
+        process.env[k] = 'production';
+        try {
+          expect(appEnvOf(config), k).to.equal(undefined);
+        } finally {
+          delete process.env[k];
+        }
+      }
+    });
+
     it('an explicit development env still relaxes the cookie', async () => {
       process.env.APP_ENV = 'development';
       await withSessionConfig({});

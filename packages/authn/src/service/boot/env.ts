@@ -34,15 +34,14 @@ export function isLenientAuthnEnv(env: string | undefined): boolean {
   return normalized === 'dev' || normalized === 'test';
 }
 
-const given = (v: unknown): boolean => typeof v === 'string' && v !== '';
-
 /**
- * True when nothing named the env and the configuration fell back to development (SR-16): authnAppEnv then answers
- * undefined and authn treats the deployment as production. The sources are those Configuration.load reads: its own
- * `Env` (`--env` or APP_ENV), the APP_ENV of a DI-registered `process.env`, and NODE_ENV.
+ * True when the configuration resolved development and no env source names development (SR-16): authnAppEnv then
+ * answers undefined and authn treats the deployment as production. The sources are those Configuration.load reads:
+ * its own `Env` (`--env` or APP_ENV), the APP_ENV of a DI-registered `process.env`, and NODE_ENV. A source set to
+ * another env after the configuration loaded relaxes nothing, nor does development named only in a config file.
  */
 export function authnEnvFellBack(config: AuthnConfigSource & { readonly Env?: unknown }): boolean {
   // Configuration.load reads the root container's 'process.env', so this does too.
   const registered = DI.get<NodeJS.ProcessEnv>('process.env');
-  return !given(config.Env) && !given(registered?.APP_ENV) && !given(process.env.APP_ENV) && !given(process.env.NODE_ENV) && resolvedAppEnv(config) === 'development';
+  return resolvedAppEnv(config) === 'development' && ![config.Env, registered?.APP_ENV, process.env.APP_ENV, process.env.NODE_ENV].includes('development');
 }
