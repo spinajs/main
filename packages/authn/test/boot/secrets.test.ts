@@ -3,6 +3,7 @@ import 'mocha';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DI } from '@spinajs/di';
 import { FakeMfaStep } from '@spinajs/authn-testing';
 import { InvalidOption } from '@spinajs/exceptions';
 
@@ -16,10 +17,14 @@ const PACKAGES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.
 
 type Values = Record<string, unknown>;
 
-/** A Configuration stand-in: `get` over a plain object, the app env under process.env.APP_ENV. */
-function config(env: string | undefined, values: Values = {}): { get<T>(path: string | string[]): T } {
+/**
+ * A Configuration stand-in: `get` over a plain object, the app env under process.env.APP_ENV. Unless `named` is false,
+ * the env counts as given by `--env` (the `Env` of a Configuration).
+ */
+function config(env: string | undefined, values: Values = {}, named = true): { readonly Env?: string; get<T>(path: string | string[]): T } {
   const tree: Values = { ...values, process: { env: env === undefined ? {} : { APP_ENV: env } } };
   return {
+    Env: named ? env : undefined,
     get<T>(path: string | string[]): T {
       const parts = Array.isArray(path) ? path : path.split('.');
       return parts.reduce<unknown>((n, k) => (n !== null && typeof n === 'object' ? (n as Values)[k] : undefined), tree) as T;
@@ -42,8 +47,25 @@ function values(over: { cookie?: unknown; pepper?: unknown; mfaKey?: unknown } =
 const none = async (): Promise<readonly string[]> => [];
 const totp = async (): Promise<readonly string[]> => ['totp'];
 
-async function findings(env: string | undefined, v: Values, steps = none): Promise<AuthnConfigFinding[]> {
-  return authnSecretFindings(config(env, v), steps);
+async function findings(env: string | undefined, v: Values, steps = none, named = true): Promise<AuthnConfigFinding[]> {
+  return authnSecretFindings(config(env, v, named), steps);
+}
+
+/** Runs each case of the enclosing suite with no APP_ENV and no NODE_ENV in the process. */
+function withoutProcessEnv(): void {
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of ['APP_ENV', 'NODE_ENV']) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
 }
 
 const levels = (f: readonly AuthnConfigFinding[]): string[] => f.map((x) => `${x.topic}:${x.level}`);
@@ -67,10 +89,61 @@ describe('authn boot: app env', () => {
     expect(session.match(/PUBLIC_DEFAULT_COOKIE_SECRET = '([^']+)'/)?.[1]).to.eq(AUTHN_PUBLIC_COOKIE_SECRET);
   });
 
-  it('uses the same lenient envs as @spinajs/authn-session', () => {
+  it('uses the same lenient envs and env detection as @spinajs/authn-session', () => {
     const session = readFileSync(join(PACKAGES, 'authn-session', 'src', 'cookie.ts'), 'utf8');
     expect(session).to.match(/normalized === 'dev' \|\| normalized === 'test'/);
-    expect(session).to.match(/config\.get<string \| undefined>\('process\.env\.APP_ENV'\)/);
+    // authn-session keeps a copy of the authnEnvFellBack condition (SR-16); both must name the same sources.
+    const env = readFileSync(join(PACKAGES, 'authn', 'src', 'service', 'boot', 'env.ts'), 'utf8');
+    const sources = env.match(/return (!given\(config\.Env\)[^;]*?) && resolvedAppEnv\(config\) === 'development';/)?.[1];
+    expect(sources).to.be.a('string');
+    expect(session).to.contain(`${sources!.replace('given(config.Env)', 'given((config as { Env?: unknown }).Env)')} && env === 'development';`);
+    expect(session).to.contain("const registered = DI.get<NodeJS.ProcessEnv>('process.env');");
+    expect(session).to.contain("const given = (v: unknown): boolean => typeof v === 'string' && v !== '';");
+    expect(session).to.contain('return fellBack ? undefined : env;');
+  });
+
+  describe('with no env set (SR-16)', () => {
+    withoutProcessEnv();
+
+    it('counts the fallback to development as no env', () => {
+      expect(authnAppEnv(config('development', {}, false))).to.eq(undefined);
+      expect(authnAppEnv(config('development'))).to.eq('development');
+      expect(authnAppEnv(config('staging', {}, false))).to.eq('staging');
+    });
+
+    it('takes NODE_ENV or a DI-registered APP_ENV as a named env', () => {
+      process.env.NODE_ENV = 'development';
+      expect(authnAppEnv(config('development', {}, false))).to.eq('development');
+      delete process.env.NODE_ENV;
+      const registered = DI.get<Values>('process.env');
+      DI.register({ APP_ENV: 'development' }).asValue('process.env', true);
+      try {
+        expect(authnAppEnv(config('development', {}, false))).to.eq('development');
+      } finally {
+        DI.uncache('process.env');
+        if (registered) DI.register(registered).asValue('process.env');
+      }
+    });
+
+    it('makes a public or missing cookie secret an error', async () => {
+      for (const cookie of [AUTHN_PUBLIC_COOKIE_SECRET, null]) {
+        const f = await findings('development', values({ cookie }), none, false);
+        expect(levels(f), String(cookie)).to.deep.eq(['secrets:error']);
+        expect(f[0].message).to.contain('http.cookie.secret').and.contain('unset');
+      }
+    });
+
+    it('still only warns when development or test is named', async () => {
+      for (const env of ['development', 'test']) {
+        expect(levels(await findings(env, values({ cookie: AUTHN_PUBLIC_COOKIE_SECRET }))), env).to.deep.eq(['secrets:warning']);
+        process.env.NODE_ENV = env;
+        try {
+          expect(levels(await findings(env, values({ cookie: AUTHN_PUBLIC_COOKIE_SECRET }), none, false)), `NODE_ENV ${env}`).to.deep.eq(['secrets:warning']);
+        } finally {
+          delete process.env.NODE_ENV;
+        }
+      }
+    });
   });
 });
 
@@ -241,25 +314,32 @@ describe('DefaultAuthnService boot: secrets', function () {
     await p.dispose();
   });
 
-  describe('with no env set (SR-16 residual)', () => {
-    const saved: Record<string, string | undefined> = {};
-    beforeEach(() => {
-      for (const k of ['APP_ENV', 'NODE_ENV']) {
-        saved[k] = process.env[k];
-        delete process.env[k];
-      }
-    });
-    afterEach(() => {
-      for (const [k, v] of Object.entries(saved)) {
-        if (v === undefined) delete process.env[k];
-        else process.env[k] = v;
-      }
-    });
+  describe('with no env set (SR-16)', () => {
+    withoutProcessEnv();
 
-    it('logs that the configuration fell back to development', async () => {
-      const p = await buildCore({}, { strategies: [], unsetEnv: true });
+    const cookie = (secret: string): Values => ({ http: { cookie: { secret } } });
+
+    it('logs that no env is set', async () => {
+      const p = await buildCore({}, { strategies: [], unsetEnv: true, raw: cookie(STRONG) });
       await p.dispose();
       expect(TestLog.lines.filter((l) => l.includes(AUTHN_ENV_FALLBACK_WARNING))).to.have.length(1);
+    });
+
+    it('SR-16 a deployment without any env refuses the public cookie secret', async () => {
+      let error: unknown;
+      try {
+        const p = await buildCore({}, { strategies: [], unsetEnv: true, raw: cookie(AUTHN_PUBLIC_COOKIE_SECRET) });
+        await p.dispose();
+      } catch (e) {
+        error = e;
+      }
+      expect(error).to.be.instanceOf(InvalidOption);
+      expect((error as Error).message).to.contain('http.cookie.secret');
+    });
+
+    it('boots with the public cookie secret when development is named', async () => {
+      const p = await buildCore({ env: 'development' }, { strategies: [], raw: cookie(AUTHN_PUBLIC_COOKIE_SECRET) });
+      await p.dispose();
     });
   });
 });

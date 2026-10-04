@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { DI } from '@spinajs/di';
 import { normalizeEnvironment } from '@spinajs/configuration-common';
 import type { Configuration } from '@spinajs/configuration-common';
 import { InvalidOption } from '@spinajs/exceptions';
@@ -64,9 +65,18 @@ function flagOn(flag: SessionCookieFlag | undefined, env: string | undefined): b
   return flag !== false && flag !== 'false';
 }
 
-/** The app env as the configuration resolved it (`--env`, `APP_ENV`, `NODE_ENV`, default development). */
+const given = (v: unknown): boolean => typeof v === 'string' && v !== '';
+
+/**
+ * The app env as the configuration resolved it from `--env`, `APP_ENV` or `NODE_ENV`; undefined when none was set
+ * and the configuration fell back to development, so the cookie gets the production flags (SR-16).
+ */
 export function appEnvOf(config: Configuration): string | undefined {
-  return config.get<string | undefined>('process.env.APP_ENV');
+  const env = config.get<string | undefined>('process.env.APP_ENV');
+  // The condition of authnEnvFellBack (@spinajs/authn, test-pinned): importing that root entry would register its services.
+  const registered = DI.get<NodeJS.ProcessEnv>('process.env');
+  const fellBack = !given((config as { Env?: unknown }).Env) && !given(registered?.APP_ENV) && !given(process.env.APP_ENV) && !given(process.env.NODE_ENV) && env === 'development';
+  return fellBack ? undefined : env;
 }
 
 /**
