@@ -71,42 +71,39 @@ export class TelemetryAccessPolicy extends BasePolicy {
   protected read(): Guard {
     const endpoint = this.endpoint;
     const slotKey = `telemetry.auth.policies.${endpoint}`;
-    const fail = (why: string): never => {
-      throw new RouteRegistrationException(`telemetry endpoint ${String(endpoint)}: ${why}`);
-    };
+    const fail = (why: string) => new RouteRegistrationException(`telemetry endpoint ${String(endpoint)}: ${why}`);
 
-    if (typeof endpoint !== 'string' || endpoint.length === 0) fail('the endpoint name must be a non-empty string');
+    if (typeof endpoint !== 'string' || endpoint.length === 0) throw fail('the endpoint name must be a non-empty string');
     const cfg = DI.get(Configuration);
-    if (!cfg) fail('no Configuration is registered');
+    if (!cfg) throw fail('no Configuration is registered');
 
-    const slot = cfg!.get<unknown>(['telemetry', 'auth', 'policies', endpoint]);
-    if (typeof slot !== 'string' || slot.length === 0) fail(`${slotKey} must name a policy, got ${JSON.stringify(slot)}`);
-    const name = slot as string;
+    const slot = cfg.get<unknown>(['telemetry', 'auth', 'policies', endpoint]);
+    if (typeof slot !== 'string' || slot.length === 0) throw fail(`${slotKey} must name a policy, got ${JSON.stringify(slot)}`);
 
-    if (name === TELEMETRY_ACCESS_SLOT) {
+    if (slot === TELEMETRY_ACCESS_SLOT) {
       const permissionsKey = `telemetry.auth.permissions.${endpoint}`;
-      const raw = cfg!.get<unknown>(['telemetry', 'auth', 'permissions', endpoint]);
+      const raw = cfg.get<unknown>(['telemetry', 'auth', 'permissions', endpoint]);
       const permissions = typeof raw === 'string' ? [raw] : raw;
       if (!Array.isArray(permissions) || permissions.length === 0 || !permissions.every(isPermission)) {
-        fail(`${permissionsKey} must be a permission name or a non-empty list of them, got ${JSON.stringify(raw)}`);
+        throw fail(`${permissionsKey} must be a permission name or a non-empty list of them, got ${JSON.stringify(raw)}`);
       }
 
-      const domain = cfg!.get<unknown>(['telemetry', 'auth', 'domain']) ?? 'root';
-      if (typeof domain !== 'string' || domain.length === 0) fail(`telemetry.auth.domain must be a non-empty string, got ${JSON.stringify(domain)}`);
+      const domain = cfg.get<unknown>(['telemetry', 'auth', 'domain']) ?? 'root';
+      if (typeof domain !== 'string' || domain.length === 0) throw fail(`telemetry.auth.domain must be a non-empty string, got ${JSON.stringify(domain)}`);
 
       if (telemetrySkipsAuth()) {
         this.Log.warn(`telemetry endpoint ${endpoint}: authorization skipped (telemetry.auth.skipInDevelopment in a development env)`);
         return { kind: 'skip' };
       }
-      return { kind: 'access', policy: new AccessPolicy('route'), holder: ruleHolder(permissions as Permission[], domain as string) };
+      return { kind: 'access', policy: new AccessPolicy('route'), holder: ruleHolder(permissions, domain) };
     }
 
-    if (name === TelemetryAccessPolicy.name) fail(`${slotKey} must not name TelemetryAccessPolicy itself`);
-    const type = DI.checkType(BasePolicy, name) ? (DI.getRegisteredTypes(BasePolicy) ?? []).find((t) => !isFactory(t) && t.name === name) : undefined;
-    if (!type) fail(`${slotKey} names ${name}, which is not a registered BasePolicy`);
+    if (slot === TelemetryAccessPolicy.name) throw fail(`${slotKey} must not name TelemetryAccessPolicy itself`);
+    const type = DI.checkType(BasePolicy, slot) ? (DI.getRegisteredTypes(BasePolicy) ?? []).find((t): t is Class<BasePolicy> => !isFactory(t) && t.name === slot) : undefined;
+    if (!type) throw fail(`${slotKey} names ${slot}, which is not a registered BasePolicy`);
 
-    const policy = DI.resolve(type as Class<BasePolicy>);
-    if (!(policy instanceof BasePolicy)) fail(`${slotKey} names ${name}, which does not resolve synchronously to a BasePolicy`);
+    const policy = DI.resolve(type);
+    if (!(policy instanceof BasePolicy)) throw fail(`${slotKey} names ${slot}, which does not resolve synchronously to a BasePolicy`);
     return { kind: 'named', policy };
   }
 }

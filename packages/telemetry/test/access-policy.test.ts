@@ -193,7 +193,7 @@ describe('TelemetryAccessPolicy', function () {
 
     it('when the slot names TelemetryAccessPolicy itself', () => {
       set('telemetry.auth.policies.broken', 'TelemetryAccessPolicy');
-      refuses('broken', /TelemetryAccessPolicy/);
+      refuses('broken', /must not name TelemetryAccessPolicy itself/);
     });
 
     it("when an 'AccessPolicy' slot has no permission entry", () => {
@@ -224,6 +224,15 @@ describe('TelemetryAccessPolicy', function () {
       refuses('broken', /telemetry\.auth\.domain/);
     });
 
+    it("even under the development skip, when an 'AccessPolicy' slot has no permission entry", async () => {
+      set('telemetry.auth.policies.broken', 'AccessPolicy');
+      set('telemetry.auth.skipInDevelopment', true);
+      await withEnv({ APP_ENV: 'development' }, async () => {
+        expect(telemetrySkipsAuth(), 'the skip is active').to.eq(true);
+        refuses('broken', /telemetry\.auth\.permissions\.broken/);
+      });
+    });
+
     it('so http refuses to register the route', async () => {
       set('telemetry.auth.policies.broken', 'NoSuchPolicy');
       let thrown: unknown;
@@ -233,6 +242,7 @@ describe('TelemetryAccessPolicy', function () {
         thrown = err;
       }
       expect(thrown, 'the controller must not register').to.be.instanceOf(Error);
+      expect((thrown as Error).message).to.match(/NoSuchPolicy/);
       expect((await get('/tel-broken/x', 'bob')).status).to.eq(404);
     });
   });

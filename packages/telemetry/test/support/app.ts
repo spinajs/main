@@ -6,7 +6,9 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
+import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import { PrincipalMiddleware } from '@spinajs/authz-http';
+import { ConfigRoleStore, MemoryAssignmentStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { testHost } from '@spinajs/authz-testing';
 
 import { testConfig } from '../common.js';
@@ -21,20 +23,33 @@ export interface TestApp {
 
 let running: { server: HttpServer; before: Set<unknown> } | undefined;
 
+// The responses register this map when http and authz-http load; a suite's DI.clearCache() drops it,
+// and every mapped error (401, 403, 400) then renders as a 500.
+const ERROR_MAP = DI.get<Map<string, Class<unknown>>>('__http_error_map__');
+
 /**
  * Boots an http server on a free port over testHost's in-memory configuration (so `hostHarness` can
  * share it), seeded with the telemetry test configuration and `config` (dotted path to value). The
  * controller dirs stay those of `testConfig()`: the file scan is memoized per process, so every suite
- * must scan the same dirs. Pair with `stopApp()` in an `after` hook.
+ * must scan the same dirs. `rbac` registers in root the RBAC model over `authz.rbac.roles` and no
+ * stored assignments, so only the config's `serviceRoles` and `anonymousRoles` grant anything.
+ * Pair with `stopApp()` in an `after` hook.
  */
-export async function startApp(opts: { controllers?: Class<BaseController>[]; config?: Readonly<Record<string, unknown>> } = {}): Promise<TestApp> {
+export async function startApp(opts: { controllers?: Class<BaseController>[]; config?: Readonly<Record<string, unknown>>; rbac?: boolean } = {}): Promise<TestApp> {
   if (running) throw new Error('startApp: an app is already running; call stopApp() first');
 
   DI.setESMModuleSupport();
+  if (ERROR_MAP && !DI.get('__http_error_map__')) for (const [name, type] of ERROR_MAP) DI.register(type).asMapValue('__http_error_map__', name);
   const cfg = await testHost.installHost();
   cfg.set([], testConfig());
   cfg.set(['http', 'port'], 0);
   for (const [path, value] of Object.entries(opts.config ?? {})) cfg.set(path.split('.'), value);
+  if (opts.rbac) {
+    // uninstallHost removes both registrations.
+    const model = new RbacModel({ roles: new ConfigRoleStore(cfg), assignments: new MemoryAssignmentStore() });
+    testHost.registerInRoot(AuthorizationModel, testHost.instance(model));
+    testHost.registerInRoot(AuthzContributor, testHost.instance(new RbacContributor(model)));
+  }
 
   DI.resolve(FsBootsrapper).bootstrap();
   await DI.resolve(fsService);

@@ -6,6 +6,8 @@ import chaiHttp from 'chai-http';
 import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
 
+import fragment from '../src/config/telemetry.js';
+
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
 
@@ -32,9 +34,8 @@ export function req() {
 export const TEST_TOKEN = 'test-token-123';
 
 /**
- * Boots the telemetry controllers from `src` ( not the compiled `lib` ), with
- * the token policy ACTIVE — `configuration.isDevelopment` is false so the auth
- * tests exercise the real code path.
+ * Boots the telemetry controllers from `src` ( not the compiled `lib` ). The
+ * checks are active: `telemetry.auth.skipInDevelopment` is false.
  */
 export class TelemetryTestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
@@ -101,18 +102,12 @@ export function testConfig(): Record<string, any> {
         version: '1.0.0',
       },
     },
+    // As an app merges the telemetry config fragment.
+    authz: structuredClone(fragment.authz),
     telemetry: {
       auth: {
+        ...structuredClone(fragment.telemetry.auth),
         token: TEST_TOKEN,
-        policies: {
-          metrics: 'TelemetryTokenPolicy',
-          stats: 'TelemetryTokenPolicy',
-          timeline: 'TelemetryTokenPolicy',
-          routes: 'TelemetryTokenPolicy',
-          perf: 'TelemetryTokenPolicy',
-          health: 'PublicPolicy',
-          ready: 'PublicPolicy',
-        },
       },
       collectDefaultMetrics: false,
       prefix: 'http',

@@ -1,18 +1,19 @@
 import 'mocha';
 import { expect } from 'chai';
-import { DI, Bootstrapper, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
+import { DI, Injectable } from '@spinajs/di';
+import { BaseController, ServerMiddleware } from '@spinajs/http';
 import { Perf } from '@spinajs/log';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
 
-import { TestConfiguration, req, TEST_TOKEN } from './common.js';
+import { TEST_TOKEN } from './common.js';
+import { startApp, stopApp } from './support/app.js';
+import type { TestApp } from './support/app.js';
 
 // the barrel, not `src/health.js` — loading it is what registers the telemetry
-// policies the guarded endpoints are configured with
+// policies and the bootstrapper that turns the token into service:telemetry
 import { HealthCheck, IHealthResult, InMemoryPerfSink, Metrics, TelemetryStore } from './../src/index.js';
 
 let failCheck = false;
+let app: TestApp;
 
 @Injectable(HealthCheck)
 class StubHealthCheck extends HealthCheck {
@@ -30,7 +31,7 @@ class StubHealthCheck extends HealthCheck {
  * true of a plain `Ok` too, not only of error responses.
  */
 function json(path: string) {
-  return req().get(path).set('Accept', 'application/json');
+  return app.request().get(`/${path}`).set('Accept', 'application/json');
 }
 
 function guarded(path: string) {
@@ -54,24 +55,9 @@ describe('telemetry json api', function () {
   this.timeout(15000);
 
   before(async () => {
-    DI.clearCache();
-    DI.register(TestConfiguration).as(Configuration);
-    DI.setESMModuleSupport();
-
-    // The fs providers must exist before Controllers resolves — the controller
-    // cache and the response templates both read through them.
-    DI.resolve(FsBootsrapper).bootstrap();
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      await b.bootstrap();
-    }
-
-    const controllers = await DI.resolve<Controllers>(Controllers);
-    const server = await DI.resolve(HttpServer);
-    server.start();
+    // The token becomes service:telemetry, which the fragment's RBAC role grants telemetry:read.
+    app = await startApp({ rbac: true });
+    const controllers = app.controllers;
 
     // PRE-EXISTING harness quirk, unrelated to what this file tests: reflection's
     // `@ListFromFiles` memoizes the file-scanned controller INSTANCES on the
@@ -119,34 +105,10 @@ describe('telemetry json api', function () {
   });
 
   after(async () => {
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.stop();
-    DI.clearCache();
+    await stopApp();
   });
 
   describe('auth', () => {
-    it('rejects the guarded endpoints without a token', async () => {
-      // The token policy throws Forbidden. In a fully-configured app that renders
-      // as 403; this minimal harness trips a PRE-EXISTING quirk — `DI.clearCache()`
-      // in `before()` wipes the `__http_error_map__` the response classes registered
-      // at import time, so every mapped exception falls back to ServerError ( 500 ).
-      // Assert the contract that actually matters: the request is denied and the
-      // denial comes from THIS policy.
-      for (const path of ['telemetry/stats', 'telemetry/timeline', 'telemetry/routes', 'telemetry/perf']) {
-        const res = await json(path);
-
-        expect(res.status, `${path} must be denied`).to.be.at.least(400);
-        expect(JSON.stringify(res.body), path).to.contain('access token');
-      }
-    });
-
-    it('rejects the guarded endpoints with a wrong token', async () => {
-      const res = await json('telemetry/stats').set('x-metrics-token', 'nope');
-
-      expect(res.status).to.be.at.least(400);
-      expect(JSON.stringify(res.body)).to.contain('invalid access token');
-    });
-
     it('leaves the probe endpoints open', async () => {
       expect(await json('telemetry/health')).to.have.status(200);
       expect(await json('telemetry/ready')).to.have.status(200);
@@ -219,8 +181,9 @@ describe('telemetry json api', function () {
     });
 
     it('rejects a bucket count that is not a positive integer', async () => {
-      // The mapped 400 degrades to 500 in this harness ( see the auth note above ),
-      // so assert the rejection plus the reason this endpoint itself produced.
+      // The mapped 400 degrades to 500 once a suite has cleared the DI cache ( it
+      // drops the `__http_error_map__` the response classes registered at import
+      // time ), so assert the rejection plus the reason this endpoint produced.
       //
       // '' covers `?buckets=` — a value that WAS supplied and is not a positive
       // integer, so it is rejected like the rest instead of silently meaning

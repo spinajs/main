@@ -18,8 +18,8 @@ import { DI } from '@spinajs/di';
 import { BasePolicy } from '@spinajs/http';
 
 // The whole point of the probe: no `./../src/index.js` here.
-import './../src/controllers/Metrics.js';
-import './../src/controllers/Telemetry.js';
+import '../../src/controllers/Metrics.js';
+import '../../src/controllers/Telemetry.js';
 
 const result = {
   token: DI.checkType(BasePolicy, 'TelemetryTokenPolicy'),
