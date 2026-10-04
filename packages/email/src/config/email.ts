@@ -33,6 +33,15 @@ const email = {
     retry: {
       count: 3,
     },
+
+    /**
+     * Reset and invite mails ( EmailPasswordMailer ). `connection` defaults to `email.defaultConnection`;
+     * without a `template` the mail is plain text.
+     */
+    password: {
+      reset: { subject: 'Reset your password' },
+      invite: { subject: 'Set up your account' },
+    },
   },
   queue: {
     routing: {

@@ -51,6 +51,9 @@
   },
   "homepage": "https://github.com/spinajs/main#readme",
   "devDependencies": {
+    "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/authn-local": "3.0.0-alpha.0",
+    "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@types/luxon": "^3.6.1",
     "@types/node": "^22.14.1",
     "@types/nodemailer": "^6.4.7"

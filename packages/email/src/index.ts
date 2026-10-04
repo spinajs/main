@@ -7,6 +7,7 @@ import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
 import { EmailSent } from './events/EmailSent.js';
 import { EmailSend } from './jobs/EmailSend.js';
 import { redirectRecipients } from './redirect.js';
+import { hasSecrets, redactError } from './redact.js';
 
 export * from './interfaces.js';
 export * from './transports.js';
@@ -16,6 +17,8 @@ export * from './events/EmailSendFailed.js';
 export * from './helpers.js';
 export * from './fp.js';
 export * from './redirect.js';
+export * from './redact.js';
+export * from './password-mailer.js';
 
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
@@ -93,8 +96,17 @@ export class DefaultEmailService extends EmailService {
     // the real recipients by construction, and those log lines print the subject at INFO/ERROR.
     const outgoing = redirected ?? email;
 
+    // Redacted inside the span: Perf hands a failed span's error to every sink, and the log sink prints it.
+    const transport = async () => {
+      try {
+        await this.Senders.get(connection)!.send(outgoing);
+      } catch (err) {
+        throw redactError(err, email.redact);
+      }
+    };
+
     try {
-      await Perf.measure('email.send', () => this.Senders.get(connection)!.send(outgoing), { labels: { connection } });
+      await Perf.measure('email.send', transport, { labels: { connection } });
     } catch (err) {
       // full recipient addresses are PII - keep them at trace level only, log just the count otherwise.
       this.Log.error(err, `Cannot send email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
@@ -102,6 +114,7 @@ export class DefaultEmailService extends EmailService {
       Perf.count('email.send.failed', 1, { connection });
 
       // rethrow the ORIGINAL error so the queue consumer sees the failure and can retry / dead-letter.
+      // A mail with secret values is never queued, so it gets a redacted copy instead.
       throw err;
     }
 
@@ -118,6 +131,11 @@ export class DefaultEmailService extends EmailService {
   }
 
   public async sendDeferred(email: IEmail): Promise<EmailSend> {
+    // The job payload sits on the queue and, with a persistent transport, in a table (SR-09).
+    if (hasSecrets(email)) {
+      throw new InvalidOperation('An email with secret values (redact) cannot be sent deferred, use send()');
+    }
+
     const dEmail = new EmailSend();
     dEmail.hydrate(email);
 

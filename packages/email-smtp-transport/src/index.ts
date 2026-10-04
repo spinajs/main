@@ -1,7 +1,7 @@
 import { IOFail, UnexpectedServerError } from '@spinajs/exceptions';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement } from '@spinajs/email';
+import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement, redactError } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import * as nodemailer from 'nodemailer';
@@ -113,8 +113,9 @@ export class EmailSenderSmtp extends EmailSender {
         html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang);
       } catch (err) {
         // template rendering is a deterministic failure - log & rethrow the original error, do not retry
-        this.Log.error(err, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
-        throw err;
+        const failure = redactError(err, email.redact);
+        this.Log.error(failure, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
+        throw failure;
       }
     }
 
@@ -161,8 +162,10 @@ export class EmailSenderSmtp extends EmailSender {
       // guard only the SMTP send with the resilience pipeline ( timeout + retry )
       message = await this.SendPipeline.execute(() => this.Transporter.sendMail(options));
     } catch (err) {
-      this.Log.error(err, `Cannot send email for connection ${this.Options.name}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
-      throw err;
+      // an SMTP response may quote the message back, secret values included
+      const failure = redactError(err, email.redact);
+      this.Log.error(failure, `Cannot send email for connection ${this.Options.name}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+      throw failure;
     }
 
     this.Log.trace(`Sent email with data: ${JSON.stringify(_.pick(email, ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject']))}, messageId: ${message?.messageId}, response: ${message?.response}`);
