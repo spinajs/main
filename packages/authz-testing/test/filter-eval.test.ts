@@ -191,6 +191,17 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev(cmp('size', 'like', '1%'))).to.eq(null);
     });
 
+    it('like: a pattern ending in a lone backslash is UNKNOWN, as the engine reads it (RFC L4-2)', async () => {
+      expect(await ev(cmp('s', 'like', 'a\\'), { s: 'a\\' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', 'a\\'), { s: 'a' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', '\\'), { s: '\\' })).to.eq(null);
+      expect(await ev({ op: 'not', arg: cmp('s', 'like', 'a\\') }, { s: 'a\\' })).to.eq(null);
+      expect(await ev({ op: 'not', arg: cmp('s', 'like', 'a\\') }, { s: 'b' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', 'a\\\\'), { s: 'a\\' })).to.eq(true);
+      expect(await ev(cmp('s', 'like', 'a\\\\\\'), { s: 'a\\' })).to.eq(null);
+      expect(await ev(cmp('s', 'like', '😀\\'), { s: '😀\\' })).to.eq(null);
+    });
+
     it('glob: * stops at /, ** crosses it', async () => {
       expect(await ev(cmp('path', 'glob', 'docs/*'))).to.eq(false);
       expect(await ev(cmp('path', 'glob', 'docs/**'))).to.eq(true);

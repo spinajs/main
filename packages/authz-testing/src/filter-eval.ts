@@ -54,7 +54,8 @@ export const isAllowed = (result: Kleene): boolean => result === true;
  *   is NULL (`null` is TRUE); one outside the years 0000-9999 is not comparable.
  * - Strings order by code point (SQLite BINARY, Postgres COLLATE "C"); booleans do not order (lt, lte,
  *   gt, gte are UNKNOWN); non-finite numbers are not comparable.
- * - like: Postgres semantics: case-sensitive, '%' any run, '_' one code point, '\' escapes.
+ * - like: Postgres semantics: case-sensitive, '%' any run, '_' one code point, '\' escapes; a lone
+ *   trailing '\' makes the comparison UNKNOWN, as the engine's evaluator does.
  * - glob: '*' is a run without '/', '**' (or more stars) any run; no other metacharacters.
  * - wildcard: '*' is any run, '/' included; no other metacharacters.
  * - { ref } values: 'principal.*', 'actor.*', 'env.*', 'scope.<type>.<path>' (nearest ancestor of
@@ -138,8 +139,11 @@ class Evaluation {
         return Array.isArray(value) ? member(field, value, f.cmp === 'in') : null;
       case 'like':
       case 'glob':
-      case 'wildcard':
-        return typeof field === 'string' && typeof value === 'string' ? matchPattern(compilePattern(f.cmp, value), field) : null;
+      case 'wildcard': {
+        if (typeof field !== 'string' || typeof value !== 'string') return null;
+        const tokens = compilePattern(f.cmp, value);
+        return tokens === null ? null : matchPattern(tokens, field);
+      }
     }
 
     if (Array.isArray(value)) return null;
@@ -299,7 +303,8 @@ const ANY: Token = { kind: 'any' };
 const SEGMENT: Token = { kind: 'segment' };
 const ONE: Token = { kind: 'one' };
 
-function compilePattern(kind: 'like' | 'glob' | 'wildcard', pattern: string): readonly Token[] {
+/** `null`: a like pattern ending in a lone `\`. */
+function compilePattern(kind: 'like' | 'glob' | 'wildcard', pattern: string): readonly Token[] | null {
   const chars = Array.from(pattern);
   const out: Token[] = [];
   for (let i = 0; i < chars.length; i++) {
@@ -307,8 +312,10 @@ function compilePattern(kind: 'like' | 'glob' | 'wildcard', pattern: string): re
     if (kind === 'like') {
       if (ch === '%') out.push(ANY);
       else if (ch === '_') out.push(ONE);
-      else if (ch === '\\' && i + 1 < chars.length) out.push({ kind: 'char', ch: chars[++i] });
-      else out.push({ kind: 'char', ch });
+      else if (ch === '\\') {
+        if (i + 1 === chars.length) return null;
+        out.push({ kind: 'char', ch: chars[++i] });
+      } else out.push({ kind: 'char', ch });
     } else if (ch === '*') {
       let run = 1;
       while (chars[i + 1] === '*') {
