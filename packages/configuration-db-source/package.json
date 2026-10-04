@@ -47,10 +47,12 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
+    "@spinajs/authz": "3.0.0-alpha.0",
     "@spinajs/configuration-common": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/internal-logger": "2.0.549",
