@@ -1,6 +1,7 @@
 import 'mocha';
 import assert from 'node:assert/strict';
-import { authz } from '@spinajs/authz';
+import { SYSTEM, authz } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { AuthzQueueHook } from '@spinajs/authz-queue';
 import { BEHAVIOUR_FIXTURES, fixtureDsl, laneSteps, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { FixturePart, OrmModelSpec, StepContext, World } from '@spinajs/authz-testing';
@@ -10,8 +11,8 @@ import { socketHarness } from './socket-harness.js';
 const { combine, extension, permit, relation, staticModel } = fixtureDsl;
 const { as, laneCall, laneHandle } = laneSteps;
 
-// Own cases beside the kit's: the explicit system path, a connection with a user principal, and
-// the L6 rule that an unattended emitter stamps no Initiator.
+// Own cases beside the kit's: the explicit system path, a connection with a user principal, a
+// principal source that yields SYSTEM, and the L6 rule that an unattended emitter stamps no Initiator.
 
 const TASK: OrmModelSpec = {
   name: 'Task',
@@ -85,6 +86,29 @@ const userPart: FixturePart = {
   ],
 };
 
+const FORGED_SYSTEM: Principal = { type: 'system', id: 'forged', authenticated: true, source: 'behaviour', attributes: {} };
+const FORGED_UNATTENDED: Principal = { type: 'unattended', id: 'forged', authenticated: false, source: 'behaviour', attributes: {} };
+
+const refused = {
+  note: 'the handshake is refused (internal) and no handler runs',
+  do: async (ctx: StepContext) => {
+    await assert.rejects(laneHandle(ctx, 'socket').emit('tasks'), (e: Error & { code?: string }) => e.name === 'SocketException' && e.code === 'internal');
+  },
+};
+
+/** As authz-http's PrincipalMiddleware (design §14.1): SYSTEM and UNATTENDED come only from runAs, never from a credential. */
+const sourcePart: FixturePart = {
+  name: 'socket-source',
+  facets: ['engine', 'host', 'orm', 'socket'],
+  lanes: ['C9'],
+  world,
+  cases: [
+    { name: 'a principal source that yields SYSTEM refuses the connection', steps: [{ runAs: { as: SYSTEM, reason: 'client' }, steps: [refused] }] },
+    { name: 'so does one that yields a system-typed principal', steps: [{ runAs: { as: FORGED_SYSTEM, reason: 'client' }, steps: [refused] }] },
+    { name: 'and one that yields an unattended-typed principal', steps: [{ runAs: { as: FORGED_UNATTENDED, reason: 'client' }, steps: [refused] }] },
+  ],
+};
+
 /** L6 (design §14.1): AuthzQueueHook.beforeEmit in the socket handler's store, on the test domain. */
 class DomainQueueHook extends AuthzQueueHook {
   constructor(private readonly domain: string) {
@@ -114,7 +138,7 @@ const stamp = async (domain: string) => {
 };
 
 // One harness and one server for the kit's part and the own ones.
-runBehaviour(['B09.socket', 'B09.socket-system', 'B09.socket-user', 'B09.socket-queue'], () => socketHarness({ asSystem: ['tasks.system'], commands: { stamp } }), {
+runBehaviour(['B09.socket', 'B09.socket-system', 'B09.socket-user', 'B09.socket-source', 'B09.socket-queue'], () => socketHarness({ asSystem: ['tasks.system'], commands: { stamp } }), {
   strict: true,
-  fixtures: [...BEHAVIOUR_FIXTURES, extension('B09', [systemPart, userPart, queuePart])],
+  fixtures: [...BEHAVIOUR_FIXTURES, extension('B09', [systemPart, userPart, sourcePart, queuePart])],
 });
