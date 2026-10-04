@@ -134,7 +134,7 @@ scoped, bare-type or pattern-limited grant counts too (RFC L1-3).
 - `covers` is false, never a guess, when a routed model gives no summary for the target (no
   `summarize`, a failure, a timeout or a malformed answer) and when any compared plan uses a custom
   combinator. **A model you write must implement `summarize`**, or `covers` stays false in every
-  domain that routes it. The test kit's `FakeTupleModel` has none.
+  domain that routes it. The test kit's `FakeTupleModel` has `summarize` since K4.
 - `summary` shows a name that a model's summary lists but the check denies as `conditional: true`.
   Its fields are the union over the entries, less `neverRead`.
 - `covers` costs up to 2 × (1 + number of types) checks per permission at `$global`, and its holder
@@ -165,7 +165,7 @@ export default {
     },
     principals: {
       anonymous: { enabled: true },                // false: no anonymous principal
-      roleSwitch: { requirePassword: [] },
+      roleSwitch: { requirePassword: [] },         // TODO(N8a): no reader yet, see the note below
     },
     fields: { neverRead: ['Password'], write: { mode: 'strip' } },   // 'strip' | 'reject'
     engine: { explain: false, modelTimeoutMs: 2000, maxDelegation: 2 },
@@ -191,6 +191,10 @@ export default {
   [migration guide](./migration-guide.md#step-2-config)).
 - Arrays from different config files are concatenated, so a package fragment adds roles and policies.
 
+> **TODO(N8a):** nothing reads `authz.principals.roleSwitch.requirePassword` yet. The live role switch
+> route (`ActiveRoleController` in `authn-http`) still reads `rbac.roleSwitch.requirePassword`. N8a
+> moves it to the new key, with a default of `true`. Until then, keep the `rbac.*` key.
+
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.
 
 ## The RBAC model
@@ -214,6 +218,7 @@ authz: {
       'admin.users': { assignable: false, grants: ['users:create', 'users:read', 'users:update', 'users:delete'] },
       admin:  { extends: ['admin.users'], grants: ['user:impersonate'] },
       'org.admin': { scopeTypes: ['org'], grants: ['project:read', 'project:update'] },
+      telemetry: { grants: ['telemetry:write'] },
     },
     anonymousRoles: ['guest'],
     serviceRoles: { 'service:telemetry': ['telemetry'] },
@@ -226,11 +231,18 @@ authz: {
   boot (B12).
 - **`assignable: false`** marks a role that exists only to be extended. An assignment to it is refused
   (`not_assignable`). Roles that package configs define for this purpose use it.
-- **`scopeTypes`** limits where a role may be assigned. `org.admin` above can sit at `org:7` and
-  nowhere else (B13).
+- **`scopeTypes`** limits the scope type where a role may be assigned. `org.admin` above can sit at
+  any `org:<id>` scope, and not at `$global` or at another scope type (B13).
 - **`relation`** turns the grant into a condition on the row. `owner` means the row's owner column
   holds the principal. `self` means the row is the principal's own account. Other relations come from
   `@OrmScope` classes. Several relations on one grant are OR-ed (B15).
+
+> **TODO(L4):** no `RelationResolver` ships, so `owner` and `self` are not built in. A grant with a
+> relation for a type that has no resolver fails boot (boot rule 8: "relation ... has no
+> RelationResolver"), so the sample above does not boot as it stands: its `user:*` and `Task:*` grants
+> need a resolver for `self` and `owner`. L4 adds them with `@AccessResource`, `@Owner` and `@OrmScope`;
+> `ownsBy(type, relation, fn)` is a stub that throws today. Until then, register your own
+> `RelationResolver` for each type and relation you use, or leave the relation off.
 - **`fields`** are field globs for read or write. `['*', '!Password']` works. A grant without
   `fields` allows every field before `neverRead` applies.
 - **Union of roles (H1).** A principal's effective permissions are the union of the grants of all
@@ -261,7 +273,7 @@ authz: {
     stores: {
       roles: ['ConfigRoleStore'],          // authz.rbac.roles from config
       assignments: ['DbAssignmentStore'],  // table authz_assignment
-      rules: ['ConfigRuleStore'],          // a class of lane L1b, which has not merged
+      rules: ['DbRuleStore'],              // the default is 'ConfigRuleStore', a class of lane L1b (not merged)
       links: ['DbLinkStore'],              // table authz_link
     },
     connection: 'default',                 // else authz.admin.connection, else the default connection
@@ -295,6 +307,10 @@ authz: {
   stores, under the `AuthzAdmin` ports too. A name that is no registered class, or the wrong kind,
   throws `AuthzConfigError` and registers nothing.
 
+> **TODO(L1b):** the default `authz.rbac.stores.rules` is `['ConfigRuleStore']`, a class that does not
+> exist yet, so the default throws `AuthzConfigError` when the stores register. Name the rules store
+> yourself, as in the sample above (`DbRuleStore`), until L1b merges.
+
 > **TODO(host wiring, no lane named):** nothing calls `registerRbacStores` yet, and nothing builds
 > the `RbacModel` and its `RbacContributor` from config. An app does both by hand until a host lane
 > wires them. Replace this note then.
@@ -313,7 +329,7 @@ failure they print one line and set the exit code to 1.
 | `authz:assign <subject> <role> [-s <scope>] [-e <iso>] [-t <tags>]` | Assigns a role through `AuthzAdmin`. `subject` and `scope` are `<type>:<id>`; the scope defaults to global. `-e` is a future ISO 8601 date, or a date-time with a zone. It prints the assignment id. |
 | `authz:revoke <subject> <role> [-s <scope>]`, or `authz:revoke --id <id>` | Revokes every match of subject, role and scope, or one assignment by id. It fails when nothing matches. |
 | `authz:explain <principal> <permission> [<resource>] [--json]` | Prints the decision, its reason, the roles, the fields and the trace. |
-| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads the connection from `authz.rbac.connection`. |
+| `authz:check-config [--explain-role <role>] [--unattended]` | Boots the authz service, loads the role stores and prints `OK: <n> role(s), <m> ladder(s)`. `--explain-role` lists the effective grants of a role. It needs `RbacService` registered in DI and fails with "the RBAC model ... is not registered" otherwise (TODO(L1b): nothing registers it yet). `--unattended` counts the rows of `authz_audit` with the reason `unattended`, by resource type. It needs the `authz_audit` table of `DbDecisionAudit` and reads the connection from `authz.rbac.connection`. |
 
 ## The ABAC model
 
@@ -402,7 +418,8 @@ export class Campaigns extends BaseController {
 - Options: `resource` (an extractor: `fromParam`, `fromBody`, `fromQuery`, `fromModel`), `also` (more
   policies in the same AND group), `domain`, `subject` (`'load'` loads the row for a definite answer),
   `fields` (`'filter'` limits the response to `decision.fields.read`).
-- No principal and no `@AllowAnonymous`: 401. A denial: 403 with
+- A request with no principal is always 401. `@AllowAnonymous` only admits an anonymous (not
+  authenticated) principal; it does not admit a missing one. A denial: 403 with
   `{ error: 'forbidden', permission, resource, reason }` (B23).
 - `@Unscoped(reason)` tells the ORM adapter to skip the residual for this route. The principal stays
   and the call is audited once. A route with `@Unscoped` and no `@Access` fails registration.
@@ -503,7 +520,8 @@ map each command to your own permission with `authz.admin.permissions`.
 brackets):
 
 - granting a role the actor does not cover at that scope (`escalation`);
-- an actor removing its own access (`self_lockout`);
+- an actor removing its own access to the privileged permission (`self_lockout`; it checks only
+  `privilegedPermission`, not the actor's other access);
 - removing the last holder of the privileged permission at `$global` (`last_holder`);
 - changing a system role: with `protectSystemRole`, a role with `assignable: false` is a system role,
   and only `SYSTEM` may change its rows (`protected_role`).
@@ -535,8 +553,9 @@ per-domain lock on the `authz_version` row. It refuses to run inside an open tra
 default backend keeps data in memory.
 
 **Events.** Events go to every `AuthzEventSink` after the commit. The queue sink sends
-`RoleAssigned`, `RoleRevoked` and `AuthzDataChanged` (replacing the 2.x `UserRoleGranted` and
-`UserRoleRevoked`).
+`RoleAssigned` and `RoleRevoked` (replacing the 2.x `UserRoleGranted` and `UserRoleRevoked`).
+**TODO(L6):** the queue sink does not exist yet, and no `AuthzDataChanged` event exists in code. Only
+`LogAuthzEventSink` ships.
 
 `DbAuthzAdminBackend` writes through `DbAssignmentStore`, `DbRuleStore` and `DbLinkStore` (see
 [the RBAC model](#the-rbac-model)). Their tables come from `AuthzRbac_2026_10_01_00_00_00`. The
