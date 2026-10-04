@@ -1,8 +1,10 @@
 import type { Principal } from '@spinajs/authz';
 
 import type { ScriptedVote, VoteFn } from '../fakes/index.js';
-import { servicePrincipal, userPrincipal } from '../principals.js';
-import { cmp, combine, fixture, permit, ref, staticModel } from './dsl.js';
+import { agentPrincipal, servicePrincipal, userPrincipal } from '../principals.js';
+import { tokenWorld } from './B24-token-principals.spec.js';
+import { assignment, cmp, combine, fixture, permit, ref, staticModel } from './dsl.js';
+import { agentFor, checkKept, token } from './lane.js';
 import type { Case, World } from './types.js';
 
 const u1 = userPrincipal('u1');
@@ -68,7 +70,31 @@ const core: Case[] = [
   },
 ];
 
+const APP = { type: 'agent', id: 'app' };
+
+const tokenIntersectWorld: World = {
+  ...tokenWorld,
+  principals: { ...tokenWorld.principals, app: agentPrincipal('app', userPrincipal('alice'), { delegation: 'intersect', source: 'app' }) },
+  rbac: {
+    ...tokenWorld.rbac,
+    assignments: [...(tokenWorld.rbac?.assignments ?? []), assignment('a4', APP, 'route.export'), assignment('a5', APP, 'editor')],
+  },
+};
+
+const tokenChain = [token('t', { owner: 'alice', roles: ['editor', 'route.export'] }), agentFor('appForT', 't', 'app', { delegation: 'intersect', source: 'app' })];
+
+const tokenCases: Case[] = [
+  {
+    name: 'an intersect agent acting for a token principal is denied what only an excluded role of the token gives, with reason delegate',
+    steps: [{ check: { as: 'alice', permission: 'report:export' }, expect: { allowed: true } }, { check: { as: 'app', permission: 'report:export' }, expect: { allowed: true } }, ...tokenChain, checkKept('appForT', { permission: 'report:export' }, { allowed: false, reason: 'delegate' })],
+  },
+  {
+    name: 'the same agent is allowed what both it and the token principal hold',
+    steps: [...tokenChain, checkKept('appForT', { permission: 'file:write', resource: ref('file', 'f1') }, { allowed: true })],
+  },
+];
+
 export const B08 = fixture('B08', [
   { name: 'core', facets: ['engine'], lanes: ['F3'], cases: core },
-  { name: 'token', facets: ['token'], lanes: ['C5'], note: 'Delegated tokens end to end with RBAC need authn token issuance; C5 proposes the cases by RFC.', cases: [] },
+  { name: 'token', facets: ['engine', 'rbac', 'token'], lanes: ['C5'], note: 'When the delegate of an intersect chain is a token principal, the nested check runs as that delegate, so RBAC applies authz.token.* there (excluded roles, role policy, ceiling.roles); authn-token issues no intersect tokens (agent tokens are inherit, B37). RFC C5-1.', world: tokenIntersectWorld, cases: tokenCases },
 ]);

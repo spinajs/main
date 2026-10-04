@@ -4,6 +4,8 @@ import { principalKey } from '@spinajs/authz';
 import type { Ceiling, Decision, Permission, Principal, PrincipalRef, PrincipalType, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import type { FakeRow } from '../fakes/index.js';
+import { agentPrincipal } from '../principals.js';
+import type { AgentOptions } from '../principals.js';
 import { readPath } from '../util.js';
 import { assertDecision, assertThrows, isThrows } from './expect.js';
 import type { BehaviourAuthz, LaneHandles, StepContext } from './harness.js';
@@ -721,6 +723,12 @@ export const checkKept = (key: string, req: { readonly permission: Permission; r
     const d = await ctx.authz().check({ principal, permission: req.permission, ...(req.resource ? { resource: req.resource } : {}) });
     assertDecision(d, expect, `check ${key} ${req.permission}`);
   },
+});
+
+/** Keeps as `key` an agent `id` acting for the principal kept as `kept` (an app-built chain, RFC C5-1). */
+export const agentFor = (key: string, kept: string, id: string, opts: AgentOptions = {}): DoStep => ({
+  note: `agent ${id} for ${kept} kept as ${key}`,
+  do: async (ctx) => void stash(ctx).set(key, agentPrincipal(id, keptPrincipal(ctx, kept), opts)),
 });
 
 /** The decision's actor is the principal kept as `key`. */
