@@ -243,6 +243,18 @@ export function isReservedMetadataKey(key: string): boolean {
  */
 export const NO_PASSWORD = '!none';
 
+/** Login of the system account the deprecated `RbacSystemUserFactory` returns. */
+export const SYSTEM_LOGIN = '__system__';
+
+/**
+ * Logins of the form `__name__` belong to accounts the framework seeds, so `create()` refuses them: a user who
+ * registered `__system__` would otherwise be the system account. NFKC folds the full-width underscore a database
+ * collation may treat as `_`.
+ */
+export function isReservedLogin(login: string): boolean {
+  return /^__.*__$/s.test(String(login).normalize('NFKC'));
+}
+
 /**
  * Base model for users used by auth and ACL system
  *

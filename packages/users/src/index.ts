@@ -15,7 +15,8 @@ import './session.js';
 import './session-expiration.js';
 import './session-codec.js';
 import './ownership.js';
-import { User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
+import { SYSTEM_LOGIN, User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
+import { runAsSystem } from './system.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { RBAC_USER_MODEL, userModel } from './model-token.js';
 
@@ -69,6 +70,7 @@ export class RbacBootstrapper extends Bootstrapper {
       DI.register(User).asValue(RBAC_USER_MODEL);
     }
 
+    /** @deprecated 3.0: roles and grants live in `authz.rbac`; users no longer reads it. R1 deletes it. */
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
     DI.once('di.resolved.Configuration', (container: IContainer, configuration: Configuration) => {
@@ -84,53 +86,52 @@ export class RbacBootstrapper extends Bootstrapper {
     });
 
     /**
-     * Register factory function for creating user from session data
+     * The user of a legacy session, read by Uuid.
+     *
+     * @deprecated 3.0: `UserPrincipalFactory.principalOf`. R1 deletes it.
      */
     DI.register((_: IContainer, userUUID: string) => {
-      return userModel()
-        .where({
-          Uuid: userUUID,
-        })
-        .populate('Metadata')
-        .isActiveUser()
-        .firstOrFail();
+      return runAsSystem('session-restore', () =>
+        userModel()
+          .where({
+            Uuid: userUUID,
+          })
+          .populate('Metadata')
+          .isActiveUser()
+          .firstOrFail(),
+      );
     }).as('RbacUserFactory');
 
+    /**
+     * A never-stored guest, active while `authz.principals.anonymous.enabled`.
+     *
+     * @deprecated 3.0: the anonymous principal with `authz.rbac.anonymousRoles`. R1 deletes it.
+     */
     DI.register((_) => {
       const conf = DI.get(Configuration);
-      const guestEnabled = conf!.get('rbac.enableGuestAccount', false);
 
       return new (userModel())({
         Login: 'guest',
         Email: 'guest@spinajs.com',
-        IsActive: guestEnabled,
+        IsActive: conf!.get('authz.principals.anonymous.enabled', false),
       });
     }).as('RbacGuestUserFactory');
 
+    /**
+     * The {@link SYSTEM_LOGIN} account, as the registered user model: machine-token policies put it in
+     * `storage.User`, where the application's hooks expect their own model.
+     *
+     * @deprecated 3.0: the `SYSTEM` principal of `@spinajs/authz`. R1 deletes it.
+     */
     DI.register(async (_) => {
-      /**
-       * The system account must resolve on EVERY code path — `_user_or_system` runs inside
-       * scoped request contexts — so the lookup must never be row-scoped by an application's
-       * `RbacUserModel` override. It used to buy that by querying the BASE `User` class, at
-       * the cost of returning an instance of a class the application does not use: this
-       * factory's result is written straight into `storage.User` by machine-token policies,
-       * so an application model's own members ( a pool/segment accessor, say ) were missing
-       * on exactly those requests, while present on every other one.
-       *
-       * `SkipModelPermissionCheck` states the intent directly instead — the rbac query
-       * middleware reads it and applies no hook — so the query stays unscoped AND the
-       * caller gets the model the rest of the system hands it. The rest of the store is
-       * preserved: this runs inside a live request context and must not drop its user,
-       * active role or token info.
-       */
       const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
-      const lookup = () => userModel().select().where('Login', '__system__').firstOrFail();
+      const lookup = () => userModel().select().where('Login', SYSTEM_LOGIN).firstOrFail();
 
-      if (!store) {
-        return await lookup();
-      }
+      // The 2.x ORM middleware does not know runAs and would scope the lookup by the caller in the
+      // surrounding store; the skip goes into a nested store so the caller's own context is kept.
+      const unscoped = store ? () => store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup) : lookup;
 
-      return await store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup);
+      return await runAsSystem('system-user', unscoped);
     }).as('RbacSystemUserFactory');
   }
 }

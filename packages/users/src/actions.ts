@@ -3,7 +3,7 @@ import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _i
 import _ from 'lodash';
 import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
-import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedMetadataKey } from './models/User.js';
+import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedLogin, isReservedMetadataKey } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
@@ -583,6 +583,10 @@ export async function create(dataOrEmail: ICreateUserData | string, a?: string |
 async function createUser(data: ICreateUserData, roles: string[] | undefined, actor: Principal): Promise<ICreateUserResult> {
   const email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(data?.Email, 'email');
   const login = _check_arg(_trim(), _non_empty(), _max_length(32))(data?.Login, 'login');
+  if (isReservedLogin(login)) {
+    throw new InvalidArgument(`Login ${login} is reserved`, 'login');
+  }
+
   const password = typeof data.Password === 'string' && data.Password !== '' ? data.Password : undefined;
   const metadata = data.Metadata;
 

@@ -11,6 +11,7 @@ import { AccessControl } from 'accesscontrol';
 import { AsyncLocalStorage } from 'async_hooks';
 import { join, normalize, resolve } from 'path';
 import { TestConfiguration } from './common.test.js';
+import { registerAuthzHost } from './support/authz-host.js';
 
 import './migration/rbac.migration.js';
 import { OrmResource } from '../src/decorators.js';
@@ -63,6 +64,7 @@ describe('RbacSystemUserFactory', function () {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
+    registerAuthzHost();
   });
 
   beforeEach(async () => {
