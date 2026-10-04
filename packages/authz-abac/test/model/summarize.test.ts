@@ -90,10 +90,13 @@ describe('authz-abac: summarize (H18)', () => {
       expect((await a.summary(bob)).permissions.map((p) => p.name)).to.deep.equal(['doc:read']);
     });
 
-    it('a deny policy on the holder takes a permission out of its set; a permit adds to the target', async () => {
+    it('a deny policy on the holder takes a permission out of its set, one on the target does not (RFC E1-1); a permit adds to the target', async () => {
       const deny = await engine([policy('all', { permissions: ['doc:*'] }), policy('y-no-delete', { effect: 'deny', permissions: ['doc:delete'], when: { attr: 'principal.attributes.team', eq: 'y' } })]);
       expect(await covers(deny, bob, alice)).to.equal(false);
-      expect(await covers(deny, alice, bob)).to.equal(true);
+      // bob's summary lists doc:delete from 'all', and a target's deny never clears a summary entry.
+      expect(await covers(deny, alice, bob)).to.equal(false);
+      const xDeletes = await engine([policy('all', { permissions: ['doc:read', 'doc:write'] }), policy('x-deletes', { permissions: ['doc:delete'], when: { attr: 'principal.attributes.team', eq: 'x' } })]);
+      expect(await covers(xDeletes, alice, bob)).to.equal(true);
       const permit = await engine([policy('read'), policy('team-x', { permissions: ['doc:write'], when: { attr: 'principal.attributes.team', eq: 'x' } })]);
       expect(await covers(permit, bob, alice)).to.equal(false);
       expect(await covers(permit, alice, bob)).to.equal(true);

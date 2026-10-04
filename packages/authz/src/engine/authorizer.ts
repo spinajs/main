@@ -11,7 +11,6 @@ import type { RelationResolver, ResourceAdapter, ScopeAttributeSchema, ScopeAttr
 import type { AccessSummary, CheckInput, DecisionAudit, DecisionCache } from '../contracts/service.js';
 import { subtractFieldGlobs, unionFieldGlobs } from '../contracts/fields.js';
 import type { ConditionCompiler } from '../conditions/contracts.js';
-import { CONDITION_UNKNOWN } from '../conditions/compiler.js';
 import { BUILTIN_COMBINATORS, normalizeVote } from './combinators.js';
 import { DEFAULT_COMBINE, compileRoutes } from './routes.js';
 import type { CombineConfig, RouteTable } from './routes.js';
@@ -494,8 +493,8 @@ export class Authorizer {
    * every model routed for the permission (at `$global`, also for each of
    * its types) after the target's ceilings. A summary entry needs an
    * unconditional holder with its fields, and keeps an equal holder from being
-   * strictly above; it is ignored only when the target's own checks deny the
-   * permission for every row (deniedEverywhere).
+   * strictly above. The target's denies never drop an entry: a deny may rest
+   * on session facts (authn, actor) that change under impersonation.
    * False for a target (or a holder other than SYSTEM) that the principal
    * gate or the onBehalfOf resolution refuses, when a model routed for the
    * target gives no summary, when any check throws or rests on an engine
@@ -512,7 +511,6 @@ export class Authorizer {
     const run = this.quietRun(scope);
     const limit = new Deadline(DEADLINE_FACTOR * this.config.modelTimeoutMs);
     let strict = false;
-    const blockedByEntries: PermissionDef[] = [];
     try {
       const summarized = await limit.race(this.modelSummaries(target, ref, defs, { ...run, nested: newNested() }));
       if (summarized === EXPIRED) {
@@ -545,33 +543,11 @@ export class Authorizer {
           }
           // Only the gate denies `unattended`: the target read as another type than when it was admitted.
           if (pairs.some(([h, t]) => t.decision.reason?.code === 'unattended' || !entryCovers(h.decision, t.decision))) return false;
-          let entries = listed.get(def.name) ?? [];
-          if (entries.some((e) => pairs.some(([h]) => !this.summaryCovered(h.decision, e, def)))) {
-            if (pairs.some(([, t]) => t.decision.allowed) || !(await this.deniedEverywhere(target, def, ref, run, limit))) {
-              if (limit.expired) this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
-              return false;
-            }
-            entries = [];
-          }
-          let above = false;
-          let blocked = false;
-          for (const [h, t] of pairs) {
-            if (!h.decision.allowed || entryCovers(t.decision, h.decision)) continue;
-            // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
-            if (entries.some((e) => !e.conditional || h.decision.residual.op !== 'true')) blocked = true;
-            else above = true;
-          }
-          if (above) strict = true;
-          else if (blocked && pairs.every(([, t]) => !t.decision.allowed)) blockedByEntries.push(def);
-        }
-      }
-      // Proofs cost explain checks, so they run only when no other permission already makes the holder strictly above.
-      for (const def of blockedByEntries) {
-        if (strict) break;
-        if (await this.deniedEverywhere(target, def, ref, run, limit)) strict = true;
-        else if (limit.expired) {
-          this.logAt('error', `${this.where}: covers is false: it ran past its deadline of ${limit.ms} ms`);
-          return false;
+          const entries = listed.get(def.name) ?? [];
+          if (entries.some((e) => pairs.some(([h]) => !this.summaryCovered(h.decision, e, def)))) return false;
+          // An entry against a conditional holder is unknown, so it does not make the holder strictly above.
+          const blocked = (h: Checked) => entries.some((e) => !e.conditional || h.decision.residual.op !== 'true');
+          if (pairs.some(([h, t]) => h.decision.allowed && !entryCovers(t.decision, h.decision) && !blocked(h))) strict = true;
         }
       }
     } catch (e) {
@@ -832,27 +808,6 @@ export class Authorizer {
     if (def.fields !== true) return true;
     const inside = (k: 'read' | 'write') => subtractFieldGlobs(subtractFieldGlobs(entry.fields?.[k] ?? ['*'], this.config.neverRead), holder.fields[k]).length === 0;
     return inside('read') && inside('write');
-  }
-
-  /**
-   * The target's own checks prove it lacks `def` on every row: at `$global`
-   * on each of its types (`$global` itself when it has none), else at `ref`.
-   * Rests on engine checks only, never on a summary: quiet explain checks,
-   * whose votes the trace shows. A throw, a fault or the deadline: not proven.
-   */
-  private async deniedEverywhere(target: Principal, def: PermissionDef, ref: ResourceRef, run: Run, limit: Deadline): Promise<boolean> {
-    const refs: readonly ResourceRef[] = ref.type !== GLOBAL_TYPE ? [ref] : def.types.length > 0 ? def.types.map((type) => Object.freeze({ type })) : [GLOBAL];
-    for (const r of refs) {
-      let checked: Checked | typeof EXPIRED;
-      try {
-        checked = await limit.race(runAsync(this.pipeline({ principal: target, permission: def.name, explain: true }, { ...run, nested: newNested() }, { ref: r, subject: undefined })));
-      } catch (e) {
-        this.logAt('debug', `${this.where}: covers could not prove that the target lacks ${def.name} on ${resourceKey(r)}: ${describeError(e)}`);
-        return false;
-      }
-      if (checked === EXPIRED || !deniedForEveryRow(checked)) return false;
-    }
-    return true;
   }
 
   // ---- the check pipeline (design §10.1) ----
@@ -2041,35 +1996,6 @@ function underCeilings(ceilings: readonly unknown[], entry: SummaryItem, instant
 /** The refs covers compares a permission on: at `$global`, also each of its types, whose type-level check stands for every row (B06). */
 function comparedRefs(def: PermissionDef, ref: ResourceRef): readonly ResourceRef[] {
   return ref.type === GLOBAL_TYPE ? [ref, ...def.types.map((type) => Object.freeze({ type }))] : [ref];
-}
-
-/**
- * An explain decision denied under deny-overrides by a vote with a deny
- * entry that holds for every row (TRUE, or UNKNOWN, which binds to a deny)
- * and is part of the vote's denyWhen, which the combinator reads. Not under
- * the other algorithms: a permit hidden at type level may win on a row. Not
- * for a needs_subject entry (B19): it stands for a condition on the row. Only
- * a cacheable vote without an expiry counts: one that read the request (env,
- * time) or expires may deny only in the context covers ran with.
- */
-function deniedForEveryRow(c: Checked): boolean {
-  const d = c.decision;
-  const trace = d.trace;
-  if (c.faulted || d.allowed || trace === undefined || trace.algorithm !== 'deny-overrides') return false;
-  const same = (a: unknown, b: unknown) => sameTree(a, b, 0, { left: COMPARE_NODES });
-  try {
-    return trace.votes.some((v) => {
-      if (v.error !== undefined || v.cacheable !== true || v.validUntil !== undefined) return false;
-      const combined = v.denyWhen.op === 'or' ? [v.denyWhen, ...v.denyWhen.args] : [v.denyWhen];
-      return (v.denies ?? []).some((e) => {
-        if (e.reason?.code === 'needs_subject') return false;
-        const when = simplify(e.when);
-        return (when.op === 'true' || same(when, CONDITION_UNKNOWN)) && combined.some((w) => same(w, e.when));
-      });
-    });
-  } catch {
-    return false;
-  }
 }
 
 /** A validated copy; a malformed ceiling (every check denies then) is left out. */
