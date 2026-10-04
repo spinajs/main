@@ -1,7 +1,8 @@
 import { User, getUserUnsafe, updateUser, UserLoginFailed, assertNotLocked, clearLoginThrottle, registerFailedLogin } from '@spinajs/users';
 import { ev } from '@spinajs/queue';
 import { Unauthorized } from '@spinajs/http';
-import { service } from '@spinajs/configuration';
+import { Configuration, service } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { DateTime } from 'luxon';
 import { _check_arg, _non_empty, _trim } from '@spinajs/util';
 import { User2FaPassed } from '../events/User2FaPassed.js';
@@ -9,6 +10,13 @@ import { User2FaEnabled } from '../events/User2FaEnabled.js';
 import { TwoFactorAuthProvider } from '../interfaces.js';
 import { User2FaReset } from '../events/User2FaReset.js';
 import { User2FaDisabled } from '../events/User2FaDisabled.js';
+import { Default2FaToken } from '../2fa/Default2FaToken.js';
+
+// The package no longer ships the 2.x key rbac.twoFactorAuth (the authn legacy-key check refuses it); an app that
+// still sets its service keeps choosing the provider.
+async function twoFaProvider(): Promise<TwoFactorAuthProvider> {
+  return DI.get(Configuration)?.get<string>('rbac.twoFactorAuth.service') ? service('rbac.twoFactorAuth', TwoFactorAuthProvider) : DI.resolve(Default2FaToken);
+}
 
 /**
  * Initializes 2fa for a user and switches it on.
@@ -20,7 +28,7 @@ import { User2FaDisabled } from '../events/User2FaDisabled.js';
  */
 export async function enableUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   const result = await twoFa.initialize(u);
   await ev(new User2FaEnabled(u));
@@ -37,7 +45,7 @@ export async function enableUser2Fa(identifier: number | string | User) {
  */
 export async function beginUser2FaEnrolment(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   return twoFa.beginEnrolment(u);
 }
@@ -51,7 +59,7 @@ export async function beginUser2FaEnrolment(identifier: number | string | User) 
  */
 export async function activateUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   await twoFa.activate(u);
   await ev(new User2FaEnabled(u));
@@ -70,7 +78,7 @@ export async function confirmUser2Fa(identifier: number | string | User, token: 
   token = _check_arg(_trim(), _non_empty())(token, 'token');
 
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   if (!(await twoFa.verifyToken(token, u))) {
     throw new Unauthorized('2fa confirmation failed');
@@ -85,7 +93,7 @@ export async function confirmUser2Fa(identifier: number | string | User, token: 
 /** @deprecated Use `TotpMfaStep`. */
 export async function disableUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   await twoFa.disable(u);
   await ev(new User2FaDisabled(u));
@@ -96,7 +104,7 @@ export async function disableUser2Fa(identifier: number | string | User) {
 /** @deprecated Use `TotpMfaStep`. */
 export async function resetUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
-  const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+  const twoFa = await twoFaProvider();
 
   await twoFa.disable(u);
   await ev(new User2FaReset(u));
@@ -129,7 +137,7 @@ export async function auth2Fa(identifier: number | string | User, token: string)
     // before the code is even checked.
     assertNotLocked(u);
 
-    const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
+    const twoFa = await twoFaProvider();
 
     if (!(await twoFa.verifyToken(token, u))) {
       throw new Unauthorized('2fa check failed');

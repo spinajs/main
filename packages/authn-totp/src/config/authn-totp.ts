@@ -47,21 +47,6 @@ const authnTotp = {
       },
     },
   },
-  // deprecated: read by the 2.x Default2FaToken and 2fa actions; R1 removes it
-  rbac: {
-    twoFactorAuth: {
-      enabled: true,
-
-      // `POST /user/2fa/reset` relies on this flag to recover an account that
-      // was left password-only after a reset was abandoned before the new
-      // secret was confirmed (see the docblock on `reset` in
-      // TwoFactorAuthUserController) — with it `false`, as it defaults here,
-      // that downgrade is silent and permanent for any consumer of this
-      // package that does not override it.
-      forceUser: false,
-      service: 'Default2FaToken',
-    },
-  },
 };
 
 export default authnTotp;

@@ -33,5 +33,11 @@ again, after the password alone. Their 2.x reset links stop working, and the
 2.x failed-login count and lock go with `user:login:*`. Import
 `@spinajs/authn-totp/db` only after the app has left the 2.x login behind.
 
+The package no longer ships the 2.x `rbac.twoFactorAuth` keys: with
+`authn.config.rejectLegacyKeys` on they would fail every boot. The deprecated
+2.x login routes in authn-http still read them and default to 2FA off, so an
+app that stays on that login sets `rbac.twoFactorAuth.enabled` (and
+`forceUser`) in its own config until it moves to the 3.0 routes.
+
 `authn:mfa-reset <login>` removes an account's enrolment and recovery codes and
 prints no secret.
