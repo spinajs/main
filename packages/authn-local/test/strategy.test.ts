@@ -355,6 +355,8 @@ describe('LocalPasswordStrategy', function () {
         const login = x.strategy.verify(pw(LOGIN, OLD), CTX);
         await x.hasher.held;
         await change(x);
+        // A change writes by compare-and-set too; only the rehash's result counts here.
+        x.passwords.results.length = 0;
         const changed = await x.passwords.get(x.alice);
         open();
 
@@ -370,6 +372,7 @@ describe('LocalPasswordStrategy', function () {
         let changed: string | null = null;
         x.passwords.interleave = async () => {
           await change(x);
+          x.passwords.results.length = 0;
           changed = await x.passwords.get(x.alice);
         };
 
