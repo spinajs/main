@@ -4,6 +4,7 @@ import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
 import { liveAssignments, rbacTables, resourcePath } from './evaluate.js';
 import type { RbacTables } from './evaluate.js';
 import type { CompiledGrant } from './grants.js';
+import { effectiveRole } from './ladder/steps.js';
 import type { RbacModel } from './model.js';
 
 export interface RbacServiceOptions {
@@ -18,6 +19,8 @@ export interface RoleHolding {
   readonly assignment: string;
   readonly source: string;
   readonly expiresAt?: Date;
+  /** The role whose grants the assignment gives after cap rules: `role`, or a lower role of its ladder. */
+  readonly effectiveRole: string;
 }
 
 /**
@@ -63,7 +66,8 @@ export class RbacService {
    *   `ceiling.permissions`, or any wanted grant past `ceiling.expiresAt`, is not covered.
    *   Assignments at ancestors of `at` are not read: coversAt is the AdminGuard's primary path.
    * @throws AuthzConfigError for an agent principal, a `ceiling.resources` that does not hold `at`
-   *   (or GLOBAL) by key, assignments not preloaded, or stale roles
+   *   (or GLOBAL) by key, assignments not preloaded, stale roles, or an `at` other than GLOBAL while
+   *   rules may apply (a rule store not in memory, or a live in-memory rule): use coversAt
    */
   covers(holder: Principal | readonly string[], wanted: readonly string[], at?: ResourceRef, ctx?: EvaluationContext): boolean {
     if (isRoleList(holder)) return this.coversRoles(this.withImpliedEverywhere(holder), wanted);
@@ -73,7 +77,7 @@ export class RbacService {
       throw new AuthzConfigError(`RbacService.covers: ${holder.type}:${holder.id} has ceiling.resources without ${resourceKey(where)}; ancestors need IO, use coversAt`);
     }
     return this.coversRoles(
-      this.model.heldNow(holder, where, ctx).map((l) => l.role),
+      this.model.heldNow(holder, where, ctx).map((l) => effectiveRole(modelTables(this.model).ladders, l)),
       wanted,
       limit,
     );
@@ -93,7 +97,7 @@ export class RbacService {
       const path = await resourcePath(at, ctx);
       if (!path.some((ref) => limit.resources!.has(resourceKey(ref)))) return wanted.length === 0;
     }
-    const names = (await this.rolesOf(principal, at, { ctx })).map((r) => r.role);
+    const names = (await this.rolesOf(principal, at, { ctx })).map((r) => r.effectiveRole);
     return this.coversRoles(names, wanted, limit);
   }
 
@@ -176,7 +180,7 @@ export class RbacService {
     const ctx = opts.ctx ?? this.context();
     const input = await this.model.inputAt(principal, at, ctx);
     const { live } = liveAssignments(input, { ceiling: opts.ceiling !== false });
-    return Object.freeze(live.map((l) => Object.freeze({ role: l.role, scope: l.scope, assignment: l.assignment.id, source: l.assignment.source, ...(l.expiresAt ? { expiresAt: l.expiresAt } : {}) })));
+    return Object.freeze(live.map((l) => Object.freeze({ role: l.role, scope: l.scope, assignment: l.assignment.id, source: l.assignment.source, ...(l.expiresAt ? { expiresAt: l.expiresAt } : {}), effectiveRole: effectiveRole(input.ladders, l) })));
   }
 
   /** The compiled grants of the role's `extends` closure, permissions expanded, by permission; none for an unknown role. */

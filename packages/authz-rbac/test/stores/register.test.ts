@@ -7,7 +7,7 @@ import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, DbAssignmentStore, DbLinkStore, DbRuleStore, LinkStore, RoleStore, RuleStore, registerRbacStores } from '../../src/index.js';
+import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, ConfigRoleStore, ConfigRuleStore, DbAssignmentStore, DbLinkStore, DbRuleStore, LinkStore, RoleStore, RuleStore, registerRbacStores } from '../../src/index.js';
 
 const DB_STORES = { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['DbRuleStore'], links: ['DbLinkStore'] };
 
@@ -66,9 +66,18 @@ describe('registerRbacStores', () => {
     expect(chain.map((s) => s.name)).to.deep.eq(['ConfigRoleStore', 'ExtraRoleStore']);
   });
 
-  it('refuses the defaults on this branch: ConfigRuleStore (L1b) is not registered', () => {
-    expect(() => registerRbacStores(container, config())).to.throw(AuthzConfigError, /authz\.rbac\.stores\.rules: .*"ConfigRuleStore"/);
-    expect(container.hasRegistered(RoleStore, false)).to.eq(false);
+  it('registers the default store config cleanly, ConfigRuleStore as the RuleStore', () => {
+    const cfg = config();
+    container.register(testHost.instance(cfg)).as(Configuration);
+
+    registerRbacStores(container, cfg);
+
+    expect(container.resolve(RoleStore)).to.be.instanceOf(ConfigRoleStore);
+    expect(container.resolve(RuleStore)).to.be.instanceOf(ConfigRuleStore);
+    expect(container.hasRegistered(AdminRuleStore, false)).to.eq(false);
+    expect(container.hasRegistered(AssignmentStore, false)).to.eq(true);
+    expect(container.hasRegistered(LinkStore, false)).to.eq(true);
+    expect(DI.RootContainer.hasRegistered(RuleStore)).to.eq(false);
   });
 
   it('refuses an unknown name or a class of another port, naming the key, and registers nothing', () => {

@@ -14,6 +14,9 @@ import { checkProvenance, checkTags, grantChecks } from './ladder/checks.js';
 import { addImplied, impliesExtension } from './ladder/implies.js';
 import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
+import { rulesExtension } from './rules/extension.js';
+import { applyCaps, applyRestrict, applyThresholds } from './rules/steps.js';
+import type { ActiveRule } from './rules/steps.js';
 import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
 import type { SetMemberships } from './sets/resolver.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
@@ -86,6 +89,12 @@ export interface RbacInput {
   readonly implies?: ImpliesIndex;
   /** The sets the principal joined through its own assignments (SetsExtension), by subjectKey. */
   readonly memberships?: SetMemberships;
+  /** The rules that hold for this request (RulesExtension), their request-level parts decided. */
+  readonly rules?: readonly ActiveRule[];
+  /** Ids of rules that would apply differently per row of this type-level request: the rule steps fail closed. */
+  readonly rowDependentRules?: readonly string[];
+  /** False when a rule condition gave an uncacheable answer. */
+  readonly rulesCacheable?: boolean;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -149,9 +158,9 @@ export interface RbacState {
   cacheable: boolean;
   /** rankAt[ladder, types] of step 4, filled on first use (ladder/checks.ts rankAt). */
   readonly rankAt: Map<string, number | undefined>;
+  /** cap: whether each threshold rule's `subjects.rank` selects the principal (ranks after restrict, before cap), by rule id. */
+  readonly ruleSubjects: Map<string, boolean>;
 }
-
-const noop: RbacStep = () => undefined;
 
 const collect: RbacStep = (s) => {
   const { assignments, path, roles, now, onUnknownRole, onRefusedAssignment } = s.input;
@@ -290,13 +299,13 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
     addImplied(s);
     rankAssignments(s);
   },
-  restrict: noop,
-  cap: noop,
+  restrict: applyRestrict,
+  cap: applyCaps,
   aggregate: aggregateRanks,
   grant,
   tag: checkTags,
   provenance: checkProvenance,
-  threshold: noop,
+  threshold: applyThresholds,
   residual,
   noGrantReason: (s: RbacState): DenyReason => roleTooLow(s) ?? { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access },
 });
@@ -327,7 +336,7 @@ export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boo
 
 function newState(input: RbacInput, ceiling: boolean): RbacState {
   const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
-  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true, rankAt: new Map() };
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true, rankAt: new Map(), ruleSubjects: new Map() };
 }
 
 // OR is order-free, but the residual enters the cross-request decision cache key and SQL statement
@@ -511,7 +520,7 @@ export interface RbacExtension {
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
 /** One factory per extension, so every model gets its own instances. */
-export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension, impliesExtension, setsExtension]);
+export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([ladderExtension, impliesExtension, setsExtension, rulesExtension]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */
 export function createRbacExtensions(opts: RbacModelOptions, factories: readonly RbacExtensionFactory[] = DEFAULT_RBAC_EXTENSIONS): readonly RbacExtension[] {

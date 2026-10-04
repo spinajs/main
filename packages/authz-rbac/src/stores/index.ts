@@ -10,5 +10,6 @@ export * from './db-link-store.js';
 export * from './schema.js';
 export * from './bootstrap.js';
 export * from './config-role-store.js';
+export * from './config-rule-store.js';
 export * from './defaults.js';
 export * from './register.js';
