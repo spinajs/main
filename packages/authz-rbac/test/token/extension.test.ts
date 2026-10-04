@@ -389,6 +389,12 @@ describe('authz-rbac token: role rules on token principals', function () {
 
     const permits = async (m: RbacModel, p: Principal, permission: string) => (await m.evaluate({ principal: p, permission, resource: GLOBAL }, fakeEvaluationContext({ now: NOW }))).permitWhen.op === 'true';
 
+    it('builds a frozen, branded extension', () => {
+      const ext = tokenRoleExtension(opts());
+      expect(Object.isFrozen(ext)).to.equal(true);
+      expect(isTokenRoleExtension(ext)).to.equal(true);
+    });
+
     it('adds one when the extensions passed have none', async () => {
       const fresh = freshGather();
       const m = await model([fresh]);

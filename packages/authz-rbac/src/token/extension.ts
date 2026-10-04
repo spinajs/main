@@ -9,7 +9,7 @@ import type { RbacModelOptions } from '../model/model.js';
 import { TokenRoleRules, isTokenPrincipal, loadTokenRoleRules } from './rules.js';
 
 export interface TokenRoleExtensionDeps {
-  /** Default: loaded at init from the domain's container and the Configuration it resolves. */
+  /** Replaces authz.token (for tests). Default: loaded at init from the domain's container and the Configuration it resolves. */
   readonly rules?: TokenRoleRules | (() => Promise<TokenRoleRules>);
 }
 
@@ -56,7 +56,7 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
     },
   };
   Object.defineProperty(extension, TOKEN_ROLE_EXTENSION, { value: true });
-  return extension;
+  return Object.freeze(extension);
 }
 
 /** The container of an authz host domain named `domain`; undefined when the model runs outside a host. */
