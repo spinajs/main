@@ -1,0 +1,363 @@
+import { createHash } from 'node:crypto';
+import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
+import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+
+import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
+import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
+import { IdentityStore } from '../contracts/identity.js';
+import type { IdentityStatus } from '../contracts/identity.js';
+import { ImpersonationGuard } from '../contracts/impersonation.js';
+import type { AuthnFacts, Principal, PrincipalRef } from '../contracts/principal.js';
+import { PrincipalFactory } from '../contracts/service.js';
+import { SessionIssuer } from '../contracts/session.js';
+import type { SessionHandle } from '../contracts/session.js';
+import { AuthnAudit } from '../audit/authn-audit.js';
+import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
+
+/** The session data key of the impersonation block: `{ startedAt }` as an ISO string. */
+export const IMPERSONATION_BLOCK = 'Impersonation';
+
+export type ImpersonationStart = { readonly ok: true; readonly session: SessionHandle } | { readonly ok: false };
+
+interface Settings {
+  readonly requirePassword: boolean;
+  readonly requireMfa: boolean;
+  readonly maxMinutes: number;
+  readonly maxLifetimeMinutes: number;
+}
+
+type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
+
+type About = { readonly identity?: IdentityRef; readonly actor?: PrincipalRef; readonly session?: string };
+
+type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
+
+type Denial = { readonly reason: string; readonly data?: Readonly<Record<string, unknown>> };
+
+type Ending = { readonly type: AuthnEventType; readonly reason: string };
+
+/** Design §22.5 `authn.session.expiration.maxLifetime`. */
+const DEFAULT_MAX_LIFETIME_MINUTES = 480;
+
+const MINUTE_MS = 60_000;
+
+/** Clock skew tolerated between instances, the default of `authn.keys.assertion.skewSeconds`. */
+const CLOCK_SKEW_MS = 30_000;
+
+const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== '';
+
+const isRef = (v: unknown): v is IdentityRef => isObject(v) && nonEmpty(v.type) && nonEmpty(v.id);
+
+const refOf = (r: PrincipalRef): IdentityRef => ({ type: r.type, id: r.id });
+
+const sameRef = (a: PrincipalRef, b: PrincipalRef): boolean => a.type === b.type && a.id === b.id;
+
+const errorClass = (err: unknown): string => (err instanceof Error && nonEmpty(err.name) ? err.name : typeof err);
+
+const validDate = (v: unknown): v is Date => v instanceof Date && !Number.isNaN(v.getTime());
+
+/** Strategies vouch for these through their own record checks; every other type is asked (D4b). */
+const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
+
+function refusal(st: IdentityStatus): string | null {
+  if (!st.exists) return 'unknown_identity';
+  if (st.deleted) return 'deleted';
+  if (st.banned) return 'banned';
+  if (!st.active) return 'inactive';
+  return null;
+}
+
+function readSettings(raw: unknown, lifetime: unknown): Settings {
+  const out = { requirePassword: true, requireMfa: true, maxMinutes: 60, maxLifetimeMinutes: DEFAULT_MAX_LIFETIME_MINUTES };
+  if (lifetime !== undefined && lifetime !== null) {
+    if (typeof lifetime !== 'number' || !Number.isFinite(lifetime) || lifetime <= 0) throw new InvalidOption('authn.session.expiration.maxLifetime must be a positive number of minutes');
+    out.maxLifetimeMinutes = lifetime;
+  }
+  if (raw === undefined || raw === null) return out;
+  if (!isObject(raw)) throw new InvalidOption('authn.impersonation must be an object');
+  for (const k of ['requirePassword', 'requireMfa'] as const) {
+    const v = raw[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'boolean') throw new InvalidOption(`authn.impersonation.${k} must be a boolean`);
+    out[k] = v;
+  }
+  const max = raw.maxMinutes;
+  if (max !== undefined && max !== null) {
+    if (typeof max !== 'number' || !Number.isInteger(max) || max < 1) throw new InvalidOption('authn.impersonation.maxMinutes must be a positive integer');
+    out.maxMinutes = max;
+  }
+  return out;
+}
+
+/** The facts of the impersonator's own session, rebuilt from those of an impersonation session. */
+function ownFacts(f: AuthnFacts): AuthnFacts {
+  return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt };
+}
+
+// Per process, across containers: two parallel starts (or stops) on one session must not both pass the checks.
+const switching = new Map<string, Promise<unknown>>();
+
+async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Promise<T> {
+  if (!isObject(session) || !nonEmpty(session.id)) return run();
+  const key = createHash('sha256').update(session.id).digest('hex');
+  const mine = (switching.get(key) ?? Promise.resolve()).then(run, run);
+  const tail = mine.catch(() => undefined);
+  switching.set(key, tail);
+  try {
+    return await mine;
+  } finally {
+    if (switching.get(key) === tail) switching.delete(key);
+  }
+}
+
+/**
+ * Impersonation (design §22.14, A20, SR-06): start and stop issue a new session and revoke the old one. An ended
+ * impersonation answers null, never the impersonator, because a request cannot rotate the cookie. Named apart from
+ * authn-http's 2.x ImpersonationService because DI keys classes by name. One per container (D11).
+ */
+@PerChildInstance()
+@Inject(Container)
+export class AuthnImpersonationService extends AsyncService {
+  private sessions!: SessionIssuer;
+  private identities!: IdentityStore;
+  private principals!: PrincipalFactory;
+  private guard: ImpersonationGuard | undefined;
+  private fresh!: FreshAuthCheck;
+  private auditor!: AuthnAudit;
+  private settings!: Settings;
+  private ready = false;
+
+  constructor(private readonly container: IContainer) {
+    super();
+  }
+
+  public async resolve(): Promise<void> {
+    if (this.ready) return;
+    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
+    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
+      throw new InvalidOperation('AuthnImpersonationService: the resolved Configuration has no get()');
+    }
+    this.settings = readSettings(configuration.get('authn.impersonation'), configuration.get('authn.session.expiration.maxLifetime'));
+    this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
+    this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
+    this.principals = (await this.neighbour(PrincipalFactory, 'PrincipalFactory', true))!;
+    this.guard = await this.neighbour(ImpersonationGuard, 'ImpersonationGuard', false);
+    this.fresh = await this.container.resolve(FreshAuthCheck);
+    this.auditor = await this.container.resolve(AuthnAudit);
+    this.ready = true;
+    await super.resolve();
+  }
+
+  /** `reauth` is verified only when `requirePassword` is on and the session is not fresh. */
+  public start(session: SessionHandle, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<ImpersonationStart> {
+    return oneAtATime(session, () => this.startNow(session, target, ctx, reauth));
+  }
+
+  /** The impersonator's new session, or null when this is no live impersonation or the impersonator may not log in. */
+  public stop(session: SessionHandle, ctx: AuthnContext): Promise<SessionHandle | null> {
+    return oneAtATime(session, () => this.stopNow(session, ctx));
+  }
+
+  /** What a request with this session resolves to; null when it yields no principal. */
+  public async principalOf(session: SessionHandle, ctx: AuthnContext): Promise<Principal | null> {
+    const stored = await this.restore(session);
+    if (!stored) return null;
+    const impersonator = stored.facts.impersonator;
+    if (!impersonator) {
+      // The session stop hands back is a new row whose store lifetime starts again; the login bounds it.
+      if (this.beyondLifetime(stored.facts, ctx)) {
+        await this.sessions.revoke(stored.handle);
+        await this.audit(ctx, { type: 'session.expire', outcome: 'success', reason: 'session_lifetime', identity: refOf(stored.identity), ...this.handleOf(stored) });
+        return null;
+      }
+      if (await this.statusRefusal(stored.identity)) return null;
+      return this.principals.principalOf(stored.identity, stored.facts, {});
+    }
+    const ending = this.ending(stored, ctx);
+    if (ending) return this.end(ctx, stored, ending.type, ending.reason);
+    const actorRefused = await this.statusRefusal(refOf(impersonator));
+    if (actorRefused) return this.end(ctx, stored, 'impersonation.end', `impersonator_${actorRefused}`);
+    const targetRefused = await this.statusRefusal(stored.identity);
+    if (targetRefused) return this.end(ctx, stored, 'impersonation.end', `target_${targetRefused}`);
+    const denied = await this.denial(refOf(impersonator), ownFacts(stored.facts), stored.identity);
+    if (denied) return this.end(ctx, stored, 'impersonation.end', denied.reason, denied.data);
+    return this.principals.principalOf(stored.identity, stored.facts, {});
+  }
+
+  /**
+   * Ends every session of `impersonator`, those in which it impersonates someone included, except `except`. For the
+   * code that bans or deactivates an identity or changes or resets its password (SR-06); it audits nothing itself.
+   */
+  public endFor(impersonator: IdentityRef, opts: { except?: SessionHandle } = {}): Promise<number> {
+    return this.sessions.revokeAll(impersonator, { includeImpersonations: true, ...(opts.except ? { except: opts.except } : {}) });
+  }
+
+  private async startNow(session: SessionHandle, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<ImpersonationStart> {
+    let about: About = {};
+    let issued: SessionHandle | undefined;
+    try {
+      const stored = await this.restore(session);
+      if (!stored) return await this.refuseStart(ctx, 'not_active', about);
+      const actor = refOf(stored.identity);
+      about = { actor, ...(isRef(target) ? { identity: refOf(target) } : {}), ...this.handleOf(stored) };
+      const refused = await this.startRefusal(stored, target, ctx, reauth);
+      if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
+
+      issued = await this.sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
+      await this.sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString() });
+      const now = await this.sessions.restore(issued.id);
+      // An endFor of the actor that ran since the first restore swept the old session but not the new one.
+      if (!(await this.sessions.restore(stored.handle.id))) {
+        await this.sessions.revoke(issued);
+        return await this.refuseStart(ctx, 'revoked', about);
+      }
+      await this.sessions.revoke(stored.handle);
+      await this.audit(ctx, { type: 'impersonation.start', outcome: 'success', identity: refOf(target), actor, ...(now ? this.handleOf(now) : {}) });
+      return { ok: true, session: issued };
+    } catch (err) {
+      if (issued) await this.sessions.revoke(issued).catch(() => undefined);
+      return this.refuseStart(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
+    }
+  }
+
+  private async stopNow(session: SessionHandle, ctx: AuthnContext): Promise<SessionHandle | null> {
+    let about: About = {};
+    let issued: SessionHandle | undefined;
+    try {
+      const stored = await this.restore(session);
+      if (!stored) return await this.refuseStop(ctx, 'not_active', about);
+      const impersonator = stored.facts.impersonator;
+      about = { identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored) };
+      if (!impersonator) return await this.refuseStop(ctx, 'not_impersonating', about);
+      const ending = this.ending(stored, ctx);
+      if (ending) return await this.end(ctx, stored, ending.type, ending.reason);
+      const refused = await this.statusRefusal(refOf(impersonator));
+      if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
+
+      issued = await this.sessions.issue(refOf(impersonator), ownFacts(stored.facts));
+      const now = await this.sessions.restore(issued.id);
+      if (!(await this.sessions.restore(stored.handle.id))) {
+        await this.sessions.revoke(issued);
+        return await this.refuseStop(ctx, 'revoked', about);
+      }
+      await this.sessions.revoke(stored.handle);
+      await this.audit(ctx, { type: 'impersonation.end', outcome: 'success', identity: refOf(stored.identity), actor: refOf(impersonator), ...(now ? this.handleOf(now) : {}) });
+      return issued;
+    } catch (err) {
+      if (issued) await this.sessions.revoke(issued).catch(() => undefined);
+      return this.refuseStop(ctx, issued ? 'session_error' : 'store_error', about, { error: errorClass(err) });
+    }
+  }
+
+  private async startRefusal(stored: Stored, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<Denial | null> {
+    if (!this.guard) return { reason: 'no_guard' };
+    if (stored.facts.impersonator !== undefined) return { reason: 'nested' };
+    if (this.beyondLifetime(stored.facts, ctx)) return { reason: 'session_lifetime' };
+    if (!isRef(target)) return { reason: 'invalid_target' };
+    if (sameRef(stored.identity, target)) return { reason: 'self' };
+    // Sessions are for users only (D12).
+    if (target.type !== 'user') return { reason: 'non_user_target' };
+    if (this.settings.requireMfa && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
+    const actorRefused = await this.statusRefusal(stored.identity);
+    if (actorRefused) return { reason: actorRefused };
+    if (this.settings.requirePassword && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
+      return { reason: 'not_fresh' };
+    }
+    const targetRefused = await this.statusRefusal(target);
+    if (targetRefused) return { reason: `target_${targetRefused}` };
+    return this.denial(stored.identity, ownFacts(stored.facts), target);
+  }
+
+  private async restore(h: SessionHandle): Promise<Stored | null> {
+    if (!isObject(h) || !nonEmpty(h.id)) return null;
+    const stored = await this.sessions.restore(h.id);
+    return stored && stored.handle.state === 'active' ? stored : null;
+  }
+
+  /** Why an impersonation session is over whatever the stores say, or null. */
+  private ending(stored: Stored, ctx: AuthnContext): Ending | null {
+    const started = this.startedAt(stored, ctx);
+    if (started === null) return { type: 'impersonation.end', reason: 'invalid_block' };
+    if (ctx.now.getTime() - started.getTime() >= this.settings.maxMinutes * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
+    if (this.beyondLifetime(stored.facts, ctx)) return { type: 'impersonation.end', reason: 'session_lifetime' };
+    return null;
+  }
+
+  /**
+   * The block's start; without a block (a migrated 2.x session) the authentication time, which never comes after it.
+   * A start that cannot be read, or lies ahead or before the authentication by more than the clock skew allowed
+   * between instances, is null: nothing honest writes one.
+   */
+  private startedAt(stored: Stored, ctx: AuthnContext): Date | null {
+    const authenticated = stored.facts.authenticatedAt;
+    if (!validDate(authenticated)) return null;
+    if (!stored.data.has(IMPERSONATION_BLOCK)) return authenticated;
+    const block = stored.data.get(IMPERSONATION_BLOCK);
+    const raw = isObject(block) ? block.startedAt : undefined;
+    const started = typeof raw === 'string' ? new Date(raw) : raw;
+    if (!validDate(started)) return null;
+    const t = started.getTime();
+    if (t > ctx.now.getTime() + CLOCK_SKEW_MS || t < authenticated.getTime() - CLOCK_SKEW_MS) return null;
+    return started;
+  }
+
+  /** Start and stop issue new sessions, so the store's absolute lifetime would start again without this bound (I1). */
+  private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
+    const at = facts.authenticatedAt;
+    return !validDate(at) || ctx.now.getTime() - at.getTime() >= this.settings.maxLifetimeMinutes * MINUTE_MS;
+  }
+
+  /** Why the guard, or its absence, refuses `actor` impersonating `target` now; null when it consents. */
+  private async denial(actor: IdentityRef, facts: AuthnFacts, target: IdentityRef): Promise<Denial | null> {
+    if (!this.guard) return { reason: 'no_guard' };
+    try {
+      const principal = await this.principals.principalOf(actor, facts, {});
+      const answer: unknown = await this.guard.allowed(principal, target);
+      if (isObject(answer) && answer.ok === true) return null;
+      return { reason: isObject(answer) && nonEmpty(answer.code) ? answer.code : 'forbidden' };
+    } catch (err) {
+      return { reason: 'guard_error', data: { error: errorClass(err) } };
+    }
+  }
+
+  private async end(ctx: AuthnContext, stored: Stored, type: AuthnEventType, reason: string, data?: Readonly<Record<string, unknown>>): Promise<null> {
+    await this.sessions.revoke(stored.handle);
+    const impersonator = stored.facts.impersonator;
+    await this.audit(ctx, { type, outcome: 'success', reason, identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored), ...(data ? { data } : {}) });
+    return null;
+  }
+
+  private async statusRefusal(subject: IdentityRef): Promise<string | null> {
+    return VOUCHED_TYPES.has(subject.type) ? null : refusal(await this.identities.status(subject));
+  }
+
+  private handleOf(stored: Stored): { session?: string } {
+    return nonEmpty(stored.facts.sessionHandle) ? { session: stored.facts.sessionHandle } : {};
+  }
+
+  private async refuseStart(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<{ ok: false }> {
+    await this.audit(ctx, { type: 'impersonation.start', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    return { ok: false };
+  }
+
+  private async refuseStop(ctx: AuthnContext, reason: string, about: About, data?: Readonly<Record<string, unknown>>): Promise<null> {
+    await this.audit(ctx, { type: 'impersonation.end', outcome: 'failure', reason, ...about, ...(data ? { data } : {}) });
+    return null;
+  }
+
+  private audit(ctx: AuthnContext, e: EventBody): Promise<void> {
+    return this.auditor.publish({ ...e, at: ctx.now, ...(nonEmpty(ctx.ip) ? { ip: ctx.ip } : {}), ...(nonEmpty(ctx.userAgent) ? { userAgent: ctx.userAgent } : {}) });
+  }
+
+  private async neighbour<T>(type: abstract new (...args: never[]) => T, name: string, required: boolean): Promise<T | undefined> {
+    if (!this.container.hasRegistered(type as unknown as Class<T>)) {
+      if (required) throw new InvalidOperation(`AuthnImpersonationService: no ${name} is registered`);
+      return undefined;
+    }
+    return (await this.container.resolve(type as unknown as Class<T>)) as T;
+  }
+}
