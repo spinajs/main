@@ -23,6 +23,11 @@ export abstract class IdentityStore {
 export abstract class PasswordCredentialStore {
   /** The stored hash, or null when the identity has no password. */
   abstract get(id: IdentityRef): Promise<string | null>;
-  /** Stores the hash, never a raw password: hashing is the strategy's job (A03). */
-  abstract set(id: IdentityRef, hash: string): Promise<void>;
+  /**
+   * Stores the hash, never a raw password: hashing is the strategy's job (A03). With `expected`, writes only when the stored
+   * value is still `expected` (null: no password stored), as one atomic compare-and-set in the store, and answers whether it
+   * wrote: a mismatch answers false and does not throw. With `expected` undefined or omitted, writes unconditionally and
+   * answers true.
+   */
+  abstract set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean>;
 }

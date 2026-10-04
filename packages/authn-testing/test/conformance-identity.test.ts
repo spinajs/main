@@ -6,7 +6,7 @@ import type { IdentitySubject } from '../src/conformance/index.js';
 import { FakeIdentityStore, MemoryPasswordCredentialStore, fakeSeedPort } from '../src/fakes/index.js';
 import { failedTitles, pendingTitles, runSuite } from './reference/conformance-support.js';
 
-const TITLES = ['identity store: finds by login and by email', 'identity store: an unknown login is null', 'identity store: status reflects active false', 'identity store: status reflects banned', 'identity store: status reflects deleted', 'identity store: status reflects invitePending', 'identity store: display gives the email', 'identity store: no password reads null; a set hash reads back verbatim', 'identity store: provision exists exactly when JIT is on'];
+const TITLES = ['identity store: finds by login and by email', 'identity store: an unknown login is null', 'identity store: status reflects active false', 'identity store: status reflects banned', 'identity store: status reflects deleted', 'identity store: status reflects invitePending', 'identity store: display gives the email', 'identity store: no password reads null; a set hash reads back verbatim', 'identity store: an unconditional set answers true and overwrites', 'identity store: a conditional set writes only over the expected value (RFC N3-1)', 'identity store: a conditional set with null writes only where no password is stored', 'identity store: of parallel conditional sets over one value exactly one writes', 'identity store: provision exists exactly when JIT is on'];
 
 const subjectOf =
   (jit: boolean, tweak: (s: FakeIdentityStore) => IdentitySubject['store'] = (s) => s) =>
@@ -78,18 +78,45 @@ describe('runIdentityStoreConformance', () => {
     it('provision exists while JIT is off', () =>
       expectFails(
         subjectOf(false, (s) => delegate(s, { provision: async () => ({ type: 'user', id: 'x' }) })),
-        TITLES[8],
+        TITLES[12],
       ));
 
-    it('the password store changes the hash', async () => {
-      const r = await run(async () => {
+    const withPasswordSet = (wrap: (set: MemoryPasswordCredentialStore['set'], passwords: MemoryPasswordCredentialStore) => MemoryPasswordCredentialStore['set']) =>
+      run(async () => {
         const base = await subjectOf(false)();
         const passwords = new MemoryPasswordCredentialStore();
-        const set = passwords.set.bind(passwords);
-        passwords.set = (id, hash) => set(id, hash.toUpperCase());
+        passwords.set = wrap(passwords.set.bind(passwords), passwords);
         return { ...base, passwords, seed: fakeSeedPort(base.store as FakeIdentityStore, passwords) };
       });
-      assert.deepEqual(failedTitles(r), [TITLES[7]]);
+
+    it('the password store changes the hash', async () => {
+      const r = await withPasswordSet((set) => (id, hash, expected) => set(id, hash.toUpperCase(), expected));
+      assert.deepEqual(failedTitles(r), TITLES.slice(7, 12));
+    });
+
+    it('the password store ignores expected', async () => {
+      const r = await withPasswordSet((set) => (id, hash) => set(id, hash));
+      assert.deepEqual(failedTitles(r), TITLES.slice(9, 12));
+    });
+
+    it('the password store turns an omitted expected into null', async () => {
+      const r = await withPasswordSet((set) => (id, hash, expected) => set(id, hash, expected ?? null));
+      assert.deepEqual(failedTitles(r), [TITLES[8]]);
+    });
+
+    it('the password store treats an expected null as unconditional', async () => {
+      const r = await withPasswordSet((set) => (id, hash, expected) => set(id, hash, expected === null ? undefined : expected));
+      assert.deepEqual(failedTitles(r), [TITLES[9]]);
+    });
+
+    it('the password store reads, then writes, without an atomic compare-and-set', async () => {
+      const r = await withPasswordSet((set, passwords) => async (id, hash, expected) => {
+        if (expected === undefined) return set(id, hash);
+        const current = await passwords.get(id);
+        await new Promise((resolve) => setImmediate(resolve));
+        return current === expected ? set(id, hash) : false;
+      });
+      assert.deepEqual(failedTitles(r), [TITLES[11]]);
     });
   });
 });

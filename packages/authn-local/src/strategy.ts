@@ -109,12 +109,9 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   protected async rehash(hasher: PasswordHasher, id: IdentityRef, password: string, verified: string): Promise<void> {
     try {
       const fresh = await hasher.hash(password);
-      // A reset, set, change or expiry may have stored a new value while we hashed: never write the old password back over it.
-      // A gap between this read and the write remains until the store offers a conditional write (RFC N3-1).
-      if ((await this.passwords().get(id)) !== verified) {
-        return;
-      }
-      await this.passwords().set(id, fresh);
+      // Only over the verified hash: a reset, set, change or expiry that stored a new value meanwhile must not get the old
+      // password written back over it (A30). A lost race leaves the newer value and needs no retry.
+      await this.passwords().set(id, fresh, verified);
     } catch (err) {
       // The name only: some ORM errors carry the query bindings, i.e. the new hash, in their message.
       this.log().warn(`Could not store the rehashed password of ${id.type} ${id.id}: ${(err as Error)?.name ?? typeof err}`);
