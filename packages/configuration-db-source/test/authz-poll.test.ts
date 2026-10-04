@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { AuthzService, SYSTEM } from '@spinajs/authz';
-import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
+import { AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
+import { hostHarness, runBehaviour, testHost, userPrincipal } from '@spinajs/authz-testing';
 
 import { asSystem, requireSystemPrincipal, resetSystemPrincipal } from '../src/system.js';
 import { bootDb } from './support/db.js';
@@ -49,6 +49,15 @@ describe('configuration-db-source under authz', function () {
       await testHost.installHost();
       await DI.resolve(AuthzService);
       expect(await pending).to.equal('ok');
+    });
+
+    it('restores the request principal after asSystem', async () => {
+      const request = userPrincipal('reader');
+      await runWithPrincipal(request, async () => {
+        const seen = await asSystem(async () => authz().current());
+        expect(seen).to.equal(SYSTEM);
+        expect(authz().current()).to.equal(request);
+      });
     });
 
     it("records runAs 'config-poll' and delivers the polled value", async () => {
