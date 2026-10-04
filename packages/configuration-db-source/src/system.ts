@@ -26,6 +26,7 @@ function resolvedService(domain: string): AuthzService | undefined {
   }
 }
 
+// A non-root domain exists only for the B09 harness (it runs in a child 'test' domain) and must already be resolved by the host.
 // Never boots the service itself: booting it before the http server skips controllers (L5 boot rule 7).
 function serviceOf(domain: string): Promise<AuthzService> {
   const ready = resolvedService(domain);
