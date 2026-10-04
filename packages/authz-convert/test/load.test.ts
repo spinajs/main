@@ -81,7 +81,7 @@ describe('loadLayers', () => {
     const before = { NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV };
     const layers = await loadLayers([fixture('computed')]);
     expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
-    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/computed/rbac.js', layer: 'common' }]);
+    expect(layers.envReaders).to.deep.equal([]);
     expect(layers.probeErrors).to.deep.equal([]);
     expect({ NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV }).to.deep.equal(before);
   });
@@ -92,8 +92,35 @@ describe('loadLayers', () => {
     expect(layers.envReaders).to.deep.equal([]);
   });
 
+  it('names the other variables a config file reads through what it imports', async () => {
+    const layers = await loadLayers([fixture('probe-vars', 'config')]);
+    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/probe-vars/config/rbac.js', layer: 'common', vars: ['COOKIE_SECURE_FOR_TEST'] }]);
+  });
+
+  it('runs the second time in the environment from before the first run, which a dotenv helper may have filled', async () => {
+    try {
+      const layers = await loadLayers([fixture('probe-dotenv', 'config')]);
+      expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
+    } finally {
+      delete process.env.SECURE_FLAG_FOR_TEST;
+    }
+  });
+
+  it('reads the second run whatever the config files print', async () => {
+    const layers = await loadLayers([fixture('probe-noisy')]);
+    expect(layers.probeErrors).to.deep.equal([]);
+  });
+
   it('reports a second run that fails, instead of refusing the conversion', async () => {
-    const layers = await loadLayers([fixture('probe-fail')]);
+    const saved = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    let layers: Awaited<ReturnType<typeof loadLayers>>;
+    try {
+      layers = await loadLayers([fixture('probe-fail')]);
+    } finally {
+      if (saved === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = saved;
+    }
     expect(layers.common).to.deep.equal({ rbac: { defaultRole: 'user' } });
     expect(layers.computed.size).to.equal(0);
     expect(layers.probeErrors.join('\n')).to.match(/NODE_ENV=production: APP_SECRET_FOR_TEST is not set/);

@@ -113,6 +113,17 @@ describe('convert', () => {
     expect(file(r, 'authn-generated.dev.ts')).to.equal(undefined);
   });
 
+  it('leaves any env whose login provider differs from common for a person, whichever side names it', async () => {
+    for (const [common, prod] of [
+      ['SimpleDbAuthProvider', 'LdapAuthProvider'],
+      ['LdapAuthProvider', 'SimpleDbAuthProvider'],
+    ]) {
+      const dir = configDir({ 'rbac.js': { ...HTTP, rbac: { ...RBAC, auth: { service: common } } }, 'rbac.prod.js': { rbac: { auth: { service: prod } } } });
+      const r = await convert({ dirs: [dir] });
+      expect(r.findings.filter((x) => x.code === 'env-array').map((x) => x.layer)).to.deep.equal(['prod']);
+    }
+  });
+
   it('writes the local strategy into an env layer when only env files hold rbac keys', async () => {
     const dir = configDir({ 'http.js': HTTP, 'rbac.local.js': { rbac: { defaultRole: 'user' } } });
     const r = await convert({ dirs: [dir] });

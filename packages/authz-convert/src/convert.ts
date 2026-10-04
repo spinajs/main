@@ -9,6 +9,7 @@ import type { Finding } from './findings.js';
 import { DEFAULT_SELF_RESOURCES, convertGrants } from './grants.js';
 import type { RoleOut } from './grants.js';
 import { SCALAR_TO_ARRAY_KEYS, convertKeys } from './keys.js';
+import { RBAC_2X_DEFAULTS } from './legacy.js';
 import type { KeyOutput } from './keys.js';
 import { loadLayers } from './load.js';
 import type { ConfigLayers } from './load.js';
@@ -137,20 +138,28 @@ function sharedGrantKeys(common: Plain, env: Plain, name: string, f: Findings): 
  */
 function defaultStrategy(layers: ConfigLayers, outputs: LayerOutput[]): void {
   const LOCAL = [{ name: 'local', service: 'LocalPasswordStrategy' }];
+  const DEFAULT = String(RBAC_2X_DEFAULTS['auth.service']);
+  // The provider 2.x logged in with in a view; undefined where the view has no rbac keys at all.
+  const effective = (view: Plain) => (isPlain(view.rbac) ? String(getPath(view, ['rbac', 'auth', 'service']) ?? DEFAULT) : undefined);
   const unset = (view: Plain) => isPlain(view.rbac) && getPath(view, ['rbac', 'auth', 'service']) === undefined;
   const [common, ...envs] = outputs;
-  if (isPlain(layers.view(null).rbac)) {
-    if (!unset(layers.view(null))) return;
-    setPath(common.out.authn, ['authn', 'strategies'], LOCAL);
-    for (const o of envs) {
-      const service = getPath(layers.envs.get(o.name), ['rbac', 'auth', 'service']);
-      if (service !== undefined && service !== 'SimpleDbAuthProvider') {
-        o.findings.manual('env-array', `Env '${o.name}' sets rbac.auth.service '${String(service)}', but common lists the 2.x default local strategy in authn.strategies; arrays concatenate, so the env would keep password login next to its own. Split authn.strategies by hand.`, 'rbac.auth.service');
-      }
+  const base = effective(layers.view(null));
+  if (base !== undefined && unset(layers.view(null))) setPath(common.out.authn, ['authn', 'strategies'], LOCAL);
+  for (const o of envs) {
+    const view = layers.view(o.name);
+    if (base === undefined) {
+      if (unset(view) && getPath(o.out.authn, ['authn', 'strategies']) === undefined) setPath(o.out.authn, ['authn', 'strategies'], LOCAL);
+      continue;
     }
-    return;
+    const mine = effective(view);
+    if (mine !== base) {
+      o.findings.manual(
+        'env-array',
+        `2.x logged in with '${mine}' in env '${o.name}' and with '${base}' in common. authn.strategies concatenates across config files, so an env file cannot replace the common strategy; split authn.strategies by hand, or the env keeps both logins.`,
+        'rbac.auth.service',
+      );
+    }
   }
-  for (const o of envs) if (unset(layers.view(o.name)) && getPath(o.out.authn, ['authn', 'strategies']) === undefined) setPath(o.out.authn, ['authn', 'strategies'], LOCAL);
 }
 
 /** Converts the app's 2.x config dirs. Throws ConversionError, and returns no file, when any layer holds something it refuses. */
@@ -206,9 +215,9 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
     }
     tail.list.push(...at.list);
   }
-  for (const { file, layer } of layers.envReaders) {
+  for (const { file, layer, vars } of layers.envReaders) {
     const at = new Findings(layer);
-    at.warn('reads-env', `${file} reads process.env, so the values it gave this run were converted as constants; check the keys it sets.`);
+    at.warn('reads-env', `${file} (or a module it imports) reads ${vars.join(', ')} from the environment; values derived from them were converted as this run saw them. Check the keys it sets.`);
     tail.list.push(...at.list);
   }
   for (const e of layers.probeErrors) {

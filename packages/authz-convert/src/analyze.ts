@@ -175,7 +175,7 @@ function dbFacts(merged: Plain, grants: Grants2, db: DbFacts, f: Findings): void
     );
   }
   // accesscontrol refused a role list naming a role no rbac.grants (the app's or a package's) defined, declared or not.
-  const voided = [...db.users, ...db.tokens].filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r) && !RBAC_2X_PACKAGE_ROLES.has(r)));
+  const voided = [...db.users.map((u) => ({ ...u, id: `user ${u.id}` })), ...db.tokens.map((t) => ({ ...t, id: `token ${t.id}` }))].filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r) && !RBAC_2X_PACKAGE_ROLES.has(r)));
   if (voided.length > 0) {
     f.warn(
       'roles-voided',
