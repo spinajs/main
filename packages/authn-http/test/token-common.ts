@@ -19,6 +19,9 @@ chai.use(chaiAsPromised);
 
 export const COOKIE_SECRET = 'authn-http-token-test-secret';
 
+/** The app's origin as a browser on it sends it; cookie requests with an unsafe method need it (A22). */
+export const APP_ORIGIN = 'http://localhost:8889';
+
 export function req() {
   return chai.request('http://localhost:8889/');
 }

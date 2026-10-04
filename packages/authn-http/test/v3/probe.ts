@@ -9,6 +9,11 @@ export function resetAuthnProbeHits(): void {
   hits = 0;
 }
 
+/** How many times a probe handler ran. */
+export function authnProbeHits(): number {
+  return hits;
+}
+
 export function probeBody(req: Request) {
   hits++;
   return { principal: req.storage.AuthnPrincipal ?? null, clientIp: req.storage.ClientIp ?? null, hits };

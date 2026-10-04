@@ -20,6 +20,7 @@ import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../src/policies/NotLogg
 import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
 import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
+import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
 
 const expect = chai.expect;
 
@@ -34,7 +35,7 @@ const ROUTE_ARGS = { Identity, AuthnSession, SessionId, FromSession };
 const MIDDLEWARES = { ClientIp, CsrfOriginGuard, AuthnMiddleware };
 const RESOLVERS = { KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver };
 // api.ts names N8a has implemented: the barrel must give these, not the stubs.
-const LANE: Record<string, unknown> = { ClientIp: LaneClientIp };
+const LANE: Record<string, unknown> = { ClientIp: LaneClientIp, CsrfOriginGuard: LaneCsrfOriginGuard };
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };

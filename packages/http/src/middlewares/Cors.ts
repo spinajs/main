@@ -8,15 +8,20 @@ import { ServerMiddleware, Request as sRequest } from '../interfaces.js';
 
 const ALLOWED_METHODS = 'GET,HEAD,PUT,PATCH,POST,DELETE';
 
-const serializedOrigin = (value: unknown): string | undefined => {
-  if (typeof value !== 'string') return undefined;
+/**
+ * `value` as a serialized origin (scheme://host[:port]; case, default port and a trailing slash normalised), or
+ * undefined when it is anything else.
+ */
+export function parseOrigin(value: unknown): string | undefined {
+  // A value with a path, query, credentials or wildcard host would be cut down to an origin it never named.
+  if (typeof value !== 'string' || /[*@\\]/.test(value) || !/^[a-z][a-z0-9+.-]*:\/\/[^/?#]+\/?$/i.test(value)) return undefined;
   try {
     const origin = new URL(value).origin;
     return origin === 'null' ? undefined : origin;
   } catch {
     return undefined;
   }
-};
+}
 
 const headerList = (value: unknown): string | undefined => {
   const joined = Array.isArray(value) ? value.join(',') : typeof value === 'string' ? value : '';
@@ -65,8 +70,7 @@ export class CorsMiddleware extends ServerMiddleware {
     const any = raw.includes('*');
     const listed = new Set<string>();
     for (const entry of raw.filter((e) => e !== '*')) {
-      // An entry with a path, query or wildcard host would be cut down to an origin it never named.
-      const origin = typeof entry === 'string' && !/[*@]/.test(entry) && /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+\/?$/i.test(entry) ? serializedOrigin(entry) : undefined;
+      const origin = parseOrigin(entry);
       if (origin === undefined) throw new InvalidOption(`http.cors.origins entry ${JSON.stringify(entry)} is not an origin (scheme://host[:port]) or '*'`);
       listed.add(origin);
     }

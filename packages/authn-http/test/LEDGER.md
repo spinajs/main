@@ -188,7 +188,7 @@ Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
 ## test/token-controller-roles.test.ts
 
-`/user/tokens/roles` and `/profiles` routes and role-policy driven create. Class: rewrite per plan T3 (token ceiling, B24); lane C5, replacement by T3. Open: 3.0 home of the token roles/profiles read routes is undecided (D26); integrator decides.
+`/user/tokens/roles` and `/profiles` routes and role-policy driven create. Class: rewrite per plan T3 (token ceiling, B24); lane C5, replacement by T3. Open: 3.0 home of the token roles/profiles read routes is undecided (D26); integrator decides. N8a task 2 (A22): the cookie requests with an unsafe method send `Origin: APP_ORIGIN` (`token-common.ts`), as a browser on the app does; intent and expected values unchanged, the files stay here.
 
 Status (C5): not moved yet. The file tests the live 2.x `AccessTokenController` under `src/token/` (N8b's folder), so N8b moves it to `test/legacy-v2/` when it replaces the routes; T3 writes the replacements. The policy side the routes read now exists: `loadTokenRoleRules` and `TokenRoleRules.allowedRoles|allowedProfiles` in authz-rbac (C5), for whichever lane hosts `/user/tokens/roles` and `/profiles` (proposed: C2).
 
@@ -213,7 +213,7 @@ Status (C5): not moved yet. The file tests the live 2.x `AccessTokenController` 
 
 ## test/token-controller.test.ts
 
-Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3; a few rows adapt, two drop; lane C5.
+Token self-service routes (`/user/tokens`). Dominant class: rewrite per plan T3; a few rows adapt, two drop; lane C5. N8a task 2 (A22): the cookie requests with an unsafe method send `Origin: APP_ORIGIN` (`token-common.ts`), as a browser on the app does; intent and expected values unchanged, the files stay here.
 
 Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder): N8b moves the rewrite rows to `test/legacy-v2/` with its route change, handles the adapt rows and deletes the drop rows; T3 ports the rest. The check-time half of row 4 is covered by B07.token and B24.token in `authz-rbac/test/token/behaviour.test.ts` (C5).
 

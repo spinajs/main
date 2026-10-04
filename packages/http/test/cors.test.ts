@@ -6,7 +6,7 @@ import sinon from 'sinon';
 import express from 'express';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { CorsMiddleware } from '../src/middlewares/Cors.js';
+import { CorsMiddleware, parseOrigin } from '../src/middlewares/Cors.js';
 
 chai.use(chaiHttp);
 
@@ -125,5 +125,23 @@ describe('CorsMiddleware (A31)', () => {
       expect(() => middleware({ origins: [entry] }).mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
     }
     expect(() => middleware({ origins: 'https://a.example' }).mw.before()).to.throw(InvalidOption, 'http.cors.origins');
+  });
+});
+
+describe('parseOrigin', () => {
+  it('gives the serialized origin: lower case, default port and trailing slash dropped', () => {
+    expect(parseOrigin('HTTPS://Partner.Example.Test:443/')).to.eq(PARTNER);
+    expect(parseOrigin('http://localhost:8889')).to.eq('http://localhost:8889');
+    expect(parseOrigin('http://app.example.test:80')).to.eq('http://app.example.test');
+    expect(parseOrigin('http://[::1]:8889')).to.eq('http://[::1]:8889');
+  });
+
+  it('refuses anything that is not an origin rather than cutting it down to one', () => {
+    const values = [
+      'partner.example.test', 'localhost:3000', 'null', '', 'http://', 'https://partner.example.test/app', 'https://partner.example.test?x=1',
+      'https://partner.example.test#x', 'https://*.example.test', 'https://user@partner.example.test', 'http://evil.example\\app.example.test',
+      'http://a b', 'http://app:port', 'data:text/plain,x', undefined, null, 1, ['https://a.example'],
+    ];
+    for (const value of values) expect(parseOrigin(value), String(value)).to.eq(undefined);
   });
 });

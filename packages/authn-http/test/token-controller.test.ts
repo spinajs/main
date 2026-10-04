@@ -12,7 +12,7 @@ import { IRbacDescriptor } from '../src/interfaces.js';
 import { RbacPolicy } from '../src/policies/RbacPolicy.js';
 import { DateTime } from 'luxon';
 
-import { sessionCookieFor, req, restoreHttpErrorMap, useTestConfiguration } from './token-common.js';
+import { APP_ORIGIN, sessionCookieFor, req, restoreHttpErrorMap, useTestConfiguration } from './token-common.js';
 import { AccessToken, createToken } from '@spinajs/authn-token';
 import { AccessTokenController } from '../src/token/controllers/AccessTokenController.js';
 import { NoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
@@ -97,7 +97,7 @@ describe('AccessTokenController', function () {
     const user = await makeUser('h1@spinajs.com', 'h1');
     const cookie = await sessionCookieFor(user);
 
-    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'my token', Roles: ['user'] });
+    const res = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'my token', Roles: ['user'] });
     expect(res.status).to.equal(200);
     expect(res.body.Plaintext).to.match(/^spt_/);
     expect(res.body.Token.Uuid).to.be.a('string');
@@ -137,7 +137,7 @@ describe('AccessTokenController', function () {
     const cookie = await sessionCookieFor(user);
     const expires = DateTime.now().plus({ days: 7 });
 
-    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'expiring', Roles: ['user'], ExpiresAt: expires.toISO() });
+    const res = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'expiring', Roles: ['user'], ExpiresAt: expires.toISO() });
     expect(res.status).to.equal(200);
 
     const wire = res.body.Token.ExpiresAt;
@@ -154,7 +154,7 @@ describe('AccessTokenController', function () {
     const user = await makeUser('h2@spinajs.com', 'h2');
     const cookie = await sessionCookieFor(user);
 
-    const res = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'bad', Roles: ['admin'] });
+    const res = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'bad', Roles: ['admin'] });
     expect(res.status).to.equal(400);
   });
 
@@ -165,11 +165,11 @@ describe('AccessTokenController', function () {
 
     const aliceCookie = await sessionCookieFor(alice);
 
-    const foreign = await req().delete(`user/tokens/${bobsToken.Uuid}`).set('Cookie', aliceCookie);
+    const foreign = await req().delete(`user/tokens/${bobsToken.Uuid}`).set('Cookie', aliceCookie).set('Origin', APP_ORIGIN);
     expect(foreign.status).to.equal(404);
 
     const { Token: own } = await createToken(alice, 'own', ['user'], null);
-    const deleted = await req().delete(`user/tokens/${own.Uuid}`).set('Cookie', aliceCookie);
+    const deleted = await req().delete(`user/tokens/${own.Uuid}`).set('Cookie', aliceCookie).set('Origin', APP_ORIGIN);
     expect(deleted.status).to.equal(200);
     expect(await AccessToken.where('Uuid', own.Uuid).first()).to.be.undefined;
   });
@@ -179,11 +179,11 @@ describe('AccessTokenController', function () {
     const cookie = await sessionCookieFor(user);
     const { Token } = await createToken(user, 'roles', ['user'], null);
 
-    const granted = await req().put(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie);
+    const granted = await req().put(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
     expect(granted.status).to.equal(200);
     expect(granted.body.Roles).to.have.members(['user', 'admin']);
 
-    const revoked = await req().delete(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie);
+    const revoked = await req().delete(`user/tokens/${Token.Uuid}/roles/admin`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
     expect(revoked.status).to.equal(200);
     expect(revoked.body.Roles).to.deep.equal(['user']);
   });
@@ -193,7 +193,7 @@ describe('AccessTokenController', function () {
     const cookie = await sessionCookieFor(user);
     const { Token } = await createToken(user, 'last role', ['user'], null);
 
-    const res = await req().delete(`user/tokens/${Token.Uuid}/roles/user`).set('Cookie', cookie);
+    const res = await req().delete(`user/tokens/${Token.Uuid}/roles/user`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
     expect(res.status).to.equal(400);
 
     // refused BEFORE any write - the row still carries its role
@@ -226,7 +226,7 @@ describe('AccessTokenController', function () {
     const cookie = await sessionCookieFor(victim, admin);
     const { Token: victimsToken } = await createToken(victim, 'pre-existing', ['user'], null);
 
-    const created = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'stolen', Roles: ['user'] });
+    const created = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'stolen', Roles: ['user'] });
     expect(created.status, 'impersonation must not be able to mint a lasting credential').to.equal(403);
 
     // and no route of the controller is reachable either - the guard sits at the
@@ -234,7 +234,7 @@ describe('AccessTokenController', function () {
     const listed = await req().get('user/tokens').set('Cookie', cookie);
     expect(listed.status).to.equal(403);
 
-    const deleted = await req().delete(`user/tokens/${victimsToken.Uuid}`).set('Cookie', cookie);
+    const deleted = await req().delete(`user/tokens/${victimsToken.Uuid}`).set('Cookie', cookie).set('Origin', APP_ORIGIN);
     expect(deleted.status).to.equal(403);
 
     // nothing was minted and nothing was destroyed
@@ -245,7 +245,7 @@ describe('AccessTokenController', function () {
     // control: the very same request WITHOUT the impersonation succeeds, so the
     // 403s above are the impersonation guard and not a broken fixture
     const ownCookie = await sessionCookieFor(victim);
-    const own = await req().post('user/tokens').set('Cookie', ownCookie).send({ Name: 'mine', Roles: ['user'] });
+    const own = await req().post('user/tokens').set('Cookie', ownCookie).set('Origin', APP_ORIGIN).send({ Name: 'mine', Roles: ['user'] });
     expect(own.status).to.equal(200);
   });
 
