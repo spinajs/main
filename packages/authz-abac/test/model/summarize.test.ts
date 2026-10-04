@@ -10,6 +10,7 @@ const expect = chai.expect;
 
 const NOW = new Date('2026-10-01T12:00:00.000Z');
 const O1 = { type: 'org', id: 'o1' };
+const O2 = { type: 'org', id: 'o2' };
 const F1 = { type: 'file', id: 'f1' };
 
 const registry = (readTypes: readonly string[] = ['doc', 'file']): PermissionRegistryImpl => {
@@ -56,9 +57,19 @@ describe('authz-abac: summarize (H18)', () => {
     expect((await m.summarize(svc, GLOBAL, ctx())).permissions.map((p) => p.name)).to.deep.equal(['doc:delete', 'doc:read', 'doc:write']);
   });
 
-  it('an unconditional policy wins over a conditional one for the same permission; fields go with it', async () => {
+  it('an unconditional policy makes the entry unconditional; its fields are those of every permit, conditional ones too (review I1)', async () => {
     const m = await model([policy('cond', { when: { attr: 'resource.status', eq: 'open' } }), policy('all', { fields: { read: ['name'] } })]);
-    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['name'], write: [] } }]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
+    const both = await model([policy('a', { scope: O1, fields: { read: ['a'] } }), policy('b', { scope: O2, fields: { read: ['b'], write: ['b'] } })]);
+    expect((await both.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: true, fields: { read: ['a', 'b'], write: ['b'] } }]);
+    expect((await both.summarize(alice, F1, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['a'], write: [] } }]);
+  });
+
+  it('a permit whose principalTypes match only through a companion is listed conditional (review M1)', async () => {
+    const m = await model([policy('users', { permissions: ['doc:delete'], principalTypes: ['user'] })]);
+    expect((await m.summarize(servicePrincipal('s', { companions: [{ type: 'user', id: 'u' }] }), GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:delete', conditional: true }]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:delete', conditional: false }]);
+    expect((await m.summarize(svc, GLOBAL, ctx())).permissions).to.deep.equal([]);
   });
 
   it('decides scopes on the path of `at`; a scoped policy is listed conditional at GLOBAL (it holds below its node)', async () => {
@@ -109,6 +120,8 @@ describe('authz-abac: summarize (H18)', () => {
       ['principal.authn (step-up), target without authn facts', { when: { attr: 'principal.authn.assurance', eq: 'aal2' } }],
       ['principal.authn (step-up), target at aal1', { when: { attr: 'principal.authn.assurance', eq: 'aal2' } }, userPrincipal('del', { authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: NOW } })],
       ['actor.attributes', { when: { attr: 'actor.attributes.dept', eq: 'sales' } }],
+      ['actor.attributes under not', { when: { not: { attr: 'actor.attributes.dept', eq: 'eng' } } }],
+      ['principal.companions', { when: { attr: 'principal.companions', null: false } }],
       ['a function with literal arguments', { when: { fn: 'glob', args: { value: 'abc', pattern: 'x*' } } }],
       ["actorTypes: ['agent'] for a user", { actorTypes: ['agent'] }],
     ];
@@ -176,6 +189,25 @@ describe('authz-abac: summarize (H18)', () => {
       const permit = await engine([policy('read'), policy('team-x', { permissions: ['doc:write'], when: { attr: 'principal.attributes.team', eq: 'x' } })]);
       expect(await covers(permit, bob, alice)).to.equal(false);
       expect(await covers(permit, alice, bob)).to.equal(true);
+    });
+
+    describe("a target's conditional permit gives fields its summary entry must list (review I1)", () => {
+      const t = userPrincipal('t');
+      const h = userPrincipal('h');
+      const hWrites = policy('h-writes', { permissions: ['doc:write'], when: { attr: 'principal.id', eq: 'h' } });
+      const only = (id: string) => ({ when: { attr: 'principal.id', eq: id } });
+
+      it('F1: every field in o1 next to a global name-only permit; control without it', async () => {
+        const base = policy('base', { fields: { read: ['name'] } });
+        expect(await covers(await engine([base, policy('t-in-o1', { scope: O1, ...only('t') }), hWrites]), h, t)).to.equal(false);
+        expect(await covers(await engine([base, hWrites]), h, t)).to.equal(true);
+      });
+
+      it('F2: disjoint fields in o1 and o2; control with a holder reading both', async () => {
+        const tPermits = [policy('t-o1-a', { scope: O1, fields: { read: ['a'] }, ...only('t') }), policy('t-o2-b', { scope: O2, fields: { read: ['b'] }, ...only('t') })];
+        expect(await covers(await engine([...tPermits, policy('h-x', { fields: { read: ['x'] }, ...only('h') }), hWrites]), h, t)).to.equal(false);
+        expect(await covers(await engine([...tPermits, policy('h-abx', { fields: { read: ['a', 'b', 'x'] }, ...only('h') }), hWrites]), h, t)).to.equal(true);
+      });
     });
 
     describe('a target whose permission comes only from a typed or scoped permit (RFC L1-3)', () => {

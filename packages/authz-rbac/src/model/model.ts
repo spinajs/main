@@ -3,7 +3,7 @@ import type { Assignment, AssignmentSubject, DecisionRequest, EvaluationContext,
 
 import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS } from './cache.js';
-import { createRbacExtensions, defaultSubjects, extendRbacInput, liveAssignments, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
+import { RBAC_SUMMARY_STEPS, createRbacExtensions, defaultSubjects, extendRbacInput, liveAssignments, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
 import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
@@ -149,8 +149,10 @@ export class RbacModel extends AuthorizationModel {
    * - At `$global` each permission is judged per type T of its `types`, on `{ type: T }` (path
    *   `[{ type: T }, GLOBAL]`), so type and glob patterns and bare-type and scoped assignments count;
    *   a request on `$global` itself is concrete and would miss them. Listed when some T permits
-   *   and does not deny everything; `fields` is the union over the permitting Ts, so the entry
-   *   never shows fewer fields than some type gives.
+   *   and does not deny everything; `fields` is the union over the permitting Ts.
+   * - `fields` of each vote are those of every grant that permits some row (RBAC_SUMMARY_STEPS),
+   *   not the vote's own rule, which leaves out a conditional or scoped grant's fields when an
+   *   unconditional grant exists: the entry never shows fewer fields than the target gets on a row.
    * - At any other `at`, the permission is judged at `at`, if its `types` hold `at`'s type.
    * - `roles` lists only the assignments that hold at `at` (at `$global`: GLOBAL ones); permissions
    *   from bare-type or scoped assignments appear without their roles.
@@ -173,7 +175,7 @@ export class RbacModel extends AuthorizationModel {
       const def = registry.get(name);
       if (def === undefined || (!atGlobal && !def.types.includes(at.type))) continue;
       const votes: Vote[] = [];
-      for (const ref of typed(def.types)) votes.push(runRbacPipeline(await readRbacInput({ principal, permission: name, resource: ref }, ctx, sources)));
+      for (const ref of typed(def.types)) votes.push(runRbacPipeline(await readRbacInput({ principal, permission: name, resource: ref }, ctx, sources), RBAC_SUMMARY_STEPS));
       const permitting = votes.filter((v) => v.permitWhen.op !== 'false' && v.denyWhen.op !== 'true');
       if (permitting.length === 0) continue;
       const conditional = !votes.every((v) => v.permitWhen.op === 'true' && v.denyWhen.op === 'false');

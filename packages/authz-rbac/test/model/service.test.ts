@@ -28,9 +28,10 @@ const PERMISSIONS: PermissionInput[] = [
   { name: 'user:read', fields: true },
   { name: 'dir:list', types: ['dir'] },
   { name: 'note:read', types: ['file'] },
+  { name: 'page:view', types: ['file'], fields: true },
 ];
 
-const ROLES: RoleDef[] = [role('reader', ['doc:read']), role('writer', ['doc:write'], { extends: ['reader'] }), role('all', ['doc:*']), role('ownerWriter', [{ permission: 'doc:write', relation: 'owner' }]), role('eitherWriter', [{ permission: 'doc:write', relation: ['owner', 'editor'] }]), role('names', [{ permission: 'user:read', fields: { read: ['name'] } }]), role('contacts', [{ permission: 'user:read', fields: { read: ['name', 'email'] } }]), role('users', ['user:read']), role('home', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'home/{principal.id}' }] }]), role('home2', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'home/{principal.id}' }] }]), role('tmp', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'tmp' }] }]), role('dirs', ['dir:list']), role('tagged', [{ permission: 'doc:delete', requiresTag: 'danger' }]), role('deleter', ['doc:delete']), role('typedReader', [{ permission: 'doc:read', on: [{ type: 'file' }] }]), role('noteTyped', [{ permission: 'note:read', on: [{ type: 'file' }] }]), role('globReader', [{ permission: 'doc:read', on: [{ type: 'file', id: 'pub/*' }] }]), role('noteReader', ['note:read']), role('writerOnly', ['doc:write'])];
+const ROLES: RoleDef[] = [role('reader', ['doc:read']), role('writer', ['doc:write'], { extends: ['reader'] }), role('all', ['doc:*']), role('ownerWriter', [{ permission: 'doc:write', relation: 'owner' }]), role('eitherWriter', [{ permission: 'doc:write', relation: ['owner', 'editor'] }]), role('names', [{ permission: 'user:read', fields: { read: ['name'] } }]), role('contacts', [{ permission: 'user:read', fields: { read: ['name', 'email'] } }]), role('users', ['user:read']), role('home', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'home/{principal.id}' }] }]), role('home2', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'home/{principal.id}' }] }]), role('tmp', [{ permission: 'dir:list', on: [{ type: 'dir', id: 'tmp' }] }]), role('dirs', ['dir:list']), role('tagged', [{ permission: 'doc:delete', requiresTag: 'danger' }]), role('deleter', ['doc:delete']), role('typedReader', [{ permission: 'doc:read', on: [{ type: 'file' }] }]), role('noteTyped', [{ permission: 'note:read', on: [{ type: 'file' }] }]), role('globReader', [{ permission: 'doc:read', on: [{ type: 'file', id: 'pub/*' }] }]), role('noteReader', ['note:read']), role('writerOnly', ['doc:write']), role('pageNames', [{ permission: 'page:view', fields: { read: ['name'], write: [] } }]), role('pageViewer', ['page:view']), role('pageA', [{ permission: 'page:view', fields: { read: ['a'], write: [] } }]), role('pageB', [{ permission: 'page:view', fields: { read: ['b'], write: [] } }])];
 
 async function setup(assignments: readonly Assignment[] = [], config: Record<string, unknown> = {}) {
   const registry = new PermissionRegistryImpl();
@@ -234,6 +235,15 @@ describe('authz-rbac model: RbacService', () => {
       it('fields are the union over the types that permit', async () => {
         const { model } = await setup([assignment('a1', alice, 'contacts')]);
         expect((await model.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'user:read', conditional: false, fields: { read: ['email', 'name'], write: ['*'] } }]);
+      });
+
+      it('fields list every grant that permits some row, scoped and conditional ones too (E1 review I1)', async () => {
+        const names = await setup([assignment('a1', alice, 'pageNames'), assignment('a2', alice, 'pageViewer', P1)]);
+        expect((await names.model.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'page:view', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
+        const disjoint = await setup([assignment('a1', alice, 'pageA', P1), assignment('a2', alice, 'pageB', P2)]);
+        expect((await disjoint.model.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'page:view', conditional: true, fields: { read: ['a', 'b'], write: [] } }]);
+        const alone = await setup([assignment('a1', alice, 'pageNames')]);
+        expect((await alone.model.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'page:view', conditional: false, fields: { read: ['name'], write: [] } }]);
       });
 
       it('B26-style subset: a caller without doc:read does not cover a target with a typed doc:read grant', async () => {

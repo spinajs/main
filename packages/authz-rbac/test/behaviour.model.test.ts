@@ -31,6 +31,7 @@ const carol = userPrincipal('carol');
 const P1 = ref('project', 'p1');
 const P2 = ref('project', 'p2');
 const O1 = ref('org', 'o1');
+const O2 = ref('org', 'o2');
 const nativeWorld: World = {
   permissions: ['file:read'],
   principals: { alice, bob, carol },
@@ -86,6 +87,28 @@ const grantsWorld = (targetRole: ReturnType<typeof role>, scope: ResourceRef = G
     },
   };
 };
+
+// The holder reads doc fields `holderFields` everywhere and writes docs; the target's doc:read comes from `targetRoles`.
+const fieldsWorld = (holderFields: readonly string[], targetRoles: readonly (readonly [ReturnType<typeof role>, ResourceRef])[]): World => {
+  const people = { holder: userPrincipal('holder'), target: userPrincipal('target') };
+  return {
+    permissions: [
+      { name: 'doc:read', types: ['doc'], fields: true },
+      { name: 'doc:write', types: ['doc'] },
+    ],
+    principals: people,
+    scopes: [{ nodes: [{ ref: O1 }, { ref: O2 }] }],
+    combine: combine('deny-overrides', 'rbac'),
+    rbac: {
+      roles: [role('holderReader', [{ permission: 'doc:read', fields: { read: [...holderFields] } }]), role('writerOnly', ['doc:write']), ...targetRoles.map(([r]) => r)],
+      assignments: [assignment('h1', people.holder, 'holderReader'), assignment('h2', people.holder, 'writerOnly'), ...targetRoles.map(([r, scope], i) => assignment(`t${i}`, people.target, r.name, scope))],
+    },
+  };
+};
+
+const reads = (name: string, read?: readonly string[]) => role(name, [{ permission: 'doc:read', ...(read ? { fields: { read: [...read] } } : {}) }]);
+
+const fieldsCase = (name: string, world: World, covers: boolean): Case => ({ name, world, steps: [{ covers: { holder: 'holder', target: 'target' }, expect: covers }] });
 
 const grantCase = (name: string, world: World): Case => ({
   name,
@@ -217,6 +240,48 @@ const LOCAL = [
         grantCase('an exact-id grant', grantsWorld(role('oneReader', [{ permission: 'doc:read', on: [{ type: 'doc', id: 'd1' }] }]))),
       ],
     },
+    {
+      name: 'rbac-fields',
+      facets: ['engine', 'rbac'],
+      lanes: ['L1', 'F3'],
+      note: "E1 review I1: a summary entry lists the fields of every grant that permits some row; the vote's type-level fields (union over the unconditional grants, else the intersection) leave out what a scoped grant gives on its rows.",
+      cases: [
+        fieldsCase(
+          'every field in o1 next to a global name-only grant: a name-only holder does not cover',
+          fieldsWorld(
+            ['name'],
+            [
+              [reads('names', ['name']), GLOBAL],
+              [reads('reader'), O1],
+            ],
+          ),
+          false,
+        ),
+        fieldsCase('control: the global name-only grant alone is covered', fieldsWorld(['name'], [[reads('names', ['name']), GLOBAL]]), true),
+        fieldsCase(
+          'field a in o1 and b in o2: a holder reading x does not cover',
+          fieldsWorld(
+            ['x'],
+            [
+              [reads('aReader', ['a']), O1],
+              [reads('bReader', ['b']), O2],
+            ],
+          ),
+          false,
+        ),
+        fieldsCase(
+          'control: a holder reading a, b and x covers',
+          fieldsWorld(
+            ['a', 'b', 'x'],
+            [
+              [reads('aReader', ['a']), O1],
+              [reads('bReader', ['b']), O2],
+            ],
+          ),
+          true,
+        ),
+      ],
+    },
   ]),
 ];
 
@@ -235,4 +300,4 @@ runBehaviour(['B06.rbac-native'], () => rbacHarness({ extensions: (_host, option
 runBehaviour(['B13.rbac-global'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B01.rbac-combine'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
 runBehaviour(['B12.rbac-extension'], throwingHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
-runBehaviour(['B26.rbac-probe', 'B26.rbac-grants'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });
+runBehaviour(['B26.rbac-probe', 'B26.rbac-grants', 'B26.rbac-fields'], rbacHarness, { strict: true, timeoutMs: 30_000, fixtures: [...BEHAVIOUR_FIXTURES, ...LOCAL] });

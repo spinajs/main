@@ -222,12 +222,14 @@ export class AbacModel extends AuthorizationModel {
    * hold for every row or in every session.
    * - At `$global` each permission is judged per type T of its `types` (`$global` when none), on
    *   the permits indexed for T; a scope other than `$global` holds below its node (conditional).
-   *   Listed when some T has a permit, unconditional when every T has an unconditional one;
-   *   `fields` is the union of the field sets of the Ts.
+   *   Listed when some T has a permit, unconditional when every T has an unconditional one.
+   * - `fields` (for `fields: true`) is the union over every permit found, conditional ones too
+   *   (`*` for a permit without fields).
    * - At any other `at`, on `at`'s type with the scopes decided on the path of `at`.
-   * - A permit that fails only on `actorTypes`, or whose condition is FALSE now but reads the
-   *   session (`readsSession`), is listed conditional: an impersonated session has another
-   *   actor, other authn facts and a later time.
+   * - A permit that fails only on `actorTypes`, matches `principalTypes` only through a
+   *   companion, or whose condition is FALSE now but reads the session (`readsSession`), is
+   *   listed conditional: an impersonated session has another actor, other companions, other
+   *   authn facts and a later time.
    * Deny policies add no entry: `summary` and `covers` check every candidate permission, and the
    * checks apply them.
    */
@@ -254,20 +256,12 @@ export class AbacModel extends AuthorizationModel {
       }
       const listed = perType.filter((found) => found.length > 0);
       if (listed.length === 0) continue;
-      // Per T as the vote's field sets: the union over the unconditional permits, else the intersection over all.
-      const sets =
-        def.fields === true
-          ? listed.map(
-              (found) =>
-                fieldsOf(
-                  found.map((f) => ({ p: f.p, when: f.conditional ? FALSE : TRUE, needsSubject: false })),
-                  [],
-                )!,
-            )
-          : [];
-      const fields = sets.length === 0 ? undefined : sets.length === 1 ? sets[0] : { read: unionFieldGlobs(...sets.map((s) => s.read ?? [])), write: unionFieldGlobs(...sets.map((s) => s.write ?? [])) };
-      const conditional = !perType.every((found) => found.some((f) => !f.conditional));
-      out.push({ name, conditional, ...(fields ? { fields: { ...(fields.read ? { read: fields.read } : {}), ...(fields.write ? { write: fields.write } : {}) } } : {}) });
+      // Not the vote's rule (union over the unconditional permits): on the rows where a conditional
+      // permit holds the target reads its fields too, and the entry must not show fewer.
+      const found = listed.flat();
+      const permitFields = (k: 'read' | 'write') => unionFieldGlobs(...found.map((f) => (f.p.policy.fields ? f.p.policy.fields[k] ?? [] : ['*'])));
+      const conditional = !perType.every((list) => list.some((f) => !f.conditional));
+      out.push({ name, conditional, ...(def.fields === true ? { fields: { read: permitFields('read'), write: permitFields('write') } } : {}) });
     }
     return { model: this.name, permissions: out };
   }
@@ -281,7 +275,8 @@ export class AbacModel extends AuthorizationModel {
     if (p.policy.effect !== 'permit' || !targetsPrincipal(p, req, ctx.now)) return undefined;
     const scope = scopeFilter(p.policy.scope, ancestors);
     if (scope === FALSE) return undefined;
-    let conditional = scope !== TRUE || !targets(p, req, ctx.now);
+    const throughCompanion = p.principalTypes !== undefined && !p.principalTypes.has(req.principal.type);
+    let conditional = scope !== TRUE || throughCompanion || !targets(p, req, ctx.now);
     if (p.when) {
       const c = await this.compile(p, req, ctx);
       if (c.filter.op === 'false') {
