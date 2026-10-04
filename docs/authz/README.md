@@ -184,8 +184,11 @@ export default {
   name. `bus` and `principals` come from the root only.
 - `fields.neverRead` is removed from `read` and from `write`, for every principal, `SYSTEM` included
   (B17).
-- The 2.x `rbac.*` keys are not read. By default the host logs a warning that names the keys and
-  `spinajs-authz-convert`. With `authz.config.rejectLegacyKeys: true` boot fails instead.
+- The `authz` host does not read the 2.x `rbac.*` keys. By default it logs a warning that names the
+  keys and `spinajs-authz-convert`. With `authz.config.rejectLegacyKeys: true` boot fails instead.
+  Merged code in `authn-http`, `users`, `users-http` and `authz-http-admin` still reads some `rbac.*`
+  keys: keep them next to their converted keys until their lanes merge (the list is in step 2 of the
+  [migration guide](./migration-guide.md#step-2-config)).
 - Arrays from different config files are concatenated, so a package fragment adds roles and policies.
 
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.

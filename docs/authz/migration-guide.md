@@ -39,13 +39,13 @@ What bites, on one screen:
 |---|---|---|
 | **Union of roles (H1)** | A user with several roles gets the grants of all of them. 2.x mixed the active role and all roles. A role switch now only narrows. | Before the data migration, list users with several roles (step 5). Decide that the union is meant. |
 | **Unattended work is denied (H2)** | CLI commands, cron jobs, queue handlers, `@Task` bodies, sockets without a user and config polling have no principal. Every check denies them, and a query on a scoped ORM model throws. | Wrap the entry point in `authz().runAs(SYSTEM, 'reason', fn)`, or run the job as its initiator (step 4). |
-| **`users.Role` is dropped (H13)** | The column is copied into `authz_assignment` and then removed. Raw SQL and `User.Role` stop working. Rolling back to 2.x needs the `down()` of the drop migration first. | Remove every read of the column. Back up first (step 6). |
-| **Empty CORS list allows nothing (H33, A31)** | 2.x answered every origin, with credentials, when `http.cors.origins` was empty. 3.0 sends no CORS headers. | List every origin a browser client uses (step 8). |
+| **`users.Role` is dropped (H13)** | The column is copied into `authz_assignment` and then removed. Raw SQL and `User.Role` stop working. Rolling back to 2.x needs the `down()` of the drop migration first. | Remove every read of the column. Back up first (step 7). |
+| **Empty CORS list allows nothing (H33, A31)** | 2.x answered every origin, with credentials, when `http.cors.origins` was empty. 3.0 sends no CORS headers. **Not built yet:** `@spinajs/http` still allows every origin on an empty list (TODO(N8a)). | List every origin a browser client uses (step 8). |
 | **No lockout (H31)** | Accounts are never locked. Failed logins back off per account and per IP, up to a cap. `lockoutTime` is gone. | Tune `authn.throttle.login` if the default is too weak. |
-| **Session cookie `__Host-ssid`** | Outside development and test the cookie is named `__Host-ssid`, with `Secure`. Every 2.x session is logged out at the upgrade. Clients that hard-code `ssid` break. | Change such clients. For local http set `authn.session.cookie.hostPrefix: false` in a development config. `secure: false` alone no longer relaxes the cookie. |
+| **Session cookie `__Host-ssid`** | Outside development and test the cookie is named `__Host-ssid`, with `Secure`. An unset env counts as development (step 6). Every 2.x session is logged out at the upgrade. Clients that hard-code `ssid` break. | Change such clients. For local http set `authn.session.cookie.hostPrefix: false` in a development config. `secure: false` alone no longer relaxes the cookie. |
 | **Resets and invites carry over (H35)** | Pending password resets and invites become hashed `authn_secret` rows with their 2.x expiry. A link already mailed works once. `down()` cannot restore them. | Nothing, unless you roll back. |
 | **No re-export shims (H25)** | The old npm names stop at 2.x. They get `npm deprecate` and nothing else. | Change dependencies and imports (step 1). |
-| **`rbac.*` config is not read** | The host warns, or fails boot with `authz.config.rejectLegacyKeys: true`. | Run the converter (step 2). |
+| **`rbac.*` config is not read** | The host warns, or fails boot with `authz.config.rejectLegacyKeys: true`. Merged code still reads some keys until their lanes land (step 2 lists them). | Run the converter (step 2). |
 | **`@Access` on class and route combine** | 2.x let the route replace the class. 3.0 ANDs them. | Check controllers that relied on the replacement. |
 | **Token expiry is mandatory** | Tokens without `ExpiresAt` get `CreatedAt + authn.token.maxTtlDays` at migration. | Tell the owners (the converter lists them with `--db`). |
 | **A token's role never exceeds its owner's** | The 2.x grant-subset check is gone. A role the owner lacks grants nothing. | Port or drop a custom token role policy (example g). |
@@ -116,7 +116,7 @@ The table shows the target and what the converter does.
 | `rbac.roleColumn` | `authz.rbac.migration.roleColumn` | Written. The `users.Role` copy migration reads it. |
 | `rbac.roleSwitch.requirePassword` | `authz.principals.roleSwitch.requirePassword` | |
 | `'user:impersonate': { 'create:any' }` and `rbac.impersonation.protectedRoles` | permission `user:impersonate` and `authz.impersonation.protectedRoles` | Adds the 2.x package part (`['system']`). |
-| `rbac.admin.roleGuard.*` | `authz.admin.guard.*` | `DefaultRoleGuard` becomes `DefaultAdminGuard`. `privilegedResource` and `privilegedAction` become `privilegedPermission: 'users:update'`. A custom guard is written as found; boot fails until you port it. |
+| `rbac.admin.roleGuard.*` | `authz.admin.guard.*` | `DefaultRoleGuard` becomes `DefaultAdminGuard`. `privilegedPermission` defaults to `'users:update'` in 3.0. The converter writes `<privilegedResource>:<verb>` only when the app set `privilegedResource` or `privilegedAction`, and asks you to set it by hand when the action is an `:own` one. A custom guard is written as found; boot fails until you port it. |
 | `rbac.token.rolePolicy`, `excludedRoles` | `authz.token.rolePolicy`, `authz.token.excludedRoles` | A custom policy is written as found; boot fails until you port it. |
 
 The converter also writes `authz.permissions` for every permission it saw, with `fields: true` where a
@@ -137,7 +137,7 @@ grant carries a field list. A permission you do not register is an error at boot
 | `rbac.password.blockAfterAttempts` | `authn.throttle.login.account` | `free` is the old value; the delays are the schema's defaults. A warning explains the new meaning. 0 turns nothing off. |
 | `rbac.password.lockoutTime` | dropped | Warning. The nearest knob is `authn.throttle.login.account.maxDelayMs`. |
 | `rbac.session.*` | `authn.session.*` | Same sub-paths. |
-| `rbac.twoFactorAuth`, `rbac.otpauth.*` | `authn.mfa.steps`, `authn.mfa.policy.force`, `authn.mfa.totp.*` | `forceUser` becomes `policy.force`. |
+| `rbac.twoFactorAuth`, `rbac.otpauth.*` | `authn.mfa.steps`, `authn.mfa.policy.force`, `authn.mfa.totp.*` | `forceUser` becomes `policy.force`. The step it writes is `TotpMfaStep`, which `authn-totp` does not ship yet. While a session strategy is listed, boot fails with "no MfaStep is registered as service 'TotpMfaStep'" until N5 lands (TODO(N5)). |
 | `rbac.token.{prefix,length,headerName,lastUsedUpdateInterval,generation}` | `authn.token.*` | A length below 32 is a manual item (boot fails). |
 | `rbac.impersonation.requirePassword` | `authn.impersonation.requirePassword` | |
 | `rbac.user`, `rbac.email`, `rbac.actions` | `users.user`, `users.email`, `users.actions` | Copied. Functions in `actions` cannot be written to a file: they are manual items. |
@@ -153,10 +153,10 @@ writes the 3.0 key when 3.0 needs it, and lists the rest in `authz-warnings.md`:
 | Lockout after 5 failed logins (3 with `rbac-http-user`) for 15 minutes | Backoff, never a lock | Listed. |
 | Default role `guest` for new users | None unless `authz.rbac.defaultRoles` is set | Listed. |
 | No guest account | `authz.principals.anonymous.enabled` is `true` by default | Listed. Set it to `false` to match 2.x. |
-| Password expiry after 31 days | Off unless `authn.local.expiration.enabled` | Listed. Set it, and `maxAgeDays`, if you relied on it. |
+| Password expiry after 31 days | Off unless `authn.local.expiration.enabled` | Listed. Set it, and `maxAgeDays`, if you relied on it. `users` still ships `enabled: true` (TODO(C1)), so with `users` installed expiry is on today. |
 | TOTP on by default | `authn.mfa.steps` | Listed (manual). |
-| Public cookie secret `'1234adreewD'` | Boot refuses a public or missing secret outside development and test | Listed. |
-| Empty `http.cors.origins` reflects every origin | Allows none (H33) | Listed. |
+| Public cookie secret `'1234adreewD'` | Boot refuses a public or missing secret outside development and test. With no env set, the configuration resolves to development, so the check only warns (step 6). | Listed. |
+| Empty `http.cors.origins` reflects every origin | Allows none (H33). Not true yet: `CorsMiddleware` in `@spinajs/http` still allows every origin on an empty list (TODO(N8a), step 8). | Listed. |
 | No `http.trustProxy` | Set the hop count or CIDRs behind a proxy | Listed. |
 
 ### 3.4 Keys that other config files own
@@ -166,6 +166,10 @@ writes the 3.0 key when 3.0 needs it, and lists the rest in `authz-warnings.md`:
 - `authn.http.csrf.allowedOrigins` lists origins that may send cookie-authenticated unsafe requests.
   The app's own origin is always allowed.
 
+> **TODO(N8a):** neither key has a reader yet. `ClientIp` and `CsrfOriginGuard` in `authn-http` are
+> stubs that throw `not implemented`, and `@spinajs/http` reads no `trustProxy`. N8a builds both
+> middlewares; until then set the keys anyway, so that they take effect when it lands.
+
 The AJV schema fails boot on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6,
 password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name` of `recovery`.
 
@@ -174,7 +178,13 @@ password bounds outside 8-128, `session.hashIds: false` and an `mfa.steps[].name
 code defaults. The package lists **no strategy and no MFA step**, because config files concatenate
 arrays: you list each strategy once, in one file. `authn.audit.sinks` defaults to
 `['LogAuthnAuditSink']`, and every other registered `AuthnEventSink` gets the events too.
-`authn.throttle.service` has no default. When you leave it out, the only registered throttle runs.
+`authn.throttle.service` has no default. When you leave it out and exactly one throttle is registered, that one runs.
+`@spinajs/authn` registers `MemoryAuthnThrottle` and `@spinajs/authn-orm` registers `DbAuthnThrottle`. With both
+installed, an unset key fails boot ("several are registered; name one"). Set it in every app that installs
+`authn-orm`.
+
+> **TODO(K6):** an app that installs `authn-orm` must name the throttle today. K6 settles the default
+> so that boot no longer depends on this key.
 
 **Boot checks.** The first resolution of `AuthnService` runs them. Messages name keys and
 services, never values.
@@ -183,14 +193,18 @@ services, never values.
 |---|---|---|
 | Strategies | An `authn.strategies` entry with no registered `AuthenticationStrategy` of that service name, a duplicate name, an entry name that differs from the strategy's own name, a strategy with a missing `interactive` flag or no credential kind | An empty list (reported by `authn:check-config` only) |
 | Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a version that repeats) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
-| Throttle | `authn.throttle.service` names a throttle that is not registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
+| Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
 | Audit | A sink in `authn.audit.sinks` that is not registered, an unknown key in `authn.audit`, a bad `sampleUse`, `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
 | Neighbours | No `IdentityStore` or `PrincipalFactory`; with an interactive strategy, no `SessionIssuer` | |
 | Env | | No env named by `--env`, `APP_ENV` or `NODE_ENV`: the configuration fell back to `development`, which gets the lenient secret checks. The warning says so. |
 
-The env row is half of the open question in step 7: the authn core accepts the fallback with a
-warning. Whether the cookie builders do the same waits on N8a.
+The env row is the open question in step 6. Today a missing env resolves to `development` in the authn
+core, in the session cookie builders and in `authn-oidc` alike (each reads `process.env.APP_ENV` from the
+configuration, which falls back to `development`). The core logs a warning that the env fell back.
+
+> **TODO(N8a):** N8a changes the rule so that a missing env means production, in the core, the session
+> cookie and OIDC. Until then, set `APP_ENV` or `NODE_ENV` in every deployment.
 
 **Old-key detector.** Boot reads the `rbac` tree for the 2.x keys that moved into `authn.*` (the
 table in section 3.2). It logs one warning per process that lists each key as `rbac.x -> authn.y`
@@ -199,6 +213,12 @@ message fails boot. The default is `false`. The `users` keys (`rbac.user`, `rbac
 `rbac.actions`) belong to the `users` detector, and `authz.config.rejectLegacyKeys` covers the
 authorization keys. Several 2.x packages still ship `rbac.*` defaults, so the warning also shows for
 keys you never set. Leave both switches `false` until R1 (TODO(R1)).
+
+> **TODO(C1, N5):** `authn.config.rejectLegacyKeys: true` fails boot today, even for an app with clean
+> config. `users` ships `rbac.auth.service`, `rbac.password.blockAfterAttempts` and
+> `rbac.password.lockoutTime`, `authn-http` ships `rbac.password.blockAfterAttempts`, and `authn-totp`
+> ships `rbac.twoFactorAuth.enabled` and `forceUser`. C1 removes the `users` keys and N5 the `authn-totp`
+> keys. The `authn-http` key has no owner named yet (probably N8a).
 
 **`authn:check-config`.** N1 ships the check as the function `checkAuthnConfig(container)`. It
 returns findings (`topic`, `level`, `message`) and throws nothing. It covers everything boot refuses,
@@ -262,7 +282,7 @@ Save the rows as one JSON file. Role lists may be arrays, JSON strings or comma 
 }
 ```
 
-The converter names a user by `Login`, else `Id`. On PostgreSQL you can build the file in one query
+The converter names a user by `Login`, else `Id`, else `Uuid`. On PostgreSQL you can build the file in one query
 (adjust the quoting for your column names):
 
 ```sql
@@ -524,7 +544,8 @@ const can = (access, name) => access.permissions.some((p) => p.name === name);
 ```
 
 `conditional: true` means "only rows in scope". Login, MFA, role-switch and impersonation answers carry
-the same `Access` object (TODO(C3): the `AuthnResponseExtension` that adds it).
+the same `Access` object (TODO(C3): `users` will add it with its `AccessResponseExtension`, an implementation of the
+`AuthnResponseExtension` contract of `@spinajs/authn`; the class does not exist yet).
 
 ### 6.10 Example (i): pools
 
@@ -630,23 +651,39 @@ Replace the packages by the table in section 2 and fix the imports. The old npm 
 
 Compile the app, run the converter ([section 4](#4-running-spinajs-authz-convert)), and copy the
 generated files into the config dir. Read `authz-warnings.md` and act on every "convert by hand" item.
-Then delete the `rbac.*` keys from your own config files. Check: the app boots with no warning that
-names `rbac.*` keys. Note: package defaults still ship some `rbac.*` keys until the identity and
-authentication lanes finish, so leave `authz.config.rejectLegacyKeys` and
-`authn.config.rejectLegacyKeys` at `false` for now (TODO(R1)).
+Then delete the `rbac.*` keys that the table below does not list from your own config files. **Keep
+every listed key next to its converted key until the named lane merges**, because merged code still
+reads it and falls back to a weaker package default when it is gone. Check: the app boots with no
+warning that names a `rbac.*` key you have no reason to keep. Note: package defaults also ship some
+`rbac.*` keys until the identity and authentication lanes finish, so leave
+`authz.config.rejectLegacyKeys` and `authn.config.rejectLegacyKeys` at `false` for now (TODO(R1)).
 
-What you see at boot: the authz host and `DefaultAuthnService` each log one warning per process that
-names the `rbac.*` keys they found and the key each moved to ([section 3.4](#34-keys-that-other-config-files-own)).
-It never prints a value. With the switch on, the same text fails boot. The authz detector reports the
+| `rbac.*` key | Read today by | Moves in | Without it |
+|---|---|---|---|
+| `twoFactorAuth.enabled`, `twoFactorAuth.forceUser` | `authn-http` `LoginController` (also `TwoFactorAuthController`, `TwoFactorAuthUserController`, `2FaPolicy`); `authn-totp` ships `enabled: true`, `forceUser: false` | N8a, N5 | Forced 2FA turns off |
+| `twoFactorAuth.service` | `authn-totp` 2FA actions and CLI | N5 | The package service `Default2FaToken` runs |
+| `roleSwitch.requirePassword` | `authn-http` `ActiveRoleController`; `users` ships `[]` | N8a, C3 | No password is asked for a privileged role switch |
+| `impersonation.protectedRoles` | `authn-http` `ImpersonationController`; `users` ships `['system']` | N8a, C3 | Protection falls back to `['system']` |
+| `admin.roleGuard.*` | `authz-http-admin` `DefaultRoleGuard` (`legacy/services/RoleGuard.ts`); `users-http` `Users.ts` and `Security.ts` | C2, C4 | The package defaults of `authz-http-admin` apply, and a custom guard is lost |
+| `roles` | `DefaultRoleGuard`; `users` actions (`create`, `grant`) | C4, C1 | Roles that you declared without grants count as unknown |
+| `grants` | `users/src/index.ts` (the `AccessControl` bootstrap) | C1 | Your roles lose their 2.x grants in the `AccessControl` bootstrap |
+| `systemRole`, `roleColumn`, `requireKnownRole`, `defaultRole`, `enableGuestAccount` | `users` actions, `User` model and bootstrap; `systemRole` also by `DefaultRoleGuard` | C1 | The package defaults (`system`, `Role`, `true`, `guest`, `false`) |
+| `auth.service` | `authn-http` `LoginController`; `users` actions | C1, N8a | The package default `SimpleDbAuthProvider` |
+| `password.blockAfterAttempts`, `password.lockoutTime` | `users` actions (2.x lockout) | C1 | The package defaults of `users` (5 attempts, 15 minutes) |
+| `timeline.schedule`, `timeline.ttl` | `users` `UnbanUserSchedule` | C1 | `rbac:unban-schedule` has no schedule |
+| `token.rolePolicy` | `authn-token` `src/legacy/actions.ts` | R1 | The 2.x policy runs |
+
+The converter's own "3.0 reads no `rbac.*` key" text is not true yet, for these keys. What you see at
+boot: the authz host and `DefaultAuthnService` each log one warning per process that names the `rbac.*`
+keys they found and the key each moved to ([section 3.4](#34-keys-that-other-config-files-own)). It
+never prints a value. With the switch on, the same text fails boot. The authz detector reports the
 authorization keys, the authn one the authentication keys, so you may see both.
 
-**Impersonation.** Do not delete `rbac.impersonation.protectedRoles` yet.
-
-> **TODO(N8a/C3): impersonation keys.** `authn-http`'s `ImpersonationController` still reads
-> `rbac.impersonation.protectedRoles`, and `users/src/config/users.ts` still ships that key. Nothing
-> reads `authz.impersonation.protectedRoles` yet, although the converter writes it. Until N8a and C3
-> land, keep the 2.x key in the app's config next to the converted one. Replace this block with the
-> final key and the `AuthzImpersonationGuard` setup.
+> **TODO(N8a/N5/C1/C2/C3/C4):** each reader in the table moves to its `authz.*`, `authn.*` or
+> `users.*` key in the lane named there. Nothing reads `authz.impersonation.protectedRoles` or
+> `authz.principals.roleSwitch.requirePassword` yet, although the converter writes both. Replace each
+> row with the final key and, for impersonation, the `AuthzImpersonationGuard` setup when its lane
+> lands.
 
 ### Step 3: decorators
 
@@ -682,6 +719,11 @@ resource types queried without a principal:
 With no such row it prints `no unattended queries in the audit log`. It fails when `authz_audit` does
 not exist. It reads the connection from `authz.rbac.connection` (else `default`).
 
+> **TODO(L4):** `DbDecisionAudit` and its `authz_audit` table do not exist on this branch, so
+> `authz:check-config --unattended` fails with "DbDecisionAudit (authz-orm) is not enabled". The
+> paragraph above describes the release behaviour. Until L4 lands, find missed models from the
+> `AccessDenied` failures with reason `unattended` that your tests report.
+
 ### Step 5: list the users who gain access
 
 While the `Role` column still exists, find users whose roles will be unioned (H1):
@@ -695,21 +737,13 @@ check roles that the config does not define: in 2.x a user holding one got no pe
 (`accesscontrol` refused the whole list). In 3.0 that role is ignored, with a warning, and the others
 apply. Export the `--db` rows now if you did not (section 4.2).
 
-### Step 6: back up, then migrate
+### Step 6: secrets, proxy and env settings
 
-Back up the database. Run the migrations. They copy `users.Role` into `authz_assignment` and drop the
-column (H13; `AuthzRbacUserRoles_…` then `AuthzRbacDropUserRole_…`, [section 7](#7-data-migration)),
-move TOTP secrets into `authn_mfa` (set `authn.mfa.encryptionKey` first), carry resets
-and invites into `authn_secret`, drop throttle state from `users_metadata` and widen
-`user_sessions.SessionId`. Check: the migration's own counts match (enrolled users, live resets and
-invites). Compare the number of users with a role before and after. If the drop migration refuses,
-nothing changed: read its message, fix the missing grants, resolve it, and migrate again.
+Set these before you run the migrations and before the first 3.0 start:
 
-### Step 7: secrets and proxy settings
-
-Set these before the first 3.0 start:
-
-- `authn.mfa.encryptionKey` (a secret reference, never an inline value) if any user has 2FA;
+- `authn.mfa.encryptionKey` (a secret reference, never an inline value). The step 7 migration needs it
+  when any user has a 2FA secret. Boot also refuses a missing key outside development and test when a
+  listed MFA step stores secrets, and only warns in development and test;
 - `authn.local.pepper.secret` (optional; see the authn README);
 - a real `http.cookie.secret`, loaded from a secret reference. The boot refuses the public default
   outside development and test;
@@ -717,18 +751,31 @@ Set these before the first 3.0 start:
   public constant is used and the store warns once at start. The key must hold 32 characters or more.
   Without it `LogAuthnAuditSink` uses a random key per process, so the hashes in your logs change on
   each restart and differ between nodes;
+- `authn.throttle.service`, when the app installs `authn-orm` (section 3.4, TODO(K6));
 - `http.trustProxy`: the number of proxy hops, or their CIDRs. Without it, every client behind the
-  proxy shares one address for throttling and audit;
-- the app env (`NODE_ENV` or the configuration env) explicitly, in every deployment. The session cookie
-  is `Secure`, `__Host-` prefixed, outside development and test.
+  proxy shares one address for throttling and audit (no code reads the key until N8a);
+- the app env (`APP_ENV` or `NODE_ENV`, or `--env`) explicitly, in every deployment. Outside
+  development and test the session cookie is `Secure` and `__Host-` prefixed.
 
-What N1 does when no env is named: the configuration resolves it to `development`, and the authn
-boot checks then take the lenient path for the secrets, with a warning that the env fell back
-(`authn:check-config` reports it under `env`). Name the env, so that you get the strict checks.
+What happens when no env is named: the configuration resolves it to `development`. The authn boot
+checks then take the lenient path for the secrets, with a warning that the env fell back
+(`authn:check-config` reports it under `env`). The session cookie builders and `authn-oidc` read the
+same resolved value, so they relax Secure, the `__Host-` prefix and the https-only provider URLs too.
+Name the env, so that you get the strict behaviour.
 
-> **TODO(N8a): the app env when none is set, for the cookie.** The cookie builders of N2 read a
-> missing env as production (SR-16 residual, open in the N2 and P4 reports). The authn core reads it as
-> `development`. Replace this note with the final rule when N8a settles it.
+> **TODO(N8a):** N8a changes the rule so that a missing env means production, in the core, the session
+> cookie and OIDC. Until then an app with no env set runs in development mode. Replace this note with
+> the final rule when N8a lands.
+
+### Step 7: back up, then migrate
+
+Back up the database. Run the migrations. They copy `users.Role` into `authz_assignment` and drop the
+column (H13; `AuthzRbacUserRoles_…` then `AuthzRbacDropUserRole_…`, [section 7](#7-data-migration)),
+move TOTP secrets into `authn_mfa` (needs `authn.mfa.encryptionKey`, step 6), carry resets
+and invites into `authn_secret`, drop throttle state from `users_metadata` and widen
+`user_sessions.SessionId`. Check: the migration's own counts match (enrolled users, live resets and
+invites). Compare the number of users with a role before and after. If the drop migration refuses,
+nothing changed: read its message, fix the missing grants, resolve it, and migrate again.
 
 ### Step 8: CORS
 
@@ -743,8 +790,13 @@ Check: a browser client on a listed origin works, and one on another origin gets
 `authn:check-config` warns when `http.cors` has no `origins` list or an empty one
 ([section 3.4](#34-keys-that-other-config-files-own)).
 
-> **TODO(N8a): CORS and CSRF middleware as built.** Name the middleware and the config keys. The rule
-> above is fixed by the design (A31, A22).
+> **TODO(N8a):** the rule above is the 3.0 design, not today's behaviour. `CorsMiddleware` in
+> `@spinajs/http` (`packages/http/src/middlewares/Cors.ts`) still allows every origin, with
+> credentials, when `http.cors.origins` is empty, and throws on a request when `http.cors` has no
+> `origins` list. `CsrfOriginGuard` in `authn-http` is a stub that throws "not implemented" when
+> called, so no `Origin` or `Sec-Fetch-Site` header is checked, and nothing reads `authn.http.csrf.*`.
+> N8a changes the CORS middleware to the rule above and builds the guard. Until then, keep an explicit
+> `origins` list, and treat cookie sessions as open to cross-site requests.
 
 ### Step 9: clients
 
@@ -869,10 +921,11 @@ are rewritten or dropped. If you keep your own copy of those tests, use them as 
   successful one counts for its own request only.
 - The 2.x token `Profile` travels as `attributes.profile`. Keys that `PrincipalFactory` or a
   `PrincipalAttributeProvider` derives win over keys a strategy sets.
-- A request without a session cookie is exempt from the CSRF origin check. This includes
+- A request without a session cookie is exempt from the CSRF origin check (the check itself is TODO(N8a)). This includes
   `POST /auth/login`, `POST /auth/keys/login` and `POST /auth/password/reset`.
-- Per-request credentials (tokens, keys) count in the `login` throttle flow, keyed by a stable
-  credential id (token id, key id). Every API request writes the throttle store twice.
+- Per-request credentials (tokens, keys) use the `login` throttle flow, keyed by a stable credential id
+  (token id, key id). Since K5 they count failures only: the service reads the throttle (`peek`) before
+  it verifies and counts only a failure, so a valid API call adds nothing to the count.
 - Boot fails on `token.length` below 32, an empty `token.prefix`, `totp.digits` below 6, password
   bounds outside 8-128, `session.hashIds: false`, and a step named `recovery`.
 - OIDC limits: see [OIDC](../authn/oidc.md).
@@ -1041,7 +1094,8 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   no strategy and no throttle other than the memory one.
 - **Dispatch (D1).** The core picks the listed strategies that accept the credential kind and,
   when the strategy has `accepts`, the credential itself. It counts the union of their throttle keys
-  once, before any verify. Only an `unsupported_credentials` answer passes the credential to the next
+  once, before it verifies an interactive strategy (password, MFA). A per-request strategy is peeked
+  first and counted only on failure (K5). Only an `unsupported_credentials` answer passes the credential to the next
   strategy. Nothing checks at boot that one strategy shadows another.
 - **Status.** `IdentityStore.status` is asked for every subject except `service` and `agent`; their
   strategies vouch for them. Only `user` identities get sessions. A key challenge gets no core MFA step
@@ -1076,6 +1130,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 - The cookie is `Secure` and `__Host-` prefixed unless the app env is development or test
   (`hostPrefix` and `secure` default to `'auto'`). The flags follow the app env that the deployment
   resolved, not `NODE_ENV=production` alone (SR-16). The boot refuses the public cookie secret outside development and test.
+  With no env set the code resolves to development, so set the env (step 6, TODO(N8a)).
 - `SlidingCappedExpiration` caps a session at `Creation + maxLifetime` (defaults 30 and 480 minutes).
 - The DB session migration is `UserSessionIdHash_2026_10_02_00_00_00`. Deleting a user must call
   `revokeAll`, because 3.0 rows have a null `UserId`.
@@ -1098,7 +1153,8 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   impersonates cannot change the password. A reset, an admin `set` and an admin expiry revoke tokens
   (`authn.local.reset.revokeTokens`, default `true`). An aged-password expiry keeps them.
 - An expired password is stored as the marker `!expired`.
-- Password expiry is off by default (`authn.local.expiration.enabled: false`, `maxAgeDays: 31`).
+- Password expiry is off in the `authn-local` code (`authn.local.expiration.enabled: false`, `maxAgeDays: 31`).
+  `users` still ships `enabled: true`, so with `users` installed expiry is on today (TODO(C1): C1 drops the 2.x key).
 - CLI: `authn:password <login>` (the password from `--generate` or standard input, never an argument)
   and `authn:password-expire` (the expiry job). They replace `user:password`.
 - Redeeming a reset on an invite-pending identity also publishes `invite.redeem`. `users` activates
@@ -1140,11 +1196,17 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
   plaintext of a new token goes to standard output only, never to a logger. `authn:token-create`
   without `--expires` uses `authn.token.defaultTtlDays`.
 - `authn.jwt.issuers` enables JWT bearer. A JWT never sets `emailVerified`. An unknown subject fails
-  unless `authn.linking.jit` is on. The default provider name is `jwt:<issuer>`.
+  unless `authn.linking.jit` is on. That switch is global: the core applies it to every JWT issuer and to
+  OIDC. The default provider name is `jwt:<issuer>`.
 - The 2.x token API is kept under `src/legacy/`, deprecated, until R1.
 - Hooks: `TokenOwnerResolver` (default `UsersTableTokenOwnerResolver`, user owners only),
   `TokenProfilePolicy` (default `NoTokenProfilesPolicy`: no profile allowed, as in 2.x) and an
   optional `RoleSource`.
+
+> **TODO(K6):** JWT just-in-time provisioning has no per-issuer switch. With `authn.linking.jit: true`
+> (set for OIDC, say), a valid token from any listed issuer provisions an identity for an unknown
+> subject. K6 adds a per-issuer switch. Until then, leave `authn.linking.jit` off in an app that lists
+> `authn.jwt.issuers`, or list only issuers whose every subject may sign up.
 
 > **TODO(N8b): the token routes.** The 2.x `/user/tokens` route still mints tokens with no expiry and
 > without fresh auth until N8b moves it onto `TokenService` (SR-08 stays open on the HTTP path).
@@ -1198,7 +1260,7 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 - **K4.** Test kit only (`@spinajs/authz-testing`): the kit's filter evaluation now coerces values the
   way the engine does, RBAC worlds compile the RBAC native ops, and `FakeTupleModel` has `summarize`, so
   kit worlds can test `covers`. No app change; an app that runs the kit's behaviour rules against its own
-  models may see stricter results.
+  models may see different results.
 
 ### SEC1: metadata guard
 
@@ -1228,19 +1290,19 @@ upgrades.**
 | Finding | What an app sees in 3.0 |
 |---|---|
 | SR-01, SR-02 | Metadata routes hide and refuse reserved keys. Security state no longer lives in `users_metadata`. |
-| SR-03 | Backoff on every authentication flow, per account and per IP. `http.trustProxy` decides where the client IP comes from. At most `maxConcurrent` argon2 operations run at once. |
+| SR-03 | Backoff on every authentication flow, per account and per IP. `http.trustProxy` decides where the client IP comes from (**TODO(N8a):** nothing reads the key until `ClientIp` lands, so the IP is the socket address). At most `maxConcurrent` argon2 operations run at once. |
 | SR-04 | An unknown login takes as long as a known one. A reset request answers before the work runs. |
-| SR-05 | Attempts are counted before verification, atomically. Nobody can lock the owner out. |
+| SR-05 | Interactive attempts (password, MFA) are counted before verification, atomically. Per-request credentials count failures only (K5). Nobody can lock the owner out. |
 | SR-06 | An impersonation ends when the impersonator is revoked, and after `authn.impersonation.maxMinutes`. |
 | SR-07 | A session between password and MFA yields no principal. |
-| SR-08 | A reset revokes API tokens. Minting a token needs fresh auth. Expiry is mandatory, at most 90 days. |
+| SR-08 | A reset revokes API tokens (built). **TODO(N8b):** minting a token needs fresh auth and an expiry of at most 90 days. The `/user/tokens` route still mints without either until N8b. |
 | SR-09 | Reset secrets are SHA-256 at rest. TOTP secrets are AES-256-GCM at rest. |
-| SR-10 | Credential admin routes need `users:credentials` and a target guard. |
-| SR-11 | An audit trail (log and database) is on by default. |
-| SR-12 | CSRF origin check on cookie requests. CORS with an empty list allows nothing. |
-| SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. A TOTP code works once. |
-| SR-16 | Cookie flags follow the app env, not `NODE_ENV=production` alone. |
-| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. Logs carry keyed hashes of identifiers. Re-authentication counts into the throttle. |
+| SR-10 | **TODO(N8b):** credential admin routes need `users:credentials` and a target guard. The routes do not exist yet. |
+| SR-11 | An audit trail (log and database) is on by default. `DbAuthnAuditSink` stores raw subject refs, IP and user agent. |
+| SR-12 | **TODO(N8a):** CSRF origin check on cookie requests (`CsrfOriginGuard` is a stub), and CORS with an empty list allows nothing (`@spinajs/http` still allows every origin on an empty list). |
+| SR-13 to SR-15 | argon2 defaults pinned and rehash on login. No trimming, one length limit. **TODO(N5):** a TOTP code works once (`TotpMfaStep` does not exist yet). |
+| SR-16 | Cookie flags follow the app env, not `NODE_ENV=production` alone. **TODO(N8a):** a missing env resolves to development today, so an app with no env set gets the lenient flags and secret checks. |
+| SR-17 to SR-20 | An opaque error for a missing reset. Session ids hashed. `LogAuthnAuditSink` logs keyed hashes of identifiers (the database sink does not). Re-authentication counts into the throttle. |
 
 ## 11. Parts not built yet
 
@@ -1291,20 +1353,26 @@ so. The rest is for the lane report.
 
 > **TODO(N8a):** the middleware order (client IP, CSRF origin guard, `AuthnMiddleware`), credential
 > extractors, `Authenticated`, `FreshAuth`, `MfaSatisfied` policies, `/auth/*` routes, impersonation
-> and role switch.
+> and role switch. `ClientIp`, `CsrfOriginGuard` and `AuthnMiddleware` exist today as stubs that throw
+> "not implemented". The same lane settles the CORS middleware of `@spinajs/http` (an empty list must allow
+> nothing) and the missing-env rule (a missing env means production).
 >
 > **TODO(N8b):** `/user/tokens`, `/user/keys`, `POST /auth/keys/challenge|login`, and the credential
 > admin routes under `/authn/admin/users/:uuid/*`.
 
 ### C1 to C9: users, users-http, authz-http-admin, consumers
 
-> **TODO(C1):** the `users` identity contracts, removal of the copied 2.x code and 2.x
-> `authn.local` keys, `PasswordAgeSource`, activation on `invite.redeem`, `QueueAuthnEventSink`.
+> **TODO(C1):** the `users` implementations of `IdentityStore` and `PasswordCredentialStore` (none exists
+> yet, so `AuthnService` fails its boot check for them), the `users` identity contracts, removal of the
+> copied 2.x code and the 2.x `authn.local` keys, `PasswordAgeSource`, activation on `invite.redeem`,
+> `QueueAuthnEventSink`. Also the `rbac.*` keys that `users` ships (step 2), the password expiry default
+> (`enabled: true`), and the `authn.session.cookie.secure` override
+> (`process.env.NODE_ENV === 'production'`) that can defeat the `'auto'` default.
 >
 > **TODO(C2):** `users-http` routes on `@Access`. Keep the uniform 404 on metadata (SEC1).
 >
-> **TODO(C3):** `AuthzImpersonationGuard`, `AccessResponseExtension` (adds `Access` to answers),
-> `RbacRoleSource`.
+> **TODO(C3):** `AuthzImpersonationGuard`, `AccessResponseExtension` (the `users` class that
+> implements `AuthnResponseExtension` and adds `Access` to answers), `RbacRoleSource`.
 >
 > **TODO(C4):** `authz-http-admin` routes over `AuthzAdmin` (`/authz/commands` and the others).
 >
