@@ -6,7 +6,7 @@ import type { AssignmentStore } from '../../contracts.js';
 import { rbacState, resourcePath } from '../evaluate.js';
 import { effectiveRole, reachableGrants } from '../ladder/steps.js';
 import { heldAssignments } from '../native.js';
-import type { LiveAssignment, RbacExtension, RbacInput, RbacSources, RbacState } from '../evaluate.js';
+import type { FieldRule, LiveAssignment, RbacExtension, RbacInput, RbacSources, RbacState } from '../evaluate.js';
 import { voteFieldGlobs } from '../fields.js';
 import type { FieldGlobs } from '../fields.js';
 import type { CompiledGrant } from '../grants.js';
@@ -35,7 +35,7 @@ export const DB_THRESHOLD_REASON: DenyReason = Object.freeze({ code: 'threshold'
  * route term ANDed with the grant's own residual; a threshold term per bound threshold rule (and
  * one for the DB rules) in the deny entries. `s` holds the assignments after collect.
  */
-export function nativeListVote(s: RbacState, grantResidual: (g: CompiledGrant) => ResourceFilter, subjectsDefault: RbacListContext['subjects'], fieldGlobs: typeof voteFieldGlobs = voteFieldGlobs): void {
+export function nativeListVote(s: RbacState, grantResidual: (g: CompiledGrant) => ResourceFilter, subjectsDefault: RbacListContext['subjects'], fieldGlobs: FieldRule = voteFieldGlobs): void {
   const native = s.input.native!;
   const principal = s.input.request.principal;
   const context: RbacListContext = {

@@ -1,15 +1,20 @@
 import { AuthzConfigError, GLOBAL, resourceKey, subtractFieldGlobs } from '@spinajs/authz';
 import type { EvaluationContext, Principal, ResourceRef } from '@spinajs/authz';
 
+import type { LinkStore } from '../contracts.js';
+
 import { liveAssignments, rbacTables, resourcePath } from './evaluate.js';
 import type { RbacTables } from './evaluate.js';
 import type { CompiledGrant } from './grants.js';
 import { effectiveRole } from './ladder/steps.js';
+import { UNRESOLVED_LINK_ID, linkPrincipalOf } from './links/principal.js';
 import type { RbacModel } from './model.js';
 
 export interface RbacServiceOptions {
   /** Ancestors of a resource for rolesOf without a context; production wires the host's scope resolution. */
   readonly ancestors?: (ref: ResourceRef) => Promise<readonly ResourceRef[] | null>;
+  /** The share links linkPrincipal reads; default: the model's `links` option. */
+  readonly links?: LinkStore;
 }
 
 /** One role a principal holds at a resource, through one assignment (config roles included). */
@@ -181,6 +186,32 @@ export class RbacService {
     const input = await this.model.inputAt(principal, at, ctx);
     const { live } = liveAssignments(input, { ceiling: opts.ceiling !== false });
     return Object.freeze(live.map((l) => Object.freeze({ role: l.role, scope: l.scope, assignment: l.assignment.id, source: l.assignment.source, ...(l.expiresAt ? { expiresAt: l.expiresAt } : {}), effectiveRole: effectiveRole(input.ladders, l) })));
+  }
+
+  /**
+   * The principal of share link `id` (design §6.1.6, B38): type `link`, its ceiling the link's scope
+   * and expiry (reason `link_invalid`), its attributes the link's, `companion` joined as a subject
+   * when nothing it carries would be lost (see linkCompanion). An unknown or revoked id gives
+   * `ceiling.resources: []`, so every check denies `link_invalid` (B42).
+   * @throws AuthzConfigError when no LinkStore is configured
+   */
+  async linkPrincipal(id: string, companion?: Principal): Promise<Principal> {
+    return linkPrincipalOf(await this.linkStore('linkPrincipal').byId(id), id, companion);
+  }
+
+  /**
+   * linkPrincipal for a bearer token, through `LinkStore.byToken`. A token no live or expired link
+   * holds gives the principal `link:unresolved` (UNRESOLVED_LINK_ID), which denies every check.
+   * @throws AuthzConfigError when no LinkStore is configured
+   */
+  async principalForToken(token: string, companion?: Principal): Promise<Principal> {
+    return linkPrincipalOf(await this.linkStore('principalForToken').byToken(token), UNRESOLVED_LINK_ID, companion);
+  }
+
+  private linkStore(where: string): LinkStore {
+    const store = this.opts.links ?? this.model.linkStore;
+    if (!store) throw new AuthzConfigError(`RbacService.${where}: no LinkStore (the model's links option, or RbacServiceOptions.links)`);
+    return store;
   }
 
   /** The compiled grants of the role's `extends` closure, permissions expanded, by permission; none for an unknown role. */

@@ -255,6 +255,11 @@ export class RbacModel extends AuthorizationModel {
     return liveAssignments(input).live;
   }
 
+  /** The link store of the options (share links, design §6.1.6). */
+  get linkStore(): LinkStore | undefined {
+    return this.opts.links;
+  }
+
   /** The model clock's now (assignment cache TTL, covers). */
   currentTime(): Date {
     return this.clock().now();

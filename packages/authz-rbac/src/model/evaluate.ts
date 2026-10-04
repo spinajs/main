@@ -70,7 +70,11 @@ export type RbacStep = (state: RbacState) => void;
 export type RbacSteps = Readonly<Record<RbacStepName, RbacStep>> & {
   /** The step 5 reason when `grant` leaves no candidate; the runner calls it right after `grant`. */
   readonly noGrantReason: (state: RbacState) => DenyReason;
+  /** How a vote's fields combine the grants' (default voteFieldGlobs); the list terms (args v2) follow it too. */
+  readonly fieldGlobs?: FieldRule;
 };
+
+export type FieldRule = (unconditional: readonly (FieldGlobs | undefined)[], conditional: readonly (FieldGlobs | undefined)[]) => FieldGlobs | undefined;
 
 /** What the gathering phase loaded for one request. */
 export interface RbacInput {
@@ -227,7 +231,7 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  * none is TRUE do the conditional grants, by intersection. A grant whose residual is FALSE adds none.
  * RBAC_SUMMARY_STEPS passes summaryFieldGlobs instead.
  */
-function residualWith(s: RbacState, fieldGlobs: typeof voteFieldGlobs): void {
+function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
   const at: PatternContext = { resource: s.input.request.resource, path: s.input.path, principal: s.input.request.principal };
   const unconditional: (FieldGlobs | undefined)[] = [];
@@ -320,8 +324,13 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
   noGrantReason: (s: RbacState): DenyReason => roleTooLow(s) ?? { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access },
 });
 
+/** `steps` whose votes take their fields by `fieldGlobs`, in the residual step and in the list terms. */
+export function withFieldRule(steps: RbacSteps, fieldGlobs: FieldRule): RbacSteps {
+  return Object.freeze({ ...steps, fieldGlobs, residual: (s: RbacState) => residualWith(s, fieldGlobs) });
+}
+
 /** RBAC_STEPS for `RbacModel.summarize`: each vote lists the fields of every grant that permits some row (`summaryFieldGlobs`). */
-export const RBAC_SUMMARY_STEPS: RbacSteps = Object.freeze({ ...RBAC_STEPS, residual: (s: RbacState) => residualWith(s, summaryFieldGlobs) });
+export const RBAC_SUMMARY_STEPS: RbacSteps = withFieldRule(RBAC_STEPS, summaryFieldGlobs);
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
@@ -352,8 +361,7 @@ export function rbacState(input: RbacInput, through: RbacStepName = 'residual', 
 function nativeVote(input: RbacInput, steps: RbacSteps): Vote {
   const state = newState(input, true);
   steps.collect(state);
-  // Summary votes list the fields of every grant that permits some row, as RBAC_SUMMARY_STEPS' residual does.
-  const fields = steps === RBAC_SUMMARY_STEPS ? summaryFieldGlobs : voteFieldGlobs;
+  const fields = steps.fieldGlobs ?? voteFieldGlobs;
   nativeListVote(state, (g) => grantResidual(g, { resource: input.request.resource, path: input.path, principal: input.request.principal }), input.subjects ?? defaultSubjects(input.request.principal), fields);
   return toVote(state);
 }
