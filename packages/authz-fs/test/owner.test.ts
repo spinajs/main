@@ -77,6 +77,8 @@ describe('authz-fs owner relation (D10)', () => {
     expect(await holds(alice, 'file', 'unconfigured:docs/a.txt')).to.equal(false);
     await store.set('uploads', 'u.txt', { owner: { type: 'unattended', id: 'unattended' } });
     expect(await holds({ ...alice, type: 'unattended', id: 'unattended' }, 'file', 'uploads:u.txt')).to.equal(false);
+    await store.set('uploads', 'l.txt', { owner: { type: 'link', id: 'share-1' } });
+    expect(await holds({ ...alice, type: 'link', id: 'share-1' }, 'file', 'uploads:l.txt')).to.equal(false);
   });
 
   it('throws AuthzConfigError when the configured store is not registered', async () => {

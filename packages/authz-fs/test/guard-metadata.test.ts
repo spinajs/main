@@ -12,7 +12,10 @@ import type { IContainer } from '@spinajs/di';
 import { fsNative } from '@spinajs/fs';
 import type { IFsLocalOptions, fs } from '@spinajs/fs';
 
+import { InvalidArgument } from '@spinajs/exceptions';
+
 import { FileMetadataStore, guardFs, parseFsAccessConfig } from '../src/index.js';
+import type { FileMeta } from '../src/index.js';
 import type { FsGuardOptions } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 import { FakeAuthz } from './support/fake-authz.js';
@@ -22,6 +25,20 @@ import { MemoryFileMetadataStore } from './support/memory-store.js';
 const expect = chai.expect;
 
 class ArchiveMetadataStore extends MemoryFileMetadataStore {}
+
+/** Refuses owner ids longer than 5 characters, as a column limit would. */
+class CheckedMetadataStore extends MemoryFileMetadataStore {
+  checkMeta(_fsName: string, _path: string, meta: FileMeta): void {
+    if ((meta.owner?.id.length ?? 0) > 5) throw new InvalidArgument('owner id too long', 'meta');
+  }
+}
+
+/** set never settles. */
+class HungMetadataStore extends MemoryFileMetadataStore {
+  async set(): Promise<void> {
+    await new Promise(() => undefined);
+  }
+}
 
 const alice = userPrincipal('alice');
 const bob = userPrincipal('bob');
@@ -38,6 +55,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
   let store: MemoryFileMetadataStore;
   let archiveStore: ArchiveMetadataStore;
   let errors: string[];
+  let warnings: string[];
   let undoLog: () => void;
 
   const local = (name: string, files: Record<string, string> = {}): fsNative<IFsLocalOptions> => {
@@ -56,7 +74,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       container: child,
       service: async () => authz,
       principal: () => principal,
-      log: { warn: () => undefined, error: (m: string) => errors.push(m) },
+      log: { warn: (m: string) => warnings.push(m), error: (m: string) => errors.push(m) },
       ...extra,
     });
 
@@ -77,8 +95,11 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
     archiveStore = new ArchiveMetadataStore();
     child.register(testHost.instance(store)).as(FileMetadataStore);
     child.register(testHost.instance(archiveStore)).as(FileMetadataStore);
+    child.register(CheckedMetadataStore).as(FileMetadataStore);
+    child.register(HungMetadataStore).as(FileMetadataStore);
     principal = alice;
     errors = [];
+    warnings = [];
   });
 
   afterEach(async () => {
@@ -100,12 +121,13 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'a.txt')).to.equal('user:bob');
     });
 
-    it('SYSTEM, UNATTENDED and anonymous principals stamp nothing', async () => {
+    it('SYSTEM, UNATTENDED, anonymous and link principals stamp nothing', async () => {
       const g = guard(local('uploads'), 'uploads', { ...STAMPED, mode: 'audit' });
       for (const [p, path] of [
         [SYSTEM, 'system.txt'],
         [UNATTENDED, 'unattended.txt'],
         [{ ...userPrincipal('anonymous'), type: 'anonymous', authenticated: false }, 'anon.txt'],
+        [{ ...userPrincipal('share-1'), type: 'link' }, 'link.txt'],
       ] as const) {
         principal = p as Principal;
         await g.write(path, 'x');
@@ -127,14 +149,57 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'b.txt')).to.equal(undefined);
     });
 
-    it('an overwrite makes the writer the owner and keeps scope and tags; a SYSTEM overwrite keeps the owner', async () => {
+    it('an overwrite keeps the first owner, scope and tags (D10 rev.), also for SYSTEM', async () => {
       const g = guard(local('uploads', { 'a.txt': 'A' }), 'uploads', STAMPED);
-      await store.set('uploads', 'a.txt', { owner: bob, scope: { type: 'project', id: 'p1' }, tags: ['t'] });
+      const meta = { owner: { type: 'user', id: 'bob' }, scope: { type: 'project', id: 'p1' }, tags: ['t'] };
+      await store.set('uploads', 'a.txt', meta);
       await g.write('a.txt', 'x');
-      expect(await store.get('uploads', 'a.txt')).to.deep.equal({ owner: { type: 'user', id: 'alice' }, scope: { type: 'project', id: 'p1' }, tags: ['t'] });
+      expect(await store.get('uploads', 'a.txt')).to.deep.equal(meta);
       principal = SYSTEM;
       await g.write('a.txt', 'y');
-      expect(store.owner('uploads', 'a.txt')).to.equal('user:alice');
+      expect(await store.get('uploads', 'a.txt')).to.deep.equal(meta);
+    });
+
+    it('unzip, copy and upload into an existing directory keep its owner (review C1)', async () => {
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'alice-dir/x.txt': 'X', 'src/b.txt': 'B' }), 'uploads', STAMPED);
+      await store.set('uploads', 'alice-dir', { owner: alice });
+      await store.set('uploads', 'alice-dir/x.txt', { owner: alice });
+      await g.zip(['docs/a.txt'], g, 'bob.zip');
+      principal = bob;
+      await g.unzip('bob.zip', 'alice-dir');
+      await g.copy('src', 'alice-dir');
+      const localDir = at('local-dir');
+      mkdirSync(localDir);
+      writeFileSync(join(localDir, 'y.txt'), 'Y');
+      await g.upload(localDir, 'alice-dir');
+      expect(store.owner('uploads', 'alice-dir')).to.equal('user:alice');
+      expect(store.owner('uploads', 'alice-dir/x.txt')).to.equal('user:alice');
+    });
+
+    it('a write that the policy denied in audit mode, or allowed only conditionally, stamps nothing (review I2)', async () => {
+      const g = guard(local('uploads'), 'uploads', { ...STAMPED, mode: 'audit' }, new FakeAuthz((_p, r) => (r === 'file:uploads:cond.txt' ? 'conditional' : r !== 'file:uploads:denied.txt')));
+      principal = bob;
+      await g.write('denied.txt', 'x');
+      await g.write('cond.txt', 'x');
+      await g.write('allowed.txt', 'x');
+      expect(store.owner('uploads', 'denied.txt')).to.equal(undefined);
+      expect(store.owner('uploads', 'cond.txt')).to.equal(undefined);
+      expect(store.owner('uploads', 'allowed.txt')).to.equal('user:bob');
+    });
+
+    it('a new file never inherits a stale row left at its path or under it (review I3)', async () => {
+      const g = guard(local('uploads', { 'gone.txt': 'G' }), 'uploads', STAMPED);
+      await store.set('uploads', 'gone.txt', { owner: alice, tags: ['old'] });
+      await store.set('uploads', 'gone-dir', { owner: alice });
+      await store.set('uploads', 'gone-dir/x.txt', { owner: alice });
+      rmSync(join(dir, 'uploads', 'gone.txt'));
+      principal = SYSTEM;
+      await g.write('gone.txt', 'new');
+      expect(await store.get('uploads', 'gone.txt')).to.equal(null);
+      principal = bob;
+      await g.mkdir('gone-dir');
+      expect(await store.get('uploads', 'gone-dir')).to.deep.equal({ owner: { type: 'user', id: 'bob' } });
+      expect(await store.get('uploads', 'gone-dir/x.txt')).to.equal(null);
     });
 
     it('append stamps a file it creates and keeps the first owner of an existing one', async () => {
@@ -184,7 +249,7 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'kept/a.txt')).to.equal(undefined);
     });
 
-    it('zip stamps the archive and unzip the destination directory', async () => {
+    it('zip stamps the archive and unzip a destination directory it creates', async () => {
       const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', STAMPED);
       await g.zip(['docs/a.txt'], g, 'out.zip');
       expect(store.owner('uploads', 'out.zip')).to.equal('user:alice');
@@ -255,6 +320,30 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'b.txt')).to.equal(undefined);
       expect(existsSync(join(dir, 'plain', 'b.txt'))).to.equal(true);
     });
+
+    it('a directory moved to another filesystem on the same store moves its whole tree (review I4)', async () => {
+      const mirror = guard(local('mirror'), 'mirror', STAMPED);
+      const g = guard(local('uploads', { 'docs/a.txt': 'A', 'docs/sub/b.txt': 'B' }), 'uploads', STAMPED);
+      for (const p of ['docs', 'docs/a.txt', 'docs/sub/b.txt']) await store.set('uploads', p, { owner: bob });
+      await g.move('docs', 'docs', mirror);
+      expect(existsSync(join(dir, 'mirror', 'docs', 'sub', 'b.txt'))).to.equal(true);
+      for (const p of ['docs', 'docs/a.txt', 'docs/sub/b.txt']) {
+        expect(store.owner('mirror', p), p).to.equal('user:bob');
+        expect(store.owner('uploads', p), p).to.equal(undefined);
+      }
+    });
+
+    it('a directory moved to another store carries its own row only; the children lose their owners and a warning says so', async () => {
+      const archive = guard(local('archive'), 'archive', { mode: 'enforce', metadata: 'ArchiveMetadataStore', stampOwner: true });
+      const g = guard(local('uploads', { 'docs/a.txt': 'A' }), 'uploads', STAMPED);
+      await store.set('uploads', 'docs', { owner: bob });
+      await store.set('uploads', 'docs/a.txt', { owner: bob });
+      await g.move('docs', 'docs', archive);
+      expect(archiveStore.owner('archive', 'docs')).to.equal('user:bob');
+      expect(archiveStore.owner('archive', 'docs/a.txt')).to.equal(undefined);
+      expect(store.owner('uploads', 'docs/a.txt')).to.equal(undefined);
+      expect(warnings.join('\n')).to.contain('docs').and.contain('archive');
+    });
   });
 
   describe('failures', () => {
@@ -265,6 +354,23 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect((e as Error).message).to.equal('set failed');
       expect(existsSync(join(dir, 'uploads', 'a.txt'))).to.equal(true);
       expect(errors.join('\n')).to.contain('a.txt').and.contain('write');
+    });
+
+    it('metadata the store cannot hold is refused before the IO (review M2)', async () => {
+      principal = userPrincipal('much-too-long');
+      const g = guard(local('uploads'), 'uploads', { ...STAMPED, metadata: 'CheckedMetadataStore' });
+      const e = await g.write('a.txt', 'x').catch((err: unknown) => err);
+      expect(e).to.be.instanceOf(InvalidArgument);
+      expect(existsSync(join(dir, 'uploads', 'a.txt'))).to.equal(false);
+    });
+
+    it('a store that never answers holds a stream’s close back only until the timeout (review M5)', async () => {
+      const g = guard(local('uploads'), 'uploads', { ...STAMPED, metadata: 'HungMetadataStore' }, undefined, { metadataTimeoutMs: 50 });
+      const stream = (await g.writeStream('s.txt')) as Writable;
+      const done = new Promise((resolve) => stream.once('close', resolve));
+      stream.end('data');
+      await done;
+      expect(errors.join('\n')).to.contain('s.txt').and.contain('50 ms');
     });
 
     it('a metadata store the config names but DI does not hold fails before the IO', async () => {

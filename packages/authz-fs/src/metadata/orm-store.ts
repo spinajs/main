@@ -1,19 +1,17 @@
 import { AuthzConfigError } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { Orm } from '@spinajs/orm';
+import { LIKE_ESCAPE_CHARACTER, Orm, RawQuery, escapeLikeValue } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
 import { FileMetadataStore } from '../api.js';
 import type { FileMeta } from '../api.js';
 import { normalizeFsPath } from '../refs/index.js';
+import { FS_METADATA_CONNECTION_KEY, fsMetadataConnection } from './connection.js';
 import { checkFileMeta, checkFsName } from './meta.js';
 
 const TABLE = 'fs_object';
-// Not under authz.fs: that section is keyed by filesystem name.
-const CONNECTION_KEY = 'authz.fsMetadata.connection';
 const LIMITS = { fs: 64, path: 512, owner_type: 32, owner_id: 64, scope_type: 64, scope_id: 64 } as const;
 const IN_CHUNK = 500;
 
@@ -39,6 +37,8 @@ const chunks = <T>(list: readonly T[], size: number): T[][] => Array.from({ leng
 /**
  * FileMeta in table fs_object (migration AuthzFsObject_2026_10_01_00_00_00), one row per (fs, normalised path).
  * `delete` and `move` take the rows under a directory path along: providers remove and move directories whole.
+ * Paths are matched exactly in code and rows changed by their stored key, whatever the column collation: on a
+ * case-insensitive one, a case variant of an existing path is refused (the insert fails) instead of sharing its row.
  */
 @Injectable(FileMetadataStore)
 export class OrmFileMetadataStore extends FileMetadataStore {
@@ -50,8 +50,8 @@ export class OrmFileMetadataStore extends FileMetadataStore {
     const fs = checkFsName(fsName);
     const p = normalizeFsPath(path);
     if (p === '') return null;
-    const rows = ((await (await this.driver()).select().from(TABLE).where({ fs, path: p })) ?? []) as Row[];
-    return rows[0] ? metaOf(rows[0]) : null;
+    const row = await exactRow(await this.driver(), fs, p);
+    return row ? metaOf(row) : null;
   }
 
   async set(fsName: string, path: string, meta: FileMeta): Promise<void> {
@@ -60,17 +60,25 @@ export class OrmFileMetadataStore extends FileMetadataStore {
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       const now = new Date();
-      const updated = (await tx
-        .update()
-        .in(TABLE)
-        .update({ ...values, updated_at: now })
-        .where(key)) as { RowsAffected?: number } | undefined;
-      if (!updated?.RowsAffected)
+      const row = await exactRow(tx, key.fs, key.path);
+      if (row)
+        await tx
+          .update()
+          .in(TABLE)
+          .update({ ...values, updated_at: now })
+          .where({ fs: row.fs, path: row.path });
+      else
         await tx
           .insert()
           .into(TABLE)
           .values({ ...key, ...values, created_at: now, updated_at: now });
     });
+  }
+
+  /** The checks `set` makes, without IO: the guard calls it before the IO, so a value that cannot be stored stops the write. */
+  checkMeta(fsName: string, path: string, meta: FileMeta): void {
+    keyOf(fsName, path);
+    columnsOf(checkFileMeta(meta));
   }
 
   async move(fromFs: string, from: string, toFs: string, to: string): Promise<void> {
@@ -81,15 +89,18 @@ export class OrmFileMetadataStore extends FileMetadataStore {
     const driver = await this.driver();
     await driver.transaction(async (tx) => {
       const rows = await tree(tx, src.fs, src.path);
-      const moves = rows.map((r) => ({ from: r.path, to: dst.path + r.path.slice(src.path.length) }));
+      const moves = rows.map((r) => ({ row: r, to: dst.path + r.path.slice(src.path.length) }));
       for (const m of moves) if (m.to.length > LIMITS.path) throw new InvalidArgument(`${dst.fs}:${m.to} does not fit ${TABLE}.path (${LIMITS.path} characters)`, 'to');
       // Only a move onto an ancestor can land one moved row on another; no provider moves a directory there.
       const sources = new Set(rows.map((r) => r.path));
       if (src.fs === dst.fs && moves.some((m) => sources.has(m.to))) throw new InvalidArgument(`cannot move ${src.fs}:${src.path} onto ${dst.path}, which holds it`, 'to');
-      const doomed = [...new Set([dst.path, ...moves.map((m) => m.to)])];
-      for (const part of chunks(doomed, IN_CHUNK)) await tx.del().from(TABLE).where({ fs: dst.fs }).whereIn('path', part);
+      const targets = new Set([dst.path, ...moves.map((m) => m.to)]);
+      await deleteRows(
+        tx,
+        (await tree(tx, dst.fs, dst.path)).filter((r) => targets.has(r.path)),
+      );
       const now = new Date();
-      for (const m of moves) await tx.update().in(TABLE).update({ fs: dst.fs, path: m.to, updated_at: now }).where({ fs: src.fs, path: m.from });
+      for (const m of moves) await tx.update().in(TABLE).update({ fs: dst.fs, path: m.to, updated_at: now }).where({ fs: m.row.fs, path: m.row.path });
     });
   }
 
@@ -97,38 +108,44 @@ export class OrmFileMetadataStore extends FileMetadataStore {
     const fs = checkFsName(fsName);
     const p = normalizeFsPath(path);
     const driver = await this.driver();
-    await driver.transaction(async (tx) => {
-      const paths = (await tree(tx, fs, p)).map((r) => r.path);
-      for (const part of chunks(paths, IN_CHUNK)) await tx.del().from(TABLE).where({ fs }).whereIn('path', part);
-    });
+    await driver.transaction(async (tx) => deleteRows(tx, await tree(tx, fs, p)));
   }
 
   private async driver(): Promise<OrmDriver> {
     const container = this.opts.container ?? DI.RootContainer;
-    let name = this.opts.connection;
-    if (name === undefined) {
-      const configuration = (await container.resolve(Configuration)) as Configuration;
-      const configured = configuration.get<unknown>(['authz', 'fsMetadata', 'connection']);
-      if (configured !== undefined && (typeof configured !== 'string' || configured === '')) throw new AuthzConfigError(`configuration key ${CONNECTION_KEY} must be a connection name, got ${JSON.stringify(configured)}`);
-      name = (configured as string | undefined) ?? 'default';
-    }
+    const name = this.opts.connection ?? fsMetadataConnection(container);
     const orm = (await container.resolve(Orm)) as Orm;
     const driver = orm.Connections.get(name);
-    if (!driver) throw new AuthzConfigError(`OrmFileMetadataStore: ${CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
+    if (!driver) throw new AuthzConfigError(`OrmFileMetadataStore: ${FS_METADATA_CONNECTION_KEY} names connection ${JSON.stringify(name)}, which the ORM does not have (connections: ${[...orm.Connections.keys()].join(', ') || 'none'})`);
     return driver;
   }
 }
 
+async function exactRow(driver: OrmDriver, fs: string, path: string): Promise<Row | undefined> {
+  const rows = ((await driver.select().from(TABLE).where({ fs, path })) ?? []) as Row[];
+  return rows.find((r) => r.fs === fs && r.path === path);
+}
+
 /**
- * The row of `path` and the rows under it ('' = every row of the filesystem). The range query only narrows the
- * read; the prefix test in code decides, because collations may order or fold characters differently.
+ * The row of `path` and the rows under it ('' = every row of the filesystem). LIKE with the wildcards escaped only
+ * narrows the read (it ignores case under many collations); the exact test in code decides.
  */
 async function tree(driver: OrmDriver, fs: string, path: string): Promise<Row[]> {
-  if (path === '') return ((await driver.select().from(TABLE).where({ fs })) ?? []) as Row[];
-  const exact = ((await driver.select().from(TABLE).where({ fs, path })) ?? []) as Row[];
-  // '0' is the character after '/', so the range holds every path that starts with `${path}/`.
-  const below = ((await driver.select().from(TABLE).where({ fs }).where('path', '>=', `${path}/`).where('path', '<', `${path}0`)) ?? []) as Row[];
-  return [...exact.filter((r) => r.path === path), ...below.filter((r) => r.path.startsWith(`${path}/`))];
+  if (path === '') return (((await driver.select().from(TABLE).where({ fs })) ?? []) as Row[]).filter((r) => r.fs === fs);
+  const row = await exactRow(driver, fs, path);
+  const below = ((await driver
+    .select()
+    .from(TABLE)
+    .where({ fs })
+    .where(RawQuery.create(`path LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${escapeLikeValue(path)}/%`]))) ?? []) as Row[];
+  return [...(row ? [row] : []), ...below.filter((r) => r.fs === fs && r.path.startsWith(`${path}/`))];
+}
+
+/** By the keys the rows hold: under a case-insensitive key no other row can equal them. */
+async function deleteRows(driver: OrmDriver, rows: readonly Row[]): Promise<void> {
+  const byFs = new Map<string, string[]>();
+  for (const r of rows) byFs.set(r.fs, [...(byFs.get(r.fs) ?? []), r.path]);
+  for (const [fs, paths] of byFs) for (const part of chunks(paths, IN_CHUNK)) await driver.del().from(TABLE).where({ fs }).whereIn('path', part);
 }
 
 function keyOf(fsName: string, path: string): { fs: string; path: string } {

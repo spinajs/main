@@ -14,18 +14,29 @@ export interface MetadataTarget {
   metadata(): Promise<FileMetadataStore | undefined>;
 }
 
-/** A checked path argument: its filesystem, normalised path and the owner to stamp (none for SYSTEM and the like). */
+/** A checked path argument: its filesystem, normalised path and the owner to stamp (none unless a definite allow for a principal that may own). */
 export interface MetadataPath {
   readonly target: MetadataTarget;
   readonly path: string;
   readonly owner?: PrincipalRef;
 }
 
-/** The file gets its previous metadata back, with the owner when stamping; `keep`: an existing file keeps its owner. */
+export interface MetadataOptions {
+  /** A metadata update that failed after the IO. */
+  readonly error: (message: string) => void;
+  readonly warn: (message: string) => void;
+  /** How long a stream's 'close' waits for the store. */
+  readonly timeoutMs: number;
+}
+
+/**
+ * First-writer ownership (design §13 owner relation): a path that existed keeps its metadata; a path the operation
+ * creates starts empty, with the owner when stamping. `probe` tells which.
+ */
 interface Stamp {
   readonly kind: 'stamp';
   readonly arg: number;
-  readonly keep?: 'exists' | 'dirExists';
+  readonly probe: 'exists' | 'dirExists';
   readonly stream?: true;
 }
 
@@ -33,14 +44,15 @@ type Effect = Stamp | { readonly kind: 'delete'; readonly arg: number } | { read
 
 const EFFECTS: Readonly<Record<string, Effect>> = Object.freeze(
   Object.assign(Object.create(null) as Record<string, Effect>, {
-    write: { kind: 'stamp', arg: 0 },
-    writeStream: { kind: 'stamp', arg: 0, stream: true },
-    append: { kind: 'stamp', arg: 0, keep: 'exists' },
-    mkdir: { kind: 'stamp', arg: 0, keep: 'dirExists' },
-    upload: { kind: 'stamp', arg: 1 },
-    copy: { kind: 'stamp', arg: 1 },
-    zip: { kind: 'stamp', arg: 2 },
-    unzip: { kind: 'stamp', arg: 1 },
+    write: { kind: 'stamp', arg: 0, probe: 'exists' },
+    writeStream: { kind: 'stamp', arg: 0, probe: 'exists', stream: true },
+    append: { kind: 'stamp', arg: 0, probe: 'exists' },
+    // S3 has no directories: dirExists is always true there, so a directory key is never stamped.
+    mkdir: { kind: 'stamp', arg: 0, probe: 'dirExists' },
+    upload: { kind: 'stamp', arg: 1, probe: 'exists' },
+    copy: { kind: 'stamp', arg: 1, probe: 'exists' },
+    zip: { kind: 'stamp', arg: 2, probe: 'exists' },
+    unzip: { kind: 'stamp', arg: 1, probe: 'dirExists' },
     rm: { kind: 'delete', arg: 0 },
     move: { kind: 'move', from: 0, to: 1 },
     rename: { kind: 'move', from: 0, to: 1 },
@@ -49,16 +61,24 @@ const EFFECTS: Readonly<Record<string, Effect>> = Object.freeze(
 
 export type AfterIo = (result: unknown) => Promise<unknown>;
 
+/** The size and shape checks a store can make without IO (OrmFileMetadataStore, S3ObjectMetadataStore). */
+type CheckedStore = FileMetadataStore & { checkMeta?(fsName: string, path: string, meta: FileMeta): void };
+
+const checkMeta = (store: FileMetadataStore, p: MetadataPath, meta: FileMeta): void => (store as CheckedStore).checkMeta?.(p.target.name, p.path, meta);
+
+const probe = async (p: MetadataPath, method: 'exists' | 'dirExists' | 'isDir'): Promise<boolean> => (await Reflect.apply(p.target.raw[method] as (path: string) => Promise<boolean>, p.target.raw, [p.path])) === true;
+
 /**
- * Runs before the IO (stores resolved, previous metadata read, so a misconfigured store fails before anything is
- * written) and returns what to do after a successful IO; undefined when the method keeps no metadata. A failure after
- * the IO is reported and rethrown: a lost owner row would deny the owner later, so it must not pass silently.
+ * Runs before the IO (stores resolved, the path probed, metadata read and checked, so a misconfigured store or a value
+ * it cannot hold fails before anything is written) and returns what to do after a successful IO; undefined when the
+ * method keeps no metadata. A failure after the IO is reported and rethrown: a lost owner row would deny the owner
+ * later, so it must not pass silently.
  */
-export async function planMetadata(method: string, at: (arg: number) => MetadataPath | undefined, report: (message: string) => void): Promise<AfterIo | undefined> {
+export async function planMetadata(method: string, at: (arg: number) => MetadataPath | undefined, opts: MetadataOptions): Promise<AfterIo | undefined> {
   const effect = EFFECTS[method];
   if (!effect) return undefined;
   const failed = (where: readonly MetadataPath[], e: unknown): Error => {
-    report(`${method} on ${where.map((p) => `${p.target.name}:${p.path}`).join(' → ')} succeeded, but the metadata was not updated: ${e instanceof Error ? e.message : String(e)}`);
+    opts.error(`${method} on ${where.map((p) => `${p.target.name}:${p.path}`).join(' → ')} succeeded, but the metadata was not updated: ${e instanceof Error ? e.message : String(e)}`);
     return e as Error;
   };
   const after =
@@ -78,40 +98,57 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
     return p && store ? after([p], () => store.delete(p.target.name, p.path)) : undefined;
   }
 
-  if (effect.kind === 'move') {
-    const src = at(effect.from);
-    const dst = at(effect.to);
-    if (!src) return undefined;
-    const srcStore = await src.target.metadata();
-    const dstStore = dst ? await dst.target.metadata() : undefined;
-    if (!srcStore && !dstStore) return undefined;
-    const where = dst ? [src, dst] : [src];
-    if (dst && srcStore && srcStore === dstStore && src.target.name === dst.target.name) {
-      return after(where, () => srcStore.move(src.target.name, src.path, dst.target.name, dst.path));
-    }
-    // Across filesystems the provider copies the bytes only, and the source may be gone after the IO: read first.
-    const before = srcStore ? await srcStore.get(src.target.name, src.path) : null;
-    return after(where, async () => {
-      if (dst && dstStore) await put(dstStore, dst, before);
-      if (srcStore) await srcStore.delete(src.target.name, src.path);
-    });
-  }
+  if (effect.kind === 'move') return planMove(at(effect.from), at(effect.to), after, opts);
 
   const p = at(effect.arg);
   const store = p && (await p.target.metadata());
   if (!p || !store) return undefined;
-  const existed = effect.keep ? (await Reflect.apply(p.target.raw[effect.keep] as (path: string) => Promise<boolean>, p.target.raw, [p.path])) === true : false;
-  // Read before the IO: S3 write, upload and append replace an object's metadata, so after the IO it may be gone.
-  const before = await store.get(p.target.name, p.path);
-  const owner = p.target.stampOwner && !existed ? p.owner : undefined;
-  const next: FileMeta | null = owner ? { ...before, owner } : before;
-  const task = () => put(store, p, next);
+  let task: () => Promise<void>;
+  if (await probe(p, effect.probe)) {
+    // Written back: S3 write, upload and append replace an object's metadata.
+    const before = await store.get(p.target.name, p.path);
+    task = () => put(store, p, before);
+  } else {
+    const next: FileMeta | null = p.target.stampOwner && p.owner ? { owner: p.owner } : null;
+    if (next) checkMeta(store, p, next);
+    // Rows left at a path that did not exist are stale (an rm outside the guard, a failed update); the new file must not inherit them.
+    task = async () => {
+      await store.delete(p.target.name, p.path);
+      if (next) await store.set(p.target.name, p.path, next);
+    };
+  }
   if (!effect.stream) return after([p], task);
   return async (result) => {
     if (!isWritable(result)) return after([p], task)(result);
-    stampOnClose(result, task, (e) => failed([p], e));
+    stampOnClose(result, task, (e) => failed([p], e), opts.timeoutMs);
     return result;
   };
+}
+
+/**
+ * One store on both sides moves the whole tree (`store.move`; S3 does nothing once the object is gone, since the
+ * provider's copy kept its metadata). Between two stores only the row of the moved path travels, read before the IO
+ * because the source may be gone after it; the rows under a moved directory are dropped, and a warning says so.
+ */
+async function planMove(src: MetadataPath | undefined, dst: MetadataPath | undefined, after: (where: readonly MetadataPath[], task: () => Promise<void>) => AfterIo, opts: MetadataOptions): Promise<AfterIo | undefined> {
+  if (!src) return undefined;
+  const srcStore = await src.target.metadata();
+  const dstStore = dst ? await dst.target.metadata() : undefined;
+  if (!srcStore && !dstStore) return undefined;
+  const where = dst ? [src, dst] : [src];
+  if (dst && srcStore && srcStore === dstStore) return after(where, () => srcStore.move(src.target.name, src.path, dst.target.name, dst.path));
+
+  const before = srcStore ? await srcStore.get(src.target.name, src.path) : null;
+  if (dst && dstStore && before) checkMeta(dstStore, dst, before);
+  const directory = srcStore !== undefined && (await probe(src, 'isDir'));
+  return after(where, async () => {
+    if (dst && dstStore) {
+      await dstStore.delete(dst.target.name, dst.path);
+      if (before) await dstStore.set(dst.target.name, dst.path, before);
+    }
+    if (srcStore) await srcStore.delete(src.target.name, src.path);
+    if (directory) opts.warn(`move of the directory ${src.target.name}:${src.path} to ${dst ? `${dst.target.name}:${dst.path}` : 'an unguarded filesystem'} carried only its own metadata to another store; the files under it lost their owners`);
+  });
 }
 
 /** Makes the store hold `next` for `p`, writing only when it differs. */
@@ -127,11 +164,12 @@ type WritableLike = EventEmitter & { readonly writableFinished?: boolean; end(..
 const isWritable = (value: unknown): value is WritableLike => value !== null && typeof value === 'object' && typeof (value as WritableLike).emit === 'function' && typeof (value as WritableLike).end === 'function';
 
 /**
- * Holds back the stream's 'close' until the metadata is written, so a caller that waits for 'close' and then reads
- * finds the owner. A stream that failed or was destroyed before it finished stamps nothing. A failure goes to the
- * stream's 'error' listeners (none: only the report), then 'close' follows.
+ * Holds back the stream's 'close' until the metadata is written (at most `timeoutMs`), so a caller that waits for
+ * 'close' and then reads finds the owner. A stream that failed or was destroyed before it finished stamps nothing.
+ * A failure goes to the stream's 'error' listeners (without any, only to the report: an unhandled 'error' would end
+ * the process), then 'close' follows.
  */
-function stampOnClose(stream: WritableLike, task: () => Promise<void>, failed: (e: unknown) => Error): void {
+function stampOnClose(stream: WritableLike, task: () => Promise<void>, failed: (e: unknown) => Error, timeoutMs: number): void {
   const own = Object.hasOwn(stream, 'emit');
   const emit = stream.emit;
   let errored = false;
@@ -142,13 +180,22 @@ function stampOnClose(stream: WritableLike, task: () => Promise<void>, failed: (
     else delete (stream as { emit?: unknown }).emit;
     if (errored || stream.writableFinished === false) return Reflect.apply(emit, this, [event, ...args]) as boolean;
     const listened = stream.listenerCount('close') > 0;
-    task().then(
-      () => Reflect.apply(emit, this, [event, ...args]),
-      (e: unknown) => {
+    let settled = false;
+    const settle = (e?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (e !== undefined) {
         const error = failed(e);
         if (stream.listenerCount('error') > 0) Reflect.apply(emit, this, ['error', error]);
-        Reflect.apply(emit, this, [event, ...args]);
-      },
+      }
+      Reflect.apply(emit, this, [event, ...args]);
+    };
+    const timer = setTimeout(() => settle(new Error(`the metadata store did not answer within ${timeoutMs} ms`)), timeoutMs);
+    timer.unref();
+    task().then(
+      () => settle(),
+      (e: unknown) => settle(e ?? new Error('the metadata update failed')),
     );
     return listened;
   };

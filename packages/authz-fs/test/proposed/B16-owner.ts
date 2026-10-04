@@ -65,8 +65,16 @@ const cases: Case[] = [
     steps: [as('alice', write('a.txt')), as('bob', fsCall('uploads', 'append', ['a.txt', 'more'], 'resolves'), read('a.txt', DENIED)), as('alice', read('a.txt', 'resolves'))],
   },
   {
-    name: 'an overwrite makes the writer the owner',
-    steps: [as('alice', write('a.txt')), as('bob', write('a.txt'), read('a.txt', 'resolves')), as('alice', read('a.txt', DENIED))],
+    name: 'an overwrite keeps the first owner: fs:write on a file gives no owner rights over it',
+    steps: [as('alice', write('a.txt')), as('bob', write('a.txt'), read('a.txt', DENIED), fsCall('uploads', 'rm', ['a.txt'], DENIED)), as('alice', read('a.txt', 'resolves'))],
+  },
+  {
+    name: "unzipping into another user's directory does not take it over, so its files cannot be deleted",
+    steps: [
+      as('alice', fsCall('uploads', 'mkdir', ['alice-dir'], 'resolves'), write('alice-dir/a.txt')),
+      as('bob', write('b.txt'), fsCall('uploads', 'zip', [['b.txt'], { fs: 'uploads' }, 'bob.zip'], 'resolves'), fsCall('uploads', 'unzip', ['bob.zip', 'alice-dir', { fs: 'uploads' }], 'resolves'), fsCall('uploads', 'rm', ['alice-dir'], DENIED)),
+      as('alice', read('alice-dir/a.txt', 'resolves')),
+    ],
   },
 ];
 

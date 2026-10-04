@@ -44,12 +44,15 @@ export interface FsGuardOptions {
   /** Default: the ALS principal, else UNATTENDED (what AuthzService.current() returns). */
   readonly principal?: () => Principal;
   readonly log?: FsGuardLog;
+  /** How long a writeStream's 'close' waits for the metadata store; default 30 s. */
+  readonly metadataTimeoutMs?: number;
 }
 
 interface Env {
   readonly container: IContainer;
   readonly principal: () => Principal;
   readonly log: FsGuardLog;
+  readonly metadataTimeoutMs: number;
   service(domain: string): Promise<FsGuardService>;
 }
 
@@ -109,6 +112,7 @@ export function guardFs<T extends fs>(raw: T, fsName: string, opts: FsGuardOptio
     container,
     principal: opts.principal ?? currentPrincipal,
     log: opts.log ?? engineLog('authz-fs'),
+    metadataTimeoutMs: opts.metadataTimeoutMs ?? 30_000,
     service: opts.service ?? (async (domain) => ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain)),
   };
   const guard = makeGuard(fsName, raw, config, env);
@@ -214,10 +218,17 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
     const at = plan.paths.get(arg);
     // The filesystem root has no metadata.
     if (!at || at.path === '') return undefined;
-    const i = plan.needs.findIndex((n) => n.arg === arg && n.guard === at.guard);
-    return { target: at.guard, path: at.path, owner: ownerOf(principal, decisions[i]) };
+    // Only a definite allow stamps: an audit-mode denial or a conditional answer must not leave owner rights behind.
+    const decided = plan.needs.map((n, i) => (n.arg === arg && n.guard === at.guard ? decisions[i] : undefined)).filter((d): d is Decision => d !== undefined);
+    const owner = decided.length > 0 && decided.every(definite) ? ownerOf(principal, decided[0]) : undefined;
+    return { target: at.guard, path: at.path, owner };
   };
-  const afterIo = await planMetadata(method, metadataPath, (message) => (guard.env.log.error ?? guard.env.log.warn).call(guard.env.log, `authz.fs.${guard.name}: ${message}`));
+  const log = guard.env.log;
+  const afterIo = await planMetadata(method, metadataPath, {
+    error: (message) => (log.error ?? log.warn).call(log, `authz.fs.${guard.name}: ${message}`),
+    warn: (message) => log.warn(`authz.fs.${guard.name}: ${message}`),
+    timeoutMs: guard.env.metadataTimeoutMs,
+  });
 
   const frame: Frame = { active: true };
   let result: unknown;

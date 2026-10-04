@@ -94,20 +94,27 @@ authz: {
 }
 ```
 
-- After a successful `write`, `upload`, `copy` (destination), `zip` (the archive) and `unzip` (the destination
-  directory) the owner becomes the principal. `writeStream` stamps when the stream closes after it finished, and
-  holds the `'close'` event back until then; a stream that failed or was destroyed stamps nothing. `append` and
-  `mkdir` stamp only what they create: an existing file keeps its owner, also when it has none.
-- The owner is the principal the decision ran for: under `inherit` delegation the delegate, as the owner relation
-  is then evaluated for the delegate too; under `intersect` the agent. SYSTEM, UNATTENDED and anonymous principals
-  own nothing, and their writes keep the previous owner.
-- Scope and tags of a file survive its writes. `rm` deletes the metadata, `move` and `rename` move it, also to
-  another filesystem's store (to a filesystem without one it is dropped). This happens with or without
-  `stampOwner` once a store is configured. Unchecked calls a provider makes inside an operation keep no metadata.
-- A metadata update that fails after the IO is logged at error and its error rethrown (for `writeStream`: emitted to
-  the stream's `'error'` listeners), since a lost owner row denies the owner later. The read before the IO and the
-  write after it are not one transaction.
-- `unzip` stamps the destination directory, not the files it extracts.
+- Ownership goes to the first writer. `write`, `writeStream`, `append`, `mkdir`, `upload`, `copy` (destination),
+  `zip` (the archive) and `unzip` (the destination directory) stamp a path only when they create it. A path that
+  existed before keeps its metadata, also when it has none, so `fs:write` on a file or a directory gives no owner
+  rights over it. A path that did not exist starts empty: rows left at it or under it (by an `rm` outside the
+  guard, or a failed update) are deleted first.
+- Only a definite allow stamps: an `audit`-mode denial or a conditional answer writes no owner. The owner is the
+  principal the decision ran for: under `inherit` delegation the delegate, as the owner relation is then evaluated
+  for the delegate too; under `intersect` the agent. SYSTEM, UNATTENDED, anonymous and `link` principals own
+  nothing (anonymous callers and the bearers of a link share one id).
+- `writeStream` stamps when the stream closes after it finished, and holds the `'close'` event back until then, at
+  most `metadataTimeoutMs` (30 s); a stream that failed or was destroyed stamps nothing.
+- `rm` deletes the metadata of the path and everything under it; `move` and `rename` move it. With one store on
+  both sides the whole tree moves, also between filesystems. Between two stores only the row of the moved path
+  travels: the files under a moved directory lose their owners (a warning is logged). To a filesystem without a
+  store the metadata is dropped. This happens with or without `stampOwner` once a store is configured. Unchecked
+  calls a provider makes inside an operation keep no metadata.
+- The store checks what it can before the IO (`checkMeta`: column sizes, the S3 limit), so a value it cannot hold
+  stops the operation. A metadata update that fails after the IO is logged at error and its error rethrown (for
+  `writeStream`: emitted to the stream's `'error'` listeners if it has any), since a lost owner row denies the
+  owner later. The read before the IO and the write after it are not one transaction.
+- The files `unzip`, `copy` or `upload` put under a directory get no owner of their own.
 
 `FsResourceAdapter.relations()` serves `owner` on `file`, `dir` and `fs` (boot rule 8 asks for every type of the
 permission). It holds when the store records the principal's `{ type, id }` for that path; it reads the store, never
@@ -115,12 +122,18 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 
 Stores:
 
-- `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00` on the `default`
-  connection), one row per filesystem and normalised path. It uses the connection
-  `authz.fsMetadata.connection` names (not under `authz.fs`, which is keyed by filesystem name), else `default`.
-  `delete` and `move` take the rows under a directory path along. Paths are limited to 512 characters.
+- `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path. The store and its migration
+  `AuthzFsObject_2026_10_01_00_00_00` use the connection `authz.fsMetadata.connection` names (not under `authz.fs`,
+  which is keyed by filesystem name), else `default`. `delete` and `move` take the rows under a directory path
+  along (`LIKE` with the wildcards escaped). Paths are matched exactly in code and rows changed by their stored key.
+  The migration gives the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a
+  case-insensitive key (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored,
+  and its update fails instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the
+  `(fs, path)` key can exceed the 900-byte index key limit, and an insert of a very long path then fails.
 - `S3ObjectMetadataStore`: the metadata lives on the object as the user metadata `x-amz-meta-authz-meta`
   (URI-encoded JSON, within S3's 2 KB). It needs `getMetadata` and `setMetadata` (fsS3) on the provider and calls
-  the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself, so objects over 5 GB cannot
-  be stamped. Whoever can PUT objects into the bucket directly (bucket credentials, a presigned PUT) can set any
-  owner.
+  the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself: objects over 5 GB cannot be
+  stamped, the copy drops the object's ACL and does not carry its storage class or SSE settings (an SSE-C object
+  cannot be stamped), and a write between its HEAD and its copy can be lost. Whoever can PUT objects into the
+  bucket directly (bucket credentials, a presigned PUT) can set any owner. A move between two S3 filesystems that
+  share one store loses the owner, since the provider re-uploads the object.

@@ -3,8 +3,8 @@ import { InvalidArgument } from '@spinajs/exceptions';
 
 import type { FileMeta } from '../api.js';
 
-/** Principal types that never own a file: they are no one in particular (anonymous principals share one id). */
-export const FS_NO_OWNER_TYPES: ReadonlySet<string> = new Set(['system', 'unattended', 'anonymous']);
+/** Principal types that never own a file: no one in particular, or an id many share (anonymous callers, every bearer of a link). */
+export const FS_NO_OWNER_TYPES: ReadonlySet<string> = new Set(['system', 'unattended', 'anonymous', 'link']);
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && v !== '';

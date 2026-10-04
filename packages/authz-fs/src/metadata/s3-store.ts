@@ -49,13 +49,21 @@ export class S3ObjectMetadataStore extends FileMetadataStore {
   async set(fsName: string, path: string, meta: FileMeta): Promise<void> {
     const p = normalizeFsPath(path);
     if (p === '') throw new InvalidArgument(`${fsName}: the filesystem root has no metadata`, 'path');
-    const value = encodeURIComponent(JSON.stringify(checkFileMeta(meta)));
+    const value = encode(checkFileMeta(meta));
     const all = await this.read(fsName, p);
     if (all === null) throw new InvalidArgument(`${fsName}:${p} is not an object of the bucket, so it cannot hold metadata`, 'path');
     const next = { ...withoutMeta(all), [S3_FILE_META_KEY]: value };
     const bytes = Object.entries(next).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v), 0);
     if (bytes > S3_USER_METADATA_BYTES) throw new InvalidArgument(`the metadata of ${fsName}:${p} would take ${bytes} bytes of S3 user metadata, over the limit of ${S3_USER_METADATA_BYTES}`, 'meta');
     await this.provider(fsName).setMetadata(p, next);
+  }
+
+  /** The checks `set` can make without IO; the object's other user metadata also counts toward the limit, so `set` may still refuse. */
+  checkMeta(fsName: string, path: string, meta: FileMeta): void {
+    checkFsName(fsName);
+    if (normalizeFsPath(path) === '') throw new InvalidArgument(`${fsName}: the filesystem root has no metadata`, 'path');
+    const bytes = Buffer.byteLength(S3_FILE_META_KEY) + Buffer.byteLength(encode(checkFileMeta(meta)));
+    if (bytes > S3_USER_METADATA_BYTES) throw new InvalidArgument(`the metadata of ${fsName}:${path} takes ${bytes} bytes of S3 user metadata, over the limit of ${S3_USER_METADATA_BYTES}`, 'meta');
   }
 
   /** The destination object gets the source's FileMeta. When the source object is gone, the provider moved the object with its metadata, and nothing is left to do. */
@@ -100,6 +108,8 @@ export class S3ObjectMetadataStore extends FileMetadataStore {
     return raw as S3MetadataProvider;
   }
 }
+
+const encode = (meta: FileMeta): string => encodeURIComponent(JSON.stringify(meta));
 
 function withoutMeta(all: Record<string, string>): Record<string, string> {
   const { [S3_FILE_META_KEY]: _dropped, ...rest } = all;
