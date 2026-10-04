@@ -13,3 +13,6 @@ export * from './migrations/index.js';
 export * from './inherit/index.js';
 export * from './domain/index.js';
 export * from './http/index.js';
+
+// api.ts holds the frozen fromFsPath signature as a stub; an explicit export wins over `export *`.
+export { fromFsPath } from './http/index.js';

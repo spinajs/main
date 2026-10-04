@@ -113,6 +113,24 @@ With a lazy uploader (`http-lazy-file-uploader`), the middleware checks the rout
 uploader's `fs`; the copy runs later in a queue job, whose guarded `copy` checks the destination as the job's
 principal (`@Job` `runAs`, authz-queue).
 
+## `fromFsPath`
+
+`fromFsPath(fsName, param)` is a resource extractor for authz-http's `@Access`. It reads the url parameter
+`param` (only url parameters, as `fromParam`), normalises it as the guard does, with the base path of the
+published provider, and gives `{ type: 'file', id: '<fs>:<path>' }`, or `{ type: 'fs', id: <fs> }` for the
+root. A missing or non-string parameter, or a refused path (`..` above the root), is an `InvalidArgument`
+(400).
+
+```ts
+@Get('files/:path(*)')
+@Access('fs:read', { resource: fromFsPath('uploads', 'path') })
+public async download(@Param() path: string) { … }
+```
+
+The ref is always a `file` (or the `fs` root): a grant on a `dir` ref covers it through its ancestors, but a
+route that lists a directory checks a `file` ref with the directory's path, which a `dir` grant on that same
+path does not match. The guard still checks the `dir` ref when the handler calls `list`.
+
 ## Owners and metadata
 
 `authz.fs.<name>.metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among
