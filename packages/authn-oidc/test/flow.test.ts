@@ -54,6 +54,9 @@ describe('authn-oidc flow', () => {
         b64({ ...good, t: '1' }),
         b64({ ...good, r: 'https://evil.example/' }),
         b64({ ...good, u: '' }),
+        b64({ ...good, u: 'javascript:alert(1)' }),
+        b64({ ...good, p: 'Corp' }),
+        b64({ ...good, r: '/caf\u00e9' }),
         b64({ ...good, m: 'implicit' }),
         b64({ ...good, x: 1 }),
         b64({ ...good, h: sha256hex('s') }),
@@ -166,6 +169,8 @@ describe('authn-oidc flow', () => {
       expect(u.searchParams.get('code_challenge_method')).to.eq('S256');
       expect(u.searchParams.has('response_mode')).to.eq(false);
       expect(u.searchParams.has('max_age')).to.eq(false);
+      const more = request({ extra: { request: 'jwt', request_uri: 'urn:x', acr_values: 'mfa' } as never });
+      for (const k of ['request', 'request_uri', 'acr_values']) expect(more.searchParams.has(k), k).to.eq(false);
     });
 
     it('keeps the query of the endpoint and sends no nonce for plain OAuth2', () => {

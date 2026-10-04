@@ -61,7 +61,7 @@ export class FetchOidcHttpClient extends OidcHttpClient {
       await response.body?.cancel();
       throw new Error(`authn-oidc: the provider answered a redirect (HTTP ${response.status})`);
     }
-    if (!/\bjson\b/i.test(response.headers.get('content-type') ?? '')) {
+    if (!/^application\/([a-z0-9.+-]+\+)?json\s*(;|$)/i.test(response.headers.get('content-type') ?? '')) {
       await response.body?.cancel();
       throw new Error(`authn-oidc: the provider answered HTTP ${response.status} without a JSON content type`);
     }

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import { isPlainObject, isRelaxedEnv } from '../support.js';
-import { OIDC_APP_PATH_PATTERN } from '../config/schema.js';
+import { checkedUrl, isPlainObject, isRelaxedEnv } from '../support.js';
+import { OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from '../config/schema.js';
 
 /**
  * The flow cookie (D1). It carries a random seed and the flow's bindings; state, nonce and the PKCE verifier are
@@ -43,6 +43,8 @@ const KEYS = ['v', 'p', 's', 't', 'r', 'u', 'm', 'h'];
 const APP_PATH = new RegExp(OIDC_APP_PATH_PATTERN);
 const B64URL_SEED = /^[A-Za-z0-9_-]{43}$/;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+const PRINTABLE_ASCII = /^[\x21-\x7e]*$/;
+const PROVIDER_NAME = new RegExp(OIDC_PROVIDER_NAME_PATTERN);
 
 const b64urlSha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('base64url');
 
@@ -53,7 +55,8 @@ export const codeChallengeOf = (verifier: string): string => createHash('sha256'
 
 /** A returnTo is kept only as an app-relative path (no open redirect). */
 export function appPathOrNull(v: unknown): string | null {
-  return typeof v === 'string' && v.length <= RETURN_TO_MAX_LENGTH && APP_PATH.test(v) && !/[\s\\]/.test(v) ? v : null;
+  // Printable ASCII only, so a long multi-byte path cannot push the cookie over its read cap.
+  return typeof v === 'string' && v.length <= RETURN_TO_MAX_LENGTH && APP_PATH.test(v) && PRINTABLE_ASCII.test(v) ? v : null;
 }
 
 /** Fixed member order, so the state does not depend on how a cookie was serialized. */
@@ -101,13 +104,12 @@ export function decodeFlow(value: unknown): OidcFlow | null {
   const ok =
     f.v === 1 &&
     typeof f.p === 'string' &&
-    f.p.length > 0 &&
+    PROVIDER_NAME.test(f.p) &&
     typeof f.s === 'string' &&
     B64URL_SEED.test(f.s) &&
     Number.isSafeInteger(f.t) &&
     (f.r === null || appPathOrNull(f.r) !== null) &&
-    typeof f.u === 'string' &&
-    f.u.length > 0 &&
+    checkedUrl(f.u, { relaxed: true, query: true }) !== null &&
     (f.m === 'login' || f.m === 'link') &&
     (f.h === undefined || (typeof f.h === 'string' && SHA256_HEX.test(f.h))) &&
     (f.m === 'link') === (f.h !== undefined);
