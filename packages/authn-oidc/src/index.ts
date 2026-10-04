@@ -10,3 +10,7 @@ export * from './flow/authorize.js';
 export * from './token/exchange.js';
 export * from './token/id-token.js';
 export * from './token/userinfo.js';
+export * from './claims.js';
+export * from './provider.js';
+export * from './strategy.js';
+export * from './login.js';
