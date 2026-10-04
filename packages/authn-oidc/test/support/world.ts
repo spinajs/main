@@ -76,7 +76,7 @@ export interface WorldOptions {
 export async function world(o: WorldOptions = {}) {
   const idp = o.idp ?? (await FakeIdp.create());
   const name = o.name ?? 'corp';
-  const options = readOidcOptions({ providers: { [name]: { issuer: idp.issuer, clientId: FAKE_CLIENT_ID, clientSecret: { secret: FAKE_CLIENT_SECRET }, ...o.provider } } }, ENV).providers.get(name)!;
+  const options = readOidcOptions({ providers: { [name]: { ...(o.provider?.preset ? {} : { issuer: idp.issuer }), clientId: FAKE_CLIENT_ID, clientSecret: { secret: FAKE_CLIENT_SECRET }, ...o.provider } } }, ENV).providers.get(name)!;
   const nonces = new MemoryNonceStore();
   const provider = new OidcProvider(options, idp, nonces, false);
   const linking = o.linking ?? { jit: false, byVerifiedEmail: false };
@@ -116,9 +116,9 @@ export async function world(o: WorldOptions = {}) {
   const flowOf = (a: OidcAnswer): string => a.cookies.find((c) => c.Name === flowCookieName(ENV))!.Value;
 
   /** begin, play the IdP, callback; returns both answers. */
-  async function roundTrip(l: FakeLogin, opts: { withIss?: boolean; returnTo?: string; navigation?: boolean } = {}) {
+  async function roundTrip(l: FakeLogin, opts: { withIss?: boolean; returnTo?: string; navigation?: boolean; authorizationEndpoint?: string } = {}) {
     const begun = await login.begin(name, request(opts.returnTo ? { returnTo: opts.returnTo } : {}));
-    const query = idp.authorize(begun.location!, l, { withIss: opts.withIss });
+    const query = idp.authorize(begun.location!, l, { withIss: opts.withIss, authorizationEndpoint: opts.authorizationEndpoint });
     const done = await login.callback(name, request(query, { [flowCookieName(ENV)]: flowOf(begun) }, opts.navigation));
     return { begun, query, done, flow: flowOf(begun) };
   }
