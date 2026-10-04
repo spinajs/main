@@ -6,6 +6,7 @@ import type { Configuration } from '@spinajs/configuration';
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
 import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { TestLog } from '../audit/test-log.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
 
 const IP = '192.0.2.10';
@@ -15,6 +16,12 @@ const WRONG = 'Wrong-Pass-9876';
 class RecordingThrottle extends MemoryAuthnThrottle {
   readonly attempts: { keys: ThrottleKey[]; flow: ThrottleFlow }[] = [];
   readonly succeeds: { keys: ThrottleKey[]; flow: ThrottleFlow }[] = [];
+  readonly peeks: { keys: ThrottleKey[]; flow: ThrottleFlow }[] = [];
+
+  async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) {
+    this.peeks.push({ keys: [...keys], flow });
+    return super.peek(keys, flow, ctx);
+  }
 
   async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) {
     this.attempts.push({ keys: [...keys], flow });
@@ -184,9 +191,10 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(jwt.verifyCalls.length, 1);
     });
 
-    it('counts the attempt once, with the union of the candidates keys and the ip', async () => {
+    it('counts a failure once, with the union of the candidates keys and the ip', async () => {
       const { p } = await bootBearers();
-      await p.service.authenticate(bearer('h.good.s'), ctx({ purpose: 'request' }));
+      failure(await p.service.authenticate(bearer('h.bad.s'), ctx({ purpose: 'request' })), 'invalid_credentials');
+      assert.deepStrictEqual(throttle!.peeks.map((x) => x.keys), throttle!.attempts.map((x) => x.keys));
       assert.strictEqual(throttle!.attempts.length, 1);
       assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId).sort(), ['account-ip=jwt:1|' + IP, 'account=jwt:1', 'ip=' + IP].sort());
       assert.strictEqual(throttle!.attempts[0].flow, 'login');
@@ -280,10 +288,165 @@ describe('DefaultAuthnService', function () {
     });
   });
 
+  describe('per-request strategies count failures only (K5)', () => {
+    const OWNER: IdentityRef = { type: 'user', id: 'owner-1' };
+    const T0 = Date.parse('2026-10-04T10:00:00Z');
+    const at = (ms: number, over: Partial<AuthnContext> = {}): AuthnContext => ctx({ now: new Date(T0 + ms), purpose: 'request', ...over });
+    const kidOf = (c: Credentials): string => tokenOf(c).split(':')[0];
+    /** `<kid>:<secret>`, keyed by the kid as authn-keys keys its strategies; `<kid>:good` verifies. */
+    const keyLike = (interactive = false) =>
+      strategy('keys', {
+        interactive,
+        keys: (c) => [{ kind: 'account', value: `key:${kidOf(c)}` }],
+        verify: (c) => (tokenOf(c).endsWith(':good') ? { ok: true, identity: OWNER, method: 'jws' } : { ok: false, reason: 'invalid_credentials' }),
+      });
+
+    async function bootKeys(config = {}, s = keyLike()): Promise<{ p: CoreParts; s: FakeStrategy }> {
+      const p = await boot([s], { raw: config });
+      p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
+      return { p, s };
+    }
+
+    it('lets parallel requests with one valid credential through, past the account and ip free counts', async () => {
+      const { p, s } = await bootKeys();
+      const n = DEFAULT_THROTTLE_PARAMS.login.ip!.free + 10;
+      const all = await Promise.all(Array.from({ length: n }, () => p.service.authenticate(bearer('a:good'), at(0))));
+      assert.strictEqual(all.filter((r) => r.status === 'success').length, n);
+      assert.strictEqual(s.verifyCalls.length, n);
+      assert.strictEqual(throttle!.attempts.length, 0, 'a success counts nothing');
+      assert.strictEqual(throttle!.peeks.length, n);
+      assert.strictEqual(throttle!.ipAttempts(IP), 0);
+    });
+
+    it('lets parallel requests with many valid credentials from one ip through', async () => {
+      const { p } = await bootKeys();
+      const n = DEFAULT_THROTTLE_PARAMS.login.ip!.free + 5;
+      const all = await Promise.all(Array.from({ length: n }, (_, i) => p.service.authenticate(bearer(`k${i}:good`), at(0))));
+      assert.strictEqual(all.filter((r) => r.status === 'success').length, n);
+    });
+
+    it('counts a failure after verify, backs off, and verifies nothing while the delay holds', async () => {
+      const { p, s } = await bootKeys({ authn: { throttle: { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } } } } });
+      failure(await p.service.authenticate(bearer('a:bad'), at(0)), 'invalid_credentials');
+      failure(await p.service.authenticate(bearer('a:bad'), at(1)), 'invalid_credentials');
+      const verified = s.verifyCalls.length;
+      assert.strictEqual(failure(await p.service.authenticate(bearer('a:bad'), at(2)), 'throttled').retryAfterSeconds, 1);
+      assert.strictEqual(failure(await p.service.authenticate(bearer('a:good'), at(3)), 'throttled').retryAfterSeconds, 1, 'the owner waits out the same delay');
+      assert.strictEqual(s.verifyCalls.length, verified, 'nothing verified');
+      failure(await p.service.authenticate(bearer('a:bad'), at(1001)), 'invalid_credentials');
+      assert.strictEqual(failure(await p.service.authenticate(bearer('a:bad'), at(1002)), 'throttled').retryAfterSeconds, 2, 'the delay doubles');
+      assert.strictEqual(p.events.all().filter((e) => e.type === 'throttle.block').length, 3);
+    });
+
+    it('answers throttled to the failures of a parallel burst beyond the free slots, and backs off after it', async () => {
+      const { p } = await bootKeys({ authn: { throttle: { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } } } } });
+      const all = await Promise.all(Array.from({ length: 10 }, () => p.service.authenticate(bearer('a:bad'), at(0))));
+      assert.strictEqual(all.filter((r) => r.status === 'failure' && r.reason === 'invalid_credentials').length, 2);
+      assert.strictEqual(all.filter((r) => r.status === 'failure' && r.reason === 'throttled').length, 8);
+      failure(await p.service.authenticate(bearer('a:good'), at(1)), 'throttled');
+    });
+
+    it('counts a verified credential that the identity status refuses', async () => {
+      const { p } = await bootKeys({ authn: { throttle: { login: { account: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } } } });
+      p.identities.setStatus(OWNER, { banned: true });
+      failure(await p.service.authenticate(bearer('a:good'), at(0)), 'invalid_credentials');
+      assert.strictEqual(throttle!.attempts.length, 1);
+      failure(await p.service.authenticate(bearer('a:good'), at(1)), 'throttled');
+    });
+
+    it('counts every kind of failure, not only invalid_credentials', async () => {
+      const outcomes: Record<string, () => StrategyOutcome> = {
+        throws: () => {
+          throw new RangeError('strategy down');
+        },
+        broken: () => ({}) as StrategyOutcome,
+        revoked: () => ({ ok: false, reason: 'revoked' }),
+        expired: () => ({ ok: false, reason: 'expired' }),
+        unsupported: () => ({ ok: false, reason: 'unsupported_credentials' }),
+        unlinked: () => ({ ok: true, external: { provider: 'kit-p', subject: 'nobody' }, method: 'jwt' }),
+        storefail: () => ({ ok: true, identity: { type: 'user', id: 'boom' }, method: 'token' }),
+      };
+      const s = strategy('every', { keys: (c) => [{ kind: 'account', value: tokenOf(c) }], verify: (c) => outcomes[tokenOf(c)]() });
+      const p = await boot([s]);
+      const status = p.identities.status.bind(p.identities);
+      p.identities.status = async (id: IdentityRef) => {
+        if (id.id === 'boom') throw new Error('store down');
+        return status(id);
+      };
+      for (const [i, name] of Object.keys(outcomes).entries()) {
+        assert.strictEqual((await p.service.authenticate(bearer(name), at(i))).status, 'failure', name);
+        assert.strictEqual(throttle!.attempts.length, i + 1, `${name} is counted`);
+      }
+      assert.strictEqual(throttle!.ipAttempts(IP), Object.keys(outcomes).length);
+    });
+
+    it("never clears other credentials' failures from the ip key on a success (H31)", async () => {
+      const { p } = await bootKeys({ authn: { throttle: { login: { ip: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } } } } });
+      for (let i = 0; i < 3; i++) {
+        failure(await p.service.authenticate(bearer(`victim${i}:guess`), at(i * 2)), 'invalid_credentials');
+        if (i < 2) success(await p.service.authenticate(bearer('own:good'), at(i * 2 + 1)));
+      }
+      assert.strictEqual(throttle!.ipAttempts(IP), 3);
+      failure(await p.service.authenticate(bearer('victim3:guess'), at(10)), 'throttled');
+      failure(await p.service.authenticate(bearer('own:good'), at(11)), 'throttled');
+    });
+
+    it("takes only the answering credential's own failures off the ip key (D8)", async () => {
+      const { p } = await bootKeys();
+      failure(await p.service.authenticate(bearer('own:bad'), at(0)), 'invalid_credentials');
+      failure(await p.service.authenticate(bearer('own:bad'), at(1)), 'invalid_credentials');
+      failure(await p.service.authenticate(bearer('victim:guess'), at(2)), 'invalid_credentials');
+      assert.strictEqual(throttle!.ipAttempts(IP), 3);
+      success(await p.service.authenticate(bearer('own:good'), at(3)));
+      assert.strictEqual(throttle!.ipAttempts(IP), 1);
+      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), ['account=key:own', `account-ip=key:own|${IP}`, `ip=${IP}`]);
+    });
+
+    it('counts before verify when an interactive strategy is among the candidates', async () => {
+      const p = await boot([keyLike(), strategy('login', { interactive: true, verify: () => ({ ok: false, reason: 'unsupported_credentials' }) })]);
+      p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
+      const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;
+      const all = await Promise.all(Array.from({ length: free + 3 }, () => p.service.authenticate(bearer('a:good'), at(0))));
+      assert.strictEqual(all.filter((r) => r.status === 'success').length, free);
+      assert.strictEqual(throttle!.peeks.length, 0);
+    });
+
+    it('keeps counting interactive logins before verify', async () => {
+      const { p, s } = await bootKeys({}, keyLike(true));
+      const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;
+      const all = await Promise.all(Array.from({ length: free + 3 }, () => p.service.authenticate(bearer('a:good'), at(0, { purpose: 'login' }))));
+      assert.strictEqual(all.filter((r) => r.status === 'success').length, free);
+      assert.strictEqual(all.filter((r) => r.status === 'failure' && r.reason === 'throttled').length, 3);
+      assert.strictEqual(s.verifyCalls.length, free);
+    });
+
+    it('counts before verify, and warns at boot, when the throttle cannot peek', async () => {
+      class NoPeek extends AuthnThrottle {
+        constructor(private readonly inner: MemoryAuthnThrottle) {
+          super();
+        }
+        attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, c: AuthnContext) {
+          return this.inner.attempt(keys, flow, c);
+        }
+        succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow) {
+          return this.inner.succeed(keys, flow);
+        }
+      }
+      parts = await buildCore({}, { strategies: [spec(keyLike())], throttle: (c) => new NoPeek(new MemoryAuthnThrottle(c)) });
+      const p = parts;
+      p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
+      const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;
+      const all = await Promise.all(Array.from({ length: free + 3 }, () => p.service.authenticate(bearer('a:good'), at(0))));
+      assert.strictEqual(all.filter((r) => r.status === 'success').length, free);
+      assert.ok(TestLog.lines.some((l) => l.includes('the throttle has no peek()')), TestLog.lines.join('\n'));
+    });
+  });
+
   describe('a success takes only its own account off the ip key (D8)', () => {
     const passwordLike = (name: string, accountOf: (login: string) => string, accountIpOf: ((account: string, ip: string) => string) | null, owns: boolean): FakeStrategy =>
       strategy(name, {
         kinds: ['password'],
+        interactive: true,
         keys: (c, x) => {
           const account = accountOf(String((c as { login?: unknown }).login));
           return [{ kind: 'account', value: account }, ...(accountIpOf ? [{ kind: 'account-ip', value: accountIpOf(account, x.ip ?? '') }] : [])];

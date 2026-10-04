@@ -13,7 +13,8 @@ export interface BackoffRow {
  * Backoff per key, never a lock: after `free` counted attempts each key waits min(base × 2^(n − free), max);
  * refused attempts count nothing; account-ip only keeps bookkeeping; a success resets the account key and takes
  * that account's attempts off the ip key ('reset' clears nothing); a key idle for resetAfterSeconds starts over.
- * In memory and synchronous inside one await, so bursts are atomic. A fake for lanes before N1's MemoryAuthnThrottle.
+ * In memory and synchronous inside one await, so bursts are atomic. `peek` refuses as `attempt` would and counts
+ * nothing (K5). A fake for lanes before N1's MemoryAuthnThrottle.
  */
 export class FakeBackoffThrottle extends AuthnThrottle {
   protected readonly rows = new Map<string, BackoffRow>();
@@ -50,9 +51,7 @@ export class FakeBackoffThrottle extends AuthnThrottle {
     return row;
   }
 
-  async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
-    const nowMs = ctx.now.getTime();
-    const gates = this.gating(keys, flow);
+  private waitMs(gates: readonly { id: string }[], nowMs: number): number {
     let waitMs = 0;
     for (const g of gates) {
       const row = this.live(g.id, nowMs);
@@ -60,6 +59,18 @@ export class FakeBackoffThrottle extends AuthnThrottle {
         waitMs = Math.max(waitMs, row.nextMs - nowMs);
       }
     }
+    return waitMs;
+  }
+
+  async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
+    const waitMs = this.waitMs(this.gating(keys, flow), ctx.now.getTime());
+    return waitMs > 0 ? { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) } : { allowed: true };
+  }
+
+  async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
+    const nowMs = ctx.now.getTime();
+    const gates = this.gating(keys, flow);
+    const waitMs = this.waitMs(gates, nowMs);
     if (waitMs > 0) {
       for (const g of gates) {
         const row = this.rows.get(g.id);

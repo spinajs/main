@@ -20,6 +20,8 @@ import { AuthnAudit } from '../audit/authn-audit.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
+import { canPeek } from '../throttle/peek.js';
+import type { PeekableThrottle } from '../throttle/peek.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './boot/env.js';
 import { checkAuthnLegacyKeys } from './boot/legacy-keys.js';
 import { warnOnce } from './boot/log.js';
@@ -35,6 +37,8 @@ type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
 
 const DEFAULT_MFA_POLICY = 'DefaultMfaPolicy';
+
+const NO_PEEK_WARNING = 'DefaultAuthnService: the throttle has no peek(), so token and key requests count before verify and a client with many parallel requests on a valid credential gets throttled';
 
 interface Linking {
   readonly jit: boolean;
@@ -130,7 +134,8 @@ function refusal(st: IdentityStatus): string | null {
  * raw session ids never reach an event: sessions appear by their listed handle.
  *
  * Dispatch (D1): the listed candidates for the credentials are counted once, with the union of their keys, before any
- * verify; an `unsupported_credentials` answer passes the credentials to the next candidate.
+ * verify (per-request candidates only after a failure, K5); an `unsupported_credentials` answer passes the
+ * credentials to the next candidate.
  *
  * MFA: the session issuer does not give back the steps a pending session was issued with, so `completeMfa` asks the
  * policy again (D15 for every pending session). The required steps are alternatives: passing any one of them, or a
@@ -152,6 +157,7 @@ export class DefaultAuthnService extends AuthnService {
   private registry!: StrategyRegistry;
   private auditor!: AuthnAudit;
   private throttle!: AuthnThrottle;
+  private peeker: PeekableThrottle | undefined;
   private identities!: IdentityStore;
   private principals!: PrincipalFactory;
   private links: IdentityLinkStore | undefined;
@@ -188,6 +194,8 @@ export class DefaultAuthnService extends AuthnService {
       this.policy = await this.selectPolicy(configuration.get('authn.mfa.policy.service'));
     }
     this.throttle = await this.selectThrottle(configuration.get('authn.throttle.service'));
+    if (canPeek(this.throttle)) this.peeker = this.throttle;
+    else if (this.registry.strategies().some((s) => !s.interactive)) warnOnce(NO_PEEK_WARNING);
     this.ready = true;
     await super.resolve();
   }
@@ -209,12 +217,20 @@ export class DefaultAuthnService extends AuthnService {
       await this.audit(ctx, { type: this.eventOf(keyed.strategy), outcome: 'failure', strategy: keyed.strategy.name, reason: 'strategy_error', data: { error: keyed.error } });
       return fail('invalid_credentials');
     }
-    const gate = await this.throttle.attempt(keyed.all, 'login', ctx);
-    if (!gate.allowed) {
-      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
-      return { status: 'failure', reason: 'throttled', retryAfterSeconds: gate.retryAfterSeconds };
-    }
+    // Per-request credentials count only their failures (K5): counted before verify, the requests a busy client has
+    // in flight with a valid token or key would add up to a backoff. A login method keeps A05's count before verify.
+    // A parallel burst of failures is then verified in full (PeekableThrottle), which only unguessable credentials allow.
+    const failuresOnly = this.peeker !== undefined && candidates.every((s) => !s.interactive);
+    const gate = failuresOnly ? await this.peeker!.peek(keyed.all, 'login', ctx) : await this.throttle.attempt(keyed.all, 'login', ctx);
+    if (!gate.allowed) return this.throttled(ctx, gate.retryAfterSeconds, only);
 
+    const result = await this.verified(candidates, keyed, c, ctx, only);
+    if (!failuresOnly || result.status === 'success') return result;
+    const counted = await this.throttle.attempt(keyed.all, 'login', ctx);
+    return counted.allowed ? result : this.throttled(ctx, counted.retryAfterSeconds, only);
+  }
+
+  private async verified(candidates: readonly AuthenticationStrategy[], keyed: Keyed, c: Credentials, ctx: AuthnContext, only: { strategy?: string }): Promise<AuthenticationResult> {
     const v = await this.verifyWith(candidates, c, ctx);
     if (v === null) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials', ...only });
@@ -507,6 +523,11 @@ export class DefaultAuthnService extends AuthnService {
   /** The keys of the `mfa` and `reauth` flows, shared with N3's PasswordService.change (D14). */
   private identityKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
     return [{ kind: 'account', value: id.id }, { kind: 'account-ip', value: `${id.id}|${ctx.ip ?? ''}` }, ...(nonEmpty(ctx.ip) ? [{ kind: 'ip', value: ctx.ip }] : [])];
+  }
+
+  private async throttled(ctx: AuthnContext, retryAfterSeconds: number, only: { strategy?: string }): Promise<Failure> {
+    await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', reason: 'throttled', ...only });
+    return { status: 'failure', reason: 'throttled', retryAfterSeconds };
   }
 
   private async refuse(ctx: AuthnContext, s: AuthenticationStrategy, reason: string, answer: AuthnFailure, extra: Partial<EventBody> = {}): Promise<Failure> {

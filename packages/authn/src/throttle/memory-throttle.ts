@@ -10,6 +10,7 @@ import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
 import type { AuthnContext } from '../contracts/credentials.js';
 import { DEFAULT_THROTTLE_MAX_ROWS, THROTTLE_FLOWS, backoffDelayMs, checkMaxRows, checkThrottleParams, readThrottleConfig } from './params.js';
 import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from './params.js';
+import type { PeekableThrottle } from './peek.js';
 
 export interface ThrottleRow {
   attempts: number;
@@ -48,6 +49,8 @@ const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
 
+const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
+
 const isConfiguration = (v: unknown): v is Configuration => v !== null && typeof v === 'object' && typeof (v as Configuration).get === 'function';
 
 /**
@@ -65,7 +68,7 @@ const isConfiguration = (v: unknown): v is Configuration => v !== null && typeof
 @Singleton()
 @Injectable(AuthnThrottle)
 @Inject(Configuration)
-export class MemoryAuthnThrottle extends AuthnThrottle {
+export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrottle {
   public readonly params: ThrottleParams;
   public readonly maxRows: number;
   protected readonly tables: Readonly<Record<ThrottleFlow, ThrottleTable>>;
@@ -110,12 +113,8 @@ export class MemoryAuthnThrottle extends AuthnThrottle {
 
     for (const fl of THROTTLE_FLOWS) this.sweepSome(this.tables[fl], nowMs, fl === flow ? this.sweepBatch : Math.ceil(this.sweepBatch / 4));
 
-    let waitMs = 0;
-    for (const g of gates) {
-      const row = this.live(table, g.id, nowMs);
-      if (row && row.nextMs > nowMs) waitMs = Math.max(waitMs, row.nextMs - nowMs);
-    }
-    if (waitMs > 0) return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) };
+    const waitMs = this.waitMs(table, gates, nowMs);
+    if (waitMs > 0) return refused(waitMs);
 
     let needed = 0;
     for (const id of seen) if (!this.live(table, id, nowMs)) needed++;
@@ -127,6 +126,20 @@ export class MemoryAuthnThrottle extends AuthnThrottle {
     for (const g of gates) this.count(table, g.id, nowMs, g.p);
     for (const id of books) this.count(table, id, nowMs);
     return { allowed: true };
+  }
+
+  /** Refuses as `attempt` would for a delay, counting nothing; a full table refuses only `attempt`. */
+  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
+    const nowMs = ctx?.now instanceof Date ? ctx.now.getTime() : NaN;
+    if (!Number.isFinite(nowMs)) throw new InvalidArgument('MemoryAuthnThrottle.peek: ctx.now must be a valid Date');
+    const f = this.flow(flow);
+    const gates: Gate[] = [];
+    for (const k of keys) {
+      const p = this.gateParams(f, k.kind);
+      if (p) gates.push({ id: this.keyId(flow, k), p });
+    }
+    const waitMs = this.waitMs(this.tables[flow], gates, nowMs);
+    return waitMs > 0 ? refused(waitMs) : { allowed: true };
   }
 
   public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
@@ -196,6 +209,15 @@ export class MemoryAuthnThrottle extends AuthnThrottle {
     if (kind === 'ip') return f.ip;
     if (kind === 'global') return this.params.global ?? undefined;
     return undefined;
+  }
+
+  private waitMs(table: ThrottleTable, gates: readonly Gate[], nowMs: number): number {
+    let waitMs = 0;
+    for (const g of gates) {
+      const row = this.live(table, g.id, nowMs);
+      if (row && row.nextMs > nowMs) waitMs = Math.max(waitMs, row.nextMs - nowMs);
+    }
+    return waitMs;
   }
 
   // Idle alone does not expire a row: a delay longer than resetAfterSeconds still runs to its end.

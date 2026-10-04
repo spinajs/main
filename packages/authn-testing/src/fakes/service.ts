@@ -1,5 +1,5 @@
 import { AuthnService } from '@spinajs/authn/contracts';
-import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthenticationStrategy, AuthnContext, AuthnEvent, AuthnEventSink, AuthnFacts, AuthnFailure, AuthnThrottle, Credentials, ExternalSubject, IdentityLinkStore, IdentityRef, IdentityStatus, IdentityStore, MfaPolicy, MfaStep, PrincipalFactory, Principal, SessionHandle, SessionIssuer, StrategyOutcome, ThrottleFlow, ThrottleKey } from '@spinajs/authn/contracts';
 
 export interface FakeAuthnServiceDeps {
   readonly strategies: readonly AuthenticationStrategy[];
@@ -21,9 +21,15 @@ type Failure = Extract<AuthenticationResult, { status: 'failure' }>;
 const failure = (reason: AuthnFailure): Failure => ({ status: 'failure', reason });
 const throttled = (retryAfterSeconds: number): Failure => ({ status: 'failure', reason: 'throttled', retryAfterSeconds });
 
+type Verdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
+/** The optional `peek` of @spinajs/authn's PeekableThrottle: whether a delay holds any key, counting nothing. */
+type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext) => Promise<Verdict>;
+
 /**
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
- * route by credential kind, count the attempt (strategy keys + ip) before verify, audit every failure with its real
+ * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
+ * with `peek`: peek before verify and count failures only, K5), audit every failure with its real
  * reason, answer status refusals as invalid_credentials, link or provision external subjects, issue a pending
  * session when MFA is required, elevate on completeMfa, and re-authenticate without touching the session.
  * A fake, not N1's implementation.
@@ -85,19 +91,28 @@ export class FakeAuthnService extends AuthnService {
       return failure('unsupported_credentials');
     }
     const keys = this.keysFor(s.throttleKeys(c, ctx), ctx);
-    const gate = async () => {
-      const t = await this.d.throttle.attempt(keys, 'login', ctx);
-      if (!t.allowed) {
-        await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });
-        return throttled(t.retryAfterSeconds);
-      }
-      return null;
+    const refuse = async (t: Verdict) => {
+      if (t.allowed) return null;
+      await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });
+      return throttled(t.retryAfterSeconds);
     };
+    const peek = (this.d.throttle as { peek?: Peek }).peek;
+    if (this.countBeforeVerify && !s.interactive && typeof peek === 'function') {
+      const early = await refuse(await peek.call(this.d.throttle, keys, 'login', ctx));
+      if (early) return early;
+      const r = await this.settle(s, await s.verify(c, ctx), keys, ctx);
+      return r.status === 'success' ? r : ((await refuse(await this.d.throttle.attempt(keys, 'login', ctx))) ?? r);
+    }
+    const gate = async () => refuse(await this.d.throttle.attempt(keys, 'login', ctx));
     const early = this.countBeforeVerify ? await gate() : null;
     if (early) return early;
     const r = await s.verify(c, ctx);
     const late = this.countBeforeVerify ? null : await gate();
     if (late) return late;
+    return this.settle(s, r, keys, ctx);
+  }
+
+  private async settle(s: AuthenticationStrategy, r: StrategyOutcome, keys: readonly ThrottleKey[], ctx: AuthnContext): Promise<AuthenticationResult> {
     if (!r.ok) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: r.reason });
       return failure(r.reason);
