@@ -158,6 +158,7 @@ export interface World {
   readonly combine: CombineConfig;
   /** Kit models of the root domain, in registration order. */
   readonly models?: readonly KitModelSpec[];
+  /** In a world with `rbac`, an adapter whose spec leaves `compiles` out also compiles `native:rbac.assignment` and `native:rbac.threshold` (RFC L1-2). */
   readonly adapters?: readonly FakeAdapterOptions[];
   readonly scopes?: readonly FakeScopeResolverOptions[];
   readonly relations?: readonly RelationSpec[];

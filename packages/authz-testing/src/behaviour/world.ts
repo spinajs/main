@@ -1,5 +1,5 @@
-import { AuthorizationModel, GLOBAL, SYSTEM, isPermission, isPermissionGlob, principalKey, resourceKey } from '@spinajs/authz';
-import type { NativeFilter, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
+import { AuthorizationModel, CORE_FILTER_OPS, GLOBAL, SYSTEM, isPermission, isPermissionGlob, principalKey, resourceKey } from '@spinajs/authz';
+import type { FilterOp, NativeFilter, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType } from '@spinajs/authz';
 
 import { fakeEvaluationContext } from '../context.js';
 import type { FakeEvaluationContext } from '../context.js';
@@ -41,6 +41,11 @@ export interface KitWorld {
   context(opts?: { readonly domain?: string; readonly now?: Date }): FakeEvaluationContext;
 }
 
+// RBAC_ASSIGNMENT_OP and RBAC_THRESHOLD_OP of authz-rbac, which the kit cannot import. FakeAdapter.rows
+// evaluates them with the NativeFilters the lane registers, so the RBAC model may emit them on any
+// list-scoped type (boot rule 4).
+const RBAC_WORLD_OPS: readonly FilterOp[] = Object.freeze([...CORE_FILTER_OPS, 'native:rbac.assignment', 'native:rbac.threshold']);
+
 /** Builds the kit fakes a world describes; every call returns new objects. */
 export function instantiateWorld(world: World): KitWorld {
   const permissions = new FakePermissionRegistry(world.permissions);
@@ -69,7 +74,7 @@ export function instantiateWorld(world: World): KitWorld {
 
   const models = (world.models ?? []).map(build);
   const domainModels = new Map(domainSpecs.map(([name, specs]) => [name, specs.map(build)] as const));
-  const adapters = (world.adapters ?? []).map((o) => new FakeAdapter(o));
+  const adapters = (world.adapters ?? []).map((o) => new FakeAdapter(world.rbac && !('compiles' in o) ? { ...o, compiles: RBAC_WORLD_OPS } : o));
   const scopeResolvers = (world.scopes ?? []).map((o) => new FakeScopeResolver(o));
   const relations = (world.relations ?? []).map((r) => new FakeRelationResolver(r.type, r.relation, r.holds));
   const nativeFilters = [...models, ...[...domainModels.values()].flat()].flatMap((m) => (m instanceof FakeTupleModel ? [m.nativeFilter] : []));
