@@ -227,9 +227,9 @@ export class AbacModel extends AuthorizationModel {
    *   (`*` for a permit without fields).
    * - At any other `at`, on `at`'s type with the scopes decided on the path of `at`.
    * - A permit that fails only on `actorTypes`, matches `principalTypes` only through a
-   *   companion, or whose condition is FALSE now but reads the session (`readsSession`), is
-   *   listed conditional: an impersonated session has another actor, other companions, other
-   *   authn facts and a later time.
+   *   companion the principal carries now, or whose condition is FALSE now but reads the
+   *   session (`readsSession`), is listed conditional: an impersonated session has another actor,
+   *   other authn facts and a later time.
    * Deny policies add no entry: `summary` and `covers` check every candidate permission, and the
    * checks apply them.
    */
