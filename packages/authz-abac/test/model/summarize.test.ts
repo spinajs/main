@@ -12,11 +12,11 @@ const NOW = new Date('2026-10-01T12:00:00.000Z');
 const O1 = { type: 'org', id: 'o1' };
 const F1 = { type: 'file', id: 'f1' };
 
-const registry = (): PermissionRegistryImpl => {
+const registry = (readTypes: readonly string[] = ['doc', 'file']): PermissionRegistryImpl => {
   const r = new PermissionRegistryImpl();
   r.register(
     [
-      { name: 'doc:read', types: ['doc', 'file'], fields: true },
+      { name: 'doc:read', types: readTypes, fields: true },
       { name: 'doc:write', types: ['doc', 'file'] },
       { name: 'doc:delete', types: ['doc', 'file'] },
     ],
@@ -61,10 +61,86 @@ describe('authz-abac: summarize (H18)', () => {
     expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['name'], write: [] } }]);
   });
 
-  it('decides scopes on the path of `at`; a scoped policy is not listed at GLOBAL', async () => {
+  it('decides scopes on the path of `at`; a scoped policy is listed conditional at GLOBAL (it holds below its node)', async () => {
     const m = await model([policy('o1', { scope: O1 })]);
-    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: true, fields: { read: ['*'], write: ['*'] } }]);
     expect((await m.summarize(alice, F1, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
+  });
+
+  it('judges a permission per type of it at GLOBAL: a typed permit is listed, unconditional only when every type has one', async () => {
+    const docs = policy('docs', { resourceTypes: ['doc'] });
+    const docOnly = registry(['doc']);
+    expect((await (await model([docs], docOnly)).summarize(alice, GLOBAL, ctx(docOnly))).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
+    expect((await (await model([docs])).summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: true, fields: { read: ['*'], write: ['*'] } }]);
+    const both = await model([docs, policy('files', { resourceTypes: ['file'], fields: { read: ['name'] } })]);
+    expect((await both.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: false, fields: { read: ['*'], write: ['*'] } }]);
+  });
+
+  it("at GLOBAL the fields are the union of each type's field set, never fewer than one type gives", async () => {
+    const m = await model([policy('docs', { resourceTypes: ['doc'], scope: O1, fields: { read: ['a'] } }), policy('files', { resourceTypes: ['file'], scope: O1, fields: { read: ['b'], write: ['b'] } })]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([{ name: 'doc:read', conditional: true, fields: { read: ['a', 'b'], write: ['b'] } }]);
+  });
+
+  it('a condition reading scope.<type>.* is listed conditional at GLOBAL; one false for the principal is not listed', async () => {
+    const m = await model([policy('open', { when: { attr: 'scope.org.open', eq: true } }), policy('team-x', { permissions: ['doc:write'], when: { attr: 'principal.attributes.team', eq: 'x' } })]);
+    expect((await m.summarize(alice, GLOBAL, ctx())).permissions).to.deep.equal([
+      { name: 'doc:read', conditional: true, fields: { read: ['*'], write: ['*'] } },
+      { name: 'doc:write', conditional: false },
+    ]);
+    expect((await m.summarize(bob, GLOBAL, ctx())).permissions.map((p) => p.name)).to.deep.equal(['doc:read']);
+  });
+
+  describe('a permit false now but resting on session facts is listed conditional (review R2-I1, C4)', () => {
+    const del = userPrincipal('del', { attributes: { dept: 'eng' } });
+    const listed = [{ name: 'doc:delete', conditional: true }];
+    const deletes = (extra: Partial<Policy>) => policy('deletes', { permissions: ['doc:delete'], ...extra });
+    const cases: readonly [string, Partial<Policy>, Principal?][] = [
+      [
+        'env.now (P6: from 13:00, now 12:00)',
+        {
+          when: {
+            all: [
+              { attr: 'principal.id', eq: 'del' },
+              { attr: 'env.now', gte: '2026-10-01T13:00:00.000Z' },
+            ],
+          },
+        },
+      ],
+      ['principal.authn (step-up), target without authn facts', { when: { attr: 'principal.authn.assurance', eq: 'aal2' } }],
+      ['principal.authn (step-up), target at aal1', { when: { attr: 'principal.authn.assurance', eq: 'aal2' } }, userPrincipal('del', { authn: { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: NOW } })],
+      ['actor.attributes', { when: { attr: 'actor.attributes.dept', eq: 'sales' } }],
+      ['a function with literal arguments', { when: { fn: 'glob', args: { value: 'abc', pattern: 'x*' } } }],
+      ["actorTypes: ['agent'] for a user", { actorTypes: ['agent'] }],
+    ];
+    for (const [name, extra, target] of cases) {
+      it(name, async () => {
+        const m = await model([deletes(extra)]);
+        expect((await m.summarize(target ?? del, GLOBAL, ctx())).permissions).to.deep.equal(listed);
+        expect((await m.summarize(target ?? del, F1, ctx())).permissions).to.deep.equal(listed);
+      });
+    }
+
+    it('a condition on principal attributes, id or type that is false for the principal is not listed (control)', async () => {
+      const m = await model([
+        deletes({ when: { attr: 'principal.attributes.dept', eq: 'sales' } }),
+        deletes({
+          id: 'ids',
+          when: {
+            all: [
+              { attr: 'principal.id', eq: 'other' },
+              { attr: 'principal.type', eq: 'user' },
+            ],
+          },
+        }),
+      ]);
+      expect((await m.summarize(del, GLOBAL, ctx())).permissions).to.deep.equal([]);
+      expect((await m.summarize(del, F1, ctx())).permissions).to.deep.equal([]);
+    });
+
+    it('expiry and principalTypes still drop such a permit', async () => {
+      const m = await model([deletes({ when: { attr: 'env.now', gte: '2026-10-01T13:00:00.000Z' }, expiresAt: new Date(NOW.getTime() - 1) }), deletes({ id: 'svc', actorTypes: ['agent'], principalTypes: ['service'] })]);
+      expect((await m.summarize(del, GLOBAL, ctx())).permissions).to.deep.equal([]);
+    });
   });
 
   it('drops expired policies and those a principal condition rules out', async () => {
@@ -100,6 +176,58 @@ describe('authz-abac: summarize (H18)', () => {
       const permit = await engine([policy('read'), policy('team-x', { permissions: ['doc:write'], when: { attr: 'principal.attributes.team', eq: 'x' } })]);
       expect(await covers(permit, bob, alice)).to.equal(false);
       expect(await covers(permit, alice, bob)).to.equal(true);
+    });
+
+    describe('a target whose permission comes only from a typed or scoped permit (RFC L1-3)', () => {
+      const t = userPrincipal('t');
+      const caller = userPrincipal('c');
+      const holder = userPrincipal('h');
+      const others = [policy('c-writes', { permissions: ['doc:write'], when: { attr: 'principal.id', eq: 'c' } }), policy('h-all', { permissions: ['doc:read', 'doc:write'], when: { attr: 'principal.id', eq: 'h' } })];
+      const only = { when: { attr: 'principal.id', eq: 't' } };
+      const targets: readonly [string, Policy][] = [
+        ['typed', policy('t-docs', { resourceTypes: ['doc'], ...only })],
+        ['scoped', policy('t-o1', { scope: O1, ...only })],
+      ];
+      for (const [name, target] of targets) {
+        it(`${name}: a caller without doc:read does not cover it, one with doc:read at GLOBAL and more does`, async () => {
+          const a = await engine([...others, target]);
+          expect(await covers(a, caller, t)).to.equal(false);
+          expect(await covers(a, holder, t)).to.equal(true);
+        });
+      }
+    });
+
+    describe('a target permit false now but resting on session facts keeps covers false (review R2-I1, C4)', () => {
+      const del = userPrincipal('del', { attributes: { dept: 'eng' } });
+      const helper = userPrincipal('helper');
+      const base = [policy('read'), policy('helper-writes', { permissions: ['doc:write'], when: { attr: 'principal.id', eq: 'helper' } })];
+      const deletes = (extra: Partial<Policy>) => policy('deletes', { permissions: ['doc:delete'], ...extra });
+      const cases: readonly [string, Partial<Policy>][] = [
+        [
+          'env.now (P6)',
+          {
+            when: {
+              all: [
+                { attr: 'principal.id', eq: 'del' },
+                { attr: 'env.now', gte: '2026-10-01T13:00:00.000Z' },
+              ],
+            },
+          },
+        ],
+        ['principal.authn (step-up)', { when: { attr: 'principal.authn.assurance', eq: 'aal2' } }],
+        ['actor.attributes', { when: { attr: 'actor.attributes.dept', eq: 'sales' } }],
+        ['a function', { when: { fn: 'glob', args: { value: 'abc', pattern: 'x*' } } }],
+        ["actorTypes: ['agent']", { actorTypes: ['agent'] }],
+      ];
+      it('controls: without the permit, or with one on a principal attribute false for the target, helper covers del', async () => {
+        expect(await covers(await engine(base), helper, del)).to.equal(true);
+        expect(await covers(await engine([...base, deletes({ when: { attr: 'principal.attributes.dept', eq: 'sales' } })]), helper, del)).to.equal(true);
+      });
+      for (const [name, extra] of cases) {
+        it(name, async () => {
+          expect(await covers(await engine([...base, deletes(extra)]), helper, del)).to.equal(false);
+        });
+      }
     });
   });
 });
