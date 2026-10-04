@@ -30,9 +30,10 @@ export function showRecoveryCode(code: string): string {
   return code.match(/.{4}/g)!.join('-');
 }
 
-/** Upper case without dashes and whitespace; null unless exactly 16 base32 chars remain. */
+/** Upper case without dashes and ASCII whitespace; null unless exactly 16 base32 chars remain. */
 export function normaliseRecoveryCode(input: unknown): string | null {
-  if (typeof input !== 'string') {
+  // Non-ASCII is refused before upper-casing, which would turn 'ß' into 'SS' and 'ı' into 'I'.
+  if (typeof input !== 'string' || !/^[\x20-\x7E\t\n\r]*$/.test(input)) {
     return null;
   }
   const code = input.toUpperCase().replace(/[-\s]/g, '');

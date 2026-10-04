@@ -158,6 +158,18 @@ describe('v3 step: recovery codes', () => {
     assert.strictEqual(await step.verifyRecovery(ALICE, codes[0]), true);
   });
 
+  it('refuses non-ASCII spellings that upper-case to a code', async () => {
+    const step = make();
+    await enrol(step);
+    await store.replaceRecoveryCodes(ALICE, ['SSAABBBBCCCCDDDD', 'IAAABBBBCCCCDDDD']);
+    store.calls = 0;
+    for (const bad of ['ßAA-BBBB-CCCC-DDDD', 'ıAAA-BBBB-CCCC-DDDD', 'SSAA\u00a0BBBB-CCCC-DDDD']) {
+      assert.strictEqual(await step.verifyRecovery(ALICE, bad), false, bad);
+    }
+    assert.strictEqual(store.calls, 0);
+    assert.strictEqual(await step.verifyRecovery(ALICE, 'ssaa-bbbb-cccc-dddd'), true);
+  });
+
   it('an unconfirmed enrolment has no recovery', async () => {
     const step = make();
     await step.beginEnrolment(ALICE);

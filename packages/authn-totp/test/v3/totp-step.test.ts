@@ -11,7 +11,7 @@ import { base32Decode, FakeClock, parseOtpauth, totp, totpFromProvisioning } fro
 import { mfaKeyFrom, mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
 import type { MfaRecord } from '../../src/store/index.js';
-import { DEFAULT_TOTP_OPTIONS, TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { DEFAULT_TOTP_OPTIONS, TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep, totpOptions } from '../../src/step/index.js';
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ALICE: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000001' };
@@ -126,11 +126,11 @@ describe('v3 step: totpOptions', () => {
   it('takes valid values', () => {
     const o = totpOptions({ issuer: 'Acme', algorithm: 'SHA512', digits: 10, period: 1, window: 0, recoveryCodes: 0 });
     assert.deepStrictEqual({ ...o }, { issuer: 'Acme', algorithm: 'SHA512', digits: 10, period: 1, window: 0, recoveryCodes: 0 });
-    assert.deepStrictEqual({ ...totpOptions({ period: 300, window: 10 }) }, { ...DEFAULT_TOTP_OPTIONS, period: 300, window: 10 });
+    assert.deepStrictEqual({ ...totpOptions({ period: 300, window: 10, recoveryCodes: 100 }) }, { ...DEFAULT_TOTP_OPTIONS, period: 300, window: 10, recoveryCodes: 100 });
   });
 
   it('refuses values out of range', () => {
-    const bad = [{ digits: 5 }, { digits: 11 }, { digits: 6.5 }, { period: 0 }, { period: 301 }, { period: '30' }, { window: -1 }, { window: 0.5 }, { window: 11 }, { algorithm: 'MD5' }, { algorithm: 'sha1' }, { recoveryCodes: -1 }, { issuer: '' }, { issuer: 7 }];
+    const bad = [{ digits: 5 }, { digits: 11 }, { digits: 6.5 }, { period: 0 }, { period: 301 }, { period: '30' }, { window: -1 }, { window: 0.5 }, { window: 11 }, { algorithm: 'MD5' }, { algorithm: 'sha1' }, { recoveryCodes: -1 }, { recoveryCodes: 101 }, { issuer: '' }, { issuer: 7 }];
     for (const input of bad) {
       assert.throws(() => totpOptions(input as never), InvalidOption, JSON.stringify(input));
     }
@@ -442,6 +442,8 @@ describe('v3 step: TotpMfaStep', () => {
     const results = await Promise.allSettled([step.confirmEnrolment(ALICE, older), step.confirmEnrolment(ALICE, newer)]);
     const won = results.filter((r) => r.status === 'fulfilled');
     assert.strictEqual(won.length, 1);
+    const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    assert.ok(lost.reason instanceof TotpAlreadyEnrolled || lost.reason instanceof TotpInvalidCode, String(lost.reason));
     const codes = (won[0] as PromiseFulfilledResult<{ recoveryCodes?: readonly string[] }>).value.recoveryCodes!;
     assert.strictEqual(codes.length, 10);
     assert.strictEqual(await store.countRecoveryCodes(ALICE), 10);
@@ -463,6 +465,34 @@ describe('v3 step: TotpMfaStep', () => {
     await assert.rejects(late, InvalidOperation);
     assert.deepStrictEqual(await racing.get(ALICE, 'totp'), confirmed);
     assert.strictEqual(await step.enrolled(ALICE), true);
+  });
+
+  it('a confirm that loses to one of the same secret says the enrolment is confirmed', async () => {
+    const racing = new InterleavingStore();
+    const step = make({ store: racing });
+    const { provisioning } = await step.beginEnrolment(ALICE);
+    clock.tick(30 * SECOND);
+    const now = clock.now().getTime();
+    let winner: { recoveryCodes?: readonly string[] } = {};
+    racing.arm('confirm', async () => {
+      winner = await step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, new Date(now)));
+    });
+    await assert.rejects(step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, new Date(now - 30 * SECOND))), (e: Error) => e instanceof TotpAlreadyEnrolled && /regenerate the recovery codes/.test(e.message));
+    assert.strictEqual(winner.recoveryCodes?.length, 10);
+    assert.strictEqual(await step.verifyRecovery(ALICE, winner.recoveryCodes![0]), true);
+  });
+
+  it('names its refusals with distinct errors', async () => {
+    const step = make();
+    await assert.rejects(step.confirmEnrolment(ALICE, '123456'), TotpNotBegun);
+    const { provisioning } = await step.beginEnrolment(ALICE);
+    const right = totpFromProvisioning(provisioning, clock.now());
+    await assert.rejects(step.confirmEnrolment(ALICE, right === '000000' ? '111111' : '000000'), TotpInvalidCode);
+    await step.confirmEnrolment(ALICE, right);
+    await assert.rejects(step.beginEnrolment(ALICE), TotpAlreadyEnrolled);
+    clock.tick(30 * SECOND);
+    await assert.rejects(step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now())), TotpAlreadyEnrolled);
+    assert.ok(new TotpEnrolmentChanged() instanceof InvalidOperation);
   });
 
   it('refuses to work without a store', async () => {

@@ -7,6 +7,7 @@ export * from './interfaces.js';
 export * from './cipher/index.js';
 export * from './store/index.js';
 export * from './step/index.js';
+export * from './service/index.js';
 
 export * from './cli/EnableUser2Fa.js';
 export * from './cli/Generate2FaQrCode.js';

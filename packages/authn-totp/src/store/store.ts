@@ -19,7 +19,7 @@ export abstract class MfaSecretStore {
   abstract get(id: IdentityRef, step: string): Promise<MfaRecord | null>;
   /**
    * Inserts the step, or replaces it while unconfirmed: unconfirmed, no accepted time step, created now; true.
-   * Never overwrites a confirmed step: false and nothing changes. Atomic, one conditional write.
+   * Never overwrites a confirmed step: false means a confirmed row exists and nothing changed.
    */
   abstract put(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean>;
   /**

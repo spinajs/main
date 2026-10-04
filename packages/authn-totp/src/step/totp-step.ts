@@ -1,7 +1,7 @@
 import * as OTPAuth from 'otpauth';
 import { Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { InvalidArgument, InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
+import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
 import { IdentityStore, MfaStep } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { mfaKeyRingFrom } from '../cipher/key-ring.js';
@@ -9,6 +9,7 @@ import type { MfaEncryptionKeyOptions, MfaKeyRing } from '../cipher/key-ring.js'
 import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
 import { identityKey } from '../store/identity.js';
+import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from './errors.js';
 import { totpOptions } from './options.js';
 import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
 import type { TotpOptions, TotpOptionsInput } from './options.js';
@@ -53,6 +54,14 @@ export class TotpMfaStep extends MfaStep {
     return !!(await store.get(id, this.name))?.confirmedAt;
   }
 
+  /** For admin resets and diagnostics; never exposes the secret. */
+  async enrolment(id: IdentityRef): Promise<'none' | 'pending' | 'confirmed'> {
+    const { store } = await this.resolve();
+    const row = await store.get(id, this.name);
+    return !row ? 'none' : row.confirmedAt ? 'confirmed' : 'pending';
+  }
+
+  /** Throws `TotpAlreadyEnrolled` when the identity is enrolled. */
   async beginEnrolment(id: IdentityRef): Promise<{ provisioning: string }> {
     identityKey(id);
     const { store, keys, options } = await this.resolve();
@@ -61,26 +70,43 @@ export class TotpMfaStep extends MfaStep {
     const totp = this.totp(secret, options, await this.label(id));
     // Only the conditional put protects a confirmation that completes meanwhile; this check just fails early.
     if ((await store.get(id, this.name))?.confirmedAt || !(await store.put(id, this.name, secretEnc, keyId))) {
-      throw new InvalidOperation('TOTP is already enrolled for this identity; disable it first');
+      throw new TotpAlreadyEnrolled('TOTP is already enrolled for this identity; disable it first');
     }
     return { provisioning: totp.toString() };
   }
 
+  /**
+   * Throws `TotpNotBegun` without a pending row, `TotpInvalidCode` for a wrong or spent code, `TotpAlreadyEnrolled`
+   * when the enrolment is (or just got) confirmed, `TotpRecoveryCodesNotIssued` when this call confirmed it but storing
+   * the codes failed, and `TotpEnrolmentChanged` when a begin replaced the secret.
+   */
   async confirmEnrolment(id: IdentityRef, response: string): Promise<{ recoveryCodes?: readonly string[] }> {
     const { store } = await this.resolve();
     const row = await store.get(id, this.name);
-    if (!row || row.confirmedAt) {
-      throw new InvalidOperation('no pending TOTP enrolment for this identity');
+    if (!row) {
+      throw new TotpNotBegun('no pending TOTP enrolment for this identity');
+    }
+    if (row.confirmedAt) {
+      throw new TotpAlreadyEnrolled('TOTP is already confirmed for this identity');
     }
     const timeStep = await this.match(id, row, response);
     if (timeStep === null || !(await store.acceptStep(id, this.name, timeStep))) {
-      throw new InvalidArgument('the TOTP code does not match');
+      throw new TotpInvalidCode('the TOTP code does not match');
     }
     // Fails when a begin replaced the secret this code proves, or another confirmation won; only the winner issues codes.
     if (!(await store.confirm(id, this.name, undefined, row.secretEnc))) {
-      throw new InvalidOperation('the TOTP enrolment changed during confirmation; begin again');
+      const now = await store.get(id, this.name);
+      if (now?.confirmedAt && now.secretEnc === row.secretEnc) {
+        throw new TotpAlreadyEnrolled('TOTP is already confirmed; regenerate the recovery codes if you did not see them');
+      }
+      throw new TotpEnrolmentChanged('the TOTP enrolment changed during confirmation; begin again');
     }
-    const codes = await this.issueRecoveryCodes(id);
+    let codes: readonly string[];
+    try {
+      codes = await this.issueRecoveryCodes(id);
+    } catch (err) {
+      throw new TotpRecoveryCodesNotIssued('TOTP is confirmed but the recovery codes could not be issued; regenerate them', err);
+    }
     return codes.length > 0 ? { recoveryCodes: codes } : {};
   }
 
@@ -110,7 +136,7 @@ export class TotpMfaStep extends MfaStep {
   /** Voids the old set; the new codes are returned once. */
   async regenerateRecoveryCodes(id: IdentityRef): Promise<readonly string[]> {
     if (!(await this.enrolled(id))) {
-      throw new InvalidOperation('no confirmed TOTP enrolment for this identity');
+      throw new TotpNotEnrolled('no confirmed TOTP enrolment for this identity');
     }
     return this.issueRecoveryCodes(id);
   }

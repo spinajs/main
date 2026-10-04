@@ -11,7 +11,7 @@ export interface TotpOptions {
   readonly period: number;
   /** Time steps accepted on each side of the current one, at most MAX_WINDOW. */
   readonly window: number;
-  /** Recovery codes issued at confirmation. */
+  /** Recovery codes issued at confirmation, at most MAX_RECOVERY_CODES. */
   readonly recoveryCodes: number;
 }
 
@@ -24,6 +24,8 @@ const ALGORITHMS: readonly string[] = ['SHA1', 'SHA256', 'SHA512'];
 /** A wider window or a longer period lets one guess or one stolen code cover too much time (SR-15). */
 export const MAX_WINDOW = 10;
 export const MAX_PERIOD = 300;
+/** Every confirmation and regeneration builds and hashes the whole set. */
+export const MAX_RECOVERY_CODES = 100;
 
 const fail = (what: string): never => {
   throw new InvalidOption(`authn.mfa.totp: ${what}`);
@@ -46,6 +48,6 @@ export function totpOptions(input: TotpOptionsInput = {}): TotpOptions {
     digits: integer(o.digits, 'digits', 6, 10),
     period: integer(o.period, 'period', 1, MAX_PERIOD),
     window: integer(o.window, 'window', 0, MAX_WINDOW),
-    recoveryCodes: integer(o.recoveryCodes, 'recoveryCodes', 0),
+    recoveryCodes: integer(o.recoveryCodes, 'recoveryCodes', 0, MAX_RECOVERY_CODES),
   });
 }
