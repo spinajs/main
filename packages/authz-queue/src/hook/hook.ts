@@ -8,6 +8,9 @@ import type { Initiator } from '../api.js';
 import { authzFor } from './service.js';
 import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
 
+// The engine reads a ceiling whose expiresAt is not a Date, or whose reason is empty, as deny-all; revival must not repair it.
+const isStrictCeiling = (c: { expiresAt?: unknown; reason?: unknown }): boolean => (c.expiresAt === undefined || c.expiresAt instanceof Date) && (c.reason === undefined || (typeof c.reason === 'string' && c.reason !== ''));
+
 const isPlain = (v: unknown): boolean => v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
 
 /**
@@ -38,7 +41,7 @@ export class AuthzQueueHook extends QueueMessageHook {
       return;
     }
     // A ceiling that is not a plain, well-formed one is stamped as deny-all, never as no restriction.
-    const ceiling = isPlain(principal.ceiling) ? reviveCeiling(principal.ceiling) : undefined;
+    const ceiling = isPlain(principal.ceiling) && isStrictCeiling(principal.ceiling) ? reviveCeiling(principal.ceiling) : undefined;
     message.Initiator = { ...stamp, ceiling: ceiling ?? { permissions: [] } };
   }
 

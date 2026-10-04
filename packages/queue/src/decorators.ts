@@ -45,7 +45,7 @@ export function jobOptions(message: object): JobOptions {
  */
 export function Event(options?: IEventOption) {
   return (target: any) => {
-    if (!Reflect.hasMetadata('queue:options', target)) {
+    if (!Reflect.hasOwnMetadata('queue:options', target)) {
       Reflect.defineMetadata(
         'queue:options',
         {

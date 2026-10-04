@@ -246,3 +246,24 @@ describe('AuthzQueueHook.beforeEmit, principals the stamp cannot carry', () => {
     expect(reviveCeiling({ roles: null, permissions: ['a'] })).to.deep.equal({ permissions: ['a'] });
   });
 });
+
+describe('AuthzQueueHook.beforeEmit, ceilings the engine reads as deny-all', () => {
+  it('stamps a string or numeric expiresAt as deny-all, even when it parses as a date', async () => {
+    for (const expiresAt of ['2031-01-01T00:00:00Z', 1924992000000]) {
+      const hook = new TestHook();
+      hook.ambient = user('alice', { ceiling: { permissions: ['a'], expiresAt: expiresAt as never } });
+      const m = { Name: 'x' } as IQueueMessage;
+      await hook.beforeEmit(m);
+      expect(m.Initiator?.ceiling, String(expiresAt)).to.deep.equal({ permissions: [] });
+    }
+  });
+
+  it('keeps a Date expiresAt', async () => {
+    const hook = new TestHook();
+    const expiresAt = new Date('2031-01-01T00:00:00Z');
+    hook.ambient = user('alice', { ceiling: { permissions: ['a'], expiresAt } });
+    const m = { Name: 'x' } as IQueueMessage;
+    await hook.beforeEmit(m);
+    expect((m.Initiator?.ceiling as { expiresAt?: Date } | undefined)?.expiresAt).to.deep.equal(expiresAt);
+  });
+});

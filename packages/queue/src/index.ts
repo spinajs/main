@@ -175,6 +175,12 @@ export class DefaultQueueService extends QueueService {
                 }
               }
 
+              // A JobId is caller-supplied: a message for a row another initiator owns must not run under, or write into, that row.
+              if ((jModel.InitiatorType ?? null) !== (ev.Initiator?.type ?? null) || (jModel.InitiatorId ?? null) !== (ev.Initiator?.id ?? null)) {
+                this.Log.warn(`Job ${ev.Name}:${ev.JobId} dropped: its initiator differs from the one that owns the tracking row`);
+                return;
+              }
+
               // at-least-once delivery means a job can be redelivered after it already finished
               // ( consumer crash before ack, broker failover ). Skip re-running a job whose tracking
               // row is already terminal so jobs stay idempotent. Acks without re-execution or rethrow.

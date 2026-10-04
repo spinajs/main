@@ -361,3 +361,28 @@ describe('queue tracking hook', () => {
     expect(((await JobModel.all())[0] as JobModel<unknown>).Status).to.equal('success');
   });
 });
+
+describe('queue job owned by another initiator', () => {
+  beforeEach(async () => {
+    DI.clearCache();
+    DI.register(HookConf).as(Configuration);
+    await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  it('drops a message whose JobId belongs to a row of a different initiator', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(PlainJob);
+    await PlainJob.emit({});
+    const c = await client();
+    const wire = c.Emitted[c.Emitted.length - 1] as IQueueMessage & { JobId: string };
+    wire.Initiator = { type: 'user', id: 'alice' };
+    await c.deliver(wire);
+
+    trace.length = 0;
+    await c.deliver({ ...wire, Initiator: { type: 'user', id: 'bob' } } as IQueueMessage);
+
+    expect(trace).to.not.include('execute');
+    expect(((await JobModel.all())[0] as JobModel<unknown>).InitiatorId).to.equal('alice');
+  });
+});
