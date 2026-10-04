@@ -182,3 +182,10 @@ export class OfferTemplateValidator extends ConfigFileValidator {
   `Configuration.get(...)` / pass to `@Config(...)`. `Group` is display-only
   metadata and is not part of the path.
 - **`Exposed` gates loading** — only exposed rows reach the running app.
+
+## Under authz
+
+An app that guards `DbConfig` (for example through `@spinajs/configuration-http`) calls
+`requireSystemPrincipal()`. From then on, persistence of exposed options and the watch poll run as `SYSTEM`
+(`runAs(SYSTEM, 'config-poll')`). They start after the root authz service boots and never boot it themselves.
+Without that call, queries run as before.

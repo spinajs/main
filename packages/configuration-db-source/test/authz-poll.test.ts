@@ -1,32 +1,54 @@
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { AuthzService, DefaultAuthzService, SYSTEM } from '@spinajs/authz';
+import { AuthzService, SYSTEM } from '@spinajs/authz';
 import { hostHarness, runBehaviour, testHost } from '@spinajs/authz-testing';
 
-import { asSystem } from '../src/system.js';
+import { asSystem, requireSystemPrincipal, resetSystemPrincipal } from '../src/system.js';
 import { bootDb } from './support/db.js';
 
 describe('configuration-db-source under authz', function () {
   this.timeout(10000);
 
   describe('asSystem', () => {
-    it('runs the function directly when no AuthzService is registered', async () => {
-      DI.unregister(DefaultAuthzService);
+    afterEach(() => resetSystemPrincipal());
+
+    it('runs the function directly and never touches AuthzService when unguarded', async () => {
+      const root = DI.RootContainer;
+      const resolve = root.resolve;
+      const seen: unknown[] = [];
+      root.resolve = ((type: unknown, ...rest: unknown[]) => {
+        seen.push(type);
+        return (resolve as (...a: unknown[]) => unknown).call(root, type, ...rest);
+      }) as typeof root.resolve;
       try {
         expect(await asSystem(async () => 7)).to.equal(7);
+        expect(seen).to.not.include(AuthzService);
       } finally {
-        DI.register(DefaultAuthzService).as(AuthzService);
+        root.resolve = resolve;
       }
     });
   });
 
   describe('poll with a booted authz host', () => {
-    before(async () => {
-      await testHost.installHost();
-    });
+    before(() => requireSystemPrincipal());
 
     after(async () => {
+      resetSystemPrincipal();
       await testHost.uninstallHost();
+    });
+
+    it('waits for the service to resolve, then runs as SYSTEM', async () => {
+      let done = false;
+      const pending = asSystem(async () => 'ok').then((v) => {
+        done = true;
+        return v;
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(done).to.equal(false);
+
+      await testHost.installHost();
+      await DI.resolve(AuthzService);
+      expect(await pending).to.equal('ok');
     });
 
     it("records runAs 'config-poll' and delivers the polled value", async () => {
@@ -64,9 +86,16 @@ runBehaviour(
     hostHarness({
       facets: ['configuration'],
       async extend(host) {
+        requireSystemPrincipal(host.domain);
         const db = await bootDb((path, value) => host.setConfig(path, value), host.domain);
         await db.seed(host.world.lane?.configuration?.rows ?? []);
-        return { lane: { configuration: { poll: db.poll, value: db.value } }, dispose: db.dispose };
+        return {
+          lane: { configuration: { poll: db.poll, value: db.value } },
+          dispose: async () => {
+            resetSystemPrincipal();
+            await db.dispose();
+          },
+        };
       },
     }),
   { strict: true },

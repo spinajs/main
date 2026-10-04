@@ -5,3 +5,4 @@ export * from './file.js';
 export * from './converter.js';
 export * from './models/DbConfig.js';
 export * from './migrations/configuration_db_source_2022_02_08_01_13_00.js';
+export { requireSystemPrincipal } from './system.js';
