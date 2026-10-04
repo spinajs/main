@@ -64,5 +64,9 @@
     "@spinajs/users": "3.0.0-alpha.0",
     "@spinajs/validation": "2.0.549",
     "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
+    "@spinajs/fs": "2.0.549"
   }
 }
