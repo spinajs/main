@@ -4,3 +4,7 @@ export * from './permissions/index.js';
 export * from './config/index.js';
 export * from './resolvers/index.js';
 export * from './adapter/index.js';
+export * from './operations/index.js';
+export * from './guard/index.js';
+export * from './decorator/index.js';
+export * from './contributor/index.js';

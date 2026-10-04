@@ -38,18 +38,29 @@ const OFF: FsAccessConfig = Object.freeze({ mode: 'off', domain: 'root' });
  * entry is off (design §13: "any other fs: off").
  */
 export function fsAccessConfig(fsName: string, container: IContainer = DI.RootContainer): FsAccessConfig {
+  const all = fsSection(container, `authz.fs.${fsName}`);
+  return all ? parseFsAccessConfig(fsName, Object.hasOwn(all, fsName) ? all[fsName] : undefined) : OFF;
+}
+
+/** Every `authz.fs.<name>` entry of the Configuration resolved in `container`, validated, by filesystem name. */
+export function fsAccessConfigs(container: IContainer = DI.RootContainer): ReadonlyMap<string, FsAccessConfig> {
+  const all = fsSection(container, 'authz.fs');
+  return new Map(Object.keys(all ?? {}).map((name) => [name, parseFsAccessConfig(name, all![name])]));
+}
+
+function fsSection(container: IContainer, at: string): Record<string, unknown> | undefined {
   const configuration = container.get(Configuration) as Configuration | undefined;
   if (!configuration || typeof configuration.get !== 'function') {
-    throw new AuthzConfigError(`authz.fs.${fsName}: Configuration is not resolved; await DI.resolve(Configuration) first`);
+    throw new AuthzConfigError(`${at}: Configuration is not resolved; await DI.resolve(Configuration) first`);
   }
   const all: unknown = configuration.get(['authz', 'fs']);
   if (all === undefined || all === null) {
-    return OFF;
+    return undefined;
   }
   if (!isRecord(all)) {
     throw new AuthzConfigError(`authz.fs must be an object keyed by filesystem name, got ${show(all)}`);
   }
-  return parseFsAccessConfig(fsName, Object.hasOwn(all, fsName) ? all[fsName] : undefined);
+  return all;
 }
 
 /** Validates one `authz.fs.<fsName>` entry; undefined is a missing entry. */

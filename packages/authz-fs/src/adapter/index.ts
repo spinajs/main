@@ -1,8 +1,9 @@
 import { ResourceAdapter } from '@spinajs/authz';
-import type { PermissionDef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Permission, PermissionDef, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
+import { FS_OPERATIONS, fsOperationPermissions } from '../operations/index.js';
 import { FS_PERMISSIONS } from '../permissions/index.js';
 import { FS_RESOURCE_TYPES, fsAncestors, fsRef, normalizeFsPath } from '../refs/index.js';
 import type { FsPathKind } from '../refs/index.js';
@@ -13,6 +14,8 @@ export interface FsTarget {
   /** Default 'file'. */
   readonly kind?: FsPathKind;
 }
+
+const OPERATION_PERMISSIONS = fsOperationPermissions(FS_OPERATIONS);
 
 /** Refs, ancestors and permissions of the filesystems (design §13); registered in the root container. */
 @Injectable(ResourceAdapter)
@@ -44,6 +47,11 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
 
   permissions(): readonly Omit<PermissionDef, 'source'>[] {
     return FS_PERMISSIONS;
+  }
+
+  /** The operation table without per-filesystem `authz.fs.<name>.operations`. */
+  operations(): Readonly<Record<string, Permission | readonly Permission[]>> {
+    return OPERATION_PERMISSIONS;
   }
 
   // Read from the published provider instance, so refOf does no IO; a guard proxy passes Options through.
