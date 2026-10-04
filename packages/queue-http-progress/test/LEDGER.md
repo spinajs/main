@@ -27,3 +27,9 @@ replaces them and deletes the legacy file.
 |---|---|---|---|---|---|
 | 1 | 36 | JobsController > getStatus() > should return Ok with job status when job exists | adapt | C8 | queue-http-progress/test/ (`getStatus` unit tests stay and still call the method directly, since `@Access('job:read', { resource: fromParam('jobId', 'job') })` sits on the route; T4 adds own job 200, other user job 403/404, admin with `job:read` 200, B30) |
 | 2 | 53 | JobsController > getStatus() > should return a queued status when no tracking row exists | adapt | C8 | queue-http-progress/test/ (`getStatus` unit tests stay and still call the method directly, since `@Access('job:read', { resource: fromParam('jobId', 'job') })` sits on the route; T4 adds own job 200, other user job 403/404, admin with `job:read` 200, B30). Note for T4: at route level, with `fromParam` and the `job` adapter (B30), an unknown job id may answer 403/404 instead of `queued`; the route test must fix which |
+
+## C8 outcome
+
+- Test 1 adapted: `getStatus(jobId, req)` with a stubbed `canRead`.
+- Test 2 adapted: an unknown job now answers 404 (`ResourceNotFound`), the same as a denied job; the `queued` fallback is gone.
+- New: `test/behaviour.test.ts` runs B30.status; `test/status-route.test.ts` pins own 200, other user's job 404, unknown JobId 404 with the same body, unconditional holder 200, no principal 401.
