@@ -22,8 +22,11 @@ export abstract class MfaSecretStore {
    * Never overwrites a confirmed step: false and nothing changes. Atomic, one conditional write.
    */
   abstract put(id: IdentityRef, step: string, secretEnc: string, keyId: string): Promise<boolean>;
-  /** Sets `confirmedAt` (default now); true when the step exists. */
-  abstract confirm(id: IdentityRef, step: string, at?: Date): Promise<boolean>;
+  /**
+   * Sets `confirmedAt` (default now) on an unconfirmed step that holds `expectedSecretEnc` when one is given. True only
+   * for the call that made this change; atomic, one conditional write.
+   */
+  abstract confirm(id: IdentityRef, step: string, at?: Date, expectedSecretEnc?: string): Promise<boolean>;
   /** True once per time step, never for a step at or below the last accepted one (SR-15); false without a row. */
   abstract acceptStep(id: IdentityRef, step: string, timeStep: number): Promise<boolean>;
   abstract remove(id: IdentityRef, step: string): Promise<void>;

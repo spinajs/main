@@ -66,9 +66,9 @@ class InterleavingStore extends MemoryMfaSecretStore {
     return super.acceptStep(id, step, timeStep);
   }
 
-  async confirm(id: IdentityRef, step: string, at?: Date): Promise<boolean> {
+  async confirm(id: IdentityRef, step: string, at?: Date, expectedSecretEnc?: string): Promise<boolean> {
     await this.fire('confirm');
-    return super.confirm(id, step, at);
+    return super.confirm(id, step, at, expectedSecretEnc);
   }
 
   private held: { entered: () => void; released: Promise<void> } | null = null;
@@ -231,7 +231,7 @@ describe('v3 step: TotpMfaStep', () => {
     assert.strictEqual(await step.enrolled(ALICE), false);
     const { provisioning } = await step.beginEnrolment(ALICE);
     assert.strictEqual(await step.enrolled(ALICE), false);
-    assert.deepStrictEqual(await step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now())), {});
+    await step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now()));
     assert.strictEqual(await step.enrolled(ALICE), true);
   });
 
@@ -389,19 +389,65 @@ describe('v3 step: TotpMfaStep', () => {
     const racing = new InterleavingStore();
     const step = make({ store: racing });
     const { provisioning } = await step.beginEnrolment(ALICE);
+    const s1 = (await racing.get(ALICE, 'totp'))!.secretEnc;
     racing.arm('acceptStep', () => step.beginEnrolment(ALICE));
     await assert.rejects(step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now())), InvalidOperation);
     assert.strictEqual(await step.enrolled(ALICE), false);
-    assert.strictEqual(await racing.get(ALICE, 'totp'), null);
+    const row = await racing.get(ALICE, 'totp');
+    assert.ok(row && row.secretEnc !== s1, "the begin's pending row stays");
+    assert.strictEqual(await racing.countRecoveryCodes(ALICE), 0);
   });
 
   it('confirm fails closed when a begin replaces the secret before it is confirmed', async () => {
     const racing = new InterleavingStore();
     const step = make({ store: racing });
     const { provisioning } = await step.beginEnrolment(ALICE);
+    const s1 = (await racing.get(ALICE, 'totp'))!.secretEnc;
     racing.arm('confirm', () => step.beginEnrolment(ALICE));
     await assert.rejects(step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now())), InvalidOperation);
     assert.strictEqual(await step.enrolled(ALICE), false);
+    const row = await racing.get(ALICE, 'totp');
+    assert.ok(row && row.secretEnc !== s1 && row.confirmedAt === null, "the begin's pending row stays");
+    assert.strictEqual(await racing.countRecoveryCodes(ALICE), 0);
+  });
+
+  it('a stalled confirm never removes an enrolment another confirm completed', async () => {
+    const racing = new InterleavingStore();
+    const step = make({ store: racing });
+    const first = await step.beginEnrolment(ALICE);
+    clock.tick(30 * SECOND);
+    let second: { recoveryCodes?: readonly string[] } = {};
+    let s2 = '';
+    racing.arm('acceptStep', async () => {
+      const { provisioning } = await step.beginEnrolment(ALICE);
+      s2 = (await racing.get(ALICE, 'totp'))!.secretEnc;
+      second = await step.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, new Date(clock.now().getTime() - 30 * SECOND)));
+    });
+    await assert.rejects(step.confirmEnrolment(ALICE, totpFromProvisioning(first.provisioning, clock.now())), InvalidOperation);
+    const row = await racing.get(ALICE, 'totp');
+    assert.ok(row?.confirmedAt);
+    assert.strictEqual(row.secretEnc, s2);
+    assert.strictEqual(await step.enrolled(ALICE), true);
+    assert.strictEqual(second.recoveryCodes?.length, 10);
+    assert.strictEqual(await step.verifyRecovery(ALICE, second.recoveryCodes![0]), true, 'the codes the winner showed are live');
+  });
+
+  it('a double confirm with codes of two time steps succeeds once and issues one set', async () => {
+    const step = make();
+    const { provisioning } = await step.beginEnrolment(ALICE);
+    clock.tick(30 * SECOND);
+    const now = clock.now().getTime();
+    const older = totpFromProvisioning(provisioning, new Date(now - 30 * SECOND));
+    const newer = totpFromProvisioning(provisioning, new Date(now));
+    const results = await Promise.allSettled([step.confirmEnrolment(ALICE, older), step.confirmEnrolment(ALICE, newer)]);
+    const won = results.filter((r) => r.status === 'fulfilled');
+    assert.strictEqual(won.length, 1);
+    const codes = (won[0] as PromiseFulfilledResult<{ recoveryCodes?: readonly string[] }>).value.recoveryCodes!;
+    assert.strictEqual(codes.length, 10);
+    assert.strictEqual(await store.countRecoveryCodes(ALICE), 10);
+    for (const code of codes) {
+      assert.strictEqual(await step.verifyRecovery(ALICE, code), true);
+    }
   });
 
   it('a begin whose put lands after a confirmation leaves the enrolment intact', async () => {

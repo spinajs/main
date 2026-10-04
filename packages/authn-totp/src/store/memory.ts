@@ -41,13 +41,13 @@ export class MemoryMfaSecretStore extends MfaSecretStore {
     return true;
   }
 
-  async confirm(id: IdentityRef, step: string, at: Date = new Date()): Promise<boolean> {
+  async confirm(id: IdentityRef, step: string, at: Date = new Date(), expectedSecretEnc?: string): Promise<boolean> {
     const key = rowKey(id, step);
     if (!(at instanceof Date) || !Number.isFinite(at.getTime())) {
       throw new InvalidArgument('MemoryMfaSecretStore.confirm: at must be a valid date');
     }
     const row = this.rows.get(key);
-    if (!row) {
+    if (!row || row.confirmedAt || (expectedSecretEnc !== undefined && row.secretEnc !== expectedSecretEnc)) {
       return false;
     }
     this.rows.set(key, Object.freeze({ ...row, confirmedAt: new Date(at.getTime()) }));

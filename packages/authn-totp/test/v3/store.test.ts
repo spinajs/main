@@ -105,12 +105,22 @@ describe('v3 store: MemoryMfaSecretStore', () => {
     assert.strictEqual((await store.get(ALICE, 'totp'))?.confirmedAt, null);
   });
 
-  it('confirm sets confirmedAt and answers whether the row exists', async () => {
-    assert.strictEqual(await store.confirm(ALICE, 'totp'), false);
+  it('confirm is true only for the call that confirms the row', async () => {
+    assert.strictEqual(await store.confirm(ALICE, 'totp'), false, 'no row');
     await store.put(ALICE, 'totp', 'v1.a.b.c', 'kid');
     const at = new Date('2026-10-04T10:00:00Z');
     assert.strictEqual(await store.confirm(ALICE, 'totp', at), true);
     assert.strictEqual((await store.get(ALICE, 'totp'))?.confirmedAt?.getTime(), at.getTime());
+    assert.strictEqual(await store.confirm(ALICE, 'totp', new Date('2026-10-05T10:00:00Z')), false, 'already confirmed');
+    assert.strictEqual((await store.get(ALICE, 'totp'))?.confirmedAt?.getTime(), at.getTime());
+  });
+
+  it('confirm with an expected secret confirms only the row holding it', async () => {
+    await store.put(ALICE, 'totp', 'v1.a.b.c', 'kid');
+    assert.strictEqual(await store.confirm(ALICE, 'totp', undefined, 'v1.other'), false);
+    assert.strictEqual((await store.get(ALICE, 'totp'))?.confirmedAt, null);
+    assert.strictEqual(await store.confirm(ALICE, 'totp', undefined, 'v1.a.b.c'), true);
+    assert.ok((await store.get(ALICE, 'totp'))?.confirmedAt);
   });
 
   it('acceptStep is true once per step and never at or below the last accepted one', async () => {

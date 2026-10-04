@@ -10,6 +10,7 @@ import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
 import { identityKey } from '../store/identity.js';
 import { totpOptions } from './options.js';
+import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
 import type { TotpOptions, TotpOptionsInput } from './options.js';
 
 /** RFC 4226 recommends at least 160 bits. */
@@ -58,7 +59,7 @@ export class TotpMfaStep extends MfaStep {
     const secret = new OTPAuth.Secret({ size: SECRET_BYTES }).base32;
     const { secretEnc, keyId } = keys.encrypt(id, this.name, secret);
     const totp = this.totp(secret, options, await this.label(id));
-    // The check only answers early; the conditional put is what keeps a confirmation finishing meanwhile.
+    // Only the conditional put protects a confirmation that completes meanwhile; this check just fails early.
     if ((await store.get(id, this.name))?.confirmedAt || !(await store.put(id, this.name, secretEnc, keyId))) {
       throw new InvalidOperation('TOTP is already enrolled for this identity; disable it first');
     }
@@ -75,14 +76,12 @@ export class TotpMfaStep extends MfaStep {
     if (timeStep === null || !(await store.acceptStep(id, this.name, timeStep))) {
       throw new InvalidArgument('the TOTP code does not match');
     }
-    await store.confirm(id, this.name);
-    // A begin running meanwhile may have put another secret, which this code does not prove.
-    const after = await store.get(id, this.name);
-    if (!after?.confirmedAt || after.secretEnc !== row.secretEnc || after.keyId !== row.keyId) {
-      await store.remove(id, this.name);
+    // Fails when a begin replaced the secret this code proves, or another confirmation won; only the winner issues codes.
+    if (!(await store.confirm(id, this.name, undefined, row.secretEnc))) {
       throw new InvalidOperation('the TOTP enrolment changed during confirmation; begin again');
     }
-    return this.issueRecoveryCodes(id);
+    const codes = await this.issueRecoveryCodes(id);
+    return codes.length > 0 ? { recoveryCodes: codes } : {};
   }
 
   async verify(id: IdentityRef, response: string): Promise<boolean> {
@@ -98,15 +97,36 @@ export class TotpMfaStep extends MfaStep {
     return timeStep !== null && (await store.acceptStep(id, this.name, timeStep));
   }
 
+  /** Takes a recovery code only (D8); single use. */
+  async verifyRecovery(id: IdentityRef, code: string): Promise<boolean> {
+    const { store } = await this.resolve();
+    const normalised = normaliseRecoveryCode(code);
+    if (normalised === null || !(await this.enrolled(id))) {
+      return false;
+    }
+    return store.redeemRecoveryCode(id, normalised);
+  }
+
+  /** Voids the old set; the new codes are returned once. */
+  async regenerateRecoveryCodes(id: IdentityRef): Promise<readonly string[]> {
+    if (!(await this.enrolled(id))) {
+      throw new InvalidOperation('no confirmed TOTP enrolment for this identity');
+    }
+    return this.issueRecoveryCodes(id);
+  }
+
   async disable(id: IdentityRef): Promise<void> {
     const { store } = await this.resolve();
     await store.remove(id, this.name);
     await store.removeRecoveryCodes(id);
   }
 
-  /** What a confirmed enrolment hands back to the owner. */
-  protected async issueRecoveryCodes(_id: IdentityRef): Promise<{ recoveryCodes?: readonly string[] }> {
-    return {};
+  /** Replaces the identity's codes with a fresh set and returns it in the shown form. */
+  private async issueRecoveryCodes(id: IdentityRef): Promise<readonly string[]> {
+    const { store, options } = await this.resolve();
+    const codes = newRecoveryCodeSet(options.recoveryCodes);
+    await store.replaceRecoveryCodes(id, codes);
+    return Object.freeze(codes.map(showRecoveryCode));
   }
 
   /** The time step the response belongs to, or null when it matches none inside the window. */
