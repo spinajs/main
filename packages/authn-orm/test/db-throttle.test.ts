@@ -184,6 +184,22 @@ for (const kind of DB_KINDS) {
       expect((await rows(db)).map((r) => r.k)).to.deep.eq([expected]);
     });
 
+    it('peek refuses while a delay holds and writes nothing (K5)', async () => {
+      const params: ThrottleParams = { ...DEFAULT_THROTTLE, login: { account: { free: 1, baseDelayMs: 2000, maxDelayMs: 2000 } } };
+      const throttle = new DbAuthnThrottle(db.driver, params);
+      const keys = pwKeys('peek@example.test', IP);
+      expect(await throttle.peek(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
+      expect(await rows(db)).to.deep.eq([]);
+      expect(await throttle.attempt(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: true });
+      const before = await rows(db);
+      expect(await throttle.peek(keys, 'login', ctxAt(T0))).to.deep.eq({ allowed: false, retryAfterSeconds: 2 });
+      expect(await throttle.peek(keys, 'mfa', ctxAt(T0))).to.deep.eq({ allowed: true });
+      expect(await rows(db)).to.deep.eq(before);
+      const later = new Date(T0.getTime() + 2000);
+      expect(await throttle.peek(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: true });
+      expect(await throttle.attempt(keys, 'login', ctxAt(later))).to.deep.eq({ allowed: true });
+    });
+
     it('lets one of 20 parallel attempts take over a stale row', async () => {
       const params: ThrottleParams = { ...DEFAULT_THROTTLE, login: { account: { free: 1, baseDelayMs: 1000, maxDelayMs: 1000 } } };
       const throttle = new DbAuthnThrottle(db.driver, params);

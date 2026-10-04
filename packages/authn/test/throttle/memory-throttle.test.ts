@@ -374,6 +374,40 @@ describe('MemoryAuthnThrottle', function () {
     });
   });
 
+  describe('peek (K5)', () => {
+    const SHORT = tuned({ authn: { throttle: { login: { account: { free: 1, baseDelayMs: 2000, maxDelayMs: 2000 } } } } });
+
+    it('refuses while a delay holds and counts nothing', async () => {
+      const t = new Probe(SHORT).noSweep();
+      const keys = pwKeys(ALICE.login, IP_A);
+      expectAllowed(await t.peek(keys, 'login', ctx()));
+      assert.strictEqual(t.rowCount, 0, 'a peek stores nothing');
+      expectAllowed(await t.attempt(keys, 'login', ctx()));
+      const rows = t.dump();
+      for (let i = 0; i < 5; i++) expectRefused(await t.peek(keys, 'login', ctx()), 2);
+      expectAllowed(await t.peek(pwKeys(ALICE.login, IP_A), 'mfa', ctx()), 'flows peek apart');
+      assert.strictEqual(t.dump(), rows, 'a peek changes no row');
+      clock.tick(2000);
+      expectAllowed(await t.peek(keys, 'login', ctx()));
+      expectAllowed(await t.attempt(keys, 'login', ctx()), 'the peeks took no slot');
+    });
+
+    it('lets a fresh key through a full table, which only attempt refuses', async () => {
+      const t = new Probe(tuned({ authn: { throttle: { login: { account: { free: 1, baseDelayMs: 600_000, maxDelayMs: 600_000 } } } } }), { maxRows: 4 }).noSweep();
+      for (const v of ['a', 'b', 'c', 'd']) expectAllowed(await t.attempt([{ kind: 'account', value: v }], 'login', ctx()));
+      const fresh: ThrottleKey[] = [{ kind: 'account', value: 'e' }];
+      expectAllowed(await t.peek(fresh, 'login', ctx()));
+      assert.strictEqual((await t.attempt(fresh, 'login', ctx())).allowed, false);
+      expectRefused(await t.peek([{ kind: 'account', value: 'a' }], 'login', ctx()), 600);
+    });
+
+    it('rejects an unknown flow and a ctx without a valid now', async () => {
+      const t = new MemoryAuthnThrottle(DEFAULT_THROTTLE);
+      await assert.rejects(t.peek([], 'nope' as ThrottleFlow, ctx()), InvalidArgument);
+      await assert.rejects(t.peek([], 'login', { ...ctx(), now: new Date(NaN) }), InvalidArgument);
+    });
+  });
+
   describe('storage', () => {
     it('keeps only keyed hashes of key values (D7)', async () => {
       const a = new Probe(DEFAULT_THROTTLE);

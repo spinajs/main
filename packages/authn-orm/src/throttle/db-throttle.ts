@@ -167,6 +167,20 @@ export class DbAuthnThrottle extends AuthnThrottle {
     return { allowed: true };
   }
 
+  /** Refuses as `attempt` would for a delay, writing nothing (the per-request gate of DefaultAuthnService, K5). */
+  public async peek(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {
+    const nowMs = checkedMs(ctx?.now, 'DbAuthnThrottle.peek: ctx.now');
+    await this.init();
+    const f = this.flowParams(flow);
+    const gates = new Set<string>();
+    for (const key of keys) {
+      if (this.gateParams(f, key.kind)) gates.add(this.rowKey(flow, key));
+    }
+    if (gates.size === 0) return { allowed: true };
+    const waitMs = await this.blockedWait(this.driver!, [...gates].sort(), this.times(nowMs));
+    return waitMs > 0 ? this.refuse(waitMs) : { allowed: true };
+  }
+
   public async succeed(keys: readonly ThrottleKey[], flow: ThrottleFlow): Promise<void> {
     await this.init();
     const f = this.flowParams(flow);
