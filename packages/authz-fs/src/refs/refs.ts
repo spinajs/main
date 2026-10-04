@@ -52,8 +52,9 @@ export function parseFsRef(ref: ResourceRef): ParsedFsRef | undefined {
 }
 
 /**
- * Lane D4: `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. Resolver
- * (domain) parents are not ancestors; the fs-inherit model reads them.
+ * `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. Resolver (domain)
+ * parents are not ancestors; the fs-inherit model reads them (design §13). This does not know which
+ * filesystems exist: an fs name no provider has still gets a chain.
  */
 export function fsAncestors(ref: ResourceRef): readonly ResourceRef[] | null {
   const parsed = parseFsRef(ref);

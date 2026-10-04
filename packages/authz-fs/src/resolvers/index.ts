@@ -9,7 +9,8 @@ import { fsAccessConfig } from '../config/index.js';
 /**
  * Domain parents of a path, nearest first, without repeats. They come from the FsPathResolver that
  * `authz.fs.<fsName>.resolver` names by class name, or, without that key, from every registered resolver whose
- * `fs` matches the name, in registration order. A resolver answering null adds nothing.
+ * `fs` matches the name, in registration order. A resolver answering null adds nothing. `path` must be the
+ * normalised path (normalizeFsPath): resolvers match it as given.
  */
 export async function resolveFsParents(fsName: string, path: string, container: IContainer = DI.RootContainer): Promise<readonly ResourceRef[]> {
   const named = fsAccessConfig(fsName, container).resolver;

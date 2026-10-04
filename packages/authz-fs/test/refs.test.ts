@@ -9,28 +9,66 @@ import { fsAncestors, fsRef, normalizeFsPath, parseFsRef } from '../src/index.js
 
 const expect = chai.expect;
 
+const table: [string, string][] = [
+  ['a.txt', 'a.txt'],
+  ['a/b/c.pdf', 'a/b/c.pdf'],
+  ['a\\b', 'a/b'],
+  ['a\\b\\c.txt', 'a/b/c.txt'],
+  ['./a/../b', 'b'],
+  ['./a', 'a'],
+  ['a//b', 'a/b'],
+  ['a/./b', 'a/b'],
+  ['a/b/', 'a/b'],
+  ['a/b//', 'a/b'],
+  ['a/..', ''],
+  ['', ''],
+  ['.', ''],
+  ['./', ''],
+  ['/', ''],
+  ['\\', ''],
+  ['//', ''],
+  ['a/.hidden', 'a/.hidden'],
+  ['.config/x', '.config/x'],
+  ['a b/c d.txt', 'a b/c d.txt'],
+  ['SECRE~1/a.txt', 'SECRE~1/a.txt'],
+  ['ab:c/../x', 'x'],
+];
+
+const inside: [string, string, string][] = [
+  ['/data/up/a/b.txt', '/data/up', 'a/b.txt'],
+  ['/data/up/a/b.txt', '/data/up/', 'a/b.txt'],
+  ['/data/up', '/data/up', ''],
+  ['/data/up/', '/data/up', ''],
+  ['/data/up/a/../b', '/data/up', 'b'],
+  ['C:\\data\\up\\a\\b.txt', 'C:\\data\\up', 'a/b.txt'],
+  ['c:/data/up/a.txt', 'C:\\data\\up', 'a.txt'],
+  ['C:\\Data\\Up\\a.txt', 'c:\\data\\up', 'a.txt'],
+  ['C:\\data\\up', 'C:\\data\\up\\', ''],
+  ['relative/x', '/data/up', 'relative/x'],
+  ['/', '/data/up', ''],
+  ['\\\\server\\share\\up\\a.txt', '\\\\server\\share\\up', 'a.txt'],
+  ['\\\\Server\\Share\\a.txt', '\\\\server\\share', 'a.txt'],
+];
+
+// As fsNative.resolvePath: a rooted path without a drive that is not inside the base path starts at the fs root.
+const rooted: [string, string | undefined, string][] = [
+  ['/etc/passwd', undefined, 'etc/passwd'],
+  ['\\x\\y', undefined, 'x/y'],
+  ['/a/b/', undefined, 'a/b'],
+  ['///x', undefined, 'x'],
+  ['/etc/passwd', '/data/up', 'etc/passwd'],
+  ['/data/upload/x', '/data/up', 'data/upload/x'],
+  ['/data/up/../other/x', '/data/up', 'data/other/x'],
+  ['/data/up/../../x', '/data/up', 'x'],
+  ['/x', 'C:\\data\\up', 'x'],
+  // A driveless rooted path never matches a drive base, though fsNative on the current drive would read the base.
+  ['\\data\\up\\x', 'C:\\data\\up', 'data/up/x'],
+  ['/data/up/x', '\\\\server\\share', 'data/up/x'],
+];
+
+const accepted: [string, string | undefined, string][] = [...table.map(([input, out]): [string, undefined, string] => [input, undefined, out]), ...inside, ...rooted];
+
 describe('authz-fs refs: normalizeFsPath', () => {
-  const table: [string, string][] = [
-    ['a.txt', 'a.txt'],
-    ['a/b/c.pdf', 'a/b/c.pdf'],
-    ['a\\b', 'a/b'],
-    ['a\\b\\c.txt', 'a/b/c.txt'],
-    ['./a/../b', 'b'],
-    ['./a', 'a'],
-    ['a//b', 'a/b'],
-    ['a/./b', 'a/b'],
-    ['a/b/', 'a/b'],
-    ['a/b//', 'a/b'],
-    ['a/..', ''],
-    ['', ''],
-    ['.', ''],
-    ['./', ''],
-    ['/', ''],
-    ['\\', ''],
-    ['//', ''],
-    ['...', '...'],
-    ['a/.hidden', 'a/.hidden'],
-  ];
   for (const [input, expected] of table) {
     it(`${JSON.stringify(input)} -> ${JSON.stringify(expected)}`, () => {
       expect(normalizeFsPath(input)).to.equal(expected);
@@ -55,6 +93,27 @@ describe('authz-fs refs: normalizeFsPath', () => {
     ['C:\\x', '/data/up'],
     ['\\\\server\\share\\x', '/data/up'],
     ['\\\\server\\other\\x', '\\\\server\\share'],
+    // a drive surfacing after normalisation
+    ['./C:/x', undefined],
+    ['a/../C:/x', undefined],
+    ['.\\D:\\secret', undefined],
+    ['x/../C:', undefined],
+    ['/C:/x', undefined],
+    ['/C:/x', '/data'],
+    ['/data/up/c:x', '/data/up'],
+    ['C:\\data\\up\\c:x', 'C:\\data\\up'],
+    // a ':' anywhere in a segment, NTFS streams
+    ['ab:c.txt', undefined],
+    ['notes/x:y.txt', undefined],
+    ['secret/a.txt::$DATA', undefined],
+    ['secret/a.txt:$DATA', undefined],
+    // Win32 strips a trailing dot or space
+    ['secret./a.txt', undefined],
+    ['secret /a.txt', undefined],
+    ['secret/a.txt.', undefined],
+    ['secret/a.txt ', undefined],
+    ['...', undefined],
+    ['/data/up/secret./a.txt', '/data/up'],
   ];
   for (const [input, base] of refused) {
     it(`refuses ${JSON.stringify(input)}${base ? ` under ${base}` : ''}`, () => {
@@ -62,45 +121,28 @@ describe('authz-fs refs: normalizeFsPath', () => {
     });
   }
 
-  it('refuses a non-string path', () => {
+  it('refuses a non-string path or base path', () => {
     expect(() => normalizeFsPath(undefined as unknown as string)).to.throw(InvalidArgument);
     expect(() => normalizeFsPath(7 as unknown as string)).to.throw(InvalidArgument);
+    expect(() => normalizeFsPath('/x', 5 as unknown as string))
+      .to.throw(InvalidArgument)
+      .with.property('message')
+      .that.includes('base path');
   });
 
-  const inside: [string, string, string][] = [
-    ['/data/up/a/b.txt', '/data/up', 'a/b.txt'],
-    ['/data/up/a/b.txt', '/data/up/', 'a/b.txt'],
-    ['/data/up', '/data/up', ''],
-    ['/data/up/', '/data/up', ''],
-    ['/data/up/a/../b', '/data/up', 'b'],
-    ['C:\\data\\up\\a\\b.txt', 'C:\\data\\up', 'a/b.txt'],
-    ['c:/data/up/a.txt', 'C:\\data\\up', 'a.txt'],
-    ['C:\\Data\\Up\\a.txt', 'c:\\data\\up', 'a.txt'],
-    ['C:\\data\\up', 'C:\\data\\up\\', ''],
-    ['relative/x', '/data/up', 'relative/x'],
-    ['/', '/data/up', ''],
-    ['\\\\server\\share\\up\\a.txt', '\\\\server\\share\\up', 'a.txt'],
-    ['\\\\Server\\Share\\a.txt', '\\\\server\\share', 'a.txt'],
-  ];
+  it('names the base path when the base path climbs above its root', () => {
+    expect(() => normalizeFsPath('/b/x', '/a/../../b'))
+      .to.throw(InvalidArgument)
+      .with.property('message')
+      .that.includes('base path "/a/../../b"');
+  });
+
   for (const [input, base, expected] of inside) {
     it(`${JSON.stringify(input)} under ${JSON.stringify(base)} -> ${JSON.stringify(expected)}`, () => {
       expect(normalizeFsPath(input, base)).to.equal(expected);
     });
   }
 
-  // As fsNative.resolvePath: a rooted path without a drive that is not inside the base path starts at the fs root.
-  const rooted: [string, string | undefined, string][] = [
-    ['/etc/passwd', undefined, 'etc/passwd'],
-    ['\\x\\y', undefined, 'x/y'],
-    ['/a/b/', undefined, 'a/b'],
-    ['///x', undefined, 'x'],
-    ['/etc/passwd', '/data/up', 'etc/passwd'],
-    ['/data/upload/x', '/data/up', 'data/upload/x'],
-    ['/data/up/../other/x', '/data/up', 'data/other/x'],
-    ['/data/up/../../x', '/data/up', 'x'],
-    ['/x', 'C:\\data\\up', 'x'],
-    ['/data/up/x', '\\\\server\\share', 'data/up/x'],
-  ];
   for (const [input, base, expected] of rooted) {
     it(`rooted ${JSON.stringify(input)}${base ? ` under ${JSON.stringify(base)}` : ''} -> ${JSON.stringify(expected)}`, () => {
       expect(normalizeFsPath(input, base)).to.equal(expected);
@@ -111,10 +153,11 @@ describe('authz-fs refs: normalizeFsPath', () => {
     expect(normalizeFsPath('/Data/up/a.txt', '/data/up')).to.equal('Data/up/a.txt');
   });
 
-  it('is idempotent', () => {
-    for (const p of ['a/b', 'a\\b\\', './x/../y/z', '']) {
-      const once = normalizeFsPath(p);
-      expect(normalizeFsPath(once)).to.equal(once);
+  it('is idempotent on every accepted input', () => {
+    for (const [input, base] of accepted) {
+      const once = normalizeFsPath(input, base);
+      expect(normalizeFsPath(once), `${JSON.stringify(input)} under ${base}`).to.equal(once);
+      expect(normalizeFsPath(once, base), `${JSON.stringify(input)} under ${base}`).to.equal(once);
     }
   });
 });
@@ -141,27 +184,25 @@ describe('authz-fs refs: fsRef and parseFsRef', () => {
     expect(() => fsRef('', 'x', 'file')).to.throw(InvalidArgument);
     expect(() => fsRef('a:b', 'x', 'file')).to.throw(InvalidArgument);
     expect(() => fsRef('uploads', '../x', 'file')).to.throw(InvalidArgument);
+    expect(() => fsRef('uploads', './C:/x', 'file')).to.throw(InvalidArgument);
     expect(() => fsRef('uploads', 'x', 'other' as 'file')).to.throw(InvalidArgument);
   });
 
-  it('round-trips through parseFsRef', () => {
-    const cases: [string, string, 'file' | 'dir'][] = [
-      ['uploads', 'a/b/c.pdf', 'file'],
-      ['uploads', 'a', 'dir'],
-      ['fs-temp', 'notes/x:y.txt', 'file'],
-      ['fs-temp', 'ab:c.txt', 'file'],
-      ['__file_upload_default_provider__', 'tmp/1', 'file'],
-      ['uploads', '', 'dir'],
-    ];
-    for (const [fsName, path, kind] of cases) {
-      const ref = fsRef(fsName, path, kind);
-      expect(parseFsRef(ref), `${fsName}:${path}`).to.deep.equal({ fs: fsName, path, type: path === '' ? 'fs' : kind });
+  it('round-trips every accepted input through parseFsRef', () => {
+    for (const fsName of ['uploads', 'fs-temp', '__file_upload_default_provider__']) {
+      for (const [input, base] of accepted) {
+        const path = normalizeFsPath(input, base);
+        for (const kind of ['file', 'dir'] as const) {
+          expect(parseFsRef(fsRef(fsName, path, kind)), `${fsName} ${JSON.stringify(input)} ${kind}`).to.deep.equal({ fs: fsName, path, type: path === '' ? 'fs' : kind });
+        }
+      }
     }
   });
 
-  it('splits the id at the first colon', () => {
-    expect(parseFsRef({ type: 'file', id: 'uploads:ab:c/d' })).to.deep.equal({ fs: 'uploads', path: 'ab:c/d', type: 'file' });
-    expect(parseFsRef({ type: 'file', id: 'uploads:a:b' }), 'a drive-like path is absolute').to.equal(undefined);
+  it('refuses an id whose path holds a colon', () => {
+    expect(parseFsRef({ type: 'file', id: 'uploads:ab:c/d' })).to.equal(undefined);
+    expect(parseFsRef({ type: 'file', id: 'uploads:a:b' })).to.equal(undefined);
+    expect(parseFsRef({ type: 'file', id: 'uploads:C:/x' })).to.equal(undefined);
   });
 
   it('gives undefined for a foreign or malformed ref', () => {
@@ -179,6 +220,7 @@ describe('authz-fs refs: fsRef and parseFsRef', () => {
       { type: 'file', id: 'uploads:a/' },
       { type: 'file', id: 'uploads:a\\b' },
       { type: 'file', id: 'uploads:../x' },
+      { type: 'dir', id: 'uploads:secret.' },
     ];
     for (const ref of foreign) expect(parseFsRef(ref), JSON.stringify(ref)).to.equal(undefined);
   });

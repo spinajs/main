@@ -14,7 +14,7 @@ export interface FsTarget {
   readonly kind?: FsPathKind;
 }
 
-/** Lane D7: refs, ancestors and permissions of the filesystems; registered in the root container. */
+/** Refs, ancestors and permissions of the filesystems (design §13); registered in the root container. */
 @Injectable(ResourceAdapter)
 export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
   readonly kind = 'fs';
@@ -37,6 +37,7 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
     return fsRef(target.fs, normalizeFsPath(target.path, this.basePathOf(target.fs)), target.kind ?? 'file');
   }
 
+  /** Does not know which filesystems exist, so an fs name with no provider still gets a chain (it grants nothing). */
   async ancestors(ref: ResourceRef): Promise<readonly ResourceRef[] | null> {
     return fsAncestors(ref);
   }

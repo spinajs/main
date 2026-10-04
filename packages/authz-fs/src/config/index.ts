@@ -29,11 +29,13 @@ const MODES: readonly FsAccessMode[] = ['off', 'audit', 'enforce'];
 const LISTS: readonly string[] = ['dir', 'each'];
 const KEYS = new Set(['mode', 'domain', 'metadata', 'stampOwner', 'resolver', 'inherit', 'signedUrl', 'policies', 'operations', 'list']);
 
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 const OFF: FsAccessConfig = Object.freeze({ mode: 'off', domain: 'root' });
 
 /**
  * `authz.fs.<fsName>` of the Configuration resolved in `container`, read on every call. A filesystem without an
- * entry is off (lane D1).
+ * entry is off (design §13: "any other fs: off").
  */
 export function fsAccessConfig(fsName: string, container: IContainer = DI.RootContainer): FsAccessConfig {
   const configuration = container.get(Configuration) as Configuration | undefined;
@@ -89,7 +91,7 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
 
 function parseInherit(value: unknown, at: string): Readonly<Record<Permission, string>> {
   if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object of permission → action, got ${show(value)}`);
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (const [permission, action] of Object.entries(value)) {
     if (!isPermission(permission)) throw new AuthzConfigError(`${at}.${permission}: the key must be a permission name`);
     out[permission] = nonEmptyString(action, `${at}.${permission}`);
@@ -119,8 +121,10 @@ function parsePolicies(value: unknown, at: string): readonly Policy[] {
 
 function parseOperations(value: unknown, at: string): Readonly<Record<string, Permission | readonly Permission[]>> {
   if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object of method → permission(s), got ${show(value)}`);
-  const out: Record<string, Permission | readonly Permission[]> = {};
+  // No prototype, so a method name such as 'toString' never reads an inherited value; a JSON '__proto__' key would set one.
+  const out: Record<string, Permission | readonly Permission[]> = Object.create(null);
   for (const [method, permissions] of Object.entries(value)) {
+    if (UNSAFE_KEYS.has(method)) throw new AuthzConfigError(`${at}.${method} is not allowed as a method name`);
     const list: unknown[] = Array.isArray(permissions) ? permissions : [permissions];
     if (list.length === 0 || !list.every(isPermission)) {
       throw new AuthzConfigError(`${at}.${method} must be a permission name or a non-empty list of them, got ${show(permissions)}`);

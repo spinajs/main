@@ -82,6 +82,23 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     expect(Object.isFrozen(cfg.operations)).to.equal(true);
     expect(Object.isFrozen(cfg.operations!.publish)).to.equal(true);
   });
+
+  it('builds operations and inherit without a prototype, so no method name reads an inherited value', () => {
+    const cfg = parseFsAccessConfig('uploads', { mode: 'enforce', inherit: { 'fs:read': 'read' }, operations: { publish: ['fs:share'] } });
+    expect(Object.getPrototypeOf(cfg.operations)).to.equal(null);
+    expect(Object.getPrototypeOf(cfg.inherit)).to.equal(null);
+    expect((cfg.operations as Record<string, unknown>).toString).to.equal(undefined);
+  });
+
+  for (const key of ['__proto__', 'constructor', 'prototype']) {
+    it(`refuses the operations key ${key}`, () => {
+      const entry = { mode: 'enforce', operations: JSON.parse(`{ ${JSON.stringify(key)}: ["fs:read"] }`) as unknown };
+      expect(() => parseFsAccessConfig('uploads', entry))
+        .to.throw(AuthzConfigError)
+        .with.property('message')
+        .that.includes(`authz.fs.uploads.operations.${key}`);
+    });
+  }
 });
 
 describe('authz-fs config: fsAccessConfig', () => {
