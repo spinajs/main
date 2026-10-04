@@ -65,7 +65,8 @@ export class CorsMiddleware extends ServerMiddleware {
     const any = raw.includes('*');
     const listed = new Set<string>();
     for (const entry of raw.filter((e) => e !== '*')) {
-      const origin = serializedOrigin(entry);
+      // An entry with a path, query or wildcard host would be cut down to an origin it never named.
+      const origin = typeof entry === 'string' && !/[*@]/.test(entry) && /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+\/?$/i.test(entry) ? serializedOrigin(entry) : undefined;
       if (origin === undefined) throw new InvalidOption(`http.cors.origins entry ${JSON.stringify(entry)} is not an origin (scheme://host[:port]) or '*'`);
       listed.add(origin);
     }

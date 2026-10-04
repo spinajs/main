@@ -84,7 +84,12 @@ export class MemoryThrottleStore extends ThrottleStore {
   }
 }
 
-const underPath = (path: string, prefix: string) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`);
+// Express matches routes case-insensitively, so a rule must too, or `/AUTH/login` reaches the route unthrottled.
+const underPath = (path: string, prefix: string): boolean => {
+  const p = path.toLowerCase();
+  const r = prefix.toLowerCase().replace(/\/+$/, '');
+  return p === r || p.startsWith(`${r}/`);
+};
 
 /**
  * Per-ip, per-route rate limiting. Complements ( does NOT replace ) the

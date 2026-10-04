@@ -121,7 +121,7 @@ describe('CorsMiddleware (A31)', () => {
   });
 
   it('A31 an origin entry that is not a URL origin fails when the middleware is built', () => {
-    for (const entry of ['partner.example.test', 'localhost:3000', 'null', '']) {
+    for (const entry of ['partner.example.test', 'localhost:3000', 'null', '', 'https://partner.example.test/app', 'https://partner.example.test?x=1', 'https://*.example.test', 'https://user@partner.example.test']) {
       expect(() => middleware({ origins: [entry] }).mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
     }
     expect(() => middleware({ origins: 'https://a.example' }).mw.before()).to.throw(InvalidOption, 'http.cors.origins');

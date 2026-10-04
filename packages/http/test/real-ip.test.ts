@@ -199,5 +199,25 @@ describe('trusted client address (RealIp)', () => {
       expect(await hit(limited, at('/auth/login'))).to.eq(200);
       expect(await hit(limited, at('/auth'))).to.eq(429);
     });
+
+    it('matches a rule path whatever the case of the request path, as express routes do', async () => {
+      const limited = throttle(1);
+      const at = (path: string) => ({ path, method: 'POST', socket: { remoteAddress: SOCKET }, storage: { realIp: SOCKET } });
+      expect(await hit(limited, at('/auth/login'))).to.eq(200);
+      expect(await hit(limited, at('/AUTH/login'))).to.eq(429);
+      expect(await hit(limited, at('/Auth'))).to.eq(429);
+    });
+
+    it('matches a rule path written with a trailing slash against the bare path', async () => {
+      const mw = new ThrottleMiddleware();
+      const cfg = { enabled: true, rules: [{ path: '/auth/', methods: ['POST'], limit: 1, windowSeconds: 60 }] };
+      Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path === 'http.throttle' ? cfg : def) } });
+      Object.defineProperty(mw, 'Store', { value: new MemoryThrottleStore() });
+      Object.defineProperty(mw, 'Log', { value: { warn: sinon.stub() } });
+      const limited = mw.before()!;
+      const at = (path: string) => ({ path, method: 'POST', socket: { remoteAddress: SOCKET }, storage: { realIp: SOCKET } });
+      expect(await hit(limited, at('/auth'))).to.eq(200);
+      expect(await hit(limited, at('/auth/login'))).to.eq(429);
+    });
   });
 });
