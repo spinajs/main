@@ -121,4 +121,14 @@ describe('authn-oidc login hardening', () => {
     expect(done.status).to.eq(401);
     expect(await w.sessions.storage.storedKeys()).to.deep.eq([]);
   });
+
+  it('audits a login the hooks refuse, after the core audited its success', async () => {
+    const w = await world();
+    const alice = w.identities.add({ login: 'alice' });
+    await w.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });
+    w.hook.fail = true;
+    expect((await w.roundTrip({ claims: { sub: 'kc-1' } })).done.status).to.eq(401);
+    expect(w.audited).to.have.length(1);
+    expect(w.audited[0]).to.deep.include({ type: 'login', outcome: 'failure', strategy: 'oidc:corp', reason: 'hook_error', identity: alice });
+  });
 });

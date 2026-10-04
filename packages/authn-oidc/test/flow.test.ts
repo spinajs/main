@@ -74,7 +74,7 @@ describe('authn-oidc flow', () => {
       expect(prod.Name).to.eq('__Host-spinajs-oidc');
       expect(prod.Value).to.eq(encodeFlow(f));
       expect(prod.Options).to.deep.include({ httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: OIDC_FLOW_TTL_SECONDS * 1000 });
-      expect(prod.Options).to.not.have.property('domain');
+      expect(prod.Options.domain).to.eq(undefined);
       expect(flowCookieName(undefined)).to.eq('__Host-spinajs-oidc');
       const test = flowCookie(f, 'test');
       expect(test.Name).to.eq('spinajs-oidc');

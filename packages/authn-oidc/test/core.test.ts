@@ -13,6 +13,7 @@ import { encodeFlow } from '../src/flow/cookie.js';
 import { OidcHttpClient } from '../src/http/client.js';
 import { OidcProviders, registerOidcStrategies } from '../src/providers.js';
 import { OidcLogin } from '../src/login.js';
+import { CoreOidcAccountLinks, OidcAccountLinks } from '../src/links.js';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_ISSUER, FakeIdp } from './support/fake-idp.js';
 import { RecordingHook } from './support/world.js';
 
@@ -173,5 +174,36 @@ describe('authn-oidc under the core service', function () {
     expect(done.status).to.eq(303);
     expect(hook.calls).to.have.length(1);
     expect(hook.calls[0][0] as IdentityRef).to.deep.eq(alice);
+  });
+
+  it("links and refuses to unlink the last credential through the core's AccountLinkService", async () => {
+    const c = await open({ jit: false, byVerifiedEmail: false });
+    c.child.register(CoreOidcAccountLinks).as(OidcAccountLinks);
+    const linker = await c.child.resolve(OidcAccountLinks);
+    expect(linker).to.be.instanceOf(CoreOidcAccountLinks);
+    const alice = c.identities.add({ login: 'alice' });
+    const session = await c.sessions.issue(alice, { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() });
+    const providers = await c.child.resolve(OidcProviders);
+    const login = new OidcLogin({
+      strategies: providers.strategies(),
+      service: c.service,
+      sessions: c.sessions,
+      hooks: () => [],
+      redirects: { success: '/', failure: '/' },
+      env: 'test',
+      sessionCookie: (h) => ({ Name: 'ssid', Value: h.id, Options: {} }),
+      callbackPath: (p) => `/auth/oidc/${p}/callback`,
+      linker,
+      links: c.links,
+    });
+    const req = (query: Record<string, unknown> = {}, cookies: Record<string, string> = {}) => ({ origin: ORIGIN, cookies, query, navigation: false, ctx: ctx(), session });
+    const begun = await login.beginLink('corp', req());
+    expect(begun.status).to.eq(302);
+    const query = c.idp.authorize(begun.location!, { claims: { sub: 'kc-9' } });
+    const done = await login.callback('corp', req(query, { 'spinajs-oidc': begun.cookies[0].Value }));
+    expect(done.status).to.eq(303);
+    expect((await c.links.find('oidc:corp', 'kc-9'))?.identity).to.deep.eq(alice);
+    expect((await login.unlink('corp', req())).status).to.eq(403);
+    expect(await c.links.find('oidc:corp', 'kc-9')).to.not.eq(null);
   });
 });

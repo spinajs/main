@@ -1,6 +1,6 @@
 import { MemoryNonceStore } from '@spinajs/authn-orm';
 import { ExternalLoginHook } from '@spinajs/authn/contracts';
-import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from '../../src/options/options.js';
@@ -100,9 +100,13 @@ export async function world(o: WorldOptions = {}) {
   });
   const hook = new RecordingHook();
   const linker = new FakeAccountLinks(sessions, links);
+  const audited: AuthnEvent[] = [];
   const login = new OidcLogin({
     linker,
     links,
+    audit: async (e: AuthnEvent) => {
+      audited.push(e);
+    },
     strategies: new Map([[name, strategy]]),
     service,
     sessions,
@@ -124,5 +128,5 @@ export async function world(o: WorldOptions = {}) {
     return { begun, query, done, flow: flowOf(begun) };
   }
 
-  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, login, ctx, request, flowOf, roundTrip };
+  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, audited, login, ctx, request, flowOf, roundTrip };
 }

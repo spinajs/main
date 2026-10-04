@@ -1,9 +1,10 @@
 /**
  * Plan N10 task 8, canvas-like acceptance (H36): an app with one generic provider configured only by its issuer URL
  * logs in over HTTP and gets a session, with the state and the links in the database (SQLite, and Postgres when the
- * shared test server answers). The IdP is the in-memory fake behind OidcHttpClient (no network to an IdP); N1's
- * AuthnService and N8a's session middleware are not merged, so the kit's FakeAuthnService and MemorySessionIssuer
- * stand in for them.
+ * shared test server answers). The IdP is the in-memory fake behind OidcHttpClient (no network to an IdP, so no
+ * Keycloak container). The kit's FakeAuthnService and MemorySessionIssuer stand in for the core service and the
+ * session store here; test/core.test.ts runs the strategy under the core's real registry and service. N8a's session
+ * middleware is not merged, so the link routes have no session to work with.
  */
 import 'mocha';
 import '@spinajs/log';

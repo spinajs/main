@@ -1,6 +1,7 @@
 import type * as express from 'express';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { AuthnAudit } from '@spinajs/authn';
 import { AuthnService, ExternalLoginHook, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { sessionCookie } from '@spinajs/authn-session';
@@ -13,6 +14,8 @@ import { OidcLogin } from '../login.js';
 import type { OidcAnswer, OidcRequest } from '../login.js';
 import { OidcAccountLinks } from '../links.js';
 import { OidcProviders } from '../providers.js';
+import { requestOrigin, trustedPeer } from '../origin.js';
+import { isRelaxedEnv } from '../support.js';
 
 const ROUTE_PREFIX = 'auth/oidc';
 
@@ -58,25 +61,31 @@ export class OidcController extends BaseController {
   protected Log: Log;
 
   protected flow: OidcLogin | undefined;
+  protected trusted: (peer: string | undefined) => boolean = () => false;
+  protected warnedHttpOrigin = false;
 
   @Get(':provider')
   public async begin(@Param() provider: string, @Req() req: Request) {
-    return new OidcResponse(await (await this.login()).begin(provider, this.requestOf(req)));
+    const login = await this.login();
+    return new OidcResponse(await login.begin(provider, this.requestOf(req)));
   }
 
   @Get(':provider/callback')
   public async callback(@Param() provider: string, @Req() req: Request) {
-    return new OidcResponse(await (await this.login()).callback(provider, this.requestOf(req)));
+    const login = await this.login();
+    return new OidcResponse(await login.callback(provider, this.requestOf(req)));
   }
 
   @Post(':provider/link')
   public async beginLink(@Param() provider: string, @Req() req: Request) {
-    return new OidcResponse(await (await this.login()).beginLink(provider, this.requestOf(req)));
+    const login = await this.login();
+    return new OidcResponse(await login.beginLink(provider, this.requestOf(req)));
   }
 
   @Del(':provider/link')
   public async unlink(@Param() provider: string, @Req() req: Request) {
-    return new OidcResponse(await (await this.login()).unlink(provider, this.requestOf(req)));
+    const login = await this.login();
+    return new OidcResponse(await login.unlink(provider, this.requestOf(req)));
   }
 
   protected requestOf(req: Request): OidcRequest {
@@ -84,7 +93,7 @@ export class OidcController extends BaseController {
     const userAgent = req.get('user-agent');
     const ctx: AuthnContext = { now: new Date(), purpose: 'login', ...(storage?.ClientIp ? { ip: storage.ClientIp } : {}), ...(userAgent ? { userAgent } : {}) };
     return {
-      origin: `${req.protocol}://${req.get('host') ?? ''}`,
+      origin: this.originOf(req),
       cookies: (req.cookies ?? {}) as Record<string, string>,
       query: req.query as Record<string, unknown>,
       navigation: isNavigation(req),
@@ -94,10 +103,26 @@ export class OidcController extends BaseController {
     };
   }
 
+  protected originOf(req: Request): string {
+    const socket = req.socket as { encrypted?: boolean; remoteAddress?: string };
+    const origin = requestOrigin({ encrypted: socket.encrypted === true, peer: socket.remoteAddress, host: req.get('host'), forwardedProto: req.get('x-forwarded-proto'), forwardedHost: req.get('x-forwarded-host') }, this.trusted);
+    if (!this.warnedHttpOrigin && origin.startsWith('http:') && !isRelaxedEnv(this.env)) {
+      this.warnedHttpOrigin = true;
+      this.Log?.warn('authn-oidc: the default redirect_uri has an http origin; behind a TLS proxy set authn.http.trustProxy (or http.trustProxy) or the provider redirectUri');
+    }
+    return origin;
+  }
+
+  protected env: string | undefined;
+
   protected async login(): Promise<OidcLogin> {
     if (this.flow) return this.flow;
     const providers = await DI.resolve(OidcProviders);
     const config = DI.get(Configuration)!;
+    this.env = providers.env;
+    const authnTrust = config.get<unknown>('authn.http.trustProxy');
+    this.trusted = trustedPeer((authnTrust ?? config.get<unknown>('http.trustProxy')) as never);
+    const audit = await DI.resolve(AuthnAudit);
     const cookieConfig = config.get<ISessionCookieConfig>('authn.session.cookie', {});
     this.flow = new OidcLogin({
       strategies: providers.strategies(),
@@ -111,6 +136,7 @@ export class OidcController extends BaseController {
       linker: DI.RootContainer.hasRegistered(OidcAccountLinks) ? await DI.resolve(OidcAccountLinks) : null,
       links: DI.RootContainer.hasRegistered(IdentityLinkStore) ? await DI.resolve(IdentityLinkStore) : null,
       log: { warn: (m) => this.Log?.warn(m), error: (m) => this.Log?.error(m) },
+      audit: (e) => audit.publish(e),
     });
     return this.flow;
   }

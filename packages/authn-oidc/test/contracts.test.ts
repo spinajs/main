@@ -26,6 +26,17 @@ const PRESETS = ['google', 'entra', 'keycloak', 'auth0', 'okta', 'github'] as co
 const ALGORITHMS = ['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA'] as const;
 const RESERVED = ['response_type', 'response_mode', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method', 'request', 'request_uri', 'max_age', 'acr_values'] as const;
 const TENANT = '72f988bf-86f1-41af-91ab-2d7cd011db47';
+const INDEX_VALUES = [
+  'AUTHN_OIDC_CONFIGURATION_SCHEMA', 'AUTHN_OIDC_PROVIDER_SCHEMA', 'CoreOidcAccountLinks', 'DEFAULT_CLAIMS', 'DISCOVERY_MAX_AGE_MS', 'DISCOVERY_RETRY_MS',
+  'FetchOidcHttpClient', 'JWKS_MAX_AGE_MS', 'JWKS_REFRESH_MS', 'MAX_EMAIL_LENGTH', 'MAX_SUBJECT_LENGTH', 'OIDC_APP_PATH_PATTERN', 'OIDC_ENTRA_TENANT_PATTERN',
+  'OIDC_FAILURE_BODY', 'OIDC_FLOW_COOKIE_BASE_NAME', 'OIDC_FLOW_COOKIE_MAX_LENGTH', 'OIDC_FLOW_FUTURE_SKEW_SECONDS', 'OIDC_FLOW_TTL_SECONDS', 'OIDC_HOST_PATTERN',
+  'OIDC_HTTP_MAX_BODY_BYTES', 'OIDC_HTTP_TIMEOUT_MS', 'OIDC_PRESETS', 'OIDC_PRESET_IDS', 'OIDC_PROVIDER_NAME_PATTERN', 'OIDC_RESERVED_PARAMS', 'OIDC_SEGMENT_PATTERN',
+  'OIDC_SIGNING_ALGORITHMS', 'OidcAccountLinks', 'OidcBootstrapper', 'OidcDiscovery', 'OidcHttpClient', 'OidcJwks', 'OidcLogin', 'OidcProvider', 'OidcProviders',
+  'OidcStrategy', 'appEnvOf', 'appPathOrNull', 'atHashOf', 'authorizationUrl', 'clearFlowCookie', 'codeChallengeOf', 'decodeFlow', 'discoveryUrlOf', 'encodeFlow',
+  'exchangeCode', 'fetchUserinfo', 'flowCookie', 'flowCookieName', 'flowIsLive', 'flowSecrets', 'hasRequiredClaims', 'mapClaims', 'newFlow', 'providerNamesOf',
+  'rawClaims', 'readClaim', 'readOidcOptions', 'registerOidcStrategies', 'requestOrigin', 'resolveEndpoints', 'resolveIssuer', 'sessionBindingOf', 'sha256hex',
+  'stateClaim', 'trustedPeer', 'validateIdToken',
+].sort();
 
 const secret: OidcSecretRef = { secret: 'env://OIDC_CORP_SECRET' };
 
@@ -69,6 +80,8 @@ describe('authn-oidc contracts', () => {
     it('the contracts export only the preset ids and the signing algorithms as values, and the index re-exports them', () => {
       expect(Object.keys(contracts).sort()).to.deep.eq(['OIDC_PRESET_IDS', 'OIDC_SIGNING_ALGORITHMS']);
       expect(index.OIDC_PRESET_IDS).to.eq(OIDC_PRESET_IDS);
+      // The package's runtime surface, pinned so an export cannot appear unnoticed.
+      expect(Object.keys(index).sort()).to.deep.eq(INDEX_VALUES);
       expect(index.OIDC_SIGNING_ALGORITHMS).to.eq(OIDC_SIGNING_ALGORITHMS);
     });
 

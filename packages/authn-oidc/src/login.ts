@@ -1,4 +1,4 @@
-import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, ExternalLoginHook, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
+import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnService, Credentials, ExternalLoginHook, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
 import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, flowSecrets, sessionBindingOf } from './flow/cookie.js';
@@ -67,6 +67,11 @@ export interface OidcLoginDeps {
   readonly linker?: OidcAccountLinks | null;
   /** Finds the link a DELETE names by provider. */
   readonly links?: IdentityLinkStore | null;
+  /**
+   * Audit (the core's AuthnAudit). The core audits the login before the hooks run, so a login the hooks refuse gets
+   * its own failure event; without it the audit trail would show only the success.
+   */
+  readonly audit?: (e: AuthnEvent) => Promise<void>;
 }
 
 /** An answer without a body that says nothing about why: the link routes' refusals. */
@@ -135,15 +140,25 @@ export class OidcLogin {
       return this.failure(req);
     }
     let ok = false;
+    let identity: IdentityRef | null = null;
+    let reason = 'hook_error';
     try {
-      const identity = await this.identityOf(result, handle);
+      identity = await this.identityOf(result, handle);
       const external = strategy.verified(credentials);
-      ok = identity !== null && external !== undefined && (await this.runHooks(identity, external));
+      if (identity === null || external === undefined) {
+        reason = identity === null ? 'no_identity' : 'no_verified_subject';
+        this.d.log?.error(`authn-oidc: the login with provider ${provider} lost its ${reason === 'no_identity' ? 'identity' : 'verified subject'} after authentication`);
+      } else {
+        ok = await this.runHooks(identity, external);
+      }
     } catch (err) {
       this.d.log?.error(`authn-oidc: the login with provider ${provider} failed after authentication: ${errorName(err)}`);
     }
     if (!ok) {
-      await this.d.sessions.revoke(handle).catch(() => undefined);
+      await this.d.sessions.revoke(handle).catch((err: unknown) => this.d.log?.error(`authn-oidc: could not revoke the session of a refused login: ${errorName(err)}`));
+      await this.d
+        .audit?.({ type: 'login', outcome: 'failure', at: req.ctx.now, strategy: strategy.name, reason, ...(identity ? { identity } : {}), ...(req.ctx.ip ? { ip: req.ctx.ip } : {}), ...(req.ctx.userAgent ? { userAgent: req.ctx.userAgent } : {}) })
+        .catch(() => undefined);
       return this.failure(req);
     }
     const returnTo = decodeFlow(flow)?.r ?? this.d.redirects.success;

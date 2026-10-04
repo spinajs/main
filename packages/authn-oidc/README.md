@@ -28,7 +28,10 @@ export default {
   `GET /auth/oidc/:provider/callback`, and for linking
   `POST` / `DELETE /auth/oidc/:provider/link`.
 - The provider must have `<origin>/auth/oidc/<name>/callback` registered
-  exactly, or the `redirectUri` you configure.
+  exactly, or the `redirectUri` you configure. The origin follows
+  `authn.http.trustProxy` (else `http.trustProxy`): forwarded proto and host
+  count only from a trusted proxy. Behind a TLS proxy without that setting the
+  derived origin is http, which the provider refuses; a warning says so.
 - Needs `NonceStore` and `IdentityLinkStore` (`@spinajs/authn-orm`: tables
   `authn_nonce`, `authn_identity`), `AuthnService`, `SessionIssuer`, and for
   linking an `OidcAccountLinks` registration (see below).
@@ -61,13 +64,15 @@ export default {
   the provider said true. Entra and GitHub never mark an email verified.
 - **Hooks.** Every `ExternalLoginHook` gets the identity and the mapped
   subject (`claims.name`, `claims.groups`, `claims.raw`). A throwing hook
-  fails the login and revokes the session, so hooks must be idempotent.
+  fails the login, revokes the session and audits a `login` failure with
+  reason `hook_error` (the core has audited the success before the hooks
+  run), so hooks must be idempotent.
   Group sync to authz is an app's hook (authn never imports authz).
 
 ## Not in this package
 
-- `OidcAccountLinks` has no default registration. Register an adapter over
-  the core's `AccountLinkService` (`link`, `unlink`); without one the link
-  routes answer 404.
+- `OidcAccountLinks` defaults to `CoreOidcAccountLinks`, which delegates to
+  the core's `AccountLinkService` (fresh session, subject not linked
+  elsewhere, never the last credential).
 - The link routes read the restored session from
   `req.storage.AuthnSession`, which authn-http's middleware writes.

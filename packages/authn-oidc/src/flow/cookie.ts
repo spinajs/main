@@ -50,10 +50,10 @@ const b64urlSha256 = (s: string): string => createHash('sha256').update(s, 'utf8
 
 export const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
-/** RFC 7636 §4.2, S256. */
 /** What a link flow stores of the session that started it: never the session store's own key (the plain SHA-256). */
 export const sessionBindingOf = (rawSessionId: string): string => sha256hex(`spinajs-oidc:session\0${rawSessionId}`);
 
+/** RFC 7636 §4.2, S256. */
 export const codeChallengeOf = (verifier: string): string => createHash('sha256').update(verifier, 'ascii').digest('base64url');
 
 /** A returnTo is kept only as an app-relative path (no open redirect). */
@@ -144,7 +144,8 @@ export function flowCookieName(env: string | undefined): string {
 
 function options(env: string | undefined, maxAgeMs: number): Record<string, unknown> {
   // Lax, not Strict: the callback is a cross-site top-level GET from the provider, which Strict would send without it.
-  return { httpOnly: true, secure: !isRelaxedEnv(env), sameSite: 'lax', path: '/', maxAge: maxAgeMs, signed: false };
+  // domain undefined overrides a domain from http.cookie.options, which a __Host- cookie must not carry.
+  return { httpOnly: true, secure: !isRelaxedEnv(env), sameSite: 'lax', path: '/', domain: undefined, maxAge: maxAgeMs, signed: false };
 }
 
 export function flowCookie(f: OidcFlow, env: string | undefined): FlowCookie {
