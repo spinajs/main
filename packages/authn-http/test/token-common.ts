@@ -12,6 +12,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 
 import { dropOwnCompiledDirs } from './token-db-common.js';
+import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
 
 chai.use(chaiHttp);
 chai.use(chaiAsPromised);
@@ -169,8 +170,12 @@ export class TestConfiguration extends FrameworkConfiguration {
 }
 
 /**
- * Creates an authorized session for the user and returns the signed `ssid`
- * cookie value ready for a `Cookie` header.
+ * Creates an authorized session for the user and returns the signed session
+ * cookie ready for a `Cookie` header.
+ *
+ * The name comes from the same helper `RbacMiddleware` reads it with, not a
+ * literal: with authn-session's shipped `hostPrefix: 'auto'` it may carry the
+ * `__Host-` prefix.
  *
  * `Authorized` is what `RbacPolicy` looks at, `User` carries the uuid the
  * `RbacUserFactory` reloads the row by - the same shape the login controller
@@ -203,7 +208,8 @@ export async function sessionCookieFor(user: User, impersonator?: User): Promise
 
   await provider.save(session);
 
-  return `ssid=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
+  const name = (await DI.resolve(SessionCookieFactory)).Name;
+  return `${name}=${encodeURIComponent(cs.sign(session.SessionId, COOKIE_SECRET))}`;
 }
 
 export function ctr() {
