@@ -22,7 +22,7 @@ const ORG_SCHEMA = {
 // m1 permits when the subject's tier equals scope.org.policies.level of the nearest org. The resolver
 // says o1 is gold; the store says silver; o2 has no value anywhere but the schema default.
 const world: World = {
-  permissions: ['file:read', 'authz:scope.manage'],
+  permissions: ['file:read', { name: 'authz:scope.manage', types: ['org'] }],
   principals: { alice },
   scopes: [
     {
