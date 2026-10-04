@@ -62,11 +62,12 @@ export default {
   and for matching by verified email alike. Without the provider's
   `byVerifiedEmail`, hooks and the core see `emailVerified: false` even when
   the provider said true. Entra and GitHub never mark an email verified.
-- **Hooks.** Every `ExternalLoginHook` gets the identity and the mapped
-  subject (`claims.name`, `claims.groups`, `claims.raw`). A throwing hook
-  fails the login, revokes the session and audits a `login` failure with
-  reason `hook_error` (the core has audited the success before the hooks
-  run), so hooks must be idempotent.
+- **Hooks.** The core (`AuthnService`) runs every `ExternalLoginHook`
+  with the identity and the mapped subject (`claims.name`, `claims.groups`,
+  `claims.raw`) before MFA and the session. A throwing hook fails the login:
+  no session is issued and the core audits one `login` failure with reason
+  `hook_error`. Earlier hooks are not rolled back, so hooks must be
+  idempotent.
   Group sync to authz is an app's hook (authn never imports authz).
 
 ## Not in this package

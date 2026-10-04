@@ -166,7 +166,7 @@ describe('strategy, service and principal factory contracts', () => {
   describe('docs', () => {
     it('throttleKeys tells non-interactive strategies which keys to return (review I2)', () => {
       const doc = docOf(documentedMembers('strategy.ts').AuthenticationStrategy.members, 'throttleKeys');
-      for (const s of ['account key needs the login string', 'Non-interactive strategies (token, keys, jwt)', 'account key and an account-ip key', "credential's stable id", 'never the raw secret', 'succeed gives the attempt back', 'never back off', "'login' flow like every authenticate call"]) expect(doc).to.contain(s);
+      for (const s of ['account key needs the login string', 'Non-interactive strategies (token, keys, jwt)', 'account key and an account-ip key', "credential's stable id", 'never the raw secret', "count only their failures in the 'login' flow", 'peeks before verify and counts after a failure', 'never back off (K5)', 'scopes their account key by the client ip', 'unguessable credentials (128 bits or more, or signatures)']) expect(doc).to.contain(s);
     });
 
     it('reauthenticate, completeMfa and principalOf state the review rules (I1, I3, I4, R1, R2)', () => {

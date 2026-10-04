@@ -48,7 +48,7 @@ another format gets `unsupported_credentials` from `verify` and `[]` from
 | `authn.token.headerName`             | `x-api-key`                 | Header authn-http reads a token from besides `Authorization: Bearer`.                                                                                                         |
 | `authn.token.lastUsedUpdateInterval` | `60`                        | Seconds between `LastUsedAt` writes for a busy token.                                                                                                                         |
 | `authn.token.generation.service`     | `SecureRandomTokenProvider` | The `AccessTokenGenerationProvider` that mints and hashes tokens.                                                                                                             |
-| `authn.jwt.issuers`                  | `[]`                        | Trusted issuers: `{ issuer, audience, jwksUri \| keys, algorithms, clockSkewSeconds? (30), subjectClaim? ('sub'), provider? ('jwt:<issuer>') }`. An invalid entry fails boot. |
+| `authn.jwt.issuers`                  | `[]`                        | Trusted issuers: `{ issuer, audience, jwksUri \| keys, algorithms, clockSkewSeconds? (30), subjectClaim? ('sub'), provider? ('jwt:<issuer>'), linking? ({ jit: false }) }`. An unlinked subject is provisioned only when both `linking.jit` here and `authn.linking.jit` are on; a bearer JWT never links by email. An invalid entry fails boot. |
 
 ## Hooks
 

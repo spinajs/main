@@ -4,8 +4,8 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, AuthnThrottle, DefaultAuthnService, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
-import type { AuthenticationResult, Credentials, IdentityRef } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { MemoryNonceStore, NonceStore } from '@spinajs/authn-orm';
 
@@ -15,7 +15,6 @@ import { OidcProviders, registerOidcStrategies } from '../src/providers.js';
 import { OidcLogin } from '../src/login.js';
 import { CoreOidcAccountLinks, OidcAccountLinks } from '../src/links.js';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_ISSUER, FakeIdp } from './support/fake-idp.js';
-import { RecordingHook } from './support/world.js';
 
 const ORIGIN = 'https://app.example.test';
 
@@ -152,17 +151,22 @@ describe('authn-oidc under the core service', function () {
     expect(c.identities.calls.provision).to.have.length(0);
   });
 
-  it('the login route hands the verified subject to the hooks across the registry instance', async () => {
+  it('the core runs the registered hooks with the mapped subject before the login route gets the session (RFC N10-1)', async () => {
     const c = await open({ jit: false, byVerifiedEmail: false });
     const alice = c.identities.add({ login: 'alice' });
     await c.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });
     const providers = await c.child.resolve(OidcProviders);
-    const hook = new RecordingHook();
+    const calls: [IdentityRef, ExternalSubject, number][] = [];
+    class CoreHook extends ExternalLoginHook {
+      async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
+        calls.push([identity, external, (await c.sessions.storage.storedKeys()).length]);
+      }
+    }
+    c.child.register(CoreHook).as(ExternalLoginHook);
     const login = new OidcLogin({
       strategies: providers.strategies(),
       service: c.service,
       sessions: c.sessions,
-      hooks: () => [hook],
       redirects: { success: '/', failure: '/' },
       env: 'test',
       sessionCookie: (h) => ({ Name: 'ssid', Value: h.id, Options: {} }),
@@ -172,8 +176,11 @@ describe('authn-oidc under the core service', function () {
     const query = c.idp.authorize(begun.location!, { claims: { sub: 'kc-1', groups: ['eng'] } });
     const done = await login.callback('corp', { origin: ORIGIN, cookies: { 'spinajs-oidc': begun.cookies[0].Value }, query, navigation: false, ctx: ctx() });
     expect(done.status).to.eq(303);
-    expect(hook.calls).to.have.length(1);
-    expect(hook.calls[0][0] as IdentityRef).to.deep.eq(alice);
+    expect(calls).to.have.length(1);
+    expect(calls[0][0]).to.deep.eq(alice);
+    expect(calls[0][1]).to.deep.include({ provider: 'oidc:corp', subject: 'kc-1' });
+    expect((calls[0][1].claims as { groups?: string[] }).groups).to.deep.eq(['eng']);
+    expect(calls[0][2]).to.eq(0, 'no session exists while the hook runs');
   });
 
   it("links and refuses to unlink the last credential through the core's AccountLinkService", async () => {
@@ -188,7 +195,6 @@ describe('authn-oidc under the core service', function () {
       strategies: providers.strategies(),
       service: c.service,
       sessions: c.sessions,
-      hooks: () => [],
       redirects: { success: '/', failure: '/' },
       env: 'test',
       sessionCookie: (h) => ({ Name: 'ssid', Value: h.id, Options: {} }),

@@ -58,7 +58,7 @@ const statuses = (rs: readonly AuthenticationResult[]): Record<string, number> =
   return out;
 };
 
-describe('authn-token per-request throttling (K5, DefaultAuthnService)', function () {
+describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', function () {
   this.timeout(30_000);
 
   let kp: KitKeyPair;
@@ -108,14 +108,14 @@ describe('authn-token per-request throttling (K5, DefaultAuthnService)', functio
 
     const owner: IdentityRef = identities.add({ login: randomUUID() });
     await insertUserRow(owner.id);
-    const ctx = (ms = 0): AuthnContext => ({ now: new Date(NOW.getTime() + ms), ip: IP, purpose: 'request' });
+    const ctx = (ms = 0, ip = IP): AuthnContext => ({ now: new Date(NOW.getTime() + ms), ip, purpose: 'request' });
     const minted = await tokens.create(owner, { name: 'k5', kind: 'pat', expiresAt: new Date(NOW.getTime() + DAY) } as TokenCreateOptions, ctx());
     if (!minted.ok) throw new Error(`not minted: ${JSON.stringify(minted)}`);
     const subject = `sub-${randomUUID()}`;
     await links.link(owner, { provider: `jwt:${ISSUER}`, subject });
     const jws = (): string => signCompactJws({ alg: kp.alg, kid: kp.kid, typ: 'JWT' }, { iss: ISSUER, aud: AUDIENCE, sub: subject, iat: NOW_S, exp: NOW_S + 300, jti: randomUUID() }, kp);
-    const auth = (c: Credentials, ms = 0) => service.authenticate(c, ctx(ms));
-    return { pat: minted.plaintext, jws, auth };
+    const auth = (c: Credentials, ms = 0, ip = IP) => service.authenticate(c, ctx(ms, ip));
+    return { pat: minted.plaintext, jws, auth, identities, owner };
   }
 
   it('lets 30 parallel requests with one valid API token through', async () => {
@@ -139,6 +139,22 @@ describe('authn-token per-request throttling (K5, DefaultAuthnService)', functio
     expect((await w.auth(bearer(w.pat), free)).status).to.equal('success');
     expect(await w.auth(bearer(wrong), free + 1000)).to.deep.equal({ status: 'failure', reason: 'invalid_credentials' });
     expect(await w.auth(bearer(wrong), free + 1001)).to.deep.equal({ status: 'failure', reason: 'throttled', retryAfterSeconds: 2 });
+  });
+
+  it('K6: failures of a token or JWT from another ip never hold its owner in backoff', async () => {
+    const w = await world();
+    const elsewhere = '198.51.100.7';
+    const free = throttleParams().login.account!.free;
+    const jwt = w.jws();
+    w.identities.setStatus(w.owner, { banned: true });
+    for (const t of [w.pat, jwt]) {
+      for (let i = 0; i < free; i++) expect((await w.auth(bearer(t), i, elsewhere)).status, `refused ${i + 1}`).to.equal('failure');
+      expect(await w.auth(bearer(t), free, elsewhere)).to.deep.equal({ status: 'failure', reason: 'throttled', retryAfterSeconds: 1 });
+    }
+    w.identities.setStatus(w.owner, { banned: false });
+    expect((await w.auth(bearer(w.pat), free)).status).to.equal('success');
+    expect((await w.auth(bearer(jwt), free)).status).to.equal('success');
+    expect(await w.auth(bearer(w.pat), free, elsewhere)).to.deep.equal({ status: 'failure', reason: 'throttled', retryAfterSeconds: 1 });
   });
 
   it('throttles sprayed invalid tokens and JWTs on the ip key, and valid ones do not clear it', async () => {

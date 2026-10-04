@@ -213,8 +213,12 @@ describe('authn-oidc login', () => {
       const out = await w.strategy.verify(c, w.ctx());
       expect(out).to.deep.include({ ok: true, method: 'oidc' });
       expect(out.ok && out.external).to.deep.include({ subject: 'kc-1', emailVerified: false });
-      expect(w.strategy.verified(c)).to.eq(out.ok ? out.external : undefined);
-      expect(w.strategy.verified({ ...c })).to.eq(undefined);
+    });
+
+    it("gives the core this provider's own linking switches, and none for another provider (K6)", async () => {
+      const w = await world({ provider: { linking: { jit: true } }, linking: { jit: true, byVerifiedEmail: true } });
+      expect(w.strategy.linkingFor({ provider: 'oidc:corp', subject: 's' })).to.deep.eq({ jit: true, byVerifiedEmail: false });
+      expect(w.strategy.linkingFor({ provider: 'oidc:other', subject: 's' })).to.deep.eq({ jit: false, byVerifiedEmail: false });
     });
 
     it('passes an unlinked subject with the provider jit switch', async () => {
@@ -297,7 +301,7 @@ describe('authn-oidc login', () => {
       expect((await providerOnly.roundTrip({ claims: { sub: 'new-1' } })).done.status).to.eq(401);
     });
 
-    it('a throwing hook fails the login and revokes the session it got', async () => {
+    it('a throwing hook fails the login and no session is issued', async () => {
       const w = await world();
       const alice = w.identities.add({ login: 'alice@example.test' });
       await w.links.link(alice, { provider: 'oidc:corp', subject: 'kc-1' });

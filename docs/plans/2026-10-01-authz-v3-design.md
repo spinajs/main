@@ -3621,9 +3621,11 @@ AuthnService.authenticate(c, ctx):
   !t.allowed ⇒ audit throttle.block ; failure throttled (A02 answer + Retry-After; nothing verified, nothing counted)
   r = s.verify(c, ctx)                                     # timing-equal for unknown accounts
   r.ok false ⇒ audit login failure ; failure               # the attempt is already counted
-  id = r.identity ?? links.find(r.external) ?? (authn.linking.jit ? identities.provision(r.external) : null)
+  id = r.identity ?? links.find(r.external) ?? (authn.linking.jit && s.linkingFor(r.external).jit ? identities.provision(r.external) : null)   # K6: both switches
   id null ⇒ failure not_linked
   st = identities.status(id) ; !active | banned | deleted ⇒ failure invalid_credentials (audit keeps the real reason)
+  s.interactive && r.external ⇒ every ExternalLoginHook.afterLogin(id, r.external)   # K6, RFC N10-1
+    a throw ⇒ failure invalid_credentials (audit hook_error) ; no link by email, no session
   throttle.succeed(keys, 'login')                          # account key reset; its attempts leave the IP key (A06)
   if s.interactive:
     steps = mfaPolicy.required(id, facts)
@@ -3635,6 +3637,22 @@ completeMfa(pending, step, response):
   throttle.attempt({ account, account-ip, ip }, 'mfa') ; step.verify ; fail ⇒ audit mfa.verify failure ; ok ⇒ throttle.succeed
   h = sessions.elevate(pending, { assurance: 'aal2', mfa: [step] })   # rotates the id (A07)
 ```
+
+(K5, K6) Per-request strategies (`interactive: false`: API tokens, JWT
+bearers, key assertions, HTTP signatures) differ in two ways. They count
+only their failures: the service calls `throttle.peek` before verify (a
+delay refuses as above; nothing is counted), verifies, and calls
+`attempt` only after a failure (any non-success); a success calls
+`succeed` as above. And their `account` key is scoped by the client IP
+(`request:<credential id>|<ip>`): credential ids such as key ids travel in
+clear, so a credential-wide key would let anyone keep a victim's key or
+token in backoff. Failures from one IP delay that credential from that
+IP only; the `ip` key and its rules do not change. Trade-off: the peek
+and the later count are two steps, so a parallel burst of wrong
+credentials is verified in full and adds one backoff step, not one per
+request. Per-request strategies must therefore take only credentials
+nobody can guess online (128 bits or more, or a signature); a strategy
+over a weaker secret sets `interactive: true` or brings its own gate.
 
 `authn-http` turns `success` into a `Principal` (through `PrincipalFactory`)
 for authz-http's `PrincipalMiddleware`, and every outcome into one HTTP
@@ -3686,7 +3704,7 @@ export default {
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
     },
     throttle: {                                    // r4, H31: backoff per key, never a lock (§22.13)
-      service: 'DbAuthnThrottle',                  // 'MemoryAuthnThrottle' for one instance
+      service: 'DbAuthnThrottle',                  // K6: unset ⇒ the only throttle besides MemoryAuthnThrottle (DbAuthnThrottle with authn-orm imported); 'MemoryAuthnThrottle' for one instance
       // after `free` counted attempts on a key, attempt n+1 waits min(baseDelayMs × 2^(n − free), maxDelayMs) after attempt n
       login:  { account: { free: 5,  baseDelayMs: 1000,  maxDelayMs: 60000 },     // 1 s, 2 s, 4 s … 60 s
                 ip:      { free: 20, baseDelayMs: 1000,  maxDelayMs: 300000 } },  // … 5 min
@@ -3700,7 +3718,7 @@ export default {
     },
     freshAuth: { maxAgeSeconds: 300 },
     token: { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 },
-    jwt: { issuers: [] },                          // [{ issuer, audience, jwksUri | keys, algorithms: ['EdDSA','ES256','RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:<issuer>' }]
+    jwt: { issuers: [] },                          // [{ issuer, audience, jwksUri | keys, algorithms: ['EdDSA','ES256','RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:<issuer>', linking: { jit: false } }]   // K6: JIT needs this and authn.linking.jit
     keys: { algorithms: ['EdDSA', 'ES256'], assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
             httpSignature: { maxAgeSeconds: 300, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
@@ -3955,6 +3973,13 @@ use.
 - Linking needs the identity's own active session with fresh auth
   (`purpose: 'link'`); matching by email happens only when the provider says
   the email is verified and `authn.linking.byVerifiedEmail` is on.
+- (K6) The core provisions (JIT) or links by verified email only when the
+  global `authn.linking` switch and the strategy's own switch for that
+  provider are both on: OIDC `providers.<name>.linking`, JWT
+  `issuers[i].linking.jit` (a bearer JWT never links by email). A strategy
+  gives its switches through `linkingFor(external)`
+  (`ExternalLinkingStrategy`, `@spinajs/authn`); one without it gets
+  neither, so JIT turned on for one provider never opens another.
 - Unlinking refuses to remove the last usable credential (no password, no
   other link, no key).
 
@@ -3969,13 +3994,22 @@ use.
   attempt n on a key sets its next allowed time to `last_attempt_at +
   min(baseDelayMs × 2^(n − free), maxDelayMs)` once n ≥ `free` (zero
   before). Rules:
+  - (K6) A per-request strategy's `account` key is
+    `request:<credential id>|<ip>`, not the credential alone (§22.4):
+    failures sent from one IP never delay the credential's owner
+    elsewhere. Interactive strategies keep the credential-wide key
+    `login:<account>`; the prefixes keep a login string from naming a
+    per-request key.
   - Count before verify: `attempt()` counts and claims the slot in one
     compare-and-set (`UPDATE … SET attempts = :n + 1, last_attempt_at =
     :now, next_allowed_at = :next WHERE k = :k AND attempts = :n AND
     next_allowed_at <= :now`, insert-if-missing, bounded retry), so N
     parallel attempts on a fresh key let exactly `free` through and then
     one per slot (A05). The delay is computed in Node, so the SQL stays
-    portable over the four drivers.
+    portable over the four drivers. (K5) Exception: per-request
+    strategies count only their failures, after verify (§22.4), so their
+    parallel bursts get no atomic per-key bound; they take only
+    credentials nobody can guess online.
   - An attempt before the next allowed time is refused at once: no
     verification, no count, the A02 answer plus `Retry-After`. Unknown
     logins are throttled the same way, so `Retry-After` reveals nothing
@@ -4121,7 +4155,7 @@ for backoff (H31); A30–A32 are new.
 | A02 | Every authentication failure (unknown account, wrong secret, throttled, banned, inactive, deleted, not linked) gives the caller the same answer (HTTP 401 `E_AUTH_FAILED`); (r4) a throttled answer also carries `Retry-After`, alike for known and unknown logins; an unknown account costs the same hash work as a known one (timing within 10 % at p50 over 200 tries in the test); the real reason reaches audit only. |
 | A03 | (r4) Passwords are hashed with argon2id at the argon2 library defaults (0.44: m = 64 MiB, t = 3, p = 4), which no config key changes; a test pins the stored prefix `$argon2id$v=19$m=65536,t=3,p=4$`; with a pepper, HMAC-SHA256 under the pepper comes first and its version is stored; a hash with other parameters or an older pepper version is rehashed on the next successful login; at most `maxConcurrent` hashes run at once. |
 | A04 | Passwords are never trimmed; 8 ≤ length ≤ 128 on create, change, reset and login; the policy rule and the blocklist apply whenever a password is set. |
-| A05 | (r4) Attempts are counted before verification, atomically per key (`account` and `ip` by default): of N parallel attempts on a fresh key exactly `free` are verified, then one per backoff slot; a refused attempt is neither verified nor counted; the IP comes from the trusted-proxy chain only (a client-set `X-Forwarded-For` without a trusted hop is ignored). |
+| A05 | (r4) Attempts are counted before verification, atomically per key (`account` and `ip` by default): of N parallel attempts on a fresh key exactly `free` are verified, then one per backoff slot; a refused attempt is neither verified nor counted; (K5) per-request strategies count only their failures, after verify, so parallel requests on a valid credential never back off and a burst of failures is verified in full (they take only unguessable credentials), and (K6) their `account` key is per credential and IP, so failures from another IP never delay the owner; the IP comes from the trusted-proxy chain only (a client-set `X-Forwarded-For` without a trusted hop is ignored). |
 | A06 | (r4, H31) No key ever locks. After `free` counted attempts, attempt n + 1 on a key is allowed only `min(baseDelayMs × 2^(n − free), maxDelayMs)` after attempt n (defaults §22.5: account 5 free, 1 s doubling to 60 s; IP 20 free, 1 s doubling to 5 min); earlier attempts get the A02 answer with `Retry-After`; a success resets the account key and removes that account's attempts from the IP key; a key idle for `resetAfterSeconds` starts from zero; after any number of failures by others, the owner logs in within `maxDelayMs`; `mfa`, `reset` and `reauth` follow the same rules with their own parameters. |
 | A07 | Session ids have ≥ 128 bits from a CSPRNG and are stored hashed; a 2.x raw id is migrated on first use without logging the user out; the id changes on login, MFA completion, role switch and impersonation start and end; the cookie is HttpOnly always, Secure and `__Host-` unless the env is development or test, SameSite Strict by default. |
 | A08 | Idle and absolute timeouts are enforced by the store; logout deletes the session and clears the cookie; reset, ban and deactivation revoke all sessions of the identity, and (r4) a password change all but the current one (A30), including sessions where it is the impersonator. |

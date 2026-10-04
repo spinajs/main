@@ -9,6 +9,7 @@ import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { IdentityLinkStore } from '../contracts/link.js';
 import { MfaPolicy } from '../contracts/mfa.js';
+import { ExternalLoginHook } from '../contracts/hooks.js';
 import type { AuthnFacts, Ceiling, Principal } from '../contracts/principal.js';
 import { AuthnService, PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
@@ -18,6 +19,7 @@ import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
+import { linkingSwitchesOf } from '../link/switches.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
@@ -37,6 +39,8 @@ type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
 
 const DEFAULT_MFA_POLICY = 'DefaultMfaPolicy';
+
+const MEMORY_THROTTLE = 'MemoryAuthnThrottle';
 
 const NO_PEEK_WARNING = 'DefaultAuthnService: the throttle has no peek(), so token and key requests count before verify and a client with many parallel requests on a valid credential gets throttled';
 
@@ -142,7 +146,8 @@ function refusal(st: IdentityStatus): string | null {
  * recovery code (D6), elevates the session to aal2.
  *
  * One per container (D11): it reads the resolving container's configuration and neighbours. The throttle is
- * `authn.throttle.service`; when that is unset, the only registered throttle. Boot fails when the named throttle is not
+ * `authn.throttle.service`; when that is unset, the only registered throttle, or the only one besides
+ * `MemoryAuthnThrottle` (so an app that imports authn-orm gets `DbAuthnThrottle`). Boot fails when the named throttle is not
  * registered rather than falling back to memory, which would throttle each instance of a multi-instance app apart.
  * A throttle class resolves through DI (`MemoryAuthnThrottle` is one root singleton); a throttle registered as a factory
  * is called once per container, so the factory must return a shared instance or the counts split per container.
@@ -395,7 +400,7 @@ export class DefaultAuthnService extends AuthnService {
     let id: IdentityRef | null = r.identity ?? null;
     let found: Found = { id: null };
     if (!id && r.external) {
-      found = await this.linked(r.external);
+      found = await this.linked(s, r.external);
       id = found.id;
     }
     if (!id) return this.refuse(ctx, s, 'not_linked', 'not_linked');
@@ -405,6 +410,11 @@ export class DefaultAuthnService extends AuthnService {
     if (s.interactive && id.type !== 'user') return this.refuse(ctx, s, 'non_user_session', 'invalid_credentials', { identity: id });
     const refused = await this.statusRefusal(r.delegation?.onBehalfOf ?? id);
     if (refused) return this.refuse(ctx, s, refused, 'invalid_credentials', { identity: id });
+    // Before the link by verified email, so a login a hook refuses leaves neither a session nor a new email link.
+    if (s.interactive && r.external) {
+      const hookError = await this.runLoginHooks(id, r.external);
+      if (hookError !== null) return this.refuse(ctx, s, 'hook_error', 'invalid_credentials', { identity: id, data: { error: hookError } });
+    }
 
     if (found.link && !found.provisioned) await this.link(ctx, s, id, found.link);
     await this.throttle.succeed(keys, 'login');
@@ -434,6 +444,21 @@ export class DefaultAuthnService extends AuthnService {
     await this.audit(ctx, { type: 'login', outcome: 'success', strategy: s.name, identity: id, session: handle });
     await this.audit(ctx, { type: 'session.issue', outcome: 'success', strategy: s.name, identity: id, session: handle });
     return { status: 'success', identity: id, facts: { ...facts, ...(handle !== undefined ? { sessionHandle: handle } : {}) }, session, ...extra };
+  }
+
+  /**
+   * Every ExternalLoginHook of this container's lineage (as AuthnAudit takes its sinks), resolved per login so hooks
+   * registered late run; the error class of the first that throws, or null.
+   */
+  private async runLoginHooks(id: IdentityRef, external: ExternalSubject): Promise<string | null> {
+    try {
+      const chain = (await this.container.resolveChain(ExternalLoginHook as unknown as Class<ExternalLoginHook>)) as readonly ExternalLoginHook[];
+      // A resolve of the abstract base itself leaves an instance of it in the chain; it is no hook.
+      for (const hook of chain.filter((h) => h?.constructor !== ExternalLoginHook)) await hook.afterLogin(id, external);
+      return null;
+    } catch (err) {
+      return errorClass(err);
+    }
   }
 
   /** Only a subject of a type strategies vouch for skips the store, so an unknown type fails closed (D4, D4b). */
@@ -473,17 +498,21 @@ export class DefaultAuthnService extends AuthnService {
     return this.sessions.restore(h.id);
   }
 
-  /** A linked identity, or one found by verified email or provisioned (then `link` is the subject to link). */
-  private async linked(external: ExternalSubject): Promise<Found> {
+  /**
+   * A linked identity, or one found by verified email or provisioned (then `link` is the subject to link). Each way past
+   * an existing link needs the global switch and the strategy's own switch for the provider (K6).
+   */
+  private async linked(s: AuthenticationStrategy, external: ExternalSubject): Promise<Found> {
     if (!this.links) return { id: null };
     const found = await this.links.find(external.provider, external.subject);
     if (found) return { id: found.identity };
-    if (this.linking.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+    const own = this.linking.jit || this.linking.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
+    if (this.linking.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
       // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
       if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
     }
-    if (this.linking.jit && typeof this.identities.provision === 'function') {
+    if (this.linking.jit && own.jit && typeof this.identities.provision === 'function') {
       return { id: await this.identities.provision(external), link: external, provisioned: true };
     }
     return { id: null };
@@ -499,6 +528,11 @@ export class DefaultAuthnService extends AuthnService {
    * The service builds `account-ip` itself and drops the strategies' own (D8b): the throttle takes every `account-ip`
    * in a success off the ip key, so a value without this ip would clear another ip's failures. The attempt counts
    * the union; `succeed` gets only the answering strategy's keys (D8).
+   *
+   * A per-request strategy's `account` key is `request:<account>|<ip>` (K6): its credential ids travel in clear (a key
+   * id in every signed request), so a credential-wide key would let anyone keep a victim's key or token in backoff.
+   * Guessing stays bounded by that key per ip and by the ip key. An interactive strategy's is `login:<account>`, so no
+   * login string can name a per-request key.
    */
   private keysFor(candidates: readonly AuthenticationStrategy[], c: Credentials, ctx: AuthnContext): Keyed | { strategy: AuthenticationStrategy; error: string } {
     const own = new Map<AuthenticationStrategy, ThrottleKey[]>();
@@ -510,9 +544,13 @@ export class DefaultAuthnService extends AuthnService {
         return { strategy: s, error: errorClass(err) };
       }
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
-      const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.value }));
+      const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.kind === 'account' ? `${s.interactive ? 'login' : 'request'}:${k.value}` : k.value }));
+      const accounts = keys.filter((x) => x.kind === 'account');
       if (nonEmpty(ctx.ip)) {
-        for (const k of keys.filter((x) => x.kind === 'account')) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+      }
+      if (!s.interactive) {
+        for (const k of accounts) k.value = `${k.value}|${ctx.ip ?? ''}`;
       }
       own.set(s, keys);
     }
@@ -581,10 +619,13 @@ export class DefaultAuthnService extends AuthnService {
     const listed = names.map(q).join(', ') || 'none';
     let name = configured as string | undefined | null;
     if (name === undefined || name === null) {
-      if (names.length !== 1) {
+      // The core always registers the memory throttle; one more registered throttle is the one the app imported (K6).
+      const others = names.filter((n) => n !== MEMORY_THROTTLE);
+      const only = names.length === 1 ? names : others.length === 1 ? others : [];
+      if (only.length !== 1) {
         throw new InvalidOption(`authn.throttle.service is not set and ${names.length === 0 ? 'no AuthnThrottle is' : 'several are'} registered (${listed}); name one`);
       }
-      name = names[0];
+      name = only[0];
     }
     const type = nearestRegistration(this.container, AuthnThrottle, name);
     if (!type) {

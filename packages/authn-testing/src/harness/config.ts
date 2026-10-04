@@ -12,6 +12,8 @@ export interface JwtIssuerOverride {
   clockSkewSeconds: number;
   subjectClaim: 'sub';
   provider: string;
+  /** The issuer's own JIT switch (K6); off when left out. */
+  linking?: { jit: boolean };
 }
 
 /**

@@ -22,6 +22,11 @@ export interface JwtIssuerConfig {
   subjectClaim?: string;
   /** Default `jwt:<issuer>`; the IdentityLink provider. */
   provider?: string;
+  /**
+   * JIT provisioning of an unlinked subject needs this and `authn.linking.jit` (K6); default off. There is no
+   * `byVerifiedEmail`: a bearer JWT never links by its email.
+   */
+  linking?: { jit?: boolean };
 }
 
 interface Issuer {
@@ -31,13 +36,14 @@ interface Issuer {
   readonly clockSkewSeconds: number;
   readonly subjectClaim: string;
   readonly provider: string;
+  readonly jit: boolean;
   readonly keys: JWTVerifyGetKey;
 }
 
 export const MAX_JWT_LENGTH = 8192;
 const JWT_FORMAT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
 const ALGORITHMS = new Set(['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA']);
-const MEMBERS = new Set(['issuer', 'audience', 'jwksUri', 'keys', 'algorithms', 'clockSkewSeconds', 'subjectClaim', 'provider']);
+const MEMBERS = new Set(['issuer', 'audience', 'jwksUri', 'keys', 'algorithms', 'clockSkewSeconds', 'subjectClaim', 'provider', 'linking']);
 const PRIVATE_JWK_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'];
 const KEY_TYPES = new Set(['RSA', 'EC', 'OKP']);
 /** authn_identity column widths. */
@@ -205,11 +211,15 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     if (!isNonEmptyString(provider) || provider.length > MAX_PROVIDER) {
       throw new Error(`${at}.provider must be a non-empty string of at most ${MAX_PROVIDER} characters`);
     }
+    const linking = o.linking ?? {};
+    if (!isPlainObject(linking) || Object.keys(linking).some((k) => k !== 'jit' || (linking[k] !== undefined && typeof linking[k] !== 'boolean'))) {
+      throw new Error(`${at}.linking may hold only jit (a boolean)`);
+    }
 
     const allowed = [...(algorithms as string[])];
     const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys, allowed, at) });
 
-    return { issuer: o.issuer, audience: o.audience, algorithms: allowed, clockSkewSeconds, subjectClaim, provider, keys };
+    return { issuer: o.issuer, audience: o.audience, algorithms: allowed, clockSkewSeconds, subjectClaim, provider, jit: linking.jit === true, keys };
   }
 
   protected remoteOf(jwksUri: unknown, issuer: string, at: string): JWTVerifyGetKey {
@@ -291,6 +301,12 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     } catch {
       return null;
     }
+  }
+
+  /** @spinajs/authn's ExternalLinkingStrategy: JIT only for an issuer whose `linking.jit` is on; never by email. */
+  public linkingFor(external: ExternalSubject): { jit: boolean; byVerifiedEmail: boolean } {
+    const issuer = [...this.issuers.values()].find((i) => i.provider === external?.provider);
+    return { jit: issuer?.jit === true, byVerifiedEmail: false };
   }
 
   /** From a hash of the token, never its claims: a forged `iss`/`sub` must not make a victim's key back off. */

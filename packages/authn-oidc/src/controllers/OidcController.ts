@@ -1,8 +1,7 @@
 import type * as express from 'express';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { AuthnAudit } from '@spinajs/authn';
-import { AuthnService, ExternalLoginHook, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnService, IdentityLinkStore, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, SessionHandle } from '@spinajs/authn/contracts';
 import { sessionCookie } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
@@ -122,13 +121,11 @@ export class OidcController extends BaseController {
     this.env = providers.env;
     const authnTrust = config.get<unknown>('authn.http.trustProxy');
     this.trusted = trustedPeer((authnTrust ?? config.get<unknown>('http.trustProxy')) as never);
-    const audit = await DI.resolve(AuthnAudit);
     const cookieConfig = config.get<ISessionCookieConfig>('authn.session.cookie', {});
     this.flow = new OidcLogin({
       strategies: providers.strategies(),
       service: await DI.resolve(AuthnService),
       sessions: await DI.resolve(SessionIssuer),
-      hooks: () => DI.resolve(Array.ofType(ExternalLoginHook)),
       redirects: providers.options.redirects,
       env: providers.env,
       sessionCookie: (h) => sessionCookie(h.id, cookieConfig, undefined, providers.env),
@@ -136,7 +133,6 @@ export class OidcController extends BaseController {
       linker: DI.RootContainer.hasRegistered(OidcAccountLinks) ? await DI.resolve(OidcAccountLinks) : null,
       links: DI.RootContainer.hasRegistered(IdentityLinkStore) ? await DI.resolve(IdentityLinkStore) : null,
       log: { warn: (m) => this.Log?.warn(m), error: (m) => this.Log?.error(m) },
-      audit: (e) => audit.publish(e),
     });
     return this.flow;
   }
