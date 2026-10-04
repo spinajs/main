@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -51,19 +51,32 @@ export interface ProbeResult {
  * Loads `files` in a child process with `baseEnv`, NODE_ENV and APP_ENV set to `env`. `baseEnv` is the
  * environment from before the first run, so a helper that filled process.env then cannot fill it here.
  */
-export function probeFiles(files: readonly string[], env: string, baseEnv: NodeJS.ProcessEnv): ProbeResult {
+export async function probeFiles(files: readonly string[], env: string, baseEnv: NodeJS.ProcessEnv): Promise<ProbeResult> {
   const none = (error: string): ProbeResult => ({ values: new Map(), reads: new Map(), errors: [`the config files could not run under NODE_ENV=${env}: ${error}`] });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'authz-convert-probe-'));
   const outFile = path.join(dir, 'result.json');
   try {
-    const run = spawnSync(process.execPath, ['--input-type=module', '-e', SCRIPT], {
-      input: JSON.stringify([files, outFile]),
-      env: { ...baseEnv, NODE_ENV: env, APP_ENV: env },
-      cwd: process.cwd(),
-      encoding: 'utf-8',
-      timeout: TIMEOUT_MS,
-      maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true,
+    const run = await new Promise<{ status: number | null; stderr: string; error?: Error }>((resolve) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', SCRIPT], {
+        env: { ...baseEnv, NODE_ENV: env, APP_ENV: env },
+        cwd: process.cwd(),
+        windowsHide: true,
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+      let stderr = '';
+      const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
+      child.stderr.on('data', (d: Buffer) => {
+        if (stderr.length < 64 * 1024) stderr += d.toString('utf-8');
+      });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        resolve({ status: null, stderr, error });
+      });
+      child.on('close', (status, signal) => {
+        clearTimeout(timer);
+        resolve({ status, stderr: signal ? `killed by ${signal} after ${TIMEOUT_MS} ms` : stderr });
+      });
+      child.stdin.end(JSON.stringify([files, outFile]));
     });
     if (run.error) return none(run.error.message);
     if (run.status !== 0 || !fs.existsSync(outFile)) return none(run.stderr.trim() || `exit code ${String(run.status)}`);

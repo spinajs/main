@@ -85,7 +85,7 @@ function asSeconds(v: unknown, at: string, f: Findings): number | undefined {
 
 function unknownKeys(node: Plain, known: readonly string[], at: string, f: Findings): void {
   for (const k of Object.keys(node)) {
-    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (no rbac.* key is read in 3.0).`, keyPath(at, k));
+    if (!known.includes(k)) f.manual('unknown-key', `${keyPath(at, k)} is not a SpinaJS 2.x key the converter knows; move it by hand (3.0 drops the rbac.* root: a boot warns about it, and fails once rejectLegacyKeys is on).`, keyPath(at, k));
   }
 }
 
@@ -228,7 +228,7 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: P
         break;
 
       default:
-        f.manual('unknown-key', `${at} is not a SpinaJS 2.x key; 3.0 reads no rbac.* key. Move it to a root of your own.`, at);
+        f.manual('unknown-key', `${at} is not a SpinaJS 2.x key; 3.0 drops the rbac.* root. Move it to a root of your own.`, at);
     }
   }
   return w.out;

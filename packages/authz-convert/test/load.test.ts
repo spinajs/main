@@ -81,7 +81,7 @@ describe('loadLayers', () => {
     const before = { NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV };
     const layers = await loadLayers([fixture('computed')]);
     expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
-    expect(layers.envReaders).to.deep.equal([]);
+    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/computed/rbac.js', layer: 'common', vars: ['NODE_ENV'] }]);
     expect(layers.probeErrors).to.deep.equal([]);
     expect({ NODE_ENV: process.env.NODE_ENV, APP_ENV: process.env.APP_ENV }).to.deep.equal(before);
   });
@@ -89,7 +89,13 @@ describe('loadLayers', () => {
   it('finds a value computed in a module the config file imports', async () => {
     const layers = await loadLayers([fixture('probe-helper', 'config')]);
     expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
-    expect(layers.envReaders).to.deep.equal([]);
+    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/probe-helper/config/rbac.js', layer: 'common', vars: ['NODE_ENV'] }]);
+  });
+
+  it("finds a value compared with an env name other than 'production', and names APP_ENV as read", async () => {
+    const layers = await loadLayers([fixture('probe-appenv')]);
+    expect(layers.computed.get('common')).to.deep.equal(['rbac.twoFactorAuth.forceUser']);
+    expect(layers.envReaders).to.deep.equal([{ file: 'test/fixtures/probe-appenv/rbac.js', layer: 'common', vars: ['APP_ENV'] }]);
   });
 
   it('names the other variables a config file reads through what it imports', async () => {

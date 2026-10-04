@@ -15,7 +15,7 @@ npx spinajs-authz-convert lib/mjs/config --out src/config/converted \
   refused. Only the app's own files are read; 2.x package defaults are not.
 - `--out <dir>`: where the files go (default `./authz-convert-output`); existing files need `--force`.
 - `--db <file.json>`: rows exported from the 2.x database before the 3.0 migrations drop
-  `users.Role`: `{ "users": [{ "Login", "Role" }], "tokens": [{ "Id", "Roles", "ExpiresAt" }] }`
+  `users.Role`: `{ "users": [{ "Id", "Login", "Role" }], "tokens": [{ "Id", "Roles", "ExpiresAt" }] }`
   (role lists as arrays, JSON strings or comma lists). With it the converter marks package roles
   nobody holds `assignable: false` and lists users with several roles, roles the config does not
   define and tokens without expiry.
@@ -52,9 +52,10 @@ The converter never guesses. It refuses, and writes nothing, when the 2.x config
 - a key an env JS file and a common JSON file both set;
 - a value of the wrong type.
 
-It runs the config files a second time, in a child process under the other `NODE_ENV` and `APP_ENV`,
-and lists every value that changes: the converted files hold the values of one run. Files that read
-`process.env` are named too, since other variables are not varied.
+It runs the config files again, in child processes, with `NODE_ENV` and `APP_ENV` set to each of
+`production`, `prod`, `development`, `dev` and `test`, and lists every value that changes: the converted
+files hold the values of one run. Files that read an environment variable (themselves or through what
+they import) are named too, since only those two variables are varied.
 
 Where the app ran on a 2.x package default, the converter carries it over when 3.0 needs it (the local
 login strategy, the package part of `impersonation.protectedRoles` and `password.generator.characters`)

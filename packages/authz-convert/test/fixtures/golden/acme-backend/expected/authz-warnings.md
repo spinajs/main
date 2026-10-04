@@ -8,7 +8,7 @@ The converter ran the config files, so a value a file computes (from process.env
 The converter left these out (or wrote them as found) because it cannot convert them without guessing. Boot may fail until they are done.
 
 - [common] `rbac.actions.create.afterCreate`: rbac.actions.create.afterCreate[0] is not plain data (a function or a class instance); the converter cannot write it. Move rbac.actions.create.afterCreate by hand. (not-data)
-- [common] `rbac.accountTypes`: rbac.accountTypes is not a SpinaJS 2.x key; 3.0 reads no rbac.* key. Move it to a root of your own. (unknown-key)
+- [common] `rbac.accountTypes`: rbac.accountTypes is not a SpinaJS 2.x key; 3.0 drops the rbac.* root. Move it to a root of your own. (unknown-key)
 - [common] `rbac.admin.roleGuard.service`: Role guard 'ScopedRoleGuard' was written as found, so boot fails until a 3.0 AdminGuard of that name is registered. Port it to AdminGuard (design §6.6); leaving it out would fall back to DefaultAdminGuard, which may allow more. (custom-service)
 - [common] `rbac.token.rolePolicy.service`: Token role policy 'GrantSubsetTokenRolePolicy' was written as found; boot fails until a 3.0 policy of that name is registered. 3.0 ports no grant-subset rule: a token's roles are the token's roles that its owner holds (B24, B07). (custom-service)
 

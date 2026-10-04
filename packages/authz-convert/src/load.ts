@@ -8,7 +8,6 @@ import _ from 'lodash';
 
 import { ConversionError } from './findings.js';
 import { probeFiles } from './probe.js';
-import type { ProbeResult } from './probe.js';
 import { firstNonData, isPlain } from './values.js';
 import type { Plain } from './values.js';
 
@@ -112,7 +111,7 @@ function leafValues(v: unknown, at: string, out: Map<string, unknown>): Map<stri
 const isData = (v: unknown) => firstNonData(v, '') === undefined;
 
 // Varied by the probe itself, or read by Node's module loader on every import.
-const RUNTIME_VARS = ['NODE_ENV', 'APP_ENV', 'WATCH_REPORT_DEPENDENCIES'];
+const RUNTIME_VARS = ['WATCH_REPORT_DEPENDENCIES', 'WORKSPACE_ROOT_PATH'];
 
 const overlaps = (a: string, b: string) => a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`);
 
@@ -137,33 +136,49 @@ const viewOf = (r: Layered, env: string | null): Plain => {
   return e ? mergeLayers(r.common.js, e.js, r.common.json, e.json) : mergeLayers(r.common.js, r.common.json);
 };
 
+// The env names apps compare with: the loader's own spellings and the usual test value.
+const PROBE_ENVS = ['production', 'prod', 'development', 'dev', 'test'];
+
 /**
- * Runs the files again, in a child process, under the other NODE_ENV and APP_ENV: a leaf that changes was
- * computed at load time. Each env reports only what common does not already report.
+ * Runs the files again, in child processes, under each other usual NODE_ENV and APP_ENV value: a leaf that
+ * changes in any run was computed at load time. Each env reports only what common does not already report.
  */
-function computedLeaves(envs: readonly string[], first: Read, baseEnv: NodeJS.ProcessEnv): { computed: Map<string, string[]>; errors: readonly string[]; reads: ProbeResult['reads'] } {
-  const other = baseEnv.NODE_ENV === 'production' ? 'development' : 'production';
+async function computedLeaves(envs: readonly string[], first: Read, baseEnv: NodeJS.ProcessEnv): Promise<{ computed: Map<string, string[]>; errors: readonly string[]; reads: Map<string, string[]> }> {
   const all = [first.common, ...first.bySuffix.values()].flatMap((s) => [...s.order.js, ...s.order.json]);
-  const probe = probeFiles(all, other, baseEnv);
-  const computed = new Map<string, string[]>();
-  if (probe.errors.length > 0) return { computed, errors: probe.errors, reads: probe.reads };
-  const again = (s: Sources): Sources => {
-    const merged = (files: readonly string[]) => mergeLayers(...files.map((f) => probe.values.get(f) as Plain));
-    return { js: merged(s.order.js), json: merged(s.order.json), order: s.order };
-  };
-  const second: Layered = { common: again(first.common), bySuffix: new Map([...first.bySuffix].map(([e, s]) => [e, again(s)])) };
-  let inCommon: string[] = [];
-  for (const env of [null, ...envs]) {
-    const a = leafValues(viewOf(first, env), '', new Map());
-    const b = leafValues(viewOf(second, env), '', new Map());
-    // A class instance is one leaf here and an object after the probe's JSON; its fields are not new leaves.
-    const opaque = [...a].filter(([, v]) => !isData(v)).map(([k]) => k);
-    const inside = (k: string) => opaque.some((p) => k.startsWith(`${p}.`));
-    const changed = [...new Set([...a.keys(), ...b.keys()])].filter((k) => !_.isEqual(a.get(k), b.get(k)) && isData(a.get(k)) && isData(b.get(k)) && !inside(k) && !inCommon.includes(k));
-    if (env === null) inCommon = changed;
-    if (changed.length > 0) computed.set(env ?? 'common', changed.sort());
+  const changedBy = new Map<string | null, Set<string>>();
+  const reads = new Map<string, string[]>();
+  const errors: string[] = [];
+  const values = PROBE_ENVS.filter((e) => e !== baseEnv.NODE_ENV);
+  const probes = await Promise.all(values.map((value) => probeFiles(all, value, baseEnv)));
+  for (const probe of probes) {
+    for (const [file, vars] of probe.reads) reads.set(file, [...new Set([...(reads.get(file) ?? []), ...vars])]);
+    if (probe.errors.length > 0) {
+      errors.push(...probe.errors);
+      continue;
+    }
+    const again = (s: Sources): Sources => {
+      const merged = (files: readonly string[]) => mergeLayers(...files.map((f) => probe.values.get(f) as Plain));
+      return { js: merged(s.order.js), json: merged(s.order.json), order: s.order };
+    };
+    const second: Layered = { common: again(first.common), bySuffix: new Map([...first.bySuffix].map(([e, s]) => [e, again(s)])) };
+    for (const env of [null, ...envs]) {
+      const a = leafValues(viewOf(first, env), '', new Map());
+      const b = leafValues(viewOf(second, env), '', new Map());
+      // A class instance is one leaf here and an object after the probe's JSON; its fields are not new leaves.
+      const opaque = [...a].filter(([, v]) => !isData(v)).map(([k]) => k);
+      const inside = (k: string) => opaque.some((p) => k.startsWith(`${p}.`));
+      const set = changedBy.get(env) ?? new Set<string>();
+      for (const k of new Set([...a.keys(), ...b.keys()])) if (!_.isEqual(a.get(k), b.get(k)) && isData(a.get(k)) && isData(b.get(k)) && !inside(k)) set.add(k);
+      changedBy.set(env, set);
+    }
   }
-  return { computed, errors: [], reads: probe.reads };
+  const computed = new Map<string, string[]>();
+  const inCommon = changedBy.get(null) ?? new Set<string>();
+  for (const [env, set] of changedBy) {
+    const list = [...set].filter((k) => env === null || !inCommon.has(k)).sort();
+    if (list.length > 0) computed.set(env ?? 'common', list);
+  }
+  return { computed, errors, reads };
 }
 
 function leaves(v: unknown, at: string, out: Set<string>): Set<string> {
@@ -232,9 +247,11 @@ export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers>
   }
   if (problems.length > 0) throw new ConversionError(problems);
 
-  const { computed, errors: probeErrors, reads } = computedLeaves(envList, first, baseEnv);
+  // BaseFileSource sets WORKSPACE_ROOT_PATH in this process; the loader of the app would see it too.
+  if (process.env.WORKSPACE_ROOT_PATH !== undefined) baseEnv.WORKSPACE_ROOT_PATH ??= process.env.WORKSPACE_ROOT_PATH;
+  const { computed, errors: probeErrors, reads } = await computedLeaves(envList, first, baseEnv);
   const envReaders = [...reads]
-    .map(([f, vars]) => ({ file: path.relative(process.cwd(), f).split(path.sep).join('/'), layer: envOf(f) ?? 'common', vars: vars.filter((v) => !RUNTIME_VARS.includes(v) && !v.startsWith('NODE_')).sort() }))
+    .map(([f, vars]) => ({ file: path.relative(process.cwd(), f).split(path.sep).join('/'), layer: envOf(f) ?? 'common', vars: vars.filter((v) => !RUNTIME_VARS.includes(v) && (v === 'NODE_ENV' || !v.startsWith('NODE_'))).sort() }))
     .filter((r) => r.vars.length > 0);
   const flat = (s: Sources) => mergeLayers(s.js, s.json);
   return {

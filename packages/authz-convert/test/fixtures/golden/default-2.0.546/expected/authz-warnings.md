@@ -9,7 +9,7 @@ The converter left these out (or wrote them as found) because it cannot convert 
 
 - [common] `rbac.session.cookie.secure`: rbac.session.cookie.secure changed when the config ran under another NODE_ENV; the converted value is the one of this run. Set the 3.0 key per env by hand. (computed-value)
 
-## Behaviour changes and actions (15)
+## Behaviour changes and actions (14)
 
 Converted, but 3.0 behaves differently here, or the app must act.
 
@@ -20,8 +20,7 @@ Converted, but 3.0 behaves differently here, or the app must act.
 - [common] `rbac.password.blockAfterAttempts`: After 5 failed logins 2.x locked the account; 3.0 never locks. It waits min(baseDelayMs × 2^(n − free), maxDelayMs) before each further attempt, per account and per IP (H31, A06). (lockout-to-backoff)
 - [common] `rbac.password.lockoutTime`: Dropped: 3.0 never locks an account (H31). The nearest knob is authn.throttle.login.account.maxDelayMs. (lockout-time)
 - [common] `authn.mfa.encryptionKey`: TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it. (mfa-key)
-- [common] test/fixtures/golden/default-2.0.546/config/rbac-http.js (or a module it imports) reads WORKSPACE_ROOT_PATH from the environment; values derived from them were converted as this run saw them. Check the keys it sets. (reads-env)
-- [common] test/fixtures/golden/default-2.0.546/config/rbac.js (or a module it imports) reads WORKSPACE_ROOT_PATH from the environment; values derived from them were converted as this run saw them. Check the keys it sets. (reads-env)
+- [common] test/fixtures/golden/default-2.0.546/config/rbac.js (or a module it imports) reads NODE_ENV from the environment; values derived from them were converted as this run saw them. Check the keys it sets. (reads-env)
 - [common] `UserBase`: :own grants on UserBase became relation 'owner'. Each model of type 'UserBase' needs @Owner() (was @ResourceOwner()) or an @OrmScope(Model, 'owner') policy (was a default-scope @OrmPermission policy); route checks need a RelationResolver. Run with --src to check the models. (owner-relation)
 - [common] `user.metadata`: :own grants on user.metadata became relation 'owner'. Each model of type 'user.metadata' needs @Owner() (was @ResourceOwner()) or an @OrmScope(Model, 'owner') policy (was a default-scope @OrmPermission policy); route checks need a RelationResolver. Run with --src to check the models. (owner-relation)
 - [common] `http.trustProxy`: http.trustProxy is not set. Behind a proxy, set it to the hop count or the proxy CIDRs, or every client shares the proxy address for throttling and audit. (trust-proxy)

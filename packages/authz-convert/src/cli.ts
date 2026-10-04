@@ -13,7 +13,7 @@ Converts a SpinaJS 2.x app's rbac.* configuration to 3.0 authz.*, users.* and au
 
 Options:
   --out <dir>               where to write the files (default: ./authz-convert-output)
-  --db <file.json>          2.x rows exported before the migrations: { "users": [{ "Login", "Role" }],
+  --db <file.json>          2.x rows exported before the migrations: { "users": [{ "Id", "Login", "Role" }],
                             "tokens": [{ "Id", "Roles", "ExpiresAt" }] }
   --src <dir>               app sources to scan for @OrmResource, @ResourceOwner and @OrmPermission
   --self-resources <a,b>    resources whose :own means the caller's own account
