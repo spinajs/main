@@ -10,6 +10,13 @@ export enum QueueMessageType {
   Event = 'EVENT',
 }
 
+/** Who emitted a message. Written by a `QueueMessageHook`; queue itself never trusts it. */
+export interface IQueueInitiator {
+  readonly type: string;
+  readonly id: string;
+  readonly ceiling?: unknown;
+}
+
 export interface IQueueMessage {
   CreatedAt: DateTime;
   Name: string;
@@ -38,6 +45,8 @@ export interface IQueueMessage {
    * Use a Cron entry to set the schedule
    */
   ScheduleCron?: string;
+
+  Initiator?: IQueueInitiator;
 }
 
 export interface IQueueJob extends IQueueMessage {
@@ -124,6 +133,8 @@ export abstract class QueueMessage implements IQueueMessage {
    * Use a Cron entry to set the schedule
    */
   public ScheduleCron!: string | undefined;
+
+  public Initiator?: IQueueInitiator;
 
   constructor(data?: any) {
     if (data) {

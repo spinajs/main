@@ -3,7 +3,7 @@ import { getFs } from '@spinajs/fs';
 import { Log, Logger } from '@spinajs/log-common';
 import { QueueJob, Job } from '@spinajs/queue';
 
-@Job()
+@Job({ runAs: 'initiator' })
 export class LazyUploadJob extends QueueJob {
   @Logger('LazyUploadJob')
   protected Log: Log;

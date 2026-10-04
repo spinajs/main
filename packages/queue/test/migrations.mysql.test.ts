@@ -19,6 +19,7 @@ import '../src/migrations/Queue_2026_06_30_00_00_00.js';
 import '../src/migrations/Queue_2026_07_02_00_00_00.js';
 import '../src/migrations/Queue_2026_07_10_00_00_00.js';
 import '../src/migrations/Queue_2026_07_17_00_00_00.js';
+import '../src/migrations/Queue_2026_10_03_00_00_00.js';
 
 chai.use(chaiAsPromised);
 
@@ -51,7 +52,7 @@ function raw(cn: OrmDriver): IRawSqlDriver {
   return cn as unknown as IRawSqlDriver;
 }
 
-const EXPECTED_MIGRATIONS = ['Queue_2022_10_18_01_13_00', 'Queue_2026_06_30_00_00_00', 'Queue_2026_07_02_00_00_00', 'Queue_2026_07_10_00_00_00', 'Queue_2026_07_17_00_00_00'];
+const EXPECTED_MIGRATIONS = ['Queue_2022_10_18_01_13_00', 'Queue_2026_06_30_00_00_00', 'Queue_2026_07_02_00_00_00', 'Queue_2026_07_10_00_00_00', 'Queue_2026_07_17_00_00_00', 'Queue_2026_10_03_00_00_00'];
 
 class MysqlQueueConf extends FrameworkConfiguration {
   protected onLoad() {
@@ -148,7 +149,7 @@ suite('queue migrations against MySQL (dialect regression: Status default across
 
   it('queue_jobs has the expected columns', async () => {
     const names = (await columnInfo(cn)).map((c) => c.COLUMN_NAME);
-    expect(names).to.include.members(['Status', 'Attempt', 'MaxAttempts', 'LastError', 'Phase', 'Message', 'UpdatedAt', 'FinishedAt']);
+    expect(names).to.include.members(['Status', 'Attempt', 'MaxAttempts', 'LastError', 'Phase', 'Message', 'InitiatorType', 'InitiatorId', 'UpdatedAt', 'FinishedAt']);
   });
 
   it('Status keeps its NOT NULL "created" default after MySQL MODIFY COLUMN', async () => {
