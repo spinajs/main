@@ -318,10 +318,10 @@ describe('authz-abac: field sets, reloads and decided conditions (review 4-8)', 
       expect(loads).to.equal(0);
     });
 
-    it('summarize unites the field sets of the unconditional permits, as the vote does (m5)', async () => {
-      const m = await model({ stores: [new MemoryPolicyStore([policy('a', { fields: { read: ['name'] } }), policy('b', { fields: { read: ['email'] } }), policy('c', { when: { attr: 'resource.x', eq: 1 } })])] });
+    it('summarize unites the field sets of every permit, conditional ones too (m5, E1 review I1)', async () => {
+      const m = await model({ stores: [new MemoryPolicyStore([policy('a', { fields: { read: ['name'] } }), policy('b', { fields: { read: ['email'] } }), policy('c', { when: { attr: 'resource.x', eq: 1 }, fields: { read: ['phone'] } })])] });
       const s = await m.summarize(alice, { type: '$global' }, ctx());
-      expect(s.permissions).to.deep.equal([{ name: 'file:read', conditional: false, fields: { read: ['email', 'name'], write: [] } }]);
+      expect(s.permissions).to.deep.equal([{ name: 'file:read', conditional: false, fields: { read: ['email', 'name', 'phone'], write: [] } }]);
     });
   });
 

@@ -4,7 +4,7 @@ import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest,
 import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
-import { compileFieldSet, intersectFieldGlobs, voteFieldGlobs } from './fields.js';
+import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import type { RbacModelOptions } from './model.js';
@@ -205,8 +205,9 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  *
  * Fields (voteFieldGlobs): grants whose residual is TRUE for this request decide them; only when
  * none is TRUE do the conditional grants, by intersection. A grant whose residual is FALSE adds none.
+ * RBAC_SUMMARY_STEPS passes summaryFieldGlobs instead.
  */
-const residual: RbacStep = (s) => {
+function residualWith(s: RbacState, fieldGlobs: typeof voteFieldGlobs): void {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
   const at: PatternContext = { resource: s.input.request.resource, path: s.input.path, principal: s.input.request.principal };
   const unconditional: (FieldGlobs | undefined)[] = [];
@@ -227,9 +228,11 @@ const residual: RbacStep = (s) => {
     for (const h of holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
-  const fields = voteFieldGlobs(unconditional, conditional);
+  const fields = fieldGlobs(unconditional, conditional);
   if (fields) s.fields = s.fields ? intersectFieldGlobs(fields, compileFieldSet(s.fields, 'rbac: the fields an earlier step set')) : fields;
-};
+}
+
+const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
 
 /** The grants of the permission that scoped assignments reach, with those assignments. */
 function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
@@ -276,6 +279,9 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
   residual,
   noGrantReason: (): DenyReason => ({ code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access }),
 });
+
+/** RBAC_STEPS for `RbacModel.summarize`: each vote lists the fields of every grant that permits some row (`summaryFieldGlobs`). */
+export const RBAC_SUMMARY_STEPS: RbacSteps = Object.freeze({ ...RBAC_STEPS, residual: (s: RbacState) => residualWith(s, summaryFieldGlobs) });
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {

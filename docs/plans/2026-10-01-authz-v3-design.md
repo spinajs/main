@@ -102,6 +102,17 @@ changed.
     subscribes to the `ChangeBus` its container resolves; `AuthzDomains`
     forwards no change. §15.3 lists the per-domain config keys. This
     settles the first two r5 open items (r5 item 9).
+18. **`covers` and `summary` read model summaries (§6.1.5, §6.2, B25, B26;
+    E1, RFC L1-3).** Before, both ran one check on `$global`, so a target
+    whose rights came from a scoped assignment or a pattern grant looked
+    empty and could be impersonated. Now the target's set adds the entries of
+    every routed model's summary; the holder's set stays its checks. See
+    `authz-v3-rfc/L1-3.md` and `authz-v3-rfc/E1-1.md`. Every model that can
+    grant below `$global` must implement `summarize`. The holder's fields
+    come only from its unconditional permits, so another model's conditional
+    permit does not widen what it covers. `covers` is false when a compared
+    route plan uses a custom combinator, since one may allow without any
+    permit that a summary lists.
 
 ## Changes in this revision (r5, as built after F1)
 
@@ -1441,6 +1452,10 @@ read at preload per path prefix and cached for single checks; lists read
 `RoleAssigned`/`RoleRevoked { subject, role, scope, actor, expiresAt }` and
 `AuthzChange`. Impersonation uses `AuthzService.covers` instead (H18).
 
+(E1, RFC L1-3) `summarize` lists each permission per type at `$global`. Its
+field set is the union of the fields of every grant that permits some row;
+a vote keeps its own field rule.
+
 #### 6.1.6 Share links (r2)
 
 - A link is a `LinkDef` row (`authz_link`: id, token hash, scope, expiry,
@@ -1485,8 +1500,15 @@ read at preload per path prefix and cached for single checks; lists read
     `reason` and `priority` (default 500); `fields.hide` from deny policies
     with `fields`.
 - `summarize(principal, at)` lists the permissions its permit policies give
-  and the ones its deny policies take away at `at`, with conditions bound
-  for that principal and now; `AuthzService.covers` uses it (H18, B26).
+  at `at`, with conditions bound for that principal and now.
+  (E1, RFC L1-3) At `$global` it judges each permission per type of the
+  permission. It lists as conditional a scoped permit, a permit whose
+  condition is false now but reads the session, env, time or a function, a
+  permit that fails only on `actorTypes`, and a permit whose
+  `principalTypes` match only through a companion the principal carries now.
+  `fields` is the union of the fields of every permit found, `*` for a
+  permit without fields. Deny policies add no entry and remove none.
+  `AuthzService.covers` and `summary` read it (H18, B25, B26).
 - No subject and a residual it cannot express → for deny policies,
   `denyWhen = TRUE` with reason `needs_subject` (fail closed); for permit
   policies, `permitWhen = FALSE`. Boot warns for such policies on list-scoped
@@ -3042,6 +3064,11 @@ are new. Authentication rules A01–A32 (r4) are in §22.17 and live in
 | B44 | (r3, H23) Lists on types with RBAC rules are pure SQL: no row is checked in Node and no page is shorter than its limit; for every row, `check` ⇔ `filter` (B06) holds with restrict, cap (constant, attribute ref, strip, drop) and threshold (constant, ref, ladder/at, wildcard pattern) rules from config and from `authz_rule`; a DB rule outside SQL form is refused at write (`rule_not_compilable`). |
 | B45 | (r3, H26) Instance roles carry no grant on scoped resource types and imply no scoped role; an instance admin without an org assignment gets `no_access` on that org's resources; support access is only through impersonation under B26. |
 | B46 | (r3, H27) Scope-attribute switches act at check time: with `external_sharing: false` every check by an external user under that org loses the user's own and group assignments (deny `no_access`), links stay governed by `public_links`; setting it back restores access; the change invalidates caches through `scope:org:<id>`. |
+
+As built (E1, RFC L1-3; the rows above stay verbatim, the kit checks them):
+
+- B25: A name that a model summary lists but the check at `at` denies is listed with `conditional: true`; its fields are the union of the summary entries' fields less `neverRead`.
+- B26: The holder's set is its checks only. The target's set is its checks plus the entries of every routed model's summary (at `$global`, the models routed for each type of the permission), under the target's ceilings. At `$global` both sides are compared on the `$global` node and on `{ type: T }` for each type T of the permission. A summary entry is covered only by a holder that is unconditional on every compared ref and holds the entry's fields. The target's deny policies never drop a summary entry (a deny may rest on session facts that change under impersonation; RFC E1-1). `covers` is false when a model routed for the target gives no summary (no `summarize`, a failure, a timeout or a malformed one).
 
 ---
 

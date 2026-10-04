@@ -22,6 +22,9 @@ const result = (read: string[], write: string[]): FieldResult => Object.freeze({
 
 const identity = (f: ResourceFilter): ResourceFilter => f;
 
+/** a ∩ b as a − (a − b) with the contract's exact subtract. */
+const intersectGlobs = (a: readonly string[], b: readonly string[]): string[] => subtractFieldGlobs(a, subtractFieldGlobs(a, b));
+
 // Checked before the memo key is built: JSON alone would not tell 1 from '1'.
 function globList(v: unknown, where: string): string[] {
   if (!Array.isArray(v)) throw new AuthzConfigError(`${where} is not a list of field globs`);
@@ -52,8 +55,11 @@ export class FieldCombiner {
   /**
    * Hygienic votes in evaluation order; `bind` is the request's ref binder (terms are judged after binding).
    * Votes past the deciding one are ignored, so explain and check yield the same fields. Throws AuthzConfigError.
+   * `firm`: the fields read on every row the allow covers, never more than the default result: the
+   * union over the votes whose bound term is TRUE, or when none is, the intersection over the
+   * conditional ones (the rule the RBAC and ABAC votes apply within a model).
    */
-  combine(algorithm: string, votes: readonly Vote[], bind: (f: ResourceFilter) => ResourceFilter = identity): FieldResult {
+  combine(algorithm: string, votes: readonly Vote[], bind: (f: ResourceFilter) => ResourceFilter = identity, firm = false): FieldResult {
     const bound = (f: ResourceFilter): ResourceFilter => {
       try {
         return simplify(bind(f));
@@ -63,6 +69,7 @@ export class FieldCombiner {
     };
     const reads: string[][] = [];
     const writes: string[][] = [];
+    const unconditional: boolean[] = [];
     const hides: string[][] = [];
     // first-applicable: AND of not(P_j or D_j) over the earlier votes, indeterminate ones counting as always applicable.
     let unapplied: ResourceFilter = TRUE;
@@ -74,11 +81,13 @@ export class FieldCombiner {
       if (!indeterminate) {
         const fields = vote.fields;
         const term = algorithm === 'permit-overrides' ? and(permitWhen, not(denyWhen)) : algorithm === 'first-applicable' ? and(permitWhen, not(denyWhen), unapplied) : permitWhen;
-        if (term.op !== 'false' && bound(term).op !== 'false') {
+        const holds = term.op === 'false' ? term : bound(term);
+        if (holds.op !== 'false') {
           const read = fields?.read;
           const write = fields?.write;
           reads.push(read === undefined ? [...ALL] : globList(read, `${vote.model}: fields.read`));
           writes.push(write === undefined ? [...ALL] : globList(write, `${vote.model}: fields.write`));
+          unconditional.push(holds.op === 'true');
         }
         const hide = fields?.hide;
         if (hide !== undefined && denyWhen.op !== 'false' && bound(not(denyWhen)).op !== 'true') hides.push(globList(hide, `${vote.model}: fields.hide`));
@@ -93,20 +102,28 @@ export class FieldCombiner {
     }
 
     if (reads.length === 0) return NONE;
-    return this.memoised(JSON.stringify([reads, writes, hides]), () => {
+    if (!firm) {
+      return this.memoised(JSON.stringify([reads, writes, hides]), () => {
+        const removed = unionFieldGlobs(...hides, this.neverRead);
+        return result(subtractFieldGlobs(unionFieldGlobs(...reads), removed), subtractFieldGlobs(unionFieldGlobs(...writes), removed));
+      });
+    }
+    const some = unconditional.includes(true);
+    const picked = (lists: string[][]) => lists.filter((_, i) => unconditional[i] === some);
+    const join = (lists: string[][]) => (some ? unionFieldGlobs(...lists) : lists.reduce(intersectGlobs));
+    return this.memoised(`!${JSON.stringify([some, picked(reads), picked(writes), hides])}`, () => {
       const removed = unionFieldGlobs(...hides, this.neverRead);
-      return result(subtractFieldGlobs(unionFieldGlobs(...reads), removed), subtractFieldGlobs(unionFieldGlobs(...writes), removed));
+      return result(subtractFieldGlobs(join(picked(reads)), removed), subtractFieldGlobs(join(picked(writes)), removed));
     });
   }
 
-  /** a ∩ b as a − (a − b) with the contract's exact subtract; for intersect delegation. */
+  /** For intersect delegation. */
   intersect(a: FieldResult, b: FieldResult): FieldResult {
     const ar = globList(a.read, 'read');
     const aw = globList(a.write, 'write');
     const br = globList(b.read, 'read');
     const bw = globList(b.write, 'write');
-    const both = (x: string[], y: string[]) => subtractFieldGlobs(x, subtractFieldGlobs(x, y));
-    return this.memoised(`&${JSON.stringify([ar, aw, br, bw])}`, () => result(both(ar, br), both(aw, bw)));
+    return this.memoised(`&${JSON.stringify([ar, aw, br, bw])}`, () => result(intersectGlobs(ar, br), intersectGlobs(aw, bw)));
   }
 
   private memoised(key: string, compute: () => FieldResult): FieldResult {
