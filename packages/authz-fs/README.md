@@ -78,6 +78,41 @@ The guard protects filesystems from principals, not from application code:
 - `zip` and `unzip` destinations are placed by `instanceof fsNative` / `fsTemp`: a subclass that overrides them to
   write elsewhere is still checked where the base class writes.
 
+## Signed URLs
+
+`signedUrl(path, opts?)` and `getSignedUrl(path, until?)` need `fs:share` on the file. The URL expires at the
+earliest of the asked `until`, now + `authz.fs.<name>.signedUrl.maxTtlSeconds` and the `validUntil` of the
+`fs:share` decision (an expiring grant); a term that is absent does not count, and with none the provider
+default applies. Now is the `AuthzClock` of the filesystem's domain. The rule also holds in `audit`: it can only
+shorten a URL. An asked `until` that is not a valid luxon `DateTime` is an `InvalidArgument`.
+
+`getSignedUrl` is served through the provider's `signedUrl` when it has one; a provider with neither method
+has nothing to call, as without the guard.
+
+## Uploads
+
+`AuthzUploadMiddleware` is a `FileUploadMiddleware` of `@spinajs/http`. Before the uploader copies a form
+file, it checks `fs:write` on `file.BaseName` in the filesystem the route uploads to (`IUploadOptions.fs`,
+else `__file_upload_default_provider__`), with that filesystem's mode and domain. `enforce` answers 403 and the
+formidable temp file is removed, not copied; `audit` warns; `off` (or no entry) does nothing. The guarded copy
+checks the destination again; the middleware gives the early answer.
+
+It is not in the defaults. Add it to `http.upload.middlewares`, or to a route's `middlewares`, after any
+middleware that renames the file (`ZipFileTransformer`, `UnzipFileTransformer`):
+
+```ts
+// config arrays are concatenated: this follows http's own FileInfoMiddleware
+http: { upload: { middlewares: ['AuthzUploadMiddleware'] } },
+authz: { fs: { uploads: { mode: 'enforce' }, '__file_upload_default_provider__': { mode: 'off' } } },
+```
+
+Keep the default upload filesystem `off`: the uploader reads and deletes the temp file there as the request
+principal.
+
+With a lazy uploader (`http-lazy-file-uploader`), the middleware checks the route's filesystem, not the
+uploader's `fs`; the copy runs later in a queue job, whose guarded `copy` checks the destination as the job's
+principal (`@Job` `runAs`, authz-queue).
+
 ## Owners and metadata
 
 `authz.fs.<name>.metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among

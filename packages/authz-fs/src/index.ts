@@ -12,3 +12,4 @@ export * from './metadata/index.js';
 export * from './migrations/index.js';
 export * from './inherit/index.js';
 export * from './domain/index.js';
+export * from './http/index.js';

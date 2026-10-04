@@ -15,6 +15,8 @@ export interface CheckCall {
  */
 export class FakeAuthz {
   readonly calls: CheckCall[] = [];
+  /** The validUntil an allowed decision carries. */
+  validUntil?: (permission: Permission, resource: string) => Date | undefined;
 
   constructor(
     public allow: (permission: Permission, resource: string) => boolean | 'conditional' = () => true,
@@ -41,6 +43,18 @@ export class FakeAuthz {
     const answer = this.allow(permission, key);
     const allowed = answer !== false;
     const residual = answer === 'conditional' ? { op: 'relation', relation: 'owner' } : allowed ? TRUE : FALSE;
-    return { allowed, permission, resource, principal: this.speaker(principal), residual, fields: { read: [], write: [] }, roles: {}, domain: 'root', ...(allowed ? {} : { reason: { code: 'no_access', priority: 900, sortKey: '' } }) } as unknown as Decision;
+    const validUntil = allowed ? this.validUntil?.(permission, key) : undefined;
+    return {
+      allowed,
+      permission,
+      resource,
+      principal: this.speaker(principal),
+      residual,
+      fields: { read: [], write: [] },
+      roles: {},
+      domain: 'root',
+      ...(validUntil ? { validUntil } : {}),
+      ...(allowed ? {} : { reason: { code: 'no_access', priority: 900, sortKey: '' } }),
+    } as unknown as Decision;
   }
 }

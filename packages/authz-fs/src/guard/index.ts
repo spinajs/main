@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename } from 'node:path';
 
-import { AccessDenied, AuthzConfigError, AuthzDomains, DEFAULT_DENY_PRIORITY, FALSE, SYSTEM, UNATTENDED, currentPrincipal, engineLog, principalKey, resourceKey } from '@spinajs/authz';
-import type { CheckInput, Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, UNATTENDED, currentPrincipal, engineLog } from '@spinajs/authz';
+import type { Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -12,28 +12,20 @@ import type { fs } from '@spinajs/fs';
 import type { FileMetadataStore } from '../api.js';
 import { fsAccessConfig } from '../config/index.js';
 import type { FsAccessConfig } from '../config/index.js';
-import { ensureFsDomain } from '../domain/index.js';
 import { FS_UNCHECKED_METHODS, effectiveFsOperations } from '../operations/index.js';
 import type { FsOperation, FsPathSpec } from '../operations/index.js';
 import { FS_NO_OWNER_TYPES } from '../metadata/meta.js';
 import { fileMetadataStore } from '../metadata/select.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
-import type { FsPathKind, FsRow } from '../refs/index.js';
+import type { FsRow } from '../refs/index.js';
 import { planMetadata } from './metadata.js';
 import type { MetadataPath } from './metadata.js';
 import { rememberRaw } from './raw.js';
+import { basePathOf, decideFs, definite, domainNow, domainService, publishedFs, refOf, warnDenied } from './shared.js';
+import type { FsGuardLog, FsGuardService } from './shared.js';
+import { SIGNING_METHODS, askedUntil, signingCall, signingUntil } from './signed-url.js';
 
-/** The part of AuthzService the guard calls. */
-export interface FsGuardService {
-  check(req: CheckInput): Promise<Decision>;
-  assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision>;
-}
-
-export interface FsGuardLog {
-  warn(message: string): void;
-  /** A metadata update that failed after the IO; default `warn`. */
-  error?(message: string): void;
-}
+export type { FsGuardLog, FsGuardService } from './shared.js';
 
 export interface FsGuardOptions {
   /** Default: `authz.fs.<fsName>` of the Configuration in `container`. */
@@ -47,6 +39,8 @@ export interface FsGuardOptions {
   readonly log?: FsGuardLog;
   /** How long a writeStream's 'close' waits for the metadata store; default 30 s. */
   readonly metadataTimeoutMs?: number;
+  /** The time a signed URL's maxTtlSeconds counts from; default the AuthzClock of the filesystem's domain, else the system time. */
+  readonly now?: () => Date;
 }
 
 interface Env {
@@ -55,6 +49,7 @@ interface Env {
   readonly log: FsGuardLog;
   readonly metadataTimeoutMs: number;
   service(domain: string): Promise<FsGuardService>;
+  now(domain: string): Promise<Date>;
 }
 
 interface Guard {
@@ -114,12 +109,8 @@ export function guardFs<T extends fs>(raw: T, fsName: string, opts: FsGuardOptio
     principal: opts.principal ?? currentPrincipal,
     log: opts.log ?? engineLog('authz-fs'),
     metadataTimeoutMs: opts.metadataTimeoutMs ?? 30_000,
-    service:
-      opts.service ??
-      (async (domain) => {
-        ensureFsDomain(domain, container);
-        return ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain);
-      }),
+    service: opts.service ?? ((domain) => domainService(container, domain)),
+    now: opts.now ? async () => opts.now!() : (domain) => domainNow(container, domain),
   };
   const guard = makeGuard(fsName, raw, config, env);
   const wrappers = new Map<string, { readonly fn: unknown; readonly wrapper: unknown }>();
@@ -218,8 +209,18 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   const plan = planCall(guard, method, operation, args);
   const principal = guard.env.principal();
   if (plan.unknownDestination) refuse(guard, principal, `${method} names a destination path without a destination filesystem (dstFs), so its destination cannot be checked`);
+  const signing = SIGNING_METHODS.has(method);
+  const asked = signing ? askedUntil(method, plan.args) : undefined;
   const decisions: Decision[] = [];
   for (const need of plan.needs) decisions.push(await decide(need, principal));
+  let call = { fn, args: plan.args };
+  if (signing) {
+    // D9: the URL never outlives the asked until, the TTL or the permit; audit mode narrows it too.
+    const maxTtlSeconds = guard.config.signedUrl?.maxTtlSeconds;
+    const now = maxTtlSeconds === undefined ? undefined : await guard.env.now(guard.config.domain);
+    const until = signingUntil({ asked, maxTtlSeconds, now, decisions: decisions.filter((_, i) => plan.needs[i].arg === 0) });
+    call = signingCall(guard.raw, method, fn, plan.args, until);
+  }
   const metadataPath = (arg: number): MetadataPath | undefined => {
     const at = plan.paths.get(arg);
     // The filesystem root has no metadata.
@@ -239,7 +240,7 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   const frame: Frame = { active: true };
   let result: unknown;
   try {
-    result = await operationFrame.run(frame, () => Reflect.apply(fn, guard.raw, plan.args));
+    result = await operationFrame.run(frame, () => Reflect.apply(call.fn, guard.raw, call.args));
   } finally {
     frame.active = false;
   }
@@ -325,9 +326,7 @@ function providerDestination(guard: Guard, method: string): 'self' | object | un
   if (raw instanceof fsTemp) return 'self';
   if (!(raw instanceof fsNative)) return undefined;
   if (method === 'unzip') return 'self';
-  const published: unknown = guard.env.container.get('__file_provider_instance__');
-  const temp: unknown = published instanceof Map ? published.get('fs-temp') : undefined;
-  return temp !== null && typeof temp === 'object' ? temp : undefined;
+  return publishedFs(guard.env.container, 'fs-temp');
 }
 
 function defaultName(spec: NonNullable<FsPathSpec['default']>, args: readonly unknown[], target: Guard): string | undefined {
@@ -349,23 +348,9 @@ function guardOf(value: unknown, env: Env): Guard | null {
   return config.mode === 'off' ? null : makeGuard(name, value as fs, config, env);
 }
 
-// A permit with a residual left (a relation or a resource.* condition the subject did not settle) is no permit here.
-const definite = (decision: Decision): boolean => decision.allowed && decision.residual?.op === 'true';
-
 async function decide({ guard, permission, ref, subject }: Need, principal: Principal): Promise<Decision> {
-  const service = await guard.service();
-  if (guard.config.mode === 'enforce') {
-    const decision = await service.assert(principal, permission, ref, subject);
-    if (!definite(decision)) throw new AccessDenied(conditional(decision));
-    return decision;
-  }
-  const decision = await service.check({ principal, permission, resource: ref, subject });
-  if (!definite(decision)) warnDenied(guard, principal, permission, ref, decision);
-  return decision;
-}
-
-function conditional(decision: Decision): Decision {
-  return { ...decision, allowed: false, residual: FALSE, reason: { code: 'needs_subject', priority: DEFAULT_DENY_PRIORITY.needs_subject } };
+  const mode = guard.config.mode === 'enforce' ? 'enforce' : 'audit';
+  return decideFs({ fsName: guard.name, mode, service: await guard.service(), log: guard.env.log, principal, permission, ref, subject });
 }
 
 /**
@@ -396,21 +381,9 @@ async function statEach(guard: Guard, principal: Principal, dir: string, entries
       const ref = refOf(guard.name, normalised, 'file');
       const decision = await service.check({ principal, permission: 'fs:stat', resource: ref, subject: fsRowOf(guard.name, normalised, 'file') });
       if (definite(decision)) return true;
-      if (!enforce) warnDenied(guard, principal, 'fs:stat', ref, decision);
+      if (!enforce) warnDenied(guard.name, guard.env.log, principal, 'fs:stat', ref, decision);
       return !enforce;
     }),
   );
   return entries.filter((_, i) => keep[i]);
-}
-
-function warnDenied(guard: Guard, principal: Principal, permission: Permission, ref: ResourceRef, decision: Decision): void {
-  const why = decision.allowed ? 'conditional' : decision.reason?.code;
-  guard.env.log.warn(`authz.fs.${guard.name}: ${principalKey(principal)} lacks ${permission} on ${resourceKey(ref)}${why ? ` (${why})` : ''}; allowed in audit mode`);
-}
-
-const refOf = (fsName: string, normalised: string, kind: FsPathKind): ResourceRef => (normalised === '' ? { type: 'fs', id: fsName } : { type: kind, id: `${fsName}:${normalised}` });
-
-function basePathOf(raw: fs): string | undefined {
-  const basePath: unknown = (raw as { Options?: { basePath?: unknown } }).Options?.basePath;
-  return typeof basePath === 'string' && basePath !== '' ? basePath : undefined;
 }

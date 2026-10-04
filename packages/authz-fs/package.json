@@ -58,7 +58,9 @@
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
     "@spinajs/fs": "2.0.549",
-    "@spinajs/orm": "2.0.549"
+    "@spinajs/http": "2.0.549",
+    "@spinajs/orm": "2.0.549",
+    "luxon": "^3.6.1"
   },
   "devDependencies": {
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
@@ -67,6 +69,7 @@
     "@spinajs/log-common": "2.0.549",
     "@spinajs/orm-mysql": "2.0.549",
     "@spinajs/orm-postgres": "2.0.549",
-    "@spinajs/orm-sqlite": "2.0.549"
+    "@spinajs/orm-sqlite": "2.0.549",
+    "@types/luxon": "^3.6.1"
   }
 }
