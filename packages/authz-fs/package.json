@@ -56,10 +56,14 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",
-    "@spinajs/fs": "2.0.549"
+    "@spinajs/fs": "2.0.549",
+    "@spinajs/orm": "2.0.549"
   },
   "devDependencies": {
+    "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
-    "@spinajs/log-common": "2.0.549"
+    "@spinajs/fs-s3": "2.0.549",
+    "@spinajs/log-common": "2.0.549",
+    "@spinajs/orm-sqlite": "2.0.549"
   }
 }

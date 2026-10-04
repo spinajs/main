@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AccessDenied, AuthzConfigError, FALSE, SYSTEM, TRUE, resourceKey } from '@spinajs/authz';
-import type { CheckInput, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { AccessDenied, AuthzConfigError, SYSTEM } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 import { userPrincipal } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -15,47 +15,10 @@ import type { IFsLocalOptions, IFsTempOptions } from '@spinajs/fs';
 import { AuthzFsDecorator, guardFs, isGuardedFs, parseFsAccessConfig } from '../src/index.js';
 import type { FsGuardOptions } from '../src/index.js';
 import { configuredChild } from './helpers.js';
+import { FakeAuthz } from './support/fake-authz.js';
 import { installQuietLog } from './support/log.js';
 
 const expect = chai.expect;
-
-interface CheckCall {
-  readonly kind: 'check' | 'assert';
-  readonly principal: string;
-  readonly permission: Permission;
-  readonly resource: string;
-  readonly subject: unknown;
-}
-
-/** Records every decision it is asked for; allows what `allow` says ('conditional': allowed with a relation residual left). */
-class FakeAuthz {
-  readonly calls: CheckCall[] = [];
-
-  constructor(public allow: (permission: Permission, resource: string) => boolean | 'conditional' = () => true) {}
-
-  async check(req: CheckInput): Promise<Decision> {
-    return this.decide('check', req.principal, req.permission, req.resource as ResourceRef, req.subject);
-  }
-
-  async assert(principal: Principal, permission: Permission, resource?: ResourceRef | object, subject?: unknown): Promise<Decision> {
-    const d = this.decide('assert', principal, permission, resource as ResourceRef, subject);
-    if (!d.allowed) throw new AccessDenied(d);
-    return d;
-  }
-
-  keys(): string[] {
-    return this.calls.map((c) => `${c.permission} ${c.resource}`);
-  }
-
-  private decide(kind: CheckCall['kind'], principal: Principal, permission: Permission, resource: ResourceRef, subject: unknown): Decision {
-    const key = resourceKey(resource);
-    this.calls.push({ kind, principal: principal.id, permission, resource: key, subject });
-    const answer = this.allow(permission, key);
-    const allowed = answer !== false;
-    const residual = answer === 'conditional' ? { op: 'relation', relation: 'owner' } : allowed ? TRUE : FALSE;
-    return { allowed, permission, resource, principal: { type: principal.type, id: principal.id }, residual, fields: { read: [], write: [] }, roles: {}, domain: 'root', ...(allowed ? {} : { reason: { code: 'no_access', priority: 900, sortKey: '' } }) } as unknown as Decision;
-  }
-}
 
 /** A provider the guard cannot place a default destination for (as S3 or FTP): records what its methods get. */
 function keyStore(name: string, seen: unknown[][]): fs {
@@ -428,7 +391,7 @@ describe('authz-fs guardFs', function () {
       let error: unknown;
       await g.write('docs/a.txt', 'x').catch((e: unknown) => (error = e));
       expect(error).to.be.instanceOf(AccessDenied);
-      expect((error as AccessDenied).decision.reason?.code).to.equal('needs_subject');
+      expect((error as AccessDenied).decision.reason).to.include({ code: 'needs_subject', priority: 500 });
       expect((error as AccessDenied).decision.allowed).to.equal(false);
       expect(reached).to.equal(false);
     });

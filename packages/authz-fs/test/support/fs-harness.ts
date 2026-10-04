@@ -7,11 +7,14 @@ import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsService, getFs } from '@spinajs/fs';
 import type { IProviderConfiguration } from '@spinajs/fs';
-import { hostHarness } from '@spinajs/authz-testing';
+import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
+import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, HostSetup } from '@spinajs/authz-testing';
 
-import { AuthzFsDecorator } from '../../src/index.js';
+import { AuthzFsDecorator, FileMetadataStore } from '../../src/index.js';
 import { installQuietLog } from './log.js';
+import { MemoryFileMetadataStore } from './memory-store.js';
 
 /** How a world provider is built: 'local' is fsNative over a fresh directory; later tasks add fsTemp and S3. */
 export type FsProviderKind = 'local';
@@ -20,6 +23,8 @@ export interface FsHarnessOptions {
   /** The test domain; default 'test'. */
   readonly domain?: string;
   readonly kind?: FsProviderKind;
+  /** Adds the rbac facet: the real RbacModel (and its contributor) in the test domain, loaded from `world.rbac`. */
+  readonly rbac?: boolean;
 }
 
 interface CaseState {
@@ -29,6 +34,9 @@ interface CaseState {
 }
 
 let recording: CaseState | undefined;
+
+/** The one MemoryFileMetadataStore the suite registers in root (worlds name it in `authz.fs.<name>.metadata`), emptied per case. */
+export const caseStore = new MemoryFileMetadataStore();
 
 /** Runs before AuthzFsDecorator (100), so it sees the instance fsService created. */
 class RecordingFsDecorator extends FsDecorator {
@@ -130,7 +138,9 @@ class RootChanges {
       root.uncache(Array.ofType(FsDecorator));
     });
 
-    const created = [AuthzFsDecorator, ...implementations(FileHasher), ...implementations(FileInfoService)];
+    this.undo.push(testHost.registerInRoot(FileMetadataStore, testHost.instance(caseStore)));
+
+    const created = [AuthzFsDecorator, ...implementations(FileHasher), ...implementations(FileInfoService), ...implementations(FileMetadataStore)];
     this.undo.push(() => {
       for (const type of created) if (!cachedBefore.has(type.name)) root.uncache(type);
       if (!cachedBefore.has(PROVIDER_MAP)) root.uncache(PROVIDER_MAP);
@@ -158,6 +168,8 @@ function pointAtTestDomain(host: HostSetup): void {
 
 async function buildCase(kind: FsProviderKind, specs: readonly FsProviderSpec[]): Promise<{ handle: FsHandle; dispose(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), 'authz-fs-b-'));
+  caseStore.rows.clear();
+  caseStore.calls.length = 0;
   const state: CaseState = { names: new Set(specs.map((s) => s.name)), extra: new Map(specs.map((s) => [s.name, s.extraMethods ?? []])), raw: new Map() };
 
   const dispose = async () => {
@@ -234,8 +246,11 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
 
   const base = hostHarness({
     domain: opts.domain ?? 'test',
-    facets: ['fs'],
-    register: pointAtTestDomain,
+    facets: opts.rbac ? ['fs', 'rbac'] : ['fs'],
+    register(host) {
+      pointAtTestDomain(host);
+      if (opts.rbac) registerRbac(host);
+    },
     async extend(host) {
       const built = await buildCase(kind, host.world.lane?.fs?.providers ?? []);
       return { lane: { fs: built.handle }, dispose: built.dispose };
@@ -259,4 +274,12 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
       }
     },
   };
+}
+
+/** The real RbacModel over in-memory stores loaded from `world.rbac`, as authz-rbac's own harness wires it. */
+function registerRbac(host: HostSetup): void {
+  const rbac = host.world.rbac ?? {};
+  const model = new RbacModel({ roles: new MemoryRoleStore(rbac.roles ?? [], rbac.ladders ?? []), assignments: new MemoryAssignmentStore(rbac.assignments ?? []), clock: host.kit.clock });
+  host.container.register(testHost.instance(model)).as(AuthorizationModel);
+  host.container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
 }

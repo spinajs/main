@@ -8,3 +8,5 @@ export * from './operations/index.js';
 export * from './guard/index.js';
 export * from './decorator/index.js';
 export * from './contributor/index.js';
+export * from './metadata/index.js';
+export * from './migrations/index.js';

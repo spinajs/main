@@ -75,3 +75,52 @@ The guard protects filesystems from principals, not from application code:
   inside an operation and checked as the principal outside one when they are guarded;
 - an fsTemp with mode `off` over a guarded backend exposes the backend's storage, since fsTemp holds the raw
   backend (fsService wires providers before it decorates them).
+- `zip` and `unzip` destinations are placed by `instanceof fsNative` / `fsTemp`: a subclass that overrides them to
+  write elsewhere is still checked where the base class writes.
+
+## Owners and metadata
+
+`authz.fs.<name>.metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among
+the stores registered under `FileMetadataStore` (`AuthzConfigError` when none has that name). `stampOwner: true`
+(which needs `metadata`) records who wrote a file:
+
+```ts
+authz: {
+  fs: { uploads: { mode: 'enforce', metadata: 'OrmFileMetadataStore', stampOwner: true } },
+  roles: { user: { grants: [
+    { permission: 'fs:write', on: [{ type: 'fs', id: 'uploads' }] },
+    { permission: 'fs:read', relation: 'owner', on: [{ type: 'fs', id: 'uploads' }] },
+  ] } },
+}
+```
+
+- After a successful `write`, `upload`, `copy` (destination), `zip` (the archive) and `unzip` (the destination
+  directory) the owner becomes the principal. `writeStream` stamps when the stream closes after it finished, and
+  holds the `'close'` event back until then; a stream that failed or was destroyed stamps nothing. `append` and
+  `mkdir` stamp only what they create: an existing file keeps its owner, also when it has none.
+- The owner is the principal the decision ran for: under `inherit` delegation the delegate, as the owner relation
+  is then evaluated for the delegate too; under `intersect` the agent. SYSTEM, UNATTENDED and anonymous principals
+  own nothing, and their writes keep the previous owner.
+- Scope and tags of a file survive its writes. `rm` deletes the metadata, `move` and `rename` move it, also to
+  another filesystem's store (to a filesystem without one it is dropped). This happens with or without
+  `stampOwner` once a store is configured. Unchecked calls a provider makes inside an operation keep no metadata.
+- A metadata update that fails after the IO is logged at error and its error rethrown (for `writeStream`: emitted to
+  the stream's `'error'` listeners), since a lost owner row denies the owner later. The read before the IO and the
+  write after it are not one transaction.
+- `unzip` stamps the destination directory, not the files it extracts.
+
+`FsResourceAdapter.relations()` serves `owner` on `file`, `dir` and `fs` (boot rule 8 asks for every type of the
+permission). It holds when the store records the principal's `{ type, id }` for that path; it reads the store, never
+the subject, and does not hold for the filesystem root or a filesystem without a store.
+
+Stores:
+
+- `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00` on the `default`
+  connection), one row per filesystem and normalised path. It uses the connection
+  `authz.fsMetadata.connection` names (not under `authz.fs`, which is keyed by filesystem name), else `default`.
+  `delete` and `move` take the rows under a directory path along. Paths are limited to 512 characters.
+- `S3ObjectMetadataStore`: the metadata lives on the object as the user metadata `x-amz-meta-authz-meta`
+  (URI-encoded JSON, within S3's 2 KB). It needs `getMetadata` and `setMetadata` (fsS3) on the provider and calls
+  the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself, so objects over 5 GB cannot
+  be stamped. Whoever can PUT objects into the bucket directly (bucket credentials, a presigned PUT) can set any
+  owner.

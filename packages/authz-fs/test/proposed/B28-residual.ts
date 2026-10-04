@@ -22,7 +22,7 @@ const residualWorld = (votes: VoteFn, opts: { relations?: readonly RelationSpec[
   lane: { fs: { providers: [{ name: 'uploads', files: { [A]: 'A', [B]: 'B' } }, { name: 'archive' }] } },
 });
 
-const owner = (holds: (id: string) => boolean): RelationSpec[] => ['file', 'dir', 'fs'].map((type) => ({ type, relation: 'owner', holds: (_p, ref) => holds(ref.id ?? '') }));
+const editor = (holds: (id: string) => boolean): RelationSpec[] => ['file', 'dir', 'fs'].map((type) => ({ type, relation: 'editor', holds: (_p, ref) => holds(ref.id ?? '') }));
 
 const idIs = (id: string) => cmp('id', 'eq', id);
 
@@ -36,13 +36,13 @@ const listed = (fs: string, dir: string, expected: readonly string[]): DoStep =>
 
 const cases: Case[] = [
   {
-    name: 'an owner relation that does not hold is a denial, never a permit for every file',
-    world: residualWorld(() => permit(relation('owner')), { relations: owner(() => false) }),
+    name: 'a relation that does not hold is a denial, never a permit for every file',
+    world: residualWorld(() => permit(relation('editor')), { relations: editor(() => false) }),
     steps: [as('alice', fsCall('uploads', 'read', [A], DENIED), fsCall('uploads', 'write', [B, 'x'], DENIED))],
   },
   {
-    name: 'an owner relation that holds for one file permits that file only',
-    world: residualWorld(() => permit(relation('owner')), { relations: owner((id) => id === `uploads:${A}`) }),
+    name: 'a relation that holds for one file permits that file only',
+    world: residualWorld(() => permit(relation('editor')), { relations: editor((id) => id === `uploads:${A}`) }),
     steps: [as('alice', fsCall('uploads', 'read', [A], 'resolves'), fsCall('uploads', 'read', [B], DENIED))],
   },
   {
@@ -78,7 +78,7 @@ export const B28Residual = extension('B28', [
     name: 'residual',
     facets: ['engine', 'host', 'fs'],
     lanes: ['L7'],
-    note: 'Relation grants and resource.* conditions on fs paths (design §13: owner relation, fs policies on resource.id).',
+    note: "Relation grants and resource.* conditions on fs paths (design §13). 'editor' stands for any relation: FsResourceAdapter serves 'owner' itself (B16.fs-owner).",
     cases,
   },
 ]);

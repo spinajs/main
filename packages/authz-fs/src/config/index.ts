@@ -88,6 +88,7 @@ export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessCon
   if (entry.stampOwner !== undefined) {
     if (typeof entry.stampOwner !== 'boolean') throw new AuthzConfigError(`${at}.stampOwner must be a boolean, got ${show(entry.stampOwner)}`);
     out.stampOwner = entry.stampOwner;
+    if (entry.stampOwner && out.metadata === undefined) throw new AuthzConfigError(`${at}.stampOwner needs ${at}.metadata, the FileMetadataStore that keeps the owners`);
   }
   if (entry.inherit !== undefined) out.inherit = parseInherit(entry.inherit, `${at}.inherit`);
   if (entry.signedUrl !== undefined) out.signedUrl = parseSignedUrl(entry.signedUrl, `${at}.signedUrl`);

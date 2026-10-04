@@ -51,6 +51,7 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     ['an empty domain', { mode: 'enforce', domain: '' }, 'authz.fs.uploads.domain'],
     ['a non-string metadata', { mode: 'enforce', metadata: 1 }, 'authz.fs.uploads.metadata'],
     ['a non-boolean stampOwner', { mode: 'enforce', stampOwner: 'yes' }, 'authz.fs.uploads.stampOwner'],
+    ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.stampOwner'],
     ['an empty resolver', { mode: 'enforce', resolver: '' }, 'authz.fs.uploads.resolver'],
     ['an inherit list', { mode: 'enforce', inherit: ['fs:read'] }, 'authz.fs.uploads.inherit'],
     ['an inherit key that is no permission', { mode: 'enforce', inherit: { read: 'read' } }, 'authz.fs.uploads.inherit.read'],

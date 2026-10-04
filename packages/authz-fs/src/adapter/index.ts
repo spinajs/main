@@ -1,8 +1,9 @@
 import { ResourceAdapter } from '@spinajs/authz';
-import type { Permission, PermissionDef, ResourceRef, ResourceType } from '@spinajs/authz';
+import type { Permission, PermissionDef, RelationResolver, ResourceRef, ResourceType } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
+import { FsOwnerRelation } from '../metadata/owner.js';
 import { FS_OPERATIONS, fsOperationPermissions } from '../operations/index.js';
 import { FS_PERMISSIONS } from '../permissions/index.js';
 import { FS_RESOURCE_TYPES, fsAncestors, fsRef, fsRow, normalizeFsPath } from '../refs/index.js';
@@ -24,8 +25,9 @@ const OPERATION_PERMISSIONS = fsOperationPermissions(FS_OPERATIONS);
 export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
   readonly kind = 'fs';
   readonly types: readonly ResourceType[] = FS_RESOURCE_TYPES;
+  private owners?: readonly RelationResolver[];
 
-  /** Where the published fs providers are looked up. */
+  /** Where the published fs providers, the Configuration and the metadata stores are looked up. */
   constructor(protected readonly container: IContainer = DI.RootContainer) {
     super();
   }
@@ -55,6 +57,11 @@ export class FsResourceAdapter extends ResourceAdapter<FsTarget> {
 
   attribute(subject: unknown, field: string): unknown {
     return subject !== null && typeof subject === 'object' && Object.hasOwn(subject, field) ? (subject as Record<string, unknown>)[field] : undefined;
+  }
+
+  /** `owner` on every fs type (boot rule 8 asks for each type of a permission a relation grant names); it reads the FileMetadataStore. */
+  relations(): readonly RelationResolver[] {
+    return (this.owners ??= Object.freeze(FS_RESOURCE_TYPES.map((type) => new FsOwnerRelation(type, this.container))));
   }
 
   permissions(): readonly Omit<PermissionDef, 'source'>[] {

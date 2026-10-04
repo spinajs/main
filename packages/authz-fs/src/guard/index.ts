@@ -1,20 +1,26 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename } from 'node:path';
 
-import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, SYSTEM, currentPrincipal, engineLog, principalKey, resourceKey } from '@spinajs/authz';
-import type { CheckInput, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { AccessDenied, AuthzConfigError, AuthzDomains, DEFAULT_DENY_PRIORITY, FALSE, SYSTEM, UNATTENDED, currentPrincipal, engineLog, principalKey, resourceKey } from '@spinajs/authz';
+import type { CheckInput, Decision, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { fsNative, fsTemp } from '@spinajs/fs';
 import type { fs } from '@spinajs/fs';
 
+import type { FileMetadataStore } from '../api.js';
 import { fsAccessConfig } from '../config/index.js';
 import type { FsAccessConfig } from '../config/index.js';
 import { FS_UNCHECKED_METHODS, effectiveFsOperations } from '../operations/index.js';
 import type { FsOperation, FsPathSpec } from '../operations/index.js';
+import { FS_NO_OWNER_TYPES } from '../metadata/meta.js';
+import { fileMetadataStore } from '../metadata/select.js';
 import { fsRowOf, normalizeFsPath } from '../refs/index.js';
 import type { FsPathKind, FsRow } from '../refs/index.js';
+import { planMetadata } from './metadata.js';
+import type { MetadataPath } from './metadata.js';
+import { rememberRaw } from './raw.js';
 
 /** The part of AuthzService the guard calls. */
 export interface FsGuardService {
@@ -24,6 +30,8 @@ export interface FsGuardService {
 
 export interface FsGuardLog {
   warn(message: string): void;
+  /** A metadata update that failed after the IO; default `warn`. */
+  error?(message: string): void;
 }
 
 export interface FsGuardOptions {
@@ -51,10 +59,14 @@ interface Guard {
   readonly config: FsAccessConfig;
   readonly operations: Readonly<Record<string, FsOperation>>;
   readonly env: Env;
+  readonly stampOwner: boolean;
   service(): Promise<FsGuardService>;
+  /** The FileMetadataStore `authz.fs.<name>.metadata` names; resolved once, a failure is not kept. */
+  metadata(): Promise<FileMetadataStore | undefined>;
 }
 
 interface Need {
+  readonly arg: number;
   readonly guard: Guard;
   readonly permission: Permission;
   readonly ref: ResourceRef;
@@ -64,8 +76,8 @@ interface Need {
 interface Plan {
   readonly args: unknown[];
   readonly needs: Need[];
-  /** Normalised path per argument index. */
-  readonly paths: ReadonlyMap<number, string>;
+  /** The filesystem and normalised path per argument index (zip sources left out). */
+  readonly paths: ReadonlyMap<number, { readonly guard: Guard; readonly path: string }>;
   readonly unknownDestination: boolean;
 }
 
@@ -133,6 +145,7 @@ export function guardFs<T extends fs>(raw: T, fsName: string, opts: FsGuardOptio
     preventExtensions: () => false,
   });
   guards.set(proxy, guard);
+  rememberRaw(proxy, raw);
   return proxy;
 }
 
@@ -145,18 +158,27 @@ function makeGuard(name: string, raw: fs, config: FsAccessConfig, env: Env): Gua
     throw new InvalidArgument(`fs name must be a non-empty string without ':', got ${JSON.stringify(name)}`, 'fsName');
   }
   let pending: Promise<FsGuardService> | undefined;
+  let store: Promise<FileMetadataStore | undefined> | undefined;
   return {
     name,
     raw,
     config,
     operations: effectiveFsOperations(config, name),
     env,
+    stampOwner: config.stampOwner === true,
     service() {
       pending ??= env.service(config.domain).catch((e: unknown) => {
         pending = undefined;
         throw e;
       });
       return pending;
+    },
+    metadata() {
+      store ??= fileMetadataStore(name, env.container, config).catch((e: unknown) => {
+        store = undefined;
+        throw e;
+      });
+      return store;
     },
   };
 }
@@ -186,7 +208,16 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
   const plan = planCall(guard, method, operation, args);
   const principal = guard.env.principal();
   if (plan.unknownDestination) refuse(guard, principal, `${method} names a destination path without a destination filesystem (dstFs), so its destination cannot be checked`);
-  for (const need of plan.needs) await decide(need, principal);
+  const decisions: Decision[] = [];
+  for (const need of plan.needs) decisions.push(await decide(need, principal));
+  const metadataPath = (arg: number): MetadataPath | undefined => {
+    const at = plan.paths.get(arg);
+    // The filesystem root has no metadata.
+    if (!at || at.path === '') return undefined;
+    const i = plan.needs.findIndex((n) => n.arg === arg && n.guard === at.guard);
+    return { target: at.guard, path: at.path, owner: ownerOf(principal, decisions[i]) };
+  };
+  const afterIo = await planMetadata(method, metadataPath, (message) => (guard.env.log.error ?? guard.env.log.warn).call(guard.env.log, `authz.fs.${guard.name}: ${message}`));
 
   const frame: Frame = { active: true };
   let result: unknown;
@@ -196,7 +227,8 @@ async function runOperation(guard: Guard, method: string, operation: FsOperation
     frame.active = false;
   }
 
-  if (method === 'list' && guard.config.list === 'each' && Array.isArray(result)) return statEach(guard, principal, plan.paths.get(0) ?? '', result);
+  if (afterIo) result = await afterIo(result);
+  if (method === 'list' && guard.config.list === 'each' && Array.isArray(result)) return statEach(guard, principal, plan.paths.get(0)?.path ?? '', result);
   return result;
 }
 
@@ -212,7 +244,7 @@ function refuse(guard: Guard, principal: Principal, problem: string): void {
 function planCall(guard: Guard, method: string, operation: FsOperation, args: readonly unknown[]): Plan {
   const out = [...args];
   const needs: Need[] = [];
-  const paths = new Map<number, string>();
+  const paths = new Map<number, { guard: Guard; path: string }>();
   let unknownDestination = false;
 
   // null: a destination with mode 'off'; undefined: a destination the guard cannot place.
@@ -250,7 +282,7 @@ function planCall(guard: Guard, method: string, operation: FsOperation, args: re
       const normalised = normalizeFsPath(path as string, basePathOf(target.raw));
       const ref = refOf(target.name, normalised, spec.kind);
       const subject = fsRowOf(target.name, normalised, spec.kind);
-      for (const permission of spec.permissions) needs.push({ guard: target, permission, ref, subject });
+      for (const permission of spec.permissions) needs.push({ arg: spec.arg, guard: target, permission, ref, subject });
       return normalised;
     };
     const value = args[spec.arg] === undefined && spec.default ? defaultName(spec.default, args, target) : args[spec.arg];
@@ -259,7 +291,7 @@ function planCall(guard: Guard, method: string, operation: FsOperation, args: re
       continue;
     }
     const normalised = at(value);
-    paths.set(spec.arg, normalised);
+    paths.set(spec.arg, { guard: target, path: normalised });
     out[spec.arg] = spec.dirSlash && normalised !== '' ? `${normalised}/` : normalised;
   }
   return { args: out, needs, paths, unknownDestination };
@@ -268,7 +300,8 @@ function planCall(guard: Guard, method: string, operation: FsOperation, args: re
 /**
  * Where zip and unzip write when dstFs is absent, as the providers of `@spinajs/fs` do it: fsTemp into itself,
  * fsNative unzip into itself and fsNative zip into the published 'fs-temp'. Undefined for other providers (S3
- * uses its own temp filesystem, FTP and unknown providers are not known to the guard).
+ * uses its own temp filesystem, FTP and unknown providers are not known to the guard). Matched with instanceof, so
+ * a subclass that overrides zip or unzip to write elsewhere is still checked where the base class writes.
  */
 function providerDestination(guard: Guard, method: string): 'self' | object | undefined {
   const raw = guard.raw;
@@ -302,19 +335,32 @@ function guardOf(value: unknown, env: Env): Guard | null {
 // A permit with a residual left (a relation or a resource.* condition the subject did not settle) is no permit here.
 const definite = (decision: Decision): boolean => decision.allowed && decision.residual?.op === 'true';
 
-async function decide({ guard, permission, ref, subject }: Need, principal: Principal): Promise<void> {
+async function decide({ guard, permission, ref, subject }: Need, principal: Principal): Promise<Decision> {
   const service = await guard.service();
   if (guard.config.mode === 'enforce') {
     const decision = await service.assert(principal, permission, ref, subject);
     if (!definite(decision)) throw new AccessDenied(conditional(decision));
-    return;
+    return decision;
   }
   const decision = await service.check({ principal, permission, resource: ref, subject });
   if (!definite(decision)) warnDenied(guard, principal, permission, ref, decision);
+  return decision;
 }
 
 function conditional(decision: Decision): Decision {
-  return { ...decision, allowed: false, residual: FALSE, reason: { code: 'needs_subject' } };
+  return { ...decision, allowed: false, residual: FALSE, reason: { code: 'needs_subject', priority: DEFAULT_DENY_PRIORITY.needs_subject } };
+}
+
+/**
+ * Who owns what an operation writes: the principal the decision ran for (under 'inherit' delegation the delegate,
+ * as the owner relation is later evaluated for the delegate too), else the request principal. SYSTEM, UNATTENDED
+ * and anonymous principals own nothing.
+ */
+function ownerOf(principal: Principal, decision: Decision | undefined): PrincipalRef | undefined {
+  if (principal === SYSTEM || principal === UNATTENDED) return undefined;
+  const ran: unknown = decision?.principal;
+  const who = ran !== null && typeof ran === 'object' && typeof (ran as PrincipalRef).type === 'string' && typeof (ran as PrincipalRef).id === 'string' ? (ran as PrincipalRef) : principal;
+  return FS_NO_OWNER_TYPES.has(who.type) || who.id === '' ? undefined : { type: who.type, id: who.id };
 }
 
 async function statEach(guard: Guard, principal: Principal, dir: string, entries: unknown[]): Promise<unknown[]> {

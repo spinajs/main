@@ -3,13 +3,14 @@ import 'mocha';
 
 import { GLOBAL, ResourceAdapter } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
-import { userPrincipal, runAdapterConformance } from '@spinajs/authz-testing';
+import { testHost, userPrincipal, runAdapterConformance } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 
-import { FS_PERMISSIONS, FsPathResolver, FsResourceAdapter, fsRowOf } from '../src/index.js';
+import { FS_PERMISSIONS, FileMetadataStore, FsPathResolver, FsResourceAdapter, fsRowOf } from '../src/index.js';
 import { configuredChild } from './helpers.js';
+import { MemoryFileMetadataStore } from './support/memory-store.js';
 
 const expect = chai.expect;
 
@@ -108,8 +109,22 @@ describe('authz-fs FsResourceAdapter', () => {
 });
 
 describe('authz-fs FsResourceAdapter conformance', () => {
+  // The owner relation reads authz.fs and the store; alice owns one target, so holds() answers both ways.
+  let conformance: IContainer;
+  const owners = new MemoryFileMetadataStore();
+
+  before(async () => {
+    conformance = await configuredChild({ uploads: { mode: 'enforce', metadata: 'MemoryFileMetadataStore' } });
+    conformance.register(testHost.instance(owners)).as(FileMetadataStore);
+    await owners.set('uploads', 'tasks/42/a.pdf', { owner: { type: 'user', id: 'alice' } });
+  });
+
+  after(async () => {
+    await conformance.dispose();
+  });
+
   runAdapterConformance('FsResourceAdapter', () => ({
-    adapter: new FsResourceAdapter(),
+    adapter: new FsResourceAdapter(conformance),
     targets: [
       { fs: 'uploads', path: 'tasks/42/a.pdf' },
       { fs: 'uploads', path: 'tasks/42', kind: 'dir' },

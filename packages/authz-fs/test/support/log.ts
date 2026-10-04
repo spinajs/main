@@ -1,4 +1,3 @@
-import { DI } from '@spinajs/di';
 import { Log } from '@spinajs/log-common';
 import { testHost } from '@spinajs/authz-testing';
 
@@ -26,8 +25,23 @@ function quietLog(name: string): Log {
   }) as unknown as Log;
 }
 
-/** Registers the quiet Log in root unless a Log is registered; returns the undo. */
+const quietFactory = ((_container: unknown, name: string) => quietLog(name)) as never;
+let users = 0;
+let unregister: (() => void) | undefined;
+
+/**
+ * Registers the quiet Log in root, also over another Log (`@spinajs/orm-sqlite` imports the console one of
+ * `@spinajs/log`); returns the undo. Calls nest: the last undo removes it.
+ */
 export function installQuietLog(): () => void {
-  if (DI.RootContainer.hasRegistered(Log)) return () => undefined;
-  return testHost.registerInRoot(Log, ((_container: unknown, name: string) => quietLog(name)) as never);
+  if (users++ === 0) unregister = testHost.registerInRoot(Log, quietFactory);
+  let undone = false;
+  return () => {
+    if (undone) return;
+    undone = true;
+    if (--users === 0) {
+      unregister?.();
+      unregister = undefined;
+    }
+  };
 }
