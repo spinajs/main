@@ -36,19 +36,21 @@ function groupsOf(v: unknown): readonly string[] | undefined {
 }
 
 /** Maps the raw claims to the subject every ExternalLoginHook receives (OidcClaimsMapping docs); throws without a subject. */
-export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping, raw: Readonly<Record<string, unknown>>): OidcExternalSubject {
+export function mapClaims(provider: OidcStrategyName, mapping: OidcClaimsMapping, raw: Readonly<Record<string, unknown>>, sources: readonly Readonly<Record<string, unknown>>[] = [raw]): OidcExternalSubject {
   const subject = subjectOf(readClaim(raw, mapping.subject));
   if (subject === null) {
     throw new Error('authn-oidc: the login carries no usable subject');
   }
-  const email = mapping.email === null ? undefined : readClaim(raw, mapping.email);
+  // The email and its verified flag come from the same document, so one source's flag never vouches for another's address.
+  const emailSource = mapping.email === null ? undefined : sources.find((s) => typeof readClaim(s, mapping.email!) === 'string');
+  const email = emailSource === undefined ? undefined : readClaim(emailSource, mapping.email!);
   const hasEmail = typeof email === 'string' && email.length > 0 && email.length <= MAX_EMAIL_LENGTH;
   const name = mapping.name === null ? undefined : readClaim(raw, mapping.name);
   const groups = mapping.groups === null ? undefined : groupsOf(readClaim(raw, mapping.groups));
   return Object.freeze({
     provider,
     subject,
-    ...(hasEmail ? { email, emailVerified: mapping.emailVerified !== null && readClaim(raw, mapping.emailVerified) === true } : {}),
+    ...(hasEmail ? { email, emailVerified: mapping.emailVerified !== null && readClaim(emailSource!, mapping.emailVerified) === true } : {}),
     claims: Object.freeze({
       ...(typeof name === 'string' && name.length <= MAX_NAME_LENGTH ? { name } : {}),
       ...(groups !== undefined ? { groups } : {}),

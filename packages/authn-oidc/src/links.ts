@@ -1,4 +1,4 @@
-import type { AuthnContext, ExternalSubject, IdentityLink, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, ExternalSubject, IdentityLink, SessionHandle } from '@spinajs/authn/contracts';
 
 export type OidcLinkResult = { readonly ok: true; readonly link: IdentityLink } | { readonly ok: false };
 
@@ -9,6 +9,7 @@ export type OidcLinkResult = { readonly ok: true; readonly link: IdentityLink } 
  * link flow's callback). Without a registration the link routes answer 404.
  */
 export abstract class OidcAccountLinks {
-  abstract link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext): Promise<OidcLinkResult>;
-  abstract unlink(session: SessionHandle, linkId: string, ctx: AuthnContext): Promise<{ readonly ok: boolean }>;
+  /** `reauth`: an inline re-authentication when the session is not fresh (N1's optional argument). */
+  abstract link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext, reauth?: Credentials): Promise<OidcLinkResult>;
+  abstract unlink(session: SessionHandle, linkId: string, ctx: AuthnContext, reauth?: Credentials): Promise<{ readonly ok: boolean }>;
 }

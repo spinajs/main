@@ -218,13 +218,13 @@ describe('authn-oidc login', () => {
     });
 
     it('passes an unlinked subject with the provider jit switch', async () => {
-      const w = await world({ provider: { linking: { jit: true } } });
+      const w = await world({ provider: { linking: { jit: true } }, linking: { jit: true, byVerifiedEmail: false } });
       const out = await w.strategy.verify(await credentialsFor(w, { sub: 'new' }), w.ctx());
       expect(out.ok).to.eq(true);
     });
 
     it('with byVerifiedEmail and no jit, passes only a verified email that names an identity', async () => {
-      const w = await world({ provider: { linking: { byVerifiedEmail: true } } });
+      const w = await world({ provider: { linking: { byVerifiedEmail: true } }, linking: { jit: false, byVerifiedEmail: true } });
       w.identities.add({ login: 'a@example.test', email: 'a@example.test' });
       const ok = await w.strategy.verify(await credentialsFor(w, { sub: 'n1', email: 'a@example.test', email_verified: true }), w.ctx());
       expect(ok.ok && ok.external?.emailVerified).to.eq(true);

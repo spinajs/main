@@ -1,7 +1,7 @@
 import type { AuthenticationResult, AuthnContext, AuthnService, Credentials, ExternalLoginHook, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import type { OidcAppPath } from './contracts.js';
-import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, sha256hex } from './flow/cookie.js';
+import { clearFlowCookie, decodeFlow, flowCookie, flowCookieName, flowSecrets, sessionBindingOf } from './flow/cookie.js';
 import type { OidcAccountLinks } from './links.js';
 import type { FlowCookie } from './flow/cookie.js';
 import type { OidcCallbackQuery } from './provider.js';
@@ -21,6 +21,8 @@ export interface OidcRequest {
   readonly ctx: AuthnContext;
   /** The session the request restored (authn-http's AuthnSession), pending included; link routes need an active one. */
   readonly session?: SessionHandle | null;
+  /** The Sec-Fetch-Site request header, when the browser sent one. */
+  readonly fetchSite?: string;
 }
 
 /** Framework-free HTTP answer the controller maps to a response. */
@@ -32,6 +34,8 @@ export interface OidcAnswer {
   readonly body?: unknown;
   /** An HTML page instead (status 200), sent with Cache-Control: no-store. */
   readonly html?: string;
+  /** Lower-case names, e.g. retry-after of a throttled login (A02). */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -123,16 +127,22 @@ export class OidcLogin {
       this.d.log?.error(`authn-oidc: the login with provider ${provider} failed unexpectedly: ${errorName(err)}`);
       return this.failure(req);
     }
-    if (result.status === 'failure') return this.failure(req);
+    if (result.status === 'failure') return this.failure(req, result.retryAfterSeconds);
 
     const handle = result.status === 'success' ? result.session : result.pending;
     if (!handle) {
       // An interactive strategy always gets a session from the core; without one the browser could not stay logged in.
       return this.failure(req);
     }
-    const identity = await this.identityOf(result, handle);
-    const external = strategy.verified(credentials);
-    if (!identity || !external || !(await this.runHooks(identity, external))) {
+    let ok = false;
+    try {
+      const identity = await this.identityOf(result, handle);
+      const external = strategy.verified(credentials);
+      ok = identity !== null && external !== undefined && (await this.runHooks(identity, external));
+    } catch (err) {
+      this.d.log?.error(`authn-oidc: the login with provider ${provider} failed after authentication: ${errorName(err)}`);
+    }
+    if (!ok) {
       await this.d.sessions.revoke(handle).catch(() => undefined);
       return this.failure(req);
     }
@@ -140,14 +150,19 @@ export class OidcLogin {
     return this.moveOn(req, returnTo, [clearFlowCookie(this.d.env), this.d.sessionCookie(handle)]);
   }
 
-  /** `GET /auth/oidc/:provider/link`: starts a flow bound to the current active session (D16). */
+  /**
+   * `POST /auth/oidc/:provider/link`: starts a flow bound to the current active session (D16). A POST, so authn-http's
+   * origin check (A22) guards it; a cross-site start would let another site link its own account to this session's
+   * identity (account-linking CSRF), whatever SameSite the session cookie has.
+   */
   public async beginLink(provider: string, req: OidcRequest): Promise<OidcAnswer> {
     const strategy = this.d.strategies.get(provider);
     if (!strategy || !this.d.linker) return { ...NOT_FOUND, cookies: [] };
     const session = req.session;
     if (!session || session.state !== 'active') return this.failure(req);
+    if (req.fetchSite !== undefined && req.fetchSite !== 'same-origin' && req.fetchSite !== 'none') return this.failure(req);
     try {
-      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, mode: 'link', sessionHash: sha256hex(session.id), now: req.ctx.now });
+      const { flow, location } = await strategy.provider.begin({ redirectUri: `${req.origin}${this.d.callbackPath(provider)}`, mode: 'link', sessionHash: sessionBindingOf(session.id), now: req.ctx.now });
       return { status: 302, location, cookies: [flowCookie(flow, this.d.env)] };
     } catch (err) {
       this.d.log?.warn(`authn-oidc: could not start linking with provider ${provider}: ${errorName(err)}`);
@@ -158,7 +173,9 @@ export class OidcLogin {
   /** A link flow's callback: the same session must come back, then the link service decides (fresh auth, A19). */
   protected async linkCallback(strategy: OidcStrategy, credentials: Credentials, req: OidcRequest): Promise<OidcAnswer> {
     const session = req.session;
-    if (!session && req.navigation && req.query.bounce === undefined) {
+    const flow = decodeFlow((credentials as { payload?: { flow?: unknown } }).payload?.flow);
+    const ours = flow !== null && typeof req.query.state === 'string' && req.query.state === flowSecrets(flow).state;
+    if (!session && this.d.linker && ours && req.navigation && req.query.bounce === undefined) {
       // The Strict session cookie did not come with the cross-site arrival; one same-site hop brings it (nothing consumed yet).
       const again = new URLSearchParams();
       for (const k of QUERY_KEYS) {
@@ -171,7 +188,7 @@ export class OidcLogin {
     if (!this.d.linker || !session || session.state !== 'active') return this.failure(req);
     const ctx: AuthnContext = { ...req.ctx, purpose: 'link', session };
     try {
-      const external = await strategy.verifyLink(credentials, sha256hex(session.id), ctx);
+      const external = await strategy.verifyLink(credentials, sessionBindingOf(session.id), ctx);
       const linked = await this.d.linker.link(session, external, ctx);
       if (!linked.ok) return this.failure(req);
     } catch (err) {
@@ -193,10 +210,18 @@ export class OidcLogin {
     const session = req.session;
     const restored = session && session.state === 'active' ? await this.d.sessions.restore(session.id) : null;
     if (!session || !restored) return { status: 401, cookies: [], body: OIDC_FAILURE_BODY };
-    const link = (await this.d.links.list(restored.identity)).find((l) => l.provider === strategy.name);
-    if (!link) return { ...NOT_FOUND, cookies: [] };
-    const out = await this.d.linker.unlink(session, link.id, { ...req.ctx, purpose: 'link', session });
-    return out.ok ? { status: 204, cookies: [] } : { status: 403, cookies: [], body: REFUSED_BODY };
+    try {
+      const subject = typeof req.query.subject === 'string' ? req.query.subject : undefined;
+      const mine = (await this.d.links.list(restored.identity)).filter((l) => l.provider === strategy.name && (subject === undefined || l.subject === subject));
+      if (mine.length === 0) return { ...NOT_FOUND, cookies: [] };
+      // Several subjects of one provider: the caller names the one to remove.
+      if (mine.length > 1) return { status: 409, cookies: [], body: REFUSED_BODY };
+      const out = await this.d.linker.unlink(session, mine[0].id, { ...req.ctx, purpose: 'link', session });
+      return out.ok ? { status: 204, cookies: [] } : { status: 403, cookies: [], body: REFUSED_BODY };
+    } catch (err) {
+      this.d.log?.error(`authn-oidc: unlinking ${strategy.name} failed: ${errorName(err)}`);
+      return { status: 403, cookies: [], body: REFUSED_BODY };
+    }
   }
 
   protected async identityOf(result: AuthenticationResult, handle: SessionHandle): Promise<IdentityRef | null> {
@@ -218,8 +243,9 @@ export class OidcLogin {
   }
 
   /** D3: one answer for every failure; a browser goes to the failure page with no reason in the URL. */
-  public failure(req: Pick<OidcRequest, 'navigation'>): OidcAnswer {
+  public failure(req: Pick<OidcRequest, 'navigation'>, retryAfterSeconds?: number): OidcAnswer {
     const cookies = [clearFlowCookie(this.d.env)];
-    return req.navigation ? { status: 303, location: this.d.redirects.failure, cookies } : { status: 401, cookies, body: OIDC_FAILURE_BODY };
+    const headers = retryAfterSeconds !== undefined ? { headers: { 'retry-after': String(retryAfterSeconds) } } : {};
+    return req.navigation ? { status: 303, location: this.d.redirects.failure, cookies, ...headers } : { status: 401, cookies, body: OIDC_FAILURE_BODY, ...headers };
   }
 }

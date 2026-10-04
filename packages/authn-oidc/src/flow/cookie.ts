@@ -51,6 +51,9 @@ const b64urlSha256 = (s: string): string => createHash('sha256').update(s, 'utf8
 export const sha256hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
 /** RFC 7636 §4.2, S256. */
+/** What a link flow stores of the session that started it: never the session store's own key (the plain SHA-256). */
+export const sessionBindingOf = (rawSessionId: string): string => sha256hex(`spinajs-oidc:session\0${rawSessionId}`);
+
 export const codeChallengeOf = (verifier: string): string => createHash('sha256').update(verifier, 'ascii').digest('base64url');
 
 /** A returnTo is kept only as an app-relative path (no open redirect). */

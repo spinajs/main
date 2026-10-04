@@ -153,6 +153,6 @@ export class OidcProvider {
 
     const raw = rawClaims(idClaims, userinfo);
     if (!hasRequiredClaims(raw, this.options.requiredClaims)) refuse('required claims');
-    return mapClaims(this.options.strategy, this.options.claims, raw);
+    return mapClaims(this.options.strategy, this.options.claims, raw, [idClaims, userinfo].filter((x): x is Readonly<Record<string, unknown>> => x !== null));
   }
 }

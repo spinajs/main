@@ -55,7 +55,7 @@ export async function oidcHarness(ctx: HarnessContext): Promise<Harness> {
   const identities = new FakeIdentityStore({ jit: linking.jit });
   const passwords = new MemoryPasswordCredentialStore();
   const links = new MemoryLinkStore();
-  const strategy = new OidcStrategy({ provider, links, identities });
+  const strategy = new OidcStrategy({ provider, links, identities, linking });
   const sessions = new MemorySessionIssuer();
   const events = new RecordingEventSink();
   const principals = new RecordingPrincipalFactory();

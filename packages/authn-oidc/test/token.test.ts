@@ -151,14 +151,16 @@ describe('authn-oidc tokens', () => {
 
     it('allows the clock skew on exp, iat and nbf, and no more', async () => {
       const now = Math.floor(Date.now() / 1000);
-      expect((await valid(await mint({ override: { exp: now - 29 } }))).sub).to.eq('user-1');
-      await rejects(valid(await mint({ override: { exp: now - 31 } })), 'exp');
+      // One fixed instant for minting and checking, so a second boundary between them cannot flip a case.
+      const at = { now: new Date(now * 1000) };
+      expect((await valid(await mint({ override: { exp: now - 29 } }), at)).sub).to.eq('user-1');
+      await rejects(valid(await mint({ override: { exp: now - 31 } }), at), 'exp');
       await rejects(valid(await mint({ override: { exp: now + 60 } }), { clockSkewSeconds: 0, now: new Date((now + 60) * 1000) }), 'exp');
-      expect((await valid(await mint({ override: { iat: now + 29 } }))).sub).to.eq('user-1');
-      await rejects(valid(await mint({ override: { iat: now + 31 } })), 'iat');
-      expect((await valid(await mint({ override: { nbf: now + 29 } }))).sub).to.eq('user-1');
-      await rejects(valid(await mint({ override: { nbf: now + 31 } })), 'nbf');
-      await rejects(valid(await mint({ override: { nbf: 'soon' } })), 'nbf');
+      expect((await valid(await mint({ override: { iat: now + 29 } }), at)).sub).to.eq('user-1');
+      await rejects(valid(await mint({ override: { iat: now + 31 } }), at), 'iat');
+      expect((await valid(await mint({ override: { nbf: now + 29 } }), at)).sub).to.eq('user-1');
+      await rejects(valid(await mint({ override: { nbf: now + 31 } }), at), 'nbf');
+      await rejects(valid(await mint({ override: { nbf: 'soon' } }), at), 'nbf');
     });
 
     it('needs exp, iat, nonce and a sub', async () => {

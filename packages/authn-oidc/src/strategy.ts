@@ -19,7 +19,17 @@ export interface OidcStrategyDeps {
   readonly links: IdentityLinkStore;
   /** Needed only for a provider that links by verified email without JIT. */
   readonly identities?: IdentityStore | null;
+  /** The global authn.linking switches the core applies (default off). */
+  readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
 }
+
+/**
+ * Verified subjects by credentials object, for the login route's hook fan-out. Module-wide, not per instance: the core's
+ * registry may build its own strategy instance per container, and the route must still find what that instance verified.
+ */
+const verifiedSubjects = new WeakMap<object, OidcExternalSubject>();
+
+const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
 const QUERY_KEYS = ['code', 'state', 'iss', 'error'] as const;
 
@@ -51,8 +61,6 @@ export class OidcStrategy extends AuthenticationStrategy {
   public readonly kinds: readonly string[] = Object.freeze(['external']);
   public readonly interactive = true;
 
-  protected readonly subjects = new WeakMap<object, OidcExternalSubject>();
-
   constructor(protected readonly deps: OidcStrategyDeps) {
     super();
     this.name = deps.provider.options.strategy;
@@ -78,7 +86,8 @@ export class OidcStrategy extends AuthenticationStrategy {
 
   /** The subject a successful verify of exactly these credentials answered. */
   public verified(c: Credentials): OidcExternalSubject | undefined {
-    return isPlainObject(c) ? this.subjects.get(c) : undefined;
+    const s = isPlainObject(c) ? verifiedSubjects.get(c) : undefined;
+    return s?.provider === this.name ? s : undefined;
   }
 
   public async verify(c: Credentials, ctx: AuthnContext): Promise<StrategyOutcome> {
@@ -98,7 +107,7 @@ export class OidcStrategy extends AuthenticationStrategy {
       return FAILED;
     }
     if (gated === null) return NOT_LINKED;
-    this.subjects.set(c, gated);
+    verifiedSubjects.set(c, gated);
     return { ok: true, external: gated, method: 'oidc' };
   }
 
@@ -127,14 +136,30 @@ export class OidcStrategy extends AuthenticationStrategy {
     }
   }
 
-  /** D5: null when the provider's own switches forbid this unlinked subject; else the subject the core may use. */
+  /**
+   * D5: null when the provider's own switches forbid this unlinked subject; else the subject the core may use. The core
+   * (N1) links an unlinked subject by verified email only with the global switch, and only to the identity whose stored
+   * email equals it, else provisions with the global jit switch. This repeats that decision so neither path runs without
+   * the provider's switch too.
+   */
   protected async gate(external: OidcExternalSubject): Promise<OidcExternalSubject | null> {
-    const { jit, byVerifiedEmail } = this.deps.provider.options.linking;
+    const own = this.deps.provider.options.linking;
+    const global = this.deps.linking ?? { jit: false, byVerifiedEmail: false };
     // The global switch alone must never link by email, so the core sees a verified email only with the provider's switch on.
-    const subject: OidcExternalSubject = external.email !== undefined && external.emailVerified === true && !byVerifiedEmail ? Object.freeze({ ...external, emailVerified: false }) : external;
+    const subject: OidcExternalSubject = external.email !== undefined && external.emailVerified === true && !own.byVerifiedEmail ? Object.freeze({ ...external, emailVerified: false }) : external;
     if (await this.deps.links.find(subject.provider, subject.subject)) return subject;
-    if (jit) return subject;
-    if (!byVerifiedEmail || subject.emailVerified !== true || subject.email === undefined || !this.deps.identities) return null;
-    return (await this.deps.identities.findByLogin(subject.email)) ? subject : null;
+    if (own.byVerifiedEmail && global.byVerifiedEmail && subject.emailVerified === true && subject.email !== undefined && (await this.matchesStoredEmail(subject.email))) {
+      return subject;
+    }
+    return own.jit && global.jit ? subject : null;
   }
+
+  protected async matchesStoredEmail(email: string): Promise<boolean> {
+    const identities = this.deps.identities;
+    if (!identities) return false;
+    const id = await identities.findByLogin(email);
+    const stored = id ? (await identities.display(id))?.email : undefined;
+    return typeof stored === 'string' && stored.length > 0 && foldAscii(stored) === foldAscii(email);
+  }
+
 }

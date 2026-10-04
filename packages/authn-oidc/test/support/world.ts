@@ -70,6 +70,7 @@ export interface WorldOptions {
   readonly linking?: { jit: boolean; byVerifiedEmail: boolean };
   readonly idp?: FakeIdp;
   readonly name?: string;
+  readonly throttle?: Record<string, unknown>;
 }
 
 /** One provider over a fake IdP, with the kit's fake AuthnService, stores and a recording hook. */
@@ -82,12 +83,12 @@ export async function world(o: WorldOptions = {}) {
   const linking = o.linking ?? { jit: false, byVerifiedEmail: false };
   const identities = new FakeIdentityStore({ jit: linking.jit });
   const links = new MemoryLinkStore();
-  const strategy = new OidcStrategy({ provider, links, identities });
+  const strategy = new OidcStrategy({ provider, links, identities, linking });
   const sessions = new MemorySessionIssuer();
   const events = new RecordingEventSink();
   const service = new FakeAuthnService({
     strategies: [strategy],
-    throttle: new FakeBackoffThrottle(throttleParams({})),
+    throttle: new FakeBackoffThrottle(throttleParams(o.throttle ? ({ authn: { throttle: o.throttle } } as never) : {})),
     identities,
     links,
     linking,
