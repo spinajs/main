@@ -244,7 +244,7 @@ function bootInput(spec: BootSpec): { config: ConfigOverrides; opts: CoreOptions
   };
 }
 
-function bootPort(): BootPort {
+export function bootPort(): BootPort {
   return {
     async start(spec: BootSpec) {
       const { config, opts } = bootInput(spec);

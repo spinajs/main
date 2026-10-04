@@ -7,7 +7,8 @@ import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attac
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
-import type { AuthnContext, BackoffParams, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
+import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
+import { Lockout } from '../mutation/throttle-mutants.js';
 
 type Make = (p: ThrottleParams) => AuthnThrottle;
 
@@ -52,13 +53,6 @@ class ReadModifyWrite extends MemoryAuthnThrottle {
       rows.forEach((r, k) => this.tables[f].rows.set(k, r));
     }
     return super.attempt(keys, flow, ctx);
-  }
-}
-
-/** 2.x shape (SR-05): a fixed 15 minute lock after the free attempts. */
-class Lockout extends MemoryAuthnThrottle {
-  protected delayMs(p: BackoffParams, n: number): number {
-    return n < p.free ? 0 : 15 * 60_000;
   }
 }
 
