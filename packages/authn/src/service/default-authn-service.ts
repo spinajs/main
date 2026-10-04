@@ -19,6 +19,7 @@ import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleKey } from '../contracts/throttle.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { MfaStepRegistry, RECOVERY_STEP } from '../flow/mfa-step-registry.js';
+import { linkingSwitchesOf } from '../link/switches.js';
 import { instantiate, nearestRegistration, registeredNames } from '../registry/named.js';
 import { StrategyRegistry } from '../registry/strategy-registry.js';
 import { canPeek } from '../throttle/peek.js';
@@ -396,7 +397,7 @@ export class DefaultAuthnService extends AuthnService {
     let id: IdentityRef | null = r.identity ?? null;
     let found: Found = { id: null };
     if (!id && r.external) {
-      found = await this.linked(r.external);
+      found = await this.linked(s, r.external);
       id = found.id;
     }
     if (!id) return this.refuse(ctx, s, 'not_linked', 'not_linked');
@@ -493,17 +494,21 @@ export class DefaultAuthnService extends AuthnService {
     return this.sessions.restore(h.id);
   }
 
-  /** A linked identity, or one found by verified email or provisioned (then `link` is the subject to link). */
-  private async linked(external: ExternalSubject): Promise<Found> {
+  /**
+   * A linked identity, or one found by verified email or provisioned (then `link` is the subject to link). Each way past
+   * an existing link needs the global switch and the strategy's own switch for the provider (K6).
+   */
+  private async linked(s: AuthenticationStrategy, external: ExternalSubject): Promise<Found> {
     if (!this.links) return { id: null };
     const found = await this.links.find(external.provider, external.subject);
     if (found) return { id: found.identity };
-    if (this.linking.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+    const own = this.linking.jit || this.linking.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
+    if (this.linking.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
       // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
       if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
     }
-    if (this.linking.jit && typeof this.identities.provision === 'function') {
+    if (this.linking.jit && own.jit && typeof this.identities.provision === 'function') {
       return { id: await this.identities.provision(external), link: external, provisioned: true };
     }
     return { id: null };

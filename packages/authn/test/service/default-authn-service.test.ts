@@ -832,6 +832,81 @@ describe('DefaultAuthnService', function () {
       assert.ok(loginFailures(p).every((e) => e.reason === 'inactive'));
     });
 
+    describe("the provider's own switches (K6)", () => {
+      type Switches = { jit: boolean; byVerifiedEmail: boolean };
+      const ON: Switches = { jit: true, byVerifiedEmail: true };
+
+      /** The kit external strategy over `sub`, with `linkingFor` replaced by `own` (undefined: no method at all). */
+      async function bootOwn(own: ((e: ExternalSubject) => Switches) | undefined, sub = subject()) {
+        const subjects = new Map([[sub.subject, sub]]);
+        const s = FakeStrategy.external({ provider: 'kit-idp', subjects });
+        const seen: ExternalSubject[] = [];
+        Object.defineProperty(s, 'linkingFor', {
+          value: own
+            ? (e: ExternalSubject) => {
+                seen.push(e);
+                return own(e);
+              }
+            : undefined,
+        });
+        const p = await boot([s], {}, { authn: { linking: ON } });
+        return { p, seen };
+      }
+
+      it('neither provisions nor links by email for a strategy without linkingFor, whatever authn.linking says', async () => {
+        const { p } = await bootOwn(undefined);
+        await seedAlice(p);
+        failure(await p.service.authenticate(external, ctx()), 'not_linked');
+        assert.strictEqual(p.identities.calls.provision.length, 0);
+        assert.strictEqual(p.links.links.length, 0);
+      });
+
+      it("needs the provider's jit switch to provision and its byVerifiedEmail switch to link by email", async () => {
+        let { p, seen } = await bootOwn(() => ({ jit: false, byVerifiedEmail: false }));
+        await seedAlice(p);
+        failure(await p.service.authenticate(external, ctx()), 'not_linked');
+        assert.deepStrictEqual(seen, [subject()], 'linkingFor gets the subject');
+        await p.dispose();
+
+        ({ p } = await bootOwn(() => ({ jit: true, byVerifiedEmail: false })));
+        const a = await seedAlice(p);
+        const r = success(await p.service.authenticate(external, ctx()));
+        assert.notDeepStrictEqual(r.identity, a, 'provisioned, not linked to the identity with that email');
+        assert.strictEqual(p.identities.calls.provision.length, 1);
+        await p.dispose();
+
+        ({ p } = await bootOwn(() => ({ jit: false, byVerifiedEmail: true })));
+        const b = await seedAlice(p);
+        assert.deepStrictEqual(success(await p.service.authenticate(external, ctx())).identity, b);
+        assert.strictEqual(p.identities.calls.provision.length, 0);
+      });
+
+      it('takes a linkingFor that throws or answers non-booleans as both off', async () => {
+        for (const own of [
+          (): Switches => {
+            throw new Error('boom');
+          },
+          () => ({ jit: 'yes', byVerifiedEmail: 1 }) as unknown as Switches,
+          () => null as unknown as Switches,
+        ]) {
+          const { p } = await bootOwn(own);
+          await seedAlice(p);
+          failure(await p.service.authenticate(external, ctx()), 'not_linked');
+          assert.strictEqual(p.identities.calls.provision.length, 0);
+          await p.dispose();
+        }
+        parts = undefined;
+      });
+
+      it('still logs in an already linked subject without asking the switches', async () => {
+        const { p, seen } = await bootOwn(() => ({ jit: false, byVerifiedEmail: false }));
+        const a = await seedAlice(p);
+        await p.links.link(a, subject());
+        assert.deepStrictEqual(success(await p.service.authenticate(external, ctx())).identity, a);
+        assert.strictEqual(seen.length, 0);
+      });
+    });
+
     it('answers not_linked without a link store', async () => {
       const p = await boot(undefined, { omit: ['IdentityLinkStore'] }, { authn: { linking: { jit: true } } });
       p.externalSubjects.set('sub-1', subject());

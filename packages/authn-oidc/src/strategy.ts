@@ -1,5 +1,5 @@
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
-import type { AuthnContext, Credentials, IdentityLinkStore, IdentityStore, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, ExternalSubject, IdentityLinkStore, IdentityStore, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 
 import type { OidcExternalSubject, OidcStrategyName } from './contracts.js';
 import { decodeFlow } from './flow/cookie.js';
@@ -95,6 +95,12 @@ export class OidcStrategy extends AuthenticationStrategy {
     }
     if (gated === null) return NOT_LINKED;
     return { ok: true, external: gated, method: 'oidc' };
+  }
+
+  /** The provider's own linking switches, which the core needs next to authn.linking (D5, K6); off for another provider. */
+  public linkingFor(external: ExternalSubject): { jit: boolean; byVerifiedEmail: boolean } {
+    const own = this.deps.provider.options.linking;
+    return external?.provider === this.name ? { jit: own.jit === true, byVerifiedEmail: own.byVerifiedEmail === true } : { jit: false, byVerifiedEmail: false };
   }
 
   /**

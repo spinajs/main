@@ -3718,7 +3718,7 @@ export default {
     },
     freshAuth: { maxAgeSeconds: 300 },
     token: { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 },
-    jwt: { issuers: [] },                          // [{ issuer, audience, jwksUri | keys, algorithms: ['EdDSA','ES256','RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:<issuer>' }]
+    jwt: { issuers: [] },                          // [{ issuer, audience, jwksUri | keys, algorithms: ['EdDSA','ES256','RS256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: 'jwt:<issuer>', linking: { jit: false } }]   // K6: JIT needs this and authn.linking.jit
     keys: { algorithms: ['EdDSA', 'ES256'], assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 },
             httpSignature: { maxAgeSeconds: 300, requiredComponents: ['@method', '@target-uri', 'content-digest'] } },
     linking: { jit: false, byVerifiedEmail: false },
@@ -3973,6 +3973,13 @@ use.
 - Linking needs the identity's own active session with fresh auth
   (`purpose: 'link'`); matching by email happens only when the provider says
   the email is verified and `authn.linking.byVerifiedEmail` is on.
+- (K6) The core provisions (JIT) or links by verified email only when the
+  global `authn.linking` switch and the strategy's own switch for that
+  provider are both on: OIDC `providers.<name>.linking`, JWT
+  `issuers[i].linking.jit` (a bearer JWT never links by email). A strategy
+  gives its switches through `linkingFor(external)`
+  (`ExternalLinkingStrategy`, `@spinajs/authn`); one without it gets
+  neither, so JIT turned on for one provider never opens another.
 - Unlinking refuses to remove the last usable credential (no password, no
   other link, no key).
 

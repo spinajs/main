@@ -215,6 +215,12 @@ describe('authn-oidc login', () => {
       expect(out.ok && out.external).to.deep.include({ subject: 'kc-1', emailVerified: false });
     });
 
+    it("gives the core this provider's own linking switches, and none for another provider (K6)", async () => {
+      const w = await world({ provider: { linking: { jit: true } }, linking: { jit: true, byVerifiedEmail: true } });
+      expect(w.strategy.linkingFor({ provider: 'oidc:corp', subject: 's' })).to.deep.eq({ jit: true, byVerifiedEmail: false });
+      expect(w.strategy.linkingFor({ provider: 'oidc:other', subject: 's' })).to.deep.eq({ jit: false, byVerifiedEmail: false });
+    });
+
     it('passes an unlinked subject with the provider jit switch', async () => {
       const w = await world({ provider: { linking: { jit: true } }, linking: { jit: true, byVerifiedEmail: false } });
       const out = await w.strategy.verify(await credentialsFor(w, { sub: 'new' }), w.ctx());

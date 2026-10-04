@@ -187,6 +187,9 @@ describe('JwtBearerStrategy', function () {
         ['an empty issuer', () => [remote({ issuer: '' })]],
         ['a numeric issuer', () => [remote({ issuer: 7 })]],
         ['a duplicate issuer', () => [remote(), remote({ provider: 'jwt:other' })]],
+        ['a linking that is not an object', () => [remote({ linking: true })]],
+        ['a linking.jit that is not a boolean', () => [remote({ linking: { jit: 'yes' } })]],
+        ['a linking.byVerifiedEmail (a bearer JWT never links by email)', () => [remote({ linking: { byVerifiedEmail: true } })]],
         ['a missing audience', () => [without(remote(), 'audience')]],
         ['an empty audience', () => [remote({ audience: '' })]],
         ['an audience array', () => [remote({ audience: [AUDIENCE] })]],
@@ -249,6 +252,20 @@ describe('JwtBearerStrategy', function () {
           expect((err as Error).message, label).to.match(/authn\.jwt\.issuers/);
         });
       }
+    });
+  });
+
+  describe('linking switches (K6)', () => {
+    it('allows JIT only for an issuer whose linking.jit is on, and never linking by email', async () => {
+      const s = await make([remote({ linking: { jit: true } }), remote({ issuer: 'https://other.unit.test', provider: 'jwt:other' })]);
+      expect(s.linkingFor({ provider: `jwt:${ISSUER}`, subject: 'a' })).to.deep.equal({ jit: true, byVerifiedEmail: false });
+      expect(s.linkingFor({ provider: 'jwt:other', subject: 'a' })).to.deep.equal({ jit: false, byVerifiedEmail: false });
+      expect(s.linkingFor({ provider: 'oidc:corp', subject: 'a' })).to.deep.equal({ jit: false, byVerifiedEmail: false });
+    });
+
+    it('defaults to off', async () => {
+      const s = await make([remote()]);
+      expect(s.linkingFor({ provider: `jwt:${ISSUER}`, subject: 'a' })).to.deep.equal({ jit: false, byVerifiedEmail: false });
     });
   });
 

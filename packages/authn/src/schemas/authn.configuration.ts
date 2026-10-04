@@ -246,6 +246,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
               clockSkewSeconds: { type: 'integer', minimum: 0, maximum: 60 },
               subjectClaim: { type: 'string', minLength: 1 },
               provider: { type: 'string', minLength: 1 },
+              linking: { type: 'object', properties: { jit: { type: 'boolean' } }, additionalProperties: false },
             },
             required: ['issuer', 'audience', 'algorithms'],
             oneOf: [{ required: ['jwksUri'] }, { required: ['keys'] }],

@@ -69,14 +69,17 @@ export class FakeAuthnService extends AuthnService {
     return [...base, ...(ctx.ip ? [{ kind: 'ip', value: ctx.ip }] : [])];
   }
 
-  private async linkedIdentity(external: ExternalSubject): Promise<IdentityRef | null> {
+  /** Past an existing link, each way needs the global switch and the strategy's own `linkingFor` switch (K6). */
+  private async linkedIdentity(s: AuthenticationStrategy, external: ExternalSubject): Promise<IdentityRef | null> {
     const link = await this.d.links.find(external.provider, external.subject);
     if (link) return link.identity;
+    const linkingFor = (s as { linkingFor?: (e: ExternalSubject) => { jit?: unknown; byVerifiedEmail?: unknown } }).linkingFor;
+    const own = typeof linkingFor === 'function' ? linkingFor.call(s, external) : {};
     let id: IdentityRef | null = null;
-    if (this.d.linking.byVerifiedEmail && external.emailVerified && external.email) {
+    if (this.d.linking.byVerifiedEmail && own.byVerifiedEmail === true && external.emailVerified && external.email) {
       id = await this.d.identities.findByLogin(external.email);
     }
-    if (!id && this.d.linking.jit && this.d.identities.provision) {
+    if (!id && this.d.linking.jit && own.jit === true && this.d.identities.provision) {
       id = await this.d.identities.provision(external);
     }
     if (id) await this.d.links.link(id, external);
@@ -122,7 +125,7 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: r.reason });
       return failure(r.reason);
     }
-    const id = r.identity ?? (r.external ? await this.linkedIdentity(r.external) : null);
+    const id = r.identity ?? (r.external ? await this.linkedIdentity(s, r.external) : null);
     if (!id) {
       await this.audit(ctx, { type: 'login', outcome: 'failure', strategy: s.name, reason: 'not_linked' });
       return failure('not_linked');

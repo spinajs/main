@@ -33,6 +33,7 @@ const prepareJwt =
 
 const world = (k: CaseKit): JwtWorld => k.prepared!.data as JwtWorld;
 
+/** `jit`: the global authn.linking.jit switch; the issuer's own switch comes through `over.linking`. */
 const jwtConfig =
   (over: Partial<JwtIssuerOverride> = {}, jit = false) =>
   (p: Prepared | undefined): ConfigOverrides => {
@@ -40,7 +41,7 @@ const jwtConfig =
     return {
       authn: {
         jwt: { issuers: [{ issuer: ISSUER, audience: AUDIENCE, jwksUri: w.jwks.url, algorithms: ['EdDSA', 'ES256'], clockSkewSeconds: 30, subjectClaim: 'sub', provider: PROVIDER, ...over }] },
-        ...(jit ? { linking: { jit: true } } : {}),
+        ...(jit ? { linking: { jit: true, byVerifiedEmail: false } } : {}),
       },
     };
   };
@@ -172,14 +173,35 @@ export const A16: AuthnRule = defineRule('A16', 'JWT bearers only from configure
     },
   }),
   defineCase({
-    name: 'A16 an unknown subject is provisioned with JIT on',
+    name: "A16 an unknown subject is provisioned with the global and the issuer's JIT switch on",
+    facet: 'A16/jwt',
+    needs: ['service'],
+    prepare: prepareJwt(),
+    config: jwtConfig({ linking: { jit: true } }, true),
+    async run(h, k) {
+      const r = await auth(h, k, { kind: 'bearer', token: jwt(k, { sub: 'kit-sub-new', email: 'new@example.test' }) }, { purpose: 'request' });
+      assert.strictEqual(r.status, 'success', `result ${JSON.stringify(r)}`);
+    },
+  }),
+  // K6: JIT turned on for an OIDC provider must not create accounts for any subject of a JWT issuer.
+  defineCase({
+    name: "A16 the global JIT switch alone does not provision a JWT issuer's subject",
     facet: 'A16/jwt',
     needs: ['service'],
     prepare: prepareJwt(),
     config: jwtConfig({}, true),
     async run(h, k) {
-      const r = await auth(h, k, { kind: 'bearer', token: jwt(k, { sub: 'kit-sub-new', email: 'new@example.test' }) }, { purpose: 'request' });
-      assert.strictEqual(r.status, 'success', `result ${JSON.stringify(r)}`);
+      expectFailure(await auth(h, k, { kind: 'bearer', token: jwt(k, { sub: 'kit-sub-new', email: 'new@example.test' }) }, { purpose: 'request' }), 'not_linked');
+    },
+  }),
+  defineCase({
+    name: "A16 the issuer's JIT switch alone does not provision either",
+    facet: 'A16/jwt',
+    needs: ['service'],
+    prepare: prepareJwt(),
+    config: jwtConfig({ linking: { jit: true } }),
+    async run(h, k) {
+      expectFailure(await auth(h, k, { kind: 'bearer', token: jwt(k, { sub: 'kit-sub-new', email: 'new@example.test' }) }, { purpose: 'request' }), 'not_linked');
     },
   }),
 ]);
