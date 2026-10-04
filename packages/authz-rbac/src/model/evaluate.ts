@@ -16,6 +16,8 @@ import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
 import { rulesExtension } from './rules/extension.js';
 import { applyCaps, applyRestrict, applyThresholds } from './rules/steps.js';
+import { nativeListVote } from './rules/native.js';
+import type { NativeListInput } from './rules/native.js';
 import type { ActiveRule } from './rules/steps.js';
 import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
 import type { SetMemberships } from './sets/resolver.js';
@@ -53,6 +55,10 @@ import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.
  *   never be emitted bare: a bare term would list rows the check refuses.
  * - `state.fields` set by a step before `residual` is a cap: `residual` intersects the grants'
  *   fields with it, and keeps it as it is when no contributing grant carries fields.
+ * - With a list extension (`listsRules`, rbacAssignmentExtension with `rules: true`), a type-level
+ *   request whose rows depend on rules (or on a part the v1 term cannot carry: NativeNeedsV2) is
+ *   answered by `nativeListVote` after `collect`: args v2 and `native:rbac.threshold` terms
+ *   (rules/args.ts), which the list evaluator decides per row by running these steps on the row.
  */
 
 export const RBAC_STEP_NAMES = Object.freeze(['collect', 'restrict', 'cap', 'aggregate', 'grant', 'tag', 'provenance', 'threshold', 'residual'] as const);
@@ -81,6 +87,8 @@ export interface RbacInput {
   readonly scopedResidual?: 'under' | 'native';
   /** Assignments of the principal's subjects, config roles included; `collect` keeps the live ones. */
   readonly assignments: readonly Assignment[];
+  /** The config roles among `assignments` (anonymousRoles, serviceRoles): in no store. */
+  readonly config?: readonly Assignment[];
   readonly roles: RoleGraph;
   readonly grants: GrantIndex;
   /** Rank tables (RbacExtension.tables); absent: no role has a rank and every grant applies on every type. */
@@ -95,6 +103,8 @@ export interface RbacInput {
   readonly rowDependentRules?: readonly string[];
   /** False when a rule condition gave an uncacheable answer. */
   readonly rulesCacheable?: boolean;
+  /** Type-level requests with a list extension: the rules part of the list terms (RulesExtension). */
+  readonly native?: NativeListInput;
   /** Called by `collect` for an assignment whose role the graph does not hold (B12: ignored). */
   readonly onUnknownRole?: (assignment: Assignment) => void;
   /** Called by `collect` for an assignment its role's definition refuses (`assignable`, `scopeTypes`): ignored. */
@@ -249,7 +259,7 @@ const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
 
 // The native term has no part for tags or provenance yet; a bare one would list rows the check refuses.
 function nativeCannotCarry(s: RbacState): void {
-  if (s.input.scopedResidual === 'native') throw new Error(`rbac: ${RBAC_ASSIGNMENT_OP} cannot carry the tag or provenance part of '${s.permission}' on a type-level request yet`);
+  if (s.input.scopedResidual === 'native') throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: ${RBAC_ASSIGNMENT_OP} cannot carry the tag or provenance part of '${s.permission}' on a type-level request yet`);
 }
 
 /** The grants of the permission that scoped assignments reach, with those assignments. */
@@ -275,7 +285,7 @@ function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceF
   if (s.input.scopedResidual === 'native') {
     // The term holds on every assignment of the stored role on the row's path, the row itself included.
     const strict = holders.find((h) => h.onlyBelow && mayBeAssignedAt(s.input.roles, h.assignment.role, type));
-    if (strict) throw new Error(`rbac: role '${strict.role}' is implied by '${strict.assignment.role}' below its scope only, which ${RBAC_ASSIGNMENT_OP} cannot express on type '${type}'`);
+    if (strict) throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: role '${strict.role}' is implied by '${strict.assignment.role}' below its scope only, which ${RBAC_ASSIGNMENT_OP} cannot express on type '${type}'`);
     return {
       op: RBAC_ASSIGNMENT_OP,
       args: rbacAssignmentArgs(
@@ -315,13 +325,41 @@ export const RBAC_SUMMARY_STEPS: RbacSteps = Object.freeze({ ...RBAC_STEPS, resi
 
 /** Runs the steps over the gathered input, synchronously. */
 export function runRbacPipeline(input: RbacInput, steps: RbacSteps = RBAC_STEPS): Vote {
+  if (input.native && isTypeLevel(input.request.resource)) {
+    // Rules make every row's answer depend on its path: the list terms carry them (args v2).
+    if (input.native.rules.length > 0 || input.native.dbRules) return nativeVote(input, steps);
+    try {
+      return toVote(rbacState(input, 'residual', steps));
+    } catch (e) {
+      if (e instanceof NativeNeedsV2) return nativeVote(input, steps);
+      throw e;
+    }
+  }
+  return toVote(rbacState(input, 'residual', steps));
+}
+
+/** The state after the steps up to `through`, in order (the list evaluator stops before `residual`). */
+export function rbacState(input: RbacInput, through: RbacStepName = 'residual', steps: RbacSteps = RBAC_STEPS): RbacState {
   const state = newState(input, true);
   for (const name of RBAC_STEP_NAMES) {
     steps[name](state);
     if (name === 'grant' && state.candidates.length === 0) state.reasons.push(steps.noGrantReason(state));
+    if (name === through) break;
   }
+  return state;
+}
+
+function nativeVote(input: RbacInput, steps: RbacSteps): Vote {
+  const state = newState(input, true);
+  steps.collect(state);
+  // Summary votes list the fields of every grant that permits some row, as RBAC_SUMMARY_STEPS' residual does.
+  const fields = steps === RBAC_SUMMARY_STEPS ? summaryFieldGlobs : voteFieldGlobs;
+  nativeListVote(state, (g) => grantResidual(g, { resource: input.request.resource, path: input.path, principal: input.request.principal }), input.subjects ?? defaultSubjects(input.request.principal), fields);
   return toVote(state);
 }
+
+/** A type-level vote the v1 term cannot carry; with a list extension the runner builds args v2 instead. */
+export class NativeNeedsV2 extends Error {}
 
 /**
  * Steps 1–3 (collect, restrict, cap) over the input: the assignments that hold at the request's
@@ -336,7 +374,7 @@ export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boo
 
 function newState(input: RbacInput, ceiling: boolean): RbacState {
   const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
-  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true, rankAt: new Map(), ruleSubjects: new Map() };
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: input.native?.cacheable !== false, rankAt: new Map(), ruleSubjects: new Map() };
 }
 
 // OR is order-free, but the residual enters the cross-request decision cache key and SQL statement
@@ -407,7 +445,7 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
           now: ctx.now,
           path,
           subjects,
-          assignments: [...stored, ...(sources.configAssignments?.(subjects) ?? [])],
+          ...withConfig(stored, sources.configAssignments?.(subjects) ?? []),
           roles: sources.roles,
           grants: sources.grants,
           ...(sources.onUnknownRole ? { onUnknownRole: sources.onUnknownRole } : {}),
@@ -418,6 +456,8 @@ export function readRbacInput(request: DecisionRequest, ctx: EvaluationContext, 
   );
   return isThenable(input) ? Promise.resolve(input) : input;
 }
+
+const withConfig = (stored: readonly Assignment[], config: readonly Assignment[]) => ({ assignments: [...stored, ...config], ...(config.length > 0 ? { config } : {}) });
 
 /** Merges the extensions' `gather` results into `input`, in list order; synchronous while each gather is. */
 export function extendRbacInput(request: DecisionRequest, ctx: EvaluationContext, sources: RbacSources, input: RbacInput): RbacInput | Promise<RbacInput> {
@@ -515,6 +555,8 @@ export interface RbacExtension {
   nativeFilters?(): readonly NativeFilter[];
   /** OR-ed into the model's capabilities. */
   readonly capabilities?: Partial<Pick<ModelCapabilities, 'needsSubject'>>;
+  /** Type-level votes carry the rules in native list terms (rbacAssignmentExtension with rules: true). */
+  readonly listsRules?: (type: ResourceType) => boolean;
 }
 
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;

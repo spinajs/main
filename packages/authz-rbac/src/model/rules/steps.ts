@@ -210,7 +210,7 @@ function rowsMeeting(s: RbacState, ladder: CompiledLadder, minRank: number): Res
   return underTerm(s.scoped.filter(meets), s.input.request.resource.type);
 }
 
-function thresholdReason(rule: CompiledRule): DenyReason {
+export function thresholdReason(rule: CompiledRule): DenyReason {
   const reason = rule.def.reason;
   return reason ? { ...reason, priority: reason.priority ?? DEFAULT_THRESHOLD_PRIORITY } : { code: 'threshold', rule: rule.def.id, priority: DEFAULT_THRESHOLD_PRIORITY };
 }

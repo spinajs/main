@@ -3,7 +3,7 @@ import 'mocha';
 import { BEHAVIOUR_FIXTURES, runBehaviour, userPrincipal } from '@spinajs/authz-testing';
 import type { BehaviourFixture, FixtureExtension } from '@spinajs/authz-testing';
 
-import { ConfigRuleStore } from '../src/index.js';
+import { ConfigRuleStore, createRbacExtensions, rbacAssignmentExtension } from '../src/index.js';
 import { rbacHarness } from './model/harness.js';
 
 // Stopgap for RFC L1b-1: B35.conditions "subjects.when … (a principal attribute)" assumes a missing
@@ -20,3 +20,13 @@ const fixtures = BEHAVIOUR_FIXTURES.map((f): BehaviourFixture | FixtureExtension
 const harness = () => rbacHarness({ facets: ['ladders', 'rules', 'conditions'], rules: (host) => new ConfigRuleStore(host.world.rbac?.rules ?? []) });
 
 runBehaviour(['B02.rules', 'B05.ladders', 'B05.rules', 'B12.implies', 'B31', 'B32', 'B33', 'B34', 'B35', 'B36.rbac', 'B46.rules'], harness, { strict: true, timeoutMs: 30_000, fixtures });
+
+// B06.rules with the list extension on.
+const listHarness = () =>
+  rbacHarness({
+    facets: ['ladders', 'rules', 'conditions'],
+    rules: (host) => new ConfigRuleStore(host.world.rbac?.rules ?? []),
+    extensions: (_host, model) => [...createRbacExtensions(model), rbacAssignmentExtension(model, { rules: true })],
+  });
+
+runBehaviour(['B06.rules'], listHarness, { strict: true, timeoutMs: 30_000 });
