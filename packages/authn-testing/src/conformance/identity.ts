@@ -60,6 +60,46 @@ export function runIdentityStoreConformance(factory: (k: { clock: FakeClock }) =
       assert.strictEqual(await passwords.get(b), 'kit$hash$1');
     });
 
+    kase('an unconditional set answers true and overwrites', async ({ passwords, seed }) => {
+      const b = await seed.user({ login: 'conf-b' });
+      assert.strictEqual(await passwords.set(b, 'kit$hash$1'), true);
+      assert.strictEqual(await passwords.set(b, 'kit$hash$2'), true);
+      assert.strictEqual(await passwords.get(b), 'kit$hash$2');
+    });
+
+    kase('a conditional set writes only over the expected value (RFC N3-1)', async ({ passwords, seed }) => {
+      const b = await seed.user({ login: 'conf-b' });
+      const c = await seed.user({ login: 'conf-c' });
+      await passwords.set(b, 'kit$hash$1');
+      await passwords.set(c, 'kit$hash$1');
+      assert.strictEqual(await passwords.set(b, 'kit$hash$2', 'kit$hash$other'), false, 'a stale expected value');
+      assert.strictEqual(await passwords.get(b), 'kit$hash$1');
+      assert.strictEqual(await passwords.set(b, 'kit$hash$2', null), false, 'null expects no password');
+      assert.strictEqual(await passwords.get(b), 'kit$hash$1');
+      assert.strictEqual(await passwords.set(b, 'kit$hash$2', 'kit$hash$1'), true);
+      assert.strictEqual(await passwords.get(b), 'kit$hash$2');
+      assert.strictEqual(await passwords.get(c), 'kit$hash$1', 'only the given identity changes');
+      assert.strictEqual(await passwords.set(b, 'kit$hash$3', 'kit$hash$1'), false, 'the value it replaced is stale now');
+      assert.strictEqual(await passwords.get(b), 'kit$hash$2');
+    });
+
+    kase('a conditional set with null writes only where no password is stored', async ({ passwords, seed }) => {
+      const b = await seed.user({ login: 'conf-b' });
+      assert.strictEqual(await passwords.set(b, 'kit$hash$1', 'kit$hash$1'), false, 'no password is not any value');
+      assert.strictEqual(await passwords.get(b), null);
+      assert.strictEqual(await passwords.set(b, 'kit$hash$1', null), true);
+      assert.strictEqual(await passwords.get(b), 'kit$hash$1');
+    });
+
+    kase('of parallel conditional sets over one value exactly one writes', async ({ passwords, seed }) => {
+      const b = await seed.user({ login: 'conf-b' });
+      await passwords.set(b, 'kit$hash$0');
+      const hashes = Array.from({ length: 8 }, (_, i) => `kit$hash$p${i}`);
+      const wrote = await Promise.all(hashes.map((h) => passwords.set(b, h, 'kit$hash$0')));
+      assert.strictEqual(wrote.filter(Boolean).length, 1);
+      assert.strictEqual(await passwords.get(b), hashes[wrote.indexOf(true)]);
+    });
+
     kase('provision exists exactly when JIT is on', async ({ store, jit }) => {
       assert.strictEqual(typeof store.provision === 'function', jit);
     });

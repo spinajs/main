@@ -3444,7 +3444,7 @@ export abstract class IdentityStore {
 }
 export abstract class PasswordCredentialStore {
   abstract get(id: IdentityRef): Promise<string | null>;                    // the stored hash
-  abstract set(id: IdentityRef, hash: string): Promise<void>;
+  abstract set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean>;  // (RFC N3-1) with `expected`: atomic compare-and-set (null: no password), answers whether it wrote; without: unconditional, true
 }
 export abstract class PrincipalFactory {           // users: UserPrincipalFactory; apps: service and agent principals
   abstract principalOf(id: IdentityRef, facts: AuthnFacts, extra: { ceiling?: Ceiling; onBehalfOf?: Principal; delegation?: 'inherit' | 'intersect'; attributes?: Readonly<Record<string, unknown>> }): Promise<Principal>;

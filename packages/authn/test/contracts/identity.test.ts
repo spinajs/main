@@ -47,8 +47,10 @@ class MemoryPasswords extends PasswordCredentialStore {
   async get(id: IdentityRef): Promise<string | null> {
     return this.hashes.get(id.id) ?? null;
   }
-  async set(id: IdentityRef, hash: string): Promise<void> {
+  async set(id: IdentityRef, hash: string, expected?: string | null): Promise<boolean> {
+    if (expected !== undefined && (this.hashes.get(id.id) ?? null) !== expected) return false;
     this.hashes.set(id.id, hash);
+    return true;
   }
 }
 
@@ -150,7 +152,7 @@ describe('identity store and account link contracts', () => {
       expect(c.PasswordCredentialStore.base).to.eq(null);
       expect(shape(c.PasswordCredentialStore.members)).to.deep.eq([
         { name: 'get', modifiers: ['abstract'], optional: false, params: ['id'] },
-        { name: 'set', modifiers: ['abstract'], optional: false, params: ['id', 'hash'] },
+        { name: 'set', modifiers: ['abstract'], optional: false, params: ['id', 'hash', 'expected'] },
       ]);
     });
 
@@ -174,6 +176,8 @@ describe('identity store and account link contracts', () => {
       const set = docOf(identity.PasswordCredentialStore.members, 'set');
       expect(set).to.contain('never a raw password');
       expect(set).to.contain('A03');
+      expect(set).to.contain('compare-and-set');
+      expect(set).to.contain('null: no password stored');
       expect(docOf(identity.PasswordCredentialStore.members, 'get')).to.contain('hash');
       expect(docOf(classMembers('link.ts').IdentityLinkStore.members, 'find')).to.contain('A19');
     });
@@ -214,8 +218,8 @@ describe('identity store and account link contracts', () => {
     it('PasswordCredentialStore members have the design types', () => {
       same<Parameters<PasswordCredentialStore['get']>, [IdentityRef]>(true);
       same<ReturnType<PasswordCredentialStore['get']>, Promise<string | null>>(true);
-      same<Parameters<PasswordCredentialStore['set']>, [IdentityRef, string]>(true);
-      same<ReturnType<PasswordCredentialStore['set']>, Promise<void>>(true);
+      same<Parameters<PasswordCredentialStore['set']>, [IdentityRef, string, (string | null)?]>(true);
+      same<ReturnType<PasswordCredentialStore['set']>, Promise<boolean>>(true);
     });
 
     it('IdentityLinkStore members have the design types', () => {
@@ -282,7 +286,9 @@ describe('identity store and account link contracts', () => {
       }
       // @ts-expect-error get is missing
       class NoGet extends PasswordCredentialStore {
-        async set(): Promise<void> {}
+        async set(): Promise<boolean> {
+          return true;
+        }
       }
       // @ts-expect-error unlink is missing
       class NoUnlink extends IdentityLinkStore {
