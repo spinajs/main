@@ -14,3 +14,4 @@ export * from './claims.js';
 export * from './provider.js';
 export * from './strategy.js';
 export * from './login.js';
+export * from './links.js';

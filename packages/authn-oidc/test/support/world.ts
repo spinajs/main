@@ -1,6 +1,6 @@
 import { MemoryNonceStore } from '@spinajs/authn-orm';
 import { ExternalLoginHook } from '@spinajs/authn/contracts';
-import type { AuthnContext, ExternalSubject, IdentityRef, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
 import { readOidcOptions } from '../../src/config/options.js';
@@ -9,6 +9,8 @@ import { OidcStrategy } from '../../src/strategy.js';
 import { OidcLogin } from '../../src/login.js';
 import type { OidcAnswer, OidcRequest } from '../../src/login.js';
 import { flowCookieName } from '../../src/flow/cookie.js';
+import { OidcAccountLinks } from '../../src/links.js';
+import type { OidcLinkResult } from '../../src/links.js';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FakeIdp } from './fake-idp.js';
 import type { FakeLogin } from './fake-idp.js';
 
@@ -22,6 +24,44 @@ export class RecordingHook extends ExternalLoginHook {
   async afterLogin(identity: IdentityRef, external: ExternalSubject): Promise<void> {
     this.calls.push([identity, external]);
     if (this.fail) throw new Error('hook failed');
+  }
+}
+
+/** N1's AccountLinkService rules, enough for the link routes: own active fresh session, unique subjects, never the last credential. */
+export class FakeAccountLinks extends OidcAccountLinks {
+  public readonly withPassword = new Set<string>();
+  public readonly calls: string[] = [];
+
+  constructor(
+    protected readonly sessions: SessionIssuer,
+    protected readonly links: IdentityLinkStore,
+    protected readonly maxAgeSeconds = 300,
+  ) {
+    super();
+  }
+
+  protected async holder(session: SessionHandle, ctx: AuthnContext): Promise<IdentityRef | null> {
+    const r = await this.sessions.restore(session.id);
+    if (!r || r.handle.state !== 'active' || ctx.purpose !== 'link' || ctx.session?.id !== session.id) return null;
+    return ctx.now.getTime() - r.facts.authenticatedAt.getTime() <= this.maxAgeSeconds * 1000 ? r.identity : null;
+  }
+
+  async link(session: SessionHandle, external: ExternalSubject, ctx: AuthnContext): Promise<OidcLinkResult> {
+    this.calls.push(`link ${external.provider} ${external.subject}`);
+    const id = await this.holder(session, ctx);
+    if (!id || (await this.links.find(external.provider, external.subject))) return { ok: false };
+    return { ok: true, link: await this.links.link(id, external) };
+  }
+
+  async unlink(session: SessionHandle, linkId: string, ctx: AuthnContext): Promise<{ ok: boolean }> {
+    this.calls.push(`unlink ${linkId}`);
+    const id = await this.holder(session, ctx);
+    if (!id) return { ok: false };
+    const mine = await this.links.list(id);
+    if (!mine.some((l) => l.id === linkId)) return { ok: false };
+    if (mine.length === 1 && !this.withPassword.has(id.id)) return { ok: false };
+    await this.links.unlink(linkId);
+    return { ok: true };
   }
 }
 
@@ -58,7 +98,10 @@ export async function world(o: WorldOptions = {}) {
     principals: new RecordingPrincipalFactory(),
   });
   const hook = new RecordingHook();
+  const linker = new FakeAccountLinks(sessions, links);
   const login = new OidcLogin({
+    linker,
+    links,
     strategies: new Map([[name, strategy]]),
     service,
     sessions,
@@ -80,5 +123,5 @@ export async function world(o: WorldOptions = {}) {
     return { begun, query, done, flow: flowOf(begun) };
   }
 
-  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, login, ctx, request, flowOf, roundTrip };
+  return { idp, name, options, nonces, provider, identities, links, strategy, sessions, events, service, hook, linker, login, ctx, request, flowOf, roundTrip };
 }
