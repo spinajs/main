@@ -60,6 +60,35 @@ const selects: Case[] = [
   { name: 'select: FALSE (no permit at all) is AccessDenied, not an empty list (H16)', world: ormWorld({}), steps: [as('alice', orm(select, DENIED))] },
 ];
 
+/** Not scoped (no `type`); each note belongs to a task. */
+const NOTE: OrmModelSpec = {
+  name: 'Note',
+  columns: ['task_id'],
+  rows: [
+    { id: 'n1', task_id: 't1' },
+    { id: 'n2', task_id: 't2' },
+    { id: 'n3', task_id: 't3' },
+  ],
+  belongsTo: [{ name: 'task', target: 'Task', column: 'task_id' }],
+};
+const JOINED_TASK: OrmModelSpec = { ...TASK, relationScope: 'join' };
+const populated = { op: 'select', model: 'Note', populate: 'task' } as const;
+
+// RFC L4-1: a populated target's residual goes where its relationScope says.
+const joins: Case[] = [
+  {
+    name: "select: a relationScope 'join' target's residual goes into the JOIN ON; the parent rows stay",
+    world: ormWorld({ 'task:read': OWNER }, [JOINED_TASK, NOTE]),
+    steps: [as('bob', orm(populated, { ids: ['n1', 'n2', 'n3'], populated: { n1: null, n2: 't2', n3: null }, where: false }))],
+  },
+  {
+    name: "select: a relationScope 'where' target's residual goes into the WHERE; parent rows whose target is hidden drop",
+    world: ormWorld({ 'task:read': OWNER }, [TASK, NOTE]),
+    steps: [as('bob', orm(populated, { ids: ['n2'], populated: { n2: 't2' }, where: true }))],
+  },
+  { name: 'select: a populated target with no permit at all is AccessDenied (H16)', world: ormWorld({}, [JOINED_TASK, NOTE]), steps: [as('bob', orm(populated, DENIED))] },
+];
+
 const updates: Case[] = [
   { name: 'update: TRUE updates any row', world: ormWorld({ 'task:update': permit() }), steps: [as('alice', orm(update('t2', { title: 'x' }), {})), ormRows('Task', { rows: [{ id: 't2', title: 'x' }] })] },
   {
@@ -132,8 +161,8 @@ export const B20 = fixture('B20', [
     name: 'orm',
     facets: ['engine', 'host', 'orm'],
     lanes: ['L4'],
-    note: "The JOIN ON placement of relationScope 'join' needs a query that joins the scoped model; the design does not fix its shape, so L4 proposes that case by RFC.",
-    cases: [...selects, ...updates, ...deletes, ...inserts],
+    note: "The JOIN ON placement of relationScope 'join' is asserted on a belongsTo target populated into a select (RFC L4-1): rows, populated ids and the absence of a WHERE, not the SQL text.",
+    cases: [...selects, ...joins, ...updates, ...deletes, ...inserts],
   },
   {
     name: 'configuration',
