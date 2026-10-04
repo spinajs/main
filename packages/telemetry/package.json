@@ -51,10 +51,13 @@
     "url": "https://github.com/spinajs/main/issues"
   },
   "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/fs": "2.0.549",
     "@spinajs/http-swagger": "2.0.549"
   },
   "dependencies": {
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-http": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/configuration-common": "2.0.549",
     "@spinajs/di": "2.0.549",

@@ -24,6 +24,9 @@ const config = {
       // set this in your project
       token: '',
 
+      /** Skip the 'AccessPolicy' slot checks, only while APP_ENV (else NODE_ENV) names development and configuration.isProduction is not true. */
+      skipInDevelopment: false,
+
       /**
        * Policy class name per endpoint. Each route resolves its policy by
        * reading the config key below, so access can be tightened or loosened

@@ -15,10 +15,9 @@ function stub(target: unknown, key: string, value: unknown) {
   Object.defineProperty(target, key, { value, writable: true, configurable: true });
 }
 
-function makeTokenPolicy(token: string, isDev: boolean) {
+function makeTokenPolicy(token: string, _isDev: boolean) {
   const p = new TelemetryTokenPolicy();
   stub(p, 'Token', token);
-  stub(p, 'isDev', isDev);
   stub(p, 'Log', { warn: () => undefined });
   return p;
 }
@@ -28,9 +27,16 @@ function fakeReq(headers: Record<string, string> = {}) {
 }
 
 describe('TelemetryTokenPolicy', () => {
-  it('passes in development regardless of the token', async () => {
+  // C7: the development bypass needs the explicit opt-in now (test/token-policy.test.ts).
+  it('no longer passes in development without the explicit opt-in', async () => {
     const p = makeTokenPolicy('secret', true);
-    await p.execute(fakeReq());
+    let thrown: unknown;
+    try {
+      await p.execute(fakeReq());
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).to.be.instanceOf(Forbidden);
   });
 
   it('rejects a request with no token', async () => {

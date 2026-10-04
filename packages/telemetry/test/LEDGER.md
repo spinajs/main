@@ -95,7 +95,7 @@ Ledgered 40, unledgered 72, package total 112.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 31 | TelemetryTokenPolicy > passes in development regardless of the token | rewrite | C7 -> T4 | telemetry/test/v3/ (B23, C7): the development skip stays but must be explicit |
+| 1 | 31 | TelemetryTokenPolicy > passes in development regardless of the token | rewrite | C7 -> T4 | telemetry/test/v3/ (B23, C7): the development skip stays but must be explicit; C7 task 1 renamed it to "no longer passes in development without the explicit opt-in" (now asserts Forbidden), opt-in cases in `test/token-policy.test.ts` |
 | 2 | 36 | TelemetryTokenPolicy > rejects a request with no token | rewrite | C7 -> T4 | telemetry/test/v3/ (B23, B10): no token means an anonymous request; denial is 401 from `AccessPolicy`, not `Forbidden` thrown by the policy |
 | 3 | 47 | TelemetryTokenPolicy > rejects a request with the wrong token | rewrite | C7 -> T4 | telemetry/test/v3/ (B23, B10): a wrong token yields no service principal (constant-time compare); denial comes from `AccessPolicy` |
 | 4 | 58 | TelemetryTokenPolicy > accepts a request with the right token on the x-metrics-token header | rewrite | C7 -> T4 | telemetry/test/v3/ (B23, plan C7: `TelemetryAccessPolicy` reads `telemetry.auth.permissions.<endpoint>`; the token becomes `service:telemetry` via `ServicePrincipalSource`) |
