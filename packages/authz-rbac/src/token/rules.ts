@@ -15,7 +15,8 @@ const SERVICE_KEY = 'authz.token.rolePolicy.service';
 /**
  * Whether `role` matches an entry of `patterns` (2.x `_role_excluded`): an exact role name, or a
  * name ending in `.*` that matches that prefix with its dot, so `route.*` covers `route.home` and
- * `route.admin.users` but neither `routes.read` nor `route`.
+ * `route.admin.users` but neither `routes.read` nor `route`. It reads the assigned role's name only,
+ * as `ceiling.roles` does: a role that extends an excluded role keeps the grants it inherits.
  */
 export function roleExcluded(role: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => (pattern.endsWith('.*') ? role.startsWith(pattern.slice(0, -1)) : role === pattern));
