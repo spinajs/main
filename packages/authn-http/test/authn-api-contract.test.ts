@@ -19,6 +19,7 @@ import { FromSession as MovedFromSession, SessionId as MovedSessionId } from '..
 import { NotLoggedPolicy as MovedNotLoggedPolicy } from '../src/policies/NotLoggedPolicy.js';
 import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../src/token/policies/NoTokenAuthPolicy.js';
 import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
+import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
 
 const expect = chai.expect;
 
@@ -32,6 +33,8 @@ const POLICIES = { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedP
 const ROUTE_ARGS = { Identity, AuthnSession, SessionId, FromSession };
 const MIDDLEWARES = { ClientIp, CsrfOriginGuard, AuthnMiddleware };
 const RESOLVERS = { KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver };
+// api.ts names N8a has implemented: the barrel must give these, not the stubs.
+const LANE: Record<string, unknown> = { ClientIp: LaneClientIp };
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
@@ -133,10 +136,14 @@ describe('authn-http api stubs (api.ts)', function () {
       for (const f of Object.values(ROUTE_ARGS)) expect(f).to.be.a('function');
     });
 
-    it('the barrel exports every api name; the five colliding names stay the moved 2.x ones until N8a', () => {
+    it('the barrel exports every api name, as the lane implementation where N8a has one; the five colliding names stay the moved 2.x ones until N8a', () => {
       const b = barrel as unknown as Record<string, unknown>;
       const own = RUNTIME_EXPORTS.filter((n) => !['FromSession', 'SessionId', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy'].includes(n));
-      for (const n of own) expect(b[n], n).to.eq((api as Record<string, unknown>)[n]);
+      for (const n of own) {
+        const stub = (api as Record<string, unknown>)[n];
+        if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
+        else expect(b[n], n).to.eq(stub);
+      }
       expect(barrel.FromSession).to.eq(MovedFromSession).and.not.eq(FromSession);
       expect(barrel.SessionId).to.eq(MovedSessionId).and.not.eq(SessionId);
       expect(barrel.NotLoggedPolicy).to.eq(MovedNotLoggedPolicy).and.not.eq(NotLoggedPolicy);
