@@ -48,7 +48,7 @@ describe('authn shipped config', () => {
     expect(authn.strategies).to.deep.eq([]);
   });
 
-  it('names no throttle service: one package only may set it (authn-orm sets DbAuthnThrottle)', () => {
+  it('names no throttle service: the core picks the one besides MemoryAuthnThrottle when unset (K6)', () => {
     expect(authn.throttle).to.not.have.property('service');
   });
 

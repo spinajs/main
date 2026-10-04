@@ -31,11 +31,10 @@ type Peek = (keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext
 /**
  * The authentication flow over the contracts, for lanes that need a `service` port before N1's AuthnService:
  * route by credential kind, count the attempt (strategy keys + ip) before verify (a per-request strategy over a throttle
- * with `peek`: peek before verify and count failures only, K5), audit every failure with its real
- * reason, answer status refusals as invalid_credentials, link or provision external subjects, run the external login
- * hooks before any session, issue a pending
- * session when MFA is required, elevate on completeMfa, and re-authenticate without touching the session.
- * A fake, not N1's implementation.
+ * with `peek`: peek before verify and count failures only, K5), audit every failure with its real reason, answer
+ * status refusals as invalid_credentials, link or provision external subjects, run the external login hooks before
+ * any session, issue a pending session when MFA is required, elevate on completeMfa, and re-authenticate without
+ * touching the session. A fake, not N1's implementation: unlike the core it links before the status check.
  */
 export class FakeAuthnService extends AuthnService {
   /** Subclasses may turn this off to claim the slot only after verification (the A05 mutation check). */
@@ -74,7 +73,12 @@ export class FakeAuthnService extends AuthnService {
     const link = await this.d.links.find(external.provider, external.subject);
     if (link) return link.identity;
     const linkingFor = (s as { linkingFor?: (e: ExternalSubject) => { jit?: unknown; byVerifiedEmail?: unknown } }).linkingFor;
-    const own = typeof linkingFor === 'function' ? linkingFor.call(s, external) : {};
+    let own: { jit?: unknown; byVerifiedEmail?: unknown } = {};
+    try {
+      if (typeof linkingFor === 'function') own = linkingFor.call(s, external) ?? {};
+    } catch {
+      own = {};
+    }
     let id: IdentityRef | null = null;
     if (this.d.linking.byVerifiedEmail && own.byVerifiedEmail === true && external.emailVerified && external.email) {
       id = await this.d.identities.findByLogin(external.email);
@@ -96,8 +100,14 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return failure('unsupported_credentials');
     }
-    // A per-request credential's account key is scoped by ip, so nobody elsewhere can hold it in backoff (K6).
-    const own = s.throttleKeys(c, ctx).map((k) => (!s.interactive && k.kind === 'account' ? { kind: k.kind, value: `${k.value}|${ctx.ip ?? ''}` } : k));
+    // As the core (K6): account keys apart per kind of strategy, and a per-request one scoped by ip, so nobody
+    // elsewhere can hold it in backoff.
+    const prefix = s.interactive ? 'login:' : 'request:';
+    const own = s.throttleKeys(c, ctx).map((k) => {
+      if (k.kind === 'account-ip') return { kind: k.kind, value: `${prefix}${k.value}` };
+      if (k.kind !== 'account') return k;
+      return { kind: k.kind, value: s.interactive ? `${prefix}${k.value}` : `${prefix}${k.value}|${ctx.ip ?? ''}` };
+    });
     const keys = this.keysFor(own, ctx);
     const refuse = async (t: Verdict) => {
       if (t.allowed) return null;

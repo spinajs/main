@@ -27,17 +27,18 @@ Each one is registered under its class name, so configuration can name it:
 
 | Contract | Class | Config |
 |---|---|---|
-| `AuthnThrottle` | `DbAuthnThrottle` | `authn.throttle.service: 'DbAuthnThrottle'` |
+| `AuthnThrottle` | `DbAuthnThrottle` | used when `authn.throttle.service` is unset (or named) |
 | `SecretStore` | `DbSecretStore` | — |
 | `IdentityLinkStore` | `DbIdentityLinkStore` | — |
 | `AuthnEventSink` | `DbAuthnAuditSink` | gets every event; may be listed in `authn.audit.sinks` to run first |
 | — | `DbNonceStore` (`NonceStore`, `MemoryNonceStore`) | — |
 | — | `DbMfaStore` | for MFA steps (authn-totp) |
 
-The package's shipped config sets `authn.throttle.service: 'DbAuthnThrottle'`: the core refuses to
-choose between it and `MemoryAuthnThrottle` by itself. An app that wants the memory throttle names it
-in its own config. `DbAuthnAuditSink` gets every event once registered; it is not listed in
-`authn.audit.sinks`, since config arrays concatenate and an app could never take it out again.
+Once this package is imported, the core uses `DbAuthnThrottle` when `authn.throttle.service` is unset:
+it takes the only registered throttle besides `MemoryAuthnThrottle`. An app that wants the memory
+throttle names it. The package ships no config file: config files load whether or not their package
+is imported, so a shipped service name would break an app that has this package installed but unused
+(authn-totp depends on it). `DbAuthnAuditSink` gets every event once registered.
 
 The MFA cipher (`mfaKeyFrom`, `encryptMfaSecret`, `decryptMfaSecret`) uses AES-256-GCM.
 The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
+import type { IContainer } from '@spinajs/di';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
@@ -196,7 +197,7 @@ describe('DefaultAuthnService', function () {
       failure(await p.service.authenticate(bearer('h.bad.s'), ctx({ purpose: 'request' })), 'invalid_credentials');
       assert.deepStrictEqual(throttle!.peeks.map((x) => x.keys), throttle!.attempts.map((x) => x.keys));
       assert.strictEqual(throttle!.attempts.length, 1);
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId).sort(), ['account-ip=jwt:1|' + IP, 'account=jwt:1|' + IP, 'ip=' + IP].sort());
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId).sort(), ['account-ip=request:jwt:1|' + IP, 'account=request:jwt:1|' + IP, 'ip=' + IP].sort());
       assert.strictEqual(throttle!.attempts[0].flow, 'login');
     });
 
@@ -206,7 +207,7 @@ describe('DefaultAuthnService', function () {
       const b = strategy('b', { keys: () => [...shared(), { kind: 'account', value: 'other' }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
       const p = await boot([a, b]);
       await p.service.authenticate(bearer('x'), ctx({ ip: undefined }));
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=same|', 'account=other|']);
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=request:same|', 'account=request:other|']);
     });
 
     it('does not pass an invalid_credentials answer on to the next candidate', async () => {
@@ -271,9 +272,9 @@ describe('DefaultAuthnService', function () {
       const s = strategy('acct', { interactive: true, keys: () => [{ kind: 'account', value: 'acct-1' }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
       const p = await boot([s]);
       await p.service.authenticate(bearer('x'), ctx());
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=acct-1', `account-ip=acct-1|${IP}`, `ip=${IP}`]);
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=login:acct-1', `account-ip=login:acct-1|${IP}`, `ip=${IP}`]);
       await p.service.authenticate(bearer('x'), ctx({ ip: undefined }));
-      assert.deepStrictEqual(throttle!.attempts[1].keys.map(keyId), ['account=acct-1']);
+      assert.deepStrictEqual(throttle!.attempts[1].keys.map(keyId), ['account=login:acct-1']);
     });
 
     it('adds the global key only when authn.throttle.global is set', async () => {
@@ -399,7 +400,7 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(throttle!.ipAttempts(IP), 3);
       success(await p.service.authenticate(bearer('own:good'), at(3)));
       assert.strictEqual(throttle!.ipAttempts(IP), 1);
-      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), [`account=key:own|${IP}`, `account-ip=key:own|${IP}`, `ip=${IP}`]);
+      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), [`account=request:key:own|${IP}`, `account-ip=request:key:own|${IP}`, `ip=${IP}`]);
     });
 
     describe('backoff per credential and ip (K6)', () => {
@@ -409,9 +410,9 @@ describe('DefaultAuthnService', function () {
       it("gives a per-request strategy's account key the ip, and keeps its account-ip bookkeeping", async () => {
         const { p } = await bootKeys();
         failure(await p.service.authenticate(bearer('a:bad'), at(0)), 'invalid_credentials');
-        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), [`account=key:a|${IP}`, `account-ip=key:a|${IP}`, `ip=${IP}`]);
+        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), [`account=request:key:a|${IP}`, `account-ip=request:key:a|${IP}`, `ip=${IP}`]);
         failure(await p.service.authenticate(bearer('a:bad'), at(1, { ip: undefined })), 'invalid_credentials');
-        assert.deepStrictEqual(throttle!.attempts[1].keys.map(keyId), ['account=key:a|'], 'requests without an ip share one key');
+        assert.deepStrictEqual(throttle!.attempts[1].keys.map(keyId), ['account=request:key:a|'], 'requests without an ip share one key');
       });
 
       it("failures from another ip never delay the credential's owner, and still back the attacker off", async () => {
@@ -437,10 +438,20 @@ describe('DefaultAuthnService', function () {
         assert.strictEqual(s.verifyCalls.length, verified, 'the ip key refuses before verify');
       });
 
+      it('a login string cannot name a per-request key, whatever it spells', async () => {
+        const login = strategy('local', { kinds: ['password'], interactive: true, keys: (c) => [{ kind: 'account', value: String((c as { login?: unknown }).login) }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+        const p = await boot([keyLike(), login], { raw: ONE_FREE });
+        p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
+        for (const spelled of [`key:a|${IP}`, `request:key:a|${IP}`, 'key:a', 'request:key:a']) {
+          for (let i = 0; i < 3; i++) await p.service.authenticate(pw(spelled, WRONG), at(i, { purpose: 'login', ip: OTHER_IP }));
+        }
+        success(await p.service.authenticate(bearer('a:good'), at(10)));
+      });
+
       it('keeps a credential-wide account key for interactive strategies', async () => {
         const { p } = await bootKeys(ONE_FREE, keyLike(true));
         failure(await p.service.authenticate(bearer('a:bad'), at(0, { purpose: 'login', ip: OTHER_IP })), 'invalid_credentials');
-        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=key:a', `account-ip=key:a|${OTHER_IP}`, `ip=${OTHER_IP}`]);
+        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=login:key:a', `account-ip=login:key:a|${OTHER_IP}`, `ip=${OTHER_IP}`]);
         failure(await p.service.authenticate(bearer('a:good'), at(1, { purpose: 'login' })), 'throttled');
       });
     });
@@ -540,7 +551,7 @@ describe('DefaultAuthnService', function () {
       );
       const keys = throttle!.attempts[0].keys.map(keyId);
       assert.ok(!keys.includes(`account-ip=${IP}/victim0`), 'the strategy own account-ip is ignored (D8b)');
-      assert.ok(keys.includes(`account-ip=victim0|${IP}`), 'the service builds account-ip itself (D8b)');
+      assert.ok(keys.includes(`account-ip=login:victim0|${IP}`), 'the service builds account-ip itself (D8b)');
     });
 
     it('builds account-ip itself, so a strategy account-ip without the ip clears nothing on another ip (D8b)', async () => {
@@ -575,10 +586,10 @@ describe('DefaultAuthnService', function () {
     it('keeps the failures with two password candidates, the first answering', async () => {
       assert.deepStrictEqual(await stuffThenSucceed([passwordLike('local', (l) => l, plain, true), passwordLike('ldap', (l) => `ldap:${l}`, plain, false)]), [20, 20, 20]);
       assert.ok(
-        throttle!.attempts[0].keys.some((k) => k.value === 'ldap:victim0'),
+        throttle!.attempts[0].keys.some((k) => k.value === 'login:ldap:victim0'),
         'both candidates count',
       );
-      assert.ok(!throttle!.succeeds[0].keys.some((k) => k.value.startsWith('ldap:')), 'succeed gets only the answering strategy keys');
+      assert.ok(!throttle!.succeeds[0].keys.some((k) => k.value.startsWith('login:ldap:')), 'succeed gets only the answering strategy keys');
     });
 
     it('keeps the failures when the first candidate gives keys and then answers unsupported_credentials', async () => {
@@ -589,8 +600,8 @@ describe('DefaultAuthnService', function () {
       const p = await boot([passwordLike('ldap', (l) => `ldap:${l}`, null, false), passwordLike('local', (l) => l, null, true)]);
       p.identities.add({ id: 'mallory', login: 'mallory' });
       success(await p.service.authenticate(pw('mallory', 'right'), ctx()));
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=ldap:mallory', `account-ip=ldap:mallory|${IP}`, 'account=mallory', `account-ip=mallory|${IP}`, `ip=${IP}`]);
-      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), ['account=mallory', `account-ip=mallory|${IP}`, `ip=${IP}`]);
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=login:ldap:mallory', `account-ip=login:ldap:mallory|${IP}`, 'account=login:mallory', `account-ip=login:mallory|${IP}`, `ip=${IP}`]);
+      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), ['account=login:mallory', `account-ip=login:mallory|${IP}`, `ip=${IP}`]);
     });
   });
 
@@ -1501,8 +1512,20 @@ describe('DefaultAuthnService', function () {
       assert.ok(!message.includes('undefined'));
     });
 
-    it('fails boot when authn.throttle.service is unset and more than one throttle is registered', async () => {
-      await bootFails([failing()], { register: (c) => bind(c, AuthnThrottle, 'OtherThrottle', new RecordingThrottle(DEFAULT_THROTTLE_PARAMS)) }, 'authn.throttle.service', 'OtherThrottle');
+    it('takes the only throttle besides MemoryAuthnThrottle when authn.throttle.service is unset (K6)', async () => {
+      const other = new RecordingThrottle(DEFAULT_THROTTLE_PARAMS);
+      const p = await boot([failing()], { register: (c) => bind(c, AuthnThrottle, 'OtherThrottle', other) });
+      await p.service.authenticate(bearer('x'), ctx());
+      assert.strictEqual(other.attempts.length, 1);
+      assert.strictEqual(throttle!.attempts.length, 0);
+    });
+
+    it('fails boot when authn.throttle.service is unset and two throttles besides the memory one are registered', async () => {
+      const register = (c: IContainer) => {
+        bind(c, AuthnThrottle, 'OtherThrottle', new RecordingThrottle(DEFAULT_THROTTLE_PARAMS));
+        bind(c, AuthnThrottle, 'ThirdThrottle', new RecordingThrottle(DEFAULT_THROTTLE_PARAMS));
+      };
+      await bootFails([failing()], { register }, 'authn.throttle.service', 'OtherThrottle', 'ThirdThrottle');
     });
 
     it('fails boot when a required neighbour is not registered', async () => {

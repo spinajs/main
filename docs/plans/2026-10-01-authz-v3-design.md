@@ -3621,7 +3621,7 @@ AuthnService.authenticate(c, ctx):
   !t.allowed ⇒ audit throttle.block ; failure throttled (A02 answer + Retry-After; nothing verified, nothing counted)
   r = s.verify(c, ctx)                                     # timing-equal for unknown accounts
   r.ok false ⇒ audit login failure ; failure               # the attempt is already counted
-  id = r.identity ?? links.find(r.external) ?? (authn.linking.jit ? identities.provision(r.external) : null)
+  id = r.identity ?? links.find(r.external) ?? (authn.linking.jit && s.linkingFor(r.external).jit ? identities.provision(r.external) : null)   # K6: both switches
   id null ⇒ failure not_linked
   st = identities.status(id) ; !active | banned | deleted ⇒ failure invalid_credentials (audit keeps the real reason)
   s.interactive && r.external ⇒ every ExternalLoginHook.afterLogin(id, r.external)   # K6, RFC N10-1
@@ -3704,7 +3704,7 @@ export default {
       totp: { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 },
     },
     throttle: {                                    // r4, H31: backoff per key, never a lock (§22.13)
-      service: 'DbAuthnThrottle',                  // shipped by authn-orm's config (K6); 'MemoryAuthnThrottle' for one instance
+      service: 'DbAuthnThrottle',                  // K6: unset ⇒ the only throttle besides MemoryAuthnThrottle (DbAuthnThrottle with authn-orm imported); 'MemoryAuthnThrottle' for one instance
       // after `free` counted attempts on a key, attempt n+1 waits min(baseDelayMs × 2^(n − free), maxDelayMs) after attempt n
       login:  { account: { free: 5,  baseDelayMs: 1000,  maxDelayMs: 60000 },     // 1 s, 2 s, 4 s … 60 s
                 ip:      { free: 20, baseDelayMs: 1000,  maxDelayMs: 300000 } },  // … 5 min

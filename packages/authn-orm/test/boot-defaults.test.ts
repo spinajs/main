@@ -6,7 +6,6 @@ import { FakeIdentityStore, RecordingPrincipalFactory } from '@spinajs/authn-tes
 import { expect } from 'chai';
 import 'mocha';
 
-import shipped from '../src/config/authn-orm.js';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '../src/index.js';
 
 /** The app's own config adds nothing about the throttle; every package config is loaded the way an app loads it. */
@@ -26,7 +25,7 @@ function bind(child: IContainer, base: Class<unknown>, name: string, value: unkn
   child.register(factory).as(base);
 }
 
-describe('authn-orm shipped config (K6)', function () {
+describe('authn-orm with no throttle config (K6)', function () {
   this.timeout(60_000);
 
   let child: IContainer | undefined;
@@ -39,10 +38,6 @@ describe('authn-orm shipped config (K6)', function () {
     child = undefined;
   });
 
-  it('names DbAuthnThrottle and lists no sink (a config array could never be emptied again)', () => {
-    expect(shipped).to.deep.eq({ authn: { throttle: { service: 'DbAuthnThrottle' } } });
-  });
-
   it('boots the core with both throttles registered and no throttle config of the app, on DbAuthnThrottle', async () => {
     child = DI.RootContainer.child();
     expect((child.getRegisteredTypesChain(AuthnThrottle) ?? []).map((t) => (t as { name?: string }).name)).to.include.members(['MemoryAuthnThrottle', 'DbAuthnThrottle']);
@@ -51,7 +46,8 @@ describe('authn-orm shipped config (K6)', function () {
     bind(child, PrincipalFactory, 'K6PrincipalFactory', new RecordingPrincipalFactory());
 
     const configuration = await child.resolve(Configuration);
-    expect(configuration.get('authn.throttle.service')).to.eq('DbAuthnThrottle');
+    expect(configuration.get('authn.throttle.service'), 'no package ships it').to.eq(undefined);
+    expect(configuration.get('authn.audit.sinks'), 'the package configs are loaded').to.include('LogAuthnAuditSink');
 
     const service = (await child.resolve(AuthnService)) as AuthnService;
     const throttle = (service as unknown as { throttle: unknown }).throttle;
