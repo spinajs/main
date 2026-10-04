@@ -65,13 +65,25 @@ describe('UserResourceAdapter', function () {
     expect((await adapter()).relations).to.eq(undefined);
   });
 
-  it('accepts user records and maps them to user:<Uuid>', async () => {
+  it('accepts no object, so user records stay with the adapter of users; refOf still gives user:<Uuid>', async () => {
     const a = await adapter();
     const user = await User.query().whereLogin('test').firstOrFail();
 
-    expect(a.accepts(user)).to.eq(true);
+    expect(a.accepts(user)).to.eq(false);
     expect(a.accepts({ Uuid: TEST_USER_UUID })).to.eq(false);
     expect(a.refOf(user)).to.deep.eq({ type: 'user', id: TEST_USER_UUID });
+  });
+
+  it('does not turn a user record into a user ref for a users permission', async () => {
+    const me = await ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf(await User.query().whereLogin('test').populate('Metadata').firstOrFail());
+    const record = await User.query().whereLogin('test').firstOrFail();
+
+    const err = await (await rootAuthz()).can(me, 'users:read', record).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).to.match(/neither accepted by an adapter nor a ResourceRef/);
+    expect(err?.message).to.not.match(/type "user"/);
   });
 
   it('answers [ref, GLOBAL] for a user that exists or a type-level ref, and null for an unknown or soft-deleted one', async () => {
@@ -107,12 +119,13 @@ describe('UserResourceAdapter', function () {
       return { own, me, authz: await rootAuthz() };
     }
 
-    it('a user record as the resource: the adapter makes the ref and the row decides', async () => {
+    it('a user ref with the record as subject: the row decides', async () => {
       const { own, me, authz } = await selfReader();
       const other = await User.query().whereLogin('test').firstOrFail();
+      const a = await adapter();
 
-      expect(await authz.can(me, 'user:read', own)).to.eq(true);
-      expect(await authz.can(me, 'user:read', other)).to.eq(false);
+      expect(await authz.can(me, 'user:read', a.refOf(own), own)).to.eq(true);
+      expect(await authz.can(me, 'user:read', a.refOf(other), other)).to.eq(false);
     });
 
     it("a ref plus the row the adapter loads (what authz-http's subject: 'load' does) allows the own Uuid only", async () => {

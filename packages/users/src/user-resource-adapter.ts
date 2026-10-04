@@ -2,31 +2,33 @@ import { AuthzService, GLOBAL, ResourceAdapter, SYSTEM } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 
-import { UserBase } from './models/User.js';
 import type { User } from './models/User.js';
 import { userModel } from './model-token.js';
 
 const USER = 'user';
 
 /**
- * The `user` resource: one user, addressed by Uuid (D4). It maps user records to refs, tells the engine
- * whether a user exists (an unknown or soft-deleted one has no ancestors, so every check on it fails
- * closed), and loads the row for checks that need one (authz-http's `subject: 'load'`), so a `self` grant
- * is decided on the row.
+ * The `user` resource: one user, addressed by Uuid (D4). It tells the engine whether a user exists (an
+ * unknown or soft-deleted one has no ancestors, so every check on it fails closed) and loads the row for
+ * checks that need one (authz-http's `subject: 'load'`), so a `self` grant is decided on the row.
  *
- * Only `user`: the `users` admin collection is left to the ORM adapter of the user model. The `self`
- * resolvers register on their own (`RelationResolver`), so `relations()` is not implemented: the host
- * refuses a second resolver for the same type and relation.
+ * It accepts no object: the engine maps an object resource with the first adapter that accepts it,
+ * whatever the permission, and user records belong to the `users` resource of the user model's ORM
+ * adapter. A `user` check passes `{ type: 'user', id: Uuid }` ({@link refOf}) with the row as subject.
+ *
+ * The `self` resolvers register on their own (`RelationResolver`), so `relations()` is not implemented:
+ * the host refuses a second resolver for the same type and relation.
  */
 @Injectable(ResourceAdapter)
 export class UserResourceAdapter extends ResourceAdapter<User> {
   public readonly kind = 'users';
   public readonly types = [USER];
 
-  public accepts(target: unknown): target is User {
-    return target instanceof UserBase;
+  public accepts(_target: unknown): _target is User {
+    return false;
   }
 
+  /** The `user` ref of a record, for callers that build the check themselves. */
   public refOf(user: User): ResourceRef {
     return { type: USER, id: user.Uuid };
   }
