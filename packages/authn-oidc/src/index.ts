@@ -5,3 +5,5 @@ export * from './presets.js';
 export * from './http/client.js';
 export * from './discovery.js';
 export * from './jwks.js';
+export * from './flow/cookie.js';
+export * from './flow/authorize.js';
