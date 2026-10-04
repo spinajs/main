@@ -300,7 +300,26 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     it('is off only for enabled: false', () => {
       expect(unitGuard({ 'authn.http.csrf.enabled': false }).before()).to.eq(null);
       expect(unitGuard({ 'authn.http.csrf.enabled': true }).before()).to.be.a('function');
+      expect(unitGuard({ 'authn.http.csrf.enabled': null }).before()).to.be.a('function');
       expect(unitGuard({}).after()).to.eq(null);
+    });
+
+    it('a non-boolean enabled or a non-object authn.http.csrf fails when the middleware is built, naming the key', () => {
+      for (const enabled of ['false', 'true', 0, 1, {}]) {
+        expect(() => unitGuard({ 'authn.http.csrf.enabled': enabled }).before(), JSON.stringify(enabled)).to.throw(InvalidOption, 'authn.http.csrf.enabled');
+      }
+      for (const csrf of [false, true, 'off', []]) {
+        expect(() => unitGuard({ 'authn.http.csrf': csrf }).before(), JSON.stringify(csrf)).to.throw(InvalidOption, 'authn.http.csrf');
+      }
+    });
+
+    it('checks the configured cookie name, bare and with __Host-', () => {
+      const sid = unitGuard({ 'authn.session.cookie': { name: 'sid' } });
+      for (const cookie of ['sid=x', '__Host-sid=x']) expect(run(sid, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);
+      expect(run(sid, 'POST', { origin: EVIL, cookie: 'ssid=x; __Host-ssid=x' }).passed).to.eq(true);
+
+      const prefixed = unitGuard({ 'authn.session.cookie': { name: '__Host-sid' } });
+      for (const cookie of ['__Host-sid=x', '__Host-__Host-sid=x']) expect(run(prefixed, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);
     });
   });
 });
