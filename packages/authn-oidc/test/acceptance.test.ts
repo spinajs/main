@@ -211,6 +211,8 @@ for (const kind of ['sqlite', 'postgres'] as DbKind[]) {
       registered.length = 0;
       DI.uncache(OidcProviders);
       DI.uncache(Configuration);
+      // Resolved in the root while the app ran; later suites resolve these in their own child containers.
+      for (const type of [OidcHttpClient, NonceStore, IdentityLinkStore, SessionIssuer, AuthnService, ExternalLoginHook] as Class<unknown>[]) DI.uncache(type);
       HookLog.calls = [];
       await orm?.dispose();
       if (database) {

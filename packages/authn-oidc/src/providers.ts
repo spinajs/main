@@ -1,4 +1,4 @@
-import { AsyncService, Container, DI, Inject, Singleton } from '@spinajs/di';
+import { AsyncService, Container, DI, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { AuthenticationStrategy, IdentityLinkStore, IdentityStore } from '@spinajs/authn/contracts';
@@ -16,10 +16,11 @@ import { isPlainObject, isRelaxedEnv } from './support.js';
 export const appEnvOf = (config: Configuration): string | undefined => config.get<string | undefined>('process.env.APP_ENV');
 
 /**
- * The configured providers (`authn.oidc`), read and checked at boot, each with its OidcProvider (one discovery and
- * one JWKS cache for the life of the process) and its OidcStrategy. Boot fails on any invalid provider.
+ * The configured providers (`authn.oidc`) of a container's Configuration, read and checked at boot, each with its
+ * OidcProvider (one discovery and one JWKS cache while the container lives) and its OidcStrategy. One per container,
+ * as the core's services (D11). Boot fails on any invalid provider.
  */
-@Singleton()
+@PerChildInstance()
 @Inject(Container)
 export class OidcProviders extends AsyncService {
   @Logger('authn-oidc')
