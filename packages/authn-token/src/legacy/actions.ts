@@ -120,7 +120,7 @@ async function assertProfile(owner: User, profile: string): Promise<void> {
 
 /**
  * Ensures every role in `roles` is one the configured policy allows for
- * `owner`. A policy only withholds roles: a token is never above its owner
+ * `owner`. A policy should only withhold roles: a token is never above its owner
  * (design §18.3(g), B24, B07), and in 3.0 authz-rbac drops every token role
  * the owner does not hold, whatever the policy answers here.
  *
