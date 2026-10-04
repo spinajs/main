@@ -1060,12 +1060,8 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 - **Audit.** Each event goes to every sink, one at a time, each bounded by `authn.audit.sinkTimeoutMs`
   (default 2000). A sink that fails or times out is logged by error class only and never fails a login.
 - **Boot.** Services that read config are per child container, so a child boot reads its own list.
-- **Known issue, open for IC1.** A per-request credential (token, key) counts in the `login` flow before
-  it is verified. More than 5 calls in flight with one token or key, or more than 20 from one IP,
-  get 401 with `Retry-After`, even when the credential is valid. Options are with the controller:
-  stop sending an account key for well-formed credentials and raise the IP `free`, add a separate
-  flow (needs an RFC), or count failures only (an exception to A05). Until then, keep parallel bursts
-  from one API client under those numbers.
+- **Per-request credentials count failures only (K5).** See the K5 subsection below; the parallel-load
+  401s N1's final review found are gone.
 - **Ops notes.** The clock-skew tolerance is 30 s. A session lives 480 minutes when no maximum is
   configured. A store failure right after a session issue or elevation can leave an orphan session
   that no one holds the id of.
@@ -1179,6 +1175,30 @@ The flow is in the [authn README](../authn/README.md#how-a-login-runs). What an 
 - The OIDC routes read `req.storage.ClientIp` and `req.storage.AuthnSession`, which `authn-http`
   writes (TODO(N8a)). Until N8a merges, OIDC callbacks have no `ip` throttle key and the link routes
   fail closed.
+
+### K4 and K5: test kit fixes and per-request throttling
+
+- **K5.** Strategies that take a credential on every request (`TokenStrategy`, `JwtBearerStrategy`,
+  `JwsAssertionStrategy`, `HttpSignatureStrategy`: those with `interactive === false`) no longer count
+  an attempt before they verify it. The service first asks the throttle whether a delay holds (`peek`,
+  which counts nothing), verifies, and counts only a failure. Many parallel calls with a valid token or
+  key now all succeed; repeated bad tokens or signatures still back off, per credential and per IP.
+  Interactive logins (password, MFA) still count before they verify (A05).
+- A success clears the answering credential's account key and takes only its own failures off the IP
+  key, so a valid API call cannot wash out failures other credentials left on the same IP.
+- A throttle without `peek` keeps the old count-before-verify flow, and the boot warns when a
+  per-request strategy is listed. `MemoryAuthnThrottle` and `DbAuthnThrottle` both have `peek`; a
+  throttle of your own should add it.
+- Trade-off: peek and count are two steps, so a parallel burst of failures is verified in full and adds
+  one backoff step. That is safe only because per-request credentials are unguessable (256-bit tokens,
+  signatures); do not put a guessable credential behind a per-request strategy.
+- Open, not yet decided: `authn-keys` keys the account by key id, so anyone who knows a kid can hold
+  that key in backoff with one bad signature a minute (K5 minor M5). The frozen doc comments of
+  `AuthenticationStrategy.throttleKeys` and `AuthnThrottle.attempt` still describe the old flow (RFC K5-1).
+- **K4.** Test kit only (`@spinajs/authz-testing`): the kit's filter evaluation now coerces values the
+  way the engine does, RBAC worlds compile the RBAC native ops, and `FakeTupleModel` has `summarize`, so
+  kit worlds can test `covers`. No app change; an app that runs the kit's behaviour rules against its own
+  models may see stricter results.
 
 ### SEC1: metadata guard
 

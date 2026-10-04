@@ -346,7 +346,7 @@ The formats, the OpenSSL recipe and every `authn.keys.*` key are in `packages/au
   chain only). `account-ip` is kept for bookkeeping and gates nothing.
 - Each counted attempt `n` on a key, once `n ≥ free`, waits `min(baseDelayMs × 2^(n − free),
   maxDelayMs)` after the previous attempt. Before `free` attempts, no wait.
-- An attempt is counted before it is verified, with one compare-and-set per key. Of N parallel attempts
+- An interactive attempt (password, MFA) is counted before it is verified, with one compare-and-set per key. Of N parallel attempts
   on a fresh key, exactly `free` are verified, then one per delay slot.
 - A refused attempt is not verified and not counted. It gets the opaque failure plus `Retry-After`,
   the same for known and unknown logins. The server never sleeps.
@@ -374,8 +374,10 @@ authn: {
 
 Set `http.trustProxy` (a hop count or CIDRs) when the app runs behind a proxy. A client-set
 `X-Forwarded-For` without a trusted hop is ignored. `DbAuthnThrottle` keeps keyed hashes of the keys
-(`authn.audit.hashKey.secret`). Per-request credentials (tokens, keys) count in the `login` flow under
-a stable credential id, so each API request writes the store twice. Sub-second delays are not
+(`authn.audit.hashKey.secret`). Per-request credentials (tokens, keys) use the `login` flow under a
+stable credential id, but count failures only: the service asks the throttle whether a delay holds
+(`peek`, one read, no write), verifies, and writes only after a failure (K5). A throttle without `peek`
+falls back to counting before verify, and the boot warns. Sub-second delays are not
 supported on MySQL and MSSQL (their `datetime` is coarser).
 
 `MemoryAuthnThrottle` is the throttle of one process. It keeps one table per flow, capped by
@@ -385,11 +387,11 @@ instances sets `authn.throttle.service: 'DbAuthnThrottle'`: the boot fails when 
 not registered, and never falls back to memory, which would count each instance apart. The service
 builds the `account-ip` key itself from the account and the IP and ignores the one a strategy sends.
 
-**Known issue (open for IC1).** A per-request credential counts in the `login` flow before it is
-verified, so valid API credentials can be throttled under parallel load: more than 5 calls in flight
-with one token or key, or more than 20 from one IP, get 401 with `Retry-After`. The choice between
-sending no account key for well-formed credentials, a separate flow (an RFC) and counting failures
-only waits with the controller.
+**Per-request strategies (K5).** Parallel calls with a valid token or key all verify; failures still
+back off per credential and per IP. Peek and count are two steps, so a parallel burst of failures is
+verified in full before the backoff applies; this is safe only for unguessable credentials, which is
+why per-request strategies take only tokens and signatures. Open: `authn-keys` keys the account by key
+id, so whoever knows a kid can keep that key in backoff with one bad signature a minute.
 
 ## Audit and events
 
