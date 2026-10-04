@@ -2,7 +2,19 @@ import { join, normalize, resolve } from 'path';
 
 function dir(path: string) {
   const inCommonJs = typeof module !== 'undefined';
-  return resolve(normalize(join(process.env.WORKSPACE_ROOT_PATH ?? process.cwd(), 'node_modules', '@spinajs', 'configuration-http', 'lib', inCommonJs ? 'cjs' : 'mjs', path)));
+  return resolve(
+    normalize(
+      join(
+        process.env.WORKSPACE_ROOT_PATH ?? process.cwd(),
+        'node_modules',
+        '@spinajs',
+        'configuration-http',
+        'lib',
+        inCommonJs ? 'cjs' : 'mjs',
+        path,
+      ),
+    ),
+  );
 }
 
 const configurationHttp = {
@@ -11,29 +23,22 @@ const configurationHttp = {
       controllers: [dir('controllers')],
     },
   },
-  rbac: {
-    grants: {
-      /**
-       * Dedicated admin sub-role granting full management over configuration
-       * entries. Mirrors the `admin.users` sub-role in @spinajs/users: only the
-       * `admin` role ( and `system`, which extends admin ) inherits it below, so
-       * the configuration HTTP api is an admin-only capability. The resource
-       * itself is named `configuration` ( see @Resource in the controller ).
-       */
-      'admin.configuration': {
-        configuration: {
-          'read:any': ['*'],
-          'update:any': ['*'],
+  authz: {
+    // Config values can hold secrets: both permissions carry field sets, so a grant can hide `Value`.
+    permissions: {
+      'configuration:read': { fields: true },
+      'configuration:update': { fields: true },
+    },
+    rbac: {
+      roles: {
+        'admin.configuration': {
+          assignable: false,
+          grants: ['configuration:read', 'configuration:update'],
         },
-      },
-
-      /**
-       * Admin inherits configuration management. The config merge concatenates
-       * `$extend` arrays, so this is additive - it does not overwrite the base
-       * admin grants ( eg. `admin.users` ).
-       */
-      admin: {
-        $extend: ['admin.configuration'],
+        // The config merge concatenates `extends` arrays, so this adds to the other `admin` fragments.
+        admin: {
+          extends: ['admin.configuration'],
+        },
       },
     },
   },

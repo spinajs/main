@@ -10,14 +10,15 @@ lets operators tune existing values.
 
 ## Endpoints
 
-| Method | Path                             | Permission  | Description                                          |
-| ------ | -------------------------------- | ----------- | ---------------------------------------------------- |
-| GET    | `/configuration`                 | `readAny`   | List all entries (optional `?group=` filter)         |
-| GET    | `/configuration/:slug`           | `readAny`   | Get a single entry by slug                           |
-| PATCH  | `/configuration/:slug`           | `updateAny` | Update an entry's `Value` (+ `Default`/`Watch`)      |
+| Method | Path                   | Permission             | Description                                     |
+| ------ | ---------------------- | ---------------------- | ----------------------------------------------- |
+| GET    | `/configuration`       | `configuration:read`   | List all entries (optional `?group=` filter)    |
+| GET    | `/configuration/:slug` | `configuration:read`   | Get a single entry by slug                      |
+| PATCH  | `/configuration/:slug` | `configuration:update` | Update an entry's `Value` (+ `Default`/`Watch`) |
 
-All routes require a valid session (`AuthorizedPolicy`) and are guarded by
-`RbacPolicy` on the `configuration` resource.
+Every route is guarded by `@Access` (`@spinajs/authz-http`): 401 without a principal, 403 without the
+permission. `GET /:slug` and `PATCH /:slug` check the permission on the resource
+`{ type: 'configuration', id: <slug> }`, so a grant can cover single slugs.
 
 Incoming values are validated against the entry `Type` and `Meta` constraints
 (min/max, oneOf/manyOf, date bounds) and stored in their canonical string form.
@@ -86,11 +87,14 @@ already exists on the provider is refused.
 `commit` is the only way a file entry's `Value` should change outside a `PATCH`; a project's
 "restore an earlier version" goes through it too. `PATCH` never moves or removes files.
 
-## RBAC
+## Permissions
 
-The package ships a dedicated `configuration` role granting `read:any` /
-`update:any` on the `configuration` resource, and extends `admin` with it. Grant
-the `configuration` role (or `admin`) to give an account access to the API.
+The package declares `configuration:read` and `configuration:update` (both with field sets) and the
+role `admin.configuration`, which holds both. It is not assignable; `admin` extends it. No other role
+gets access, because values can hold secrets.
+
+All routes use `fields: 'filter'`: a grant with `fields.read` hides the other fields (for example
+`Value`) in responses, and `fields.write` limits what `PATCH` accepts.
 
 ## Notes
 

@@ -53,8 +53,8 @@ describe('ConfigFileUploads', function () {
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) {
-      // the db-source bootstrapper installs a watch timer that would keep the event loop alive
-      if (b.constructor.name === 'DbConfigSourceBotstrapper') {
+      // db-source installs a watch timer that would keep the event loop alive; the http one needs L4
+      if (b.constructor.name === 'DbConfigSourceBotstrapper' || b.constructor.name === 'ConfigurationHttpBootstrapper') {
         continue;
       }
       await b.bootstrap();
