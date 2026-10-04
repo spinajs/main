@@ -153,8 +153,8 @@ Stores:
 `authz.fs.<name>.domain` names the authz domain a filesystem is checked in (default `root`). For any other
 domain, `AuthzFsDecorator` (and, for a guard built by hand, the guard's first call) runs `ensureFsDomain`:
 it creates the domain with `AuthzDomains.create(domain)` when it is missing (its parent is
-`authz.domains.<domain>.parent`, else root) and registers `FsInheritModel` (`fs-inherit`) in it, once per domain.
-Root never holds it.
+`authz.domains.<domain>.parent`, else root) and registers `FsInheritModel` (`fs-inherit`) in it, once per domain,
+and `fs-abac` when one of its filesystems has `policies` (see below). Root never holds them.
 
 ```ts
 authz: {
@@ -180,6 +180,31 @@ authz: {
 - A domain the app created itself gets `fs-inherit` only when one of its filesystems maps `inherit`, and not
   when the domain holds an `FsInheritModel` class of its own. Registering into a domain that already booted is
   an `AuthzConfigError`: resolve the fs providers before the domain's first `AuthzDomains.service()`.
-- `inherit` on a filesystem checked in root is an `AuthzConfigError` (decorator, and every domain boot).
+- `inherit` or `policies` on a filesystem checked in root is an `AuthzConfigError` (decorator, and every domain
+  boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
 - Where the domain has a `combine` entry, it must list `fs-inherit` for the model to vote; a registered model that
   `combine` leaves out is unrouted, and the host logs a warning at boot.
+
+## fs-abac
+
+`authz.fs.<name>.policies` (the ABAC policy shape of `authz.abac.policies`) become one `AbacModel` named `fs-abac`
+in the filesystem's domain, over a `ConfigPolicyStore` of the policies of every filesystem checked there, with its
+`AbacContributor` (so a policy naming an unregistered permission fails the domain's boot).
+
+```ts
+authz: {
+  fs: { uploads: { mode: 'enforce', domain: 'fs',
+                   policies: [{ id: 'public', effect: 'permit', permissions: ['fs:read', 'fs:stat'],
+                                when: { attr: 'resource.id', glob: 'uploads:public/**' } }] } },
+  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-abac', 'fs-inherit'] } } } },
+}
+```
+
+- `resource.*` conditions read the path's row `{ id, type, fs, path }` that the guard passes as the subject.
+- Policy ids must be unique within a domain: two filesystems with one id are an `AuthzConfigError` naming both.
+- A domain the app created gets `fs-abac` too, once; as for `fs-inherit`, a domain that already booted is refused.
+  A model of the app named `fs-abac` in that domain fails its boot (two models with one name).
+- A deny policy beats permits of other models under `deny-overrides`.
+- The model's summary lists each permitted permission, conditional when the policy has a condition or a scope.
+- Importing `@spinajs/authz-fs` also loads `@spinajs/authz-abac`, which registers its `authz_policy` migration and
+  its admin handlers.

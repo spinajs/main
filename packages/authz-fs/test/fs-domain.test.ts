@@ -1,14 +1,15 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import { AuthorizationModel, AuthzConfigError, AuthzDomains, FALSE, GLOBAL, TRUE } from '@spinajs/authz';
+import { AuthorizationModel, AuthzConfigError, AuthzContributor, AuthzDomains, FALSE, GLOBAL, TRUE } from '@spinajs/authz';
 import type { AuthzService, DecisionRequest, ModelCapabilities, ModelSummary, Principal, ResourceRef, Vote } from '@spinajs/authz';
+import { AbacModel } from '@spinajs/authz-abac';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
 import { AuthzFsDecorator, FsAuthzContributor, FsInheritModel, FsPathResolver, assertFsDomainConfig, ensureFsDomain, parseFsAccessConfig } from '../src/index.js';
-import { installQuietLog } from './support/log.js';
+import { installQuietLog, logLines } from './support/log.js';
 
 const expect = chai.expect;
 
@@ -231,6 +232,73 @@ describe('authz-fs fs domain bootstrap (D11) and fs-inherit in the engine', func
       expect(await svc.covers(admin, alice)).to.equal(true);
       // carol holds more task permissions than alice, but not fs:read on every file.
       expect(await svc.covers(carol, alice)).to.equal(false);
+    });
+  });
+
+  describe('fs-abac', () => {
+    const PUBLIC = { id: 'public', effect: 'permit', permissions: ['fs:read', 'fs:stat'], when: { attr: 'resource.id', glob: 'uploads:public/**' } };
+    const NO_TMP = { id: 'no-tmp', effect: 'deny', permissions: ['fs:read', 'fs:write'], when: { attr: 'resource.id', glob: 'archive:tmp/**' } };
+    const modelsOf = async (name: string) => (await domains.service(name)).models();
+
+    it('registers one fs-abac model over the policies of every filesystem of the domain, with its contributor', async () => {
+      const name = fresh();
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC] }, archive: { mode: 'audit', domain: name, policies: [NO_TMP] }, other: { mode: 'enforce', domain: 'elsewhere', policies: [{ ...PUBLIC, id: 'other' }] } });
+      const child = ensureFsDomain(name, scope)!;
+      ensureFsDomain(name, scope);
+      expect(ownModels(child)).to.have.length(2);
+      expect(child.getRegisteredTypes(AuthzContributor, false) ?? []).to.have.length(1);
+      const abac = (await modelsOf(name)).find((m) => m.name === 'fs-abac') as AbacModel;
+      expect(abac).to.be.instanceOf(AbacModel);
+      expect(abac.contribution().permissionRefs?.map((r) => r.source).sort()).to.deep.equal(['fs-abac policy "no-tmp"', 'fs-abac policy "no-tmp"', 'fs-abac policy "public"', 'fs-abac policy "public"']);
+      expect((await modelsOf('root')).map((m) => m.name)).to.not.include('fs-abac');
+    });
+
+    it('adds no fs-abac to a domain without policies, and adds it to a domain the app made when one has them', () => {
+      const plain = fresh();
+      const app = fresh();
+      set(['authz', 'fs'], { a: { mode: 'enforce', domain: plain }, b: { mode: 'enforce', domain: app, policies: [PUBLIC] } });
+      const plainC = ensureFsDomain(plain, scope)!;
+      const appC = domains.create(app);
+      ensureFsDomain(app, scope);
+      expect(ownModels(plainC)).to.have.length(1);
+      expect(ownModels(appC)).to.have.length(1);
+    });
+
+    it('refuses a policy id that two filesystems of one domain use, naming both', () => {
+      const name = fresh();
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC] }, archive: { mode: 'enforce', domain: name, policies: [{ ...NO_TMP, id: 'public' }] } });
+      const error = failure(() => ensureFsDomain(name, scope));
+      expect(error).to.be.instanceOf(AuthzConfigError);
+      expect(error.message).to.include('"public"').and.include('authz.fs.uploads.policies').and.include('authz.fs.archive.policies');
+    });
+
+    it('refuses policies on a filesystem checked in root', () => {
+      expect(failure(() => assertFsDomainConfig('uploads', parseFsAccessConfig('uploads', { mode: 'enforce', policies: [PUBLIC] }))).message).to.include('authz.fs.uploads.policies');
+      set(['authz', 'fs'], { uploads: { mode: 'audit', policies: [PUBLIC] } });
+      expect(failure(() => new AuthzFsDecorator(scope).decorate({} as never, { name: 'uploads', service: 'fsNative' } as never))).to.be.instanceOf(AuthzConfigError);
+      expect(failure(() => new FsAuthzContributor(scope).contribute('root'))).to.be.instanceOf(AuthzConfigError);
+    });
+
+    it('summarises the policy permits as conditional, and the host warns when combine leaves fs-abac out', async () => {
+      const name = fresh();
+      set(['authz', 'fs'], { uploads: { mode: 'enforce', domain: name, policies: [PUBLIC] } });
+      set(['authz', 'domains', name], { combine: { default: { algorithm: 'deny-overrides', models: ['fs-inherit'] } }, cache: { maxEntries: 0 } });
+      ensureFsDomain(name, scope);
+      logLines.length = 0;
+      const svc = await domains.service(name);
+      expect(logLines.some((l) => l.level === 'warn' && l.message.includes('"fs-abac"') && l.message.includes('no combine entry routes this model'))).to.equal(true);
+      expect(await svc.can(alice, 'fs:read', { type: 'file', id: 'uploads:public/a.png' })).to.equal(false);
+
+      const routed = fresh();
+      set(['authz', 'fs', 'uploads', 'domain'], routed);
+      set(['authz', 'domains', routed], { combine: { default: { algorithm: 'deny-overrides', models: ['fs-abac'] } }, cache: { maxEntries: 0 } });
+      ensureFsDomain(routed, scope);
+      const abac = await domains.service(routed);
+      const entries = (await abac.summary(alice, GLOBAL)).models.find((m) => m.model === 'fs-abac')?.permissions.map((p) => ({ name: p.name, conditional: p.conditional }));
+      expect(entries).to.deep.equal([
+        { name: 'fs:read', conditional: true },
+        { name: 'fs:stat', conditional: true },
+      ]);
     });
   });
 });
