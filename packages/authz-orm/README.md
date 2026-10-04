@@ -11,6 +11,9 @@ ORM adapter for SpinaJS authorization.
   scope relations with `@OrmScope(model, relation)` on an `OrmScopePolicy`; models a package does
   not own with `registerAccessResource`. Register them before the authz domain boots: a type
   registered later gets its permissions only when the domain boots again.
+- `ownsBy(type, relation, fn)` is an in-memory relation with no SQL form, for `@AccessResource` types
+  only: `fn` gets the row of the checked ref, loaded through the adapter when the subject is not
+  that row.
 - `authz.orm.domain` (default `root`) names the domain whose `AuthzService` scopes queries.
 - Queries run as the ALS principal. `authz().runAs(SYSTEM, reason, fn)` and a route's
   `@Unscoped(reason)` run unscoped (audited); without a principal (UNATTENDED) a query on a scoped
