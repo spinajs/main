@@ -84,6 +84,9 @@ const http = {
      * Proxies in front of the app whose X-Forwarded-For counts ( RealIp, and
      * authn's ClientIp when authn.http.trustProxy is null ): a hop count, or a
      * list of addresses and CIDRs. null: no proxy, the client is the socket address.
+     * The first X-Forwarded-Proto and X-Forwarded-Host value from a trusted proxy
+     * counts too (the app's own origin), so that proxy must overwrite both headers,
+     * never pass on or append to a client's value.
      */
     trustProxy: null as number | string | string[] | null,
 
@@ -111,7 +114,9 @@ const http = {
     },
     port: 1337,
     middlewares: [
-      helmet(),
+      // helmet's default no-referrer makes browsers send `Origin: null` on same-origin
+      // form posts, which authn-http's CSRF guard (A22) refuses.
+      helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
       express.json({
         limit: '5mb',
         // Capture the exact received bytes for the @RawBody() route arg

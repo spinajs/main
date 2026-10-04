@@ -28,6 +28,19 @@ const headerList = (value: unknown): string | undefined => {
   return joined === '' ? undefined : joined;
 };
 
+// A page on a listed origin that could send these would choose what the app believes a trusted proxy said:
+// the client address and the app's own origin (authn-http's CSRF guard compares Origin with it).
+const PROXY_HEADER = /^(forwarded|x-forwarded-[a-z0-9-]*)$/i;
+
+const withoutProxyHeaders = (list: string | undefined): string | undefined => {
+  const kept = (list ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter((h) => h !== '' && !PROXY_HEADER.test(h))
+    .join(',');
+  return kept === '' ? undefined : kept;
+};
+
 /**
  * CORS by rule A31: only listed origins get CORS headers.
  *
@@ -40,7 +53,8 @@ const headerList = (value: unknown): string | undefined => {
  *                             listed explicitly; a listed origin next to '*' still gets its echo with credentials.
  *                             An entry that is not an origin fails the boot.
  *   http.cors.exposedHeaders  (string[]) for allowed origins
- *   http.cors.allowedHeaders  (string[]) for allowed preflights; without it the requested headers are allowed
+ *   http.cors.allowedHeaders  (string[]) for allowed preflights; without it the requested headers are allowed.
+ *                             `Forwarded` and `X-Forwarded-*` are never allowed.
  *
  * A request from an origin that is not allowed proceeds without CORS headers; the browser then refuses to share
  * the response.
@@ -81,7 +95,7 @@ export class CorsMiddleware extends ServerMiddleware {
     }
 
     const exposed = headerList(cfg?.exposedHeaders);
-    const allowed = headerList(cfg?.allowedHeaders);
+    const allowed = withoutProxyHeaders(headerList(cfg?.allowedHeaders));
 
     return (req: sRequest, res: express.Response, next: express.NextFunction) => {
       if (listed.size > 0) res.vary('Origin');
@@ -101,7 +115,8 @@ export class CorsMiddleware extends ServerMiddleware {
           res.setHeader('Access-Control-Allow-Headers', allowed);
         } else if (requested) {
           res.vary('Access-Control-Request-Headers');
-          res.setHeader('Access-Control-Allow-Headers', requested);
+          const echoed = withoutProxyHeaders(requested);
+          if (echoed) res.setHeader('Access-Control-Allow-Headers', echoed);
         }
         res.statusCode = 204;
         res.setHeader('Content-Length', '0');

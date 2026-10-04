@@ -120,6 +120,21 @@ describe('CorsMiddleware (A31)', () => {
     expect(acHeaders(await simple(cors, EVIL))).to.deep.eq([]);
   });
 
+  it('A31 a listed origin is never allowed to send Forwarded or X-Forwarded-* headers', async () => {
+    const ask = (cors: unknown, headers: string) =>
+      chai.request(app(cors)).options('/probe').set('Origin', PARTNER).set('Access-Control-Request-Method', 'POST').set('Access-Control-Request-Headers', headers);
+
+    const echoed = await ask({ origins: [PARTNER] }, 'content-type, X-Forwarded-Host, x-forwarded-proto, forwarded, x-forwarded-for');
+    expect(echoed.status).to.eq(204);
+    expect(echoed.header['access-control-allow-headers']).to.eq('content-type');
+
+    const onlyProxy = await ask({ origins: [PARTNER] }, 'x-forwarded-host');
+    expect(onlyProxy.header['access-control-allow-headers']).to.eq(undefined);
+
+    const configured = await ask({ origins: [PARTNER], allowedHeaders: ['content-type', 'X-Forwarded-Host', 'Forwarded'] }, 'content-type, x-forwarded-host');
+    expect(configured.header['access-control-allow-headers']).to.eq('content-type');
+  });
+
   it('A31 an origin entry that is not a URL origin fails when the middleware is built', () => {
     for (const entry of ['partner.example.test', 'localhost:3000', 'null', '', 'https://partner.example.test/app', 'https://partner.example.test?x=1', 'https://*.example.test', 'https://user@partner.example.test']) {
       expect(() => middleware({ origins: [entry] }).mw.before(), entry).to.throw(InvalidOption, 'http.cors.origins');
