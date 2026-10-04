@@ -198,6 +198,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           'users:read': {},
           'users:update': {},
           'authz:assignments.manage': { types: ['project'] },
+          'user:read': { types: ['user'] },
         },
         rbac: {
           roles: {
@@ -208,6 +209,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             'admin.users': { assignable: false, grants: ['users:read', 'users:update', 'authz:assignments.manage'] },
             // May manage assignments and nothing else: AuthzAdmin's guard refuses it any role with more.
             assigner: { grants: ['authz:assignments.manage'] },
+            'self-reader': { grants: [{ permission: 'user:read', relation: 'self' }] },
             admin: { extends: ['admin.users'] },
           },
         },
