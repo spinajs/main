@@ -1,7 +1,7 @@
 import { DI } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
-import { AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
 import type { DecisionRequest } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, accessDescriptorOf } from '@spinajs/authz-http';
 import type { IAccessDescriptor } from '@spinajs/authz-http';
@@ -31,6 +31,13 @@ const votes = (r: DecisionRequest): ScriptedVote => {
       return r.permission.startsWith('configuration:') ? permitted : {};
     case 'reader':
       return r.permission === 'configuration:read' ? permitted : {};
+    case 'updater':
+      return r.permission === 'configuration:update' ? permitted : {};
+    case 'mailEditor':
+      // reads everything, updates only the rows of one group
+      return r.permission === 'configuration:read'
+        ? permitted
+        : { permitWhen: { op: 'cmp', field: 'Group', cmp: 'eq', value: 'mail' } };
     case 'both':
       return r.permission.startsWith('configuration:') ? permitted : {};
     case 'scoped':
@@ -357,10 +364,27 @@ describe('configuration-http api', function () {
       expect(get.body.Value).to.equal('spinajs');
     });
 
-    // the ORM scopes the @FromModel load by configuration:read, so an update-only grant never reaches the update
-    it('answers 403 to a principal that may update but not read', async () => {
+    // the route check passes ( configuration:update is granted ); the refusal comes from the ORM read scope on the @FromModel load
+    it('answers 403 to a principal that may update but not read, and keeps the value', async () => {
       const res = await req('updater').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
       expect(res).to.have.status(403);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('answers 403 when the update grant is conditional and covers no row of the entry, and keeps the value', async () => {
+      const res = await req('mailEditor').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+      expect(res).to.have.status(403);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('lets a conditional update grant write a row it covers', async () => {
+      const res = await req('mailEditor').patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'a@b.pl' });
+      expect(res).to.have.status(200);
+      expect(res.body.Value).to.equal('a@b.pl');
     });
 
     it('lets a principal holding both permissions update', async () => {
@@ -484,7 +508,8 @@ describe('configuration-http ORM guard', function () {
     } catch (err) {
       error = err;
     }
-    expect(error).to.be.an.instanceOf(Error);
+    expect(error).to.be.an.instanceOf(AccessDenied);
+    expect((error as Error).message).to.contain('no_access');
   });
 
   it('lets a configuration:read holder and SYSTEM query', async () => {
@@ -502,6 +527,7 @@ describe('configuration-http ORM guard', function () {
     } catch (err) {
       error = err;
     }
-    expect(error).to.be.an.instanceOf(Error);
+    expect(error).to.be.an.instanceOf(AccessDenied);
+    expect((error as Error).message).to.contain('unattended');
   });
 });

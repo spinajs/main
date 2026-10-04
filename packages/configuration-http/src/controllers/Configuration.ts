@@ -7,6 +7,7 @@ import { DbConfig } from '@spinajs/configuration-db-source';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
+import { updateEntry } from '../write.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -126,7 +127,7 @@ export class ConfigurationController extends BaseController {
       entry.Watch = data.Watch;
     }
 
-    await entry.update();
+    await updateEntry(entry);
 
     return new Ok(present(entry));
   }

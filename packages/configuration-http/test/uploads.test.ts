@@ -13,21 +13,39 @@ import { join } from 'path';
 import { DateTime } from 'luxon';
 import { it as mochaIt } from 'mocha';
 
-import { TestConfiguration, FakeFileInfo, FILES_DIR, FILES_FS, UPLOAD_DIR, seed, seedFileEntries, xlsx } from './common.js';
+import {
+  TestConfiguration,
+  FakeFileInfo,
+  FILES_DIR,
+  FILES_FS,
+  UPLOAD_DIR,
+  seed,
+  seedFileEntries,
+  xlsx,
+} from './common.js';
 import '../src/bootstrap.js';
 import { ConfigFileUploads } from '../src/uploads.js';
-import { ConfigFileRejected, NotAFileEntry } from '../src/errors.js';
+import { ConfigFileRejected, ConfigWriteRefused, NotAFileEntry } from '../src/errors.js';
 import { storedFileName } from '../src/files.js';
 
 /** Writes `content` under UPLOAD_DIR and describes it the way the multipart parser would. */
 function uploaded(content: Buffer, name: string): IUploadedFile {
   const filepath = join(UPLOAD_DIR, `${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
   writeFileSync(filepath, content);
-  return { Name: name, BaseName: name, Size: content.length, Type: '', OriginalFile: { filepath } } as unknown as IUploadedFile;
+  return {
+    Name: name,
+    BaseName: name,
+    Size: content.length,
+    Type: '',
+    OriginalFile: { filepath },
+  } as unknown as IUploadedFile;
 }
 
 // every DbConfig query of these tests runs as SYSTEM: the ORM guard refuses a query without a principal
-const it = Object.assign((name: string, fn: () => Promise<void>) => mochaIt(name, () => authz().runAs(SYSTEM, 'test', fn)), mochaIt);
+const it = Object.assign(
+  (name: string, fn: () => Promise<void>) => mochaIt(name, () => authz().runAs(SYSTEM, 'test', fn)),
+  mochaIt,
+);
 
 const entry = async (slug: string) => (await DbConfig.where('Slug', slug).first()) as DbConfig;
 
@@ -122,7 +140,9 @@ describe('ConfigFileUploads', function () {
     });
 
     it('removes the temporary file on rejection too', async () => {
-      await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(Buffer.from('plain text'), 'first.xlsx')));
+      await rejects(async () =>
+        uploads.accept(await entry('tpl.offer'), uploaded(Buffer.from('plain text'), 'first.xlsx')),
+      );
       expect(readdirSync(UPLOAD_DIR)).to.be.empty;
     });
 
@@ -133,18 +153,27 @@ describe('ConfigFileUploads', function () {
     });
 
     it('rejects a file entry without file options', async () => {
-      expect(await rejects(async () => uploads.accept(await entry('tpl.noMeta'), uploaded(xlsx('x'), 'offer.xlsx')))).to.be.instanceOf(NotAFileEntry);
+      expect(
+        await rejects(async () => uploads.accept(await entry('tpl.noMeta'), uploaded(xlsx('x'), 'offer.xlsx'))),
+      ).to.be.instanceOf(NotAFileEntry);
       await nothingStored('tpl.noMeta');
     });
 
     it('names the missing provider, not "not a file entry", for a file entry without meta.file.fs', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.noMeta'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.noMeta'), uploaded(xlsx('x'), 'offer.xlsx')),
+      );
       expect(err).to.be.instanceOf(NotAFileEntry);
       expect((err as Error).message).to.contain('declares no file provider');
     });
 
     it('rejects a file over maxSize', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(Buffer.concat([xlsx('big'), Buffer.alloc(2048)]), 'big.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(
+          await entry('tpl.offer'),
+          uploaded(Buffer.concat([xlsx('big'), Buffer.alloc(2048)]), 'big.xlsx'),
+        ),
+      );
       expect(err).to.be.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.contain('too large');
       await nothingStored('tpl.offer');
@@ -157,42 +186,56 @@ describe('ConfigFileUploads', function () {
     });
 
     it('rejects a file whose detected content type is not allowed', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(Buffer.from('plain text'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.offer'), uploaded(Buffer.from('plain text'), 'offer.xlsx')),
+      );
       expect((err as Error).message).to.contain('text/plain');
       await nothingStored('tpl.offer');
     });
 
     it('returns the ValidationFailed message of the entry validator', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.validated'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.validated'), uploaded(xlsx('x'), 'offer.xlsx')),
+      );
       expect(err).to.be.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.equal('Template is missing the Offer sheet');
       await nothingStored('tpl.validated');
     });
 
     it('throws naming an unregistered validator', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.unknownValidator'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.unknownValidator'), uploaded(xlsx('x'), 'offer.xlsx')),
+      );
       expect(err).to.be.instanceOf(Error).and.not.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.contain('NoSuchTemplateValidator');
       await nothingStored('tpl.unknownValidator');
     });
 
     it('rejects a generated name that fails the value schema registered for the slug', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.pdfOnly'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.pdfOnly'), uploaded(xlsx('x'), 'offer.xlsx')),
+      );
       expect(err).to.be.instanceOf(ConfigFileRejected);
       expect((err as Error).message).to.contain('Value');
       await nothingStored('tpl.pdfOnly');
     });
 
     it('rejects an original name longer than 255 characters', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.offer'), uploaded(xlsx('x'), `${'a'.repeat(251)}.xlsx`)));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.offer'), uploaded(xlsx('x'), `${'a'.repeat(251)}.xlsx`)),
+      );
       expect((err as Error).message).to.contain('255');
       await nothingStored('tpl.offer');
     });
 
     it('throws naming the slug and an unregistered fs provider', async () => {
-      const err = await rejects(async () => uploads.accept(await entry('tpl.unknownFs'), uploaded(xlsx('x'), 'offer.xlsx')));
+      const err = await rejects(async () =>
+        uploads.accept(await entry('tpl.unknownFs'), uploaded(xlsx('x'), 'offer.xlsx')),
+      );
       expect(err).to.be.instanceOf(Error).and.not.instanceOf(ConfigFileRejected);
-      expect((err as Error).message).to.contain('tpl.unknownFs').and.to.contain('no-such-fs');
+      expect((err as Error).message)
+        .to.contain('tpl.unknownFs')
+        .and.to.contain('no-such-fs');
       await nothingStored('tpl.unknownFs');
     });
 
@@ -232,16 +275,33 @@ describe('ConfigFileUploads', function () {
       expect(String((await entry('tpl.offer')).Value)).to.equal('default.xlsx');
     });
 
+    it('refuses and restores the in-memory Value when the update matched no row', async () => {
+      const e = await entry('tpl.offer');
+      e.update = () => Promise.resolve({ RowsAffected: 0, LastInsertId: 0 });
+
+      const err = await rejects(() => uploads.commit(e, 'offer-20260916-121530.xlsx'));
+
+      expect(err).to.be.instanceOf(ConfigWriteRefused);
+      expect(String(e.Value)).to.equal('default.xlsx');
+      expect(String((await entry('tpl.offer')).Value)).to.equal('default.xlsx');
+    });
+
     it('refuses a name outside the slug schema and an entry that is not a file entry', async () => {
-      expect(await rejects(async () => uploads.commit(await entry('tpl.pdfOnly'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(ConfigFileRejected);
-      expect(await rejects(async () => uploads.commit(await entry('app.name'), 'offer-20260916-121530.xlsx'))).to.be.instanceOf(NotAFileEntry);
+      expect(
+        await rejects(async () => uploads.commit(await entry('tpl.pdfOnly'), 'offer-20260916-121530.xlsx')),
+      ).to.be.instanceOf(ConfigFileRejected);
+      expect(
+        await rejects(async () => uploads.commit(await entry('app.name'), 'offer-20260916-121530.xlsx')),
+      ).to.be.instanceOf(NotAFileEntry);
       expect(String((await entry('tpl.pdfOnly')).Value)).to.equal('default.xlsx');
     });
 
     it('rejects with a sanitized message naming the slug when the registered schema cannot be compiled', async () => {
       const err = await rejects(async () => uploads.commit(await entry('tpl.broken'), 'offer-20260916-121530.xlsx'));
       expect(err).to.be.instanceOf(Error).and.not.instanceOf(ConfigFileRejected);
-      expect((err as Error).message).to.contain('tpl.broken').and.to.contain('invalid');
+      expect((err as Error).message)
+        .to.contain('tpl.broken')
+        .and.to.contain('invalid');
       // the ajv strict-mode detail (an unregistered 'x-widget' keyword) is logged, not returned
       expect((err as Error).message).to.not.contain('strict');
     });
