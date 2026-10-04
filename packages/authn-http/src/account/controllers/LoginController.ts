@@ -222,7 +222,9 @@ export class LoginController extends BaseController {
   // DefaultMfaPolicy's rule over authn.mfa.steps only: a registered step the config does not list never counts.
   protected async configuredStepRequired(id: { type: string; id: string }): Promise<boolean> {
     const entries = this.Configuration.get<unknown>('authn.mfa.steps');
-    if (!Array.isArray(entries) || entries.length === 0) return false;
+    if (entries === undefined || entries === null) return false;
+    if (!Array.isArray(entries)) return true;
+    if (entries.length === 0) return false;
     const registered = DI.getRegisteredTypes(MfaStep as unknown as Class<MfaStep>) ?? [];
     for (const entry of entries) {
       const service = (entry as { service?: unknown } | null)?.service;
