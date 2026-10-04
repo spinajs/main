@@ -8,6 +8,7 @@ import { IJobStatusResponse } from '../src/models/JobEntry.js';
 import { DateTime } from 'luxon';
 import { JobModel } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
+import { ACCESS_DESCRIPTOR } from '@spinajs/authz-http';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 chai.use(chaiAsPromised);
@@ -37,6 +38,11 @@ describe('JobsController', function () {
         sinon.restore();
     });
 
+    it('guards getStatus with job:read in the root domain', () => {
+        const descriptor = Reflect.getMetadata(ACCESS_DESCRIPTOR, JobsController.prototype);
+        expect(descriptor.Access.get('getStatus').permissions).to.deep.equal(['job:read']);
+    });
+
     describe('getStatus()', () => {
         it('should return Ok with job status when job exists', async () => {
             const queryBuilder = {
@@ -53,7 +59,7 @@ describe('JobsController', function () {
             expect(response.progress).to.equal(75);
             expect(response.status).to.equal('executing');
             expect(queryBuilder.where.calledWith('JobId', 'abc-123')).to.be.true;
-            expect(canRead.calledWith(req, 7)).to.be.true;
+            expect(canRead.calledWith(req, mockJobRow)).to.be.true;
         });
 
         it('should answer not found for an unknown job', async () => {

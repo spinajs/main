@@ -17,7 +17,7 @@ export class JobsController extends BaseController {
       async () => {
         const found = await JobModel.select().where("JobId", jobId).first();
         // The job resource id is the integer Id, not the uuid JobId (RFC L6-2).
-        return found && (await this.canRead(req, found.Id)) ? found : undefined;
+        return found && (await this.canRead(req, found)) ? found : undefined;
       },
     );
 
@@ -47,7 +47,7 @@ export class JobsController extends BaseController {
     return new Ok(response);
   }
 
-  protected async canRead(req: Request, id: number): Promise<boolean> {
+  protected async canRead(req: Request, row: JobModel): Promise<boolean> {
     const principal = req.storage.Principal;
     if (!principal) return false;
     const domain = req.storage.AuthzHttpRoute?.domain ?? "root";
@@ -55,6 +55,7 @@ export class JobsController extends BaseController {
       domain === "root"
         ? ((await DI.resolve(AuthzService)) as AuthzService)
         : await ((await DI.resolve(AuthzDomains)) as AuthzDomains).service(domain);
-    return authz.can(principal, "job:read", { type: "job", id: String(id) });
+    // The row is the subject: a ref alone leaves the grant's `initiator` relation unchecked.
+    return authz.can(principal, "job:read", { type: "job", id: String(row.Id) }, row);
   }
 }

@@ -1,6 +1,9 @@
 import 'mocha';
 
 import { expect } from 'chai';
+import { JobsController } from '../src/controllers/JobsControllers.js';
+import { JobModel } from '@spinajs/queue';
+import { SYSTEM } from '@spinajs/authz';
 import { fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
 import type { HarnessSession, SetupContext, World } from '@spinajs/authz-testing';
 
@@ -60,5 +63,17 @@ describe('GET jobs/v1/:jobId/status', () => {
 
   it('refuses a request without a principal', async () => {
     expect((await get('j1')).status).to.equal(401);
+  });
+
+  it('canRead alone denies another user row and allows the owner, without the ORM scope', async () => {
+    const authz = session.authz as unknown as import('@spinajs/authz').AuthzService;
+    const row = (await authz.runAs(SYSTEM, 'test', () => JobModel.where({ JobId: 'j1' }).first()))!;
+    const check = (who: typeof alice) => {
+      const req = { storage: { Principal: who, AuthzHttpRoute: { domain: 'test' } } };
+      return (new JobsController() as unknown as { canRead(r: unknown, row: JobModel): Promise<boolean> }).canRead(req, row);
+    };
+    expect(await check(bob)).to.equal(false);
+    expect(await check(alice)).to.equal(true);
+    expect(await check(carol)).to.equal(true);
   });
 });
