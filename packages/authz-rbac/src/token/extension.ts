@@ -9,11 +9,18 @@ import type { RbacModelOptions } from '../model/model.js';
 import { TokenRoleRules, isTokenPrincipal, loadTokenRoleRules } from './rules.js';
 
 export interface TokenRoleExtensionDeps {
-  /** Default: loaded at init from the root Configuration and the domain's container. */
+  /** Default: loaded at init from the domain's container and the Configuration it resolves. */
   readonly rules?: TokenRoleRules | (() => Promise<TokenRoleRules>);
 }
 
 const NO_CONFIGURATION: Pick<Configuration, 'get'> = { get: <T>(_path: string | string[], dflt?: T) => dflt as T };
+
+const TOKEN_ROLE_EXTENSION = Symbol('tokenRoleExtension');
+
+/** Whether `e` came from {@link tokenRoleExtension}; RbacModel keeps exactly one of them, last. */
+export function isTokenRoleExtension(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { [TOKEN_ROLE_EXTENSION]?: unknown })[TOKEN_ROLE_EXTENSION] === true;
+}
 
 /**
  * Applies `authz.token` to principals that authenticated with a token (B24, B07, design §18.3(g)):
@@ -23,11 +30,15 @@ const NO_CONFIGURATION: Pick<Configuration, 'get'> = { get: <T>(_path: string | 
  */
 export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExtensionDeps = {}): RbacExtension {
   let rules = deps.rules instanceof TokenRoleRules ? deps.rules : undefined;
-  return {
+  const extension: RbacExtension = {
     async init(ctx) {
       if (deps.rules instanceof TokenRoleRules) rules = deps.rules;
       else if (deps.rules) rules = await deps.rules();
-      else rules = await loadTokenRoleRules(DI.get(Configuration) ?? NO_CONFIGURATION, domainContainer(ctx.domain));
+      else {
+        const domain = hostDomain(ctx.domain);
+        // Outside a host only a Configuration already resolved counts: a model init must not start loading one.
+        rules = domain ? await loadTokenRoleRules(await configurationOf(domain), domain) : await loadTokenRoleRules(DI.get(Configuration) ?? NO_CONFIGURATION, DI.RootContainer);
+      }
     },
     // Synchronous and without ctx: RbacModel.heldNow runs it with a context that throws.
     gather(request: DecisionRequest, _ctx: EvaluationContext, input: RbacInput): Partial<RbacInput> {
@@ -44,11 +55,20 @@ export function tokenRoleExtension(_opts: RbacModelOptions, deps: TokenRoleExten
       return { assignments: input.assignments.filter((a) => keep.has(a.role)), request: { ...input.request, principal: narrowed } };
     },
   };
+  Object.defineProperty(extension, TOKEN_ROLE_EXTENSION, { value: true });
+  return extension;
 }
 
-function domainContainer(domain: string): IContainer {
+/** The container of an authz host domain named `domain`; undefined when the model runs outside a host. */
+function hostDomain(domain: string): IContainer | undefined {
   const domains = DI.get(AuthzDomains);
-  return domains && domains.names().includes(domain) ? domains.container(domain) : DI.RootContainer;
+  return domains && domains.names().includes(domain) ? domains.container(domain) : undefined;
+}
+
+/** As the host reads it; the defaults only when no Configuration is registered at all. */
+async function configurationOf(container: IContainer): Promise<Pick<Configuration, 'get'>> {
+  if (!container.hasRegistered(Configuration)) return NO_CONFIGURATION;
+  return (await container.resolve(Configuration)) as Configuration;
 }
 
 /** The token's roles; null counts as absent, as in the engine's ceiling reader. */

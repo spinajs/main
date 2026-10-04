@@ -9,6 +9,7 @@ import { compileGrants } from './grants.js';
 import type { GrantIndex } from './grants.js';
 import { assignmentProblem, compileRoles } from './roles.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
+import { isTokenRoleExtension, tokenRoleExtension } from '../token/extension.js';
 
 export interface RbacModelOptions {
   readonly roles: RoleStore;
@@ -17,7 +18,7 @@ export interface RbacModelOptions {
   readonly subjects?: SubjectResolver;
   readonly rules?: RuleStore;
   readonly links?: LinkStore;
-  /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. */
+  /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. The model adds tokenRoleExtension last either way. */
   readonly extensions?: readonly RbacExtension[];
   /** Default: the host log under the name 'authz-rbac'. */
   readonly log?: { warn(message: string): void };
@@ -70,7 +71,11 @@ export class RbacModel extends AuthorizationModel {
   constructor(private readonly opts: RbacModelOptions) {
     super();
     this.log = opts.log ?? engineLog('authz-rbac');
-    this.extensions = opts.extensions ? Object.freeze([...opts.extensions]) : createRbacExtensions(opts);
+    // The token role rules run on every model and last: a later gather that returns fresh assignments
+    // or a fresh request would undo them, and an app that passes `extensions` must not lose them.
+    const given = opts.extensions ?? createRbacExtensions(opts);
+    const token = given.find(isTokenRoleExtension) ?? tokenRoleExtension(opts);
+    this.extensions = Object.freeze([...given.filter((e) => !isTokenRoleExtension(e)), token]);
     // Only the ops the votes emit: the boot refuses a declared native op without its filter (§6.5 rule 4).
     const residuals = [...new Set([...CORE_FILTER_OPS, ...this.extensions.flatMap((e) => e.residuals ?? [])])];
     this.capabilities = Object.freeze({

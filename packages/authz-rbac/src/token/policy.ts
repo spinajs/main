@@ -9,6 +9,7 @@ import { Injectable } from '@spinajs/di';
 export abstract class TokenRolePolicy {
   /**
    * Of `roles`, the ones a token of `owner` may use; `profile` is the 2.x profile the token is pinned to.
+   * `roles` may hold roles the owner does not have (a token without roles is asked about every role): filter them, never infer ownership from them.
    * Synchronous: RBAC asks it on every check of a token principal, so it must answer from its arguments and config, with no IO.
    */
   abstract allowedRoles(owner: Principal, roles: readonly string[], profile?: string): readonly string[];

@@ -12,7 +12,6 @@ import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
 import { rbacAssignmentArgs, scopeMatcher } from './native.js';
 import { assignmentProblem } from './roles.js';
-import { tokenRoleExtension } from '../token/extension.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
@@ -457,7 +456,7 @@ export interface RbacExtension {
 export type RbacExtensionFactory = (opts: RbacModelOptions) => RbacExtension;
 
 /** One factory per extension, so every model gets its own instances. */
-export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([tokenRoleExtension]);
+export const DEFAULT_RBAC_EXTENSIONS: readonly RbacExtensionFactory[] = Object.freeze([]);
 
 /** The model's extensions when its options name none: one instance per factory, built with the model options. */
 export function createRbacExtensions(opts: RbacModelOptions, factories: readonly RbacExtensionFactory[] = DEFAULT_RBAC_EXTENSIONS): readonly RbacExtension[] {
