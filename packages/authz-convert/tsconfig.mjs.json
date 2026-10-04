@@ -6,6 +6,18 @@
     "module": "node16",
     "moduleResolution": "node16"
   },
-  "include": ["src/**/*"],
-  "references": [{ "path": "../configuration/tsconfig.mjs.json" }]
+  "include": [
+    "src/**/*"
+  ],
+  "references": [
+    {
+      "path": "../authz/tsconfig.mjs.json"
+    },
+    {
+      "path": "../di/tsconfig.mjs.json"
+    },
+    {
+      "path": "../configuration/tsconfig.mjs.json"
+    }
+  ]
 }
