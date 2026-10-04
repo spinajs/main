@@ -81,8 +81,16 @@ const http = {
     },
     
     /**
+     * Proxies in front of the app whose X-Forwarded-For counts ( RealIp, and
+     * authn's ClientIp when authn.http.trustProxy is null ): a hop count, or a
+     * list of addresses and CIDRs. null: no proxy, the client is the socket address.
+     */
+    trustProxy: null as number | string | string[] | null,
+
+    /**
      * Per-ip, per-route rate limiting ( ThrottleMiddleware ). Disabled by
-     * default - enable and add rules per app, eg. for the unauthenticated
+     * default - the authn throttle is the real per-account and per-IP login
+     * limiter. Enable and add rules per app, eg. for the unauthenticated
      * auth surface:
      *   rules: [{ path: '/auth', methods: ['POST'], limit: 10, windowSeconds: 60 }]
      */

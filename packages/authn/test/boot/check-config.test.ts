@@ -167,16 +167,25 @@ describe('authn:check-config', () => {
   });
 
   describe('cors', () => {
-    it('warns when http.cors.origins is empty: every origin is allowed, with credentials', async () => {
+    it('warns when http.cors.origins is empty: no cross-origin request is allowed (A31)', async () => {
       const f = await check(merge(sound(), { http: { cors: { origins: [] } } }));
       expect(topics(f)).to.deep.eq(['cors:warning']);
-      expect(f[0].message).to.contain('every origin');
+      expect(f[0].message).to.contain('no cross-origin request is allowed');
+      expect(f[0].message).to.not.contain('allows every origin');
     });
 
-    it('warns when http.cors is set without an origins list', async () => {
+    it('warns when http.cors is set without an origins list, as for an empty one', async () => {
       const v = sound();
       (v.http as Values).cors = { exposedHeaders: ['x-request-id'] };
-      expect(topics(await check(v))).to.deep.eq(['cors:warning']);
+      const f = await check(v);
+      expect(topics(f)).to.deep.eq(['cors:warning']);
+      expect(f[0].message).to.contain('no cross-origin request is allowed');
+    });
+
+    it('warns when http.cors.origins is not a list: @spinajs/http refuses to start', async () => {
+      const f = await check(merge(sound(), { http: { cors: { origins: 'https://app.example.com' } } }));
+      expect(topics(f)).to.deep.eq(['cors:warning']);
+      expect(f[0].message).to.contain('not a list');
     });
 
     it('says nothing without http.cors: no CORS middleware, the same-origin rule holds', async () => {

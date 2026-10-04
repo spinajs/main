@@ -38,7 +38,7 @@ function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, legacy keys with rejectLegacyKeys) and what boot accepts but an operator
- * should fix (no strategy, no proxy setting, open CORS, an env that fell back to development).
+ * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development).
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
   const config = (await container.resolve(Configuration)) as Configuration;
@@ -67,10 +67,10 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
   const cors = config.get<unknown>('http.cors');
   if (cors) {
     const origins = (cors as { origins?: unknown }).origins;
-    if (!Array.isArray(origins)) {
-      out.push({ topic: 'cors', level: 'warning', message: 'http.cors is set without an origins list: the CORS check of @spinajs/http then throws on requests' });
-    } else if (origins.length === 0) {
-      out.push({ topic: 'cors', level: 'warning', message: 'http.cors.origins is empty: @spinajs/http then allows every origin, with credentials' });
+    if (origins !== undefined && origins !== null && !Array.isArray(origins)) {
+      out.push({ topic: 'cors', level: 'warning', message: 'http.cors.origins is not a list: @spinajs/http refuses to start; list the origins your browser clients use' });
+    } else if (!Array.isArray(origins) || origins.length === 0) {
+      out.push({ topic: 'cors', level: 'warning', message: 'http.cors.origins is empty or not set: no cross-origin request is allowed (A31); list the origins your browser clients use' });
     }
   }
 
