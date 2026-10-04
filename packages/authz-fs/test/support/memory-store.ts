@@ -6,12 +6,12 @@ import type { FileMeta } from '../../src/index.js';
 const key = (fs: string, path: string): string => `${fs}:${path}`;
 const under = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`);
 
-/** FileMetadataStore over a Map with the ORM store's semantics (a path and everything under it); records each call. */
+/** FileMetadataStore over a Map with the ORM store's semantics (`deleteTree` and `move` take a path and everything under it); records each call. */
 export class MemoryFileMetadataStore extends FileMetadataStore {
   readonly rows = new Map<string, FileMeta>();
   readonly calls: string[] = [];
   /** Methods that throw, to test failures after the IO. */
-  readonly failing = new Set<'get' | 'set' | 'move' | 'delete'>();
+  readonly failing = new Set<'get' | 'set' | 'move' | 'delete' | 'deleteTree'>();
 
   async get(fsName: string, path: string): Promise<FileMeta | null> {
     this.record('get', fsName, path);
@@ -43,6 +43,11 @@ export class MemoryFileMetadataStore extends FileMetadataStore {
 
   async delete(fsName: string, path: string): Promise<void> {
     this.record('delete', fsName, path);
+    this.rows.delete(key(fsName, normalizeFsPath(path)));
+  }
+
+  async deleteTree(fsName: string, path: string): Promise<void> {
+    this.record('deleteTree', fsName, path);
     const p = normalizeFsPath(path);
     for (const k of [...this.rows.keys()]) {
       const at = k.indexOf(':');
@@ -55,7 +60,7 @@ export class MemoryFileMetadataStore extends FileMetadataStore {
     return owner ? `${owner.type}:${owner.id}` : undefined;
   }
 
-  private record(method: 'get' | 'set' | 'move' | 'delete', ...args: string[]): void {
+  private record(method: 'get' | 'set' | 'move' | 'delete' | 'deleteTree', ...args: string[]): void {
     this.calls.push(`${method} ${args.join(' ')}`);
     if (this.failing.has(method)) throw new Error(`${method} failed`);
   }

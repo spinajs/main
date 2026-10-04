@@ -104,6 +104,16 @@ function storeContract(setup: () => ContractSetup, fsA: string, fsB: string): vo
     await s.store.delete(fsA, `${dir}/never.txt`);
   });
 
+  it('delete removes the row of that path only, not the rows under it (review N3)', async () => {
+    await s.touch(fsA, `${dir}/k`);
+    await s.touch(fsA, `${dir}/k/child.txt`);
+    await s.store.set(fsA, `${dir}/k`, { owner: BOB });
+    await s.store.set(fsA, `${dir}/k/child.txt`, { owner: ALICE });
+    await s.store.delete(fsA, `${dir}/k`);
+    expect(await s.store.get(fsA, `${dir}/k`)).to.equal(null);
+    expect(await s.store.get(fsA, `${dir}/k/child.txt`)).to.deep.equal({ owner: ALICE });
+  });
+
   it('moves within a filesystem, replacing the destination', async () => {
     await s.touch(fsA, `${dir}/a.txt`);
     await s.touch(fsA, `${dir}/b.txt`);
@@ -164,7 +174,8 @@ async function externalDb(kind: 'postgres' | 'mysql'): Promise<{ connection: Rec
   }
   const quoted = kind === 'postgres' ? `"${name}"` : `\`${name}\``;
   return {
-    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations', OnStartup: true } },
+    // Not on startup: every migration this process imports would run (authz-rbac's needs a users table); the suite runs fs_object's alone.
+    connection: { Driver: `orm-driver-${kind}`, Name: kind, ...server, Database: name, Migration: { Table: 'orm_migrations', OnStartup: false } },
     async drop() {
       const d = await admin();
       try {
@@ -206,10 +217,13 @@ function ormSuite(kind: DbKind): void {
       config.set(['db'], { DefaultConnection: main.Name, Connections: [main, sqlite('other'), sqlite('nocase')] });
       orm = (await DI.resolve(Orm)) as Orm;
       db = orm.Connections.get('default')!;
+      if (kind !== 'sqlite') await new AuthzFsObject_2026_10_01_00_00_00().up(db);
     });
 
     after(async () => {
-      for (const c of new Set(orm?.Connections.values() ?? [])) await c.disconnect();
+      // A before() that failed half-way may leave a cached Orm with open connections, which keep mocha alive.
+      const opened = orm ?? (DI.RootContainer.Cache.has(Orm) ? (DI.get(Orm) as Orm | undefined) : undefined);
+      for (const c of new Set(opened?.Connections.values() ?? [])) await c.disconnect().catch(() => undefined);
       DI.uncache(Orm);
       DI.uncache(Configuration);
       DI.unregister(FakeConfiguration);
@@ -233,7 +247,7 @@ function ormSuite(kind: DbKind): void {
       expect(types).to.include(S3ObjectMetadataStore);
     });
 
-    it('the migration registers through @Migration and creates fs_object at startup (design §9.1)', async () => {
+    it('the migration registers through @Migration and creates fs_object (design §9.1)', async () => {
       expect(orm!.Migrations.map((m) => m.name)).to.include(AuthzFsObject_2026_10_01_00_00_00.name);
       const info = await db.tableInfo('fs_object');
       expect(info.map((c) => c.Name).sort()).to.deep.equal(['created_at', 'fs', 'owner_id', 'owner_type', 'path', 'scope_id', 'scope_type', 'tags', 'updated_at']);
@@ -278,17 +292,19 @@ function ormSuite(kind: DbKind): void {
       for (const p of ['tree/d', 'tree/d/a.txt', 'tree/d/sub/b.txt']) expect(await store.get('uploads', p)).to.equal(null);
       for (const p of ['tree/d-x.txt', 'tree/dd/c.txt', 'tree/d.txt', 'tree/D/up.txt']) expect(await store.get('uploads', p), p).to.deep.equal({ owner: ALICE });
 
-      await store.delete('archive', 'moved');
+      await store.deleteTree('archive', 'moved');
       expect(await store.get('archive', 'moved/d2/a.txt')).to.equal(null);
       expect(await store.get('uploads', 'tree/dd/c.txt')).to.deep.equal({ owner: ALICE });
     });
 
-    it('escapes LIKE wildcards in directory paths: a_b and 100% match only themselves', async () => {
-      for (const p of ['w/a_b/x', 'w/axb/y', 'w/100%/z', 'w/1000/q']) await store.set('uploads', p, { owner: ALICE });
-      await store.delete('uploads', 'w/a_b');
-      await store.delete('uploads', 'w/100%');
-      expect(await store.get('uploads', 'w/a_b/x')).to.equal(null);
-      expect(await store.get('uploads', 'w/100%/z')).to.equal(null);
+    it('escapes LIKE wildcards in directory paths: a_b, 100% and docs[1] match only themselves (review N5)', async () => {
+      for (const p of ['w/a_b/x', 'w/axb/y', 'w/100%/z', 'w/1000/q', 'w/docs[1]/a', 'w/docs1/b', 'w/~t/c', 'w/xt/d']) await store.set('uploads', p, { owner: ALICE });
+      await store.deleteTree('uploads', 'w/a_b');
+      await store.deleteTree('uploads', 'w/100%');
+      await store.deleteTree('uploads', 'w/docs[1]');
+      await store.deleteTree('uploads', 'w/~t');
+      for (const p of ['w/a_b/x', 'w/100%/z', 'w/docs[1]/a', 'w/~t/c']) expect(await store.get('uploads', p), p).to.equal(null);
+      for (const p of ['w/docs1/b', 'w/xt/d']) expect(await store.get('uploads', p), p).to.deep.equal({ owner: ALICE });
       expect(await store.get('uploads', 'w/axb/y')).to.deep.equal({ owner: ALICE });
       expect(await store.get('uploads', 'w/1000/q')).to.deep.equal({ owner: ALICE });
     });
@@ -335,7 +351,7 @@ function ormSuite(kind: DbKind): void {
 
       await ci.set('uploads', 'Docs/a.txt', { owner: ALICE });
       await ci.set('uploads', 'docs/b.txt', { owner: BOB });
-      await ci.delete('uploads', 'docs');
+      await ci.deleteTree('uploads', 'docs');
       expect(await ci.get('uploads', 'Docs/a.txt')).to.deep.equal({ owner: ALICE });
       expect(await ci.get('uploads', 'docs/b.txt')).to.equal(null);
       await ci.move('uploads', 'Docs', 'uploads', 'moved');

@@ -95,7 +95,10 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
   if (effect.kind === 'delete') {
     const p = at(effect.arg);
     const store = p && (await p.target.metadata());
-    return p && store ? after([p], () => store.delete(p.target.name, p.path)) : undefined;
+    if (!p || !store) return undefined;
+    // A key store has no directories: removing a key must not take the rows of other keys under that prefix.
+    const directory = await probe(p, 'isDir');
+    return after([p], () => (directory ? deleteTree(store, p) : store.delete(p.target.name, p.path)));
   }
 
   if (effect.kind === 'move') return planMove(at(effect.from), at(effect.to), after, opts);
@@ -103,7 +106,7 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
   const p = at(effect.arg);
   const store = p && (await p.target.metadata());
   if (!p || !store) return undefined;
-  let task: () => Promise<void>;
+  let task: (() => Promise<void>) | undefined;
   if (await probe(p, effect.probe)) {
     // Written back: S3 write, upload and append replace an object's metadata.
     const before = await store.get(p.target.name, p.path);
@@ -111,44 +114,85 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
   } else {
     const next: FileMeta | null = p.target.stampOwner && p.owner ? { owner: p.owner } : null;
     if (next) checkMeta(store, p, next);
-    // Rows left at a path that did not exist are stale (an rm outside the guard, a failed update); the new file must not inherit them.
-    task = async () => {
-      await store.delete(p.target.name, p.path);
-      if (next) await store.set(p.target.name, p.path, next);
-    };
+    await clearStale(store, p, effect.probe === 'dirExists');
+    if (next) task = () => stampIfAbsent(store, p, next);
   }
-  if (!effect.stream) return after([p], task);
+  if (!task) return undefined;
+  const stamp = task;
+  if (!effect.stream) return after([p], stamp);
   return async (result) => {
-    if (!isWritable(result)) return after([p], task)(result);
-    stampOnClose(result, task, (e) => failed([p], e), opts.timeoutMs);
+    if (!isWritable(result)) return after([p], stamp)(result);
+    stampOnClose(result, stamp, (e) => failed([p], e), opts.timeoutMs);
     return result;
   };
 }
 
 /**
- * One store on both sides moves the whole tree (`store.move`; S3 does nothing once the object is gone, since the
- * provider's copy kept its metadata). Between two stores only the row of the moved path travels, read before the IO
- * because the source may be gone after it; the rows under a moved directory are dropped, and a warning says so.
+ * The destination is probed like any write. When it existed, it keeps its metadata (first writer) and only the
+ * source rows go. Otherwise one store on both sides moves the whole tree (`store.move`; S3 does nothing once the
+ * object is gone, since the provider's copy within a bucket kept its metadata), and between two stores only the row
+ * of the moved path travels, read before the IO because the source may be gone after it; the rows under a moved
+ * directory are then dropped, and a warning says so. A row that appears at the destination during the IO wins.
  */
 async function planMove(src: MetadataPath | undefined, dst: MetadataPath | undefined, after: (where: readonly MetadataPath[], task: () => Promise<void>) => AfterIo, opts: MetadataOptions): Promise<AfterIo | undefined> {
   if (!src) return undefined;
   const srcStore = await src.target.metadata();
   const dstStore = dst ? await dst.target.metadata() : undefined;
   if (!srcStore && !dstStore) return undefined;
+  if (dst && src.target.name === dst.target.name && src.path === dst.path) return undefined;
   const where = dst ? [src, dst] : [src];
-  if (dst && srcStore && srcStore === dstStore) return after(where, () => srcStore.move(src.target.name, src.path, dst.target.name, dst.path));
-
-  const before = srcStore ? await srcStore.get(src.target.name, src.path) : null;
-  if (dst && dstStore && before) checkMeta(dstStore, dst, before);
   const directory = srcStore !== undefined && (await probe(src, 'isDir'));
+  const removeSource = async (): Promise<void> => {
+    if (srcStore) await (directory ? deleteTree(srcStore, src) : srcStore.delete(src.target.name, src.path));
+  };
+  const before = srcStore ? await srcStore.get(src.target.name, src.path) : null;
+  if (!dst || !dstStore) return after(where, removeSource);
+
+  checkMeta(dstStore, dst, before ?? {});
+  if (await probe(dst, 'exists')) {
+    const kept = await dstStore.get(dst.target.name, dst.path);
+    return after(where, async () => {
+      await put(dstStore, dst, kept);
+      await removeSource();
+    });
+  }
+  await clearStale(dstStore, dst, directory);
+  if (srcStore === dstStore) {
+    return after(where, async () => {
+      if ((await dstStore.get(dst.target.name, dst.path))?.owner) await removeSource();
+      else await dstStore.move(src.target.name, src.path, dst.target.name, dst.path);
+    });
+  }
   return after(where, async () => {
-    if (dst && dstStore) {
-      await dstStore.delete(dst.target.name, dst.path);
-      if (before) await dstStore.set(dst.target.name, dst.path, before);
-    }
-    if (srcStore) await srcStore.delete(src.target.name, src.path);
-    if (directory) opts.warn(`move of the directory ${src.target.name}:${src.path} to ${dst ? `${dst.target.name}:${dst.path}` : 'an unguarded filesystem'} carried only its own metadata to another store; the files under it lost their owners`);
+    if (before) await stampIfAbsent(dstStore, dst, before);
+    await removeSource();
+    if (directory) opts.warn(`move of the directory ${src.target.name}:${src.path} to ${dst.target.name}:${dst.path} carried only its own metadata to another store; the files under it lost their owners`);
   });
+}
+
+type TreeStore = FileMetadataStore & { deleteTree?(fsName: string, path: string): Promise<void> };
+
+/** The row of `p` and the rows under it, where the store keeps directories (OrmFileMetadataStore); else the row alone. */
+function deleteTree(store: FileMetadataStore, p: MetadataPath): Promise<void> {
+  const tree = (store as TreeStore).deleteTree;
+  return tree ? tree.call(store, p.target.name, p.path) : store.delete(p.target.name, p.path);
+}
+
+/**
+ * Before the IO, rows at a path that did not exist are stale (an rm outside the guard, a failed update): a file path
+ * loses its own row, a directory its subtree. Done before, not after, so rows that others create there while the IO
+ * runs are theirs.
+ */
+async function clearStale(store: FileMetadataStore, p: MetadataPath, directory: boolean): Promise<void> {
+  if (directory) await deleteTree(store, p);
+  else if (await store.get(p.target.name, p.path)) await store.delete(p.target.name, p.path);
+}
+
+/** First stamp wins: a path that got an owner since the probe keeps it. */
+async function stampIfAbsent(store: FileMetadataStore, p: MetadataPath, meta: FileMeta): Promise<void> {
+  const current = await store.get(p.target.name, p.path);
+  if (current?.owner) return;
+  await store.set(p.target.name, p.path, { ...current, ...meta });
 }
 
 /** Makes the store hold `next` for `p`, writing only when it differs. */

@@ -97,18 +97,26 @@ authz: {
 - Ownership goes to the first writer. `write`, `writeStream`, `append`, `mkdir`, `upload`, `copy` (destination),
   `zip` (the archive) and `unzip` (the destination directory) stamp a path only when they create it. A path that
   existed before keeps its metadata, also when it has none, so `fs:write` on a file or a directory gives no owner
-  rights over it. A path that did not exist starts empty: rows left at it or under it (by an `rm` outside the
-  guard, or a failed update) are deleted first.
+  rights over it. A path that did not exist starts empty: before the IO, rows left there (by an `rm` outside the
+  guard, or a failed update) are deleted, the row of a file and the subtree of a directory the provider reports
+  missing. After the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a
+  slow write does not take over what others created at that path while it ran.
+- First-writer works both ways: in a writable tree several principals share, whoever creates a path first (even an
+  empty file, or a `writeStream` left open) owns what others later write there, and reads it through an owner
+  grant. Where reads go by owner, grant `fs:write` on per-user prefixes
+  (`{ type: 'dir', id: 'uploads:users/{principal.id}' }`) rather than on one shared directory.
 - Only a definite allow stamps: an `audit`-mode denial or a conditional answer writes no owner. The owner is the
   principal the decision ran for: under `inherit` delegation the delegate, as the owner relation is then evaluated
   for the delegate too; under `intersect` the agent. SYSTEM, UNATTENDED, anonymous and `link` principals own
   nothing (anonymous callers and the bearers of a link share one id).
 - `writeStream` stamps when the stream closes after it finished, and holds the `'close'` event back until then, at
   most `metadataTimeoutMs` (30 s); a stream that failed or was destroyed stamps nothing.
-- `rm` deletes the metadata of the path and everything under it; `move` and `rename` move it. With one store on
-  both sides the whole tree moves, also between filesystems. Between two stores only the row of the moved path
-  travels: the files under a moved directory lose their owners (a warning is logged). To a filesystem without a
-  store the metadata is dropped. This happens with or without `stampOwner` once a store is configured. Unchecked
+- `rm` deletes the metadata of the path, and of everything under it when the provider reports a directory (a key
+  store such as S3 has none, so removing a key leaves the other keys under that prefix alone). `move` and
+  `rename` probe the destination like a write: onto an existing path, the destination keeps its metadata and only
+  the source rows are deleted. Otherwise the metadata moves: with one store on both sides the whole tree, also
+  between filesystems; between two stores only the row of the moved path, and the files under a moved directory
+  lose their owners (a warning is logged). To a filesystem without a store the metadata is dropped. This happens with or without `stampOwner` once a store is configured. Unchecked
   calls a provider makes inside an operation keep no metadata.
 - The store checks what it can before the IO (`checkMeta`: column sizes, the S3 limit), so a value it cannot hold
   stops the operation. A metadata update that fails after the IO is logged at error and its error rethrown (for
@@ -124,8 +132,8 @@ Stores:
 
 - `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path. The store and its migration
   `AuthzFsObject_2026_10_01_00_00_00` use the connection `authz.fsMetadata.connection` names (not under `authz.fs`,
-  which is keyed by filesystem name), else `default`. `delete` and `move` take the rows under a directory path
-  along (`LIKE` with the wildcards escaped). Paths are matched exactly in code and rows changed by their stored key.
+  which is keyed by filesystem name), else `default`. `delete` removes one row; `deleteTree` and `move` take
+  the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are matched exactly in code and rows changed by their stored key.
   The migration gives the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a
   case-insensitive key (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored,
   and its update fails instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the

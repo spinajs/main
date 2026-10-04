@@ -9,8 +9,8 @@ import { AccessDenied, AuthzConfigError, SYSTEM, UNATTENDED } from '@spinajs/aut
 import type { Principal } from '@spinajs/authz';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
-import { fsNative } from '@spinajs/fs';
-import type { IFsLocalOptions, fs } from '@spinajs/fs';
+import { fs, fsNative } from '@spinajs/fs';
+import type { IFsLocalOptions } from '@spinajs/fs';
 
 import { InvalidArgument } from '@spinajs/exceptions';
 
@@ -27,10 +27,29 @@ const expect = chai.expect;
 class ArchiveMetadataStore extends MemoryFileMetadataStore {}
 
 /** Refuses owner ids longer than 5 characters, as a column limit would. */
+/** Refuses owner ids over 5 characters and paths over 20, as column limits would. */
 class CheckedMetadataStore extends MemoryFileMetadataStore {
-  checkMeta(_fsName: string, _path: string, meta: FileMeta): void {
+  checkMeta(_fsName: string, path: string, meta: FileMeta): void {
     if ((meta.owner?.id.length ?? 0) > 5) throw new InvalidArgument('owner id too long', 'meta');
+    if (path.length > 20) throw new InvalidArgument('path too long', 'path');
   }
+}
+
+/** A key store as S3 is: one key per object, a key and a prefix of other keys can coexist, no directories. */
+function keyStoreFs(name: string): { provider: fs; objects: Map<string, string> } {
+  const objects = new Map<string, string>();
+  const provider = Object.create(fs.prototype) as fs & Record<string, unknown>;
+  Object.assign(provider, {
+    Options: { name },
+    write: async (key: string, data: string) => void objects.set(key, data),
+    read: async (key: string) => objects.get(key),
+    exists: async (key: string) => objects.has(key),
+    dirExists: async () => true,
+    isDir: async () => false,
+    rm: async (key: string) => void objects.delete(key),
+  });
+  Object.defineProperty(provider, 'Name', { value: name });
+  return { provider, objects };
 }
 
 /** set never settles. */
@@ -187,6 +206,56 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
       expect(store.owner('uploads', 'allowed.txt')).to.equal('user:bob');
     });
 
+    it('a slow write into a new path does not take over what others created there meanwhile; the first stamp wins (review N2)', async () => {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      class SlowFs extends fsNative<IFsLocalOptions> {
+        async copy(path: string, dest: string, dstFs?: fs): Promise<void> {
+          await gate;
+          return super.copy(path, dest, dstFs);
+        }
+      }
+      mkdirSync(join(dir, 'shared', 'bob-src'), { recursive: true });
+      writeFileSync(join(dir, 'shared', 'bob-src', 'b.txt'), 'B');
+      const g = guard(new SlowFs({ name: 'shared', basePath: join(dir, 'shared') }), 'shared', STAMPED);
+      principal = bob;
+      const copying = g.copy('bob-src', 'team');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      principal = alice;
+      await g.mkdir('team');
+      await g.write('team/alice.txt', 'A');
+      principal = bob;
+      release();
+      await copying;
+      expect(store.owner('shared', 'team')).to.equal('user:alice');
+      expect(store.owner('shared', 'team/alice.txt')).to.equal('user:alice');
+    });
+
+    it('on a key store, writing or removing a key next to a prefix strips no one under that prefix (review N3)', async () => {
+      const { provider, objects } = keyStoreFs('bucket');
+      objects.set('alice-dir/secret.txt', 'S');
+      const g = guard(provider, 'bucket', STAMPED);
+      await store.set('bucket', 'alice-dir/secret.txt', { owner: alice });
+      principal = bob;
+      await g.write('alice-dir', 'x');
+      expect(store.owner('bucket', 'alice-dir')).to.equal('user:bob');
+      await g.rm('alice-dir');
+      expect(store.owner('bucket', 'alice-dir')).to.equal(undefined);
+      expect(store.owner('bucket', 'alice-dir/secret.txt')).to.equal('user:alice');
+    });
+
+    it('a stream that fails still leaves its new file without the stale row (review N4)', async () => {
+      const g = guard(local('uploads'), 'uploads', STAMPED);
+      await store.set('uploads', 's.txt', { owner: bob });
+      const stream = (await g.writeStream('s.txt')) as Writable;
+      stream.write('part');
+      const done = new Promise((resolve) => stream.once('close', resolve));
+      stream.destroy();
+      await done;
+      expect(existsSync(join(dir, 'uploads', 's.txt'))).to.equal(true);
+      expect(await store.get('uploads', 's.txt')).to.equal(null);
+    });
+
     it('a new file never inherits a stale row left at its path or under it (review I3)', async () => {
       const g = guard(local('uploads', { 'gone.txt': 'G' }), 'uploads', STAMPED);
       await store.set('uploads', 'gone.txt', { owner: alice, tags: ['old'] });
@@ -331,6 +400,47 @@ describe('authz-fs guard: metadata and owner stamping (D10)', function () {
         expect(store.owner('mirror', p), p).to.equal('user:bob');
         expect(store.owner('uploads', p), p).to.equal(undefined);
       }
+    });
+
+    it('a move onto an existing directory keeps its owner and its children, one store or two (review N1)', async () => {
+      for (const [homeConfig, homeStore] of [
+        [STAMPED, () => store],
+        [{ mode: 'enforce', metadata: 'ArchiveMetadataStore', stampOwner: true }, () => archiveStore],
+      ] as const) {
+        const tag = homeConfig.metadata;
+        const home = guard(local(`home-${tag}`, { 'bob-dir/x.txt': 'X' }), 'home', homeConfig);
+        const g = guard(local(`uploads-${tag}`, { 'alice-dir/secret.txt': 'S' }), 'uploads', STAMPED);
+        await homeStore().set('home', 'bob-dir', { owner: bob });
+        await homeStore().set('home', 'bob-dir/x.txt', { owner: bob });
+        await store.set('uploads', 'alice-dir', { owner: alice });
+        await store.set('uploads', 'alice-dir/secret.txt', { owner: alice });
+        principal = bob;
+        await home.move('bob-dir', 'alice-dir', g);
+        expect(store.owner('uploads', 'alice-dir'), tag).to.equal('user:alice');
+        expect(store.owner('uploads', 'alice-dir/secret.txt'), tag).to.equal('user:alice');
+        expect(store.owner('uploads', 'alice-dir/x.txt'), tag).to.equal(undefined);
+        expect(homeStore().owner('home', 'bob-dir'), tag).to.equal(undefined);
+        expect(homeStore().owner('home', 'bob-dir/x.txt'), tag).to.equal(undefined);
+        store.rows.clear();
+        archiveStore.rows.clear();
+      }
+    });
+
+    it('a rename onto an existing file keeps its owner; the source row goes (review N1)', async () => {
+      const g = guard(local('uploads', { 'a.txt': 'A', 'b.txt': 'B' }), 'uploads', STAMPED);
+      await store.set('uploads', 'a.txt', { owner: alice });
+      await store.set('uploads', 'b.txt', { owner: bob });
+      principal = bob;
+      await g.rename('b.txt', 'a.txt');
+      expect(store.owner('uploads', 'a.txt')).to.equal('user:alice');
+      expect(store.owner('uploads', 'b.txt')).to.equal(undefined);
+    });
+
+    it('a same-store move to a path the store cannot hold is refused before the IO (review N7)', async () => {
+      const g = guard(local('uploads', { 'a.txt': 'A' }), 'uploads', { ...STAMPED, metadata: 'CheckedMetadataStore' });
+      const e = await g.move('a.txt', 'a-very-long-directory/a.txt').catch((err: unknown) => err);
+      expect(e).to.be.instanceOf(InvalidArgument);
+      expect(existsSync(join(dir, 'uploads', 'a.txt'))).to.equal(true);
     });
 
     it('a directory moved to another store carries its own row only; the children lose their owners and a warning says so', async () => {

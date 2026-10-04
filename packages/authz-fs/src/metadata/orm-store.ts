@@ -36,7 +36,8 @@ const chunks = <T>(list: readonly T[], size: number): T[][] => Array.from({ leng
 
 /**
  * FileMeta in table fs_object (migration AuthzFsObject_2026_10_01_00_00_00), one row per (fs, normalised path).
- * `delete` and `move` take the rows under a directory path along: providers remove and move directories whole.
+ * `delete` removes the row of that path only; `deleteTree` and `move` take the rows under a directory path along
+ * (providers remove and move directories whole).
  * Paths are matched exactly in code and rows changed by their stored key, whatever the column collation: on a
  * case-insensitive one, a case variant of an existing path is refused (the insert fails) instead of sharing its row.
  */
@@ -107,6 +108,18 @@ export class OrmFileMetadataStore extends FileMetadataStore {
   async delete(fsName: string, path: string): Promise<void> {
     const fs = checkFsName(fsName);
     const p = normalizeFsPath(path);
+    if (p === '') return;
+    const driver = await this.driver();
+    await driver.transaction(async (tx) => {
+      const row = await exactRow(tx, fs, p);
+      if (row) await deleteRows(tx, [row]);
+    });
+  }
+
+  /** The row of `path` and every row under it ('' = every row of the filesystem). */
+  async deleteTree(fsName: string, path: string): Promise<void> {
+    const fs = checkFsName(fsName);
+    const p = normalizeFsPath(path);
     const driver = await this.driver();
     await driver.transaction(async (tx) => deleteRows(tx, await tree(tx, fs, p)));
   }
@@ -133,11 +146,13 @@ async function exactRow(driver: OrmDriver, fs: string, path: string): Promise<Ro
 async function tree(driver: OrmDriver, fs: string, path: string): Promise<Row[]> {
   if (path === '') return (((await driver.select().from(TABLE).where({ fs })) ?? []) as Row[]).filter((r) => r.fs === fs);
   const row = await exactRow(driver, fs, path);
+  // MSSQL reads '[' as the start of a character class; escaped, it is a literal on every driver.
+  const prefix = escapeLikeValue(path).replace(/\[/g, `${LIKE_ESCAPE_CHARACTER}[`);
   const below = ((await driver
     .select()
     .from(TABLE)
     .where({ fs })
-    .where(RawQuery.create(`path LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${escapeLikeValue(path)}/%`]))) ?? []) as Row[];
+    .where(RawQuery.create(`path LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`, [`${prefix}/%`]))) ?? []) as Row[];
   return [...(row ? [row] : []), ...below.filter((r) => r.fs === fs && r.path.startsWith(`${path}/`))];
 }
 

@@ -69,6 +69,18 @@ const cases: Case[] = [
     steps: [as('alice', write('a.txt')), as('bob', write('a.txt'), read('a.txt', DENIED), fsCall('uploads', 'rm', ['a.txt'], DENIED)), as('alice', read('a.txt', 'resolves'))],
   },
   {
+    name: 'renaming a file onto an existing one keeps its first owner',
+    steps: [as('alice', write('a.txt')), as('bob', write('b.txt'), fsCall('uploads', 'rename', ['b.txt', 'a.txt'], 'resolves'), read('a.txt', DENIED), fsCall('uploads', 'rm', ['a.txt'], DENIED)), as('alice', read('a.txt', 'resolves'))],
+  },
+  {
+    name: "moving a directory onto another user's directory does not take it over, so its files cannot be deleted",
+    steps: [
+      as('alice', fsCall('uploads', 'mkdir', ['alice-dir'], 'resolves'), write('alice-dir/secret.txt')),
+      as('bob', fsCall('uploads', 'mkdir', ['bob-dir'], 'resolves'), write('bob-dir/x.txt'), fsCall('uploads', 'move', ['bob-dir', 'alice-dir', { fs: 'uploads' }], 'resolves'), fsCall('uploads', 'rm', ['alice-dir'], DENIED)),
+      as('alice', read('alice-dir/secret.txt', 'resolves')),
+    ],
+  },
+  {
     name: "unzipping into another user's directory does not take it over, so its files cannot be deleted",
     steps: [
       as('alice', fsCall('uploads', 'mkdir', ['alice-dir'], 'resolves'), write('alice-dir/a.txt')),
