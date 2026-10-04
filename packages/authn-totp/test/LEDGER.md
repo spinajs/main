@@ -71,3 +71,36 @@ Base state: at base (F0b) this file never ran; its `beforeEach` hook failed with
 |---|---|---|---|---|---|
 | 1 | 71 | 2fa throttling ( finding R2 ) > R2: repeated wrong 2fa codes lock the account like failed logins do | rewrite | N5 | authn-totp/test/v3/ (A05, A06, A10, H31, SR-05): the 2.x lockout (lock instant in metadata after 5 failures) becomes backoff and nobody is locked; the expectation differs |
 | 2 | 86 | 2fa throttling ( finding R2 ) > R2: a successful 2fa check clears the failure counter | rewrite | N5 | authn-totp/test/v3/ (A06, A10): a success resets the key; the counter lives in `authn_throttle`, not in `USER_LOGIN_ATTEMPTS` metadata |
+
+## N5 status (done)
+
+`test/two-factor-enrolment.test.ts` and `test/user-2fa-actions.test.ts` are
+deleted (N5 task 5). `z-2fa-throttle-finding.test.ts` and
+`db-common.ts` moved to `test/legacy-v2/` and keep running in their
+own mocha process (`.mocharc.legacy-v2.json`): `test/v3/cli.test.ts`
+leaves an empty `Orm` registration behind that breaks their boot. They
+guard the 2.x `auth2Fa`
+lockout (finding R2), which authn-http still calls, until R1 removes
+`auth2Fa`. Each row maps to the v3 tests that carry its intent. "kit" names a case
+of `@spinajs/authn-testing` A10, run by `test/v3/behaviour-a10.test.ts`
+on the memory store and on sqlite.
+
+| File | # | v3 test(s) |
+|---|---|---|
+| otp-url | 1–5 | `test/otp-url.test.ts`, unchanged (adapt: no edit needed) |
+| two-factor-enrolment | 1 | `v3/totp-step.test.ts` "enrolled is false before confirmation and true after"; "SR-09 TOTP secret encrypted at rest" in `v3/totp-step.test.ts` and `v3/sqlite-step.test.ts` |
+| two-factor-enrolment | 2 | `v3/totp-step.test.ts` "begin replaces a pending secret" |
+| two-factor-enrolment | 3 | `v3/totp-step.test.ts` "begin refuses when enrolled"; `v3/service.test.ts` begin "an enrolled identity gets enrolled" |
+| two-factor-enrolment | 4 | `v3/totp-step.test.ts` "enrolled is false before confirmation and true after"; kit "A10 enrolment confirms with a TOTP code and returns the recovery codes" |
+| two-factor-enrolment | 5 | `v3/totp-step.test.ts` "confirm without begin or after confirmation throws InvalidOperation"; `v3/service.test.ts` confirm "without begin it is not_begun" |
+| two-factor-enrolment | 6 | `v3/service.test.ts` "SR-10 admin MFA reset returns no secret"; begin "a stale session without reauth is not fresh and writes no secret" (A13). No route enables MFA with a given secret |
+| user-2fa-actions | 1 | `v3/service.test.ts` begin "a fresh active session gets the provisioning URI"; `v3/totp-step.test.ts` "the provisioning URI carries issuer, label, algorithm, digits and period" |
+| user-2fa-actions | 2 | `v3/service.test.ts` "audits enrol, disable, throttle blocks and admin resets without codes" (`mfa.enrol` replaces `User2FaEnabled`) |
+| user-2fa-actions | 3 | `v3/service.test.ts` disable "a fresh session and a valid code disable"; kit "A10 disable removes the enrolment" |
+| user-2fa-actions | 4 | `v3/service.test.ts` "SR-10 admin MFA reset returns no secret" and adminReset "resets an enrolment, a pending row, or nothing"; `v3/cli.test.ts` "resets an enrolled account, prints the success line and records the CLI as actor". The A25 target guard is the caller's (N8b) |
+| user-2fa-actions | 5 | `v3/service.test.ts` adminReset "resets an enrolment, a pending row, or nothing"; `v3/cli.test.ts` "says so when the account has no MFA" |
+| user-2fa-actions | 6 | `v3/service.test.ts` begin "a fresh active session gets the provisioning URI"; "audits enrol, disable, …" (begin emits no event) |
+| user-2fa-actions | 7 | `v3/service.test.ts` confirm "the right code returns the recovery codes and enrols"; "audits enrol, disable, …" |
+| user-2fa-actions | 8 | `v3/service.test.ts` confirm "a wrong code is invalid_code and leaves the enrolment pending" and "after the free wrong codes the next one is throttled; after the wait the right one confirms" |
+| z-2fa-throttle-finding | 1 | kept running until R1 removes `auth2Fa`; v3 replacement: kit "A10 TOTP codes count into the throttle"; `v3/service.test.ts` confirm and disable "after the free wrong codes the next one is throttled; …" (backoff, no lockout) |
+| z-2fa-throttle-finding | 2 | kept running until R1 removes `auth2Fa`; v3 replacement: `v3/service.test.ts` disable "after the free wrong codes the next one is throttled; after the wait a valid one disables and resets the account key"; kit "A10 TOTP codes count into the throttle" |

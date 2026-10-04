@@ -24,5 +24,14 @@ so rows the migration wrote decrypt under the same key. Without step 3, or
 another registered `MfaSecretStore`, the step fails with an error naming
 `MfaSecretStore`. Tests register `MemoryMfaSecretStore` as `MfaSecretStore`.
 
+**Warning.** The same data migration deletes the 2.x `2fa:*`, `user:2fa:*`,
+`user:login:*` and `user:pwd_reset:*` keys from `users_metadata`. The
+deprecated 2.x login decides on `2fa:enabled`, so once those keys are gone it
+no longer asks those users for a second factor. With
+`rbac.twoFactorAuth.enabled` and `forceUser` on, it sends them to set up 2FA
+again, after the password alone. Their 2.x reset links stop working, and the
+2.x failed-login count and lock go with `user:login:*`. Import
+`@spinajs/authn-totp/db` only after the app has left the 2.x login behind.
+
 `authn:mfa-reset <login>` removes an account's enrolment and recovery codes and
 prints no secret.
