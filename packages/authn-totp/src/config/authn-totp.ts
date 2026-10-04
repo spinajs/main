@@ -21,11 +21,21 @@ const authnTotp = {
   },
   authn: {
     mfa: {
+      /**
+       * AES-256-GCM key for the stored TOTP secrets: 32 bytes as 64 hex chars or base64/base64url. On rotation, move
+       * the old key to `previous: [...]` so existing rows still decrypt.
+       *
+       * TOTP is off until the app turns it on: add `{ name: 'totp', service: 'TotpMfaStep' }` to its own
+       * `authn.mfa.steps` (arrays concatenate across config files, so this package lists no step), set this secret,
+       * and register an `MfaSecretStore` (authn-orm's `DbMfaStore`).
+       */
+      encryptionKey: { secret: null },
+
       totp: {
         /**
          * change this to your app name, it will be used as issuer in otpauth token
          */
-        issuer: 'Spinajs',
+        issuer: 'SpinaJS',
 
         /**
          * recommended defaults for rest
@@ -34,9 +44,11 @@ const authnTotp = {
         digits: 6,
         period: 30,
         window: 1,
+        recoveryCodes: 10,
       },
     },
   },
+  // deprecated: read by the 2.x Default2FaToken and 2fa actions; R1 removes it
   rbac: {
     twoFactorAuth: {
       enabled: true,

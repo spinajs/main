@@ -9,6 +9,7 @@ import type { MfaEncryptionKeyOptions, MfaKeyRing } from '../cipher/key-ring.js'
 import { MfaSecretStore } from '../store/store.js';
 import type { MfaRecord } from '../store/store.js';
 import { identityKey } from '../store/identity.js';
+import { registered } from '../support/registered.js';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from './errors.js';
 import { totpOptions } from './options.js';
 import { newRecoveryCodeSet, normaliseRecoveryCode, showRecoveryCode } from './recovery-codes.js';
@@ -199,13 +200,13 @@ export class TotpMfaStep extends MfaStep {
       return this.resolved;
     }
     const config = DI.get(Configuration);
-    const store = this.deps.store ?? (DI.check(MfaSecretStore) ? await DI.resolve(MfaSecretStore) : null);
+    const store = this.deps.store ?? (registered(MfaSecretStore) ? await DI.resolve(MfaSecretStore) : null);
     if (!store) {
       throw new InvalidOperation('TotpMfaStep: no MfaSecretStore is registered; register DbMfaStore (authn-orm) or MemoryMfaSecretStore as MfaSecretStore');
     }
     const keys = this.deps.keys ?? mfaKeyRingFrom(config?.get<MfaEncryptionKeyOptions>(['authn', 'mfa', 'encryptionKey']) as MfaEncryptionKeyOptions);
     const options = this.options ?? totpOptions(config?.get<TotpOptionsInput>(['authn', 'mfa', 'totp'], {}) ?? {});
-    const identities = this.deps.identities !== undefined ? this.deps.identities : DI.check(IdentityStore) ? await DI.resolve(IdentityStore) : null;
+    const identities = this.deps.identities !== undefined ? this.deps.identities : registered(IdentityStore) ? await DI.resolve(IdentityStore) : null;
     this.resolved = { store, keys, options, identities };
     return this.resolved;
   }

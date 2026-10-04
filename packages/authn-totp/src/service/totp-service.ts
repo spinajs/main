@@ -5,6 +5,7 @@ import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer } f
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
+import { registered } from '../support/registered.js';
 import { freshAuthMaxAge, isFresh } from './fresh-auth.js';
 
 export type TotpBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
@@ -50,7 +51,7 @@ interface Current {
  */
 @Injectable()
 export class TotpService {
-  private resolved: Resolved | null = null;
+  private readonly cache: { -readonly [K in keyof Resolved]?: Resolved[K] } = {};
   private readonly maxAgeSeconds: number | undefined;
 
   constructor(private readonly deps: TotpServiceDeps = {}) {
@@ -58,7 +59,7 @@ export class TotpService {
   }
 
   async begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<TotpBeginResult> {
-    const { step } = await this.resolve();
+    const step = await this.need('step');
     const c = await this.current(session, true);
     if (!c) {
       return { ok: false, code: 'no_session' };
@@ -79,7 +80,8 @@ export class TotpService {
 
   /** A successful confirm returns recovery codes, so every code is counted into the `mfa` throttle before it is checked. */
   async confirm(session: SessionHandle, code: string, ctx: AuthnContext): Promise<TotpConfirmResult> {
-    const { step, throttle } = await this.resolve();
+    const step = await this.need('step');
+    const throttle = await this.need('throttle');
     // An enrolled identity's pending session reaches here too, so a lost double submit in the forced first login hears `enrolled`.
     const c = await this.restored(session);
     if (!c) {
@@ -126,7 +128,8 @@ export class TotpService {
 
   /** `code` is a TOTP code or a recovery code; counted into the `mfa` throttle before it is checked. */
   async disable(session: SessionHandle, code: string, ctx: AuthnContext, reauth?: Credentials): Promise<TotpDisableResult> {
-    const { step, throttle } = await this.resolve();
+    const step = await this.need('step');
+    const throttle = await this.need('throttle');
     const c = await this.current(session, false);
     if (!c) {
       return { ok: false, code: 'no_session' };
@@ -157,7 +160,7 @@ export class TotpService {
 
   /** Audited as `mfa.enrol` with `data.recoveryCodes = 'regenerated'`: the contract has no event type of its own for it. */
   async regenerateRecoveryCodes(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<TotpRegenerateResult> {
-    const { step } = await this.resolve();
+    const step = await this.need('step');
     const c = await this.current(session, false);
     if (!c) {
       return { ok: false, code: 'no_session' };
@@ -183,7 +186,7 @@ export class TotpService {
 
   /** True when an enrolment or a pending row existed. */
   async adminReset(actor: PrincipalRef, target: IdentityRef, ctx: AuthnContext): Promise<{ reset: boolean }> {
-    const { step } = await this.resolve();
+    const step = await this.need('step');
     const before = await step.enrolment(target);
     await step.disable(target);
     await this.publish(ctx, { type: 'mfa.disable', outcome: 'success', identity: target, actor, data: { reset: true, existed: before } });
@@ -192,7 +195,7 @@ export class TotpService {
 
   /** The restored session, active or pending, unless it is gone or impersonated. */
   private async restored(session: SessionHandle): Promise<Current | null> {
-    const { sessions } = await this.resolve();
+    const sessions = await this.need('sessions');
     const id: unknown = (session as Partial<SessionHandle> | null | undefined)?.id;
     if (typeof id !== 'string' || id === '') {
       return null;
@@ -206,7 +209,7 @@ export class TotpService {
 
   /** As `restored`; a pending session only where allowed and only while the identity is not enrolled. */
   private async current(session: SessionHandle, allowPending: boolean): Promise<Current | null> {
-    const { step } = await this.resolve();
+    const step = await this.need('step');
     const s = await this.restored(session);
     if (s && (s.handle.state === 'active' || (allowPending && !(await step.enrolled(s.identity))))) {
       return s;
@@ -216,11 +219,10 @@ export class TotpService {
 
   /** `reauth` is checked only when the session is not fresh, and never for a pending one (reauthenticate refuses it). */
   private async fresh(c: Current, ctx: AuthnContext, reauth?: Credentials): Promise<boolean> {
-    const { authn, maxAgeSeconds } = await this.resolve();
-    if (isFresh(c.facts, ctx.now, maxAgeSeconds)) {
+    if (isFresh(c.facts, ctx.now, await this.need('maxAgeSeconds'))) {
       return true;
     }
-    return c.handle.state === 'active' && reauth !== undefined && (await authn.reauthenticate(c.handle, reauth, ctx));
+    return c.handle.state === 'active' && reauth !== undefined && (await (await this.need('authn')).reauthenticate(c.handle, reauth, ctx));
   }
 
   private async audit(ctx: AuthnContext, c: Current, e: Pick<AuthnEvent, 'type' | 'outcome' | 'reason' | 'data'>): Promise<void> {
@@ -228,35 +230,50 @@ export class TotpService {
   }
 
   private async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
-    const { sinks } = await this.resolve();
+    const sinks = await this.need('sinks');
     const event: AuthnEvent = { at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...e };
     for (const sink of sinks) {
       await sink.publish(event);
     }
   }
 
-  private async resolve(): Promise<Resolved> {
-    if (this.resolved) {
-      return this.resolved;
+  /** Resolved on first use, one by one, so `adminReset` (the CLI) needs only the step and the sinks. */
+  private async need<K extends keyof Resolved>(key: K): Promise<Resolved[K]> {
+    const hit = this.cache[key];
+    if (hit !== undefined) {
+      return hit as Resolved[K];
     }
-    const d = this.deps;
-    const step = d.step ?? (DI.check(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s): s is TotpMfaStep => s instanceof TotpMfaStep) : undefined);
-    const sessions = d.sessions ?? (await resolveOne(SessionIssuer));
-    const authn = d.authn ?? (await resolveOne(AuthnService));
-    const throttle = d.throttle ?? (await resolveOne(AuthnThrottle));
-    if (!step || !sessions || !authn || !throttle) {
-      throw new InvalidOperation('TotpService: register TotpMfaStep, a SessionIssuer, an AuthnService and an AuthnThrottle');
-    }
-    const sinks = d.sinks ?? (DI.check(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
-    const maxAgeSeconds = this.maxAgeSeconds ?? freshAuthMaxAge(DI.get(Configuration)?.get<unknown>(['authn', 'freshAuth', 'maxAgeSeconds']));
-    this.resolved = { step, sessions, authn, throttle, sinks, maxAgeSeconds };
-    return this.resolved;
+    const value = (await this.lookup(key)) as Resolved[K];
+    this.cache[key] = value;
+    return value;
   }
+
+  private async lookup(key: keyof Resolved): Promise<unknown> {
+    const d = this.deps;
+    switch (key) {
+      case 'step':
+        return d.step ?? (registered(MfaStep) ? (await DI.resolve(Array.ofType(MfaStep))).find((s) => s instanceof TotpMfaStep) : undefined) ?? missing('TotpMfaStep');
+      case 'sessions':
+        return d.sessions ?? (await resolveOne(SessionIssuer)) ?? missing('SessionIssuer');
+      case 'authn':
+        return d.authn ?? (await resolveOne(AuthnService)) ?? missing('AuthnService');
+      case 'throttle':
+        return d.throttle ?? (await resolveOne(AuthnThrottle)) ?? missing('AuthnThrottle');
+      case 'sinks':
+        return d.sinks ?? (registered(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
+      case 'maxAgeSeconds':
+        return this.maxAgeSeconds ?? freshAuthMaxAge(DI.get(Configuration)?.get<unknown>(['authn', 'freshAuth', 'maxAgeSeconds']));
+    }
+  }
+}
+
+function missing(name: string): never {
+  throw new InvalidOperation(`TotpService: no ${name} is registered`);
 }
 
 async function resolveOne<T>(type: abstract new (...args: never[]) => T): Promise<T | null> {
   const t = type as unknown as new () => T;
-  return DI.check(t) ? ((await DI.resolve(t)) as T) : null;
+  return registered(type) ? ((await DI.resolve(t)) as T) : null;
 }
 
 /** N1's `mfa` flow keys. */
