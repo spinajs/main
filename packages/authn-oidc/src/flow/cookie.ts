@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 import { checkedUrl, isPlainObject, isRelaxedEnv } from '../support.js';
-import { OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from '../config/schema.js';
+import { OIDC_APP_PATH_PATTERN, OIDC_PROVIDER_NAME_PATTERN } from '../options/schema.js';
 
 /**
  * The flow cookie (D1). It carries a random seed and the flow's bindings; state, nonce and the PKCE verifier are

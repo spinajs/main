@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 
 import type { OidcExternalSubject } from './contracts.js';
-import type { OidcProviderOptions } from './config/options.js';
+import type { OidcProviderOptions } from './options/options.js';
 import { OidcDiscovery } from './discovery.js';
 import type { OidcHttpClient } from './http/client.js';
 import { OidcJwks } from './jwks.js';

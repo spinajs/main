@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { inspect } from 'node:util';
 
-import { readOidcOptions } from '../src/config/options.js';
+import { readOidcOptions } from '../src/options/options.js';
 import { OidcDiscovery } from '../src/discovery.js';
 import { FetchOidcHttpClient, OIDC_HTTP_MAX_BODY_BYTES } from '../src/http/client.js';
 import { OidcJwks } from '../src/jwks.js';

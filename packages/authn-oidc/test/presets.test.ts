@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readOidcOptions } from '../src/config/options.js';
+import { readOidcOptions } from '../src/options/options.js';
 import { OidcDiscovery } from '../src/discovery.js';
 import { OIDC_PRESETS } from '../src/presets.js';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FakeIdp } from './support/fake-idp.js';

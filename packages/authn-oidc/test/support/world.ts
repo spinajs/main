@@ -3,7 +3,7 @@ import { ExternalLoginHook } from '@spinajs/authn/contracts';
 import type { AuthnContext, ExternalSubject, IdentityLinkStore, IdentityRef, SessionHandle, SessionIssuer } from '@spinajs/authn/contracts';
 import { EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, throttleParams } from '@spinajs/authn-testing';
 
-import { readOidcOptions } from '../../src/config/options.js';
+import { readOidcOptions } from '../../src/options/options.js';
 import { OidcProvider } from '../../src/provider.js';
 import { OidcStrategy } from '../../src/strategy.js';
 import { OidcLogin } from '../../src/login.js';

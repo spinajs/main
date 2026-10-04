@@ -5,9 +5,9 @@ import { InvalidOption } from '@spinajs/exceptions';
 
 import { OIDC_SIGNING_ALGORITHMS } from '../src/contracts.js';
 import type { OidcProviderSource } from '../src/contracts.js';
-import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_PROVIDER_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/config/schema.js';
-import { readOidcOptions } from '../src/config/options.js';
-import type { OidcOptions, OidcProviderOptions } from '../src/config/options.js';
+import { AUTHN_OIDC_CONFIGURATION_SCHEMA, AUTHN_OIDC_PROVIDER_SCHEMA, OIDC_RESERVED_PARAMS } from '../src/options/schema.js';
+import { readOidcOptions } from '../src/options/options.js';
+import type { OidcOptions, OidcProviderOptions } from '../src/options/options.js';
 import { OIDC_PRESETS, resolveEndpoints, resolveIssuer } from '../src/presets.js';
 
 const Ajv = ((AjvModule as unknown as { default?: unknown }).default ?? AjvModule) as new (opts?: object) => { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown[] | null } };
