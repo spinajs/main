@@ -46,6 +46,13 @@ describe('JSON to command', () => {
     }
   });
 
+  it('leaves a date-time naming a day, hour or minute that does not exist as it came', () => {
+    for (const v of ['2027-02-30T00:00Z', '2027-02-29T00:00Z', '2027-04-31T00:00Z', '2027-13-01T00:00Z', '2027-01-01T24:00Z', '2027-01-01T23:60Z', '2027-01-01T23:59:60Z', '2027-01-01T00:00+24:00']) {
+      expect((decodeCommand({ kind: 'assignment.setExpiry', id: 'x', expiresAt: v }) as any).expiresAt, v).to.equal(v);
+    }
+    expect((decodeCommand({ kind: 'assignment.setExpiry', id: 'x', expiresAt: '2028-02-29T00:00Z' }) as any).expiresAt).to.be.instanceOf(Date);
+  });
+
   it('leaves null, numbers and dates on other paths or other kinds alone', () => {
     expect(decodeCommand({ kind: 'assignment.setExpiry', id: 'x', expiresAt: null })).to.deep.equal({ kind: 'assignment.setExpiry', id: 'x', expiresAt: null });
     expect(decodeCommand({ kind: 'assignment.setExpiry', id: 'x', expiresAt: 5 })).to.deep.equal({ kind: 'assignment.setExpiry', id: 'x', expiresAt: 5 });
