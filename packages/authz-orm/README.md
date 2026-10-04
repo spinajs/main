@@ -2,6 +2,20 @@
 
 ORM adapter for SpinaJS authorization.
 
+## Setup
+
+- `import '@spinajs/authz-orm'` registers `OrmResourceAdapter` (a `ResourceAdapter` for every
+  `@AccessResource` type), `AuthzQueryMiddleware` (order 100) and the contributor that feeds
+  `joinTypes` to the boot checks.
+- Mark models with `@AccessResource(type, opts)`, `@Owner()`, `@ScopeColumn(column, scopeType)`;
+  scope relations with `@OrmScope(model, relation)` on an `OrmScopePolicy`; models a package does
+  not own with `registerAccessResource`. Register them before the authz domain boots: a type
+  registered later gets its permissions only when the domain boots again.
+- `authz.orm.domain` (default `root`) names the domain whose `AuthzService` scopes queries.
+- Queries run as the ALS principal. `authz().runAs(SYSTEM, reason, fn)` and a route's
+  `@Unscoped(reason)` run unscoped (audited); without a principal (UNATTENDED) a query on a scoped
+  model throws `AccessDenied`.
+
 ## `@OrmScope` policies
 
 A policy's `scope(query, principal, op)` is SQL that runs in two places: a check (the default
@@ -26,6 +40,7 @@ The middleware scopes queries built with the orm. It does not see, and cannot sc
   views over a scoped table (`CREATE VIEW v AS SELECT * FROM task` reads every row). A raw where
   fragment with unbalanced parentheses can also close the group the middleware puts the caller's
   where in.
+- DDL: `DROP TABLE`, `ALTER TABLE` and other schema builders on a scoped table are not gated.
 - Values a later middleware or the caller changes after authz's `beforeQueryExecution` ran (order
   100): insert and update payloads are checked as they are at that point.
 
@@ -111,7 +126,8 @@ gives the instant.
 
 ## Native compilers
 
-An `OrmNativeCompiler` writes its condition into the builder it is handed; the compiler wraps it in
+An `OrmNativeCompiler` writes its condition into the builder it is handed (one that adds none is
+refused with `AuthzConfigError`, never read as TRUE); the compiler wraps it in
 parentheses and under `NOT` as the residual needs. To test another table (a correlated `EXISTS`,
 as authz-rbac's `native:rbac.assignment` does), import the helpers from
 `@spinajs/authz-orm/native`:

@@ -116,7 +116,11 @@ export class ResidualStatement extends AuthzStatement {
       column: (name) => `${outer}.${quote(name)}`,
       sub: (index, bindings) => {
         const s = c.subs[index];
-        if (s.kind === 'native') return whereOf(c.container, s.builder, bindings) ?? '(1 = 1)';
+        if (s.kind === 'native') {
+          const where = whereOf(c.container, s.builder, bindings);
+          if (where === undefined) throw new AuthzConfigError('authz-orm: a native filter rendered no condition');
+          return where;
+        }
         const alias = quote(s.alias);
         const scope = whereOf(c.container, s.inner, bindings);
         const pk = quote(c.pk);
@@ -511,6 +515,8 @@ class Compiler {
     const builder = new NativeWhereBuilder(this.target as unknown as WhereBuilder<unknown>, { op, model: this.model, driver: this.driver, table: this.table });
     asSystem(() => assertSynchronous(compiler.compile(args, builder, this.model as never, this.ctx.principal), `the OrmNativeCompiler for ${op}`));
     assertNoLazy(builder, op);
+    // An empty group would render as TRUE: a compiler that adds nothing must not widen the filter.
+    if (builder.Statements.length === 0) throw new AuthzConfigError(`authz-orm: the OrmNativeCompiler for ${op} added no condition`);
     this.subs.push({ kind: 'native', builder });
     return subRef(this.subs.length - 1);
   }

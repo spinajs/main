@@ -94,9 +94,9 @@ class FnRelation<T> extends RelationResolver {
   }
 
   async holds(principal: Principal, ref: ResourceRef, subject?: unknown): Promise<boolean> {
-    const row = subject ?? (await findRow(ref));
-    if (row === null || row === undefined) return false;
-    return this.fn(principal, row as T) === true;
+    const row = await rowFor(this.type, ref, subject);
+    if (row === null) return false;
+    return this.fn(principal, row as unknown as T) === true;
   }
 }
 

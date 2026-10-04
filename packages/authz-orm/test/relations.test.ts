@@ -366,7 +366,7 @@ describe('authz-orm relations', function () {
       });
 
       describe('ownsBy', () => {
-        it('calls fn with the subject, or with the row loaded through the adapter', async () => {
+        it('calls fn with the row of the ref: the subject when it is that row, else the row loaded through the adapter', async () => {
           const File = await db.define(
             {
               name: 'Note',
@@ -387,11 +387,14 @@ describe('authz-orm relations', function () {
           expect(r).to.be.instanceOf(RelationResolver);
           expect(r.type).to.equal('rel-note');
           expect(r.relation).to.equal('author');
-          expect(await r.holds(alice, { type: 'rel-note', id: 'n1' }, { author: 'alice' })).to.equal(true);
-          expect(await r.holds(alice, { type: 'rel-note', id: 'n1' }, { author: 'bob' }), 'the subject wins').to.equal(false);
+          const [n1, n2] = ((await runWithPrincipal(SYSTEM, () => (File as any).all())) as { id: string }[]).sort((a, b) => a.id.localeCompare(b.id));
+          expect(await r.holds(alice, { type: 'rel-note', id: 'n1' }, n1)).to.equal(true);
+          expect(await r.holds(alice, { type: 'rel-note', id: 'n1' }, n2), 'a row of another id is ignored').to.equal(true);
+          expect(await r.holds(alice, { type: 'rel-note', id: 'n1' }, { author: 'bob' }), 'a non-row subject is ignored').to.equal(true);
+          expect(await r.holds(alice, { type: 'rel-note', id: 'n2' }, n1), 'the row of the ref decides').to.equal(false);
           expect(await r.holds(alice, { type: 'rel-note', id: 'n1' })).to.equal(true);
           expect(await r.holds(alice, { type: 'rel-note', id: 'n2' })).to.equal(false);
-          expect(seen[2]).to.be.instanceOf(File);
+          expect(seen.every((x) => x instanceof File)).to.equal(true);
           seen.length = 0;
           expect(await r.holds(alice, { type: 'rel-note', id: 'gone' })).to.equal(false);
           expect(await r.holds(alice, { type: 'rel-note' })).to.equal(false);

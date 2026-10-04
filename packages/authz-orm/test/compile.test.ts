@@ -583,6 +583,24 @@ describe('authz-orm residual compiler', function () {
         }
       });
 
+      it('an OrmNativeCompiler that adds no condition is a configuration error, never TRUE', async () => {
+        const Empty = track(
+          class EmptyCompiler extends OrmNativeCompiler {
+            readonly op = 'native:test.empty' as const;
+            compile(): void {}
+          },
+        );
+        DI.register(Empty).as(OrmNativeCompiler);
+        try {
+          const Doc = await defineDocs({ rows: [{ id: 'e1' }] });
+          expect(() => compileResidual({ op: 'native:test.empty' }, (Doc as any).query(), contextOf(Doc, alice))).to.throw(AuthzConfigError, /added no condition/);
+          expect(() => compileResidual(not({ op: 'native:test.empty' }), (Doc as any).query(), contextOf(Doc, alice))).to.throw(AuthzConfigError, /added no condition/);
+        } finally {
+          DI.unregister(Empty);
+          DI.uncache(OrmNativeCompiler);
+        }
+      });
+
       it('two OrmNativeCompilers for one op are a configuration error', async () => {
         const A = track(
           class TwinA extends OrmNativeCompiler {
