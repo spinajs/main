@@ -200,23 +200,39 @@ export class LoginController extends BaseController {
 
   /**
    * Whether the 3.0 MfaPolicy named by authn.mfa.policy.service (as DefaultAuthnService picks it) requires a step.
-   * Fails closed: without that policy, any configured or registered MFA step counts as required, and so does a
-   * policy that throws.
+   * That policy is registered only when the @spinajs/authn root entry is loaded; without it the configured steps
+   * are asked directly, as DefaultMfaPolicy would. Fails closed on any error.
    */
   protected async mfaStepsRequired(uuid: string): Promise<boolean> {
-    const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy';
-    const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
-    if (!type) {
-      const steps = this.Configuration.get<unknown>('authn.mfa.steps');
-      return (Array.isArray(steps) && steps.length > 0) || (DI.getRegisteredTypes(MfaStep as unknown as Class<MfaStep>) ?? []).length > 0;
-    }
+    const id = { type: 'user', id: uuid };
     try {
-      const policy = (await DI.resolve(type)) as MfaPolicy;
-      return (await policy.required({ type: 'user', id: uuid }, { method: 'password', strategy: 'local' })).length > 0;
+      const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy';
+      const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
+      if (type) {
+        const policy = (await DI.resolve(type)) as MfaPolicy;
+        return (await policy.required(id, { method: 'password', strategy: 'local' })).length > 0;
+      }
+      return await this.configuredStepRequired(id);
     } catch (err) {
       this._log.error(err as Error, 'MfaPolicy failed during a 2.x login; the login stays pending');
       return true;
     }
+  }
+
+  // DefaultMfaPolicy's rule over authn.mfa.steps only: a registered step the config does not list never counts.
+  protected async configuredStepRequired(id: { type: string; id: string }): Promise<boolean> {
+    const entries = this.Configuration.get<unknown>('authn.mfa.steps');
+    if (!Array.isArray(entries) || entries.length === 0) return false;
+    const registered = DI.getRegisteredTypes(MfaStep as unknown as Class<MfaStep>) ?? [];
+    for (const entry of entries) {
+      const service = (entry as { service?: unknown } | null)?.service;
+      const type = registered.find((t) => t.name === service);
+      if (!type) return true;
+      if (await ((await DI.resolve(type)) as MfaStep).enrolled(id)) return true;
+    }
+    const force = this.Configuration.get<unknown>('authn.mfa.policy.force') === true;
+    const forceForRoles = this.Configuration.get<unknown>('authn.mfa.policy.forceForRoles');
+    return force || (Array.isArray(forceForRoles) && forceForRoles.length > 0);
   }
 
   /**

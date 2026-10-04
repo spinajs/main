@@ -36,6 +36,24 @@ class N8aLoginStubMfaPolicy extends MfaPolicy {
   }
 }
 
+class N8aLoginStubMfaStep extends MfaStep {
+  public static enrolled = new Set<string>();
+  public readonly name = 'stub';
+  public async enrolled(id: IdentityRef): Promise<boolean> {
+    return N8aLoginStubMfaStep.enrolled.has(id.id);
+  }
+  public async beginEnrolment(): Promise<{ provisioning: string }> {
+    return { provisioning: '' };
+  }
+  public async confirmEnrolment(): Promise<{ recoveryCodes?: readonly string[] }> {
+    return {};
+  }
+  public async verify(): Promise<boolean> {
+    return false;
+  }
+  public async disable(): Promise<void> {}
+}
+
 // Fresh wiring per case without DI.clearCache(): drop only what this suite registers or depends on.
 function uncacheOwn(): void {
   for (const t of [Configuration, Orm, SqliteOrmDriver, 'orm-driver-sqlite', SessionProvider, AuthProvider, PasswordProvider, LoginController, MfaPolicy]) DI.uncache(t as never);
@@ -57,12 +75,14 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
     // Registered once and never unregistered: DI.unregister leaves an empty key that later resolves trip over (N5
     // report). Only a config naming it in authn.mfa.policy.service selects it.
     DI.register(N8aLoginStubMfaPolicy).as(MfaPolicy);
+    DI.register(N8aLoginStubMfaStep).as(MfaStep);
   });
 
   beforeEach(async () => {
     uncacheOwn();
     N8aLoginStubMfaPolicy.enrolled.clear();
     N8aLoginStubMfaPolicy.broken = false;
+    N8aLoginStubMfaStep.enrolled.clear();
 
     DI.register(NoTwoFactorSwitchConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -150,16 +170,50 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
     expect(refused, 'the 2.x login-window routes refuse the session').to.equal(true);
   });
 
-  it('keeps the login pending when the configured policy is missing but an MFA step is registered', async () => {
-    expect(DI.getRegisteredTypes(MfaStep as never).length, 'authn-totp registers TotpMfaStep').to.be.greaterThan(0);
+  /** No MfaPolicy under the configured name (the @spinajs/authn root entry is not loaded); over replaces config keys. */
+  const withoutPolicy = (over: Record<string, unknown> = {}) => {
     const config = (controller as any).Configuration;
-    Object.defineProperty(controller, 'Configuration', { value: { get: (k: string, d?: unknown) => (k === 'authn.mfa.policy.service' ? 'NoSuchMfaPolicy' : config.get(k, d)) }, configurable: true });
+    const values: Record<string, unknown> = { 'authn.mfa.policy.service': 'NoSuchMfaPolicy', ...over };
+    Object.defineProperty(controller, 'Configuration', { value: { get: (k: string, d?: unknown) => (k in values ? values[k] : config.get(k, d)) }, configurable: true });
+  };
 
+  const authorized = async () => {
     sinon.spy(sessions, 'save');
-    const data = await body<any>(await login());
+    await login();
+    return (await savedSession()).Data.get('Authorized');
+  };
 
-    expect(data.TwoFactorAuthRequired).to.equal(true);
-    expect((await savedSession()).Data.get('Authorized')).to.equal(false);
+  it('without the policy, authorizes a user with no factor even though steps are registered', async () => {
+    expect(DI.getRegisteredTypes(MfaStep as never).length, 'authn-totp and this suite register MFA steps').to.be.greaterThan(0);
+    withoutPolicy();
+    expect(await authorized()).to.equal(true);
+  });
+
+  it('without the policy, keeps the login pending when a configured step is enrolled', async () => {
+    withoutPolicy({ 'authn.mfa.steps': [{ name: 'stub', service: 'N8aLoginStubMfaStep' }] });
+    N8aLoginStubMfaStep.enrolled.add(USER_UUID);
+    expect(await authorized()).to.equal(false);
+  });
+
+  it('without the policy, authorizes when the configured step is not enrolled', async () => {
+    withoutPolicy({ 'authn.mfa.steps': [{ name: 'stub', service: 'N8aLoginStubMfaStep' }] });
+    expect(await authorized()).to.equal(true);
+  });
+
+  it('without the policy, a registered step the config does not list does not count', async () => {
+    withoutPolicy();
+    N8aLoginStubMfaStep.enrolled.add(USER_UUID);
+    expect(await authorized()).to.equal(true);
+  });
+
+  it('without the policy, keeps the login pending for a configured step that is not registered', async () => {
+    withoutPolicy({ 'authn.mfa.steps': [{ name: 'webauthn', service: 'NoSuchMfaStep' }] });
+    expect(await authorized()).to.equal(false);
+  });
+
+  it('without the policy, force with a configured step keeps the login pending', async () => {
+    withoutPolicy({ 'authn.mfa.steps': [{ name: 'stub', service: 'N8aLoginStubMfaStep' }], 'authn.mfa.policy.force': true });
+    expect(await authorized()).to.equal(false);
   });
 
   it('keeps the login pending when the policy throws', async () => {
