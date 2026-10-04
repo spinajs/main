@@ -62,11 +62,13 @@ describe('DbAuthzAdminBackend on SQLite', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     orm = (await DI.resolve(Orm)) as Orm;
     db = orm.Connections.get('default')!;
-    // authz_version belongs to the authz-rbac DB stores' migration (AuthzRbac_2026_10_01_00_00_00), not on this branch.
-    await db.schema().createTable(VERSION, (t) => {
-      t.string('domain', 64).notNull().primaryKey();
-      t.bigint('version').notNull();
-    });
+    // The authz-rbac migration creates authz_version when it runs at boot; create it only when it did not.
+    if (!(await db.schema().tableExists(VERSION))) {
+      await db.schema().createTable(VERSION, (t) => {
+        t.string('domain', 64).notNull().primaryKey();
+        t.bigint('version').notNull();
+      });
+    }
     policies = new DbPolicyStore(db);
   });
 
