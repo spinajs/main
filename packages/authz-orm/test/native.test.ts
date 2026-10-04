@@ -428,13 +428,14 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
           const ESCAPE = 'native:test.escape' as const;
           await withShape(
             ESCAPE,
-            (builder, principal, args: 'brackets' | 'named@' | 'named:') => {
+            (builder, principal, args: 'brackets' | 'named@' | 'named:' | 'named:::' | 'named@::') => {
               if (args === 'brackets') whereSql(builder, sql`1 = 0)) OR ((1 = 1`);
               else {
-                // SQLite reads @x and :x as parameters that take the next binding: the restriction below would lose its principal.
+                // SQLite reads @x, :x, :::x and @::x as parameters that take the next binding: the restriction below would lose its principal.
                 const m = correlatedQuery(builder, fixture.table!);
                 correlate(m, 'scope_id', 'org_id');
-                whereSql(m, args === 'named@' ? sql`@x IS NULL` : sql`:x IS NULL`);
+                const named = { 'named@': () => sql`@x IS NULL`, 'named:': () => sql`:x IS NULL`, 'named:::': () => sql`:::x IS NULL`, 'named@::': () => sql`@::x IS NULL` };
+                whereSql(m, named[args]());
                 m.where('principal_id', principal.id);
                 builder.whereNotExists(m);
               }
@@ -444,6 +445,8 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
                 ['brackets', /bracket/],
                 ['named@', /parameter/],
                 ['named:', /parameter/],
+                ['named:::', /parameter/],
+                ['named@::', /parameter/],
               ] as const) {
                 const op = { op: ESCAPE, args } as ResourceFilter;
                 for (const f of [op, not(op), and(cmp('s', 'eq', 'zzz'), op)]) {
@@ -495,7 +498,7 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
           );
           const grants = db.table(Grant);
           const EXPIRY = 'native:test.expiry' as const;
-          type Args = { test: 'live' | 'expired' | 'small' | 'big'; negate?: boolean };
+          type Args = { test: 'live' | 'expired' | 'small' | 'big' | 'abs' | 'plus' | 'pair' | 'invalid' | 'mutated' | 'unstorable'; negate?: boolean };
           await withShape(
             EXPIRY,
             (builder, principal, args: Args) => {
@@ -507,7 +510,20 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
               if (args.test === 'live') whereSql(m, sql`${at} > ${now}`);
               else if (args.test === 'expired') whereSql(m, sql`${at} < ${now}`);
               else if (args.test === 'small') whereSql(m, sql`1 IN (${[1n, 2n]})`);
-              else whereSql(m, sql`${subColumn(m, 'n')} = ${9007199254740993n}`);
+              // Beyond 2^53 the other operand has no integer affinity: the bigint must still compare as an integer.
+              else if (args.test === 'abs') whereSql(m, sql`abs(${subColumn(m, 'n')}) < ${9007199254740993n}`);
+              else if (args.test === 'plus') whereSql(m, sql`${subColumn(m, 'n')} + 0 = ${9007199254740993n}`);
+              else if (args.test === 'pair') whereSql(m, sql`${10n ** 16n} > ${9007199254740993n}`);
+              else if (args.test === 'invalid') whereSql(m, sql`${at} < ${new Date(NaN)}`);
+              // Valid, but past the year the datetime converter writes.
+              else if (args.test === 'unstorable') whereSql(m, sql`${at} < ${new Date(8.64e15)}`);
+              else if (args.test === 'mutated') {
+                // A Date is mutable: one made invalid after the fragment must not bind as NULL either.
+                const later = new Date();
+                const fragment = sql`${at} < ${later}`;
+                later.setTime(NaN);
+                whereSql(m, fragment);
+              } else whereSql(m, sql`${subColumn(m, 'n')} = ${9007199254740993n}`);
               if (args.negate) builder.whereNotExists(m);
               else builder.whereExist(m);
             },
@@ -523,6 +539,24 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
               expect(await sqlIds(Doc, f('small', true), alice)).to.deep.equal(['d3', 'd4', 'd5', 'd7']);
               expect(await sqlIds(Doc, f('big'), alice)).to.deep.equal(['d2', 'd6']);
               expect(await sqlIds(Doc, f('big', true), alice)).to.deep.equal(['d1', 'd3', 'd4', 'd5', 'd7']);
+              // Bound as NULL, an invalid Date would make the restriction form hide nothing.
+              for (const [test, message] of [
+                ['invalid', /invalid Date/],
+                ['mutated', /invalid Date/],
+                ['unstorable', /cannot store/],
+              ] as const) {
+                for (const negate of [false, true]) {
+                  const e = await fails(sqlIds(Doc, f(test, negate), alice));
+                  expect(e, `${dialect} ${test} ${negate}`).to.be.instanceOf(AuthzConfigError);
+                  expect((e as Error).message).to.match(message);
+                }
+              }
+              expect(await sqlIds(Doc, f('abs'), alice)).to.deep.equal(['d1']);
+              expect(await sqlIds(Doc, f('abs', true), alice)).to.deep.equal(['d2', 'd3', 'd4', 'd5', 'd6', 'd7']);
+              expect(await sqlIds(Doc, f('plus'), alice)).to.deep.equal(['d2', 'd6']);
+              expect(await sqlIds(Doc, f('plus', true), alice)).to.deep.equal(['d1', 'd3', 'd4', 'd5', 'd7']);
+              expect(await sqlIds(Doc, f('pair'), alice)).to.deep.equal(['d1', 'd2', 'd6']);
+              expect(await sqlIds(Doc, f('pair', true), alice)).to.deep.equal(['d3', 'd4', 'd5', 'd7']);
             },
           );
         });
@@ -817,6 +851,11 @@ describe('authz-orm native sql fragments', () => {
     refused(() => sql`:x IS NULL`, /parameter/);
     refused(() => sql`${'a'}:b = 1`, /parameter/);
     refused(() => sql`x = @${sql`y`}`, /parameter/);
+    // A SQLite parameter name goes on over '::' pairs.
+    refused(() => sql`:::x IS NULL`, /parameter/);
+    refused(() => sql`@::x IS NULL`, /parameter/);
+    refused(() => sql`${'a'}::::x = 1`, /parameter/);
+    refused(() => sql`x = @${sql`::y`}`, /parameter/);
     // orm-postgres turns every ? into $n, also inside a literal.
     refused(() => sql`role <> '?'`, /\?/);
   });
@@ -824,7 +863,7 @@ describe('authz-orm native sql fragments', () => {
   it('accept brackets, quotes and comment marks inside quoted literals, PG casts and containment, and nested fragments', () => {
     expect(() => sql`'(' <> ')' AND '--;/*[$#:x@y' <> ''''`).to.not.throw();
     expect(() => sql`"a""(b" IS NULL AND \`c\`\`)\` IS NULL`).to.not.throw();
-    expect(() => sql`x::text = 'a' AND a @> b AND a <@ b AND ${'v'}::int = 1`).to.not.throw();
+    expect(() => sql`x::text = 'a' AND a @> b AND a <@ b AND ${'v'}::int = 1 AND 'a'::text::varchar = 'a'`).to.not.throw();
     expect(() => sql`NOT (${sql`(1 = ${1})`}) AND COALESCE((${sql`SELECT 1`}), ${2}) = ${2}`).to.not.throw();
   });
 
@@ -840,5 +879,11 @@ describe('authz-orm native sql fragments', () => {
     refused(() => sql`x IN (${[{ a: 1 }]})`, /object/);
     refused(() => sql`x = ${undefined}`, /undefined/);
     refused(() => sql`x = ${() => 1}`, /function/);
+    refused(() => sql`x = ${new Date(NaN)}`, /invalid Date/);
+    refused(() => sql`x IN (${[new Date(0), new Date('nope')]})`, /invalid Date/);
+    // SQLite has no exact form for an integer outside 64 bits.
+    expect(() => sql`${2n ** 63n - 1n} ${-(2n ** 63n)}`).to.not.throw();
+    refused(() => sql`x = ${2n ** 63n}`, /64-bit/);
+    refused(() => sql`x = ${-(2n ** 63n) - 1n}`, /64-bit/);
   });
 });

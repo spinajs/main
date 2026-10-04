@@ -73,6 +73,9 @@ Residuals compile for SQLite and PostgreSQL. Both must store text as UTF-8 (SQLi
 encoding, a PostgreSQL database created with `ENCODING 'UTF8'`): string order and the one-character
 `_` of `like` follow code points only then.
 
+The B06 property tests (`test/b06.property.test.ts`) run `AUTHZ_ORM_B06_RUNS` times per dialect
+and model kind, 20 by default; the lane acceptance runs them with `AUTHZ_ORM_B06_RUNS=100` or more.
+
 ## Field filtering
 
 `filterFields(decision, data, mode)` keeps the fields of `data` that `decision.fields[mode]` allows
@@ -132,12 +135,16 @@ as authz-rbac's `native:rbac.assignment` does), import the helpers from
   row's path columns) or `attr()` (`COALESCE((SELECT …), :default)` with the row's column in the
   scalar sub-select). Other values in the template are bound: a string, number, boolean, `null` or
   `Buffer` as one parameter; a `Date` in the form the orm writes datetimes (the connection's
-  datetime converter: local time text, so it compares with columns the orm wrote); a `bigint` as a
-  number when exact, else as its decimal text; an array as one parameter per element
-  (`IN (${roles})`; an empty array is refused, so test the empty list in the compiler); anything
-  else is refused. The fragment is parenthesised, and `sql` refuses literal text that could leave
-  those parentheses or shift the bindings: unbalanced brackets, `;`, `--`, `/*`, `#`, `[`, `]`,
-  `$`, `?`, SQLite named parameters (`:x`, `@x`; PG's `::type`, `@>` and `<@` are fine), an
+  datetime converter: local time text, so it compares with columns the orm wrote; an invalid `Date`,
+  or one the converter cannot write, is refused, as it would bind as NULL); a `bigint` as a number
+  when exact, else as its decimal text cast to an integer (`CAST(? AS INTEGER)` on SQLite, `bigint`
+  on PG), so it compares as an integer (on PG a text operand is an error and a double precision
+  operand compares as double; one outside the 64-bit integers is refused); an array as one parameter
+  per element (`IN (${roles})`; an empty array is refused, so test the empty list in the
+  compiler); anything else is refused. The fragment is parenthesised, and `sql` refuses literal text
+  that could leave those parentheses or shift the bindings: unbalanced brackets, `;`, `--`, `/*`,
+  `#`, `[`, `]`, `$`, `?`, SQLite named parameters (`:x`, `@x`, and `:::x`, `@::x`, since a SQLite
+  parameter name runs on over `::`; PG's `::type`, `@>` and `<@` are fine), an
   unclosed quote, and a backslash, a `?` or a value inside a quoted literal, also where a nested
   fragment meets the text around it. Its NULL handling (Kleene) is the compiler's job;
 - `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first.

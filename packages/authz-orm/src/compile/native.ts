@@ -4,6 +4,7 @@ import type { IQueryStatement, IQueryStatementResult, IWhereBuilder, OrmDriver, 
 
 import type { ModelClass } from '../registry.js';
 import { AuthzStatement, shieldGroup } from '../shield.js';
+import { dialectFor } from './dialect.js';
 
 /** What an `OrmNativeCompiler` compiles for: its op and the model, connection and table of the rows it filters. */
 export interface NativeSite {
@@ -254,6 +255,8 @@ function assertContained(parts: readonly Part[]): void {
       else if (prev === '-' && c === '-') throw refuse("has a '--' comment");
       else if (prev === '/' && c === '*') throw refuse("has a '/*' comment");
       else if (((prev === ':' && prev2 !== ':') || prev === '@') && isNameChar(c)) throw refuse(`has '${prev}${c}', which SQLite reads as a named parameter`);
+      // SQLite's parameter names go on over '::' pairs, so ':::x' and '@::x' are parameters too.
+      else if ((prev === '@' && c === ':') || (prev2 === ':' && prev === ':' && c === ':')) throw refuse(`has '${prev === '@' ? '@:' : ':::'}', which SQLite reads as the start of a named parameter`);
       else if (';#[]$?'.includes(c)) throw refuse(`has a '${c}' outside a quoted literal`);
       prev2 = prev;
       prev = c;
@@ -265,6 +268,11 @@ function assertContained(parts: readonly Part[]): void {
 
 const isBindable = (v: unknown): boolean => v === null || ['string', 'number', 'bigint', 'boolean'].includes(typeof v) || v instanceof Date || Buffer.isBuffer(v);
 
+const INT64 = { min: -(2n ** 63n), max: 2n ** 63n - 1n };
+const isSafe = (v: bigint): boolean => v >= BigInt(Number.MIN_SAFE_INTEGER) && v <= BigInt(Number.MAX_SAFE_INTEGER);
+
+const invalidDate = (): AuthzConfigError => refuse('cannot bind an invalid Date (it would bind as NULL)');
+
 const describeValue = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'an array' : typeof v === 'object' ? `an object (${(v as object).constructor?.name ?? 'no prototype'})` : typeof v);
 
 /** SQL text with late-bound column references (`sql` tag of `@spinajs/authz-orm/native`). */
@@ -275,6 +283,8 @@ export class SqlFragment {
     const parts: Part[] = [];
     const bind = (v: unknown, what: string) => {
       if (!isBindable(v)) throw refuse(`cannot bind ${describeValue(v)} ${what}; pass a string, number, bigint, boolean, null, Date or Buffer`);
+      if (v instanceof Date && Number.isNaN(v.getTime())) throw invalidDate();
+      if (typeof v === 'bigint' && (v < INT64.min || v > INT64.max)) throw refuse(`cannot bind ${v}n, outside the 64-bit integers SQLite holds exactly`);
       parts.push(new Bound(v));
     };
     strings.forEach((s, i) => {
@@ -301,12 +311,24 @@ export class SqlFragment {
  * node-sqlite3 binds a Date as a REAL (epoch ms) and a bigint as NULL, while the orm stores datetimes
  * as TEXT, which SQLite sorts above every number. So a Date goes through the connection's datetime
  * converter (the form the orm writes) and a bigint becomes a number when exact, else its decimal
- * text (an integer column's affinity on SQLite, a cast on Postgres, reads it back exactly).
+ * text, which `placeholderOf` casts back to an integer.
  */
 function bindingOf(value: unknown, driver: OrmDriver): unknown {
-  if (value instanceof Date) return driver.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter).toDB(value, undefined as never, undefined as never);
-  if (typeof value === 'bigint') return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+  if (value instanceof Date) {
+    // The fragment checked the Date, but a Date can be made invalid after that.
+    if (Number.isNaN(value.getTime())) throw invalidDate();
+    const text: unknown = driver.Container.resolve<DatetimeValueConverter>(DatetimeValueConverter).toDB(value, undefined as never, undefined as never);
+    if (text === null || text === undefined) throw refuse(`cannot bind ${value.toISOString()}, a Date the orm cannot store (it would bind as NULL)`);
+    return text;
+  }
+  if (typeof value === 'bigint') return isSafe(value) ? Number(value) : value.toString();
   return value;
+}
+
+// Text compares as text where the other operand has no integer affinity (SQLite) or no type (PG).
+function placeholderOf(value: unknown, driver: OrmDriver): string {
+  if (typeof value !== 'bigint' || isSafe(value)) return '?';
+  return dialectFor(driver).name === 'sqlite' ? 'CAST(? AS INTEGER)' : 'CAST(? AS bigint)';
 }
 
 /** A `SqlFragment` in a native builder, a correlatedQuery sub-query or a where group of either, parenthesised. */
@@ -327,7 +349,7 @@ export class NativeSql extends QueryStatement {
         if (p instanceof OuterColumn) return `${q(outer)}.${q(p.column)}`;
         if (p instanceof Identifier) return p.names.map(q).join('.');
         bindings.push(bindingOf(p.value, root.site.driver));
-        return '?';
+        return placeholderOf(p.value, root.site.driver);
       })
       .join('');
     return { Statements: [`(${text})`], Bindings: bindings };
