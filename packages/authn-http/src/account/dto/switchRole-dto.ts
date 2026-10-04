@@ -6,7 +6,7 @@ export const SwitchRoleDtoSchema = {
   type: 'object',
   properties: {
     Role: { type: 'string', minLength: 1, description: 'Role to activate. Must be one of the user\'s assigned roles.' },
-    Password: { type: 'string', maxLength: 32, description: 'User password. Required when activating roles listed in rbac.roleSwitch.requirePassword.' },
+    Password: { type: 'string', maxLength: 32, description: 'User password. Required when activating roles listed in authz.principals.roleSwitch.requirePassword (every role when no list is set).' },
   },
   required: ['Role'],
 };

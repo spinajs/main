@@ -8,7 +8,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { DefaultQueueService } from '@spinajs/queue';
 import { Ok } from '@spinajs/http';
-import { MfaPolicy } from '@spinajs/authn/contracts';
+import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
 
@@ -16,21 +16,29 @@ import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvid
 
 import { LoginController } from '../../src/account/controllers/LoginController.js';
 import { DbTestConfiguration } from '../account-db-common.js';
+import { TwoFacRouteEnabled } from '../../src/account/policies/2FaPolicy.js';
 
 /** authn-totp ships no rbac.twoFactorAuth any more: the 2.x switch is unset. */
 class NoTwoFactorSwitchConfiguration extends DbTestConfiguration {
   protected onLoad(): unknown {
     const base = super.onLoad() as Record<string, any>;
     const { twoFactorAuth: _dropped, ...rbac } = base.rbac;
-    return { ...base, rbac };
+    return { ...base, rbac, authn: { ...base.authn, mfa: { policy: { service: 'N8aLoginStubMfaPolicy' } } } };
   }
 }
 
-class EnrolledMfaPolicy extends MfaPolicy {
+class N8aLoginStubMfaPolicy extends MfaPolicy {
   public static enrolled = new Set<string>();
+  public static broken = false;
   public async required(id: IdentityRef): Promise<readonly string[]> {
-    return EnrolledMfaPolicy.enrolled.has(id.id) ? ['totp'] : [];
+    if (N8aLoginStubMfaPolicy.broken) throw new Error('policy store down');
+    return N8aLoginStubMfaPolicy.enrolled.has(id.id) ? ['totp'] : [];
   }
+}
+
+// Fresh wiring per case without DI.clearCache(): drop only what this suite registers or depends on.
+function uncacheOwn(): void {
+  for (const t of [Configuration, Orm, SqliteOrmDriver, 'orm-driver-sqlite', SessionProvider, AuthProvider, PasswordProvider, LoginController, MfaPolicy]) DI.uncache(t as never);
 }
 
 const body = async <T = any>(r: any): Promise<T> => await r.responseData;
@@ -46,12 +54,15 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
 
   before(() => {
     DI.setESMModuleSupport();
+    // Registered once and never unregistered: DI.unregister leaves an empty key that later resolves trip over (N5
+    // report). Only a config naming it in authn.mfa.policy.service selects it.
+    DI.register(N8aLoginStubMfaPolicy).as(MfaPolicy);
   });
 
   beforeEach(async () => {
-    // same wiring as login-controller.test.ts, which this 2.x suite mirrors
-    DI.clearCache();
-    EnrolledMfaPolicy.enrolled.clear();
+    uncacheOwn();
+    N8aLoginStubMfaPolicy.enrolled.clear();
+    N8aLoginStubMfaPolicy.broken = false;
 
     DI.register(NoTwoFactorSwitchConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
@@ -84,8 +95,7 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
 
   afterEach(async () => {
     sinon.restore();
-    DI.unregister(EnrolledMfaPolicy);
-    DI.clearCache();
+    uncacheOwn();
   });
 
   const savedSession = async () => {
@@ -109,8 +119,7 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
   });
 
   it('refuses the password alone for a user the 3.0 MfaPolicy requires a step of', async () => {
-    DI.register(EnrolledMfaPolicy).as(MfaPolicy);
-    EnrolledMfaPolicy.enrolled.add(USER_UUID);
+    N8aLoginStubMfaPolicy.enrolled.add(USER_UUID);
 
     sinon.spy(sessions, 'save');
     const data = await body<any>(await login());
@@ -120,12 +129,46 @@ describe('2.x login with a second factor enrolled (N5 side effect)', function ()
   });
 
   it('still authorizes a user with no second factor', async () => {
-    DI.register(EnrolledMfaPolicy).as(MfaPolicy);
 
     sinon.spy(sessions, 'save');
     const data = await body<any>(await login());
 
     expect(data.TwoFactorAuthRequired).to.not.equal(true);
     expect((await savedSession()).Data.get('Authorized')).to.equal(true);
+  });
+  it('parks a 3.0-only login without the 2.x marker, so the 2.x enrol and verify routes stay shut', async () => {
+    N8aLoginStubMfaPolicy.enrolled.add(USER_UUID);
+
+    sinon.spy(sessions, 'save');
+    await login();
+    const session = await savedSession();
+
+    expect(session.Data.get('Authorized')).to.equal(false);
+    expect(session.Data.has('TwoFactorAuth')).to.equal(false);
+    let refused = false;
+    await new TwoFacRouteEnabled().execute({ storage: { Session: session } } as any).catch(() => (refused = true));
+    expect(refused, 'the 2.x login-window routes refuse the session').to.equal(true);
+  });
+
+  it('keeps the login pending when the configured policy is missing but an MFA step is registered', async () => {
+    expect(DI.getRegisteredTypes(MfaStep as never).length, 'authn-totp registers TotpMfaStep').to.be.greaterThan(0);
+    const config = (controller as any).Configuration;
+    Object.defineProperty(controller, 'Configuration', { value: { get: (k: string, d?: unknown) => (k === 'authn.mfa.policy.service' ? 'NoSuchMfaPolicy' : config.get(k, d)) }, configurable: true });
+
+    sinon.spy(sessions, 'save');
+    const data = await body<any>(await login());
+
+    expect(data.TwoFactorAuthRequired).to.equal(true);
+    expect((await savedSession()).Data.get('Authorized')).to.equal(false);
+  });
+
+  it('keeps the login pending when the policy throws', async () => {
+    N8aLoginStubMfaPolicy.broken = true;
+
+    sinon.spy(sessions, 'save');
+    const data = await body<any>(await login());
+
+    expect(data.TwoFactorAuthRequired).to.equal(true);
+    expect((await savedSession()).Data.get('Authorized')).to.equal(false);
   });
 });

@@ -17,7 +17,7 @@ import { LogoutHandler, ILogoutContext } from '../logout.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants } from '../services/grants.js';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
-import { MfaPolicy } from '@spinajs/authn/contracts';
+import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
 
 
 /**
@@ -97,8 +97,19 @@ export class LoginController extends BaseController {
       session.UserId = user.Id;
 
       const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
-      const secondFactorRequired = twoFaEnabledForUser || (await this.mfaStepsRequired(user.Uuid));
+      const v3StepRequired = await this.mfaStepsRequired(user.Uuid);
 
+      // A 3.0 step (MfaPolicy) cannot be completed on this 2.x path, so such a login stays pending, and without the
+      // TwoFactorAuth marker: the marker opens the 2.x enrol and verify routes, where a new 2.x TOTP would skip the step.
+      if (v3StepRequired && !twoFaEnabledForUser) {
+        this._log.trace('User logged in, a 3.0 MFA step is required', {
+          Uuid: user.Uuid
+        });
+
+        session.Data.set('Authorized', false);
+
+        result = { TwoFactorAuthRequired: true };
+      }
       // `forceUser` alone used to be enough to park the user in
       // TwoFactorInitRequired. But every mutating `/user/2fa*` and
       // `/auth/2fa/setup` route is now gated by `TwoFactorAuthEnabled` and
@@ -108,7 +119,7 @@ export class LoginController extends BaseController {
       // system-wide switch has to gate this branch too, or every user without
       // 2FA is locked out of the product the moment forceUser is on and the
       // switch is off.
-      if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
+      else if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
         this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });
@@ -118,9 +129,8 @@ export class LoginController extends BaseController {
 
         result = { TwoFactorInitRequired: true };
       }
-      // A user enrolled in a second factor never logs in with the password alone, whatever the 2.x switch says:
-      // the switch now ships unset, and a 3.0 step (MfaPolicy) cannot be completed here, so that login stays pending.
-      else if (secondFactorRequired) {
+      // Whatever the 2.x switch says: it now ships unset, which must not let 2.x enrolments in on the password alone.
+      else if (twoFaEnabledForUser) {
 
         this._log.trace('User logged in, 2fa required', {
           Uuid: user.Uuid
@@ -188,11 +198,20 @@ export class LoginController extends BaseController {
     }
   }
 
-  /** Fails closed: a policy that cannot answer counts as a required step. */
+  /**
+   * Whether the 3.0 MfaPolicy named by authn.mfa.policy.service (as DefaultAuthnService picks it) requires a step.
+   * Fails closed: without that policy, any configured or registered MFA step counts as required, and so does a
+   * policy that throws.
+   */
   protected async mfaStepsRequired(uuid: string): Promise<boolean> {
-    if (!DI.check(MfaPolicy as unknown as Class<MfaPolicy>)) return false;
+    const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy';
+    const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
+    if (!type) {
+      const steps = this.Configuration.get<unknown>('authn.mfa.steps');
+      return (Array.isArray(steps) && steps.length > 0) || (DI.getRegisteredTypes(MfaStep as unknown as Class<MfaStep>) ?? []).length > 0;
+    }
     try {
-      const policy = (await DI.resolve(MfaPolicy as unknown as Class<MfaPolicy>)) as MfaPolicy;
+      const policy = (await DI.resolve(type)) as MfaPolicy;
       return (await policy.required({ type: 'user', id: uuid }, { method: 'password', strategy: 'local' })).length > 0;
     } catch (err) {
       this._log.error(err as Error, 'MfaPolicy failed during a 2.x login; the login stays pending');
