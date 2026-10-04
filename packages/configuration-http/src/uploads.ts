@@ -44,7 +44,8 @@ export function configFileOptions(entry: DbConfig): IConfigurationFileOptions {
  * The upload pipeline of a file entry, without a route: a project composes
  * `accept` -> its own record step -> `commit`, and `discard`s an accepted file it could not record.
  * Rejections are `ConfigFileRejected` / `NotAFileEntry` (400); a misdeclared entry (unregistered
- * validator or provider, uncompilable slug schema) is a plain `Error` (500).
+ * validator or provider, uncompilable slug schema) is a plain `Error` (500). `commit` throws
+ * `ConfigWriteRefused` (403) when the update scope of the principal matched no row; reload the entry before retrying.
  */
 @Injectable()
 export class ConfigFileUploads {

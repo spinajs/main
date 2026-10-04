@@ -187,5 +187,7 @@ export class OfferTemplateValidator extends ConfigFileValidator {
 
 An app that guards `DbConfig` (for example through `@spinajs/configuration-http`) calls
 `requireSystemPrincipal()`. From then on, persistence of exposed options and the watch poll run as `SYSTEM`
-(`runAs(SYSTEM, 'config-poll')`). They start after the root authz service boots and never boot it themselves.
+(`runAs(SYSTEM, 'config-poll')`). They start once the root authz service boots (the http server does it). An app without an http server
+waits 15 s, logs a warning and boots the service itself; an http app slower than that would lose the
+boot-time check of `@Access` permissions of controllers registered later.
 Without that call, queries run as before.
