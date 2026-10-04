@@ -108,7 +108,11 @@ changed.
     empty and could be impersonated. Now the target's set adds the entries of
     every routed model's summary; the holder's set stays its checks. See
     `authz-v3-rfc/L1-3.md` and `authz-v3-rfc/E1-1.md`. Every model that can
-    grant below `$global` must implement `summarize`.
+    grant below `$global` must implement `summarize`. The holder's fields
+    come only from its unconditional permits, so another model's conditional
+    permit does not widen what it covers. `covers` is false when a compared
+    route plan uses a custom combinator, since one may allow without any
+    permit that a summary lists.
 
 ## Changes in this revision (r5, as built after F1)
 
