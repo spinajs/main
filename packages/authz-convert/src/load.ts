@@ -31,7 +31,7 @@ export interface ConfigLayers {
   readonly computed: ReadonlyMap<string, readonly string[]>;
   /** Loaded files that read environment variables other than NODE_ENV and APP_ENV (themselves or through what they import). */
   readonly envReaders: readonly { readonly file: string; readonly layer: string; readonly vars: readonly string[] }[];
-  /** Why the second run under the other NODE_ENV failed; `computed` is empty then. */
+  /** Why a run under another NODE_ENV and APP_ENV failed; `computed` holds only what the other runs found. */
   readonly probeErrors: readonly string[];
   /** The config the loader builds for `env` (null: no env file applies). */
   view(env: string | null): Plain;
@@ -190,7 +190,7 @@ function leaves(v: unknown, at: string, out: Set<string>): Set<string> {
 /** Loads every config layer under `dirs` (compiled .js/.cjs and .json files; TypeScript sources are refused). */
 export async function loadLayers(dirs: readonly string[]): Promise<ConfigLayers> {
   if (dirs.length === 0) throw new ConversionError(['no config dir given']);
-  // The second run must not see what the first one put into process.env (a dotenv helper, for example).
+  // The probe runs must not see what the first one put into process.env (a dotenv helper, for example).
   const baseEnv = { ...process.env };
   const problems: string[] = [];
   const files: string[] = [];

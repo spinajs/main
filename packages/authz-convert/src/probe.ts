@@ -76,6 +76,8 @@ export async function probeFiles(files: readonly string[], env: string, baseEnv:
         clearTimeout(timer);
         resolve({ status, stderr: signal ? `killed by ${signal} after ${TIMEOUT_MS} ms` : stderr });
       });
+      // A child that dies before it reads its input closes the pipe; 'close' reports why.
+      child.stdin.on('error', () => undefined);
       child.stdin.end(JSON.stringify([files, outFile]));
     });
     if (run.error) return none(run.error.message);

@@ -240,9 +240,10 @@ npx spinajs-authz-convert lib/mjs/config --out src/config --db rbac-facts.json -
   the 2.x package defaults.
 - It runs the files the way the configuration loader does: the common files, then one layer for
   each env suffix (`rbac.local.js` is env `local`).
-- It runs the config a second time in a child process under the other `NODE_ENV` and `APP_ENV`. It
-  lists every value that changes. The converted files hold the values of one run. It also names
-  files that read other environment variables.
+- It runs the config again in child processes, with `NODE_ENV` and `APP_ENV` set to each of
+  `production`, `prod`, `development`, `dev` and `test`. It lists every value that changes. The
+  converted files hold the values of one run. It also names files that read environment variables,
+  themselves or through what they import.
 - `--out <dir>`: where the files go (default `./authz-convert-output`). Existing files need `--force`.
 - `--src <dir>`: scans app sources for `@OrmResource`, `@ResourceOwner` and `@OrmPermission`, to
   say which models need `@Owner` or an `@OrmScope` class.
@@ -673,7 +674,7 @@ warning that names a `rbac.*` key you have no reason to keep. Note: package defa
 | `timeline.schedule`, `timeline.ttl` | `users` `UnbanUserSchedule` | C1 | `rbac:unban-schedule` has no schedule |
 | `token.rolePolicy` | `authn-token` `src/legacy/actions.ts` | R1 | The 2.x policy runs |
 
-The converter's own "3.0 reads no `rbac.*` key" text is not true yet, for these keys. What you see at
+3.0 drops the `rbac.*` root, but merged code still reads the keys above. What you see at
 boot: the authz host and `DefaultAuthnService` each log one warning per process that names the `rbac.*`
 keys they found and the key each moved to ([section 3.4](#34-keys-that-other-config-files-own)). It
 never prints a value. With the switch on, the same text fails boot. The authz detector reports the

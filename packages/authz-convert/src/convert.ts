@@ -221,7 +221,7 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
     tail.list.push(...at.list);
   }
   for (const e of layers.probeErrors) {
-    tail.manual('probe-failed', `The converter ran the config files a second time, under the other NODE_ENV, to find values they compute; that run failed, so no such value was found: ${e}`);
+    tail.manual('probe-failed', `The converter ran the config files again under other NODE_ENV and APP_ENV values, to find values they compute; a run failed, so values computed there may be missing: ${e}`);
   }
   if (opts.db) markAssignable(outputs, [layers.view(null), ...[...layers.envs.keys()].map((e) => layers.view(e))], opts.db, tail);
 

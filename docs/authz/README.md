@@ -193,7 +193,7 @@ export default {
 
 > **TODO(N8a):** nothing reads `authz.principals.roleSwitch.requirePassword` yet. The live role switch
 > route (`ActiveRoleController` in `authn-http`) still reads `rbac.roleSwitch.requirePassword`. N8a
-> moves it to the new key, with a default of `true`. Until then, keep the `rbac.*` key.
+> moves it to the new key. Until then, keep the `rbac.*` key.
 
 The keys of the HTTP adapter, the RBAC model, the ABAC model and `AuthzAdmin` are in their sections.
 
