@@ -82,11 +82,28 @@ export class fsService extends AsyncService {
 
     const names = decorators.map((d) => `${d.constructor.name}(${d.order})`).join(', ');
 
-    for (const [config, raw] of providers) {
-      const decorated = decorators.reduce((current, d) => d.decorate(current, config), raw);
-      DI.register(decorated).asMapValue('__file_provider_instance__', config.name);
+    const decorated: [IProviderConfiguration, fs, fs][] = [];
 
-      this.Logger.info(`File provider ${config.name} decorated with ${names}`);
+    for (const [config, raw] of providers) {
+      try {
+        decorated.push([config, raw, decorators.reduce((current, d) => d.decorate(current, config), raw)]);
+      } catch (err) {
+        // A decorator may be an access guard: never leave raw providers reachable through getFs().
+        const published = DI.get<Map<string, fs>>('__file_provider_instance__');
+        for (const [c] of providers) {
+          published?.delete(c.name);
+        }
+
+        throw new ResolveException(`Cannot decorate file provider ${config.name}: ${err instanceof Error ? err.message : String(err)}`, err instanceof Error ? err : undefined);
+      }
+    }
+
+    for (const [config, raw, instance] of decorated) {
+      DI.register(instance).asMapValue('__file_provider_instance__', config.name);
+
+      if (instance !== raw) {
+        this.Logger.info(`File provider ${config.name} decorated with ${names}`);
+      }
     }
   }
 }

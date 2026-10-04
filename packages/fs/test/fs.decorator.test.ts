@@ -165,4 +165,44 @@ describe('fs decorators', function () {
       expect(temp.Provider).to.not.equal(getFs('dec-temp-local'));
     });
   });
+
+  describe('with a decorator that throws', () => {
+    class FailingDecorator extends FsDecorator {
+      readonly order = 50;
+      decorate(instance: fs, config: IProviderConfiguration): fs {
+        if (config.name === 'dec-fail-b') throw new Error('boom');
+        return wrap(instance, this.order);
+      }
+    }
+
+    before(() => {
+      DI.register(FailingDecorator).as(FsDecorator);
+    });
+
+    after(() => {
+      DI.unregister(FailingDecorator);
+      DI.uncache(Array.ofType(FsDecorator));
+      DI.uncache(FailingDecorator);
+    });
+
+    it('rejects naming the provider and unpublishes every provider', async () => {
+      const providers = [
+        { service: 'fsNative', name: 'dec-fail-a', basePath: dir('./temp-nc') },
+        { service: 'fsNative', name: 'dec-fail-b', basePath: dir('./temp-nc') },
+        { service: 'fsNative', name: 'dec-fail-c', basePath: dir('./temp-nc') },
+      ];
+
+      let error: unknown;
+      try {
+        await service(providers).resolve();
+      } catch (e) {
+        error = e;
+      }
+
+      expect((error as Error)?.message).to.match(/dec-fail-b: boom/);
+      for (const { name } of providers) {
+        expect(() => getFs(name), name).to.throw();
+      }
+    });
+  });
 });

@@ -309,7 +309,6 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
    *
    * Optional: providers without public URLs do not implement it.
    *
-   * @param path path to the file
    * @param opts.until when the URL expires ( provider default when absent )
    * @param opts.disposition content disposition the URL should serve the file with
    */
@@ -476,8 +475,10 @@ export abstract class fs extends AsyncService implements IMappableService, IInst
 }
 
 /**
- * Wraps every configured fs provider before fsService publishes it under its name.
- * Registered decorators run in ascending `order`.
+ * Wraps every configured fs provider. fsService first publishes every raw provider, so
+ * providers that look up a backend by name in their own resolve() get the raw one, then
+ * replaces each entry with the result of the decorators, run in ascending `order`.
+ * When a decorator throws, every provider is unpublished and fsService fails to resolve.
  */
 export abstract class FsDecorator {
   abstract readonly order: number;

@@ -594,6 +594,7 @@ export class fsS3 extends fs {
       throw new IOFail(`File ${path} does not exists in bucket ${this.Options.bucket}, fs: ${this.Options.name}`);
     }
 
+    // Neither signer supports a content disposition yet, so opts.disposition is not applied.
     return this.Signer.sign(path, opts?.until);
   }
 
