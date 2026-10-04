@@ -7,7 +7,7 @@ import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
 
-import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RBAC_SERVICE_NAME, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, linkCompanion, registerRbac } from '../../src/index.js';
+import { ConfigRoleStore, ConfigRuleStore, LINK_INVALID, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRoleStore, RBAC_SERVICE_NAME, RbacContributor, RbacLinkResolver, RbacModel, RbacService, RoleStore, RuleStore, RulesExtension, DbRuleStore, linkCompanion, registerRbac } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -45,6 +45,9 @@ async function world(opts: { readonly links?: boolean } = {}) {
 }
 
 const vote = (model: RbacModel, principal: Principal, permission: string, resource: ResourceRef): Promise<Vote> => Promise.resolve(model.evaluate({ principal, permission, resource }, ctx()));
+
+/** A second in-memory rule store class, registered by its name. */
+class OtherConfigRuleStore extends ConfigRuleStore {}
 
 describe('authz-rbac share links', () => {
   describe('linkPrincipal and principalForToken', () => {
@@ -181,6 +184,57 @@ describe('authz-rbac share links', () => {
       expect(links).to.be.instanceOf(MemoryLinkStore);
     });
 
+    it('takes the rule stores of design §8.5: ConfigRuleStore and DbRuleStore, both on every check', async () => {
+      const { model } = await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'], links: ['DbLinkStore'] }));
+      const rules = model.extensions.find((e) => e instanceof RulesExtension) as RulesExtension;
+      expect([rules.config, rules.db]).to.satisfy(([c, d]: unknown[]) => c instanceof ConfigRuleStore && d instanceof DbRuleStore);
+    });
+
+    it('refuses config rules that no ConfigRuleStore reads, before registering anything', async () => {
+      const cfg = config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['DbRuleStore'] });
+      cfg.set(['authz', 'rbac', 'rules'], [{ id: 'c', kind: 'cap', ladder: 'project', maxRole: 'viewer' }]);
+      let thrown: unknown;
+      try {
+        await registerRbac(container, cfg);
+      } catch (e) {
+        thrown = e;
+      }
+      expect((thrown as Error).message).to.contain('does not name ConfigRuleStore');
+      for (const token of ['AuthorizationModel', 'RoleStore', 'RuleStore']) expect(container.hasRegistered(token, false), token).to.equal(false);
+    });
+
+    it('refuses two rule stores of one sort from their classes, before registering anything (N1)', async () => {
+      container.register(OtherConfigRuleStore).asSelf();
+      let thrown: unknown;
+      try {
+        await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'OtherConfigRuleStore'] }));
+      } catch (e) {
+        thrown = e;
+      }
+      expect((thrown as Error).message).to.contain('one in-memory store and one other at most');
+      for (const token of ['AuthorizationModel', 'RoleStore', 'RuleStore', 'AssignmentStore']) expect(container.hasRegistered(token, false), token).to.equal(false);
+    });
+
+    it('a child domain under a parent that ran registerRbac reads its own rule stores only (N2)', async () => {
+      container.register(OtherConfigRuleStore).asSelf();
+      const parentConfig = config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['OtherConfigRuleStore'] });
+      await registerRbac(container, parentConfig);
+      const child = container.child();
+      try {
+        const cfg = new testHost.TestConfiguration();
+        cfg.set(['authz', 'rbac', 'stores'], { roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['ConfigRuleStore', 'DbRuleStore'] });
+        cfg.set(['authz', 'rbac', 'rules'], [{ id: 'child-cap', kind: 'cap', ladder: 'project', maxRole: 'viewer' }]);
+        child.register(testHost.instance(cfg)).as(Configuration);
+        const { model } = await registerRbac(child, cfg);
+        const rules = model.extensions.find((e) => e instanceof RulesExtension) as RulesExtension;
+        expect(rules.config).to.be.instanceOf(ConfigRuleStore).and.not.instanceOf(OtherConfigRuleStore);
+        expect(rules.db).to.be.instanceOf(DbRuleStore);
+        expect(rules.config!.all().map((r) => r.id)).to.deep.equal(['child-cap']);
+      } finally {
+        await child.dispose();
+      }
+    });
+
     it('turns rules and links off with empty lists', async () => {
       const { model } = await registerRbac(container, config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: [], links: [] }));
       expect(model.linkStore).to.equal(undefined);
@@ -188,7 +242,7 @@ describe('authz-rbac share links', () => {
     });
 
     it('refuses two stores of a kind, and a missing roles or assignments store, before registering anything', async () => {
-      const refused: Record<string, string[]>[] = [{ roles: ['ConfigRoleStore', 'ConfigRoleStore2'] }, { assignments: [] }];
+      const refused: Record<string, string[]>[] = [{ roles: ['ConfigRoleStore', 'ConfigRoleStore2'] }, { assignments: [] }, { rules: ['ConfigRuleStore', 'DbRuleStore', 'ThirdRuleStore'] }];
       for (const stores of refused) {
         let thrown: unknown;
         try {

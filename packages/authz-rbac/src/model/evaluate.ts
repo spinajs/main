@@ -418,7 +418,7 @@ export interface RbacSources {
   readonly grants: GrantIndex;
   readonly assignments: AssignmentStore;
   readonly subjects?: SubjectResolver;
-  readonly rules?: RuleStore;
+  readonly rules?: RuleStore | readonly RuleStore[];
   readonly links?: LinkStore;
   readonly extensions?: readonly RbacExtension[];
   /** Assignments the config gives these subjects at GLOBAL (anonymousRoles, serviceRoles). */

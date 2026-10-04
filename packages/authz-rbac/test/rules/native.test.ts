@@ -1,10 +1,10 @@
-import { DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
+import { AuthzConfigError, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, EvaluationContext, NativeFilter, PermissionInput, Principal, ResourceFilter, ResourceRef, RuleDef, Vote } from '@spinajs/authz';
 import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
 import * as chai from 'chai';
 import 'mocha';
 
-import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacModel, RuleRowsError, createRbacExtensions, parseRbacListArgs, rbacAssignmentArgsV2, rbacAssignmentExtension } from '../../src/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacModel, RuleRowsError, createRbacExtensions, parseRbacListArgs, ruleStoreParts, rbacAssignmentArgsV2, rbacAssignmentExtension } from '../../src/index.js';
 import type { GrantDef, LadderDef, RbacAssignmentArgsV2, RbacThresholdArgs, RoleDef, RuleStore } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -52,9 +52,16 @@ interface Built {
   ctx(now?: Date): EvaluationContext;
 }
 
-async function build(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[] | RuleStore, opts: { readonly lists?: boolean } = {}): Promise<Built> {
+/** A store that is not in memory over `defs`: its rules are DB rules, read per path. */
+const remote = (defs: readonly Omit<RuleDef, 'source'>[]): RuleStore => {
+  const inner = new ConfigRuleStore(defs.map(rule));
+  return { name: 'remote', forPath: (path, at) => inner.forPath(path, at), version: () => inner.version() };
+};
+
+/** `db`: a second rule store beside the config one (design §8.5: ConfigRuleStore and DbRuleStore). */
+async function build(rows: readonly Assignment[], rules: readonly Omit<RuleDef, 'source'>[] | RuleStore, opts: { readonly lists?: boolean; readonly db?: RuleStore } = {}): Promise<Built> {
   const store = Array.isArray(rules) ? new ConfigRuleStore((rules as readonly Omit<RuleDef, 'source'>[]).map(rule)) : (rules as RuleStore);
-  const base = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore(rows), rules: store };
+  const base = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore(rows), rules: opts.db ? [store, opts.db] : store };
   const model = new RbacModel({ ...base, extensions: [...createRbacExtensions(base), rbacAssignmentExtension(base, { rules: opts.lists !== false })], log: { warn: () => undefined } });
   await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
   model.grantIndex();
@@ -285,9 +292,11 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
         if (rnd(3) === 0) rows.push({ id: 'bob', subject: { type: 'user', id: 'bob' }, role: pick(NAMES), scope: pick(SCOPES), source: 'test' });
         const rules = RULES.filter(() => rnd(3) === 0);
         // A store that is not in memory: the rules are DB rules, read per row; a list may then be narrower, never wider.
-        const db = rnd(4) === 0;
-        const inner = new ConfigRuleStore(rules.map(rule));
-        const b = await build(rows, db ? { name: 'remote', forPath: (path, at) => inner.forPath(path, at), version: () => inner.version() } : rules);
+        // 0: every rule in a store that is not in memory; 1: the rules split between both stores; else config only.
+        const mode = rnd(4);
+        const db = mode <= 1;
+        const stored = mode === 0 ? rules : mode === 1 ? rules.filter((_, i) => i % 2 === 1) : [];
+        const b = await build(rows, mode === 0 ? [] : mode === 1 ? rules.filter((_, i) => i % 2 === 0) : rules, stored.length > 0 ? { db: remote(stored) } : {});
         const attributes = { ...(rnd(2) ? { x: true } : {}), ...(rnd(2) ? { max: 'editor' } : {}), ...pick([{}, { lvl: 2 }, { lvl: '2' }]), ...(rnd(2) ? { pat: 'a*' } : {}) };
         if (!db) for (const x of rules) if (['c-all', 'c-any-who', 't-all', 'c-false-ref', 't-object'].includes(x.id)) shapes.set(x.id, (shapes.get(x.id) ?? 0) + 1);
         if (!db && rules.some((x) => (x.id === 'c-fn' && !('pat' in attributes)) || ((x.id === 'c-level' || x.id === 'c-plain') && !('lvl' in attributes)))) unboundScopeReads++;
@@ -512,10 +521,6 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
     });
 
     describe('I2: a stored rule that reads request facts refuses every row on its path', () => {
-      const remote = (rules: readonly Omit<RuleDef, 'source'>[]): RuleStore => {
-        const inner = new ConfigRuleStore(rules.map(rule));
-        return { name: 'remote', forPath: (path, at) => inner.forPath(path, at), version: () => inner.version() };
-      };
       const neverWider = (found: string[]) => found.filter((m) => m.includes('listed true'));
       const listed = async (b: Built, permission: string, principal: Principal) => {
         const c = b.ctx();
@@ -610,6 +615,26 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       await model.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
       const v = await Promise.resolve(model.evaluate({ principal: userPrincipal('alice'), permission: 'inspect:view', resource: FILE }, fakeEvaluationContext({ now: NOW, scopeResolvers: [scopes] })));
       expect(terms(v.permitWhen, RBAC_ASSIGNMENT_OP)).to.have.length(1);
+    });
+  });
+
+  describe('two rule stores (design §8.5: ConfigRuleStore and DbRuleStore)', () => {
+    it('a config cap and a DB restrict apply together, on checks and on lists', async () => {
+      const b = await build([assignment('a1', 'editor')], [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: 'viewer' }], { db: remote([{ id: 'r', kind: 'restrict', scope: P1, allow: [] }]) });
+      const [args] = terms((await vote(b, 'file:read', FILE)).permitWhen, RBAC_ASSIGNMENT_OP) as RbacAssignmentArgsV2[];
+      expect([args.rules.map((x) => x.id), args.dbRules]).to.deep.equal([['c'], true]);
+      const op = async (p: string, i: number) => (await vote(b, p, FILES[i].ref)).permitWhen.op;
+      // f1 under the DB restrict at p1, f3 free, f4 under the config cap at o2.
+      expect([await op('file:read', 0), await op('file:edit', 2), await op('file:edit', 3), await op('file:read', 3)]).to.deep.equal(['false', 'true', 'false', 'true']);
+      for (const p of ['file:read', 'file:edit']) expect(await agrees(b, p), p).to.deep.equal([]);
+    });
+
+    it('two stores of one sort are refused', () => {
+      const config = () => new ConfigRuleStore([]);
+      expect(() => ruleStoreParts([config(), config()])).to.throw(AuthzConfigError, 'one in memory and one other at most');
+      expect(() => ruleStoreParts([remote([]), remote([])])).to.throw(AuthzConfigError, 'one in memory and one other at most');
+      const parts = ruleStoreParts([remote([]), config()]);
+      expect([parts.config?.name, parts.db?.name]).to.deep.equal(['ConfigRuleStore', 'remote']);
     });
   });
 

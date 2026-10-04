@@ -170,7 +170,8 @@ export class RbacListEvaluator {
     const principal = listPrincipal(args);
     const request = { principal, ...(args.actor ? { actor: { type: args.actor.type, id: args.actor.id } as unknown as Principal } : {}), permission: args.permission, resource: ref, subject };
     const bound = boundDefs(args, ctx).filter((d) => keys.has(JSON.stringify([d.scope.type, d.scope.id ?? null])));
-    const stored = args.dbRules && rules.store ? await rules.store.forPath(path, ctx.now) : [];
+    // The DB part only: the config rules came bound in the args.
+    const stored = args.dbRules && rules.db ? await rules.db.forPath(path, ctx.now) : [];
     const input: RbacInput = { request, now: ctx.now, path, subjects: args.subjects as RbacInput['subjects'], assignments, roles, grants, ...(ladders ? { ladders } : {}), ...(implies ? { implies } : {}) };
     const active = await rules.activate(select([...bound, ...stored]), request, ctx, input, (d) => (d.source !== BOUND ? beyondD24(d) : undefined));
     return rbacState({ ...input, ...active }, through);

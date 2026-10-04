@@ -5,7 +5,7 @@ import type { AssignmentStore, LinkStore, RoleStore, RuleStore, SubjectResolver 
 import { AssignmentCache, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_MAX_CACHED_SUBJECTS } from './cache.js';
 import { RBAC_SUMMARY_STEPS, createRbacExtensions, extendRbacInput, liveAssignments, rbacTables, readRbacInput, resourcePath, runRbacPipeline } from './evaluate.js';
 import { effectiveRole } from './ladder/steps.js';
-import { isSyncRuleStore } from './rules/extension.js';
+import { ruleStoreParts } from './rules/extension.js';
 import { unlessRowRules } from './rules/steps.js';
 import type { LiveAssignment, RbacExtension, RbacInput, RbacSources } from './evaluate.js';
 import { compileGrants } from './grants.js';
@@ -20,7 +20,8 @@ export interface RbacModelOptions {
   readonly assignments: AssignmentStore;
   /** Default: RbacSubjectResolver (principal, companions, group member set, subject sets), with `authz.rbac.groupPrincipal`. */
   readonly subjects?: SubjectResolver;
-  readonly rules?: RuleStore;
+  /** At most one in-memory store (ConfigRuleStore) and one other (DbRuleStore), design §8.5. */
+  readonly rules?: RuleStore | readonly RuleStore[];
   readonly links?: LinkStore;
   /** Default: one instance from each factory of DEFAULT_RBAC_EXTENSIONS, built with these options. The model adds tokenRoleExtension last either way. */
   readonly extensions?: readonly RbacExtension[];
@@ -399,12 +400,11 @@ export class RbacModel extends AuthorizationModel {
     return run;
   }
 
-  /** Whether the rule store may hold a rule live at `now`: always for a store that is not in memory. */
+  /** Whether the rule stores may hold a rule live at `now`: always with a store that is not in memory. */
   private rulesMayApply(now: Date): boolean {
-    const rules = this.opts.rules;
-    if (!rules) return false;
-    if (!isSyncRuleStore(rules)) return true;
-    return rules.all().some((r) => r.expiresAt == null || r.expiresAt.getTime() > now.getTime());
+    const { config, db } = ruleStoreParts(this.opts.rules);
+    if (db) return true;
+    return config ? config.all().some((r) => r.expiresAt == null || r.expiresAt.getTime() > now.getTime()) : false;
   }
 
   /** The SubjectResolver of the options, else the RbacSubjectResolver built at init. */

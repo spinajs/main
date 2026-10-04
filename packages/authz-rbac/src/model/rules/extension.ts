@@ -1,4 +1,4 @@
-import { BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, BUILTIN_CONDITION_FUNCTIONS, CONDITION_UNKNOWN, ConditionFunction, DefaultConditionCompiler, FALSE, GLOBAL, TRUE, and, resourceKey } from '@spinajs/authz';
 import type { AuthzContribution, CompiledCondition, Condition, DecisionRequest, DenyReason, EvaluationContext, ModelInitContext, ParsedCondition, PermissionRegistry, ResourceFilter, ResourceRef, RuleDef } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
 
@@ -29,11 +29,27 @@ export interface SyncRuleStore extends RuleStore {
 
 export const isSyncRuleStore = (s: RuleStore | undefined): s is SyncRuleStore => typeof (s as Partial<SyncRuleStore> | undefined)?.rulesOn === 'function' && typeof (s as Partial<SyncRuleStore>).all === 'function';
 
+/** The model's rule stores: at most one in memory (bound, checked at boot) and one other (read per path, as DB rules). */
+export interface RuleStoreParts {
+  readonly config?: SyncRuleStore;
+  readonly db?: RuleStore;
+}
+
+/** @throws AuthzConfigError for two in-memory stores or two others (design §8.5: ConfigRuleStore and DbRuleStore) */
+export function ruleStoreParts(rules: RuleStore | readonly RuleStore[] | undefined): RuleStoreParts {
+  const list: readonly RuleStore[] = rules === undefined ? [] : Array.isArray(rules) ? (rules as readonly RuleStore[]) : [rules as RuleStore];
+  const config = list.filter(isSyncRuleStore);
+  const db = list.filter((s) => !isSyncRuleStore(s));
+  if (config.length > 1 || db.length > 1) throw new AuthzConfigError(`rbac: the rule stores are one in memory and one other at most (ConfigRuleStore, DbRuleStore), not ${list.map((s) => s.name).join(', ')}`);
+  return { ...(config[0] ? { config: config[0] } : {}), ...(db[0] ? { db: db[0] } : {}) };
+}
+
 /**
- * RBAC rules (design §5.8, §6.1.2 steps 2, 3, 8) from the model's RuleStore. In-memory rules are
- * checked when the grants compile (rule 9) and give boot refs (rules 7 and 10); every rule's
- * request-level parts (`when`, `subjects` but rank, `resource`, refs) are decided while gathering,
- * so the steps stay synchronous.
+ * RBAC rules (design §5.8, §6.1.2 steps 2, 3, 8) from the model's rule stores: the in-memory part
+ * (`config`) and the other part (`db`), both on every check. In-memory rules are checked when the
+ * grants compile (rule 9), give boot refs (rules 7 and 10) and are bound into list terms; DB rules
+ * are read per path, and per row in lists (`dbRules`). Every rule's request-level parts (`when`,
+ * `subjects` but rank, `resource`, refs) are decided while gathering, so the steps stay synchronous.
  */
 export class RulesExtension implements RbacExtension {
   readonly kind = RULES_EXTENSION_KIND;
@@ -46,11 +62,18 @@ export class RulesExtension implements RbacExtension {
   private compiledWith?: { readonly graph: RoleGraph; readonly grants: GrantIndex };
   private extensions?: readonly RbacExtension[];
 
-  constructor(readonly store?: RuleStore) {}
+  readonly config?: SyncRuleStore;
+  readonly db?: RuleStore;
+
+  constructor(rules?: RuleStore | readonly RuleStore[]) {
+    const parts = ruleStoreParts(rules);
+    this.config = parts.config;
+    this.db = parts.db;
+  }
 
   async init(ctx: ModelInitContext): Promise<void> {
     this.registry = ctx.permissions;
-    if (this.store) this.parser = new DefaultConditionCompiler(await registeredFunctions());
+    if (this.config || this.db) this.parser = new DefaultConditionCompiler(await registeredFunctions());
   }
 
   compile(graph: RoleGraph, grants: GrantIndex, registry: PermissionRegistry): void {
@@ -77,27 +100,26 @@ export class RulesExtension implements RbacExtension {
   }
 
   gather(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput, sources: RbacSources): Partial<RbacInput> | Promise<Partial<RbacInput>> {
-    const store = this.store;
+    const { config, db } = this;
     if (sources.extensions) this.extensions = sources.extensions;
     const listers = (sources.extensions ?? []).filter((e) => e.listsRules !== undefined);
     if (isTypeLevel(request.resource) && listers.some((e) => e.listsRules!(request.resource.type))) return this.listInput(request, ctx, input);
-    if (!store) return {};
+    if (!config && !db) return {};
     const activate = () => {
-      const defs = isSyncRuleStore(store) ? store.rulesOn(input.path, input.now) : store.forPath(input.path, input.now);
-      return defs instanceof Promise ? defs.then((d) => this.activate(d, request, ctx, input)) : this.activate(defs, request, ctx, input);
+      const own = config ? config.rulesOn(input.path, input.now) : [];
+      return db ? db.forPath(input.path, input.now).then((stored) => this.activate([...own, ...stored], request, ctx, input)) : this.activate(own, request, ctx, input);
     };
     // Any request with a context binds the config rules for this principal, so a list after preload needs no async step (B22).
     // Best effort: whatever the binding meets, the check's own answer is the one above.
-    const warm = listers.length > 0 && isSyncRuleStore(store) && usable(ctx) ? this.boundSet(request, ctx, input) : undefined;
+    const warm = listers.length > 0 && config && usable(ctx) ? this.boundSet(request, ctx, input) : undefined;
     return warm instanceof Promise ? warm.then(activate, activate) : activate();
   }
 
-  /** The rules part of a list vote: the config rules bound to the request, or the store's rules read per row. */
+  /** The rules part of a list vote: the config rules bound to the request, and the DB rules read per row. */
   private listInput(request: DecisionRequest, ctx: EvaluationContext, input: RbacInput): Maybe<Partial<RbacInput>> {
-    const store = this.store;
+    const dbRules = this.db !== undefined;
     const empty = { rules: [], rowDependentRules: [] };
-    if (!store) return { ...empty, native: { rules: [], reasons: new Map(), expires: [], dbRules: false, cacheable: true } };
-    if (!isSyncRuleStore(store)) return { ...empty, native: { rules: [], reasons: new Map(), expires: [], dbRules: true, cacheable: true } };
+    if (!this.config) return { ...empty, native: { rules: [], reasons: new Map(), expires: [], dbRules, cacheable: true } };
     const done = (set: BoundSet): Partial<RbacInput> => {
       const type = request.resource.type;
       const now = input.now.getTime();
@@ -112,7 +134,7 @@ export class RulesExtension implements RbacExtension {
         if (def.kind === 'threshold') reasons.set(def.id, thresholdReason(compiled));
         if (def.expiresAt != null) expires.push(def.expiresAt.getTime());
       }
-      return { ...empty, native: { rules, reasons, expires, dbRules: false, cacheable: !set.unsafe } };
+      return { ...empty, native: { rules, reasons, expires, dbRules, cacheable: !set.unsafe } };
     };
     const set = this.boundSet(request, ctx, input);
     return set instanceof Promise ? set.then(done) : done(set);
@@ -132,7 +154,7 @@ export class RulesExtension implements RbacExtension {
       memo.set(key, hit);
       return hit;
     }
-    const compiled = (this.store as SyncRuleStore).all().map((def) => this.rule(def, input.roles, input.ladders));
+    const compiled = this.config!.all().map((def) => this.rule(def, input.roles, input.ladders));
     return Promise.all(compiled.map((c) => bindRule(c, request, ctx).then((binding) => ({ compiled: c, binding })))).then((entries) => {
       const set: BoundSet = { entries, unsafe: entries.some((e) => e.binding.unsafe) };
       if (!entries.some((e) => e.binding.perRequest)) {
@@ -144,11 +166,12 @@ export class RulesExtension implements RbacExtension {
   }
 
   private bootRules(graph: RoleGraph, grants: GrantIndex): readonly CompiledRule[] {
-    if (!isSyncRuleStore(this.store)) return [];
+    const config = this.config;
+    if (!config) return [];
     let rules = this.boot.get(graph);
     if (!rules) {
       const ladders = compileLadders(graph, grants);
-      rules = this.store.all().map((def) => this.rule(def, graph, ladders));
+      rules = config.all().map((def) => this.rule(def, graph, ladders));
       this.boot.set(graph, rules);
     }
     return rules;
@@ -182,8 +205,8 @@ export class RulesExtension implements RbacExtension {
     const selects = (def: RuleDef, rule: CompiledRule) => principalSelects(rule, request.principal, request.actor) && (def.kind !== 'threshold' || rule.permissions!.has(request.permission));
     if (typeLevel) {
       // A rule off the path reaches some rows only. Rules of a store that is not in memory cannot all be seen from [type, GLOBAL].
-      if (!isSyncRuleStore(this.store)) rowDependent.push(`* (${this.store!.name})`);
-      else for (const def of this.store.all()) if (!onPath.has(resourceKey(def.scope)) && live(def) && selects(def, this.rule(def, input.roles, input.ladders))) rowDependent.push(def.id);
+      if (this.db) rowDependent.push(`* (${this.db.name})`);
+      if (this.config) for (const def of this.config.all()) if (!onPath.has(resourceKey(def.scope)) && live(def) && selects(def, this.rule(def, input.roles, input.ladders))) rowDependent.push(def.id);
     }
     const pending: Maybe<ActiveRule | undefined>[] = [];
     let cacheable = true;
