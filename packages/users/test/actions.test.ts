@@ -24,6 +24,7 @@ import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
 import { expirePassword } from '../src/actions.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { globalRolesOf, registerAuthzHost } from './support/authz-host.js';
+import { TestPasswordService } from './support/password-service.js';
 
 chai.use(chaiAsPromised);
 
@@ -128,7 +129,7 @@ describe('User model tests', function () {
   it('Should create user', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: U, Password } = await create('test@wp.pl', 'test222', ['admin'], { password: 'bbbb1234' });
+    const { User: U } = await create('test@wp.pl', 'test222', ['admin'], { password: 'bbbb1234' });
 
     const user = await User.query().whereAnything('test@wp.pl').firstOrFail();
     expect(user).to.be.not.null;
@@ -142,8 +143,6 @@ describe('User model tests', function () {
     expect((eStub.args[1] as any)[0]).to.be.instanceOf(EmailSend);
 
     expect(U).to.be.instanceOf(User);
-    expect(Password).to.be.not.null;
-    expect(Password).to.be.a('string');
   });
 
   /**
@@ -167,7 +166,7 @@ describe('User model tests', function () {
   it('Should create user with metadata', async () => {
     const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const { User: U, Password } = await create('meta@wp.pl', 'metameta', ['admin'], {
+    const { User: U } = await create('meta@wp.pl', 'metameta', ['admin'], {
       password: 'bbbb1234',
       metadata: {
         'user:niceName': 'Meta User',
@@ -191,8 +190,6 @@ describe('User model tests', function () {
     expect((eStub.args[2] as any)[0]).to.be.instanceOf(EmailSend);
 
     expect(U).to.be.instanceOf(User);
-    expect(Password).to.be.not.null;
-    expect(Password).to.be.a('string');
   });
 
   it('Should create user with beforeCreate and afterCreate middleware', async () => {
@@ -341,24 +338,6 @@ describe('User model tests', function () {
   });
 
   /**
-   * A generated password is a secret nobody knows, so the account is unreachable
-   * unless the same call also hands its owner a way in.
-   */
-  it('Should generate a password and issue a reset link when none is given', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    const { Password } = await create('generated@wp.pl', 'generated', ['admin']);
-
-    expect(Password, 'the generated password is returned to the caller').to.be.a('string').and.not.empty;
-
-    const user = await User.query().whereAnything('generated@wp.pl').populate('Metadata').firstOrFail();
-    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'an account nobody holds a password for must be reachable').to.be.a('string');
-
-    // the generated password is what was hashed, not something else
-    expect(await passwordMatch(Password)(user)).to.eq(true);
-  });
-
-  /**
    * The inverse: a caller that supplied the password knows it and delivers it
    * itself. Mailing a reset link there would invalidate a password the caller is
    * about to hand out — which is what a CLI service account or a fixture wants
@@ -374,66 +353,18 @@ describe('User model tests', function () {
   });
 
   /**
-   * The account exists by the time the link is issued, so a mail that cannot be
-   * queued must not report the creation as failed — a caller that retries then
-   * fails on the duplicate login instead.
+   * The account exists by the time the invite is issued, so a failed invite is
+   * reported but does not take the account back: the invite can be sent again.
    */
   it('Should still create the account when the reset link cannot be issued', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+    sinon.stub(TestPasswordService.prototype, 'invite').rejects(new Error('secret store down'));
 
-    const config = DI.get(Configuration)!;
-    const template = config.get('users.email.created');
-    config.set('users.email.created', undefined);
+    await expect(create('nolink@wp.pl', 'nolink', ['admin'])).to.be.rejectedWith('secret store down');
 
-    const { User: u } = await create('nolink@wp.pl', 'nolink', ['admin']);
-
-    expect(u).to.be.instanceOf(User);
-    expect(await User.query().whereAnything('nolink@wp.pl').first(), 'the account must survive a failed reset').to.exist;
-
-    config.set('users.email.created', template);
-  });
-
-  /**
-   * ONE mail, not two. The account-created mail IS the invite: a separate reset mail
-   * would arrive alongside it carrying the same token and read as a second, contradictory
-   * instruction.
-   */
-  it('Should mail a new account exactly one message, carrying the reset link', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await create('invite@wp.pl', 'invite', ['admin']);
-
-    const mails = eStub.args.map((a) => (a as any)[0]).filter((e) => e instanceof EmailSend);
-    expect(mails, 'exactly one mail per created account').to.have.length(1);
-
-    const user = await User.query().whereAnything('invite@wp.pl').populate('Metadata').firstOrFail();
-    expect((mails[0] as any).model.Token, 'the mail must carry the token that was stored').to.eq(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]);
-    expect((mails[0] as any).to).to.deep.eq(['invite@wp.pl']);
-  });
-
-  it('Should issue the invite link with the invite lifetime, not the reset one', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await create('invitettl@wp.pl', 'invitettl', ['admin']);
-
-    const user = await User.query().whereAnything('invitettl@wp.pl').populate('Metadata').firstOrFail();
-    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(15 * 60);
-
-    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
-    expect((mail as any).model.ExpiresInMinutes).to.eq(15);
-  });
-
-  /**
-   * One template renders both account mails; without the flag a new user is welcomed with
-   * the password-reset wording.
-   */
-  it('Should mark the creation mail as an invite', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await create('inviteflag@wp.pl', 'inviteflag', ['admin']);
-
-    const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
-    expect((mail as any).model.IsInvite).to.eq(true);
+    const u = await User.query().whereAnything('nolink@wp.pl').first();
+    expect(u, 'the account must survive a failed invite').to.exist;
+    expect(await globalRolesOf(u!.Uuid)).to.deep.eq(['admin']);
   });
 
   it('Should mark a created account as awaiting its invite', async () => {
@@ -923,38 +854,6 @@ describe('User model tests', function () {
     });
 
     /**
-     * A freshly created account is INACTIVE and the link mailed to it is the only way in,
-     * so the inactive guard has to make room for exactly this case — and for no other.
-     */
-    it('lets a newly invited account redeem its link and activates it', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('redeem@wp.pl', 'redeem', ['admin']);
-
-      const invited = () => User.query().whereAnything('redeem@wp.pl').populate('Metadata').firstOrFail();
-      const token = (await invited()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      await confirmPasswordReset('redeem@wp.pl', 'brandNew123', token);
-
-      const after = await invited();
-      expect(after.IsActive, 'redeeming the invite is what activates the account').to.be.ok;
-      expect(after.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING], 'the marker is single-use like the token').to.not.be.ok;
-      expect(await passwordMatch('brandNew123')(after)).to.eq(true);
-    });
-
-    it('emits UserActivated when an invite is redeemed', async () => {
-      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('redeemev@wp.pl', 'redeemev', ['admin']);
-      const token = (await User.query().whereAnything('redeemev@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      eStub.resetHistory();
-      await confirmPasswordReset('redeemev@wp.pl', 'brandNew123', token);
-
-      expect(eStub.args.some((a) => (a as any)[0] instanceof UserActivated)).to.be.true;
-    });
-
-    /**
      * The marker is the whole of the exception. An account an administrator deactivated
      * carries none, so the reset stays refused for it — otherwise the flow would be a way
      * back into an account that was deliberately switched off.
@@ -971,62 +870,6 @@ describe('User model tests', function () {
       await deactivate('deact@wp.pl');
 
       await expect(confirmPasswordReset('deact@wp.pl', 'brandNew123', token)).to.be.rejected;
-    });
-
-    it('refuses an invite whose link has expired', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('expinv@wp.pl', 'expinv', ['admin']);
-
-      const user = await User.query().whereAnything('expinv@wp.pl').populate('Metadata').firstOrFail();
-      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      // force the invite to be older than the 15 minutes it was issued for
-      user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE] = DateTime.now().minus({ minutes: 30 });
-      await user.Metadata.update();
-
-      await expect(confirmPasswordReset('expinv@wp.pl', 'brandNew123', token)).to.be.rejected;
-    });
-
-    it('refuses an invited account that was banned before redeeming', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('bannedinv@wp.pl', 'bannedinv', ['admin']);
-      const token = (await User.query().whereAnything('bannedinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      await ban('bannedinv@wp.pl', 'testing', 3600);
-
-      // a ban outranks an invite: the marker must not become a way past it
-      await expect(confirmPasswordReset('bannedinv@wp.pl', 'brandNew123', token)).to.be.rejected;
-    });
-
-    it('refuses an invited account that was soft-deleted before redeeming', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('deletedinv@wp.pl', 'deletedinv', ['admin']);
-      const token = (await User.query().whereAnything('deletedinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      await deleteUser('deletedinv@wp.pl');
-
-      // a soft delete outranks an invite too, same as a ban
-      await expect(confirmPasswordReset('deletedinv@wp.pl', 'brandNew123', token)).to.be.rejected;
-    });
-
-    /**
-     * `deactivate()` is the only lever an administrator has to withdraw an invite that
-     * has not been redeemed yet. If it leaves the marker in place, whoever holds the
-     * mailed link can still redeem it and have the account activated behind the
-     * administrator's back.
-     */
-    it('refuses an invited account that was deactivated before redeeming', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('deactinv@wp.pl', 'deactinv', ['admin']);
-      const token = (await User.query().whereAnything('deactinv@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      await deactivate('deactinv@wp.pl');
-
-      await expect(confirmPasswordReset('deactinv@wp.pl', 'brandNew123', token)).to.be.rejected;
     });
 
     /**
@@ -1050,24 +893,6 @@ describe('User model tests', function () {
       await confirmPasswordReset('directact@wp.pl', 'brandNew123', token);
 
       expect(eStub.args.some((a) => (a as any)[0] instanceof UserActivated), 'an already-active account must not re-emit UserActivated on an ordinary reset').to.be.false;
-    });
-
-    /**
-     * The sole writer of the marker stores a real boolean `true`. A stored STRING
-     * 'false' is truthy under `!!`, so only a strict `=== true` comparison keeps it
-     * from silently reopening the inactive-account guard.
-     */
-    it('treats the invite marker as pending only when it is stored as boolean true', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await create('stringmark@wp.pl', 'stringmark', ['admin']);
-      const user = await User.query().whereAnything('stringmark@wp.pl').populate('Metadata').firstOrFail();
-      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
-
-      user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = 'false';
-      await user.Metadata.update();
-
-      await expect(confirmPasswordReset('stringmark@wp.pl', 'brandNew123', token)).to.be.rejected;
     });
   });
 
@@ -1190,17 +1015,6 @@ describe('User model tests', function () {
     const { User: u } = await create('strong@wp.pl', 'strongman', ['admin'], { password: 'passw0rd123' });
 
     expect(u).to.be.instanceOf(User);
-  });
-
-  /**
-   * An account holding no role at all can do nothing and can only be repaired by
-   * another administrator, so an empty list is refused rather than applied.
-   */
-  it('Should refuse a role list that names no role', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await expect(create('noroles@wp.pl', 'noroles', [], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
-    await expect(create('blankroles@wp.pl', 'blankroles', ['  ', ''], { password: 'passw0rd123' })).to.be.rejectedWith(InvalidArgument, /At least one role/);
   });
 
 });

@@ -238,6 +238,12 @@ export function isReservedMetadataKey(key: string): boolean {
 }
 
 /**
+ * `users.Password` of an account that has no password yet (an invited one). The column is NOT NULL and the
+ * ORM refuses an empty string there; no hash starts with '!', like authn-local's '!expired' marker.
+ */
+export const NO_PASSWORD = '!none';
+
+/**
  * Base model for users used by auth and ACL system
  *
  * To add / extend fields simply extend this model and register as default user model in ACL service

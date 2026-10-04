@@ -212,6 +212,7 @@ export class TestConfiguration extends FrameworkConfiguration {
             'self-reader': { grants: [{ permission: 'user:read', relation: 'self' }, { permission: 'users:read', relation: 'self' }] },
             admin: { extends: ['admin.users'] },
           },
+          defaultRoles: ['user'],
         },
         admin: {
           backend: 'DbAuthzAdminBackend',

@@ -7,16 +7,16 @@ import { create } from '../actions.js';
 
 interface UserCreationOptions {
   email: string;
-  roles: string;
+  roles?: string;
   login: string;
-  password: string;
+  password?: string;
 }
 
 @Command('rbac:user-create', 'Creates user with given credentials')
 @Option('-e, --email <email>', true, 'user email')
-@Option('-r, --roles <roles>', true, 'user roles, comma separated; granted at global scope through AuthzAdmin')
+@Option('-r, --roles <roles>', false, 'user roles, comma separated; granted at global scope through AuthzAdmin; default authz.rbac.defaultRoles')
 @Option('-l, --login <login>', true, 'user login')
-@Option('-p, --password <password>', false, 'user password, if not set will be generated and printed out to console')
+@Option('-p, --password <password>', false, 'user password; if not set, the user is invited by mail to set one')
 export class CreateUser extends RbacCliCommand {
   @Logger('rbac')
   protected Log: Log;
@@ -24,18 +24,12 @@ export class CreateUser extends RbacCliCommand {
   public async execute(options: UserCreationOptions): Promise<void> {
     try {
       const authz = (await DI.resolve(AuthzService)) as AuthzService;
-      const { Password } = await authz.runAs(SYSTEM, 'cli', () => create(options.email, options.login, options.roles.split(','), { password: options.password }));
-      this.Log.success(`User created`);
+      const roles = options.roles ? options.roles.split(',') : undefined;
+      await authz.runAs(SYSTEM, 'cli', () => create({ Email: options.email, Login: options.login, Password: options.password }, roles, SYSTEM));
 
-      // `-p` documents that an unset password is "generated and printed out to
-      // console", which it never was — the value was thrown away and the account
-      // left unreachable from the terminal that created it. `create()` also mails
-      // a reset link in this case, but a CLI run may have no working mail at all.
-      if (!options.password) {
-        this.Log.success(`Generated password: ${Password}`);
-      }
+      this.Log.success(options.password ? `User created` : `User created and invited to set a password`);
     } catch (e) {
-      this.Log.error(`Error while creating user ${e.message}`);
+      this.Log.error(`Error while creating user ${(e as Error).message}`);
     }
   }
 }

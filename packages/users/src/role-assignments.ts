@@ -19,6 +19,22 @@ export interface RoleWriteOptions {
   readonly dryRun?: boolean;
 }
 
+/** The roles `create()` grants when the caller names none (L1-1). Absent means none. */
+export const DEFAULT_ROLES_KEY = 'authz.rbac.defaultRoles';
+
+/** The value of {@link DEFAULT_ROLES_KEY} as role names; anything but an array of non-empty strings is a config error. */
+export function defaultRoles(value: unknown): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r.trim() !== '')) {
+    throw new AuthzConfigError(`${DEFAULT_ROLES_KEY} must be an array of role names, got ${JSON.stringify(value)}`);
+  }
+
+  return [...new Set(value.map((r: string) => r.trim()))];
+}
+
 // The AuthzAdmin codes that mean "this role cannot be held here": the caller named a bad role.
 const ROLE_REFUSALS: ReadonlySet<string> = new Set(['unknown_role', 'not_assignable', 'wrong_scope_type']);
 

@@ -3,7 +3,7 @@ import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _i
 import _ from 'lodash';
 import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
-import { USER_COMMON_METADATA, User, UserBase, isReservedMetadataKey } from './models/User.js';
+import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedMetadataKey } from './models/User.js';
 import { cfg, service } from '@spinajs/configuration';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
@@ -11,7 +11,7 @@ import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserIsBanned, UserNotActive } from './exceptions.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,7 +20,9 @@ import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
-import { assignGlobalRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole } from './role-assignments.js';
+import { DEFAULT_ROLES_KEY, assignGlobalRoles, defaultRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
+import { PasswordService } from '@spinajs/authn/contracts';
+import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
 
@@ -383,20 +385,39 @@ async function runCreateMiddleware(u: User, path: string): Promise<User> {
 }
 
 /**
- * Optional inputs of the {@link create} action.
+ * The account {@link create} makes.
  */
-export interface ICreateUserOptions {
+export interface ICreateUserData {
+  Email: string;
+  Login: string;
+
   /**
-   * Plain-text password. Omit it and a random one is generated, the account is
-   * handed to its owner by a password-reset link, and the generated value is
-   * returned for a caller that needs it ( the CLI prints it ).
+   * Plain-text password, set through `PasswordService.set` after its policy check. Omit it and the
+   * account gets no password: it is marked `user:invite:pending` and `PasswordService.invite` hands it
+   * to its owner.
    */
-  password?: string;
+  Password?: string;
 
   /** Explicit user id. Useful when migrating accounts from another system. */
-  id?: number;
+  Id?: number;
 
-  /** Key-value metadata attached to the new account. */
+  /** Key-value metadata attached to the new account; reserved keys and globs are refused. */
+  Metadata?: { [key: string]: any };
+}
+
+/** What {@link create} answers. It never carries a password. */
+export interface ICreateUserResult {
+  User: User;
+}
+
+/**
+ * Optional inputs of the deprecated positional form of {@link create}.
+ *
+ * @deprecated 3.0: the fields of {@link ICreateUserData}. R1 deletes it.
+ */
+export interface ICreateUserOptions {
+  password?: string;
+  id?: number;
   metadata?: { [key: string]: any };
 }
 
@@ -516,85 +537,76 @@ async function discardInsertedUser(u: User): Promise<void> {
     await driver.del().from(UserMetadataBase.getModelDescriptor().TableName).where('user_id', u.Id);
     await driver.del().from(User.getModelDescriptor().TableName).where('Id', u.Id);
   } catch (err) {
-    DI.resolve(Log, ['rbac']).error(err as Error, `Could not remove the account ${u.Uuid} after its roles failed to be granted; delete it by hand.`);
+    DI.resolve(Log, ['rbac']).error(err as Error, `Could not remove the account ${u.Uuid} after its creation failed; delete it by hand.`);
   }
 }
 
+async function passwordService(): Promise<PasswordService> {
+  if (!DI.RootContainer.hasRegistered(PasswordService)) {
+    throw new InvalidOption('users: create() needs a PasswordService (register @spinajs/authn-local) to set or invite a password');
+  }
+
+  return (await DI.resolve(PasswordService)) as PasswordService;
+}
+
 /**
- * Creates a new user account.
+ * Creates a user account.
  *
- * Validates and normalises inputs, refuses a duplicate login / email and
- * protected metadata keys, hashes the password, inserts the user record,
- * optionally sets metadata, runs configured `beforeCreate` / `afterCreate`
- * middleware, emits a {@link UserCreated} event, and sends the "created" email.
+ * Refuses, before anything is written: a missing `PasswordService`, a supplied password that fails its
+ * policy (`PasswordService.check`), protected metadata, a taken login or email, and a role `AuthzAdmin`
+ * would refuse (a dry run of the grants). Then it inserts the user, sets the password or marks the account
+ * `user:invite:pending`, grants the roles at GLOBAL, writes the metadata, runs the `beforeCreate` /
+ * `afterCreate` middleware and emits {@link UserCreated}. If the password or the grants fail after the
+ * insert, the row is removed again so no half-made account keeps the login.
  *
- * When no password is given, one is generated AND a password-reset link is
- * mailed to the address. Those two are one decision, not two: a generated
- * password is a secret nobody knows, so an account created without the reset
- * link is an account with no way in at all. Callers that pass a password know
- * it and own delivery themselves, so they get no link — which is what a CLI
- * service account or a fixture wants.
+ * A supplied password gets the plain 'created' mail; without one, `PasswordService.invite` sends the
+ * invite (authn-local's mailer), and users sends nothing. users never generates, hashes or returns a password.
  *
- * @param email - user email address (max 64 chars)
- * @param login - user login name (max 32 chars)
- * @param roles - role names, granted to `user:<Uuid>` at GLOBAL through `AuthzAdmin` as SYSTEM;
- *   a refused role is an `InvalidArgument` thrown before anything is written
- * @param options - see {@link ICreateUserOptions}
- * @returns an object containing the persisted {@link User} and the plain-text password
+ * @param data - the account; see {@link ICreateUserData}
+ * @param roles - role names granted to `user:<Uuid>` at GLOBAL; omitted or empty: `authz.rbac.defaultRoles`
+ * @param actor - who creates it, for the AuthzAdmin and authn audit; default SYSTEM. As SYSTEM the grants
+ *   skip AuthzAdmin's guard (escalation), so a caller acting for someone passes that principal.
  */
-export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<{ User: User; Password: string }> {
-  const sPassword = await service<PasswordProvider>('authn.local.hasher', PasswordProvider);
-
-  // Whether the CALLER supplied a password decides who hands the account to its
-  // owner, so it is read before `_default` fills a generated one in and the two
-  // cases become indistinguishable.
-  const generated = _check_arg(_trim(), _default(''))(options?.password, 'password') === '';
-
-  email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(email, 'email');
-  login = _check_arg(_trim(), _non_empty(), _max_length(32))(login, 'login');
-
-  const roleNames = roleList(roles);
-
-  if (roleNames.length === 0) {
-    throw new InvalidArgument('At least one role must be given', 'roles');
+export async function create(data: ICreateUserData, roles?: string[], actor?: Principal): Promise<ICreateUserResult>;
+/**
+ * @deprecated 3.0: create({ Email, Login, Password, Id, Metadata }, roles). The result has no password any more.
+ */
+export async function create(email: string, login: string, roles: string[], options?: ICreateUserOptions): Promise<ICreateUserResult>;
+export async function create(dataOrEmail: ICreateUserData | string, a?: string | string[], b?: string[] | Principal, c?: ICreateUserOptions): Promise<ICreateUserResult> {
+  if (typeof dataOrEmail === 'string') {
+    return createUser({ Email: dataOrEmail, Login: a as string, Password: c?.password, Id: c?.id, Metadata: c?.metadata }, b as string[], SYSTEM);
   }
 
-  const password = _check_arg(
-    _trim(),
-    _default(() => sPassword.generate()),
-  )(options?.password, 'password');
+  return createUser(dataOrEmail, a as string[] | undefined, (b as Principal | undefined) ?? SYSTEM);
+}
 
-  // Only the SUPPLIED branch is checked. A generated password is asserted
-  // against the same rule inside `generate()`, and re-checking it here would
-  // only re-report a configuration fault as a caller mistake.
-  if (!generated) {
-    const validator = await service<PasswordValidationProvider>('authn.local.policy', PasswordValidationProvider);
+async function createUser(data: ICreateUserData, roles: string[] | undefined, actor: Principal): Promise<ICreateUserResult> {
+  const email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(data?.Email, 'email');
+  const login = _check_arg(_trim(), _non_empty(), _max_length(32))(data?.Login, 'login');
+  const password = typeof data.Password === 'string' && data.Password !== '' ? data.Password : undefined;
+  const metadata = data.Metadata;
 
-    if (!validator.check(password)) {
-      throw new InvalidArgument('Password does not meet requirements', 'password');
-    }
+  const asked = roleList(roles);
+  const roleNames = asked.length > 0 ? asked : defaultRoles(cfg<unknown>(DEFAULT_ROLES_KEY, []));
+
+  const passwords = await passwordService();
+  if (password !== undefined && (await passwords.check(password)).length > 0) {
+    throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   }
 
-  const hPassword = await sPassword.hash(password);
-  const metadata = options?.metadata;
-
-  // Ahead of everything else, and ahead of `beforeCreate` in particular: a
-  // request that is about to be refused must not first run middleware that
-  // writes to another system ( the legacy-user mirror is one ).
+  // Ahead of `beforeCreate` in particular: a request that is about to be refused must not first run
+  // middleware that writes to another system ( the legacy-user mirror is one ).
   assertNoProtectedMetadata(metadata);
   await assertUserUnique(login, email);
 
   const uuid = uuidv4();
-
-  // AuthzAdmin refuses an unknown or unassignable role; the dry run makes that refusal come
-  // before the account is written rather than leave an account without its roles.
-  await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', dryRun: true });
+  await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', actor, dryRun: true });
 
   let u = new User({
-    Id: options?.id,
+    Id: data.Id,
     Email: email,
     Login: login,
-    Password: hPassword,
+    Password: NO_PASSWORD,
     RegisteredAt: DateTime.now(),
     CreatedAt: DateTime.now(),
     IsActive: false,
@@ -605,10 +617,25 @@ export async function create(email: string, login: string, roles: string[], opti
 
   await insertModel(u);
 
+  const ref = userRef(u.Uuid);
+  const ctx: AuthnContext = { now: new Date(), purpose: 'request' };
+  // authn audits the actor as given; a user principal would carry its whole record there.
+  const by: PrincipalRef = { type: actor.type, id: actor.id };
+
   try {
-    await assignGlobalRoles(u.Uuid, roleNames, { reason: 'users:create', field: 'roles' });
+    if (password !== undefined) {
+      const set = await passwords.set(ref, password, ctx, { actor: by });
+      if (set.status !== 'set') {
+        throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
+      }
+    } else {
+      // Before the invite: the marker is what lets the redeem activate this still-inactive account.
+      u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = true;
+      await u.Metadata.update();
+    }
+
+    await assignGlobalRoles(u.Uuid, roleNames, { reason: 'users:create', field: 'roles', actor });
   } catch (err) {
-    // A row without its roles would hold the login and email forever: a retry fails as a duplicate.
     await discardInsertedUser(u);
     throw err;
   }
@@ -624,47 +651,15 @@ export async function create(email: string, login: string, roles: string[], opti
 
   await ev(new UserCreated(u, roleNames));
 
-  // Hand the account to its owner when nobody else can: the password above was
-  // invented here and immediately hashed, so without this the account is
-  // unreachable until an administrator remembers a second screen. A caller that
-  // SUPPLIED the password knows it and delivers it itself, so that branch gets a
-  // plain welcome and no link — mailing one would invalidate the password the
-  // caller is about to hand out.
-  //
-  // BY UUID rather than by the instance in hand: the issuing writes metadata, and
-  // `getUser()` re-reads with `Metadata` populated, which an instance built by
-  // `new User(...)` never is. Handing it the instance stored nothing, silently.
-  //
-  // A failed token issue or marker write is a real failure the caller must
-  // learn about: it leaves the account without a usable invite state. Only the
-  // mail is swallowed — the account exists and the link can be re-sent through
-  // `passwordChangeRequest`.
-  if (generated) {
-    const invite = await issuePasswordResetToken(u.Uuid, cfg<number>('authn.local.invite.ttlSeconds'));
-
-    // Before the mail, not after: the marker is what lets `confirmPasswordReset`
-    // touch this still-inactive account, so a mail that goes out without it points
-    // at a link the account cannot redeem.
-    await setUserMeta(invite.user, [{ key: USER_COMMON_METADATA.USER_INVITE_PENDING, value: true }]);
-
-    try {
-      await sendUserEmail(invite.user, 'created', (usr: User) => ({
-        Token: invite.token,
-        ResetUrl: passwordResetUrl(usr.Email, invite.token),
-        ExpiresInMinutes: Math.round(invite.waitTime / 60),
-        // One template serves this mail and the password-reset one; the flag is what
-        // picks the welcome wording over the reset wording.
-        IsInvite: true,
-      }));
-    } catch (err) {
-      DI.resolve(Log, ['rbac']).error(err as Error, `Could not issue the initial password reset for ${u.Uuid}. The account exists but its owner has no way in yet.`);
-    }
+  // The account exists and keeps its roles from here on: an invite that fails is the caller's to
+  // re-send (PasswordService.invite), not a reason to remove the account.
+  if (password === undefined) {
+    await passwords.invite(ref, ctx, { actor: by });
   } else {
     await sendUserEmail(u, 'created');
   }
 
-  // if generated we want to know not hashed password
-  return { User: u, Password: password };
+  return { User: u };
 }
 
 /**
