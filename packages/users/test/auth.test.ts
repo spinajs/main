@@ -17,7 +17,10 @@ function dir(path: string) {
   return resolve(normalize(join(process.cwd(), 'test', path)));
 }
 
-describe('Authorization provider tests', () => {
+describe('Authorization provider tests', function () {
+  // Every case boots the Orm, authz-rbac's migrations included: the default 2 s is too tight.
+  this.timeout(15000);
+
   before(async () => {
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
     DI.register(TestConfiguration).as(Configuration);
