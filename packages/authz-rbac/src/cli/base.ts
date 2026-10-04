@@ -4,6 +4,9 @@ import type { AuthzAdmin } from '@spinajs/authz';
 import { CliCommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
 
+// Registers the RBAC write handlers of AuthzAdmin: the CLI loads only the command modules.
+import '../admin/index.js';
+
 /**
  * The CLI boots only the command it runs, so collaborators are resolved when the command needs them (a
  * failing AuthzService boot then becomes a message, not a failed command construction). Tests set the fields.

@@ -140,8 +140,11 @@ function canonical(v: unknown): string {
 /**
  * Roles and ladders from `authz.rbac.roles` and `authz.rbac.ladders`. It checks shapes only: the `extends` graph,
  * unknown roles, ladders and permissions are the model's compile step.
+ *
+ * Registered by class name only: AuthzAdmin reads every `RoleStore` a domain registers, so one
+ * registered as `RoleStore` at import would join every domain.
  */
-@Injectable(RoleStore)
+@Injectable()
 @Inject(Configuration)
 export class ConfigRoleStore extends RoleStore {
   readonly name = 'ConfigRoleStore';

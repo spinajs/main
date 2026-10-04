@@ -3,6 +3,7 @@ import chaiAsPromised from 'chai-as-promised';
 import 'mocha';
 
 import { AuthzAdminFailure, AuthzConfigError, AuthzDomains, GLOBAL, principalKey } from '@spinajs/authz';
+import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
@@ -97,8 +98,14 @@ describe('store helpers', () => {
   describe('storeDomain (D-L2-3)', () => {
     let domain: IContainer | undefined;
 
+    // AuthzDomains.create reads the root Configuration.
+    before(async () => {
+      await testHost.installHost();
+    });
+
     after(async () => {
       await domain?.dispose();
+      await testHost.uninstallHost();
     });
 
     it('is root outside an authz domain and the domain name inside one', () => {

@@ -17,6 +17,8 @@ const COPY = 'AuthzRbacUserRoles_2026_10_01_00_01_00';
 const INITIAL = 'AuthzRbac_2026_10_01_00_00_00';
 const HOUR = 3600 * 1000;
 
+const timestampOf = (migration: string): string => /_(\d{4}(?:_\d{2}){5})$/.exec(migration)?.[1] ?? '';
+
 /** The 2.x users tables (RBACInitial_2022_06_28_01_13_00): indexes, a unique column, a boolean CHECK and a foreign key from users_metadata. */
 async function createUsers(driver: OrmDriver, role: string | null = 'Role'): Promise<void> {
   await driver.schema().createTable('users', (table) => {
@@ -165,7 +167,9 @@ for (const kind of DB_KINDS) {
       const db = await boot(this);
       const names = db.orm.Migrations.map((m) => m.name);
       expect(names).to.include(DROP);
-      expect(names.indexOf(DROP)).to.be.greaterThan(names.indexOf(COPY));
+      // The registry keeps import order; the runner orders by the name's timestamp, then the name.
+      const order = [...names].sort((a, b) => timestampOf(a).localeCompare(timestampOf(b)) || a.localeCompare(b));
+      expect(order.indexOf(DROP)).to.eq(order.indexOf(COPY) + 1);
       expect((await status(db)).pending).to.eq(true);
     });
 

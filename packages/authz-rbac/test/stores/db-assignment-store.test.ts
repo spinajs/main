@@ -4,11 +4,12 @@ import 'mocha';
 
 import { AuthzAdminFailure, AuthzClock, AuthzConfigError, AuthzDomains, GLOBAL } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzTx, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { testHost } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 
-import { ASSIGNMENT_LIST_MAX_LIMIT, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion } from '../../src/index.js';
+import { ASSIGNMENT_LIST_MAX_LIMIT, AdminAssignmentStore, AssignmentStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, readVersion } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
@@ -102,11 +103,23 @@ for (const kind of DB_KINDS) {
     });
 
     describe('registration', () => {
-      it('is an AssignmentStore named DbAssignmentStore, resolvable by that name', () => {
+      it('is an AdminAssignmentStore named DbAssignmentStore, registered by that name only', () => {
+        expect(store).to.be.instanceOf(AdminAssignmentStore);
         expect(store).to.be.instanceOf(AssignmentStore);
         expect(store.name).to.eq('DbAssignmentStore');
         expect(db.container.resolve('DbAssignmentStore')).to.be.instanceOf(DbAssignmentStore);
-        expect(db.container.resolve(AssignmentStore)).to.be.instanceOf(DbAssignmentStore);
+        expect(DI.RootContainer.hasRegistered(AssignmentStore)).to.eq(false);
+        expect(DI.RootContainer.hasRegistered(AdminAssignmentStore)).to.eq(false);
+      });
+
+      it('serves both ports with one instance per container when a domain registers it under them', () => {
+        const child = db.container.child();
+        child.register(DbAssignmentStore).as(AdminAssignmentStore);
+        child.register(DbAssignmentStore).as(AssignmentStore);
+        const admin = child.resolve(AdminAssignmentStore);
+        expect(admin).to.be.instanceOf(DbAssignmentStore);
+        expect(child.resolve(AssignmentStore)).to.eq(admin);
+        expect(child.resolve(DbAssignmentStore)).to.eq(admin);
       });
     });
 
@@ -350,12 +363,15 @@ for (const kind of DB_KINDS) {
       describe('in an authz domain', () => {
         let domain: IContainer;
 
-        before(() => {
+        // AuthzDomains.create reads the root Configuration; the test DB's lives in a child container.
+        before(async () => {
+          await testHost.installHost();
           domain = DI.resolve(AuthzDomains).create(`l2_t3_${kind}`);
         });
 
         after(async () => {
           await domain?.dispose();
+          await testHost.uninstallHost();
         });
 
         it("bumps that domain's version, not root's", async () => {
@@ -503,6 +519,47 @@ for (const kind of DB_KINDS) {
         await expect(store.removeTags('t1', ['a'], { driver: db.driver })).to.be.rejectedWith(/transaction/);
         await expect(store.setExpiry('t1', null, { driver: db.driver })).to.be.rejectedWith(/transaction/);
         expect((await rows())[0].tags).to.eq(',a,b,');
+      });
+    });
+
+    describe('AdminAssignmentStore port', () => {
+      beforeEach(async () => {
+        await seed(row({ id: 't1', tags: ',a,b,', expires_at: AFTER, created_at: new Date(CREATED.getTime() - 1000) }), row({ id: 't2', subject_id: 'bob', expires_at: BEFORE }), row({ id: 't3', role: 'viewer', scope_id: 'p2', created_at: new Date(CREATED.getTime() + 1000) }));
+      });
+
+      it('update writes the tags and the expiry given, keeps the rest, and bumps once', async () => {
+        const both = await inTx((tx) => store.update('t1', { tags: ['z', 'c'], expiresAt: null }, root, tx));
+        expect(both).to.deep.include({ id: 't1', tags: ['c', 'z'], expiresAt: null });
+        expect(await version()).to.eq('1');
+
+        const tagsOnly = await inTx((tx) => store.update('t1', { tags: [] }, root, tx));
+        expect(tagsOnly).to.not.have.property('tags');
+        expect(tagsOnly.expiresAt).to.eq(null);
+        const expiryOnly = await inTx((tx) => store.update('t1', { expiresAt: AFTER }, root, tx));
+        expect(expiryOnly.expiresAt).to.deep.eq(AFTER);
+        expect((await store.byId('t1'))!).to.deep.include({ expiresAt: AFTER });
+        expect((await rows())[0].tags).to.eq('');
+        expect(await version()).to.eq('3');
+      });
+
+      it('update refuses an unknown id, bad tags and a write outside a transaction, writing nothing', async () => {
+        const missing = await inTx((tx) => store.update('missing', { tags: ['a'] }, root, tx)).catch((e) => e);
+        expect(missing).to.be.instanceOf(AuthzAdminFailure);
+        expect((missing as AuthzAdminFailure).code).to.eq('not_found');
+        await expect(inTx((tx) => store.update('t1', { tags: ['x,y'] }, root, tx))).to.be.rejectedWith(AuthzAdminFailure, /"x,y"/);
+        await expect(store.update('t1', { tags: ['x'] }, root, { driver: db.driver })).to.be.rejectedWith(AuthzConfigError, /transaction/);
+        expect((await rows())[0].tags).to.eq(',a,b,');
+        expect(await version()).to.eq('0');
+      });
+
+      it('find filters as list does, reads q.at as now and takes the page as a second argument', async () => {
+        expect((await store.find({ at: AT })).items.map((a) => a.id)).to.deep.eq(['t1', 't3']);
+        expect((await store.find({ at: AT, includeExpired: true })).total).to.eq(3);
+        expect((await store.find({ at: new Date(BEFORE.getTime() - 1) })).items.map((a) => a.id)).to.deep.eq(['t1', 't2', 't3']);
+        expect((await store.find({ at: AT, scope: P1, subject: alice })).items.map((a) => a.id)).to.deep.eq(['t1']);
+        expect(await store.find({ at: AT, includeExpired: true }, { limit: 1, offset: 1 })).to.deep.include({ total: 3 });
+        expect((await store.find({ at: AT, includeExpired: true }, { limit: 1, offset: 1 })).items.map((a) => a.id)).to.deep.eq(['t2']);
+        await expect(store.find({ at: AT }, { limit: -1, offset: 0 })).to.be.rejectedWith(AuthzAdminFailure, /page/);
       });
     });
 
@@ -655,6 +712,22 @@ for (const kind of DB_KINDS) {
         const all = await capped.list({ scope: P1 }, AT);
         expect(all.items.map((a) => a.id)).to.deep.eq(['l1', 'l2']);
         expect(all.total).to.eq(4);
+      });
+
+      it('find without a page returns every match in one query; with a page it is capped', async () => {
+        class Capped extends DbAssignmentStore {
+          protected override readonly maxListLimit = 2;
+        }
+        const capped = new Capped(db.container);
+
+        const { result, selects } = await countSelects(() => capped.find({ at: AT, scope: P1 }));
+        expect(result.items.map((a) => a.id)).to.deep.eq(['l1', 'l2', 'l3', 'l4']);
+        expect(result.total).to.eq(4);
+        expect(selects).to.eq(1);
+
+        const paged = await capped.find({ at: AT, scope: P1 }, { limit: 50, offset: 0 });
+        expect(paged.items.map((a) => a.id)).to.deep.eq(['l1', 'l2']);
+        expect(paged.total).to.eq(4);
       });
     });
   });

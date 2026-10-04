@@ -330,9 +330,10 @@ describe('authz-rbac stores: ConfigRoleStore', function () {
 
 describe('authz-rbac stores: ConfigRoleStore in DI', function () {
   this.timeout(30000);
-  it('is registered as a RoleStore under its class name', () => {
-    const names = DI.RootContainer.Registry.getTypesChain(RoleStore).map((e) => (typeof e.type === 'function' ? e.type.name : ''));
-    expect(names).to.include('ConfigRoleStore');
+  it('is registered under its class name only, not as a RoleStore every domain would read', () => {
+    const names = (DI.RootContainer.Registry.getTypesChain(RoleStore) ?? []).map((e) => (typeof e.type === 'function' ? e.type.name : ''));
+    expect(names).to.not.include('ConfigRoleStore');
+    expect(DI.RootContainer.hasRegistered('ConfigRoleStore')).to.equal(true);
   });
 
   it('resolves with the Configuration of its container', async () => {
@@ -531,7 +532,7 @@ describe('authz-rbac stores: schema registration', function () {
 
 describe('authz-rbac stores: store names', function () {
   this.timeout(30000);
-  const cfg = (stores?: object) => ({ get: (p: string[]) => _.get({ authz: { rbac: { stores } } }, p) }) as unknown as Configuration;
+  const cfg = (stores?: object) => ({ get: (p: string[]) => _.get({ authz: { rbac: { stores } } }, p) } as unknown as Configuration);
 
   it('defaults to the §8.2 store names when the app sets none', () => {
     expect(rbacStoreNames(cfg(), 'roles')).to.deep.equal(['ConfigRoleStore']);

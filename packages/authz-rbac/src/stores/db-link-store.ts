@@ -6,7 +6,7 @@ import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { LinkStore } from '../contracts.js';
+import { AdminLinkStore } from '../admin/ports.js';
 import { parsePrincipalKey, scopeFromColumns, scopeToColumns, toDate } from './columns.js';
 import { storeConnection, storeDomain, storeTransactionDriver } from './context.js';
 import { DbAssignmentStore } from './db-assignment-store.js';
@@ -63,11 +63,13 @@ export interface LinkQuery {
  * store bumps itself only when it makes no assignment write, so `create`, `revoke`, `forgetScope`
  * and an `update` without `expiresAt` bump exactly once; an `update` of `expiresAt` bumps once per
  * assignment of the link (once, unless L9 granted the link more).
+ *
+ * Registered by class name only; a domain uses it by registering it as `AdminLinkStore` and `LinkStore`.
  */
 @PerChildInstance()
-@Injectable(LinkStore)
+@Injectable()
 @Inject(Container)
-export class DbLinkStore extends LinkStore {
+export class DbLinkStore extends AdminLinkStore {
   readonly name: string = 'DbLinkStore';
 
   protected readonly maxListLimit: number = LINK_LIST_MAX_LIMIT;
@@ -142,7 +144,7 @@ export class DbLinkStore extends LinkStore {
     let assignmentWrites = 0;
     if (patch.expiresAt !== undefined) {
       const assignments = this.assignments();
-      const { items } = await assignments.list({ subject: linkSubject(id), includeExpired: true }, this.now());
+      const { items } = await assignments.find({ subject: linkSubject(id), includeExpired: true, at: this.now() });
       for (const a of items) await assignments.setExpiry(a.id, patch.expiresAt, tx);
       assignmentWrites = items.length;
     }
@@ -183,11 +185,12 @@ export class DbLinkStore extends LinkStore {
 
   /**
    * Links that are not revoked (expired ones included) for `AuthzAdmin.list` (kind `links`), oldest
-   * first; `total` counts the unpaged result. At most {@link LINK_LIST_MAX_LIMIT} rows; a negative or
-   * fractional `limit` or `offset` is `invalid_page`.
+   * first; `total` counts the unpaged result. Without a page, every match in one query; with one, at
+   * most {@link LINK_LIST_MAX_LIMIT} rows. A negative or fractional `limit` or `offset` is
+   * `invalid_page`.
    */
   async find(q: LinkQuery, page?: { limit: number; offset: number }): Promise<{ items: readonly LinkDef[]; total: number }> {
-    const { limit, offset } = pageWindow(page, this.maxListLimit, `${this.name}.find`);
+    const window = page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined;
 
     const driver = await this.connection();
     const filtered = () => {
@@ -196,11 +199,16 @@ export class DbLinkStore extends LinkStore {
       return query;
     };
 
-    const total = Number(await filtered().selectCount());
-    if (limit === 0) return { items: [], total };
+    if (!window) {
+      const items = (await rowsOf(filtered().orderBy('created_at').orderBy('id'))).map(rowToLink);
+      return { items, total: items.length };
+    }
 
-    const query = filtered().orderBy('created_at').orderBy('id').take(limit);
-    if (offset > 0) query.skip(offset);
+    const total = Number(await filtered().selectCount());
+    if (window.limit === 0) return { items: [], total };
+
+    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
+    if (window.offset > 0) query.skip(window.offset);
 
     return { items: (await rowsOf(query)).map(rowToLink), total };
   }

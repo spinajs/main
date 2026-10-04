@@ -5,10 +5,11 @@ import 'mocha';
 import { AuthzAdminFailure, AuthzClock, AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { OrmDriver, QueryContext } from '@spinajs/orm';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
-import { AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, toDate } from '../../src/index.js';
+import { AdminLinkStore, AuthzRbac_2026_10_01_00_00_00, DbAssignmentStore, DbLinkStore, LINK_LIST_MAX_LIMIT, LINK_SECRET_KEY, LINK_TOKEN_MAX_LENGTH, LinkStore, linkTokenHash, readVersion, toDate } from '../../src/index.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from '../support/db.js';
 
 chai.use(chaiAsPromised);
@@ -105,11 +106,13 @@ for (const kind of DB_KINDS) {
     });
 
     describe('registration', () => {
-      it('is a LinkStore named DbLinkStore, resolvable by that name', () => {
+      it('is an AdminLinkStore named DbLinkStore, registered by that name only', () => {
+        expect(store).to.be.instanceOf(AdminLinkStore);
         expect(store).to.be.instanceOf(LinkStore);
         expect(store.name).to.eq('DbLinkStore');
         expect(db.container.resolve('DbLinkStore')).to.be.instanceOf(DbLinkStore);
-        expect(db.container.resolve(LinkStore)).to.be.instanceOf(DbLinkStore);
+        expect(DI.RootContainer.hasRegistered(LinkStore)).to.eq(false);
+        expect(DI.RootContainer.hasRegistered(AdminLinkStore)).to.eq(false);
       });
     });
 
@@ -636,7 +639,10 @@ for (const kind of DB_KINDS) {
           protected readonly maxListLimit = 2;
         }
         const small = new Small(db.container);
-        expect((await small.find({})).items).to.have.length(2);
+        // Without a page, find returns every match: L9 reads that as the full set.
+        expect(await small.find({})).to.deep.include({ total: 4 });
+        expect((await small.find({})).items).to.have.length(4);
+        expect(await small.find({}, { limit: 5, offset: 0 })).to.deep.include({ total: 4 });
         expect((await small.find({}, { limit: 5, offset: 0 })).items).to.have.length(2);
         expect(LINK_LIST_MAX_LIMIT).to.eq(1000);
       });

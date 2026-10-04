@@ -5,7 +5,8 @@ import type { IContainer } from '@spinajs/di';
 import type { IWhereBuilder, OrmDriver } from '@spinajs/orm';
 import { randomUUID } from 'node:crypto';
 
-import { AssignmentStore } from '../contracts.js';
+import { AdminAssignmentStore } from '../admin/ports.js';
+import type { AssignmentQuery, Page } from '../admin/ports.js';
 import { AUTHZ_ASSIGNMENT_TABLE, rowToAssignment } from './assignment-row.js';
 import type { AssignmentRow } from './assignment-row.js';
 import { scopeToColumns, subjectToColumns } from './columns.js';
@@ -42,12 +43,13 @@ const TAG_RETRIES = 5;
 /**
  * `AssignmentStore` over `authz_assignment` (design §9.1). Reads use the `authz.rbac.connection`
  * connection; writes run on the `AuthzTx` of `AuthzAdmin` and bump `authz_version` of the
- * store's domain in that transaction (B27).
+ * store's domain in that transaction (B27). Registered by class name only; a domain uses it by
+ * registering it as `AdminAssignmentStore` and `AssignmentStore`.
  */
 @PerChildInstance()
-@Injectable(AssignmentStore)
+@Injectable()
 @Inject(Container)
-export class DbAssignmentStore extends AssignmentStore {
+export class DbAssignmentStore extends AdminAssignmentStore {
   readonly name: string = 'DbAssignmentStore';
 
   protected readonly subjectBatch: number = SUBJECT_BATCH;
@@ -145,6 +147,19 @@ export class DbAssignmentStore extends AssignmentStore {
     return this.changeTags(id, tx, `${this.name}.removeTags`, (current) => current.filter((t) => !gone.has(t)));
   }
 
+  /** `AdminAssignmentStore.update`: the tags and/or expiry given, in one write and one bump. */
+  async update(id: string, patch: { readonly tags?: readonly string[]; readonly expiresAt?: Date | null }, _actor: PrincipalRef, tx: AuthzTx): Promise<Assignment> {
+    const driver = await this.writeDriver(tx, `${this.name}.update`);
+    const change: Partial<AssignmentRow> = {};
+    if (patch.tags !== undefined) change.tags = normaliseTags(patch.tags);
+    if (patch.expiresAt !== undefined) change.expires_at = patch.expiresAt;
+
+    const row = await requireRow(driver, id);
+    if (Object.keys(change).length > 0) await driver.update().in(AUTHZ_ASSIGNMENT_TABLE).update(change).where('id', id);
+    await bumpVersion(driver, this.domain());
+    return rowToAssignment({ ...row, ...change });
+  }
+
   /** Sets or clears (`null`) the expiry (`assignment.setExpiry`); returns the updated assignment. */
   async setExpiry(id: string, expiresAt: Date | null, tx: AuthzTx): Promise<Assignment> {
     const driver = await this.writeDriver(tx, `${this.name}.setExpiry`);
@@ -207,8 +222,24 @@ export class DbAssignmentStore extends AssignmentStore {
    * fractional `limit` or `offset` is `invalid_page`.
    */
   async list(q: AssignmentListQuery, at: Date): Promise<{ items: readonly Assignment[]; total: number }> {
-    const { limit, offset } = pageWindow(q.page, this.maxListLimit, `${this.name}.list`);
+    return this.select(q, at, pageWindow(q.page, this.maxListLimit, `${this.name}.list`));
+  }
 
+  /**
+   * `AdminAssignmentStore.find` with `q.at` as now. With a page, as {@link list}; without one, every
+   * match in one query: AuthzAdmin's guard reads that as the full set (escalation, self-lockout).
+   */
+  async find(q: AssignmentQuery, page?: Page): Promise<{ items: readonly Assignment[]; total: number }> {
+    const { at, ...filter } = q;
+    return this.select(filter, at, page ? pageWindow(page, this.maxListLimit, `${this.name}.find`) : undefined);
+  }
+
+  protected connection(): Promise<OrmDriver> {
+    return storeConnection(this.container);
+  }
+
+  /** The filtered rows, oldest first; `window` undefined reads every match in one query. */
+  private async select(q: Omit<AssignmentListQuery, 'page'>, at: Date, window: { limit: number; offset: number } | undefined): Promise<{ items: readonly Assignment[]; total: number }> {
     const driver = await this.connection();
     const filtered = () => {
       const query = driver.select().from(AUTHZ_ASSIGNMENT_TABLE);
@@ -217,17 +248,18 @@ export class DbAssignmentStore extends AssignmentStore {
       return query;
     };
 
-    const total = Number(await filtered().selectCount());
-    if (limit === 0) return { items: [], total };
+    if (!window) {
+      const items = (await rowsOf(filtered().orderBy('created_at').orderBy('id'))).map(rowToAssignment);
+      return { items, total: items.length };
+    }
 
-    const query = filtered().orderBy('created_at').orderBy('id').take(limit);
-    if (offset > 0) query.skip(offset);
+    const total = Number(await filtered().selectCount());
+    if (window.limit === 0) return { items: [], total };
+
+    const query = filtered().orderBy('created_at').orderBy('id').take(window.limit);
+    if (window.offset > 0) query.skip(window.offset);
 
     return { items: (await rowsOf(query)).map(rowToAssignment), total };
-  }
-
-  protected connection(): Promise<OrmDriver> {
-    return storeConnection(this.container);
   }
 
   /** The driver of `tx`, which must be a transaction on {@link connection}. */

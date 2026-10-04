@@ -1,4 +1,5 @@
 import { AuthzConfigError } from '@spinajs/authz';
+import { testHost } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
@@ -85,6 +86,54 @@ describe('authz:check-config', () => {
     expect(io.exitCode()).to.equal(1);
   });
 
+  describe('role stores from DI', () => {
+    class NamedRoles extends RoleStore {
+      readonly name = 'NamedRoles';
+      async load() {
+        return { roles: [{ name: 'viewer', extends: [], grants: [], assignable: true, source: 'test' }], ladders: [] };
+      }
+      async version() {
+        return '1';
+      }
+    }
+
+    const bare = (stores?: string[]) => {
+      const { cmd } = command(GOOD);
+      delete cmd.Roles;
+      cmd.Configuration = new ObjectConfiguration(stores ? { authz: { rbac: { stores: { roles: stores } } } } : {});
+      return cmd;
+    };
+
+    afterEach(() => {
+      DI.unregister('NamedRoles');
+      DI.uncache('NamedRoles');
+    });
+
+    it('loads the stores authz.rbac.stores.roles names when no RoleStore is registered', async () => {
+      DI.register(NamedRoles).asSelf();
+      await bare(['NamedRoles']).execute({});
+      expect(io.out).to.deep.equal(['OK: 1 role(s), 0 ladder(s)']);
+      expect(io.exitCode()).to.equal(undefined);
+    });
+
+    it('says which named store is missing and exits 1', async () => {
+      await bare(['MissingRoleStore']).execute({});
+      expect(io.err).to.have.length(1);
+      expect(io.err[0]).to.contain('MissingRoleStore').and.to.contain('authz.rbac.stores.roles');
+      expect(io.exitCode()).to.equal(1);
+    });
+
+    it('loads every registered RoleStore when the app registers some', async () => {
+      const undo = testHost.registerInRoot(RoleStore, NamedRoles);
+      try {
+        await bare().execute({});
+        expect(io.out).to.deep.equal(['OK: 1 role(s), 0 ladder(s)']);
+      } finally {
+        undo();
+      }
+    });
+  });
+
   describe('--explain-role', () => {
     it('lists the grants the RBAC service reports', async () => {
       const { cmd } = command(GOOD);
@@ -133,8 +182,9 @@ describe('authz:check-config', () => {
       });
     });
 
-    it('importing the command registers the config RoleStore', () => {
-      expect(DI.RootContainer.hasRegistered(RoleStore)).to.equal(true);
+    it('importing the command registers ConfigRoleStore by name, not as the RoleStore of every domain', () => {
+      expect(DI.RootContainer.hasRegistered('ConfigRoleStore')).to.equal(true);
+      expect(DI.RootContainer.hasRegistered(RoleStore)).to.equal(false);
     });
 
     it('says the RBAC model is not registered and exits 1 when no RbacService exists', async () => {
