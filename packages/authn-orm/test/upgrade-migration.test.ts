@@ -11,7 +11,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { inspect } from 'node:util';
 
 import { AuthnFromUserMetadata_2026_10_02_00_01_00, DbSecretStore, decryptMfaSecret, fromUtcColumn, mfaKeyFrom } from '../src/index.js';
-import type { LegacyMetadata } from '../src/index.js';
+import type { LegacyMetadata } from '../src/migrations/AuthnFromUserMetadata_2026_10_02_00_01_00.js';
 import { bootDb, DB_KINDS, rawQuery, TestDb } from './support/db.js';
 
 chai.use(chaiAsPromised);

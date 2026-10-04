@@ -154,6 +154,33 @@ for (const d of DIALECTS) {
       expect(driver.executed).to.have.length(0);
     });
 
+    it('DbIdentityLinkStore.list keeps only rows of exactly that identity', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      driver.respond = () => [
+        { id: 'l1', identity_type: 'user', identity_id: ALICE.id.toUpperCase(), provider: 'oidc:g', subject: 'a', email: null, linked_text: NOW_TEXT, last_used_text: null },
+        { id: 'l2', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'b', email: null, linked_text: NOW_TEXT, last_used_text: null },
+      ];
+      expect((await new DbIdentityLinkStore(driver).list(ALICE)).map((l) => l.id)).to.deep.eq(['l2']);
+    });
+
+    it('DbMfaStore.get and countRecoveryCodes keep only rows of exactly that identity and step', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      const other = `user:${ALICE.id.toUpperCase()}`;
+      driver.respond = (stmt) =>
+        stmt.includes('authn_recovery_code')
+          ? [{ identity: other }, { identity: `user:${ALICE.id}` }]
+          : [{ identity: other, step: 'totp', secret_enc: 'v1.x', key_id: 'k', last_step: null, confirmed_text: null, created_text: NOW_TEXT }];
+      const store = new DbMfaStore(driver);
+      expect(await store.get(ALICE, 'totp')).to.eq(null);
+      expect(await store.countRecoveryCodes(ALICE)).to.eq(1);
+    });
+
+    it('DbMfaStore.redeemRecoveryCode refuses an over-long input without a query', async () => {
+      const driver = await fake(d.type, `n4-${d.name}`);
+      expect(await new DbMfaStore(driver).redeemRecoveryCode(ALICE, 'x'.repeat(1025))).to.eq(false);
+      expect(driver.executed).to.have.length(0);
+    });
+
     it('DbIdentityLinkStore.find refuses a subject that matched only under a case-blind collation', async () => {
       const driver = await fake(d.type, `n4-${d.name}`);
       driver.respond = () => [{ id: 'l1', identity_type: 'user', identity_id: ALICE.id, provider: 'oidc:g', subject: 'ALICE', email: null, linked_text: NOW_TEXT, last_used_text: null }];

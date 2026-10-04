@@ -36,7 +36,9 @@ Each one is registered under its class name, so configuration can name it:
 
 The MFA cipher (`mfaKeyFrom`, `encryptMfaSecret`, `decryptMfaSecret`) uses AES-256-GCM.
 The format is `v1.<iv>.<tag>.<ct>`, and the additional authenticated data is
-`<identity>|<step>`.
+`<identity>|<step>`. Callers must build the identity from `users.Uuid` exactly as it is
+stored (`user:<Uuid>`), or the secret will not decrypt. Recovery codes are stored as
+unsalted SHA-256, so steps must generate codes of at least 80 bits.
 
 Every store resolves the Orm's `default` connection on first use. Tests pass a driver
 instead.
@@ -49,7 +51,9 @@ instead.
 - **Secrets are never stored in clear:**
   - single-use secrets and recovery codes are kept as SHA-256 only;
   - TOTP secrets are kept as cipher text only;
-  - throttle keys are kept as an HMAC under `authn.audit.hashKey.secret`.
+  - throttle keys are kept as an HMAC under `authn.audit.hashKey.secret`. Without that
+    secret the HMAC key is a public constant, so anyone who reads `authn_throttle` can
+    test guessed logins and IPs against it. The store warns once at start.
 - **A login throttles, it never locks.** Attempts are counted before verification, one
   compare-and-set per key, so a burst gets exactly `free` verifications (A05, A06).
 
@@ -63,8 +67,10 @@ instead.
 - **MySQL and MSSQL:**
   - `datetime` precision is lower, so the throttle's undo may miss, which errs towards
     more throttling. A sub-second `baseDelayMs` is not supported there.
-  - Default collations ignore case, so the stores also check identity, purpose, provider
-    and subject for exact equality in Node.
+  - Default collations ignore case. Every read therefore also checks identity, step,
+    purpose, provider and subject for exact equality in Node. Writes keyed by identity
+    still rely on the collation, so on these drivers the identity columns need a binary
+    collation.
 - **Races:** two parallel `issue` calls, or two `replaceRecoveryCodes` calls, for the same
   identity and purpose can leave two live rows. This is because the stores use no
   transactions, since the sqlite driver shares one handle.

@@ -39,13 +39,13 @@ const isSecurityKey = (key: string): boolean => EXACT.includes(key) || PREFIXES.
 
 type Row = Record<string, unknown>;
 
-/** One `users_metadata` value with its `Type` column. */
+/** @internal One `users_metadata` value with its `Type` column. */
 export interface LegacyMetadataValue {
   readonly type: string | undefined;
   readonly value: string | undefined;
 }
 
-/** Security keys and `user:invite:pending` per `users.Id`, and the ids of the security rows to delete. */
+/** @internal Security keys and `user:invite:pending` per `users.Id`, and the ids of the security rows to delete. */
 export interface LegacyMetadata {
   readonly byUser: Map<number, Map<string, LegacyMetadataValue>>;
   readonly securityIds: number[];
@@ -249,12 +249,12 @@ export class AuthnFromUserMetadata_2026_10_02_00_01_00 extends OrmMigration {
     });
   }
 
-  /** Every insert of `up()`, and the metadata inserts of `down()`, go through here. */
+  /** @internal Every insert of `up()`, and the metadata inserts of `down()`, go through here. */
   protected async insertRow(connection: OrmDriver, table: string, values: Row): Promise<void> {
     await connection.insert().into(table).values(values);
   }
 
-  /** The users' security metadata, read for the carry. The census does not use it. */
+  /** @internal The users' security metadata, read for the carry. The census does not use it. */
   protected async readMetadata(connection: OrmDriver): Promise<LegacyMetadata> {
     const all = (await connection.select().from(META).select('Id').select('Key').select('user_id')) as Row[];
     const wanted = all.filter((r) => typeof r.Key === 'string' && (isSecurityKey(r.Key) || r.Key === INVITE));

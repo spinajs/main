@@ -5,6 +5,7 @@ import type { AuthnContext, ThrottleFlow, ThrottleKey } from '@spinajs/authn/con
 import { Configuration } from '@spinajs/configuration';
 import { DI, IContainer, Injectable, Singleton } from '@spinajs/di';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { Log } from '@spinajs/log';
 import { Orm, OrmDriver } from '@spinajs/orm';
 import type { RawQuery, WhereBuilder } from '@spinajs/orm';
 
@@ -367,7 +368,11 @@ export class DbAuthnThrottle extends AuthnThrottle {
     if (this.usesConfiguration()) {
       const config = await container.resolve(Configuration);
       this.loadedParams = this.explicitParams ?? readThrottleConfig(config.get('authn.throttle'));
-      this.hmacKey = hashKeyOf(this.options.hashKey !== undefined ? this.options.hashKey : config.get<string | null>('authn.audit.hashKey.secret'));
+      const secret = this.options.hashKey !== undefined ? this.options.hashKey : config.get<string | null>('authn.audit.hashKey.secret');
+      this.hmacKey = hashKeyOf(secret);
+      if (typeof secret !== 'string' || secret.length === 0) {
+        warnOnce('DbAuthnThrottle: authn.audit.hashKey.secret is not set, so throttle row keys are hashed under a public constant; anyone reading authn_throttle can test guessed logins and IPs against them');
+      }
     }
     if (!this.driver) {
       const orm = await container.resolve(Orm);
@@ -377,6 +382,22 @@ export class DbAuthnThrottle extends AuthnThrottle {
     }
     this.dialect = driverDialect(this.driver);
   }
+}
+
+let warned = false;
+
+function warnOnce(message: string): void {
+  if (warned) return;
+  warned = true;
+  try {
+    if (DI.check(Log)) {
+      (DI.resolve(Log, ['authn-orm']) as Log).warn(message);
+      return;
+    }
+  } catch {
+    // no usable Log: fall back to the console
+  }
+  console.warn(message);
 }
 
 function hashKeyOf(secret: unknown): Buffer {

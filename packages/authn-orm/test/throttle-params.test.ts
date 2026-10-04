@@ -3,7 +3,7 @@ import { DEFAULT_THROTTLE } from '@spinajs/authn-testing';
 import { expect } from 'chai';
 import 'mocha';
 
-import { DEFAULT_THROTTLE_PARAMS, backoffDelayMs, checkThrottleParams, readThrottleConfig } from '../src/index.js';
+import { DEFAULT_THROTTLE_PARAMS, backoffDelayMs, checkThrottleParams, readThrottleConfig } from '../src/throttle/params.js';
 
 describe('throttle params (authn.throttle)', () => {
   it('defaults to design §22.5', () => {

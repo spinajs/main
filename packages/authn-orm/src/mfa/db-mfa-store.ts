@@ -15,6 +15,8 @@ const MFA = 'authn_mfa';
 const CODES = 'authn_recovery_code';
 /** Each retry means a parallel `remove` deleted the row between this call's insert and update. */
 const MAX_TRIES = 8;
+/** As DbSecretStore: longer input is refused before hashing. */
+const RAW_MAX = 1024;
 
 /** One MFA step of an identity as stored. */
 export interface MfaRecord {
@@ -62,9 +64,9 @@ export class DbMfaStore {
     const identity = identityKey(id);
     const name = stepName(step);
     const { driver, dialect } = await this.connection.get();
-    const q = driver.select().from(MFA).select('secret_enc').select('key_id').select('last_step');
+    const q = driver.select().from(MFA).select('identity').select('step').select('secret_enc').select('key_id').select('last_step');
     const rows = (await selectTime(dialect, selectTime(dialect, q, 'confirmed_at', 'confirmed_text'), 'created_at', 'created_text').where('identity', identity).where('step', name)) as Record<string, unknown>[];
-    const r = rows[0];
+    const r = rows.find((x) => x.identity === identity && x.step === name);
     if (!r) return null;
     return {
       secretEnc: String(r.secret_enc),
@@ -150,7 +152,7 @@ export class DbMfaStore {
   /** Spends the code in one conditional update; true for exactly one caller. */
   public async redeemRecoveryCode(id: IdentityRef, raw: string): Promise<boolean> {
     const identity = identityKey(id);
-    if (typeof raw !== 'string' || raw.length === 0) return false;
+    if (typeof raw !== 'string' || raw.length === 0 || raw.length > RAW_MAX) return false;
     const now = sqlTime(checkedMs(new Date(), 'DbMfaStore.redeemRecoveryCode: the clock'));
     const { driver } = await this.connection.get();
     const r = await driver.update().in(CODES).update({ used_at: now }).where('identity', identity).where('code_hash', sha256hex(raw)).whereNull('used_at');
@@ -161,7 +163,8 @@ export class DbMfaStore {
   public async countRecoveryCodes(id: IdentityRef): Promise<number> {
     const identity = identityKey(id);
     const { driver } = await this.connection.get();
-    return ((await driver.select().from(CODES).select('id').where('identity', identity).whereNull('used_at')) as unknown[]).length;
+    const rows = (await driver.select().from(CODES).select('identity').where('identity', identity).whereNull('used_at')) as Record<string, unknown>[];
+    return rows.filter((r) => r.identity === identity).length;
   }
 
   public async removeRecoveryCodes(id: IdentityRef): Promise<void> {

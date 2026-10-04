@@ -44,7 +44,7 @@ export class DbIdentityLinkStore extends IdentityLinkStore {
     const { type, id } = identityParts(identity);
     const { driver, dialect } = await this.connection.get();
     const rows = (await this.selectLinks(driver, dialect).where('identity_type', type).where('identity_id', id).orderBy('linked_at')) as Record<string, unknown>[];
-    return rows.map((r) => this.toLink(dialect, r));
+    return rows.filter((r) => r.identity_type === type && r.identity_id === id).map((r) => this.toLink(dialect, r));
   }
 
   /** A duplicate (provider, subject) rejects with `ResourceDuplicated` (the unique index decides). */
