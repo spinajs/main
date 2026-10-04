@@ -205,6 +205,43 @@ describe("LogContext ambient async context", () => {
     expect(out).to.deep.eq({ s: "str", n: 7, b: false, big: 10n });
   });
 
+  describe("acting principal", () => {
+    it("projects a principal object as 'type:id'", () => {
+      const out = scalarContext({ Principal: { type: "user", id: "42", authenticated: true, attributes: {} } });
+      expect(out).to.deep.eq({ Principal: "user:42" });
+    });
+
+    it("accepts a finite numeric id", () => {
+      expect(scalarContext({ Principal: { type: "user", id: 42 } })).to.deep.eq({ Principal: "user:42" });
+    });
+
+    it("escapes the type like principalKey", () => {
+      expect(scalarContext({ Principal: { type: "a:b%c", id: "1" } })).to.deep.eq({ Principal: "a%3Ab%25c:1" });
+    });
+
+    it("drops a malformed principal", () => {
+      for (const bad of [{}, { type: "user" }, { id: "1" }, { type: 1, id: "1" }, { type: "user", id: NaN }, { type: "user", id: {} }, ["user", "1"], null]) {
+        expect(scalarContext({ Principal: bad })).to.deep.eq({});
+      }
+    });
+
+    it("keeps a scalar Principal as is and drops other objects", () => {
+      expect(scalarContext({ Principal: "x", Other: { type: "user", id: "1" } })).to.deep.eq({ Principal: "x" });
+    });
+
+    it("puts the principal on a log line written inside LogContext.with", () => {
+      const log = DI.resolve(Log, ["ctx-principal"]);
+
+      LogContext.with({ Principal: { type: "user", id: "42", authenticated: true, attributes: {} } }, () => {
+        log.info("m");
+      });
+
+      const records = sink().getRecords();
+      expect(records.length).to.eq(1);
+      expect(records[0].Variables.Principal).to.eq("user:42");
+    });
+  });
+
   after(() => {
     // restore the default no-op provider so sibling suites in a shared process
     // are not affected by this suite's wiring.

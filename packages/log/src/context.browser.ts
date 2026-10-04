@@ -76,7 +76,24 @@ export function scalarContext(ctx: Record<string, unknown>): Record<string, unkn
     const t = typeof v;
     if (t === "string" || t === "number" || t === "boolean" || t === "bigint") {
       out[k] = v;
+    } else if (k === "Principal") {
+      const label = principalLabel(v);
+      if (label !== undefined) {
+        out[k] = label;
+      }
     }
   }
   return out;
+}
+
+// Mirrors principalKey from @spinajs/authn; log must not depend on authn.
+function principalLabel(v: unknown): string | undefined {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
+    return undefined;
+  }
+  const { type, id } = v as { type?: unknown; id?: unknown };
+  if (typeof type !== "string" || !(typeof id === "string" || (typeof id === "number" && Number.isFinite(id)))) {
+    return undefined;
+  }
+  return `${type.replace(/%/g, "%25").replace(/:/g, "%3A")}:${id}`;
 }
