@@ -15,3 +15,5 @@ export * from './provider.js';
 export * from './strategy.js';
 export * from './login.js';
 export * from './links.js';
+export * from './providers.js';
+export * from './bootstrap.js';
