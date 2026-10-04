@@ -1,5 +1,5 @@
-import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Policy, Query, ServerError } from '@spinajs/http';
-import { AuthorizedPolicy, Permission, Resource } from '@spinajs/authn-http';
+import { BadRequestResponse, BaseController, BasePath, Body, Get, Ok, Patch, Query, ServerError } from '@spinajs/http';
+import { Access } from '@spinajs/authz-http';
 import { Autoinject } from '@spinajs/di';
 import { DataValidator } from '@spinajs/validation';
 import { FromModel } from '@spinajs/orm-http';
@@ -7,6 +7,7 @@ import { DbConfig } from '@spinajs/configuration-db-source';
 import { Log, Logger } from '@spinajs/log';
 import { UpdateConfigDto } from '../dto/update-config-dto.js';
 import { SchemaCompileError, validateEntryValue } from '../validation.js';
+import { updateEntry } from '../write.js';
 
 /**
  * Serializes an entry for the api. `DbConfig.dehydrate()` emits only the declared
@@ -36,8 +37,6 @@ function present(entry: DbConfig) {
  * @tags Configuration
  */
 @BasePath('configuration')
-@Policy(AuthorizedPolicy)
-@Resource('configuration')
 export class ConfigurationController extends BaseController {
   @Autoinject()
   protected Validator!: DataValidator;
@@ -52,10 +51,10 @@ export class ConfigurationController extends BaseController {
    * @param group Optional group name to filter entries by
    * @response 200 List of configuration entries
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on configuration resource
+   * @response 403 Forbidden — configuration:read permission required
    */
   @Get('/')
-  @Permission(['readAny'])
+  @Access('configuration:read', { fields: 'filter' })
   public async list(@Query() group?: string) {
     const entries = await (group ? DbConfig.where('Group', group) : DbConfig.all());
     return new Ok(entries.map((e) => present(e)));
@@ -68,11 +67,11 @@ export class ConfigurationController extends BaseController {
    * @param slug Unique configuration entry slug
    * @response 200 Configuration entry
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on configuration resource
+   * @response 403 Forbidden — configuration:read permission required
    * @response 404 Configuration entry not found
    */
   @Get(':slug')
-  @Permission(['readAny'])
+  @Access('configuration:read', { fields: 'filter' })
   public async get(@FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig) {
     return new Ok(present(entry));
   }
@@ -88,12 +87,12 @@ export class ConfigurationController extends BaseController {
    * @response 200 Updated configuration entry
    * @response 400 Invalid value for the entry type, constraints or registered schema
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required on configuration resource
+   * @response 403 Forbidden — configuration:update permission required
    * @response 404 Configuration entry not found
    * @response 500 Registered schema for this slug cannot be compiled
    */
   @Patch(':slug')
-  @Permission(['updateAny'])
+  @Access('configuration:update', { fields: 'filter' })
   public async update(
     @FromModel({ paramField: 'slug', queryField: 'Slug' }) entry: DbConfig,
     @Body() data: UpdateConfigDto,
@@ -128,7 +127,7 @@ export class ConfigurationController extends BaseController {
       entry.Watch = data.Watch;
     }
 
-    await entry.update();
+    await updateEntry(entry);
 
     return new Ok(present(entry));
   }

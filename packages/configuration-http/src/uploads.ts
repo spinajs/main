@@ -12,6 +12,7 @@ import type { IUploadedFile } from '@spinajs/http';
 import { ConfigFileRejected, NotAFileEntry } from './errors.js';
 import { checkFileRules, storedFileName } from './files.js';
 import { SchemaCompileError, validateEntryValue } from './validation.js';
+import { updateEntry } from './write.js';
 
 /** A file that passed every rule and sits on the entry's provider; `Value` still points at the previous one. */
 export interface IAcceptedConfigFile {
@@ -43,7 +44,8 @@ export function configFileOptions(entry: DbConfig): IConfigurationFileOptions {
  * The upload pipeline of a file entry, without a route: a project composes
  * `accept` -> its own record step -> `commit`, and `discard`s an accepted file it could not record.
  * Rejections are `ConfigFileRejected` / `NotAFileEntry` (400); a misdeclared entry (unregistered
- * validator or provider, uncompilable slug schema) is a plain `Error` (500).
+ * validator or provider, uncompilable slug schema) is a plain `Error` (500). `commit` throws
+ * `ConfigWriteRefused` (403) when the update scope of the principal matched no row; reload the entry before retrying.
  */
 @Injectable()
 export class ConfigFileUploads {
@@ -75,7 +77,7 @@ export class ConfigFileUploads {
     const previous = entry.Value;
     entry.Value = fileName as typeof entry.Value;
     try {
-      await entry.update();
+      await updateEntry(entry);
     } catch (err) {
       // a caller keeping the instance must not see a Value the database never accepted
       entry.Value = previous;
@@ -130,9 +132,13 @@ export class ConfigFileUploads {
       await target.upload(localPath, fileName);
     } catch (err) {
       // a partial write must not survive as a file the caller cannot discard
-      await target.rm(fileName).catch((rmErr) =>
-        this.Log.warn(`Partially uploaded file ${fileName} of '${entry.Slug}' was not removed: ${(rmErr as Error).message}`),
-      );
+      await target
+        .rm(fileName)
+        .catch((rmErr) =>
+          this.Log.warn(
+            `Partially uploaded file ${fileName} of '${entry.Slug}' was not removed: ${(rmErr as Error).message}`,
+          ),
+        );
       throw err;
     }
 

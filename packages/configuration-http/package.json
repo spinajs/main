@@ -51,11 +51,15 @@
     "configuration"
   ],
   "devDependencies": {
+    "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/orm-sqlite": "2.0.549",
     "@types/lodash": "^4.14.191",
     "@types/luxon": "^3.2.0"
   },
   "dependencies": {
+    "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-http": "3.0.0-alpha.0",
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/configuration-common": "2.0.549",
     "@spinajs/configuration-db-source": "2.0.549",
@@ -66,8 +70,6 @@
     "@spinajs/log": "2.0.549",
     "@spinajs/orm": "2.0.549",
     "@spinajs/orm-http": "2.0.549",
-    "@spinajs/users": "3.0.0-alpha.0",
-    "@spinajs/authn-http": "3.0.0-alpha.0",
     "@spinajs/validation": "2.0.549",
     "lodash": "^4.17.21",
     "luxon": "^3.6.1"

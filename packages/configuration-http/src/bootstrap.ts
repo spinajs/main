@@ -1,29 +1,16 @@
 import { Bootstrapper, Injectable } from '@spinajs/di';
-import { extractModelDescriptor } from '@spinajs/orm';
-import { DbConfig } from '@spinajs/configuration-db-source';
-import { IRbacModelDescriptor } from '@spinajs/users';
+import { registerAccessResource } from '@spinajs/authz-orm';
+import { DbConfig, requireSystemPrincipal } from '@spinajs/configuration-db-source';
 
 /**
- * Ties the `DbConfig` model to the `configuration` RBAC resource.
- *
- * `DbConfig` lives in the persistence-only `@spinajs/configuration-db-source`
- * package, which intentionally does not depend on rbac. Its `@Model('configuration')`
- * only names the database table - that is NOT the RBAC resource. Set the model's
- * `RbacResource` here ( this http package already depends on rbac ) so the
- * `RbacModelPermissionMiddleware` enforces `configuration` grants on every
- * DbConfig query, matching the route-level `@Resource('configuration')` on the
- * controller.
- *
- * Without this the model descriptor has no `RbacResource`, so model-level
- * permission checks are silently skipped ( the middleware's table-name fallback
- * is disabled ) and only the route-level policy would guard the data.
+ * `DbConfig` lives in `@spinajs/configuration-db-source`, which does not depend on authz. Its
+ * `@Model('configuration')` only names the table; this registers it as the `configuration` access
+ * resource so the ORM guard scopes every query on it.
  */
 @Injectable(Bootstrapper)
 export class ConfigurationHttpBootstrapper extends Bootstrapper {
   public bootstrap(): void {
-    const descriptor = extractModelDescriptor(DbConfig) as IRbacModelDescriptor;
-    if (descriptor) {
-      descriptor.RbacResource = 'configuration';
-    }
+    registerAccessResource(DbConfig, 'configuration');
+    requireSystemPrincipal();
   }
 }

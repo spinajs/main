@@ -1,78 +1,103 @@
-import { DI, Bootstrapper } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
-import { Orm, extractModelDescriptor } from '@spinajs/orm';
-import { FsBootsrapper, fsService } from '@spinajs/fs';
-import { Controllers, HttpServer } from '@spinajs/http';
-import { AuthorizedPolicy, RbacPolicy, ACL_CONTROLLER_DESCRIPTOR } from '@spinajs/authn-http';
-import { DbConfig } from '@spinajs/configuration-db-source';
+import { Orm } from '@spinajs/orm';
+import { AccessDenied, AuthorizationModel, AuthzService, SYSTEM, authz, runWithPrincipal } from '@spinajs/authz';
+import type { DecisionRequest } from '@spinajs/authz';
+import { ACCESS_DESCRIPTOR, accessDescriptorOf } from '@spinajs/authz-http';
+import type { IAccessDescriptor } from '@spinajs/authz-http';
+import { StaticModel, testHost, userPrincipal } from '@spinajs/authz-testing';
+import type { ScriptedVote } from '@spinajs/authz-testing';
+import { DbConfig, resetSystemPrincipal } from '@spinajs/configuration-db-source';
 import { expect } from 'chai';
 import 'mocha';
 
-import { TestConfiguration, FakePolicy, req, seed } from './common.js';
+import { req, seed, testConfig } from './common.js';
+import { startApp, stopApp } from './support/app.js';
+import { registerHeaderSource } from './support/principals.js';
 import { ConfigurationController } from '../src/controllers/Configuration.js';
-import { ConfigurationHttpBootstrapper } from '../src/bootstrap.js';
+import '../src/bootstrap.js';
 import configurationHttpConfig from '../src/config/configuration-http.js';
 
 const JSON_HEADERS = { Accept: 'application/json' };
 
+const permitted = { permitWhen: { op: 'true' } } as const;
+
+// what the `masked` principal may read
+const MASKED_READ = ['Slug', 'Group', 'Type', 'Label'];
+
+const votes = (r: DecisionRequest): ScriptedVote => {
+  switch (r.principal.id) {
+    case 'admin':
+      return r.permission.startsWith('configuration:') ? permitted : {};
+    case 'reader':
+      return r.permission === 'configuration:read' ? permitted : {};
+    case 'updater':
+      return r.permission === 'configuration:update' ? permitted : {};
+    case 'mailEditor':
+      // reads everything, updates only the rows of one group
+      return r.permission === 'configuration:read'
+        ? permitted
+        : { permitWhen: { op: 'cmp', field: 'Group', cmp: 'eq', value: 'mail' } };
+    case 'both':
+      return r.permission.startsWith('configuration:') ? permitted : {};
+    case 'scoped':
+      // reads only the rows of one group: a residual condition, not a flat grant
+      return r.permission === 'configuration:read'
+        ? { permitWhen: { op: 'cmp', field: 'Group', cmp: 'eq', value: 'mail' } }
+        : {};
+    case 'narrow':
+      // may update, but is not allowed to write Value
+      return r.permission.startsWith('configuration:')
+        ? { ...permitted, fields: { read: ['Slug', 'Value'], write: ['Default'] } }
+        : {};
+    case 'masked':
+      return r.permission === 'configuration:read' ? { ...permitted, fields: { read: MASKED_READ } } : {};
+    default:
+      return {};
+  }
+};
+
 describe('configuration-http api', function () {
   this.timeout(25000);
 
+  let unregisterSource: () => void;
+  let unregisterModel: (() => void) | undefined;
+
   before(async () => {
-    // The exception -> http response map ( __http_error_map__ ) is built by the
-    // @HandleException decorators at module import time and stored in the DI
-    // cache. clearCache() below would wipe it, and the decorators only run once,
-    // so thrown-exception mapping ( eg. FromModel's OrmNotFoundException -> 404 )
-    // would silently fall back to 500. Capture it and restore it after the reset.
-    const errorMap = DI.get('__http_error_map__');
-    DI.clearCache();
-    if (errorMap) {
-      DI.RootContainer.Cache.add('__http_error_map__', errorMap);
-    }
-
-    const fsBootstrapper = await DI.resolve(FsBootsrapper);
-    fsBootstrapper.bootstrap();
-
-    DI.register(TestConfiguration).as(Configuration);
-    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.setESMModuleSupport();
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    unregisterSource = registerHeaderSource();
 
-    // bypass auth so we can exercise controller logic
-    DI.register(FakePolicy).as(AuthorizedPolicy);
-    DI.register(FakePolicy).as(RbacPolicy);
-
-    const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
-    for (const b of bootstrappers) {
-      // skip the db-source bootstrapper, it installs a watch timer that would
-      // keep the event loop alive after the suite finishes
-      if (b.constructor.name === 'DbConfigSourceBotstrapper') {
-        continue;
-      }
-      await b.bootstrap();
-    }
-
-    await DI.resolve(Configuration);
-    await DI.resolve(fsService);
-    await DI.resolve(Controllers);
-
-    const server = await DI.resolve(HttpServer);
-    server.start();
+    await startApp({
+      controllers: [ConfigurationController],
+      config: testConfig(),
+      // the db-source one installs a watch timer that would keep the event loop alive
+      skip: ['DbConfigSourceBotstrapper'],
+    });
+    unregisterModel = testHost.registerInRoot(
+      AuthorizationModel,
+      testHost.instance(new StaticModel({ name: 'config-votes', votes, capabilities: { fields: true } })),
+    );
+    // the ORM guard asks the booted root service
+    await DI.resolve(AuthzService);
   });
 
   after(async () => {
-    const server = await DI.resolve<HttpServer>(HttpServer);
-    server.stop();
-
     const orm = DI.get(Orm);
     orm?.dispose();
     DI.uncache(Orm);
+    unregisterModel?.();
+    await stopApp();
+    unregisterSource();
+    resetSystemPrincipal();
   });
 
   beforeEach(async () => {
     await DI.resolve(Orm);
-    await DbConfig.truncate();
-    await seed();
+    await authz().runAs(SYSTEM, 'test', async () => {
+      await DbConfig.truncate();
+      await seed();
+    });
   });
 
   describe('GET /configuration', () => {
@@ -150,7 +175,10 @@ describe('configuration-http api', function () {
     });
 
     it('accepts a manyOf subset and stores it canonically', async () => {
-      const res = await req().patch('configuration/app.features').set(JSON_HEADERS).send({ Value: ['a', 'c'] });
+      const res = await req()
+        .patch('configuration/app.features')
+        .set(JSON_HEADERS)
+        .send({ Value: ['a', 'c'] });
       expect(res).to.have.status(200);
       expect(JSON.parse(res.body.Value)).to.deep.equal(['a', 'c']);
     });
@@ -198,7 +226,10 @@ describe('configuration-http api', function () {
     });
 
     it('rejects a manyOf value outside the allowed set', async () => {
-      const res = await req().patch('configuration/app.features').set(JSON_HEADERS).send({ Value: ['a', 'z'] });
+      const res = await req()
+        .patch('configuration/app.features')
+        .set(JSON_HEADERS)
+        .send({ Value: ['a', 'z'] });
       expect(res).to.have.status(400);
     });
 
@@ -240,29 +271,44 @@ describe('configuration-http api', function () {
     });
 
     it('accepts a json object matching the registered schema', async () => {
-      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 50, export: true } });
+      const res = await req()
+        .patch('configuration/app.limits')
+        .set(JSON_HEADERS)
+        .send({ Value: { perPage: 50, export: true } });
       expect(res).to.have.status(200);
       expect(JSON.parse(res.body.Value)).to.deep.equal({ perPage: 50, export: true });
     });
 
     it('rejects a json object with an out of range property', async () => {
-      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 0 } });
+      const res = await req()
+        .patch('configuration/app.limits')
+        .set(JSON_HEADERS)
+        .send({ Value: { perPage: 0 } });
       expect(res).to.have.status(400);
       expect(res.body.error.message).to.contain('Value/perPage');
     });
 
     it('rejects a json object missing a required property', async () => {
-      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { export: true } });
+      const res = await req()
+        .patch('configuration/app.limits')
+        .set(JSON_HEADERS)
+        .send({ Value: { export: true } });
       expect(res).to.have.status(400);
     });
 
     it('rejects a json object with an unknown property', async () => {
-      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 10, other: 1 } });
+      const res = await req()
+        .patch('configuration/app.limits')
+        .set(JSON_HEADERS)
+        .send({ Value: { perPage: 10, other: 1 } });
       expect(res).to.have.status(400);
     });
 
     it('validates the Default value against the registered schema too', async () => {
-      const res = await req().patch('configuration/app.limits').set(JSON_HEADERS).send({ Value: { perPage: 10 }, Default: { perPage: 1000 } });
+      const res = await req()
+        .patch('configuration/app.limits')
+        .set(JSON_HEADERS)
+        .send({ Value: { perPage: 10 }, Default: { perPage: 1000 } });
       expect(res).to.have.status(400);
       expect(res.body.error.message).to.contain('Default');
     });
@@ -282,54 +328,206 @@ describe('configuration-http api', function () {
     });
   });
 
-  describe('model-level RBAC', () => {
-    // the `configuration` resource is bound to the DbConfig model, so the query
-    // middleware denies a role without the grant even though the route policy is
-    // faked ( see FakePolicy / the x-test-role header in test/common.ts )
-    it('forbids reading configuration for a non-admin role', async () => {
-      const res = await req().get('configuration').set(JSON_HEADERS).set('x-test-role', 'user');
-      expect(res).to.have.status(403);
+  describe('access control', () => {
+    const ROUTES: [string, (user: string | null) => PromiseLike<ChaiHttp.Response>][] = [
+      ['GET /configuration', (u) => req(u).get('configuration').set(JSON_HEADERS)],
+      ['GET /configuration/:slug', (u) => req(u).get('configuration/app.name').set(JSON_HEADERS)],
+      [
+        'PATCH /configuration/:slug',
+        (u) => req(u).patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' }),
+      ],
+    ];
+
+    for (const [name, call] of ROUTES) {
+      it(`${name} answers 403 to a principal without the permission`, async () => {
+        expect(await call('alice')).to.have.status(403);
+      });
+
+      it(`${name} answers 401 without a principal`, async () => {
+        expect(await call(null)).to.have.status(401);
+      });
+    }
+
+    it('keeps the stored value after a refused update', async () => {
+      await req('alice').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+      await req(null).patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+
+      const res = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(res.body.Value).to.equal('spinajs');
     });
 
-    it('forbids updating configuration for a non-admin role', async () => {
-      const res = await req().patch('configuration/app.name').set(JSON_HEADERS).set('x-test-role', 'user').send({ Value: 'nope' });
+    it('answers 403 to a read-only principal on PATCH and keeps the value', async () => {
+      const res = await req('reader').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
       expect(res).to.have.status(403);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    // the route check passes ( configuration:update is granted ); the refusal comes from the ORM read scope on the @FromModel load
+    it('answers 403 to a principal that may update but not read, and keeps the value', async () => {
+      const res = await req('updater').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+      expect(res).to.have.status(403);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('answers 403 when the update grant is conditional and covers no row of the entry, and keeps the value', async () => {
+      const res = await req('mailEditor').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+      expect(res).to.have.status(403);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('lets a conditional update grant write a row it covers', async () => {
+      const res = await req('mailEditor').patch('configuration/mail.from').set(JSON_HEADERS).send({ Value: 'a@b.pl' });
+      expect(res).to.have.status(200);
+      expect(res.body.Value).to.equal('a@b.pl');
+    });
+
+    it('lets a principal holding both permissions update', async () => {
+      const res = await req('both').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'renamed' });
+      expect(res).to.have.status(200);
+      expect(res.body.Value).to.equal('renamed');
+    });
+
+    it('answers 400 when the update grant does not allow writing Value, and keeps the value', async () => {
+      const res = await req('narrow').patch('configuration/app.name').set(JSON_HEADERS).send({ Value: 'nope' });
+      expect(res).to.have.status(400);
+
+      const get = await req().get('configuration/app.name').set(JSON_HEADERS);
+      expect(get.body.Value).to.equal('spinajs');
+    });
+
+    it('lists only the rows a conditional read grant covers', async () => {
+      const list = await req('scoped').get('configuration').set(JSON_HEADERS);
+      expect(list).to.have.status(200);
+      expect(list.body.map((e: any) => e.Slug)).to.deep.equal(['mail.from']);
+    });
+
+    it('does not load a row outside a conditional read grant', async () => {
+      const inside = await req('scoped').get('configuration/mail.from').set(JSON_HEADERS);
+      expect(inside).to.have.status(200);
+
+      const outside = await req('scoped').get('configuration/app.name').set(JSON_HEADERS);
+      expect(outside.status).to.be.oneOf([403, 404]);
+      expect(outside.body.Value).to.equal(undefined);
+    });
+
+    it('drops the fields a grant does not read, from a list and from one entry', async () => {
+      const list = await req('masked').get('configuration').set(JSON_HEADERS);
+      expect(list).to.have.status(200);
+      expect(list.body).to.have.lengthOf(11);
+      for (const entry of list.body) {
+        expect(entry).to.not.have.any.keys('Value', 'Default', 'Meta');
+        expect(entry.Slug).to.be.a('string');
+      }
+
+      const one = await req('masked').get('configuration/app.name').set(JSON_HEADERS);
+      expect(one).to.have.status(200);
+      expect(one.body).to.deep.equal({ Slug: 'app.name', Group: 'app', Type: 'string', Label: 'App name' });
     });
   });
 });
 
-describe('configuration-http rbac wiring', () => {
-  it('declares the configuration resource and route permissions', () => {
-    const descriptor = Reflect.getMetadata(ACL_CONTROLLER_DESCRIPTOR, ConfigurationController.prototype);
+describe('configuration-http access wiring', () => {
+  const rule = (method: string) => accessDescriptorOf(ConfigurationController)!.Access.get(method)!;
+
+  it('declares the permission of every route, with no resource', () => {
+    const descriptor = Reflect.getMetadata(ACCESS_DESCRIPTOR, ConfigurationController.prototype) as IAccessDescriptor;
     expect(descriptor).to.be.an('object');
-    expect(descriptor.Resource).to.equal('configuration');
-    expect(descriptor.Routes.get('list').Permission).to.deep.equal(['readAny']);
-    expect(descriptor.Routes.get('get').Permission).to.deep.equal(['readAny']);
-    expect(descriptor.Routes.get('update').Permission).to.deep.equal(['updateAny']);
+    expect(rule('list').permissions).to.deep.equal(['configuration:read']);
+    expect(rule('get').permissions).to.deep.equal(['configuration:read']);
+    expect(rule('update').permissions).to.deep.equal(['configuration:update']);
+    expect(rule('list').options.resource).to.equal(undefined);
+    expect(rule('get').options.resource).to.equal(undefined);
+    expect(rule('update').options.resource).to.equal(undefined);
+  });
+
+  it('filters the fields of every route', () => {
+    for (const method of ['list', 'get', 'update']) expect(rule(method).options.fields).to.equal('filter');
+  });
+
+  it('declares both permissions with field sets', () => {
+    expect(configurationHttpConfig.authz.permissions).to.deep.equal({
+      'configuration:read': { fields: true },
+      'configuration:update': { fields: true },
+    });
   });
 
   it('grants configuration management only through an admin sub-role', () => {
-    const grants = (configurationHttpConfig as any).rbac.grants;
+    const { roles } = configurationHttpConfig.authz.rbac;
 
-    // dedicated admin sub-role holds the actual configuration resource grants
-    expect(grants['admin.configuration'].configuration).to.have.property('read:any');
-    expect(grants['admin.configuration'].configuration).to.have.property('update:any');
+    expect(roles['admin.configuration'].assignable).to.equal(false);
+    expect(roles['admin.configuration'].grants).to.have.members(['configuration:read', 'configuration:update']);
+    expect(roles.admin.extends).to.include('admin.configuration');
 
-    // admin ( and system, which extends admin in @spinajs/users ) inherits it
-    expect(grants.admin.$extend).to.include('admin.configuration');
-
-    // no other role defined by this module gets configuration access - it is
-    // admin-only ( guest / user roles come from the base rbac config, ungranted )
-    const rolesWithConfig = Object.keys(grants).filter((role) => (grants[role] as Record<string, unknown>).configuration !== undefined);
-    expect(rolesWithConfig).to.deep.equal(['admin.configuration']);
+    // no other role defined by this module mentions the permissions: it is admin-only
+    const mentioning = Object.entries(roles)
+      .filter(([, def]) => JSON.stringify(def).includes('configuration:'))
+      .map(([name]) => name);
+    expect(mentioning).to.deep.equal(['admin.configuration']);
   });
 
-  it('binds the DbConfig model to the configuration RBAC resource', () => {
-    // @Model('configuration') on DbConfig only names the db table; the bootstrapper
-    // declares the RBAC resource so the model-permission middleware enforces
-    // `configuration` grants on every DbConfig query.
-    new ConfigurationHttpBootstrapper().bootstrap();
-    const descriptor = extractModelDescriptor(DbConfig) as { RbacResource?: string };
-    expect(descriptor?.RbacResource).to.equal('configuration');
+  it('writes no legacy rbac key', () => {
+    expect(configurationHttpConfig).to.not.have.property('rbac');
+  });
+});
+
+describe('configuration-http ORM guard', function () {
+  this.timeout(25000);
+
+  let unregisterModel: (() => void) | undefined;
+
+  before(async () => {
+    DI.setESMModuleSupport();
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    await startApp({ controllers: [], config: testConfig(), skip: ['DbConfigSourceBotstrapper'] });
+    unregisterModel = testHost.registerInRoot(
+      AuthorizationModel,
+      testHost.instance(new StaticModel({ name: 'config-votes', votes, capabilities: { fields: true } })),
+    );
+    await DI.resolve(AuthzService);
+    await DI.resolve(Orm);
+  });
+
+  after(async () => {
+    DI.get(Orm)?.dispose();
+    DI.uncache(Orm);
+    unregisterModel?.();
+    await stopApp();
+    resetSystemPrincipal();
+  });
+
+  it('registers DbConfig as the configuration access resource: a principal without configuration:read is refused', async () => {
+    let error: unknown;
+    try {
+      await runWithPrincipal(userPrincipal('alice'), async () => DbConfig.all());
+    } catch (err) {
+      error = err;
+    }
+    expect(error).to.be.an.instanceOf(AccessDenied);
+    expect((error as Error).message).to.contain('no_access');
+  });
+
+  it('lets a configuration:read holder and SYSTEM query', async () => {
+    await authz().runAs(SYSTEM, 'test', async () => {
+      await DbConfig.truncate();
+      await seed();
+    });
+    expect(await runWithPrincipal(userPrincipal('reader'), async () => DbConfig.all())).to.have.lengthOf(11);
+  });
+
+  it('refuses a query that has no principal at all', async () => {
+    let error: unknown;
+    try {
+      await DbConfig.all();
+    } catch (err) {
+      error = err;
+    }
+    expect(error).to.be.an.instanceOf(AccessDenied);
+    expect((error as Error).message).to.contain('unattended');
   });
 });

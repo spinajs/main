@@ -11,6 +11,7 @@ import { Configuration, IConfigEntryOptions, IConfigEntryOptions as IConfigEntry
 import { InsertBehaviour, Orm } from '@spinajs/orm';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { normalizeFileEntryOptions } from './file.js';
+import { asSystem } from './system.js';
 
 /**
  * watch interval, default 3 min
@@ -30,6 +31,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   private watchedSlugs = new Set<string>();
 
   private armWatchTimer: (() => void) | null = null;
+
+  private configuration: Configuration | null = null;
+
+  /** The authz domain whose service runs the queries as SYSTEM; the one holding the `configuration` model. */
+  public authzDomain = 'root';
 
   public async bootstrap(): Promise<void> {
     DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
@@ -92,21 +98,25 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     // narrowing since the concrete shape depends on `type` and isn't known here.
     const value = this.Converter.toDB(v.options.defaultValue, { Type: type } as any, undefined as any, { TypeColumn: 'Type' }) as unknown;
 
-    await DbConfig.insert(
-      {
-        Slug: v.path,
-        Value: value,
-        Group: v.options.exposeOptions?.group,
-        Label: v.options.exposeOptions?.label,
-        Description: v.options.exposeOptions?.description,
-        Meta: v.options.exposeOptions?.meta,
-        Required: v.options.required,
-        Type: type,
-        Watch: v.options.exposeOptions?.watch ?? false,
-        Default: value ?? undefined,
-        Exposed: true,
-      },
-      InsertBehaviour.InsertOrIgnore,
+    await asSystem(
+      () =>
+        DbConfig.insert(
+          {
+            Slug: v.path,
+            Value: value,
+            Group: v.options.exposeOptions?.group,
+            Label: v.options.exposeOptions?.label,
+            Description: v.options.exposeOptions?.description,
+            Meta: v.options.exposeOptions?.meta,
+            Required: v.options.required,
+            Type: type,
+            Watch: v.options.exposeOptions?.watch ?? false,
+            Default: value ?? undefined,
+            Exposed: true,
+          },
+          InsertBehaviour.InsertOrIgnore,
+        ),
+      this.authzDomain,
     );
 
     await this.syncMetadata(v);
@@ -124,7 +134,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       return;
     }
 
-    const row = await DbConfig.where('Slug', v.path).first();
+    const row = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
     if (!row) {
       return;
     }
@@ -144,7 +154,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     row.Required = !!v.options.required;
     row.Default = v.options.defaultValue;
 
-    await row.update();
+    await asSystem(() => row.update(), this.authzDomain);
   }
 
   /**
@@ -158,7 +168,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     try {
       await this.saveConfigOptions(v);
 
-      const stored = await DbConfig.where('Slug', v.path).first();
+      const stored = await asSystem(() => DbConfig.where('Slug', v.path).first(), this.authzDomain);
       DI.get(Configuration)!.set(v.path, stored?.Value ?? v.options.defaultValue);
     } catch (err) {
       InternalLogger.error(`Failed to sync exposed config option '${v.path}' with db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
@@ -167,6 +177,27 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
     if (v.options.exposeOptions?.watch) {
       this.watchedSlugs.add(v.path);
       this.armWatchTimer?.();
+    }
+  }
+
+  /**
+   * One poll: reloads the watched config values from the db and pushes changes into the live
+   * configuration. The watch timer calls it on every run; db errors are logged, not thrown.
+   */
+  public async refreshWatched(): Promise<void> {
+    const cService = this.configuration ?? DI.get(Configuration)!;
+
+    try {
+      const result = await asSystem(() => DbConfig.select().whereIn('Slug', [...this.watchedSlugs]), this.authzDomain);
+      result.forEach((r) => {
+        // Slug is the canonical config path (same value passed to @Config).
+        // Group is display-only metadata and must not be part of the path.
+        if (!isConfigValueEqual(cService.get(r.Slug), r.Value)) {
+          cService.set(r.Slug, r.Value);
+        }
+      });
+    } catch (err) {
+      InternalLogger.error(`Failed to refresh watched config values from db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
     }
   }
 
@@ -205,18 +236,11 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
       scheduleNext();
     };
 
+    this.configuration = cService;
+
     const run = async () => {
       try {
-        const result = await DbConfig.select().whereIn('Slug', [...this.watchedSlugs]);
-        result.forEach((r) => {
-          // Slug is the canonical config path (same value passed to @Config).
-          // Group is display-only metadata and must not be part of the path.
-          if (!isConfigValueEqual(cService.get(r.Slug), r.Value)) {
-            cService.set(r.Slug, r.Value);
-          }
-        });
-      } catch (err) {
-        InternalLogger.error(`Failed to refresh watched config values from db: ${err instanceof Error ? err.message : String(err)}`, LOG_CHANNEL);
+        await this.refreshWatched();
       } finally {
         scheduleNext();
       }
