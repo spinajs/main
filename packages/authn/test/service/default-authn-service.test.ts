@@ -196,7 +196,7 @@ describe('DefaultAuthnService', function () {
       failure(await p.service.authenticate(bearer('h.bad.s'), ctx({ purpose: 'request' })), 'invalid_credentials');
       assert.deepStrictEqual(throttle!.peeks.map((x) => x.keys), throttle!.attempts.map((x) => x.keys));
       assert.strictEqual(throttle!.attempts.length, 1);
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId).sort(), ['account-ip=jwt:1|' + IP, 'account=jwt:1', 'ip=' + IP].sort());
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId).sort(), ['account-ip=jwt:1|' + IP, 'account=jwt:1|' + IP, 'ip=' + IP].sort());
       assert.strictEqual(throttle!.attempts[0].flow, 'login');
     });
 
@@ -206,7 +206,7 @@ describe('DefaultAuthnService', function () {
       const b = strategy('b', { keys: () => [...shared(), { kind: 'account', value: 'other' }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
       const p = await boot([a, b]);
       await p.service.authenticate(bearer('x'), ctx({ ip: undefined }));
-      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=same', 'account=other']);
+      assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=same|', 'account=other|']);
     });
 
     it('does not pass an invalid_credentials answer on to the next candidate', async () => {
@@ -268,7 +268,7 @@ describe('DefaultAuthnService', function () {
     });
 
     it('adds an account-ip key next to each account key a strategy gives without one', async () => {
-      const s = strategy('acct', { keys: () => [{ kind: 'account', value: 'acct-1' }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
+      const s = strategy('acct', { interactive: true, keys: () => [{ kind: 'account', value: 'acct-1' }], verify: () => ({ ok: false, reason: 'invalid_credentials' }) });
       const p = await boot([s]);
       await p.service.authenticate(bearer('x'), ctx());
       assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=acct-1', `account-ip=acct-1|${IP}`, `ip=${IP}`]);
@@ -399,7 +399,50 @@ describe('DefaultAuthnService', function () {
       assert.strictEqual(throttle!.ipAttempts(IP), 3);
       success(await p.service.authenticate(bearer('own:good'), at(3)));
       assert.strictEqual(throttle!.ipAttempts(IP), 1);
-      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), ['account=key:own', `account-ip=key:own|${IP}`, `ip=${IP}`]);
+      assert.deepStrictEqual(throttle!.succeeds[0].keys.map(keyId), [`account=key:own|${IP}`, `account-ip=key:own|${IP}`, `ip=${IP}`]);
+    });
+
+    describe('backoff per credential and ip (K6)', () => {
+      const OTHER_IP = '198.51.100.7';
+      const ONE_FREE = { authn: { throttle: { login: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 60000 } } } } };
+
+      it("gives a per-request strategy's account key the ip, and keeps its account-ip bookkeeping", async () => {
+        const { p } = await bootKeys();
+        failure(await p.service.authenticate(bearer('a:bad'), at(0)), 'invalid_credentials');
+        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), [`account=key:a|${IP}`, `account-ip=key:a|${IP}`, `ip=${IP}`]);
+        failure(await p.service.authenticate(bearer('a:bad'), at(1, { ip: undefined })), 'invalid_credentials');
+        assert.deepStrictEqual(throttle!.attempts[1].keys.map(keyId), ['account=key:a|'], 'requests without an ip share one key');
+      });
+
+      it("failures from another ip never delay the credential's owner, and still back the attacker off", async () => {
+        const { p, s } = await bootKeys(ONE_FREE);
+        failure(await p.service.authenticate(bearer('a:forged'), at(0, { ip: OTHER_IP })), 'invalid_credentials');
+        for (let i = 1; i <= 5; i++) failure(await p.service.authenticate(bearer('a:forged'), at(i, { ip: OTHER_IP })), 'throttled');
+        const verified = s.verifyCalls.length;
+        success(await p.service.authenticate(bearer('a:good'), at(10)));
+        success(await p.service.authenticate(bearer('a:good'), at(11)));
+        assert.strictEqual(s.verifyCalls.length, verified + 2);
+        assert.strictEqual(failure(await p.service.authenticate(bearer('a:forged'), at(12, { ip: OTHER_IP })), 'throttled').retryAfterSeconds, 60, "the owner's success does not free the attacker's key");
+      });
+
+      it('a guesser from one ip is throttled by the credential key, then by the ip key across credentials', async () => {
+        const { p, s } = await bootKeys({ authn: { throttle: { login: { account: { free: 2, baseDelayMs: 60000, maxDelayMs: 60000 }, ip: { free: 4, baseDelayMs: 60000, maxDelayMs: 60000 } } } } });
+        failure(await p.service.authenticate(bearer('v:g1'), at(0)), 'invalid_credentials');
+        failure(await p.service.authenticate(bearer('v:g2'), at(1)), 'invalid_credentials');
+        failure(await p.service.authenticate(bearer('v:g3'), at(2)), 'throttled');
+        failure(await p.service.authenticate(bearer('w:g1'), at(3)), 'invalid_credentials');
+        failure(await p.service.authenticate(bearer('x:g1'), at(4)), 'invalid_credentials');
+        const verified = s.verifyCalls.length;
+        failure(await p.service.authenticate(bearer('y:g1'), at(5)), 'throttled');
+        assert.strictEqual(s.verifyCalls.length, verified, 'the ip key refuses before verify');
+      });
+
+      it('keeps a credential-wide account key for interactive strategies', async () => {
+        const { p } = await bootKeys(ONE_FREE, keyLike(true));
+        failure(await p.service.authenticate(bearer('a:bad'), at(0, { purpose: 'login', ip: OTHER_IP })), 'invalid_credentials');
+        assert.deepStrictEqual(throttle!.attempts[0].keys.map(keyId), ['account=key:a', `account-ip=key:a|${OTHER_IP}`, `ip=${OTHER_IP}`]);
+        failure(await p.service.authenticate(bearer('a:good'), at(1, { purpose: 'login' })), 'throttled');
+      });
     });
 
     it('counts before verify when an interactive strategy is among the candidates', async () => {

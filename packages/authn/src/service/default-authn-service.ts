@@ -519,6 +519,10 @@ export class DefaultAuthnService extends AuthnService {
    * The service builds `account-ip` itself and drops the strategies' own (D8b): the throttle takes every `account-ip`
    * in a success off the ip key, so a value without this ip would clear another ip's failures. The attempt counts
    * the union; `succeed` gets only the answering strategy's keys (D8).
+   *
+   * A per-request strategy's `account` key becomes `<account>|<ip>` too (K6): its credential ids travel in clear (a
+   * key id in every signed request), so a credential-wide key would let anyone keep a victim's key or token in
+   * backoff. Guessing stays bounded by that key per ip and by the ip key.
    */
   private keysFor(candidates: readonly AuthenticationStrategy[], c: Credentials, ctx: AuthnContext): Keyed | { strategy: AuthenticationStrategy; error: string } {
     const own = new Map<AuthenticationStrategy, ThrottleKey[]>();
@@ -531,8 +535,12 @@ export class DefaultAuthnService extends AuthnService {
       }
       if (!validKeys(given)) return { strategy: s, error: 'malformed_throttle_keys' };
       const keys = given.filter((k) => k.kind !== 'account-ip').map((k) => ({ kind: k.kind, value: k.value }));
+      const accounts = keys.filter((x) => x.kind === 'account');
       if (nonEmpty(ctx.ip)) {
-        for (const k of keys.filter((x) => x.kind === 'account')) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+        for (const k of accounts) keys.push({ kind: 'account-ip', value: `${k.value}|${ctx.ip}` });
+      }
+      if (!s.interactive) {
+        for (const k of accounts) k.value = `${k.value}|${ctx.ip ?? ''}`;
       }
       own.set(s, keys);
     }

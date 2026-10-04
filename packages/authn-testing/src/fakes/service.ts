@@ -93,7 +93,9 @@ export class FakeAuthnService extends AuthnService {
       await this.audit(ctx, { type: 'login', outcome: 'failure', reason: 'unsupported_credentials' });
       return failure('unsupported_credentials');
     }
-    const keys = this.keysFor(s.throttleKeys(c, ctx), ctx);
+    // A per-request credential's account key is scoped by ip, so nobody elsewhere can hold it in backoff (K6).
+    const own = s.throttleKeys(c, ctx).map((k) => (!s.interactive && k.kind === 'account' ? { kind: k.kind, value: `${k.value}|${ctx.ip ?? ''}` } : k));
+    const keys = this.keysFor(own, ctx);
     const refuse = async (t: Verdict) => {
       if (t.allowed) return null;
       await this.audit(ctx, { type: 'throttle.block', outcome: 'failure', strategy: s.name, reason: 'throttled' });

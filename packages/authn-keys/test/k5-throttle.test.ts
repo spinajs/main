@@ -84,7 +84,7 @@ const statuses = (rs: readonly AuthenticationResult[]): Record<string, number> =
   return out;
 };
 
-describe('authn-keys per-request throttling (K5, DefaultAuthnService)', function () {
+describe('authn-keys per-request throttling (K5, K6, DefaultAuthnService)', function () {
   this.timeout(30_000);
 
   let w: Awaited<ReturnType<typeof world>> | undefined;
@@ -114,6 +114,19 @@ describe('authn-keys per-request throttling (K5, DefaultAuthnService)', function
     w.clock.tick(1000);
     assert.strictEqual((await w.auth(w.signed(kp, kid))).status, 'success', 'the owner after the delay');
     assert.strictEqual((await w.auth(w.assertion(forged, kid))).status, 'failure');
+  });
+
+  it('K6: a forger who knows a kid cannot hold its owner in backoff from another ip, and backs off itself', async () => {
+    w = await world();
+    const { kp, kid } = await w.add();
+    const forged = generateKeyPair('EdDSA');
+    const elsewhere = { ip: '198.51.100.7' };
+    const free = throttleParams().login.account!.free;
+    for (let i = 0; i < free; i++) assert.deepStrictEqual(await w.auth(w.assertion(forged, kid), elsewhere), { status: 'failure', reason: 'invalid_credentials' }, `forged ${i + 1}`);
+    assert.deepStrictEqual(await w.auth(w.signed(forged, kid), elsewhere), { status: 'failure', reason: 'throttled', retryAfterSeconds: 1 });
+    assert.strictEqual((await w.auth(w.assertion(kp, kid))).status, 'success', 'the owner from its own ip');
+    assert.strictEqual((await w.auth(w.signed(kp, kid))).status, 'success');
+    assert.deepStrictEqual(await w.auth(w.assertion(forged, kid), elsewhere), { status: 'failure', reason: 'throttled', retryAfterSeconds: 1 }, 'the forger still waits');
   });
 
   it('keeps the failures of unknown kids on the ip key while valid requests from that ip succeed', async () => {
