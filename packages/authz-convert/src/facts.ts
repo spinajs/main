@@ -12,7 +12,7 @@ export interface DbFacts {
 
 /** What the app's sources say about its models (the `--src` scan). */
 export interface SourceFacts {
-  /** `@OrmResource('X')` resource → files declaring it. */
+  /** `@OrmResource('X')` resource → files declaring it, relative to the scanned dir. */
   readonly resources: ReadonlyMap<string, readonly string[]>;
   /** Files that use `@ResourceOwner()`. */
   readonly ownerFiles: ReadonlySet<string>;
@@ -77,6 +77,7 @@ export function scanSources(dir: string): SourceFacts {
   const resources = new Map<string, string[]>();
   const ownerFiles = new Set<string>();
   const policyScopes = new Set<string>();
+  const root = path.resolve(dir);
   const visit = (d: string) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const full = path.join(d, e.name);
@@ -86,14 +87,15 @@ export function scanSources(dir: string): SourceFacts {
       }
       if (!SOURCE.test(e.name) || e.name.endsWith('.d.ts')) continue;
       const text = fs.readFileSync(full, 'utf-8');
+      const rel = path.relative(root, full).split(path.sep).join('/');
       for (const m of text.matchAll(ORM_RESOURCE)) {
         if (!resources.has(m[1])) resources.set(m[1], []);
-        resources.get(m[1])!.push(full);
+        resources.get(m[1])!.push(rel);
       }
-      if (/@ResourceOwner\(/.test(text)) ownerFiles.add(full);
+      if (/@ResourceOwner\(/.test(text)) ownerFiles.add(rel);
       for (const m of text.matchAll(ORM_PERMISSION)) policyScopes.add(m[1] ?? 'default');
     }
   };
-  visit(path.resolve(dir));
+  visit(root);
   return { resources, ownerFiles, policyScopes };
 }

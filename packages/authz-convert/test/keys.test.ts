@@ -135,6 +135,7 @@ describe('convertKeys', () => {
       const hook = () => undefined;
       const { out, f } = run({ actions: { create: { beforeCreate: [], afterCreate: [hook] } } });
       expect(out.users).to.deep.equal({ users: { actions: { create: { beforeCreate: [] } } } });
+      expect(run({ actions: { create: { afterCreate: [hook] }, update: {} } }).out.users).to.deep.equal({ users: { actions: { update: {} } } });
       expect(f.list.filter((x) => x.severity === 'manual').map((x) => x.path)).to.deep.equal(['rbac.actions.create.afterCreate']);
     });
   });
@@ -207,7 +208,13 @@ describe('convertKeys', () => {
     it('reads the two-factor switch from the merged view and writes no step when it is off', () => {
       const { out, f } = run({ twoFactorAuth: { forceUser: false, enabled: false } }, { twoFactorAuth: { enabled: false, service: 'Default2FaToken' } });
       expect(out.authn).to.deep.equal({ authn: { mfa: { policy: { force: false } } } });
+      expect(out.cleared).to.deep.equal(['authn.mfa.steps']);
       expect(codes(f)).to.deep.equal(['mfa-off']);
+    });
+
+    it('falls back on the 2.x package default (on, Default2FaToken) when the app sets only forceUser', () => {
+      const { out } = run({ twoFactorAuth: { forceUser: true } });
+      expect(out.authn).to.deep.equal({ authn: { mfa: { policy: { force: true }, steps: [{ name: 'totp', service: 'TotpMfaStep' }] } } });
     });
 
     it('leaves a custom two-factor service for a person', () => {
@@ -219,7 +226,7 @@ describe('convertKeys', () => {
   describe('everything else', () => {
     it('leaves keys that are not SpinaJS keys for a person', () => {
       const { out, f } = run({ accountTypes: { a: 1 }, password: { pepper: 'x' } });
-      expect(out).to.deep.equal({ authz: {}, users: {}, authn: {} });
+      expect(out).to.deep.equal({ authz: {}, users: {}, authn: {}, cleared: [] });
       expect(f.list.filter((x) => x.severity === 'manual').map((x) => x.path)).to.deep.equal(['rbac.accountTypes', 'rbac.password.pepper']);
     });
 
@@ -231,7 +238,7 @@ describe('convertKeys', () => {
     });
 
     it('skips grants and roles, which convertGrants handles', () => {
-      expect(run({ grants: { a: {} }, roles: [] }).out).to.deep.equal({ authz: {}, users: {}, authn: {} });
+      expect(run({ grants: { a: {} }, roles: [] }).out).to.deep.equal({ authz: {}, users: {}, authn: {}, cleared: [] });
     });
   });
 });

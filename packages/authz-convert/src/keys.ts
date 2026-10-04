@@ -7,7 +7,21 @@ export interface KeyOutput {
   readonly authz: Plain;
   readonly users: Plain;
   readonly authn: Plain;
+  /** Array keys this layer needs empty (a 2.x switch turned off); an env layer cannot empty what common fills. */
+  readonly cleared: string[];
 }
+
+/**
+ * 2.x package defaults that keys built from several 2.x keys fall back on: the converter reads the app's own
+ * config files only, and a 2.x app that left these out ran with the package values (@spinajs/rbac,
+ * @spinajs/rbac-http-user and @spinajs/rbac-http-admin 2.0.546).
+ */
+export const RBAC_2X_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({
+  'twoFactorAuth.enabled': true,
+  'twoFactorAuth.service': 'Default2FaToken',
+  'admin.roleGuard.privilegedResource': 'users',
+  'admin.roleGuard.privilegedAction': 'update:any',
+});
 
 /** 3.0 array keys a 2.x scalar becomes. Arrays concatenate across config files, so an env layer cannot replace them. */
 export const SCALAR_TO_ARRAY_KEYS: readonly string[] = Object.freeze(['authz.rbac.defaultRoles', 'authz.rbac.anonymousRoles', 'authn.strategies', 'authn.mfa.steps']);
@@ -22,13 +36,13 @@ const VALIDATION_SERVICE = 'BasicPasswordValidationProvider';
 const DAY_SECONDS = 24 * 60 * 60;
 
 class Writer {
-  readonly out: KeyOutput = { authz: {}, users: {}, authn: {} };
+  readonly out: KeyOutput = { authz: {}, users: {}, authn: {}, cleared: [] };
 
   constructor(private readonly f: Findings) {}
 
   set(target: string, value: unknown): void {
     const path = target.split('.');
-    setPath(this.out[path[0] as keyof KeyOutput], path, value);
+    setPath(this.out[path[0] as 'authz' | 'users' | 'authn'], path, value);
   }
 
   /** Copies a 2.x subtree to `target`, leaving out every part a config file cannot hold as a literal. */
@@ -44,7 +58,8 @@ class Writer {
         const kept = this.keepData(v, keyPath(at, k));
         if (kept !== undefined) out[k] = kept;
       }
-      return out;
+      // An object emptied by what was left out says nothing; an object empty in 2.x stays.
+      return Object.keys(out).length === 0 && Object.keys(value).length > 0 ? undefined : out;
     }
     const bad = firstNonData(value, at);
     if (bad !== undefined) {
@@ -98,7 +113,7 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings): KeyOutput
     f.refuse('rbac must be an object');
     return w.out;
   }
-  const m = (path: string): unknown => getPath(merged, ['rbac', ...path.split('.')]);
+  const m = (path: string): unknown => getPath(merged, ['rbac', ...path.split('.')]) ?? RBAC_2X_DEFAULTS[path];
 
   for (const [key, value] of Object.entries(rbac)) {
     const at = `rbac.${key}`;
@@ -420,13 +435,13 @@ function convertMfa(value: unknown, at: string, m: (path: string) => unknown, w:
     const on = asBoolean(value.forceUser, `${at}.forceUser`, f);
     if (on !== undefined) w.set('authn.mfa.policy.force', on);
   }
-  if (value.enabled === undefined && value.service === undefined) return;
   if (value.enabled !== undefined && asBoolean(value.enabled, `${at}.enabled`, f) === undefined) return;
   if (value.service !== undefined && asString(value.service, `${at}.service`, f) === undefined) return;
 
   const enabled = m('twoFactorAuth.enabled');
   const service = m('twoFactorAuth.service');
   if (enabled !== true) {
+    w.out.cleared.push('authn.mfa.steps');
     f.info('mfa-off', 'Two-factor login is off here, so authn.mfa.steps stays empty.', at);
     return;
   }

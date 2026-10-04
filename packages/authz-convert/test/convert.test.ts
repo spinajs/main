@@ -75,6 +75,24 @@ describe('convert', () => {
     expect(r.exitCode).to.equal(2);
   });
 
+  it('drops an array key an env file sets to the common value, and leaves an env that turns it off for a person', async () => {
+    const same = configDir({
+      'rbac.js': { ...HTTP, rbac: { twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.local.js': { rbac: { twoFactorAuth: { enabled: true } } },
+    });
+    const r = await convert({ dirs: [same] });
+    expect(file(r, 'authn-generated.local.ts')).to.equal(undefined);
+    expect(r.findings.filter((x) => x.code === 'env-array')).to.deep.equal([]);
+
+    const off = configDir({
+      'rbac.js': { ...HTTP, rbac: { twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.local.js': { rbac: { twoFactorAuth: { enabled: false } } },
+    });
+    const r2 = await convert({ dirs: [off] });
+    expect(r2.findings.find((x) => x.code === 'env-array')?.message).to.match(/Env 'local' turns off what authn.mfa.steps holds in common/);
+    expect(r2.exitCode).to.equal(2);
+  });
+
   it('collects the refusals of every layer before it gives up', async () => {
     const dir = configDir({
       'rbac.js': { rbac: { grants: { r: { Doc: { 'READ:any': ['*'] } } } } },

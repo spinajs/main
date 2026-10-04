@@ -41,10 +41,11 @@ export function analyze(merged: Plain, layer: string, opts: AnalyzeOptions): Fin
   const grants = grantsOf(merged);
 
   absorbedScopes(grants, f);
-  namesAndCase(merged, grants, f);
+  namesAndCase(merged, grants, f, opts.db !== undefined);
   ownership(merged, opts, f);
   if (opts.db) dbFacts(merged, grants, opts.db, f);
   httpAndSecrets(merged, f);
+  if (layer === 'common') packageDefaults(merged, f);
   return f;
 }
 
@@ -77,7 +78,7 @@ function absorbedScopes(grants: Grants2, f: Findings): void {
   }
 }
 
-function namesAndCase(merged: Plain, grants: Grants2, f: Findings): void {
+function namesAndCase(merged: Plain, grants: Grants2, f: Findings, withDb: boolean): void {
   const declared = strings((Array.isArray(getPath(merged, ['rbac', 'roles'])) ? (getPath(merged, ['rbac', 'roles']) as unknown[]) : []).map((r) => (isPlain(r) ? r.Name : undefined)));
   const known = new Set([...grants.keys(), ...declared]);
   const twin = (name: string) => [...known].find((k) => k !== name && k.toLowerCase() === name.toLowerCase());
@@ -113,7 +114,7 @@ function namesAndCase(merged: Plain, grants: Grants2, f: Findings): void {
   }
 
   const candidates = [...grants.keys()].filter((r) => !declared.includes(r) && r !== defaultRole && [...grants.values()].some((d) => strings(d.$extend).includes(r)));
-  if (candidates.length > 0) {
+  if (candidates.length > 0 && !withDb) {
     f.info(
       'assignable',
       `Roles only used through $extend: ${candidates.map((r) => `'${r}'`).join(', ')}. With --db the converter marks those no user or token holds 'assignable: false'; without it every role stays assignable, as in 2.x.`,
@@ -208,6 +209,7 @@ function httpAndSecrets(merged: Plain, f: Findings): void {
     f.warn('cookie-secret', 'http.cookie.secret is written in a config file, so everyone with the code has it. Rotate it and load it through a secret reference (env or a secret store).', 'http.cookie.secret');
   }
 
+  if (getPath(merged, ['rbac']) === undefined) return;
   const cookie = getPath(merged, ['rbac', 'session', 'cookie']);
   const hostPrefix = isPlain(cookie) ? cookie.hostPrefix : undefined;
   if (hostPrefix !== false && hostPrefix !== 'false') {
@@ -220,5 +222,24 @@ function httpAndSecrets(merged: Plain, f: Findings): void {
   }
   if (isPlain(cookie) && (cookie.secure === false || cookie.secure === 'false')) {
     f.warn('cookie-secure', "secure: false alone no longer relaxes the cookie: hostPrefix 'auto' forces Secure outside development and test. For local http set authn.session.cookie.hostPrefix: false in a development config.", 'rbac.session.cookie.secure');
+  }
+}
+
+/** 2.x package defaults an app ran with by leaving the key out, where 3.0 defaults differ; the converter writes none of them. */
+function packageDefaults(merged: Plain, f: Findings): void {
+  if (getPath(merged, ['rbac']) === undefined) return;
+  if (getPath(merged, ['rbac', 'password', 'expiration', 'enabled']) === undefined) {
+    f.warn(
+      'password-expiry-default',
+      '2.x @spinajs/rbac expired passwords after 31 days unless the app turned it off; 3.0 never expires them unless authn.local.expiration.enabled is true. Set it (and maxAgeDays) if the app relied on the 2.x default.',
+      'rbac.password.expiration',
+    );
+  }
+  if (getPath(merged, ['rbac', 'twoFactorAuth']) === undefined) {
+    f.warn(
+      'mfa-default',
+      "2.x @spinajs/rbac-http-user turned TOTP login on by default; 3.0 ships no MFA step. If the app installed rbac-http-user, add authn.mfa.steps: [{ name: 'totp', service: 'TotpMfaStep' }] and set authn.mfa.encryptionKey.",
+      'rbac.twoFactorAuth',
+    );
   }
 }

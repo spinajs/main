@@ -7,7 +7,7 @@ import { ConversionError, DEFAULT_SELF_RESOURCES, analyze, readDbFacts, scanSour
 import type { DbFacts, Finding } from '../src/index.js';
 
 const SAFE_HTTP = { trustProxy: 1, cors: { origins: ['https://app'] } };
-const SAFE_SESSION = { session: { cookie: { hostPrefix: false } } };
+const SAFE_SESSION = { session: { cookie: { hostPrefix: false } }, password: { expiration: { enabled: false } }, twoFactorAuth: { enabled: false } };
 
 function findings(config: Record<string, unknown>, extra: { db?: DbFacts; src?: ReturnType<typeof scanSources> } = {}): Finding[] {
   const rbac = { ...SAFE_SESSION, ...((config.rbac as object) ?? {}) };
@@ -125,10 +125,18 @@ describe('analyze', () => {
     });
 
     it('says the session cookie gets the __Host- name unless hostPrefix is false, and that secure: false no longer relaxes it', () => {
-      const list = analyze({ http: SAFE_HTTP, rbac: { session: { cookie: { name: 'sid', secure: false } } } }, 'common', { selfResources: [] }).list;
+      const list = analyze({ http: SAFE_HTTP, rbac: { ...SAFE_SESSION, session: { cookie: { name: 'sid', secure: false } } } }, 'common', { selfResources: [] }).list;
       expect(list.map((x) => x.code)).to.deep.equal(['cookie-rename', 'cookie-secure']);
       expect(list[0].message).to.match(/'__Host-sid'/);
     });
+  });
+});
+
+describe('analyze package defaults', () => {
+  it('warns where the app ran with a 2.x package default that 3.0 does not keep', () => {
+    const list = analyze({ http: SAFE_HTTP, rbac: { session: { cookie: { hostPrefix: false } } } }, 'common', { selfResources: [] }).list;
+    expect(list.map((x) => x.code)).to.deep.equal(['password-expiry-default', 'mfa-default']);
+    expect(analyze({ http: SAFE_HTTP }, 'common', { selfResources: [] }).list).to.deep.equal([]);
   });
 });
 
