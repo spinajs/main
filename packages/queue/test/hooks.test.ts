@@ -3,7 +3,7 @@ import { Constructor, DI, Injectable, PerInstanceCheck } from '@spinajs/di';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { expect } from 'chai';
-import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, IQueueMessage, QueueMessage } from './../src/index.js';
+import { QueueJob, Job, jobOptions, QueueService, JobModel, QueueClient, QueueMessageHook, QueueTrackingHook, IQueueMessage, QueueMessage } from './../src/index.js';
 import '@spinajs/orm-sqlite';
 import { MigrationTransactionMode, Orm } from '@spinajs/orm';
 
@@ -324,5 +324,40 @@ describe('@Job inheritance', () => {
 
     expect(jobOptions(new Parent())).to.deep.equal({ runAs: 'system' });
     expect(jobOptions(new Child())).to.deep.equal({});
+  });
+});
+
+let trackingCalls = 0;
+
+class TrackingHook extends QueueTrackingHook {
+  async aroundTracking<T>(next: () => Promise<T>): Promise<T> {
+    trackingCalls++;
+    return next();
+  }
+}
+
+describe('queue tracking hook', () => {
+  beforeEach(async () => {
+    DI.clearCache();
+    trackingCalls = 0;
+    DI.register(HookConf).as(Configuration);
+    DI.register(TrackingHook).as(QueueTrackingHook);
+    await DI.resolve(Configuration);
+    await DI.resolve(Orm);
+  });
+
+  afterEach(() => {
+    DI.clearCache();
+  });
+
+  it('wraps the job row reads and writes', async () => {
+    const queue = await DI.resolve(QueueService);
+    await queue.consume(PlainJob);
+    await PlainJob.emit({});
+    const c = await client();
+    await c.deliver(c.Emitted[c.Emitted.length - 1]);
+
+    expect(trackingCalls).to.be.greaterThan(3);
+    expect(((await JobModel.all())[0] as JobModel<unknown>).Status).to.equal('success');
   });
 });

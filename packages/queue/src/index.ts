@@ -6,12 +6,13 @@ import { JobModel, JOB_TERMINAL_STATUSES } from './models/JobModel.js';
 import { v4 as uuidv4 } from 'uuid';
 import { AutoinjectService } from '@spinajs/configuration';
 import { DateTime } from 'luxon';
-import { runAroundHandle, runBeforeEmit } from './hook-runner.js';
+import { runAroundHandle, runBeforeEmit, tracked } from './hook-runner.js';
 
 export * from './BlackHoleQueueClient.js';
 export * from './interfaces.js';
 export * from './decorators.js';
 export * from './hooks.js';
+export * from './tracking-hook.js';
 export * from './models/JobModel.js';
 export * from './services/JobRetentionService.js';
 export * from './migrations/Queue_2022_10_18_01_13_00.js';
@@ -148,7 +149,7 @@ export class DefaultQueueService extends QueueService {
               // Consumer owns the tracking row. First receipt inserts; a redelivery finds the
               // row from the prior attempt. The queue_jobs.JobId unique index makes a rare
               // concurrent double-receipt safe (second insert collides -> re-read).
-              let jModel = await JobModel.where({ JobId: ev.JobId }).first();
+              let jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).first());
               if (!jModel) {
                 jModel = new JobModel();
                 jModel.JobId = ev.JobId;
@@ -166,10 +167,11 @@ export class DefaultQueueService extends QueueService {
                 jModel.InitiatorId = ev.Initiator?.id;
 
                 try {
-                  await jModel.insert();
+                  const row = jModel;
+                  await tracked(() => row.insert());
                 } catch (e) {
                   // concurrent first-receipt from another worker won the insert; re-read and continue.
-                  jModel = await JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`));
+                  jModel = await tracked(() => JobModel.where({ JobId: ev.JobId }).firstOrThrow(new UnexpectedServerError(`No model found for jobId ${ev.JobId}`)));
                 }
               }
 
@@ -193,7 +195,7 @@ export class DefaultQueueService extends QueueService {
 
               try {
                 // update executing state
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 jobResult = await runAroundHandle(ev, () => ev.execute(onProgress));
 
@@ -217,7 +219,7 @@ export class DefaultQueueService extends QueueService {
                 jModel.Status = jModel.Attempt > maxRetries ? 'dead' : 'retrying';
                 jModel.LastError = err instanceof Error ? err.message : String(err);
 
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 // notify the job of the failed attempt ( e.g. to send an alert on the final one ).
                 // the hook must never mask the original error, so its own failure is only logged.
@@ -233,7 +235,7 @@ export class DefaultQueueService extends QueueService {
                 throw err;
               }
 
-              await jModel.update();
+              await tracked(() => jModel.update());
 
               async function onProgress(p: number, meta?: IJobProgressMeta) {
                 const now = DateTime.now().toMillis();
@@ -257,7 +259,7 @@ export class DefaultQueueService extends QueueService {
                 lastProgress = p;
                 lastProgressAt = now;
                 jModel.Progress = p;
-                await jModel.update();
+                await tracked(() => jModel.update());
 
                 self.Log.trace(`Job ${event.name}:${jModel.JobId} progress: ${p}%`);
               }

@@ -2,6 +2,7 @@ import { Injectable } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
 import { DateTime } from 'luxon';
 import { JobRetentionService } from '../interfaces.js';
+import { tracked } from '../hook-runner.js';
 import { JobModel, JobStatus, JOB_TERMINAL_STATUSES } from '../models/JobModel.js';
 
 /**
@@ -67,17 +68,19 @@ export class DefaultJobRetentionService extends JobRetentionService {
    * JobModel query scopes ( status + date ), then removed by id.
    */
   public async purgeJobs(olderThan: DateTime, statuses?: string[]): Promise<number> {
-    const rows = await JobModel.query()
-      .columns(['Id'])
-      .withStatus((statuses as JobStatus[]) ?? JOB_TERMINAL_STATUSES)
-      .olderThan(olderThan);
+    return tracked(async () => {
+      const rows = await JobModel.query()
+        .columns(['Id'])
+        .withStatus((statuses as JobStatus[]) ?? JOB_TERMINAL_STATUSES)
+        .olderThan(olderThan);
 
-    const ids = rows.map((r) => r.Id);
-    if (ids.length === 0) {
-      return 0;
-    }
+      const ids = rows.map((r) => r.Id);
+      if (ids.length === 0) {
+        return 0;
+      }
 
-    await JobModel.destroy(ids);
-    return ids.length;
+      await JobModel.destroy(ids);
+      return ids.length;
+    });
   }
 }

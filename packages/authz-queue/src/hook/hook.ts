@@ -1,10 +1,11 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { AuthzDomains, SYSTEM, UNATTENDED } from '@spinajs/authz';
+import { SYSTEM, UNATTENDED } from '@spinajs/authz';
 import type { AuthzService, Principal } from '@spinajs/authz';
 import { QueueMessageHook, jobOptions } from '@spinajs/queue';
 import type { IQueueMessage } from '@spinajs/queue';
 import type { Initiator } from '../api.js';
+import { authzFor } from './service.js';
 import { InitiatorPrincipalFactory, reviveCeiling } from './initiator.js';
 
 const isPlain = (v: unknown): boolean => v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
@@ -59,6 +60,6 @@ export class AuthzQueueHook extends QueueMessageHook {
   }
 
   protected async service(): Promise<AuthzService> {
-    return (await DI.resolve(AuthzDomains)).service(this.Domain);
+    return authzFor(this.Domain);
   }
 }
