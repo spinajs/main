@@ -1,0 +1,146 @@
+import { AuthzConfigError, isPermission } from '@spinajs/authz';
+import type { Permission, Policy } from '@spinajs/authz';
+import { Configuration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+
+export type FsAccessMode = 'off' | 'audit' | 'enforce';
+
+/** `authz.fs.<name>` (design §13). */
+export interface FsAccessConfig {
+  readonly mode: FsAccessMode;
+  /** Authz domain the guard asks; default 'root'. */
+  readonly domain: string;
+  /** Class name of a FileMetadataStore. */
+  readonly metadata?: string;
+  readonly stampOwner?: boolean;
+  /** Class name of the FsPathResolver for this filesystem. */
+  readonly resolver?: string;
+  /** fs permission → action checked on the resolver's domain parent. */
+  readonly inherit?: Readonly<Record<Permission, string>>;
+  readonly signedUrl?: { readonly maxTtlSeconds?: number };
+  readonly policies?: readonly Policy[];
+  /** Method → permission(s), added to or replacing the operation table. */
+  readonly operations?: Readonly<Record<string, Permission | readonly Permission[]>>;
+  readonly list?: 'dir' | 'each';
+}
+
+const MODES: readonly FsAccessMode[] = ['off', 'audit', 'enforce'];
+const LISTS: readonly string[] = ['dir', 'each'];
+const KEYS = new Set(['mode', 'domain', 'metadata', 'stampOwner', 'resolver', 'inherit', 'signedUrl', 'policies', 'operations', 'list']);
+
+const OFF: FsAccessConfig = Object.freeze({ mode: 'off', domain: 'root' });
+
+/**
+ * `authz.fs.<fsName>` of the Configuration resolved in `container`, read on every call. A filesystem without an
+ * entry is off (lane D1).
+ */
+export function fsAccessConfig(fsName: string, container: IContainer = DI.RootContainer): FsAccessConfig {
+  const configuration = container.get(Configuration) as Configuration | undefined;
+  if (!configuration || typeof configuration.get !== 'function') {
+    throw new AuthzConfigError(`authz.fs.${fsName}: Configuration is not resolved; await DI.resolve(Configuration) first`);
+  }
+  const all: unknown = configuration.get(['authz', 'fs']);
+  if (all === undefined || all === null) {
+    return OFF;
+  }
+  if (!isRecord(all)) {
+    throw new AuthzConfigError(`authz.fs must be an object keyed by filesystem name, got ${show(all)}`);
+  }
+  return parseFsAccessConfig(fsName, Object.hasOwn(all, fsName) ? all[fsName] : undefined);
+}
+
+/** Validates one `authz.fs.<fsName>` entry; undefined is a missing entry. */
+export function parseFsAccessConfig(fsName: string, entry: unknown): FsAccessConfig {
+  const at = `authz.fs.${fsName}`;
+  if (entry === undefined) {
+    return OFF;
+  }
+  if (!isRecord(entry)) {
+    throw new AuthzConfigError(`${at} must be an object, got ${show(entry)}`);
+  }
+  for (const key of Object.keys(entry)) {
+    if (!KEYS.has(key)) throw new AuthzConfigError(`${at}.${key} is not a known key (expected one of ${[...KEYS].join(', ')})`);
+  }
+
+  // A present entry must say its mode: an entry with policies but a mistyped or missing mode must not be silently off.
+  if (!MODES.includes(entry.mode as FsAccessMode)) {
+    throw new AuthzConfigError(`${at}.mode must be one of ${MODES.join(', ')}, got ${show(entry.mode)}`);
+  }
+  const out: Record<string, unknown> = { mode: entry.mode, domain: 'root' };
+
+  if (entry.domain !== undefined) out.domain = nonEmptyString(entry.domain, `${at}.domain`);
+  if (entry.metadata !== undefined) out.metadata = nonEmptyString(entry.metadata, `${at}.metadata`);
+  if (entry.resolver !== undefined) out.resolver = nonEmptyString(entry.resolver, `${at}.resolver`);
+  if (entry.stampOwner !== undefined) {
+    if (typeof entry.stampOwner !== 'boolean') throw new AuthzConfigError(`${at}.stampOwner must be a boolean, got ${show(entry.stampOwner)}`);
+    out.stampOwner = entry.stampOwner;
+  }
+  if (entry.inherit !== undefined) out.inherit = parseInherit(entry.inherit, `${at}.inherit`);
+  if (entry.signedUrl !== undefined) out.signedUrl = parseSignedUrl(entry.signedUrl, `${at}.signedUrl`);
+  if (entry.policies !== undefined) out.policies = parsePolicies(entry.policies, `${at}.policies`);
+  if (entry.operations !== undefined) out.operations = parseOperations(entry.operations, `${at}.operations`);
+  if (entry.list !== undefined) {
+    if (!LISTS.includes(entry.list as string)) throw new AuthzConfigError(`${at}.list must be one of ${LISTS.join(', ')}, got ${show(entry.list)}`);
+    out.list = entry.list;
+  }
+  return Object.freeze(out) as unknown as FsAccessConfig;
+}
+
+function parseInherit(value: unknown, at: string): Readonly<Record<Permission, string>> {
+  if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object of permission → action, got ${show(value)}`);
+  const out: Record<string, string> = {};
+  for (const [permission, action] of Object.entries(value)) {
+    if (!isPermission(permission)) throw new AuthzConfigError(`${at}.${permission}: the key must be a permission name`);
+    out[permission] = nonEmptyString(action, `${at}.${permission}`);
+  }
+  return Object.freeze(out);
+}
+
+function parseSignedUrl(value: unknown, at: string): { readonly maxTtlSeconds?: number } {
+  if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object, got ${show(value)}`);
+  for (const key of Object.keys(value)) {
+    if (key !== 'maxTtlSeconds') throw new AuthzConfigError(`${at}.${key} is not a known key (expected maxTtlSeconds)`);
+  }
+  if (value.maxTtlSeconds === undefined) return Object.freeze({});
+  const ttl = value.maxTtlSeconds;
+  if (typeof ttl !== 'number' || !Number.isFinite(ttl) || ttl <= 0) throw new AuthzConfigError(`${at}.maxTtlSeconds must be a positive finite number, got ${show(ttl)}`);
+  return Object.freeze({ maxTtlSeconds: ttl });
+}
+
+// The fs-abac model validates each policy; here only the shape the guard relies on.
+function parsePolicies(value: unknown, at: string): readonly Policy[] {
+  if (!Array.isArray(value)) throw new AuthzConfigError(`${at} must be a list of policies, got ${show(value)}`);
+  value.forEach((policy, i) => {
+    if (!isRecord(policy)) throw new AuthzConfigError(`${at}[${i}] must be a policy object, got ${show(policy)}`);
+  });
+  return Object.freeze([...value]) as readonly Policy[];
+}
+
+function parseOperations(value: unknown, at: string): Readonly<Record<string, Permission | readonly Permission[]>> {
+  if (!isRecord(value)) throw new AuthzConfigError(`${at} must be an object of method → permission(s), got ${show(value)}`);
+  const out: Record<string, Permission | readonly Permission[]> = {};
+  for (const [method, permissions] of Object.entries(value)) {
+    const list: unknown[] = Array.isArray(permissions) ? permissions : [permissions];
+    if (list.length === 0 || !list.every(isPermission)) {
+      throw new AuthzConfigError(`${at}.${method} must be a permission name or a non-empty list of them, got ${show(permissions)}`);
+    }
+    out[method] = Array.isArray(permissions) ? Object.freeze([...(permissions as Permission[])]) : (permissions as Permission);
+  }
+  return Object.freeze(out);
+}
+
+function nonEmptyString(value: unknown, at: string): string {
+  if (typeof value !== 'string' || value === '') throw new AuthzConfigError(`${at} must be a non-empty string, got ${show(value)}`);
+  return value;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const show = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+};
