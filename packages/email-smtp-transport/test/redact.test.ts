@@ -20,6 +20,20 @@ function senderFailingWith(err: Error) {
   return { sender, logged };
 }
 
+/** The template downloads, then `Templates.render` rejects with `err`; the render options it got are kept. */
+function senderWithFailingTemplate(err: Error) {
+  const x = senderFailingWith(new Error('sendMail must not be reached'));
+  const renderOptions: unknown[] = [];
+  (x.sender as any).defaultTemplateFs = { Name: 'templates', download: async (path: string) => `/tmp/${path}` };
+  (x.sender as any).Templates = {
+    render: async (_file: string, _model: unknown, _lang?: string, options?: unknown) => {
+      renderOptions.push(options);
+      throw err;
+    },
+  };
+  return { ...x, renderOptions };
+}
+
 const mail = (redact?: string[]): IEmail => ({
   to: ['alice@example.com'],
   from: 'no-reply@example.com',
@@ -59,6 +73,36 @@ describe('smtp sender with secret values ( redact )', () => {
       () => null,
       (e: unknown) => e,
     );
+    expect(err).to.equal(original);
+  });
+
+  it('passes redact to the template engine, then logs and throws a render error without the secret values', async () => {
+    const original = new Error(`helper failed on ${LINK} (${TOKEN})`, { cause: new Error(TOKEN) });
+    const { sender, logged, renderOptions } = senderWithFailingTemplate(original);
+
+    const err = await sender.send({ ...mail([TOKEN, LINK]), template: 'reset.hbs' }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+
+    expect(renderOptions).to.deep.equal([{ redact: [TOKEN, LINK] }]);
+    expect(err).to.not.equal(null);
+    expect(err).to.not.equal(original);
+    expect(err!.message).to.contain('helper failed on');
+    expect((err as any).cause).to.equal(undefined);
+    expect(holds(describeError(err))).to.equal(false);
+    expect(logged.filter((args) => args[0] instanceof Error)).to.have.length(1);
+    expect(holds(logged.map((args) => args.map(describeError).join(' ')).join('\n'))).to.equal(false);
+  });
+
+  it('throws the original render error for a mail without secret values', async () => {
+    const original = new Error('helper failed');
+    const { sender, renderOptions } = senderWithFailingTemplate(original);
+    const err = await sender.send({ ...mail(), template: 'reset.hbs' }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(renderOptions).to.deep.equal([undefined]);
     expect(err).to.equal(original);
   });
 });

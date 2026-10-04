@@ -4,7 +4,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { EmailPasswordMailer, EmailSend, EmailSent, EmailService, IEmail, IPasswordMail, PasswordMailConfiguration } from '../src/index.js';
-import { capturingEmailService, dump, holds } from './capture.js';
+import { capturingEmailService, dump, holds, recordPerf } from './capture.js';
 
 const SECRET = 'Zx9-secret_Q7w';
 const URL_BASE = 'https://app.example.com/password-reset';
@@ -36,6 +36,8 @@ async function failure(p: Promise<unknown>): Promise<Error> {
 }
 
 describe('EmailPasswordMailer', () => {
+  recordPerf();
+
   it('sends a reset mail at once with the 2.x model names, the link, the tag and the secrets to redact', async () => {
     const { mailer, sender, emitted } = mailerWith();
     await mailer.send(aMail());
@@ -180,16 +182,23 @@ class PasswordMailConf extends FrameworkConfiguration {
 describe('EmailPasswordMailer from the container', function () {
   this.timeout(15000);
 
-  beforeEach(async () => {
-    DI.clearCache();
+  before(async () => {
     DI.register(PasswordMailConf).as(Configuration);
     DI.register(RecordingEmailService).as(EmailService);
+    DI.uncache(Configuration);
+    DI.uncache(EmailService);
     await DI.resolve(Configuration);
   });
 
-  // The registry outlives DI.clearCache(): later suites must not resolve this fake as their EmailService.
-  after(() => {
+  after(async () => {
     DI.unregister(RecordingEmailService);
+    DI.unregister(PasswordMailConf);
+    DI.uncache(EmailService);
+    DI.uncache(Configuration);
+    // @Config getters in later suites read whatever Configuration the container holds, so resolve the one registered before.
+    if (DI.check(Configuration)) {
+      await DI.resolve(Configuration);
+    }
   });
 
   it('reads email.password and email.defaultConnection and sends through the registered EmailService', async () => {

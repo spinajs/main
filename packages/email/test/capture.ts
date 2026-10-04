@@ -11,7 +11,22 @@ class RecordingPerfSink extends PerfSink {
   }
 }
 
-DI.register(RecordingPerfSink).as(PerfSink);
+/** Call inside a `describe`: the sink is registered for that suite only. */
+export function recordPerf(): void {
+  const sinks = () => {
+    // Both the container and Perf keep the resolved sink list.
+    DI.uncache(Array.ofType(PerfSink));
+    Perf.refreshSinks();
+  };
+  before(() => {
+    DI.register(RecordingPerfSink).as(PerfSink);
+    sinks();
+  });
+  after(() => {
+    DI.unregister(RecordingPerfSink);
+    sinks();
+  });
+}
 
 /** Records what the transport was handed; `fail` makes it throw that error after recording. */
 export class CapturingSender extends EmailSender {
@@ -58,7 +73,6 @@ export function capturingEmailService() {
   Object.defineProperty(service, 'Configuration', { value: { connections: [options], defaultConnection: 'test' }, configurable: true });
 
   perfMetrics.length = 0;
-  Perf.refreshSinks();
 
   return { service, sender, logged, emitted, perf: perfMetrics };
 }

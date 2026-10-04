@@ -5,7 +5,7 @@ import chaiAsPromised from 'chai-as-promised';
 import { InvalidOperation } from '@spinajs/exceptions';
 
 import { EmailSent, IEmail, redactError, redactText, REDACTED } from '../src/index.js';
-import { capturingEmailService, dump, holds } from './capture.js';
+import { capturingEmailService, dump, holds, recordPerf } from './capture.js';
 
 chai.use(chaiAsPromised);
 
@@ -65,6 +65,8 @@ describe('redaction helpers', () => {
 });
 
 describe('DefaultEmailService with secret values ( redact )', () => {
+  recordPerf();
+
   it('sendDeferred refuses a mail with secret values and emits nothing', async () => {
     const { service, emitted } = capturingEmailService();
     const err = await service.sendDeferred(secretMail()).then(

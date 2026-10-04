@@ -113,8 +113,7 @@ export class DefaultEmailService extends EmailService {
       this.Log.trace(`Failed email recipients on connection ${connection}: ${(email.to ?? []).join(', ')}`);
       Perf.count('email.send.failed', 1, { connection });
 
-      // rethrow the ORIGINAL error so the queue consumer sees the failure and can retry / dead-letter.
-      // A mail with secret values is never queued, so it gets a redacted copy instead.
+      // Rethrow so a queue consumer can retry or dead-letter; for a mail with `redact` this is already the redacted copy.
       throw err;
     }
 

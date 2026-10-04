@@ -110,9 +110,9 @@ export class EmailSenderSmtp extends EmailSender {
       this.Log.trace(`Resolved email template ${tfile}`);
 
       try {
-        html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang);
+        html = await this.Templates.render(tfile, { ...email.model, ...this.Options.templates?.defaults }, email.lang, email.redact ? { redact: email.redact } : undefined);
       } catch (err) {
-        // template rendering is a deterministic failure - log & rethrow the original error, do not retry
+        // template rendering is a deterministic failure - log & rethrow, do not retry
         const failure = redactError(err, email.redact);
         this.Log.error(failure, `Cannot render email template ${tfile} for connection ${this.Options.name}`);
         throw failure;

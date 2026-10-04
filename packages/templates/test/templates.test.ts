@@ -56,6 +56,31 @@ export class StubRenderer extends TemplateRenderer {
   }
 }
 
+const TOKEN = 'tok-3f9a/+=secret';
+const LINK = `https://app.example.com/password-reset?token=${encodeURIComponent(TOKEN)}&email=alice%40example.com`;
+
+/** Fails the way a template helper that quotes its argument would. */
+@Injectable(TemplateRenderer)
+export class ThrowingRenderer extends TemplateRenderer {
+  public static Thrown: Error | null = null;
+
+  public get Type() {
+    return 'throwing';
+  }
+
+  public get Extension() {
+    return '.throw-tpl';
+  }
+
+  public async render(_template: string, model: any): Promise<string> {
+    throw (ThrowingRenderer.Thrown = new Error(`helper failed on ${model.ResetUrl} (${model.Token})`, { cause: new Error(model.Token) }));
+  }
+
+  public async renderToFile(template: string, model: any): Promise<void> {
+    await this.render(template, model);
+  }
+}
+
 class ConfigurationForTests extends FrameworkConfiguration {
   protected onLoad() {
     return {
@@ -287,5 +312,51 @@ describe('templates perf instrumentation', () => {
     expect(spans[0].kind).to.eq('span');
     expect(spans[0].labels?.engine).to.eq('stub');
     expect(spans[0].fields?.template).to.eq('fs://test/stub.test-tpl');
+  });
+
+  const failure = (p: Promise<unknown>) =>
+    p.then(
+      () => {
+        throw new Error('expected a rejection');
+      },
+      (e: Error) => e,
+    );
+  const holds = (text: string) => text.includes(TOKEN) || text.includes(encodeURIComponent(TOKEN));
+  const dump = (e: any) => JSON.stringify({ ...e, name: e?.name, message: e?.message, stack: e?.stack, cause: e?.cause });
+
+  it('with redact, a failed render reaches no sink and no caller with a secret value', async () => {
+    const t = await setup();
+    const model = { Token: TOKEN, ResetUrl: LINK };
+    const options = { redact: [TOKEN, LINK] };
+
+    const errors = [
+      await failure(t.render('mail.throw-tpl', model, undefined, options)),
+      await failure(t.renderToFile('mail.throw-tpl', model, 'out.html', undefined, options)),
+      await failure(t.compile('mail.throw-tpl', 'throwing', model, undefined, options)),
+      await failure(t.compileToFile('mail.throw-tpl', 'throwing', model, 'out.html', undefined, options)),
+    ];
+
+    for (const e of errors) {
+      expect(e).to.not.equal(ThrowingRenderer.Thrown);
+      expect(e.message).to.contain('helper failed on [redacted]');
+      expect((e as any).cause).to.eq(undefined);
+      expect(holds(dump(e))).to.eq(false);
+    }
+    const failed = sink.metrics.filter((m) => m.error !== undefined);
+    expect(failed).to.have.length(4);
+    for (const m of failed) {
+      expect(holds(dump(m.error)), m.name).to.eq(false);
+      expect(holds(JSON.stringify(m.fields, (_k, v) => (v instanceof Error ? dump(v) : v)))).to.eq(false);
+    }
+  });
+
+  it('without redact, a failed render keeps the original error', async () => {
+    const t = await setup();
+    const err = await failure(t.render('mail.throw-tpl', { Token: TOKEN, ResetUrl: LINK }));
+
+    expect(err).to.equal(ThrowingRenderer.Thrown);
+    const failed = sink.metrics.filter((m) => m.error !== undefined);
+    expect(failed).to.have.length(1);
+    expect(failed[0].error).to.equal(ThrowingRenderer.Thrown);
   });
 });

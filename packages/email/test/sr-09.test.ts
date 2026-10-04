@@ -4,17 +4,26 @@ import { DI } from '@spinajs/di';
 import type { AuthnContext } from '@spinajs/authn/contracts';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, FakeIdentityStore, MemoryPasswordCredentialStore, MemorySecretStore, MemorySessionIssuer, RecordingEventSink } from '@spinajs/authn-testing';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, PasswordMailer } from '@spinajs/authn-local';
+import type { PasswordMail } from '@spinajs/authn-local';
 
-import { EmailPasswordMailer, EmailSend, EmailSent, IEmail } from '../src/index.js';
-import { capturingEmailService, dump, holds } from './capture.js';
+import { EmailPasswordMailer, EmailSend, EmailSent, IEmail, IPasswordMail } from '../src/index.js';
+import { capturingEmailService, dump, holds, recordPerf } from './capture.js';
 
 const LOGIN = 'alice@example.com';
 const RESET_URL = 'https://app.example.com/password-reset';
 const ctx = (): AuthnContext => ({ now: new Date(), purpose: 'request', ip: '198.51.100.4', userAgent: 'mocha' });
 
-// Compile-time only: the mailer registers under authn-local's abstract class, which this package never imports at runtime.
-const wiring = () => DI.register(EmailPasswordMailer).as(PasswordMailer);
-void wiring;
+// Compile-time only: fails when IPasswordMail or EmailPasswordMailer drifts from authn-local's contract, which this package
+// never imports at runtime. `as()` accepts any class, so the assignments carry the check.
+const contract = (mail: PasswordMail, local: IPasswordMail, mailer: EmailPasswordMailer) => {
+  const asLocal: IPasswordMail = mail;
+  const asContract: PasswordMail = local;
+  const asMailer: PasswordMailer = mailer;
+  const send: (m: PasswordMail) => Promise<void> = (m) => mailer.send(m);
+  DI.register(EmailPasswordMailer).as(PasswordMailer);
+  return [asLocal, asContract, asMailer, send];
+};
+void contract;
 
 function setup() {
   const email = capturingEmailService();
@@ -47,6 +56,8 @@ function expectNothingHolds(text: string, secrets: string[]) {
 }
 
 describe('SR-09 password mails through @spinajs/email', function () {
+  recordPerf();
+
   this.timeout(60_000);
 
   it('SR-09 queued mail holds no secret: the secret reaches only the transport, never the queue, the email log or an error', async () => {
