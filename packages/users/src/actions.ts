@@ -691,8 +691,8 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 
 /**
  * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` by `actor`.
- * A role the user already holds at GLOBAL is left as it is, expiry and tags included. An unknown or
- * unassignable role is an `InvalidArgument` (field `role`).
+ * As SYSTEM, a role the user already holds at GLOBAL is left as it is, expiry and tags included; another
+ * actor always goes through AuthzAdmin. An unknown or unassignable role is an `InvalidArgument` (field `role`).
  *
  * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
  * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
@@ -707,8 +707,9 @@ export async function grant(identifier: number | string | User, role: string, ac
 
   const u = await getUser(identifier);
 
-  // AuthzAdmin's grant is an upsert: it would reset the expiry and tags of the held assignment.
-  if (!(await holdsGlobalRole(u.Uuid, role))) {
+  // AuthzAdmin's grant is an upsert: it would reset the expiry and tags of the held assignment. Only
+  // SYSTEM skips it; for another actor the answer would tell an unchecked caller which roles a user holds.
+  if (actor !== SYSTEM || !(await holdsGlobalRole(u.Uuid, role))) {
     await assignGlobalRoles(u.Uuid, [role], { reason: 'users:grant', field: 'role', actor });
   }
 

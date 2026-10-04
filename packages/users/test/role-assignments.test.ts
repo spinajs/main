@@ -194,6 +194,14 @@ describe('roles as GLOBAL assignments (H13)', function () {
       expect(await globalRolesOf(target.Uuid)).to.deep.eq(['editor']);
     });
 
+    it('grant with an actor goes through AuthzAdmin even for a held role, so it reveals nothing to an unprivileged caller', async () => {
+      const { User: plain } = await create('plain-actor@spinajs.pl', 'plain-actor', ['user'], { password: 'passw0rd123' });
+
+      const err = await adminFailure(grant('test@spinajs.pl', 'admin', userPrincipal(plain.Uuid)));
+
+      expect(err.code).to.eq('forbidden');
+    });
+
     it("revoke with an actor runs AuthzAdmin's guard (self lockout); as SYSTEM it does not", async () => {
       const err = await adminFailure(revoke('test@spinajs.pl', 'admin', userPrincipal(TEST_USER_UUID)));
 
@@ -249,7 +257,8 @@ describe('roles as GLOBAL assignments (H13)', function () {
       await u.insert();
       await insertAssignmentRow({ subject_type: 'user', subject_id: u.Uuid, role: 'editor', scope_type: GLOBAL.type, expires_at: new Date(Date.now() - 3600 * 1000) });
       await insertAssignmentRow({ subject_type: 'user', subject_id: u.Uuid, role: 'editor', scope_type: 'project', scope_id: 'p1' });
-      await insertAssignmentRow({ subject_type: 'group', subject_id: u.Uuid, subject_role: 'group.member', role: 'editor', scope_type: GLOBAL.type });
+      // A subject set whose scope is this user's own ref: only the subject_role filter leaves it out.
+      await insertAssignmentRow({ subject_type: 'user', subject_id: u.Uuid, subject_role: 'group.member', role: 'editor', scope_type: GLOBAL.type });
 
       expect(await User.query().withRole(['editor'])).to.deep.eq([]);
       expect(await getUsersByRole(['editor'])).to.deep.eq([]);
