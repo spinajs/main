@@ -584,8 +584,7 @@ export class fsS3 extends fs {
     };
   }
 
-  public async getSignedUrl(path: string) {
-
+  public async signedUrl(path: string, opts?: { until?: DateTime; disposition?: string }): Promise<string> {
     if (!this.Signer) {
       throw new InvalidOperation(`Cannot sign url for this S3, no signer service configured`);
     }
@@ -595,8 +594,11 @@ export class fsS3 extends fs {
       throw new IOFail(`File ${path} does not exists in bucket ${this.Options.bucket}, fs: ${this.Options.name}`);
     }
 
+    return this.Signer.sign(path, opts?.until);
+  }
 
-    return this.Signer.sign(path);
+  public async getSignedUrl(path: string, until?: DateTime) {
+    return this.signedUrl(path, { until });
   }
 
   public tmppath(): string {

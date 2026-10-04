@@ -1,7 +1,7 @@
 import { Config, InvalidConfiguration } from '@spinajs/configuration';
 import { AsyncService, ResolveException, sortByDependencies } from '@spinajs/di';
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { fs, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
+import { fs, FsDecorator, IFsConfiguration, IProviderConfiguration } from './interfaces.js';
 import { Log, Logger } from '@spinajs/log-common';
 
 export * from './interfaces.js';
@@ -50,6 +50,7 @@ export class fsService extends AsyncService {
     );
 
     const list = ordered.map((value) => ({ name: value.name, value }));
+    const created: [IProviderConfiguration, fs][] = [];
 
     for (const cProvider of list) {
       const type = rProviders.find((x: any) => x.name === cProvider.value.service);
@@ -62,8 +63,30 @@ export class fsService extends AsyncService {
 
       const fs = await DI.resolve<fs>(type, [cProvider.value]);
       DI.register(fs).asMapValue('__file_provider_instance__', cProvider.value.name);
+      created.push([cProvider.value, fs]);
 
       this.Logger.info(`File provider ${cProvider.value.name} registered, type: ${cProvider.value.service}`);
+    }
+
+    // Only after every provider exists, so providers that looked up others by name
+    // in their own resolve() ( eg. fsTemp backends ) keep the raw instances.
+    await this.decorate(created);
+  }
+
+  protected async decorate(providers: [IProviderConfiguration, fs][]) {
+    const decorators = [...(await DI.resolve(Array.ofType(FsDecorator)))].sort((a, b) => a.order - b.order);
+
+    if (decorators.length === 0) {
+      return;
+    }
+
+    const names = decorators.map((d) => `${d.constructor.name}(${d.order})`).join(', ');
+
+    for (const [config, raw] of providers) {
+      const decorated = decorators.reduce((current, d) => d.decorate(current, config), raw);
+      DI.register(decorated).asMapValue('__file_provider_instance__', config.name);
+
+      this.Logger.info(`File provider ${config.name} decorated with ${names}`);
     }
   }
 }
