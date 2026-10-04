@@ -1,6 +1,7 @@
 import { QueueEvent, Event } from '@spinajs/queue';
-import { AccessToken } from '../models/AccessToken.js';
+import { AccessToken } from '../../models/AccessToken.js';
 
+/** @deprecated 2.x API; use TokenService. R1 removes it. */
 @Event()
 export class AccessTokenEvent extends QueueEvent {
   /**

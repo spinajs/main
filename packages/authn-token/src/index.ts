@@ -1,20 +1,27 @@
 // Side effect imports - these modules register Injectables ( the token
-// generator and the token role policy ) the moment they are loaded, so they
-// must run even if a consumer imports nothing from them.
+// generator, the token and JWT strategies and the token role policy ) the moment they
+// are loaded, so they must run even if a consumer imports nothing from them.
 import './generator.js';
-import './role-policy.js';
+import './strategy/TokenStrategy.js';
+import './jwt/JwtBearerStrategy.js';
+import './legacy/role-policy.js';
 
-export * from './interfaces.js';
-export * from './exceptions.js';
+export * from './generation.js';
 export * from './models/AccessToken.js';
 export * from './migrations/RbacHttpTokenInitial_2026_08_11_01_00_00.js';
 export * from './migrations/RbacHttpTokenProfile_2026_08_21_00_00_00.js';
+export * from './migrations/AuthnTokenScope_2026_10_02_00_00_00.js';
 export * from './generator.js';
-export * from './role-policy.js';
-export * from './events/index.js';
-export * from './actions.js';
+export * from './service/index.js';
+export * from './strategy/TokenStrategy.js';
+export * from './jwt/JwtBearerStrategy.js';
+export * from './cli/TokenCliCommand.js';
 export * from './cli/CreateToken.js';
 export * from './cli/DeleteToken.js';
-export * from './cli/GrantTokenRole.js';
-export * from './cli/RevokeTokenRole.js';
 export * from './cli/DeleteExpiredTokens.js';
+
+export * from './legacy/interfaces.js';
+export * from './legacy/exceptions.js';
+export * from './legacy/role-policy.js';
+export * from './legacy/events/index.js';
+export * from './legacy/actions.js';

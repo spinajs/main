@@ -10,6 +10,8 @@ import { AccessTokenRolePolicy } from './interfaces.js';
  * Safe by construction and needs no access-control lookup, which is why it
  * stays the default - an application that wants finer scopes opts in by
  * registering its own implementation under `rbac.token.rolePolicy.service`.
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 @Injectable(AccessTokenRolePolicy)
 export class OwnRolesTokenRolePolicy extends AccessTokenRolePolicy {
@@ -30,6 +32,8 @@ export class OwnRolesTokenRolePolicy extends AccessTokenRolePolicy {
  *
  * @param role - role name to test
  * @param patterns - exclusion patterns, typically from `rbac.token.excludedRoles`
+ *
+ * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 export function _role_excluded(role: string, patterns: string[]): boolean {
   return patterns.some((pattern) => {

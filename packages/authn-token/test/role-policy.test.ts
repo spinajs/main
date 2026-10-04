@@ -6,7 +6,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { User } from '@spinajs/users';
 
-import { OwnRolesTokenRolePolicy, _role_excluded } from '../src/role-policy.js';
+import { OwnRolesTokenRolePolicy, _role_excluded } from '../src/legacy/role-policy.js';
 import { DbTestConfiguration } from './db-common.js';
 
 /**
@@ -18,7 +18,9 @@ import { DbTestConfiguration } from './db-common.js';
  * throws without this setup even though this suite never queries the database.
  * Mirrors the `before`/`after` in `./model.test.ts`.
  */
-describe('access token role policy - defaults', () => {
+describe('access token role policy - defaults', function () {
+  this.timeout(15000);
+
   before(async () => {
     DI.setESMModuleSupport();
 

@@ -69,6 +69,22 @@ const authnToken = {
       length: 32,
 
       /**
+       * Longest expiry a personal or service token may get. Expiry is mandatory (SR-08).
+       */
+      maxTtlDays: 90,
+
+      /**
+       * Expiry a client (HTTP route, CLI) proposes when the caller gives none.
+       * TokenService itself never fills in an expiry.
+       */
+      defaultTtlDays: 30,
+
+      /**
+       * Longest expiry an agent token may get.
+       */
+      agentMaxTtlMinutes: 1440,
+
+      /**
        * Fallback header checked when no `Authorization: Bearer` is present.
        */
       headerName: 'x-api-key',
@@ -94,7 +110,7 @@ const authnToken = {
        * read by anything shipped in this package, including the default
        * `OwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
        * matching that prefix and everything under it; matching is implemented
-       * by `_role_excluded(role, patterns)` in `src/role-policy.ts`. Empty by
+       * by `_role_excluded(role, patterns)` in `src/legacy/role-policy.ts`. Empty by
        * default: this package has no opinion about which of an application's
        * roles are meaningful to an API caller.
        */

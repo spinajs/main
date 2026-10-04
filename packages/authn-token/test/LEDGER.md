@@ -1,5 +1,7 @@
 # Test ledger: @spinajs/authn-token
 
+Summary (N6): 36 of 61 rows done by N6 (replaced, kept or deleted); 25 left, 17 for T3 and 8 for C5; the 17 T3 rows are in `test/legacy-v2/`.
+
 Every `it` of the 2.x suite of this package at `3d22b6c8f`, classified per
 plan §1 rule 6 (F5). Classes: move, adapt, rewrite, drop (definitions:
 `.authz-sdd/F5-task-7-brief.md`, kept in the header below).
@@ -27,108 +29,147 @@ Mixed files: `actions-crud` (adapt 2, 4, 5 stay with `TokenService` in authn-tok
 
 12 tests; dominant class rewrite (adapt 3, rewrite 5, drop 4).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 72 | access token actions - crud > creates token for user, returns plaintext once, stores only hash | rewrite | N6 | authn-token/test/v3/ (TokenService.create; A14; SR-08 "token without expiry refused"): expiry is mandatory, so the null `ExpiresAt` assertion changes; the plaintext-once and hash-only assertions keep |
-| 2 | 88 | access token actions - crud > accepts expiration date | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
-| 3 | 97 | access token actions - crud > rejects roles the owner does not hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07): the roles-subset rule leaves authn-token (it imports no authz); owner roles come from RBAC assignments, not `User.Role`. OPEN (N6/C5): the create-time refusal (`AccessTokenRoleNotAllowed`, nothing persisted) either survives in 3.0 through `RoleSource`, or becomes narrowing at evaluation only (B07); the replacement follows that decision |
-| 4 | 111 | access token actions - crud > resolves owner by uuid string | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
-| 5 | 118 | access token actions - crud > deletes token by uuid | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) |
-| 6 | 127 | access token actions - crud > grants and revokes role on token, only owner-held roles grantable | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); the owner-held-roles rule is covered by line 97 |
-| 7 | 147 | access token actions - crud > refuses to revoke the last role, leaving the row untouched | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role editing, so no last-role refusal; the empty-role guard at creation is covered by line 97 |
-| 8 | 184 | access token actions - crud > profiles > createToken stores the profile when the policy allows it | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): profile pin and `authz.token.rolePolicy` replace the `rbac.token.rolePolicy` seam; `Profile` becomes `attributes.profile` |
-| 9 | 196 | access token actions - crud > profiles > createToken refuses a profile the policy does not allow | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): policy-allowed profiles; a refused create persists nothing |
-| 10 | 208 | access token actions - crud > profiles > createToken validates roles against the profile, not the owner union | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): roles validated against the profile-relative set, not the owner union |
-| 11 | 222 | access token actions - crud > profiles > grantTokenRole validates against the profile the token is pinned to | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); profile-relative validation is covered by line 208 |
-| 12 | 239 | access token actions - crud > R5: revoking a role the token does not carry emits no event and keeps the row | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role revoke event on a token |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 72 | access token actions - crud > creates token for user, returns plaintext once, stores only hash | rewrite | N6 | authn-token/test/v3/ (TokenService.create; A14; SR-08 "token without expiry refused"): expiry is mandatory, so the null `ExpiresAt` assertion changes; the plaintext-once and hash-only assertions keep | done: replaced in `v3/token-service.test.ts` and by kit case A14 "the plaintext is shown once" |
+| 2 | 88 | access token actions - crud > accepts expiration date | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 3 | 97 | access token actions - crud > rejects roles the owner does not hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07): the roles-subset rule leaves authn-token (it imports no authz); owner roles come from RBAC assignments, not `User.Role`. DECIDED (N6): the create-time refusal survives in 3.0 through `RoleSource` when one is registered (`TokenService.create` answers `invalid_scope`, nothing persisted); without one the roles are stored as given. Check time stays authoritative: the authz-rbac ceiling keeps only roles the owner holds (L1/C5, B07) | create-time half done (`v3/token-service.test.ts`, RoleSource); check-time half left for T3: in `legacy-v2/` |
+| 4 | 111 | access token actions - crud > resolves owner by uuid string | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 5 | 118 | access token actions - crud > deletes token by uuid | adapt | N6 | authn-token/test/ (TokenService; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 6 | 127 | access token actions - crud > grants and revokes role on token, only owner-held roles grantable | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); the owner-held-roles rule is covered by line 97 | done: deleted |
+| 7 | 147 | access token actions - crud > refuses to revoke the last role, leaving the row untouched | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role editing, so no last-role refusal; the empty-role guard at creation is covered by line 97 | done: deleted |
+| 8 | 184 | access token actions - crud > profiles > createToken stores the profile when the policy allows it | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): profile pin and `authz.token.rolePolicy` replace the `rbac.token.rolePolicy` seam; `Profile` becomes `attributes.profile` | left for T3: in `legacy-v2/` |
+| 9 | 196 | access token actions - crud > profiles > createToken refuses a profile the policy does not allow | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): policy-allowed profiles; a refused create persists nothing | left for T3: in `legacy-v2/` |
+| 10 | 208 | access token actions - crud > profiles > createToken validates roles against the profile, not the owner union | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): roles validated against the profile-relative set, not the owner union | left for T3: in `legacy-v2/` |
+| 11 | 222 | access token actions - crud > profiles > grantTokenRole validates against the profile the token is pinned to | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); profile-relative validation is covered by line 208 | done: deleted |
+| 12 | 239 | access token actions - crud > R5: revoking a role the token does not carry emits no event and keeps the row | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); no role revoke event on a token | done: deleted |
+
+Status (N6): rows 1, 3, 8, 9, 10 moved to `legacy-v2/actions-crud.test.ts`; rows 6, 7, 11, 12 deleted (N6 task 0).
+N6 task 2: `test/actions-crud.test.ts` deleted; its rows now live in `v3/token-service.test.ts`:
+row 2 → `create` "stores the given expiry and CreatedAt from ctx.now, not the db default";
+row 4 → `create` "binds the token to the owner row found by users.Uuid";
+row 5 → `revoke` "revokes the token with that uuid and stamps RevokedAt from ctx.now".
+Row 1 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" and
+"mints a prefixed token and stores only its hash", and by the kit case "A14 the plaintext is shown once" (`v3/behaviour.test.ts`).
+N6 task 2 fix: row 3's create-time half is covered in `v3/token-service.test.ts` (`create` > "roles against a registered RoleSource");
+the check-time half stays with T3 in `authz-rbac/test/ported/token/`.
 
 ## test/actions-validate.test.ts
 
 15 tests; dominant class adapt (adapt 8, rewrite 7).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 75 | access token actions - validate & cleanup > validates a good token and returns effective roles | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ + authn-http/test/v3/ (B24, B07): effective roles (token roles ∩ owner roles ∩ policy) are built by the ceiling and RBAC side, not by token validation |
-| 2 | 87 | access token actions - validate & cleanup > rejects unknown token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 3 | 92 | access token actions - validate & cleanup > rejects degenerate input as an unknown token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 4 | 102 | access token actions - validate & cleanup > rejects expired token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 5 | 115 | access token actions - validate & cleanup > infinite token (null expiry) validates | rewrite | N6 | authn-token/test/v3/ (A14, SR-08 "token without expiry refused"): a token with no expiry no longer validates; expiry is mandatory and 2.x rows are back-filled (design §22.18) |
-| 6 | 121 | access token actions - validate & cleanup > rejects token of deactivated owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 7 | 130 | access token actions - validate & cleanup > rejects token of soft-deleted owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 8 | 142 | access token actions - validate & cleanup > rejects token of banned owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 9 | 153 | access token actions - validate & cleanup > effective roles shrink when user loses a role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07, B11): roles shrink with the owner assignments; `User.Role` and `revoke(user, role)` are replaced by assignments |
-| 10 | 163 | access token actions - validate & cleanup > rejects when intersection is empty | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): empty role intersection; 3.0 builds a principal with no roles (RBAC denies) instead of throwing `AccessTokenRoleNotAllowed` in validation |
-| 11 | 186 | access token actions - validate & cleanup > deleteExpiredTokens removes only expired rows | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) |
-| 12 | 208 | access token actions - validate & cleanup > touchToken stamps first use and then throttles writes | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) |
-| 13 | 251 | access token actions - validate & cleanup > profiles > rejects a token whose profile the owner no longer passes | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): profile gate of the role policy |
-| 14 | 264 | access token actions - validate & cleanup > profiles > intersects effective roles against the profile-relative allowed set | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): intersection against the profile-relative allowed set |
-| 15 | 278 | access token actions - validate & cleanup > profiles > leaves a legacy token without a profile untouched by the profile gate | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): a token without a profile ignores the profile gate |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 75 | access token actions - validate & cleanup > validates a good token and returns effective roles | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ + authn-http/test/v3/ (B24, B07): effective roles (token roles ∩ owner roles ∩ policy) are built by the ceiling and RBAC side, not by token validation | left for T3: in `legacy-v2/` |
+| 2 | 87 | access token actions - validate & cleanup > rejects unknown token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 3 | 92 | access token actions - validate & cleanup > rejects degenerate input as an unknown token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 4 | 102 | access token actions - validate & cleanup > rejects expired token | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 5 | 115 | access token actions - validate & cleanup > infinite token (null expiry) validates | rewrite | N6 | authn-token/test/v3/ (A14, SR-08 "token without expiry refused"): a token with no expiry no longer validates; expiry is mandatory and 2.x rows are back-filled (design §22.18) | done: replaced by `create` "SR-08 token without expiry refused" (`v3/token-service.test.ts`) |
+| 6 | 121 | access token actions - validate & cleanup > rejects token of deactivated owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 7 | 130 | access token actions - validate & cleanup > rejects token of soft-deleted owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 8 | 142 | access token actions - validate & cleanup > rejects token of banned owner | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory) | done: `v3/token-service.test.ts` |
+| 9 | 153 | access token actions - validate & cleanup > effective roles shrink when user loses a role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B07, B11): roles shrink with the owner assignments; `User.Role` and `revoke(user, role)` are replaced by assignments | left for T3: in `legacy-v2/` |
+| 10 | 163 | access token actions - validate & cleanup > rejects when intersection is empty | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): empty role intersection; 3.0 builds a principal with no roles (RBAC denies) instead of throwing `AccessTokenRoleNotAllowed` in validation | left for T3: in `legacy-v2/` |
+| 11 | 186 | access token actions - validate & cleanup > deleteExpiredTokens removes only expired rows | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) | done: `v3/cli.test.ts` |
+| 12 | 208 | access token actions - validate & cleanup > touchToken stamps first use and then throttles writes | adapt | N6 | authn-token/test/ (TokenService.validate, A14; owner fixture through the `users` factory). Status N6 (task 3): replaced by `TokenStrategy`'s last-used stamp (`v3/token-strategy.test.ts`); the 2.x test is deleted | done: `v3/token-strategy.test.ts`; the live 2.x `touchToken` stays untested until N8a removes it with the middleware |
+| 13 | 251 | access token actions - validate & cleanup > profiles > rejects a token whose profile the owner no longer passes | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): profile gate of the role policy | left for T3: in `legacy-v2/` |
+| 14 | 264 | access token actions - validate & cleanup > profiles > intersects effective roles against the profile-relative allowed set | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): intersection against the profile-relative allowed set | left for T3: in `legacy-v2/` |
+| 15 | 278 | access token actions - validate & cleanup > profiles > leaves a legacy token without a profile untouched by the profile gate | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): a token without a profile ignores the profile gate | left for T3: in `legacy-v2/` |
+
+Status (N6): rows 1, 5, 9, 10, 13, 14, 15 moved to `legacy-v2/actions-validate.test.ts` (N6 task 0).
+N6 task 2: rows 2, 3, 4, 6, 7, 8 deleted from `test/actions-validate.test.ts`; they now live in `v3/token-service.test.ts` (`validate`):
+rows 2, 3 → "answers invalid_credentials for unknown and degenerate input without throwing";
+row 4 → "answers expired at and after the expiry";
+rows 6, 7, 8 → "answers invalid_credentials for a deactivated / soft-deleted / banned owner, on every use" (owner status through `FakeIdentityStore`).
+Row 5 removed from `legacy-v2/`; replaced by `create` "SR-08 token without expiry refused" (a null-expiry row answers `expired`).
+Row 11 stays in `test/actions-validate.test.ts` (2.x housekeeping API).
+N6 task 6: row 11 deleted from `test/actions-validate.test.ts`; it now lives in `v3/cli.test.ts` (`DbTokenService.deleteExpired`):
+"deletes rows expired at or before now and revoked rows, keeps live and null-expiry rows" and
+"compares against the given now, not the clock of the database".
+N6 task 3: row 12 deleted from `test/actions-validate.test.ts`; it now lives in `v3/token-strategy.test.ts`:
+`TokenStrategy` > `last-used stamp` (first use stamps, a use inside the interval writes nothing, a use after it writes again;
+racing requests write once; a throwing stamp still answers ok) and `DbTokenService.touch`.
 
 ## test/cli.test.ts
 
 9 tests; dominant class adapt (adapt 6, rewrite 1, drop 2).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 52 | access token cli commands > rbac:token-create creates token for user | rewrite | N6 | authn-token/test/v3/ (A14, SR-08 "token without expiry refused"): with no `--expires` the command refuses or applies the default TTL (N6 decides which); the 2.x assertion of a null `ExpiresAt` changes |
-| 2 | 64 | access token cli commands > rbac:token-create honors --expires | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) |
-| 3 | 79 | access token cli commands > rbac:token-create refuses an unparseable --expires without creating anything | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) |
-| 4 | 89 | access token cli commands > rbac:token-create refuses an empty --expires instead of creating an infinite token | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) |
-| 5 | 100 | access token cli commands > rbac:token-delete removes token | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) |
-| 6 | 110 | access token cli commands > rbac:token-delete reports an unknown token instead of rejecting | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) |
-| 7 | 118 | access token cli commands > rbac:token-grant / rbac:token-revoke mutate roles | drop | N6 | N6 task 6 moves only `authn:token-create\|delete\|delete-expired`; the grant/revoke commands are not carried over (3.0 has no token role editing, design §22.9, N8b; see actions-crud line 127) |
-| 8 | 131 | access token cli commands > rbac:token-revoke refuses the last role, leaving the row untouched | drop | N6 | last-role refusal of the removed `token-revoke` command; N6 task 6 lists no grant/revoke commands |
-| 9 | 152 | access token cli commands > rbac:token-delete-expired removes only expired tokens | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 52 | access token cli commands > rbac:token-create creates token for user | rewrite | N6 | authn-token/test/v3/ (A14, SR-08 "token without expiry refused"): with no `--expires` the command refuses or applies the default TTL (N6 decides which); the 2.x assertion of a null `ExpiresAt` changes | done: `v3/cli.test.ts` (default TTL) |
+| 2 | 64 | access token cli commands > rbac:token-create honors --expires | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) | done: `v3/cli.test.ts` |
+| 3 | 79 | access token cli commands > rbac:token-create refuses an unparseable --expires without creating anything | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) | done: `v3/cli.test.ts` |
+| 4 | 89 | access token cli commands > rbac:token-create refuses an empty --expires instead of creating an infinite token | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) | done: `v3/cli.test.ts` |
+| 5 | 100 | access token cli commands > rbac:token-delete removes token | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) | done: `v3/cli.test.ts` |
+| 6 | 110 | access token cli commands > rbac:token-delete reports an unknown token instead of rejecting | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6) | done: `v3/cli.test.ts` |
+| 7 | 118 | access token cli commands > rbac:token-grant / rbac:token-revoke mutate roles | drop | N6 | N6 task 6 moves only `authn:token-create\|delete\|delete-expired`; the grant/revoke commands are not carried over (3.0 has no token role editing, design §22.9, N8b; see actions-crud line 127) | done: deleted |
+| 8 | 131 | access token cli commands > rbac:token-revoke refuses the last role, leaving the row untouched | drop | N6 | last-role refusal of the removed `token-revoke` command; N6 task 6 lists no grant/revoke commands | done: deleted |
+| 9 | 152 | access token cli commands > rbac:token-delete-expired removes only expired tokens | adapt | N6 | authn-token/test/ (command renamed `rbac:token-*` to `authn:token-*`, N6 task 6). The "live" fixture becomes a far-future expiry, or a pre-back-fill row inserted through the model (A14: no null-expiry row is created any more) | done: `v3/cli.test.ts` |
+
+Status (N6): row 1 moved to `legacy-v2/cli.test.ts`; rows 7, 8 deleted (N6 task 0).
+N6 task 6: `test/cli.test.ts` and `legacy-v2/cli.test.ts` deleted; the commands are `authn:token-*` on `TokenService`
+and their rows live in `v3/cli.test.ts`:
+row 1 → `authn:token-create` "applies authn.token.defaultTtlDays from now when --expires is not given" (decision: default TTL, never infinite);
+row 2 → "honours --expires"; row 3 → "refuses an unparseable --expires without creating anything";
+row 4 → "refuses an empty --expires instead of applying the default";
+row 5 → `authn:token-delete` "revokes the token whoever owns it and publishes token.revoke for the owner" (3.0 revokes, it does not delete the row);
+row 6 → "reports an unknown or already revoked token instead of rejecting";
+row 9 → `authn:token-delete-expired` "removes only expired and revoked tokens and prints the count" (the never-expiring fixture is a pre-back-fill row inserted through the model).
+`test/cli-orm-boot.test.ts` checks all three commands against `TokenCliCommand`.
 
 ## test/generator.test.ts
 
 4 tests; dominant class adapt (adapt 4).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 19 | SecureRandomTokenProvider > generates prefixed base64url token with matching sha256 hash | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) |
-| 2 | 27 | SecureRandomTokenProvider > generates unique tokens | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) |
-| 3 | 34 | SecureRandomTokenProvider > hash() is deterministic and matches generate() | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) |
-| 4 | 90 | SecureRandomTokenProvider config wiring > resolved through DI honours authn.token.prefix / authn.token.length | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`). The fixture sets `authn.token.length: 16` (128 bits), below the 256-bit floor of A14; if N6 enforces the floor, the fixture value and the expected 22-char length change |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 19 | SecureRandomTokenProvider > generates prefixed base64url token with matching sha256 hash | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) | done: kept in `test/generator.test.ts` |
+| 2 | 27 | SecureRandomTokenProvider > generates unique tokens | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) | done: kept in `test/generator.test.ts` |
+| 3 | 34 | SecureRandomTokenProvider > hash() is deterministic and matches generate() | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`) | done: kept in `test/generator.test.ts` |
+| 4 | 90 | SecureRandomTokenProvider config wiring > resolved through DI honours authn.token.prefix / authn.token.length | adapt | N6 | authn-token/test/ (A14: prefix `spt_`, 256-bit secret, SHA-256 at rest; config keys already `authn.token.*`). The fixture sets `authn.token.length: 16` (128 bits), below the 256-bit floor of A14; if N6 enforces the floor, the fixture value and the expected 22-char length change | done: kept in `test/generator.test.ts` |
+
+Status (N6): row 4's fixture sets `length: 48` (64 chars), so the test proves the configured length is read (N6 task 2). New: "refuses to mint with an empty prefix or fewer than 32 bytes".
 
 ## test/model.test.ts
 
 5 tests; dominant class adapt (adapt 5).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 45 | AccessToken model > persists and loads a token with roles set and null expiry | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory). If N6 makes `ExpiresAt` NOT NULL (the back-fill alone does not), this row becomes a rewrite |
-| 2 | 65 | AccessToken model > IsExpired is true for past ExpiresAt | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) |
-| 3 | 80 | AccessToken model > hides hash, ids and owner when dehydrated | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) |
-| 4 | 99 | AccessToken model > persists and loads the Profile column | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) |
-| 5 | 113 | AccessToken model > leaves Profile undefined for legacy rows | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 45 | AccessToken model > persists and loads a token with roles set and null expiry | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory). If N6 makes `ExpiresAt` NOT NULL (the back-fill alone does not), this row becomes a rewrite | done: kept in `test/model.test.ts`; `ExpiresAt` stays nullable (2.x rows before the back-fill) |
+| 2 | 65 | AccessToken model > IsExpired is true for past ExpiresAt | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
+| 3 | 80 | AccessToken model > hides hash, ids and owner when dehydrated | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
+| 4 | 99 | AccessToken model > persists and loads the Profile column | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
+| 5 | 113 | AccessToken model > leaves Profile undefined for legacy rows | adapt | N6 | authn-token/test/ (model and table `rbac_access_tokens` kept, design §22.9; owner fixture through the `users` factory) | done: kept in `test/model.test.ts` |
 
 ## test/role-policy-actions.test.ts
 
 8 tests; dominant class rewrite (rewrite 7, drop 1).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 85 | access token actions - role policy > creates a token with a role the owner does not literally hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows |
-| 2 | 94 | access token actions - role policy > refuses a role the policy does not allow | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone |
-| 3 | 107 | access token actions - role policy > grants a role the policy allows | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); the policy-allowed role is covered by line 85 |
-| 4 | 117 | access token actions - role policy > authenticates with the effective roles the policy still allows | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows |
-| 5 | 131 | access token actions - role policy > refuses a token whose roles the policy no longer allows at all | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone |
-| 6 | 156 | access token actions - role policy > never puts a role the policy returns but AccessControl does not know onto a token | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a role the policy returns but RBAC does not know never reaches a token |
-| 7 | 178 | access token actions - role policy > never lets a prototype-chain property name through as an allowed role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): prototype-chain names (`constructor`, `__proto__`) are never roles; keep this guard against a policy-supplied name with the new role lookup |
-| 8 | 188 | access token actions - role policy > never puts a policy-returned unknown role into EffectiveRoles | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a policy-returned unknown role never enters the effective roles |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 85 | access token actions - role policy > creates a token with a role the owner does not literally hold | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows | left for T3: in `legacy-v2/` |
+| 2 | 94 | access token actions - role policy > refuses a role the policy does not allow | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone | left for T3: in `legacy-v2/` |
+| 3 | 107 | access token actions - role policy > grants a role the policy allows | drop | N6 | 3.0 has no token role editing (design §22.9, N6, N8b); the policy-allowed role is covered by line 85 | done: deleted |
+| 4 | 117 | access token actions - role policy > authenticates with the effective roles the policy still allows | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone. OPEN: B24/B07 (never above the owner) vs design §18.3(g) (role allowed when the owner's grants cover it); C5 or the integrator decides before T3 ports these rows | left for T3: in `legacy-v2/` |
+| 5 | 131 | access token actions - role policy > refuses a token whose roles the policy no longer allows at all | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24): the token role policy applies inside RBAC (C5); the AccessControl grants map is gone | left for T3: in `legacy-v2/` |
+| 6 | 156 | access token actions - role policy > never puts a role the policy returns but AccessControl does not know onto a token | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a role the policy returns but RBAC does not know never reaches a token | left for T3: in `legacy-v2/` |
+| 7 | 178 | access token actions - role policy > never lets a prototype-chain property name through as an allowed role | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): prototype-chain names (`constructor`, `__proto__`) are never roles; keep this guard against a policy-supplied name with the new role lookup | left for T3: in `legacy-v2/` |
+| 8 | 188 | access token actions - role policy > never puts a policy-returned unknown role into EffectiveRoles | rewrite | N6 -> T3 | authz-rbac/test/ported/token/ (B24, B02): a policy-returned unknown role never enters the effective roles | left for T3: in `legacy-v2/` |
+
+Status (N6): file moved to `legacy-v2/role-policy-actions.test.ts` with rows 1, 2, 4-8; row 3 deleted (N6 task 0).
 
 ## test/role-policy.test.ts
 
 8 tests; dominant class adapt (move 4, adapt 4).
 
-| # | Line | Test | Class | Lane | Target |
-|---|---|---|---|---|---|
-| 1 | 42 | access token role policy - defaults > OwnRolesTokenRolePolicy > allows exactly the roles the owner holds | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) |
-| 2 | 49 | access token role policy - defaults > OwnRolesTokenRolePolicy > allows nothing for an owner with no roles | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) |
-| 3 | 63 | access token role policy - defaults > OwnRolesTokenRolePolicy > ignores the profile argument - answer stays the owner roles | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) |
-| 4 | 70 | access token role policy - defaults > OwnRolesTokenRolePolicy > offers no profiles by default - the feature is opt-in per application | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) |
-| 5 | 79 | access token role policy - defaults > _role_excluded > matches an exact name | move | C5 | authz-rbac/test/token/ (the `excludedRoles` matcher applies in `rolesOf`/`covers`, C5 task 1; pure function, assertions unchanged). Keeps the dot-boundary prefix semantics; if C5 reuses the core `wildcard`/`glob` matcher (B16), line 89 must still pass |
-| 6 | 84 | access token role policy - defaults > _role_excluded > matches a prefix pattern and everything under it | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) |
-| 7 | 89 | access token role policy - defaults > _role_excluded > does not treat the prefix as a bare string match | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) |
-| 8 | 95 | access token role policy - defaults > _role_excluded > excludes nothing when no patterns are given | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) |
+| # | Line | Test | Class | Lane | Target | Status (N6) |
+|---|---|---|---|---|---|---|
+| 1 | 42 | access token role policy - defaults > OwnRolesTokenRolePolicy > allows exactly the roles the owner holds | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 2 | 49 | access token role policy - defaults > OwnRolesTokenRolePolicy > allows nothing for an owner with no roles | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 3 | 63 | access token role policy - defaults > OwnRolesTokenRolePolicy > ignores the profile argument - answer stays the owner roles | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 4 | 70 | access token role policy - defaults > OwnRolesTokenRolePolicy > offers no profiles by default - the feature is opt-in per application | adapt | C5 | authz-rbac/test/token/ (`authz.token.rolePolicy`, B24; owner roles seeded as assignments, H13, instead of `new User({ Role })`) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 5 | 79 | access token role policy - defaults > _role_excluded > matches an exact name | move | C5 | authz-rbac/test/token/ (the `excludedRoles` matcher applies in `rolesOf`/`covers`, C5 task 1; pure function, assertions unchanged). Keeps the dot-boundary prefix semantics; if C5 reuses the core `wildcard`/`glob` matcher (B16), line 89 must still pass | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 6 | 84 | access token role policy - defaults > _role_excluded > matches a prefix pattern and everything under it | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 7 | 89 | access token role policy - defaults > _role_excluded > does not treat the prefix as a bare string match | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
+| 8 | 95 | access token role policy - defaults > _role_excluded > excludes nothing when no patterns are given | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | left for C5: kept in `test/role-policy.test.ts` (2.x policy under `src/legacy/`) until C5 moves it to `authz-rbac/test/token/` |
