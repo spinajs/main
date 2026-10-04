@@ -19,4 +19,4 @@ const fixtures = BEHAVIOUR_FIXTURES.map((f): BehaviourFixture | FixtureExtension
 
 const harness = () => rbacHarness({ facets: ['ladders', 'rules', 'conditions'], rules: (host) => new ConfigRuleStore(host.world.rbac?.rules ?? []) });
 
-runBehaviour(['B02.rules', 'B05.ladders', 'B05.rules', 'B12.implies', 'B31', 'B32', 'B33', 'B34', 'B35', 'B46.rules'], harness, { strict: true, timeoutMs: 30_000, fixtures });
+runBehaviour(['B02.rules', 'B05.ladders', 'B05.rules', 'B12.implies', 'B31', 'B32', 'B33', 'B34', 'B35', 'B36.rbac', 'B46.rules'], harness, { strict: true, timeoutMs: 30_000, fixtures });
