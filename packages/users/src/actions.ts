@@ -19,7 +19,10 @@ import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
-import { assignGlobalRoles, globalRoleHolders, revokeGlobalRole } from './role-assignments.js';
+import { UserMetadataBase } from './models/UserMetadata.js';
+import { assignGlobalRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole } from './role-assignments.js';
+import type { Principal } from '@spinajs/authz';
+import { SYSTEM } from '@spinajs/authz';
 
 /**
  * ===============================================
@@ -503,6 +506,21 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
 }
 
 /**
+ * Hard-deletes a row `create()` has just inserted, with its metadata. `destroy()` would only soft
+ * delete it and keep its login and email taken. A failure here is logged, not thrown: the caller is
+ * already reporting the error that made it discard the row.
+ */
+async function discardInsertedUser(u: User): Promise<void> {
+  try {
+    const driver = User.query().Driver;
+    await driver.del().from(UserMetadataBase.getModelDescriptor().TableName).where('user_id', u.Id);
+    await driver.del().from(User.getModelDescriptor().TableName).where('Id', u.Id);
+  } catch (err) {
+    DI.resolve(Log, ['rbac']).error(err as Error, `Could not remove the account ${u.Uuid} after its roles failed to be granted; delete it by hand.`);
+  }
+}
+
+/**
  * Creates a new user account.
  *
  * Validates and normalises inputs, refuses a duplicate login / email and
@@ -570,7 +588,7 @@ export async function create(email: string, login: string, roles: string[], opti
 
   // AuthzAdmin refuses an unknown or unassignable role; the dry run makes that refusal come
   // before the account is written rather than leave an account without its roles.
-  await assignGlobalRoles(uuid, roleNames, 'users:create', true);
+  await assignGlobalRoles(uuid, roleNames, { reason: 'users:create', field: 'roles', dryRun: true });
 
   let u = new User({
     Id: options?.id,
@@ -586,7 +604,14 @@ export async function create(email: string, login: string, roles: string[], opti
   u = await runCreateMiddleware(u, 'users.actions.create.beforeCreate');
 
   await insertModel(u);
-  await assignGlobalRoles(u.Uuid, roleNames, 'users:create');
+
+  try {
+    await assignGlobalRoles(u.Uuid, roleNames, { reason: 'users:create', field: 'roles' });
+  } catch (err) {
+    // A row without its roles would hold the login and email forever: a retry fails as a duplicate.
+    await discardInsertedUser(u);
+    throw err;
+  }
 
   if (metadata !== undefined) {
     await setUserMeta(
@@ -665,38 +690,48 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 }
 
 /**
- * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` as SYSTEM.
- * Granting a held role again changes nothing. An unknown or unassignable role is an `InvalidArgument`.
+ * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` by `actor`.
+ * A role the user already holds at GLOBAL is left as it is, expiry and tags included. An unknown or
+ * unassignable role is an `InvalidArgument` (field `role`).
  *
  * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
+ * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
+ * caller that passes no actor must check first; pass the caller's principal to have the guard run.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param role - role name to grant
+ * @param actor - who grants it; default SYSTEM
  * @returns the user
  */
-export async function grant(identifier: number | string | User, role: string): Promise<User> {
+export async function grant(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
   const u = await getUser(identifier);
 
-  await assignGlobalRoles(u.Uuid, [role], 'users:grant');
+  // AuthzAdmin's grant is an upsert: it would reset the expiry and tags of the held assignment.
+  if (!(await holdsGlobalRole(u.Uuid, role))) {
+    await assignGlobalRoles(u.Uuid, [role], { reason: 'users:grant', field: 'role', actor });
+  }
 
   return u;
 }
 
 /**
- * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` as SYSTEM.
+ * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` by `actor`.
  *
  * @deprecated 3.0: AuthzAdmin.execute(actor, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role }]) or AuthzAdmin.revoke(actor, id). R1 deletes it.
+ * As SYSTEM (the default) it skips AuthzAdmin's guard (escalation, last holder, self lockout), so a
+ * caller that passes no actor must check first; pass the caller's principal to have the guard run.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param role - role name to revoke
+ * @param actor - who revokes it; default SYSTEM
  * @returns the user
  */
-export async function revoke(identifier: number | string | User, role: string): Promise<User> {
+export async function revoke(identifier: number | string | User, role: string, actor: Principal = SYSTEM): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
   const u = await getUser(identifier);
 
-  await revokeGlobalRole(u.Uuid, role, 'users:revoke');
+  await revokeGlobalRole(u.Uuid, role, { reason: 'users:revoke', field: 'role', actor });
 
   return u;
 }

@@ -127,9 +127,8 @@ export class TestConfiguration extends FrameworkConfiguration {
             Description: 'test',
           },
         ],
-        // `assertRolesExist` (actions.ts) checks roles against THIS map, resolved
-        // through the `AccessControl` DI singleton - not against the shipped
-        // `packages/users/src/config/users.ts` defaults. This suite runs via
+        // The 2.x `AccessControl` grants the legacy permission tests read, not the
+        // shipped `packages/users/src/config/users.ts` defaults. This suite runs via
         // ts-mocha directly against `src/`, without `DI.setESMModuleSupport()`
         // (unlike eg. users-http/authn-token), so the configuration
         // loader's node_modules/@spinajs/*/lib/mjs/config discovery never engages
@@ -206,7 +205,9 @@ export class TestConfiguration extends FrameworkConfiguration {
             user: {},
             normal: {},
             editor: {},
-            'admin.users': { assignable: false, grants: ['users:read', 'users:update'] },
+            'admin.users': { assignable: false, grants: ['users:read', 'users:update', 'authz:assignments.manage'] },
+            // May manage assignments and nothing else: AuthzAdmin's guard refuses it any role with more.
+            assigner: { grants: ['authz:assignments.manage'] },
             admin: { extends: ['admin.users'] },
           },
         },
