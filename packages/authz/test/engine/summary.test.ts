@@ -3,7 +3,7 @@ import 'mocha';
 
 import { Authorizer, MAX_SUMMARY_PERMISSIONS } from '../../src/engine/authorizer.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
-import { AuthzConfigError, CONDITION_UNKNOWN, CORE_FILTER_OPS, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistry, SYSTEM, TRUE, UNATTENDED, subtractFieldGlobs, unionFieldGlobs } from '../../src/index.js';
+import { AuthzConfigError, CONDITION_UNKNOWN, CORE_FILTER_OPS, Combinator, DefaultConditionCompiler, FALSE, GLOBAL, PermissionRegistry, SYSTEM, TRUE, UNATTENDED, not, or, simplify, subtractFieldGlobs, unionFieldGlobs } from '../../src/index.js';
 import type { AuthnFacts, Condition, DecisionRequest, EvaluationContext, ModelSummary, Permission, PermissionDef, Principal, ResourceFilter, ResourceRef, Vote } from '../../src/index.js';
 import type { PermissionInput } from '../../src/engine/registry.js';
 import { DenyOverrides } from '../../src/engine/combinators.js';
@@ -678,13 +678,18 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
     expect(await make({ models: [m1, m2(false)], combine }).covers(alice, bob)).to.equal(true);
   });
 
-  it('a combinator that throws for a target check makes covers false', async () => {
-    // Only bob's doc:write is conditional, so the combinator fails for that check alone.
+  it('a custom combinator, one that throws for a target check included, makes covers false before any check (E1 final review I2)', async () => {
+    // Only bob's doc:write is conditional, so the combinator would fail for that check alone.
     const throwsOnCmp = flaky((votes) => votes.some((v) => v.permitWhen.op === 'cmp'));
     const rbac = new Summarizing('rbac', { vote: table('rbac', { ...grants, bob: { 'doc:read': P(), 'doc:write': P(isPublic) } }) });
     const options = { combinators: [throwsOnCmp as never], combine: { default: { algorithm: 'flaky' } } };
     expect(await make({ models: [rbac], ...options }).covers(alice, bob)).to.equal(false);
-    expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })], ...options }).covers(alice, bob)).to.equal(true);
+    const clean = new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) });
+    expect(await make({ models: [clean], ...options }).covers(alice, bob)).to.equal(false);
+    expect(rbac.calls.length + clean.calls.length).to.equal(0);
+    expect(log.at('error').some((e) => e.message.includes('covers is false') && e.message.includes('"flaky"'))).to.equal(true);
+    // Control: the same worlds under deny-overrides.
+    expect(await make({ models: [new Summarizing('rbac', { vote: table('rbac', bobWithoutWrite) })] }).covers(alice, bob)).to.equal(true);
   });
 
   it('a scope attribute load that rejects or times out in the binder makes covers false', async () => {
@@ -745,7 +750,14 @@ describe('Authorizer.covers and summary: decisions that rest on an engine fault 
 
   it('a faulted decision is never cached: a later check or covers in the same request evaluates it again', async () => {
     let fail = true;
-    const a = make({ models: [new Summarizing('rbac', { vote: table('rbac', grants) })], combinators: [flaky(() => fail) as never], combine: { default: { algorithm: 'flaky' } } });
+    // A vote fault, not a custom combinator: covers refuses those before any check.
+    const rbac = new Summarizing('rbac', {
+      vote: (req: DecisionRequest) => {
+        if (fail && bobWrite(req)) throw new Error('db down');
+        return table('rbac', grants)(req);
+      },
+    });
+    const a = make({ models: [rbac] });
     const cache = new Map<string, unknown>();
     expect((await a.check({ principal: bob, permission: 'doc:write', resource: GLOBAL }, { cache })).reason?.code).to.equal('model_error');
     fail = false;
@@ -1313,6 +1325,107 @@ describe('Authorizer.covers and summary: model summaries (RFC L1-3)', () => {
         () => ({ model: 'rbac', permissions: [entry('doc:read'), entry('doc:write')] }),
       );
       expect(pairs(await make({ models: [rbac] }).summary(alice))).to.deep.equal([['doc:read', true]]);
+    });
+  });
+});
+
+describe('Authorizer.covers: E1 final review', () => {
+  const coversFalseLogged = (what: string) => log.at('error').some((e) => e.message.includes('covers is false') && e.message.includes(what));
+  const DOC: ResourceRef = { type: 'doc' };
+
+  describe("I1: the holder's fields come only from its unconditional permits", () => {
+    const gold: ResourceFilter = { op: 'cmp', field: 'tier', cmp: 'eq', value: 'gold' };
+    /** h reads the name of every doc and may write; t reads every field of every doc. */
+    const rbac = () => new Summarizing('rbac', { vote: table('rbac', { h: { 'doc:read': P(TRUE, { fields: { read: ['name'] } }), 'doc:write': P() }, t: { 'doc:read': P() } }) });
+    /** A second model's permit for h on doc:read with every field, under `when`. */
+    const abac = (when: ResourceFilter) => new Summarizing('abac', { vote: table('abac', { h: { 'doc:read': P(when) } }) });
+    const h = principal('user', 'h');
+    const t = principal('user', 't');
+
+    it('a conditional permit of another model does not widen what the holder covers', async () => {
+      const a = make({ models: [rbac(), abac(gold)] });
+      // The decision's fields stay the union, conditional permits included.
+      for (const resource of [GLOBAL, DOC]) {
+        const d = await a.check({ principal: h, permission: 'doc:read', resource });
+        expect(d.residual).to.deep.equal(TRUE);
+        expect(d.fields.read).to.include('*');
+      }
+      expect((await a.check({ principal: h, permission: 'doc:read', resource: DOC, subject: { tier: 'silver' } })).allowed).to.equal(true);
+      expect(await a.covers(h, t)).to.equal(false);
+      // Control: without the conditional permit h reads the name only, and does not cover t either.
+      expect(await make({ models: [rbac(), abac(FALSE)] }).covers(h, t)).to.equal(false);
+    });
+
+    it('a holder whose every field comes from an unconditional permit of another model still covers', async () => {
+      expect(await make({ models: [rbac(), abac(TRUE)] }).covers(h, t)).to.equal(true);
+    });
+
+    it('a holder with no unconditional permit is judged on the fields every conditional permit gives', async () => {
+      const read = (when: ResourceFilter, fields: string[]) => P(when, { fields: { read: fields } });
+      // Both residuals are or(isPublic, gold); t reads the title on every row it may read.
+      const world = (hGold: string[]) =>
+        make({
+          models: [new Summarizing('rbac', { vote: table('rbac', { h: { 'doc:read': read(isPublic, ['title', 'body']), 'doc:write': P() }, t: { 'doc:read': read(isPublic, ['title']) } }) }), new Summarizing('abac', { vote: table('abac', { h: { 'doc:read': read(gold, hGold) }, t: { 'doc:read': read(gold, ['title']) } }) })],
+        });
+      // On a gold row that is not public h reads the body only.
+      expect(await world(['body']).covers(h, t)).to.equal(false);
+      // Control: h reads the title on those rows too.
+      expect(await world(['title']).covers(h, t)).to.equal(true);
+    });
+  });
+
+  describe('I2: covers refuses plans with a custom combinator', () => {
+    /** XACML's permit-unless-deny: allows without any permit. */
+    class PermitUnlessDeny extends Combinator {
+      readonly name = 'permit-unless-deny';
+      combine(votes: readonly Vote[]): { allow: ResourceFilter } {
+        return { allow: simplify(not(or(...votes.map((v) => (v.error === undefined ? v.denyWhen : TRUE))))) };
+      }
+    }
+    const NO: Vote = { model: 'abac', permitWhen: FALSE, denyWhen: FALSE, cacheable: true };
+    /** doc:delete is denied below aal2 and to the support department. */
+    const abac = () =>
+      new Summarizing('abac', {
+        vote: (req: DecisionRequest): Vote => {
+          if (req.permission !== 'doc:delete') return NO;
+          const denied = req.principal.authn?.assurance !== 'aal2' || req.principal.attributes?.dept === 'support';
+          return denied ? { ...NO, denyWhen: TRUE, denies: [{ when: TRUE, reason: { code: 'policy' } }] } : NO;
+        },
+      });
+    const rbac = () => new Summarizing('rbac', { vote: table('rbac', { helper: { 'org:view': P() } }) });
+    const world = (combine: AuthorizerOptions['combine']) => make({ models: [abac(), rbac()], combinators: [new PermitUnlessDeny()], combine });
+    const authn = (impersonator?: Principal): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['totp'], authenticatedAt: clock.now, ...(impersonator ? { impersonator: { type: impersonator.type, id: impersonator.id } } : {}) });
+    const del = principal('user', 'del', { attributes: { dept: 'sales' } });
+    let helper: Principal;
+    let session: Principal;
+    beforeEach(() => {
+      helper = principal('user', 'helper', { attributes: { dept: 'support' }, authn: authn() });
+      session = principal('user', 'del', { attributes: { dept: 'sales' }, authn: authn(helper) });
+    });
+    const deletes = async (a: Authorizer, p: Principal) => (await a.check({ principal: p, permission: 'doc:delete', resource: DOC })).allowed;
+
+    it('a custom combinator that allows without a permit makes covers false and is logged', async () => {
+      const a = world({ default: { algorithm: 'deny-overrides' }, types: { doc: { algorithm: 'permit-unless-deny' } } });
+      expect(await deletes(a, del)).to.equal(false);
+      expect(await deletes(a, helper)).to.equal(false);
+      // The impersonated session deletes, though neither check nor summary of del shows it.
+      expect(await deletes(a, session)).to.equal(true);
+      expect(await a.covers(helper, del)).to.equal(false);
+      expect(coversFalseLogged('permit-unless-deny')).to.equal(true);
+    });
+
+    it('a custom combinator as the default algorithm makes covers false too', async () => {
+      expect(await world({ default: { algorithm: 'permit-unless-deny' } }).covers(helper, del)).to.equal(false);
+      expect(coversFalseLogged('permit-unless-deny')).to.equal(true);
+    });
+
+    it('control: the same world under a built-in algorithm is unchanged', async () => {
+      for (const algorithm of ['deny-overrides', 'permit-overrides', 'first-applicable']) {
+        const a = world({ default: { algorithm: 'deny-overrides' }, types: { doc: { algorithm } } });
+        expect(await deletes(a, session), algorithm).to.equal(false);
+        expect(await a.covers(helper, del), algorithm).to.equal(true);
+      }
+      expect(coversFalseLogged('')).to.equal(false);
     });
   });
 });
