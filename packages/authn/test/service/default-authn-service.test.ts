@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { FakeClock, FakeStrategy, fakeHash } from '@spinajs/authn-testing';
 import type { Configuration } from '@spinajs/configuration';
-import type { IContainer } from '@spinajs/di';
+import type { Class, IContainer } from '@spinajs/di';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
@@ -443,7 +443,9 @@ describe('DefaultAuthnService', function () {
         const p = await boot([keyLike(), login], { raw: ONE_FREE });
         p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
         for (const spelled of [`key:a|${IP}`, `request:key:a|${IP}`, 'key:a', 'request:key:a']) {
-          for (let i = 0; i < 3; i++) await p.service.authenticate(pw(spelled, WRONG), at(i, { purpose: 'login', ip: OTHER_IP }));
+          const tries = [];
+          for (let i = 0; i < 3; i++) tries.push(await p.service.authenticate(pw(spelled, WRONG), at(i, { purpose: 'login', ip: OTHER_IP })));
+          failure(tries[2], 'throttled');
         }
         success(await p.service.authenticate(bearer('a:good'), at(10)));
       });
@@ -1007,6 +1009,18 @@ describe('DefaultAuthnService', function () {
       failure(await p.service.authenticate(external, ctx()), 'invalid_credentials');
       assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
       assert.ok(!p.events.all().some((e) => e.type === 'mfa.challenge'));
+    });
+
+    it('skips an instance of the abstract base that a resolve of ExternalLoginHook itself left behind', async () => {
+      const { p, calls } = await bootHooks();
+      await p.child.resolve(ExternalLoginHook as unknown as Class<ExternalLoginHook>);
+      const a = await seedAlice(p);
+      await p.links.link(a, subject());
+      success(await p.service.authenticate(external, ctx()));
+      assert.deepStrictEqual(
+        calls.map((c) => c.hook),
+        ['first', 'second'],
+      );
     });
 
     it('a hook that cannot be built fails the login closed', async () => {

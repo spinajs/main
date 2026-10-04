@@ -3644,7 +3644,7 @@ only their failures: the service calls `throttle.peek` before verify (a
 delay refuses as above; nothing is counted), verifies, and calls
 `attempt` only after a failure (any non-success); a success calls
 `succeed` as above. And their `account` key is scoped by the client IP
-(`<credential id>|<ip>`): credential ids such as key ids travel in
+(`request:<credential id>|<ip>`): credential ids such as key ids travel in
 clear, so a credential-wide key would let anyone keep a victim's key or
 token in backoff. Failures from one IP delay that credential from that
 IP only; the `ip` key and its rules do not change. Trade-off: the peek
@@ -3994,10 +3994,12 @@ use.
   attempt n on a key sets its next allowed time to `last_attempt_at +
   min(baseDelayMs × 2^(n − free), maxDelayMs)` once n ≥ `free` (zero
   before). Rules:
-  - (K6) A per-request strategy's `account` key is `<credential id>|<ip>`,
-    not the credential alone (§22.4): failures sent from one IP never
-    delay the credential's owner elsewhere. Interactive strategies keep
-    the credential-wide key.
+  - (K6) A per-request strategy's `account` key is
+    `request:<credential id>|<ip>`, not the credential alone (§22.4):
+    failures sent from one IP never delay the credential's owner
+    elsewhere. Interactive strategies keep the credential-wide key
+    `login:<account>`; the prefixes keep a login string from naming a
+    per-request key.
   - Count before verify: `attempt()` counts and claims the slot in one
     compare-and-set (`UPDATE … SET attempts = :n + 1, last_attempt_at =
     :now, next_allowed_at = :next WHERE k = :k AND attempts = :n AND
