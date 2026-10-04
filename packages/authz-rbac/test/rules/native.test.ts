@@ -690,12 +690,16 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect((await vote(b, 'file:edit', FILE)).validUntil).to.deep.equal(new Date(NOW.getTime() + HOUR));
     });
 
-    it('no grant of the permission reachable: FALSE with no_access, no threshold terms', async () => {
+    it('no grant of the permission reachable: FALSE with no_access, and the threshold terms a check denies by', async () => {
       const b = await build([assignment('a1', 'viewer', P1)], [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:admin'], minRole: 'maintainer' }]);
       const v = await vote(b, 'file:admin', FILE);
       expect(v.permitWhen).to.deep.equal(FALSE);
-      expect(v.denies).to.equal(undefined);
-      expect(terms(v.denyWhen, RBAC_THRESHOLD_OP)).to.deep.equal([]);
+      expect(terms(v.denyWhen, RBAC_THRESHOLD_OP)).to.have.length(1);
+      // The check of a row denies by the threshold too: another model's permit must not pass it in a list.
+      const row = await vote(b, 'file:admin', FILES[0].ref);
+      expect([row.permitWhen.op, row.denyWhen.op]).to.deep.equal(['false', 'true']);
+      const c = b.ctx();
+      expect(await allows((await vote(b, 'file:admin', FILE, userPrincipal('alice'), c)).denyWhen, FILES[0], userPrincipal('alice'), c)).to.equal(true);
     });
   });
 });

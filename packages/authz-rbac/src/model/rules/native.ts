@@ -60,20 +60,18 @@ export function nativeListVote(s: RbacState, grantResidual: (g: CompiledGrant) =
   const ends = [...native.expires];
   if (s.validUntil) ends.push(s.validUntil.getTime());
   if (!native.cacheable) s.cacheable = false;
-  if (grants.size === 0) {
-    s.reasons.push({ code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access });
-    return;
+  // A check denies by a threshold whether or not a grant permits; another model's permit must not pass it.
+  for (const r of native.rules) {
+    if (r.kind === 'threshold') s.denies.push({ when: { op: RBAC_THRESHOLD_OP, args: rbacThresholdArgs(context, { rule: r.id }) }, reason: native.reasons.get(r.id) ?? DB_THRESHOLD_REASON });
   }
+  if (native.dbRules) s.denies.push({ when: { op: RBAC_THRESHOLD_OP, args: rbacThresholdArgs(context, { db: true }) }, reason: DB_THRESHOLD_REASON });
   const conditional: (FieldGlobs | undefined)[] = [];
   for (const [g, holders] of grants) {
     s.permit.push(and({ op: RBAC_ASSIGNMENT_OP, args: rbacAssignmentArgsV2(context, routeOf(s, g)) }, grantResidual(g)));
     conditional.push(g.fieldGlobs);
     for (const h of holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
-  for (const r of native.rules) {
-    if (r.kind === 'threshold') s.denies.push({ when: { op: RBAC_THRESHOLD_OP, args: rbacThresholdArgs(context, { rule: r.id }) }, reason: native.reasons.get(r.id) ?? DB_THRESHOLD_REASON });
-  }
-  if (native.dbRules) s.denies.push({ when: { op: RBAC_THRESHOLD_OP, args: rbacThresholdArgs(context, { db: true }) }, reason: DB_THRESHOLD_REASON });
+  if (grants.size === 0) s.reasons.push({ code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access });
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
   const fields = fieldGlobs([], conditional);
   if (fields) s.fields = fields;
