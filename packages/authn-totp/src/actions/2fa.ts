@@ -15,6 +15,8 @@ import { User2FaDisabled } from '../events/User2FaDisabled.js';
  *
  * The event is emitted for the USER, while the action resolves with whatever
  * the provider call returned ( `initialize()` returns the otpauth url ).
+ *
+ * @deprecated Use `TotpMfaStep`.
  */
 export async function enableUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
@@ -30,6 +32,8 @@ export async function enableUser2Fa(identifier: number | string | User) {
  * Hand the user a secret without switching 2fa on. No event is emitted: an
  * enrolment nobody confirmed is not a fact about the account, and consumers
  * listening for User2FaEnabled would otherwise fire on an abandoned attempt.
+ *
+ * @deprecated Use `TotpMfaStep`.
  */
 export async function beginUser2FaEnrolment(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
@@ -42,6 +46,8 @@ export async function beginUser2FaEnrolment(identifier: number | string | User) 
  * Switch 2fa on for an account whose code was already verified by the caller.
  * The login-window flow needs this split: `auth2Fa` has already checked the
  * code and emitted User2FaPassed by the time the session is authorized.
+ *
+ * @deprecated Use `TotpMfaStep`.
  */
 export async function activateUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
@@ -57,6 +63,8 @@ export async function activateUser2Fa(identifier: number | string | User) {
  * Complete an enrolment started by `beginUser2FaEnrolment`: verify the code
  * against the stored secret, then switch 2fa on. Throws Unauthorized when the
  * code does not match, leaving the enrolment pending so the user can retry.
+ *
+ * @deprecated Use `TotpMfaStep`.
  */
 export async function confirmUser2Fa(identifier: number | string | User, token: string) {
   token = _check_arg(_trim(), _non_empty())(token, 'token');
@@ -74,6 +82,7 @@ export async function confirmUser2Fa(identifier: number | string | User, token: 
   return activateUser2Fa(u);
 }
 
+/** @deprecated Use `TotpMfaStep`. */
 export async function disableUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
@@ -84,6 +93,7 @@ export async function disableUser2Fa(identifier: number | string | User) {
   return u;
 }
 
+/** @deprecated Use `TotpMfaStep`. */
 export async function resetUser2Fa(identifier: number | string | User) {
   const u = await getUserUnsafe(identifier);
   const twoFa = await service('rbac.twoFactorAuth', TwoFactorAuthProvider);
@@ -103,6 +113,8 @@ export async function resetUser2Fa(identifier: number | string | User) {
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User}
  * @param token - 2fa code to verify
+ *
+ * @deprecated Use `TotpMfaStep`.
  */
 export async function auth2Fa(identifier: number | string | User, token: string) {
   token = _check_arg(_trim(), _non_empty())(token, 'token');

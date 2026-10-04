@@ -1,6 +1,7 @@
 import { User } from '@spinajs/users';
 import { MethodNotImplemented } from '@spinajs/exceptions';
 
+/** @deprecated Use `TotpMfaStep` (the `MfaStep` contract of `@spinajs/authn`). */
 export abstract class TwoFactorAuthProvider {
   /**
    * generate secret key if this provider use is needs it or null
