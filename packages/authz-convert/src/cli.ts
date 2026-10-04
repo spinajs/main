@@ -3,6 +3,7 @@ import * as path from 'node:path';
 
 import { convert } from './convert.js';
 import { readDbFacts, scanSources } from './facts.js';
+import { DEFAULT_SELF_RESOURCES } from './grants.js';
 import { ConversionError } from './findings.js';
 
 const USAGE = `Usage: spinajs-authz-convert <config-dir>... [options]
@@ -16,7 +17,7 @@ Options:
                             "tokens": [{ "Id", "Roles", "ExpiresAt" }] }
   --src <dir>               app sources to scan for @OrmResource, @ResourceOwner and @OrmPermission
   --self-resources <a,b>    resources whose :own means the caller's own account
-                            (default: user,users,UserBase)
+                            (default: ${DEFAULT_SELF_RESOURCES.join(',')})
   --force                   overwrite files that already exist in --out
   --help
 

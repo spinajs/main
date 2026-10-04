@@ -20,5 +20,6 @@ export default {
       expiration: { service: 'SlidingExpiration', ttl: 1440 },
       cookie: { sameSite: 'none', secure: true },
     },
+    strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
   },
 };

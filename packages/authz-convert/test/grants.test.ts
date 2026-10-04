@@ -252,6 +252,21 @@ describe('convertGrants', () => {
     });
   });
 
+  describe('2.x package grants', () => {
+    it('refuses a negation or scope token on a key a 2.x package also granted, which 2.x joined with the package list', () => {
+      refused({ grants: { 'admin.users': { users: { 'read:any': ['*', '!Salary'] } } } }, /a 2\.x package grants the same key/);
+      refused({ grants: { user: { 'user.metadata': { 'read:own': ['scope:pool'] } } } }, /a 2\.x package grants the same key/);
+      refused({ grants: { user: { user: { 'update:own': ['*', '!Password'] } } } }, /a 2\.x package grants the same key/);
+    });
+
+    it('keeps a plain list or a negation of a field the package never gave, which is the same union in 3.0', () => {
+      const { r, f } = run({ grants: { user: { user: { 'read:own': ['*', '!Password'] } }, 'admin.users': { users: { 'read:any': ['Name'] } } } });
+      expect(f.problems).to.deep.equal([]);
+      expect(r.roles.get('admin.users')!.grants).to.deep.equal([{ permission: 'users:read', fields: { read: ['Name'] } }]);
+      expect(f.list.filter((x) => x.code === 'package-grant')).to.have.length(2);
+    });
+  });
+
   describe('refusals', () => {
     it('refuses an action accesscontrol would refuse', () => {
       refused({ grants: { r: { Doc: { 'READ:any': ['*'] } } } }, /not a 2\.x action/);
@@ -285,7 +300,7 @@ describe('convertGrants', () => {
     it('produces roles and permissions the 3.0 RBAC compiler accepts', () => {
       const { r, f } = run({
         grants: {
-          user: { $extend: ['base'], user: { 'read:own': ['*', '!Password'], 'update:own': ['Email'] }, 'user.metadata': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] } },
+          user: { $extend: ['base'], user: { 'read:own': ['*', '!Secret'], 'update:own': ['Email'] }, 'user.metadata': { 'create:own': ['*'], 'read:own': ['*'], 'update:own': ['*'], 'delete:own': ['*'] } },
           admin: { $extend: ['user'], users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] } },
           root: { user: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] } },
           'polsat.backoffice': { ArrowCampaign: { 'create:own': ['scope:polsat'], 'read:own': ['scope:polsat'], 'update:own': ['scope:polsat'], 'delete:own': ['scope:polsat'] } },

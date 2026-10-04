@@ -7,3 +7,4 @@ export * from './analyze.js';
 export * from './emit.js';
 export * from './convert.js';
 export { main } from './cli.js';
+export * from './legacy.js';

@@ -22,7 +22,7 @@ export default {
     },
     throttle: {
       login: {
-        account: { free: 5 },
+        account: { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 },
       },
     },
     strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],

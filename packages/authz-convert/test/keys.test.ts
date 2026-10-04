@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { Findings, convertKeys, literal } from '../src/index.js';
+import { Findings, configModule, convertKeys, literal } from '../src/index.js';
 import type { KeyOutput } from '../src/index.js';
 
 function run(rbac: Record<string, unknown>, mergedRbac?: Record<string, unknown>): { out: KeyOutput; f: Findings } {
@@ -44,9 +44,13 @@ describe('convertKeys', () => {
       expect(run({ roleColumn: 'Roles' }).out.authz).to.deep.equal({ authz: { rbac: { migration: { roleColumn: 'Roles' } } } });
     });
 
-    it('splits impersonation between authz (who) and authn (how)', () => {
-      const { out } = run({ impersonation: { requirePassword: true, protectedRoles: ['system'] } });
-      expect(out.authz).to.deep.equal({ authz: { impersonation: { protectedRoles: ['system'] } } });
+    it('splits impersonation between authz (who) and authn (how), keeping the 2.x package part of the protected roles', () => {
+      const { out, f } = run({ impersonation: { requirePassword: true, protectedRoles: ['admin'] } });
+      expect(out.authz).to.deep.equal({ authz: { impersonation: { protectedRoles: ['system', 'admin'] } } });
+      expect(codes(f)).to.deep.equal(['package-array']);
+      const env = new Findings();
+      const later = convertKeys({ rbac: { impersonation: { protectedRoles: ['root'] } } }, {}, env, { rbac: { impersonation: { protectedRoles: ['admin'] } } });
+      expect(later.authz).to.deep.equal({ authz: { impersonation: { protectedRoles: ['root'] } } });
       expect(out.authn).to.deep.equal({ authn: { impersonation: { requirePassword: true } } });
     });
 
@@ -161,13 +165,13 @@ describe('convertKeys', () => {
           strategies: [{ name: 'local', service: 'LocalPasswordStrategy' }],
           local: {
             hasher: { service: 'Argon2PasswordHasher' },
-            generator: { length: 16, characters: ['abc'] },
+            generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789', 'abc'] },
             policy: { rule: { pattern: '^(?=.*\\d).{8,}$', type: 'string' }, description: 'At least 8' },
             expiration: { enabled: true, maxAgeDays: 31 },
             reset: { ttlSeconds: 3600, url: 'https://app/reset' },
             invite: { ttlSeconds: 900 },
           },
-          throttle: { login: { account: { free: 5 } } },
+          throttle: { login: { account: { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 } } },
         },
       });
       expect(codes(f, 'warning')).to.deep.equal(['lockout-to-backoff', 'lockout-time']);
@@ -197,12 +201,12 @@ describe('convertKeys', () => {
       expect(run({ session }).out.authn).to.deep.equal({ authn: { session } });
     });
 
-    it('turns the 2.x two-factor switch into the totp step, and asks for the encryption key', () => {
+    it('turns the 2.x two-factor switch into the totp step', () => {
       const { out, f } = run({ twoFactorAuth: { enabled: true, forceUser: true, service: 'Default2FaToken' }, otpauth: { issuer: 'SN', digits: 6 } });
       expect(out.authn).to.deep.equal({
         authn: { mfa: { policy: { force: true }, steps: [{ name: 'totp', service: 'TotpMfaStep' }], totp: { issuer: 'SN', digits: 6 } } },
       });
-      expect(codes(f, 'warning')).to.deep.equal(['mfa-key']);
+      expect(codes(f, 'warning')).to.deep.equal([]);
     });
 
     it('reads the two-factor switch from the merged view and writes no step when it is off', () => {
@@ -253,6 +257,19 @@ describe('literal', () => {
     const text = literal(s);
     expect([...text].some((c) => [0x0a, 0x2028].includes(c.charCodeAt(0)))).to.equal(false);
     expect(new Function(`return ${text};`)()).to.equal(s);
+  });
+
+  it('escapes a lone surrogate, which a file write would turn into U+FFFD, and keeps a pair whole', () => {
+    const lone = String.fromCharCode(0xd800);
+    const pair = String.fromCharCode(0xd83d, 0xde00);
+    const text = literal(`${lone}${pair}`);
+    expect([...text].some((c) => c === lone)).to.equal(false);
+    expect(new Function(`return ${text};`)()).to.equal(`${lone}${pair}`);
+  });
+
+  it('keeps line terminators of a header line out of the code', () => {
+    const text = configModule({ a: 1 }, [`from a${String.fromCharCode(0x0a)}export const x = 1;`]);
+    expect(text.split(String.fromCharCode(0x0a))).to.deep.equal(['// from a export const x = 1;', 'export default { a: 1 };', '']);
   });
 
   it('breaks nested objects over lines and reads back equal', () => {

@@ -61,6 +61,7 @@
     "lodash": "^4.17.21"
   },
   "devDependencies": {
-    "@spinajs/authz-rbac": "3.0.0-alpha.0"
+    "@spinajs/authz-rbac": "3.0.0-alpha.0",
+    "ajv": "^8.12.0"
   }
 }

@@ -1,6 +1,7 @@
 import { isFieldGlob, isPermission, normalizeFieldGlobs } from '@spinajs/authz';
 
 import type { Findings } from './findings.js';
+import { RBAC_2X_PACKAGE_GRANTS } from './legacy.js';
 import { isPlain, keyPath, sameList } from './values.js';
 import type { Plain } from './values.js';
 
@@ -278,6 +279,18 @@ export function convertGrants(rbac: Plain, opts: GrantsOptions, f: Findings, ctx
         continue;
       }
       const entries = readActions(actions, rat, f);
+      for (const [key, attrs] of entries) {
+        const pkg = RBAC_2X_PACKAGE_GRANTS.get(`${role}|${resource}|${key}`);
+        if (!pkg || !Array.isArray(attrs)) continue;
+        // 2.x joined this list with the package's before it read it; 3.0 keeps the package grant apart, so a
+        // token, or a negation of a field the package list gave, no longer narrows it.
+        const narrows = (a: unknown) => typeof a === 'string' && (a.startsWith(SCOPE_PREFIX) || (a.startsWith('!') && (pkg.includes('*') || pkg.includes(a.slice(1)))));
+        if (attrs.some(narrows)) {
+          f.refuse(`${keyPath(rat, key)}: a 2.x package grants the same key, and 2.x joined the lists, so a negation or scope token here narrowed the package grant; 3.0 keeps the package grant apart. Move the rule to its own role, or narrow it in 3.0 by hand`);
+        } else {
+          f.info('package-grant', `A 2.x package grants the same key; 2.x joined the lists and 3.0 keeps both grants, which is the same union.`, keyPath(rat, key));
+        }
+      }
       for (const v of VERBS) {
         for (const g of verbGrants(resource, v, entries, rat, opts, f)) {
           for (const r of g.relation ?? []) {

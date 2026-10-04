@@ -2,6 +2,7 @@ import type { DbFacts, SourceFacts } from './facts.js';
 import { Findings } from './findings.js';
 import { VERBS, convertGrants } from './grants.js';
 import type { GrantsOptions } from './grants.js';
+import { HTTP_2X_COOKIE_SECRET, RBAC_2X_DEFAULTS, RBAC_2X_PACKAGE_ROLES } from './legacy.js';
 import { getPath, isPlain, keyPath } from './values.js';
 import type { Plain } from './values.js';
 
@@ -45,34 +46,40 @@ export function analyze(merged: Plain, layer: string, opts: AnalyzeOptions): Fin
   ownership(merged, opts, f);
   if (opts.db) dbFacts(merged, grants, opts.db, f);
   httpAndSecrets(merged, f);
-  if (layer === 'common') packageDefaults(merged, f);
+  if (layer === 'common') packageDefaults(merged, grants, f);
   return f;
 }
 
+const granted = (attrs: unknown): boolean => strings(attrs).some((a) => !a.startsWith('!'));
+
+/**
+ * 2.x picked an :own policy per assigned role from accesscontrol's attribute list of that role and its
+ * $extend closure (`policiesFor` probes one role at a time). accesscontrol unions the lists only when two or
+ * more roles of the closure carry the resource, and the union folds 'scope:x' into a '*' beside it, so 2.x
+ * then ran the default (owner) policy instead of 'x'. A role that also holds the :any grant read every row
+ * anyway; for the others 3.0 reaches more rows, because it keeps relation 'x'.
+ */
 function absorbedScopes(grants: Grants2, f: Findings): void {
   for (const role of grants.keys()) {
     const roles = closure(role, grants);
     const resources = new Set(roles.flatMap((r) => Object.keys(grants.get(r)!).filter((k) => k !== '$extend')));
     for (const resource of resources) {
       for (const verb of VERBS) {
-        const tokens = new Set<string>();
-        const absorbers: string[] = [];
-        for (const r of roles) {
-          const actions = grants.get(r)![resource];
-          if (!isPlain(actions)) continue;
-          // accesscontrol reads `verb:own || verb:any` per role, then unions the lists.
-          const own = actions[`${verb}:own`];
-          const attrs = strings(own ?? actions[`${verb}:any`]);
-          for (const a of attrs) if (a.startsWith('scope:')) tokens.add(a.slice(6));
-          if (own !== undefined && attrs.includes('*')) absorbers.push(r);
-        }
-        if (tokens.size > 0 && absorbers.length > 0) {
-          f.warn(
-            'absorbed-scope',
-            `For role '${role}', 2.x merged ${[...tokens].map((t) => `'scope:${t}'`).join(', ')} on ${resource} ${verb}:own with '*' from ${absorbers.map((r) => `'${r}'`).join(', ')}, which dropped the scope: 2.x applied only the default (owner) policy. 3.0 keeps every grant, so the role now also reaches rows through relation ${[...tokens].map((t) => `'${t}'`).join(', ')}.`,
-            keyPath('rbac.grants', role),
-          );
-        }
+        const carriers = roles.filter((r) => isPlain(grants.get(r)![resource]));
+        if (carriers.length < 2) continue;
+        const lists = carriers.map((r) => {
+          const actions = grants.get(r)![resource] as Plain;
+          return { role: r, attrs: strings(actions[`${verb}:own`] ?? actions[`${verb}:any`] ?? []) };
+        });
+        if (carriers.some((r) => granted((grants.get(r)![resource] as Plain)[`${verb}:any`]))) continue;
+        const tokens = [...new Set(lists.flatMap((l) => l.attrs.filter((a) => a.startsWith('scope:') && a !== 'scope:default').map((a) => a.slice(6))))];
+        const absorbers = lists.filter((l) => l.attrs.includes('*')).map((l) => l.role);
+        if (tokens.length === 0 || absorbers.length === 0) continue;
+        f.warn(
+          'absorbed-scope',
+          `For role '${role}', 2.x joined ${tokens.map((t) => `'scope:${t}'`).join(', ')} on ${resource} ${verb}:own with '*' from ${absorbers.map((r) => `'${r}'`).join(', ')}, which dropped the scope: 2.x ran only the default (owner) policy. 3.0 keeps every grant, so the role now also reaches rows through relation ${tokens.map((t) => `'${t}'`).join(', ')}.`,
+          keyPath('rbac.grants', role),
+        );
       }
     }
   }
@@ -167,8 +174,8 @@ function dbFacts(merged: Plain, grants: Grants2, db: DbFacts, f: Findings): void
         .join('; ')}${multi.length > 50 ? '; …' : ''}`,
     );
   }
-  // accesscontrol refused a role list naming a role rbac.grants does not define, declared or not.
-  const voided = db.users.filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r)));
+  // accesscontrol refused a role list naming a role no rbac.grants (the app's or a package's) defined, declared or not.
+  const voided = db.users.filter((u) => u.roles.length > 1 && u.roles.some((r) => !grants.has(r) && !RBAC_2X_PACKAGE_ROLES.has(r)));
   if (voided.length > 0) {
     f.warn(
       'roles-voided',
@@ -200,12 +207,15 @@ function httpAndSecrets(merged: Plain, f: Findings): void {
   if (getPath(merged, ['http', 'trustProxy']) === undefined && getPath(merged, ['authn', 'http', 'trustProxy']) === undefined) {
     f.warn('trust-proxy', 'http.trustProxy is not set. Behind a proxy, set it to the hop count or the proxy CIDRs, or every client shares the proxy address for throttling and audit.', 'http.trustProxy');
   }
+  // Without http.cors 2.x installed no CORS middleware at all; only an empty list answered every origin.
   const origins = getPath(merged, ['http', 'cors', 'origins']);
-  if (!Array.isArray(origins) || origins.length === 0) {
-    f.warn('cors-empty', '2.x answered every origin, with credentials, when http.cors.origins was empty or unset; 3.0 then allows no cross-origin request (H33, A31). List every origin a browser client uses (and in authn.http.csrf.allowedOrigins for cookie sessions).', 'http.cors.origins');
+  if (Array.isArray(origins) && origins.length === 0) {
+    f.warn('cors-empty', 'http.cors.origins is empty: 2.x answered every origin, with credentials; 3.0 allows no cross-origin request (H33, A31). List every origin a browser client uses (and in authn.http.csrf.allowedOrigins for cookie sessions).', 'http.cors.origins');
   }
   const secret = getPath(merged, ['http', 'cookie', 'secret']);
-  if (typeof secret === 'string' && secret !== '' && !(CONFIG_PROTOCOL.test(secret) && !WEB_PROTOCOL.test(secret))) {
+  if (secret === undefined || secret === HTTP_2X_COOKIE_SECRET) {
+    f.warn('cookie-secret', `http.cookie.secret is ${secret === undefined ? 'not set, so 2.x signed cookies with' : ''} the public @spinajs/http default. Set a secret of your own through a secret reference (env or a secret store).`, 'http.cookie.secret');
+  } else if (typeof secret === 'string' && !(CONFIG_PROTOCOL.test(secret) && !WEB_PROTOCOL.test(secret))) {
     f.warn('cookie-secret', 'http.cookie.secret is written in a config file, so everyone with the code has it. Rotate it and load it through a secret reference (env or a secret store).', 'http.cookie.secret');
   }
 
@@ -225,21 +235,41 @@ function httpAndSecrets(merged: Plain, f: Findings): void {
   }
 }
 
-/** 2.x package defaults an app ran with by leaving the key out, where 3.0 defaults differ; the converter writes none of them. */
-function packageDefaults(merged: Plain, f: Findings): void {
+/** 2.x package defaults an app ran with by leaving a key out, where 3.0 differs. */
+function packageDefaults(merged: Plain, grants: Grants2, f: Findings): void {
   if (getPath(merged, ['rbac']) === undefined) return;
-  if (getPath(merged, ['rbac', 'password', 'expiration', 'enabled']) === undefined) {
+  const rbac = (path: string) => getPath(merged, ['rbac', ...path.split('.')]);
+  if (rbac('password.expiration.enabled') === undefined) {
     f.warn(
       'password-expiry-default',
       '2.x @spinajs/rbac expired passwords after 31 days unless the app turned it off; 3.0 never expires them unless authn.local.expiration.enabled is true. Set it (and maxAgeDays) if the app relied on the 2.x default.',
       'rbac.password.expiration',
     );
   }
-  if (getPath(merged, ['rbac', 'twoFactorAuth']) === undefined) {
-    f.warn(
+  if (rbac('twoFactorAuth') === undefined) {
+    f.manual(
       'mfa-default',
-      "2.x @spinajs/rbac-http-user turned TOTP login on by default; 3.0 ships no MFA step. If the app installed rbac-http-user, add authn.mfa.steps: [{ name: 'totp', service: 'TotpMfaStep' }] and set authn.mfa.encryptionKey.",
+      "2.x @spinajs/rbac-http-user turned TOTP login on by default; 3.0 ships no MFA step. If the app installed rbac-http-user, add authn.mfa.steps: [{ name: 'totp', service: 'TotpMfaStep' }] and set authn.mfa.encryptionKey, or users enrolled in 2FA log in with the password alone.",
       'rbac.twoFactorAuth',
     );
+  }
+  if (rbac('password.blockAfterAttempts') === undefined) {
+    f.warn(
+      'lockout-default',
+      `2.x locked an account for ${Number(RBAC_2X_DEFAULTS['password.lockoutTime']) / 60} minutes after ${String(RBAC_2X_DEFAULTS['password.blockAfterAttempts'])} failed logins (3 with @spinajs/rbac-http-user); 3.0 never locks and backs off instead, by default to at most 60 s per attempt (H31, A06). Tune authn.throttle.login if that is too weak.`,
+      'rbac.password.blockAfterAttempts',
+    );
+  }
+  if (rbac('auth.service') === undefined) {
+    f.info('auth-default', "2.x logged users in with @spinajs/rbac's SimpleDbAuthProvider by default; authn.strategies lists the local password strategy.", 'rbac.auth.service');
+  }
+  if (rbac('defaultRole') === undefined) {
+    f.warn('default-role-default', "2.x gave new users the role 'guest' by default; nothing was written, so new users get what authz.rbac.defaultRoles of the 3.0 packages lists. Set it if the app relied on 'guest'.", 'rbac.defaultRole');
+  }
+  if (rbac('enableGuestAccount') === undefined) {
+    f.info('guest-default', "2.x had no guest account by default. 3.0 turns the anonymous principal on, with the roles of authz.rbac.anonymousRoles; set authz.principals.anonymous.enabled: false to match 2.x exactly.", 'rbac.enableGuestAccount');
+  }
+  if (rbac('enableGuestAccount') === true && !grants.has('guest')) {
+    f.warn('guest-role-missing', "authz.rbac.anonymousRoles is ['guest'], but these config files do not define role 'guest'; 3.0 refuses an unknown role at boot unless a package fragment defines it.", 'rbac.enableGuestAccount');
   }
 }

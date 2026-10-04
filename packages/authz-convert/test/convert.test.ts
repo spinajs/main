@@ -26,18 +26,20 @@ async function refusal(dirs: string[]): Promise<ConversionError> {
   throw new Error('expected a refusal');
 }
 
-const HTTP = { http: { trustProxy: 1, cors: { origins: ['https://app'] } } };
+const HTTP = { http: { trustProxy: 1, cors: { origins: ['https://app'] }, cookie: { secret: 'env://S' } } };
+// The 2.x defaults an app sets itself, so the package-default findings stay out of the way.
+const RBAC = { session: { cookie: { hostPrefix: false } }, password: { expiration: { enabled: false }, blockAfterAttempts: 5 }, twoFactorAuth: { enabled: false }, auth: { service: 'SimpleDbAuthProvider' }, defaultRole: 'user', enableGuestAccount: false };
 
 describe('convert', () => {
   it('writes one file per root and layer, named so the 3.0 loader reads them', async () => {
     const dir = configDir({
-      'rbac.js': { ...HTTP, rbac: { defaultRole: 'user', grants: { user: { Doc: { 'read:any': ['*'] } } }, email: { connection: 'mail' }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, defaultRole: 'user', grants: { user: { Doc: { 'read:any': ['*'] } } }, email: { connection: 'mail' }, session: { cookie: { hostPrefix: false } } } },
       'twofa.local.js': { rbac: { twoFactorAuth: { enabled: false, forceUser: false } } },
     });
     const r = await convert({ dirs: [dir] });
     expect(r.files.map((f) => f.name)).to.deep.equal(['authz-generated.ts', 'users-generated.ts', 'authn-generated.ts', 'authn-generated.local.ts', WARNINGS_FILE]);
     expect(load(file(r, 'authz-generated.ts')!)).to.deep.equal({
-      authz: { rbac: { defaultRoles: ['user'], roles: { user: { grants: ['Doc:read'] } } }, permissions: { 'Doc:read': {} } },
+      authz: { principals: { anonymous: { enabled: false } }, rbac: { defaultRoles: ['user'], roles: { user: { grants: ['Doc:read'] } } }, permissions: { 'Doc:read': {} } },
     });
     expect(load(file(r, 'users-generated.ts')!)).to.deep.equal({ users: { email: { connection: 'mail' } } });
     expect(load(file(r, 'authn-generated.local.ts')!)).to.deep.equal({ authn: { mfa: { policy: { force: false } } } });
@@ -56,7 +58,7 @@ describe('convert', () => {
 
   it('checks declared roles of an env file against the roles common grants', async () => {
     const dir = configDir({
-      'rbac.js': { ...HTTP, rbac: { grants: { admin: {} }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, grants: { admin: {} }, session: { cookie: { hostPrefix: false } } } },
       'roles.local.js': { rbac: { roles: [{ Name: 'admin', Description: 'Administrator' }] } },
     });
     const r = await convert({ dirs: [dir] });
@@ -66,7 +68,7 @@ describe('convert', () => {
 
   it('leaves an array key set in common and in an env file for a person', async () => {
     const dir = configDir({
-      'rbac.js': { ...HTTP, rbac: { defaultRole: 'user', session: { cookie: { hostPrefix: false } } } },
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, defaultRole: 'user', session: { cookie: { hostPrefix: false } } } },
       'rbac.local.js': { rbac: { defaultRole: 'admin' } },
     });
     const r = await convert({ dirs: [dir] });
@@ -77,7 +79,7 @@ describe('convert', () => {
 
   it('drops an array key an env file sets to the common value, and leaves an env that turns it off for a person', async () => {
     const same = configDir({
-      'rbac.js': { ...HTTP, rbac: { twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
       'rbac.local.js': { rbac: { twoFactorAuth: { enabled: true } } },
     });
     const r = await convert({ dirs: [same] });
@@ -85,12 +87,28 @@ describe('convert', () => {
     expect(r.findings.filter((x) => x.code === 'env-array')).to.deep.equal([]);
 
     const off = configDir({
-      'rbac.js': { ...HTTP, rbac: { twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, twoFactorAuth: { enabled: true }, session: { cookie: { hostPrefix: false } } } },
       'rbac.local.js': { rbac: { twoFactorAuth: { enabled: false } } },
     });
     const r2 = await convert({ dirs: [off] });
-    expect(r2.findings.find((x) => x.code === 'env-array')?.message).to.match(/Env 'local' turns off what authn.mfa.steps holds in common/);
+    expect(r2.findings.find((x) => x.code === 'env-array')?.message).to.match(/Env 'local' turns off what authn\.mfa\.steps holds in common/);
     expect(r2.exitCode).to.equal(2);
+  });
+
+  it('writes the 2.x default login strategy when the app left rbac.auth out', async () => {
+    const dir = configDir({ 'rbac.js': { ...HTTP, rbac: { ...RBAC, auth: undefined } } });
+    const r = await convert({ dirs: [dir] });
+    expect((load(file(r, 'authn-generated.ts')!) as any).authn.strategies).to.deep.equal([{ name: 'local', service: 'LocalPasswordStrategy' }]);
+    expect(r.findings.map((x) => x.code)).to.include('auth-default');
+  });
+
+  it('asks once for the MFA encryption key, however many layers write the totp step', async () => {
+    const dir = configDir({
+      'rbac.js': { ...HTTP, rbac: { ...RBAC, twoFactorAuth: { enabled: true } } },
+      'rbac.local.js': { rbac: { twoFactorAuth: { forceUser: true } } },
+    });
+    const r = await convert({ dirs: [dir] });
+    expect(r.findings.filter((x) => x.code === 'mfa-key')).to.have.length(1);
   });
 
   it('collects the refusals of every layer before it gives up', async () => {
@@ -106,7 +124,7 @@ describe('convert', () => {
     const dir = configDir({
       'rbac.js': {
         ...HTTP,
-        rbac: { defaultRole: 'user', grants: { user: {}, 'admin.users': {}, admin: { $extend: ['admin.users', 'user'] }, 'route.home': {}, sales: { $extend: ['route.home'] } }, session: { cookie: { hostPrefix: false } } },
+        rbac: { ...RBAC, defaultRole: 'user', grants: { user: {}, 'admin.users': {}, admin: { $extend: ['admin.users', 'user'] }, 'route.home': {}, sales: { $extend: ['route.home'] } }, session: { cookie: { hostPrefix: false } } },
       },
     });
     const db: DbFacts = { users: [{ id: 'a', roles: ['admin'] }], tokens: [{ id: 't', roles: ['sales'], expiresAt: '2030-01-01' }] };
@@ -121,14 +139,14 @@ describe('convert', () => {
     const dir = configDir({ 'rbac.js': { rbac: { accountTypes: {}, password: { blockAfterAttempts: 3 } } } });
     const r = await convert({ dirs: [dir] });
     const md = file(r, WARNINGS_FILE)!;
-    expect(md).to.match(/## Convert by hand \(1\)[\s\S]*rbac\.accountTypes[\s\S]*## Behaviour changes and actions[\s\S]*lockout-to-backoff[\s\S]*## Notes/);
+    expect(md).to.match(/## Convert by hand \(\d+\)[\s\S]*rbac\.accountTypes[\s\S]*## Behaviour changes and actions[\s\S]*lockout-to-backoff[\s\S]*## Notes/);
     expect(r.exitCode).to.equal(2);
   });
 });
 
 describe('main', () => {
   it('writes the files, refuses to overwrite them without --force, and answers with the exit code', async () => {
-    const dir = configDir({ 'rbac.js': { ...HTTP, rbac: { defaultRole: 'user', session: { cookie: { hostPrefix: false } } } } });
+    const dir = configDir({ 'rbac.js': { ...HTTP, rbac: { ...RBAC, defaultRole: 'user', session: { cookie: { hostPrefix: false } } } } });
     const out = fs.mkdtempSync(join(os.tmpdir(), 'authz-convert-out-'));
     const logs: string[] = [];
     const errors: string[] = [];

@@ -55,11 +55,11 @@ function grantedRoles(view: Plain): Set<string> {
   return new Set(isPlain(g) ? Object.keys(g) : []);
 }
 
-function convertLayer(name: string, layer: Plain, merged: Plain, selfResources: readonly string[]): LayerOutput {
+function convertLayer(name: string, layer: Plain, merged: Plain, selfResources: readonly string[], common?: Plain): LayerOutput {
   const f = new Findings(name);
   const rbac = isPlain(layer.rbac) ? layer.rbac : {};
   const grants = convertGrants(rbac, { selfResources }, f, { granted: grantedRoles(merged) });
-  const out = convertKeys(layer, merged, f);
+  const out = convertKeys(layer, merged, f, common);
   if (grants.roles.size > 0) setPath(out.authz, ['authz', 'rbac', 'roles'], Object.fromEntries([...grants.roles].map(([n, r]) => [n, roleLiteral(r)])));
   if (grants.permissions.size > 0) {
     // Merged with the permissions packages declare; `fields: true` only where a grant carries fields.
@@ -138,7 +138,7 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
   const selfResources = opts.selfResources ?? DEFAULT_SELF_RESOURCES;
   const outputs: LayerOutput[] = [convertLayer('common', layers.common, layers.view(null), selfResources)];
   for (const [env, layer] of layers.envs) {
-    const out = convertLayer(env, layer, layers.view(env), selfResources);
+    const out = convertLayer(env, layer, layers.view(env), selfResources, layers.view(null));
     sharedGrantKeys(layers.common, layer, env, out.findings);
     outputs.push(out);
   }
@@ -170,6 +170,25 @@ export function convertLayers(layers: ConfigLayers, opts: Omit<ConvertOptions, '
 
   const tail = new Findings();
   for (const s of layers.skipped) tail.warn('file-skipped', `Not converted: ${s}.`);
+  const commonView = layers.view(null);
+  if (isPlain(commonView.rbac) && getPath(commonView, ['rbac', 'auth', 'service']) === undefined && getPath(common.out.authn, ['authn', 'strategies']) === undefined) {
+    // 2.x logged in through @spinajs/rbac's SimpleDbAuthProvider by default; no 3.0 package lists a strategy.
+    setPath(common.out.authn, ['authn', 'strategies'], [{ name: 'local', service: 'LocalPasswordStrategy' }]);
+  }
+  if (outputs.some((o) => getPath(o.out.authn, ['authn', 'mfa', 'steps']) !== undefined)) {
+    tail.warn('mfa-key', 'TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it.', 'authn.mfa.encryptionKey');
+  }
+  for (const [layer, paths] of layers.computed) {
+    const read = paths.filter((p) => p.startsWith('rbac.') || p.startsWith('http.'));
+    const at = new Findings(layer);
+    for (const p of read) {
+      at.manual('computed-value', `${p} changed when the config ran under another NODE_ENV; the converted value is the one of this run. Set the 3.0 key per env by hand.`, p);
+    }
+    tail.list.push(...at.list);
+  }
+  for (const file of layers.envReaders) {
+    tail.warn('reads-env', `${file} reads process.env, so the values it gave this run were converted as constants; check the keys it sets.`);
+  }
   if (opts.db) markAssignable(outputs, [layers.view(null), ...[...layers.envs.keys()].map((e) => layers.view(e))], opts.db, tail);
 
   const analyses: Finding[] = [];

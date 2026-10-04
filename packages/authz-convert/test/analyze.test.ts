@@ -6,8 +6,16 @@ import { join } from 'node:path';
 import { ConversionError, DEFAULT_SELF_RESOURCES, analyze, readDbFacts, scanSources } from '../src/index.js';
 import type { DbFacts, Finding } from '../src/index.js';
 
-const SAFE_HTTP = { trustProxy: 1, cors: { origins: ['https://app'] } };
-const SAFE_SESSION = { session: { cookie: { hostPrefix: false } }, password: { expiration: { enabled: false } }, twoFactorAuth: { enabled: false } };
+const SAFE_HTTP = { trustProxy: 1, cors: { origins: ['https://app'] }, cookie: { secret: 'env://COOKIE_SECRET' } };
+const SAFE_SESSION = {
+  session: { cookie: { hostPrefix: false } },
+  password: { expiration: { enabled: false }, blockAfterAttempts: 5 },
+  twoFactorAuth: { enabled: false },
+  auth: { service: 'SimpleDbAuthProvider' },
+  defaultRole: 'guest',
+  enableGuestAccount: false,
+  grants: { guest: {} },
+};
 
 function findings(config: Record<string, unknown>, extra: { db?: DbFacts; src?: ReturnType<typeof scanSources> } = {}): Finding[] {
   const rbac = { ...SAFE_SESSION, ...((config.rbac as object) ?? {}) };
@@ -39,6 +47,11 @@ describe('analyze', () => {
       const w = byCode(list, 'absorbed-scope');
       expect(w).to.have.length(1);
       expect(w[0].message).to.match(/'scope:polsat'.*'base'/);
+    });
+
+    it('does not warn for one role holding the token and * together, which accesscontrol does not union', () => {
+      const list = findings({ rbac: { grants: { r: { Campaign: { 'read:own': ['scope:polsat', '*'] } } } } });
+      expect(byCode(list, 'absorbed-scope')).to.deep.equal([]);
     });
 
     it('does not warn when the * comes from an :any grant, which 2.x checked first anyway', () => {
@@ -111,32 +124,57 @@ describe('analyze', () => {
   });
 
   describe('http and secrets', () => {
+    const codes = (list: Finding[], only: string[]) => list.map((x) => x.code).filter((c) => only.includes(c));
+    const HTTP_CODES = ['trust-proxy', 'cors-empty', 'cookie-secret'];
+
     it('warns about a missing trustProxy, an empty CORS list and a cookie secret written in a file', () => {
       const list = analyze({ http: { cookie: { secret: 'swqq123' }, cors: { origins: [] } }, rbac: SAFE_SESSION }, 'prod', { selfResources: DEFAULT_SELF_RESOURCES }).list;
-      expect(list.map((x) => x.code)).to.deep.equal(['trust-proxy', 'cors-empty', 'cookie-secret']);
+      expect(codes(list, HTTP_CODES)).to.deep.equal(['trust-proxy', 'cors-empty', 'cookie-secret']);
       expect(list[0].layer).to.equal('prod');
     });
 
-    it('accepts a cookie secret loaded through a config protocol, but not a web URL', () => {
-      const ok = analyze({ http: { ...SAFE_HTTP, cookie: { secret: 'env://COOKIE_SECRET' } }, rbac: SAFE_SESSION }, 'common', { selfResources: [] }).list;
-      expect(ok).to.deep.equal([]);
-      const url = analyze({ http: { ...SAFE_HTTP, cookie: { secret: 'https://x' } }, rbac: SAFE_SESSION }, 'common', { selfResources: [] }).list;
-      expect(url.map((x) => x.code)).to.deep.equal(['cookie-secret']);
+    it('says nothing about CORS when http.cors is unset, where 2.x installed no CORS middleware', () => {
+      const list = analyze({ http: { trustProxy: 1, cookie: { secret: 'env://S' } }, rbac: SAFE_SESSION }, 'common', { selfResources: [] }).list;
+      expect(codes(list, HTTP_CODES)).to.deep.equal([]);
+    });
+
+    it('accepts a cookie secret loaded through a config protocol, but not a web URL, the public default or none', () => {
+      const run = (cookie: Record<string, unknown>) => codes(analyze({ http: { ...SAFE_HTTP, cookie }, rbac: SAFE_SESSION }, 'common', { selfResources: [] }).list, HTTP_CODES);
+      expect(run({ secret: 'env://COOKIE_SECRET' })).to.deep.equal([]);
+      expect(run({ secret: 'https://x' })).to.deep.equal(['cookie-secret']);
+      expect(run({ secret: '1234adreewD' })).to.deep.equal(['cookie-secret']);
+      expect(run({})).to.deep.equal(['cookie-secret']);
     });
 
     it('says the session cookie gets the __Host- name unless hostPrefix is false, and that secure: false no longer relaxes it', () => {
       const list = analyze({ http: SAFE_HTTP, rbac: { ...SAFE_SESSION, session: { cookie: { name: 'sid', secure: false } } } }, 'common', { selfResources: [] }).list;
-      expect(list.map((x) => x.code)).to.deep.equal(['cookie-rename', 'cookie-secure']);
-      expect(list[0].message).to.match(/'__Host-sid'/);
+      expect(codes(list, ['cookie-rename', 'cookie-secure'])).to.deep.equal(['cookie-rename', 'cookie-secure']);
+      expect(byCode(list, 'cookie-rename')[0].message).to.match(/'__Host-sid'/);
     });
   });
 });
 
 describe('analyze package defaults', () => {
-  it('warns where the app ran with a 2.x package default that 3.0 does not keep', () => {
+  it('names each 2.x package default the app ran with where 3.0 differs', () => {
     const list = analyze({ http: SAFE_HTTP, rbac: { session: { cookie: { hostPrefix: false } } } }, 'common', { selfResources: [] }).list;
-    expect(list.map((x) => x.code)).to.deep.equal(['password-expiry-default', 'mfa-default']);
+    expect(list.map((x) => [x.code, x.severity])).to.deep.equal([
+      ['password-expiry-default', 'warning'],
+      ['mfa-default', 'manual'],
+      ['lockout-default', 'warning'],
+      ['auth-default', 'info'],
+      ['default-role-default', 'warning'],
+      ['guest-default', 'info'],
+    ]);
     expect(analyze({ http: SAFE_HTTP }, 'common', { selfResources: [] }).list).to.deep.equal([]);
+  });
+
+  it('says nothing about defaults the app set itself', () => {
+    expect(analyze({ http: SAFE_HTTP, rbac: SAFE_SESSION }, 'common', { selfResources: [] }).list).to.deep.equal([]);
+  });
+
+  it("warns when the guest account names a role 'guest' no config file defines", () => {
+    const list = analyze({ http: SAFE_HTTP, rbac: { ...SAFE_SESSION, enableGuestAccount: true, grants: {} } }, 'common', { selfResources: [] }).list;
+    expect(list.map((x) => x.code)).to.include('guest-role-missing');
   });
 });
 

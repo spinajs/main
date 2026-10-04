@@ -72,6 +72,18 @@ describe('loadLayers', () => {
     expect(err.problems[0]).to.match(/env 'local' JS files and common JSON files both set rbac\.systemRole/);
   });
 
+  it('refuses a scalar in a common JSON file under an object of an env JS file', async () => {
+    const err = await refusal([fixture('clash-prefix')]);
+    expect(err.problems[0]).to.match(/both set rbac\.session\.service/);
+  });
+
+  it('finds the values a file computes from NODE_ENV, and the files that read process.env', async () => {
+    const layers = await loadLayers([fixture('computed')]);
+    expect(layers.computed.get('common')).to.deep.equal(['rbac.session.cookie.secure']);
+    expect(layers.envReaders).to.deep.equal(['test/fixtures/computed/rbac.js']);
+    expect(process.env.NODE_ENV).to.not.equal('authz-convert-probe');
+  });
+
   it('refuses a missing dir', async () => {
     const err = await refusal([fixture('nope')]);
     expect(err.problems[0]).to.match(/does not exist/);

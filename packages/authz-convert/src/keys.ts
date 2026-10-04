@@ -1,4 +1,5 @@
 import type { Findings } from './findings.js';
+import { RBAC_2X_ARRAYS, RBAC_2X_DEFAULTS } from './legacy.js';
 import { copy, firstNonData, getPath, isPlain, keyPath, setPath } from './values.js';
 import type { Plain } from './values.js';
 
@@ -10,18 +11,6 @@ export interface KeyOutput {
   /** Array keys this layer needs empty (a 2.x switch turned off); an env layer cannot empty what common fills. */
   readonly cleared: string[];
 }
-
-/**
- * 2.x package defaults that keys built from several 2.x keys fall back on: the converter reads the app's own
- * config files only, and a 2.x app that left these out ran with the package values (@spinajs/rbac,
- * @spinajs/rbac-http-user and @spinajs/rbac-http-admin 2.0.546).
- */
-export const RBAC_2X_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({
-  'twoFactorAuth.enabled': true,
-  'twoFactorAuth.service': 'Default2FaToken',
-  'admin.roleGuard.privilegedResource': 'users',
-  'admin.roleGuard.privilegedAction': 'update:any',
-});
 
 /** 3.0 array keys a 2.x scalar becomes. Arrays concatenate across config files, so an env layer cannot replace them. */
 export const SCALAR_TO_ARRAY_KEYS: readonly string[] = Object.freeze(['authz.rbac.defaultRoles', 'authz.rbac.anonymousRoles', 'authn.strategies', 'authn.mfa.steps']);
@@ -105,7 +94,7 @@ function unknownKeys(node: Plain, known: readonly string[], at: string, f: Findi
  * layer sits in (common, or common + env): keys built from several 2.x keys read it, and are written
  * to the layer that sets one of their sources.
  */
-export function convertKeys(layer: Plain, merged: Plain, f: Findings): KeyOutput {
+export function convertKeys(layer: Plain, merged: Plain, f: Findings, common?: Plain): KeyOutput {
   const w = new Writer(f);
   const rbac = layer.rbac;
   if (rbac === undefined) return w.out;
@@ -114,6 +103,13 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings): KeyOutput
     return w.out;
   }
   const m = (path: string): unknown => getPath(merged, ['rbac', ...path.split('.')]) ?? RBAC_2X_DEFAULTS[path];
+  // 2.x joined these arrays with the package array; the first layer that sets one carries the package part.
+  const withPackage = (path: string, values: string[]): string[] => {
+    const pkg = RBAC_2X_ARRAYS[path];
+    if (!pkg || (common !== undefined && getPath(common, ['rbac', ...path.split('.')]) !== undefined)) return values;
+    f.info('package-array', `2.x joined rbac.${path} with the package value ${JSON.stringify(pkg)}; both parts were written.`, `rbac.${path}`);
+    return [...new Set([...pkg, ...values])];
+  };
 
   for (const [key, value] of Object.entries(rbac)) {
     const at = `rbac.${key}`;
@@ -177,7 +173,7 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings): KeyOutput
         unknownKeys(value, ['protectedRoles', 'requirePassword'], at, f);
         if (value.protectedRoles !== undefined) {
           const roles = asStrings(value.protectedRoles, `${at}.protectedRoles`, f);
-          if (roles) w.set('authz.impersonation.protectedRoles', roles);
+          if (roles) w.set('authz.impersonation.protectedRoles', withPackage('impersonation.protectedRoles', roles));
         }
         if (value.requirePassword !== undefined) {
           const on = asBoolean(value.requirePassword, `${at}.requirePassword`, f);
@@ -216,7 +212,7 @@ export function convertKeys(layer: Plain, merged: Plain, f: Findings): KeyOutput
       }
 
       case 'password':
-        convertPassword(value, at, w, f);
+        convertPassword(value, at, w, f, withPackage);
         break;
 
       case 'session':
@@ -334,7 +330,7 @@ function convertToken(value: unknown, at: string, w: Writer, f: Findings): void 
   if (value.generation !== undefined) w.data(`${at}.generation`, value.generation, 'authn.token.generation');
 }
 
-function convertPassword(value: unknown, at: string, w: Writer, f: Findings): void {
+function convertPassword(value: unknown, at: string, w: Writer, f: Findings, withPackage: (path: string, values: string[]) => string[]): void {
   if (!isPlain(value)) {
     f.refuse(`${at} must be an object`);
     return;
@@ -347,7 +343,11 @@ function convertPassword(value: unknown, at: string, w: Writer, f: Findings): vo
     if (mapped) w.set('authn.local.hasher.service', mapped);
     else if (service !== undefined) f.manual('custom-service', `Password provider '${service}' is not a SpinaJS one; port it to a PasswordHasher (argon2 keeps its library defaults, H30).`, `${at}.service`);
   }
-  if (value.generator !== undefined) w.data(`${at}.generator`, value.generator, 'authn.local.generator');
+  if (value.generator !== undefined) {
+    w.data(`${at}.generator`, value.generator, 'authn.local.generator');
+    const chars = isPlain(value.generator) ? value.generator.characters : undefined;
+    if (Array.isArray(chars) && chars.every((c) => typeof c === 'string')) w.set('authn.local.generator.characters', withPackage('password.generator.characters', chars as string[]));
+  }
 
   const validation = value.validation;
   if (validation !== undefined) {
@@ -412,7 +412,8 @@ function convertPassword(value: unknown, at: string, w: Writer, f: Findings): vo
     else if (n === 0) {
       f.warn('throttle-off', '2.x blockAfterAttempts 0 turned throttling off. 3.0 always backs off (H31); the default authn.throttle.login.account.free stays.', `${at}.blockAfterAttempts`);
     } else {
-      w.set('authn.throttle.login.account.free', n);
+      // The schema wants the whole triple; the delays are its defaults.
+      w.set('authn.throttle.login.account', { free: n, baseDelayMs: 1000, maxDelayMs: 60000 });
       f.warn(
         'lockout-to-backoff',
         `After ${n} failed logins 2.x locked the account; 3.0 never locks. It waits min(baseDelayMs × 2^(n − free), maxDelayMs) before each further attempt, per account and per IP (H31, A06).`,
@@ -451,5 +452,4 @@ function convertMfa(value: unknown, at: string, m: (path: string) => unknown, w:
     return;
   }
   w.set('authn.mfa.steps', [{ name: 'totp', service: mapped }]);
-  f.warn('mfa-key', 'TOTP secrets are stored encrypted in 3.0: set authn.mfa.encryptionKey (a secret reference) before running the migrations, which refuse to run without it.', at);
 }
