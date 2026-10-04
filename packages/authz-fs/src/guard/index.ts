@@ -12,6 +12,7 @@ import type { fs } from '@spinajs/fs';
 import type { FileMetadataStore } from '../api.js';
 import { fsAccessConfig } from '../config/index.js';
 import type { FsAccessConfig } from '../config/index.js';
+import { ensureFsDomain } from '../domain/index.js';
 import { FS_UNCHECKED_METHODS, effectiveFsOperations } from '../operations/index.js';
 import type { FsOperation, FsPathSpec } from '../operations/index.js';
 import { FS_NO_OWNER_TYPES } from '../metadata/meta.js';
@@ -113,7 +114,12 @@ export function guardFs<T extends fs>(raw: T, fsName: string, opts: FsGuardOptio
     principal: opts.principal ?? currentPrincipal,
     log: opts.log ?? engineLog('authz-fs'),
     metadataTimeoutMs: opts.metadataTimeoutMs ?? 30_000,
-    service: opts.service ?? (async (domain) => ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain)),
+    service:
+      opts.service ??
+      (async (domain) => {
+        ensureFsDomain(domain, container);
+        return ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain);
+      }),
   };
   const guard = makeGuard(fsName, raw, config, env);
   const wrappers = new Map<string, { readonly fn: unknown; readonly wrapper: unknown }>();

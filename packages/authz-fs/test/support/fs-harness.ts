@@ -8,11 +8,12 @@ import type { Class } from '@spinajs/di';
 import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsService, getFs } from '@spinajs/fs';
 import type { IProviderConfiguration } from '@spinajs/fs';
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
+import type { ResourceRef } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { hostHarness, testHost } from '@spinajs/authz-testing';
-import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, HostSetup } from '@spinajs/authz-testing';
+import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, FsResolverSpec, HostSetup } from '@spinajs/authz-testing';
 
-import { AuthzFsDecorator, FileMetadataStore } from '../../src/index.js';
+import { AuthzFsDecorator, FileMetadataStore, FsPathResolver } from '../../src/index.js';
 import { installQuietLog } from './log.js';
 import { MemoryFileMetadataStore } from './memory-store.js';
 
@@ -157,12 +158,59 @@ function implementations(token: Class<unknown>): Class<unknown>[] {
   return types.filter((t): t is Class<unknown> => typeof t === 'function' && t.prototype !== undefined);
 }
 
-/** World entries of `authz.fs` without a domain are checked in the test domain, where the world's models live. */
+/**
+ * World entries of `authz.fs` without a domain are checked in the test domain, where the world's models live. A
+ * domain the fs bootstrap creates (D11) becomes a child of the test domain, so the world's models are its parent's,
+ * unless the world names its parent.
+ */
 function pointAtTestDomain(host: HostSetup): void {
   const entries = host.world.config?.fs;
   if (!isRecord(entries)) return;
   for (const [name, entry] of Object.entries(entries)) {
-    if (isRecord(entry) && entry.domain === undefined) host.setConfig(['authz', 'fs', name, 'domain'], host.domain);
+    if (!isRecord(entry)) continue;
+    const domain = entry.domain;
+    if (domain === undefined) host.setConfig(['authz', 'fs', name, 'domain'], host.domain);
+    else if (typeof domain === 'string' && domain !== 'root' && domain !== host.domain && !host.containers.has(domain) && testHost.config().get(['authz', 'domains', domain, 'parent']) === undefined) {
+      host.setConfig(['authz', 'domains', domain, 'parent'], host.domain);
+    }
+  }
+}
+
+/** An FsPathResolver class with the spec's name (`authz.fs.<name>.resolver` matches by class name): `<prefix><id>[/…]` has the parent `{ type, id }`. */
+function resolverClass(spec: FsResolverSpec): Class<FsPathResolver> {
+  const cls = class extends FsPathResolver {
+    readonly fs = spec.fs;
+    async parents(_fsName: string, path: string): Promise<readonly ResourceRef[] | null> {
+      if (!path.startsWith(spec.prefix)) return null;
+      const id = path.slice(spec.prefix.length).split('/')[0];
+      return id === '' ? null : [{ type: spec.type, id }];
+    }
+  };
+  Object.defineProperty(cls, 'name', { value: spec.name });
+  return cls;
+}
+
+/** Registers the world's resolvers in root, where resolveFsParents looks them up; the returned function removes them. */
+function registerResolvers(specs: readonly FsResolverSpec[]): () => void {
+  const root = DI.RootContainer;
+  const classes = specs.map(resolverClass);
+  const uncache = () => {
+    root.uncache(Array.ofType(FsPathResolver));
+    for (const cls of classes) root.uncache(cls);
+  };
+  uncache();
+  const undo = classes.map((cls) => testHost.registerInRoot(FsPathResolver, cls));
+  return () => {
+    for (const fn of undo.reverse()) fn();
+    uncache();
+  };
+}
+
+/** Disposes the authz domains created since `before` (the fs bootstrap's), children first. */
+async function disposeNewDomains(before: ReadonlySet<string>): Promise<void> {
+  const ds = await testHost.domains();
+  for (const name of [...ds.names()].reverse()) {
+    if (!before.has(name) && ds.names().includes(name)) await ds.container(name).dispose();
   }
 }
 
@@ -252,8 +300,30 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
       if (opts.rbac) registerRbac(host);
     },
     async extend(host) {
-      const built = await buildCase(kind, host.world.lane?.fs?.providers ?? []);
-      return { lane: { fs: built.handle }, dispose: built.dispose };
+      const domainsBefore = new Set((await testHost.domains()).names());
+      const undoResolvers = registerResolvers(host.world.lane?.fs?.resolvers ?? []);
+      const cleanup = async () => {
+        try {
+          await disposeNewDomains(domainsBefore);
+        } finally {
+          undoResolvers();
+        }
+      };
+      let built: Awaited<ReturnType<typeof buildCase>>;
+      try {
+        built = await buildCase(kind, host.world.lane?.fs?.providers ?? []);
+      } catch (e) {
+        await cleanup();
+        throw e;
+      }
+      const dispose = async () => {
+        try {
+          await built.dispose();
+        } finally {
+          await cleanup();
+        }
+      };
+      return { lane: { fs: built.handle }, dispose };
     },
   });
 

@@ -56,6 +56,8 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     ['an inherit list', { mode: 'enforce', inherit: ['fs:read'] }, 'authz.fs.uploads.inherit'],
     ['an inherit key that is no permission', { mode: 'enforce', inherit: { read: 'read' } }, 'authz.fs.uploads.inherit.read'],
     ['an inherit action that is not a string', { mode: 'enforce', inherit: { 'fs:read': 1 } }, 'authz.fs.uploads.inherit.fs:read'],
+    ['an inherit key that is no fs permission', { mode: 'enforce', inherit: { 'task:read': 'read' } }, 'authz.fs.uploads.inherit.task:read'],
+    ['an inherit action that is no action name', { mode: 'enforce', inherit: { 'fs:read': 'task:read' } }, 'authz.fs.uploads.inherit.fs:read'],
     ['a signedUrl that is not an object', { mode: 'enforce', signedUrl: 900 }, 'authz.fs.uploads.signedUrl'],
     ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
     ['an infinite maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],

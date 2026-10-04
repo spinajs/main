@@ -10,3 +10,5 @@ export * from './decorator/index.js';
 export * from './contributor/index.js';
 export * from './metadata/index.js';
 export * from './migrations/index.js';
+export * from './inherit/index.js';
+export * from './domain/index.js';

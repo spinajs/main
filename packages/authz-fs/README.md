@@ -147,3 +147,39 @@ Stores:
   cannot be stamped), and a write between its HEAD and its copy can be lost. Whoever can PUT objects into the
   bucket directly (bucket credentials, a presigned PUT) can set any owner. A move between two S3 filesystems that
   share one store loses the owner, since the provider re-uploads the object.
+
+## Domain and fs-inherit
+
+`authz.fs.<name>.domain` names the authz domain a filesystem is checked in (default `root`). For any other
+domain, `AuthzFsDecorator` (and, for a guard built by hand, the guard's first call) runs `ensureFsDomain`:
+it creates the domain with `AuthzDomains.create(domain)` when it is missing (its parent is
+`authz.domains.<domain>.parent`, else root) and registers `FsInheritModel` (`fs-inherit`) in it, once per domain.
+Root never holds it.
+
+```ts
+authz: {
+  fs: { uploads: { mode: 'enforce', domain: 'fs', resolver: 'TaskAttachmentPathResolver',
+                   inherit: { 'fs:read': 'read', 'fs:write': 'update', 'fs:delete': 'update' } } },
+  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'fs-inherit'] } } } },
+}
+```
+
+- `fs-inherit` permits `fs:<op>` on a file or directory when the principal holds `<parent type>:<action>` on a
+  domain parent of the path (`FsPathResolver`, `authz.fs.<name>.resolver`, nearest parent first), where `inherit`
+  maps `fs:<op>` to `<action>`. A permission also follows from the entries of those that imply it: with
+  `'fs:read': 'read'`, `fs:stat` goes to `<type>:read` as well. Keys are `fs:` permissions and must be
+  registered (they are boot refs); values are action names.
+- The parent check runs in the same domain, as the principal the models run with (the delegate under `inherit`
+  delegation), with the request's actor and env. Only an unconditional allow counts: the parent row is not
+  loaded, so a parent permit with a condition gives nothing. `fs-inherit` never denies.
+- A parent permission that is not registered on the parent's type (`project:update` for a `project` parent), or
+  a parent check that throws, makes the vote indeterminate (B04: denied under deny-overrides) unless another
+  parent permits. Resolvers do not declare their parent types, so this is found per call, not at boot.
+- Its summary lists every permission it may grant as conditional, so `covers` holds only for a holder that has
+  them on every file.
+- A domain the app created itself gets `fs-inherit` only when one of its filesystems maps `inherit`, and not
+  when the domain holds an `FsInheritModel` class of its own. Registering into a domain that already booted is
+  an `AuthzConfigError`: resolve the fs providers before the domain's first `AuthzDomains.service()`.
+- `inherit` on a filesystem checked in root is an `AuthzConfigError` (decorator, and every domain boot).
+- Where the domain has a `combine` entry, it must list `fs-inherit` for the model to vote; a registered model that
+  `combine` leaves out is unrouted, and the host logs a warning at boot.

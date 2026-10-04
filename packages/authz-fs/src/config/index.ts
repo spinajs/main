@@ -106,7 +106,10 @@ function parseInherit(value: unknown, at: string): Readonly<Record<Permission, s
   const out: Record<string, string> = Object.create(null);
   for (const [permission, action] of Object.entries(value)) {
     if (!isPermission(permission)) throw new AuthzConfigError(`${at}.${permission}: the key must be a permission name`);
+    if (!permission.startsWith('fs:')) throw new AuthzConfigError(`${at}.${permission}: the key must be an fs permission (fs:<op>)`);
     out[permission] = nonEmptyString(action, `${at}.${permission}`);
+    // fs-inherit checks `<parent type>:<action>`, so the action alone must complete a permission name.
+    if (!isPermission(`x:${action as string}`)) throw new AuthzConfigError(`${at}.${permission} must be an action name such as 'read', got ${show(action)}`);
   }
   return Object.freeze(out);
 }
