@@ -6,6 +6,7 @@ export * from './native.js';
 export * from './assignments.js';
 export * from './cache.js';
 export * from './ceiling.js';
+export { MAX_UNDER_SCOPES } from './rows.js';
 export * from './evaluate.js';
 export * from './memory.js';
 export * from './model.js';

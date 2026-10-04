@@ -5,10 +5,12 @@ import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import type { AssignmentStore, LinkStore, RuleStore, SubjectResolver } from '../contracts.js';
 import { expiryTime } from './assignments.js';
 import { ceilingRoles, withinCeiling } from './ceiling.js';
+import { underTerm } from './rows.js';
 import { compileFieldSet, intersectFieldGlobs, summaryFieldGlobs, voteFieldGlobs } from './fields.js';
 import type { FieldGlobs } from './fields.js';
 import type { CompiledGrant, GrantIndex } from './grants.js';
 import { ladderExtension } from './ladder/extension.js';
+import { checkProvenance, checkTags, grantChecks } from './ladder/checks.js';
 import { addImplied, impliesExtension } from './ladder/implies.js';
 import type { ImpliesIndex } from './ladder/implies.js';
 import type { LadderIndex } from './ladder/ladders.js';
@@ -112,6 +114,8 @@ export interface RbacCandidate {
   readonly grant: CompiledGrant;
   readonly holders: readonly LiveAssignment[];
   failed: boolean;
+  /** Steps 6–7 on a type-level request: the rows where the grant's checks hold, ANDed into its permit. */
+  rows?: ResourceFilter;
 }
 
 export interface RbacDeny {
@@ -130,7 +134,7 @@ export interface RbacState {
   scoped: LiveAssignment[];
   /** aggregate: the effective role per ladder (Vote.roles). */
   readonly roles: Record<string, string>;
-  /** aggregate: the union of live tags. */
+  /** aggregate: the union of live tags, for introspection; step 6 reads the carriers in `live` (and `scoped`) itself. */
   readonly tags: Set<string>;
   /** grant */
   candidates: RbacCandidate[];
@@ -143,6 +147,8 @@ export interface RbacState {
   fields?: FieldSet;
   validUntil?: Date;
   cacheable: boolean;
+  /** rankAt[ladder, types] of step 4, filled on first use (ladder/checks.ts rankAt). */
+  readonly rankAt: Map<string, number | undefined>;
 }
 
 const noop: RbacStep = () => undefined;
@@ -209,7 +215,8 @@ function residualWith(s: RbacState, fieldGlobs: typeof voteFieldGlobs): void {
   const conditional: (FieldGlobs | undefined)[] = [];
   for (const c of s.candidates) {
     if (!c.failed) {
-      const permits = grantResidual(c.grant, at);
+      if (c.rows) nativeCannotCarry(s);
+      const permits = and(grantResidual(c.grant, at), c.rows ?? TRUE);
       s.permit.push(permits);
       if (permits.op === 'true') unconditional.push(c.grant.fieldGlobs);
       else if (permits.op !== 'false') conditional.push(c.grant.fieldGlobs);
@@ -217,10 +224,12 @@ function residualWith(s: RbacState, fieldGlobs: typeof voteFieldGlobs): void {
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   for (const [g, holders] of scopedGrants(s)) {
-    const permits = and(scopedRows(s, holders), grantResidual(g, at));
+    const checks = grantChecks(s, g);
+    if (checks.some((c) => c.rows.op !== 'true' && c.rows.op !== 'false')) nativeCannotCarry(s);
+    const permits = and(scopedRows(s, holders), grantResidual(g, at), ...checks.map((c) => c.rows));
     s.permit.push(permits);
     if (permits.op !== 'false') conditional.push(g.fieldGlobs);
-    for (const h of holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
+    for (const h of [...holders, ...checks.flatMap((c) => c.read)]) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
   const fields = fieldGlobs(unconditional, conditional);
@@ -228,6 +237,11 @@ function residualWith(s: RbacState, fieldGlobs: typeof voteFieldGlobs): void {
 }
 
 const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
+
+// The native term has no part for tags or provenance yet; a bare one would list rows the check refuses.
+function nativeCannotCarry(s: RbacState): void {
+  if (s.input.scopedResidual === 'native') throw new Error(`rbac: ${RBAC_ASSIGNMENT_OP} cannot carry the tag or provenance part of '${s.permission}' on a type-level request yet`);
+}
 
 /** The grants of the permission that scoped assignments reach, with those assignments. */
 function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
@@ -241,8 +255,6 @@ function scopedGrants(s: RbacState): Map<CompiledGrant, LiveAssignment[]> {
   }
   return out;
 }
-
-export const MAX_UNDER_SCOPES = 10_000;
 
 /**
  * The rows below the holders' scopes, canonical: sorted by key, without duplicates. An implied role
@@ -263,16 +275,7 @@ function scopedRows(s: RbacState, holders: readonly LiveAssignment[]): ResourceF
       ),
     };
   }
-  const scopes = new Map<string, ResourceRef>();
-  const below = new Map<string, ResourceRef>();
-  for (const h of holders) (h.onlyBelow && h.scope.type === type ? below : scopes).set(resourceKey(h.scope), { type: h.scope.type, id: h.scope.id });
-  for (const key of scopes.keys()) below.delete(key);
-  // A list this long belongs in SQL through rbacAssignmentExtension; failing closed beats an unbounded residual.
-  if (scopes.size + below.size > MAX_UNDER_SCOPES) throw new Error(`rbac: ${scopes.size + below.size} assignment scopes exceed the ${MAX_UNDER_SCOPES} an under term may hold; use rbacAssignmentExtension for this type`);
-  const sorted = (m: Map<string, ResourceRef>) => [...m].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([, ref]) => ref);
-  const terms: ResourceFilter[] = scopes.size > 0 ? [{ op: 'under', scopes: sorted(scopes) }] : [];
-  for (const ref of sorted(below)) terms.push(and({ op: 'under', scopes: [ref] }, { op: 'cmp', field: 'id', cmp: 'ne', value: ref.id! }));
-  return or(...terms);
+  return underTerm(holders, type);
 }
 
 function mayBeAssignedAt(roles: RoleGraph, role: string, type: ResourceType): boolean {
@@ -291,8 +294,8 @@ export const RBAC_STEPS: RbacSteps = Object.freeze({
   cap: noop,
   aggregate: aggregateRanks,
   grant,
-  tag: noop,
-  provenance: noop,
+  tag: checkTags,
+  provenance: checkProvenance,
   threshold: noop,
   residual,
   noGrantReason: (s: RbacState): DenyReason => roleTooLow(s) ?? { code: 'no_access', priority: DEFAULT_DENY_PRIORITY.no_access },
@@ -324,7 +327,7 @@ export function liveAssignments(input: RbacInput, opts: { readonly ceiling?: boo
 
 function newState(input: RbacInput, ceiling: boolean): RbacState {
   const roles = ceiling ? ceilingRoles(input.request.principal) : undefined;
-  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true };
+  return { input, permission: input.request.permission, ...(roles ? { ceilingRoles: roles } : {}), live: [], scoped: [], roles: {}, tags: new Set(), candidates: [], reasons: [], denies: [], permit: [], cacheable: true, rankAt: new Map() };
 }
 
 // OR is order-free, but the residual enters the cross-request decision cache key and SQL statement
