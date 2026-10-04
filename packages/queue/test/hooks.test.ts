@@ -362,27 +362,70 @@ describe('queue tracking hook', () => {
   });
 });
 
+let failFirst = true;
+
+@Job()
+class FlakyJob extends QueueJob {
+  public RetryCount = 3;
+
+  public async execute() {
+    if (failFirst) throw new Error('first attempt fails');
+    trace.push('execute');
+    return 'done';
+  }
+}
+
 describe('queue job owned by another initiator', () => {
   beforeEach(async () => {
     DI.clearCache();
+    failFirst = true;
+    trace.length = 0;
     DI.register(HookConf).as(Configuration);
     await DI.resolve(Configuration);
     await DI.resolve(Orm);
   });
 
-  it('drops a message whose JobId belongs to a row of a different initiator', async () => {
+  const firstAttempt = async () => {
     const queue = await DI.resolve(QueueService);
-    await queue.consume(PlainJob);
-    await PlainJob.emit({});
+    await queue.consume(FlakyJob);
+    await FlakyJob.emit({});
     const c = await client();
-    const wire = c.Emitted[c.Emitted.length - 1] as IQueueMessage & { JobId: string };
-    wire.Initiator = { type: 'user', id: 'alice' };
-    await c.deliver(wire);
+    const wire = { ...c.Emitted[c.Emitted.length - 1], Initiator: { type: 'user', id: 'alice' } } as IQueueMessage;
+    await c.deliver(wire).catch(() => undefined);
+    return { c, wire };
+  };
 
-    trace.length = 0;
+  it('drops a message whose JobId belongs to a row of a different initiator', async () => {
+    const { c, wire } = await firstAttempt();
+    failFirst = false;
     await c.deliver({ ...wire, Initiator: { type: 'user', id: 'bob' } } as IQueueMessage);
 
+    const row = (await JobModel.all())[0] as JobModel<unknown>;
     expect(trace).to.not.include('execute');
-    expect(((await JobModel.all())[0] as JobModel<unknown>).InitiatorId).to.equal('alice');
+    expect(row.Status).to.equal('retrying');
+    expect(row.Attempt).to.equal(1);
+  });
+
+  it('runs a redelivery from the same initiator', async () => {
+    const { c, wire } = await firstAttempt();
+    failFirst = false;
+    await c.deliver(wire);
+
+    expect(trace).to.include('execute');
+    expect(((await JobModel.all())[0] as JobModel<unknown>).Status).to.equal('success');
+  });
+});
+
+describe('@Job and @Event inheritance of runAs', () => {
+  it('an undecorated subclass of a system job has no runAs', () => {
+    @Job({ runAs: 'system' })
+    class Parent extends QueueJob {
+      public async execute() {
+        return null;
+      }
+    }
+    class Child extends Parent {}
+
+    expect(jobOptions(new Child())).to.deep.equal({});
   });
 });

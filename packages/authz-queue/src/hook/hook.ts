@@ -35,7 +35,7 @@ export class AuthzQueueHook extends QueueMessageHook {
     // The stamp cannot carry these; rebuilding without them would widen the job's authority.
     if (principal.onBehalfOf !== undefined || principal.delegation !== undefined || principal.authn?.impersonator !== undefined) return;
 
-    const stamp: Initiator = { type: principal.type, id: principal.id };
+    const stamp: Initiator = { type: principal.type, id: String(principal.id) };
     if (principal.ceiling === undefined) {
       message.Initiator = stamp;
       return;

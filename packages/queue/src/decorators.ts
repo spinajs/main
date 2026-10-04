@@ -34,7 +34,7 @@ export function Job(opts?: JobOptions) {
  * the job then runs with no authority.
  */
 export function jobOptions(message: object): JobOptions {
-  const options: { runAs?: unknown } | undefined = Reflect.getMetadata('queue:options', message.constructor);
+  const options: { runAs?: unknown } | undefined = Reflect.getOwnMetadata('queue:options', message.constructor);
   return options?.runAs === 'initiator' || options?.runAs === 'system' ? { runAs: options.runAs } : {};
 }
 
