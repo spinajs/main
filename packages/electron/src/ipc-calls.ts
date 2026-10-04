@@ -107,6 +107,7 @@ export function callServiceSync(event: { returnValue: unknown }, method: string,
 
     // we return error, in render process preload we check & throw
     event.returnValue = new Error(msg);
+    return;
   }
 
   if (method in _s && typeof _s[method] === "function") {

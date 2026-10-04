@@ -157,5 +157,12 @@ describe("electron IPC calls", () => {
       callServiceSync(event, "missing", "Greeter");
       expect(event.returnValue).to.be.instanceOf(Error);
     });
+
+    it("callServiceSync reports an unknown service through returnValue", () => {
+      const event = { returnValue: undefined as unknown };
+      callServiceSync(event, "hello", "NoSuchService");
+      expect(event.returnValue).to.be.instanceOf(Error);
+      expect((event.returnValue as Error).message).to.match(/no service named: NoSuchService/);
+    });
   });
 });
