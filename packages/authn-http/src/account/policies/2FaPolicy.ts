@@ -19,7 +19,9 @@ export class TwoFactorAuthEnabled extends BasePolicy {
   }
 
   public async execute(_req: sRequest): Promise<void> {
-    if (this.TwoFactorConfig.enabled === false) {
+    // authn-totp no longer ships rbac.twoFactorAuth; unset counts as on, the 2.x shipped default, so users
+    // enrolled through 2.x can still finish the login step.
+    if (this.TwoFactorConfig?.enabled === false) {
       // Deliberately Forbidden and not InvalidOperation: the latter has no
       // @HandleException mapping in @spinajs/http and reaches the client as a
       // 500, which a caller cannot distinguish from a fault.

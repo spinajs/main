@@ -4,6 +4,7 @@ import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } f
 import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacException, hashSessionId } from '@spinajs/users';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
 import { LoggedPolicy } from '../../policies/LoggedPolicy.js';
@@ -16,6 +17,7 @@ import { LogoutHandler, ILogoutContext } from '../logout.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants } from '../services/grants.js';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
+import { MfaPolicy } from '@spinajs/authn/contracts';
 
 
 /**
@@ -95,6 +97,7 @@ export class LoginController extends BaseController {
       session.UserId = user.Id;
 
       const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
+      const secondFactorRequired = twoFaEnabledForUser || (await this.mfaStepsRequired(user.Uuid));
 
       // `forceUser` alone used to be enough to park the user in
       // TwoFactorInitRequired. But every mutating `/user/2fa*` and
@@ -115,7 +118,9 @@ export class LoginController extends BaseController {
 
         result = { TwoFactorInitRequired: true };
       }
-      else if (this.TwoFactorAuthEnabled && twoFaEnabledForUser) {
+      // A user enrolled in a second factor never logs in with the password alone, whatever the 2.x switch says:
+      // the switch now ships unset, and a 3.0 step (MfaPolicy) cannot be completed here, so that login stays pending.
+      else if (secondFactorRequired) {
 
         this._log.trace('User logged in, 2fa required', {
           Uuid: user.Uuid
@@ -180,6 +185,18 @@ export class LoginController extends BaseController {
           message: 'login or password incorrect',
         },
       });
+    }
+  }
+
+  /** Fails closed: a policy that cannot answer counts as a required step. */
+  protected async mfaStepsRequired(uuid: string): Promise<boolean> {
+    if (!DI.check(MfaPolicy as unknown as Class<MfaPolicy>)) return false;
+    try {
+      const policy = (await DI.resolve(MfaPolicy as unknown as Class<MfaPolicy>)) as MfaPolicy;
+      return (await policy.required({ type: 'user', id: uuid }, { method: 'password', strategy: 'local' })).length > 0;
+    } catch (err) {
+      this._log.error(err as Error, 'MfaPolicy failed during a 2.x login; the login stays pending');
+      return true;
     }
   }
 
