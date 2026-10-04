@@ -22,10 +22,13 @@ export class FsAuthzContributor extends AuthzContributor {
     const refs = new Map<string, PermissionRefDecl>();
     for (const [name, config] of fsAccessConfigs(this.container)) {
       if (config.mode === 'off' || config.domain !== domain) continue;
-      for (const [method, operation] of Object.entries(effectiveFsOperations(config))) {
+      for (const [method, operation] of Object.entries(effectiveFsOperations(config, name))) {
         const source = config.operations && Object.hasOwn(config.operations, method) ? `authz.fs.${name}.operations.${method}` : `authz.fs.${name}`;
         for (const spec of operation.paths) {
-          for (const permission of spec.permissions) refs.set(`${permission}\0${spec.kind}\0${source}`, { permission, type: spec.kind, source });
+          // Any path argument may be the filesystem root, which the guard checks as the fs ref.
+          for (const permission of spec.permissions) {
+            for (const type of [spec.kind, 'fs'] as const) refs.set(`${permission}\0${type}\0${source}`, { permission, type, source });
+          }
         }
       }
     }

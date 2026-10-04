@@ -222,6 +222,10 @@ async function buildCase(kind: FsProviderKind, specs: readonly FsProviderSpec[])
  * hostHarness plus the fs facet: each case gets the world's filesystems (`World.lane.fs.providers`)
  * through a fresh fsService, so the real FsDecorator chain runs. The providers are built in `extend`,
  * after the domain booted, so a world the boot checks refuse leaves no provider behind.
+ *
+ * For the later fsTemp and S3 kinds: dispose deletes the case's provider names from the published map even
+ * when a provider of that name was published before the case, and the suite undo reaches into the private
+ * `Registry.registry` map to drop the `__file_provider__` key it added.
  */
 export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
   const kind = opts.kind ?? 'local';

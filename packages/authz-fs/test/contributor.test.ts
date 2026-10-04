@@ -15,7 +15,7 @@ const refs = async (container: IContainer, domain: string): Promise<readonly Per
 
 const tableRefs = (fsName: string): string[] => {
   const out = new Set<string>();
-  for (const op of Object.values(FS_OPERATIONS)) for (const p of op.paths) for (const permission of p.permissions) out.add(`${permission} ${p.kind} authz.fs.${fsName}`);
+  for (const op of Object.values(FS_OPERATIONS)) for (const p of op.paths) for (const permission of p.permissions) for (const type of [p.kind, 'fs']) out.add(`${permission} ${type} authz.fs.${fsName}`);
   return [...out].sort();
 };
 
@@ -44,6 +44,7 @@ describe('authz-fs FsAuthzContributor', () => {
     child = await configuredChild({ uploads: { mode: 'enforce', operations: { compact: 'fs:compact', read: ['fs:read', 'app:audit'] } } });
     const list = show(await refs(child, 'root'));
     expect(list).to.include('fs:compact file authz.fs.uploads.operations.compact');
+    expect(list).to.include('fs:compact fs authz.fs.uploads.operations.compact');
     expect(list).to.include('app:audit file authz.fs.uploads.operations.read');
     expect(list).to.include('fs:read file authz.fs.uploads.operations.read');
   });

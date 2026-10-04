@@ -51,6 +51,27 @@ export function parseFsRef(ref: ResourceRef): ParsedFsRef | undefined {
   return { fs, path, type: ref.type };
 }
 
+/** The subject row of an fs ref: what `resource.*` conditions and relation resolvers read (design §13). */
+export interface FsRow {
+  /** The ref id: `attribute(row, 'id')` equals it. */
+  readonly id: string;
+  readonly type: FsRefType;
+  readonly fs: string;
+  /** Normalised; '' for the filesystem root. */
+  readonly path: string;
+}
+
+/** The row of a ref fsRef builds; null for a ref parseFsRef refuses. */
+export function fsRow(ref: ResourceRef): FsRow | null {
+  const parsed = parseFsRef(ref);
+  return parsed ? fsRowOf(parsed.fs, parsed.path, parsed.type) : null;
+}
+
+/** The row of an already normalised path, with no second normalisation; '' gives the fs row. */
+export function fsRowOf(fsName: string, normalised: string, type: FsRefType): FsRow {
+  return normalised === '' ? Object.freeze({ id: fsName, type: 'fs', fs: fsName, path: '' }) : Object.freeze({ id: `${fsName}:${normalised}`, type, fs: fsName, path: normalised });
+}
+
 /**
  * `[self, parent dirs nearest first, fs, GLOBAL]`, null for a ref parseFsRef refuses. Resolver (domain)
  * parents are not ancestors; the fs-inherit model reads them (design §13). This does not know which

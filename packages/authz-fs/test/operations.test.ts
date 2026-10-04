@@ -1,6 +1,8 @@
 import * as chai from 'chai';
 import 'mocha';
 
+import { AuthzConfigError } from '@spinajs/authz';
+
 import { FS_OPERATIONS, FsResourceAdapter, effectiveFsOperations, fsOperationPermissions, parseFsAccessConfig } from '../src/index.js';
 import type { FsOperation } from '../src/index.js';
 
@@ -27,6 +29,8 @@ describe('authz-fs FS_OPERATIONS', () => {
   it('list: fs:list on a dir; mkdir: fs:write on a dir', () => {
     expect(permissionsOf(FS_OPERATIONS.list)).to.deep.equal([{ arg: 0, permissions: ['fs:list'], kind: 'dir' }]);
     expect(permissionsOf(FS_OPERATIONS.mkdir)).to.deep.equal([{ arg: 0, permissions: ['fs:write'], kind: 'dir' }]);
+    expect(FS_OPERATIONS.list.paths[0].dirSlash).to.equal(true);
+    expect(FS_OPERATIONS.mkdir.paths[0].dirSlash).to.equal(undefined);
   });
 
   it('write, writeStream, append: fs:write; rm: fs:delete', () => {
@@ -72,7 +76,7 @@ describe('authz-fs FS_OPERATIONS', () => {
 
     expect(permissionsOf(FS_OPERATIONS.unzip)).to.deep.equal([
       { arg: 0, permissions: ['fs:read'], kind: 'file' },
-      { arg: 1, permissions: ['fs:write'], kind: 'file', onDestination: true },
+      { arg: 1, permissions: ['fs:write'], kind: 'dir', onDestination: true },
     ]);
     expect(FS_OPERATIONS.unzip.paths[1].default).to.deep.equal({ tmpname: '' });
     expect(FS_OPERATIONS.unzip.dstFs).to.deep.equal({ arg: 2, absent: 'provider' });
@@ -116,16 +120,30 @@ describe('authz-fs fsOperationPermissions', () => {
 
 describe('authz-fs effectiveFsOperations', () => {
   it('is the table itself without authz.fs.<name>.operations', () => {
-    expect(effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce' }))).to.equal(FS_OPERATIONS);
+    expect(effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce' }), 'uploads')).to.equal(FS_OPERATIONS);
   });
 
-  it('adds and replaces entries, checked on argument 0 as a file', () => {
-    const ops = effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce', operations: { compact: 'fs:write', read: ['fs:read', 'app:audit'] } }));
+  it('adds entries on argument 0 as a file and replaces single-path entries keeping their kind', () => {
+    const ops = effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce', operations: { compact: 'fs:write', read: ['fs:read', 'app:audit'], list: 'app:browse' } }), 'uploads');
     expect(permissionsOf(ops.compact)).to.deep.equal([{ arg: 0, permissions: ['fs:write'], kind: 'file' }]);
     expect(permissionsOf(ops.read)).to.deep.equal([{ arg: 0, permissions: ['fs:read', 'app:audit'], kind: 'file' }]);
+    expect(permissionsOf(ops.list)).to.deep.equal([{ arg: 0, permissions: ['app:browse'], kind: 'dir' }]);
+    expect(ops.list.paths[0].dirSlash).to.equal(true);
     expect(permissionsOf(ops.copy)).to.deep.equal(permissionsOf(FS_OPERATIONS.copy));
     expect(permissionsOf(FS_OPERATIONS.read)).to.deep.equal([{ arg: 0, permissions: ['fs:read'], kind: 'file' }]);
     expect(Object.getPrototypeOf(ops)).to.equal(null);
     expect(Object.isFrozen(ops)).to.equal(true);
   });
+
+  for (const method of ['copy', 'move', 'rename', 'zip', 'unzip', 'upload']) {
+    it(`refuses replacing ${method}, which checks more than its first argument`, () => {
+      expect(() => effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce', operations: { [method]: 'fs:read' } }), 'uploads')).to.throw(AuthzConfigError, `authz.fs.uploads.operations.${method}`);
+    });
+  }
+
+  for (const method of ['resolvePath', 'tmppath', 'tmpname', 'resolve', 'dispose', '__checkInstance__']) {
+    it(`refuses mapping the unchecked member ${method}`, () => {
+      expect(() => effectiveFsOperations(parseFsAccessConfig('uploads', { mode: 'enforce', operations: { [method]: 'fs:read' } }), 'uploads')).to.throw(AuthzConfigError, `authz.fs.uploads.operations.${method}`);
+    });
+  }
 });

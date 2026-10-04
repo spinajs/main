@@ -8,7 +8,7 @@ import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 
-import { FS_PERMISSIONS, FsPathResolver, FsResourceAdapter } from '../src/index.js';
+import { FS_PERMISSIONS, FsPathResolver, FsResourceAdapter, fsRowOf } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 
 const expect = chai.expect;
@@ -101,13 +101,7 @@ describe('authz-fs FsResourceAdapter', () => {
       child = await configuredChild({ uploads: { mode: 'enforce', resolver: 'MissingResolver' } });
       child.register(TaskAttachmentPathResolver).as(FsPathResolver);
       const a = new FsResourceAdapter(child);
-      expect(await a.ancestors({ type: 'file', id: 'uploads:tasks/42/a.pdf' })).to.deep.equal([
-        { type: 'file', id: 'uploads:tasks/42/a.pdf' },
-        { type: 'dir', id: 'uploads:tasks/42' },
-        { type: 'dir', id: 'uploads:tasks' },
-        { type: 'fs', id: 'uploads' },
-        GLOBAL,
-      ]);
+      expect(await a.ancestors({ type: 'file', id: 'uploads:tasks/42/a.pdf' })).to.deep.equal([{ type: 'file', id: 'uploads:tasks/42/a.pdf' }, { type: 'dir', id: 'uploads:tasks/42' }, { type: 'dir', id: 'uploads:tasks' }, { type: 'fs', id: 'uploads' }, GLOBAL]);
       expect(await a.ancestors({ type: 'fs', id: 'uploads' })).to.deep.equal([{ type: 'fs', id: 'uploads' }, GLOBAL]);
     });
   });
@@ -126,6 +120,31 @@ describe('authz-fs FsResourceAdapter conformance', () => {
       { fs: '__file_upload_default_provider__', path: 'up.tmp' },
     ],
     principals: [userPrincipal('alice')],
-    unknown: [{ type: 'file', id: 'nocolon' }, { type: 'dir', id: 'uploads:a/../b' }, { type: 'fs', id: 'a:b' }, { type: 'file', id: 'uploads:' }],
+    unknown: [
+      { type: 'file', id: 'nocolon' },
+      { type: 'dir', id: 'uploads:a/../b' },
+      { type: 'fs', id: 'a:b' },
+      { type: 'file', id: 'uploads:' },
+    ],
   }));
+});
+
+describe('authz-fs FsResourceAdapter subject rows', () => {
+  const a = new FsResourceAdapter();
+
+  it('load gives the row the guard passes as the subject, with attribute(row, "id") === ref.id', async () => {
+    const file = { type: 'file', id: 'uploads:docs/a.txt' };
+    const row = await a.load(file);
+    expect(row).to.deep.equal({ id: 'uploads:docs/a.txt', type: 'file', fs: 'uploads', path: 'docs/a.txt' });
+    expect(row).to.deep.equal(fsRowOf('uploads', 'docs/a.txt', 'file'));
+    expect(a.attribute(row, 'id')).to.equal(file.id);
+    expect(await a.load({ type: 'dir', id: 'uploads:docs' })).to.deep.equal({ id: 'uploads:docs', type: 'dir', fs: 'uploads', path: 'docs' });
+    expect(await a.load({ type: 'fs', id: 'uploads' })).to.deep.equal({ id: 'uploads', type: 'fs', fs: 'uploads', path: '' });
+  });
+
+  it('load gives null for a malformed ref; attribute reads own fields only', async () => {
+    expect(await a.load({ type: 'file', id: 'uploads:a/../b' })).to.equal(null);
+    expect(a.attribute({ id: 'x' }, 'toString')).to.equal(undefined);
+    expect(a.attribute(null, 'id')).to.equal(undefined);
+  });
 });
