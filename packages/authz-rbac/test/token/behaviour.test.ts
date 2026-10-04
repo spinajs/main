@@ -127,7 +127,7 @@ describe('authz-rbac token principals end to end (C5)', function () {
   describe('a lane-local world: alice on a project tree, authz.token.excludedRoles [route.*]', () => {
     const open = useHarness();
 
-    it('B08: a pat token principal acts for nobody; an agent token principal acts for its owner with inherit', async () => {
+    it('token handle: a pat token principal acts for nobody; an agent token principal acts for its owner with inherit', async () => {
       const { authz, token } = await open();
       const pat = await token({ roles: ['viewer'] });
       expect(pat.onBehalfOf).to.equal(undefined);
@@ -136,6 +136,15 @@ describe('authz-rbac token principals end to end (C5)', function () {
       expect([agent.type, agent.delegation, agent.onBehalfOf?.type, agent.onBehalfOf?.id, agent.onBehalfOf?.authn?.method, agent.ceiling?.reason]).to.deep.equal(['agent', 'inherit', 'user', 'alice', 'token', 'out_of_scope']);
       const d = await authz.check({ principal: agent, permission: 'file:read', resource: f1 });
       expect([d.allowed, d.principal, d.actor]).to.deep.equal([true, { type: 'user', id: 'alice' }, { type: 'agent', id: agent.id }]);
+    });
+
+    it('an intersect delegate that is a token principal gets the token rules in its nested check (RFC C5-1)', async () => {
+      const { authz, token } = await open();
+      const delegate = await token({ roles: ['viewer', 'route.export'] });
+      const app: Principal = { ...alice, source: 'app', onBehalfOf: delegate, delegation: 'intersect' };
+      const d = await authz.check({ principal: app, permission: 'report:export' });
+      expect([d.allowed, d.reason?.code]).to.deep.equal([false, 'delegate']);
+      expect(await allowed(authz, app, 'file:read', f1)).to.equal(true);
     });
 
     it("an agent token whose Scope lists report:export cannot use it: route.* is excluded from the delegate's roles", async () => {
