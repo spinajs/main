@@ -126,6 +126,28 @@ for (const d of DIALECTS) {
       expect(driver.executed.map((e) => e.context)).to.deep.eq([QueryContext.Select]);
     });
 
+    it('DbSecretStore.redeem runs the same statements for an unknown identity as for a real one with a wrong secret', async () => {
+      const redeemWrong = async (identity: IdentityRef) => {
+        const driver = await fake(d.type, `n4-${d.name}`);
+        const clock = new FakeClock(NOW);
+        clock.install();
+        try {
+          expect(await new DbSecretStore(driver).redeem(identity, 'reset', 'wrong-secret')).to.eq(false);
+        } finally {
+          clock.uninstall();
+        }
+        return driver.executed;
+      };
+
+      const real = await redeemWrong(ALICE);
+      const unknown = await redeemWrong({ type: 'user', id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' });
+
+      expect(real.map(sql)).to.deep.eq([d.secretSelect]);
+      expect(unknown.map(sql)).to.deep.eq(real.map(sql));
+      expect(unknown.map((e) => e.context)).to.deep.eq([QueryContext.Select]);
+      expect(unknown[0].params.map((p) => String(p).length)).to.deep.eq(real[0].params.map((p) => String(p).length));
+    });
+
     it('DbSecretStore.redeem refuses an over-long input without a query', async () => {
       const driver = await fake(d.type, `n4-${d.name}`);
       expect(await new DbSecretStore(driver).redeem(ALICE, 'reset', 'x'.repeat(1025))).to.eq(false);
