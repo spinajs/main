@@ -13,6 +13,7 @@ import type { Principal } from '@spinajs/authz';
 import { join, normalize, resolve } from 'path';
 
 import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, User, UserPrincipalFactory, UserSelfRelation, UsersSelfRelation } from '../src/index.js';
+import { activate, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { registerAuthzHost, rootAdmin, rootAuthz } from './support/authz-host.js';
@@ -66,6 +67,30 @@ describe('self relation', function () {
           expect(await r.holds(principal('user', OTHER_UUID, { onBehalfOf: owner, delegation: 'intersect' }), { type, id: TEST_USER_UUID })).to.eq(false);
           expect(await r.holds(principal('user', OTHER_UUID, { onBehalfOf: owner, delegation: 'intersect' }), { type, id: OTHER_UUID })).to.eq(true);
         });
+
+        describe('with a row (the subject the engine evaluates the residual against)', () => {
+          const own = { Id: 7, Uuid: TEST_USER_UUID };
+          const other = { Id: 8, Uuid: OTHER_UUID };
+
+          it('decides on the row: a ref keyed by the numeric Id holds for the own row', async () => {
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type, id: '7' }, own)).to.eq(true);
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type, id: TEST_USER_UUID }, own)).to.eq(true);
+          });
+
+          it("the row wins over the ref: the own Uuid in the ref does not open another user's row", async () => {
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type, id: TEST_USER_UUID }, other)).to.eq(false);
+          });
+
+          it('refuses a ref that names neither the row Uuid nor its Id', async () => {
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type, id: OTHER_UUID }, own)).to.eq(false);
+          });
+
+          it('refuses a subject that is not a user row, and keeps the type-level and non-user refusals', async () => {
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type, id: TEST_USER_UUID }, { Name: 'x' })).to.eq(false);
+            expect(await r.holds(principal('user', TEST_USER_UUID), { type }, own)).to.eq(false);
+            expect(await r.holds(principal('service', TEST_USER_UUID), { type, id: TEST_USER_UUID }, own)).to.eq(false);
+          });
+        });
       });
     }
   });
@@ -116,6 +141,19 @@ describe('self relation', function () {
 
       const unbound = await authz.check({ principal: me, permission: 'user:read', resource: { type: 'user', id: other.Uuid } });
       expect(unbound.residual).to.deep.eq({ op: 'relation', relation: 'self' });
+    });
+
+    it("on users, a ref keyed by the numeric Id opens the own row and not another user's", async () => {
+      const { User: created } = await create('selfie@spinajs.pl', 'selfie', ['self-reader'], { password: 'passw0rd123' });
+      await activate(created.Uuid);
+      const own = await User.query().whereLogin('selfie').populate('Metadata').firstOrFail();
+      const other = await User.query().whereLogin('test').firstOrFail();
+      const me = await ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory).principalOf(own);
+      const authz = await rootAuthz();
+
+      expect(await authz.can(me, 'users:read', { type: 'users', id: String(own.Id) }, own)).to.eq(true);
+      expect(await authz.can(me, 'users:read', { type: 'users', id: String(other.Id) }, other)).to.eq(false);
+      expect(await authz.can(me, 'users:read', { type: 'users', id: String(own.Id) }, other), 'the row decides, not the ref').to.eq(false);
     });
   });
 });
