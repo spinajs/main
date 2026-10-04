@@ -3,11 +3,20 @@ import { USER_COMMON_METADATA, User } from '../../src/models/User.js';
 import { v4 as uuidv4 } from 'uuid';
 import { DI } from '@spinajs/di';
 import { PasswordProvider } from '../../src/interfaces.js';
+import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 //import { ban } from '../../src/actions.js';
 
 export const TEST_USER_UUID = uuidv4();
 export const TEST_USER_UUID_2 = uuidv4();
 export const TEST_USER_UUID_3 = uuidv4();
+
+/** A live GLOBAL assignment row, as the authz-rbac copy migration writes a 2.x `users.Role` entry. */
+async function seedGlobalRole(uuid: string, role: string): Promise<void> {
+  await User.query()
+    .Driver.insert()
+    .into(AUTHZ_ASSIGNMENT_TABLE)
+    .values({ id: uuidv4(), subject_type: 'user', subject_id: uuid, subject_role: '', role, scope_type: '$global', scope_id: '', tags: '', expires_at: null, granted_by: null, source: 'test', created_at: new Date() });
+}
 
 @Migration('default')
 export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
@@ -52,12 +61,12 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
       Email: 'test@spinajs.pl',
       Login: 'test',
       Password: await provider.hash('bbbb'),
-      Role: ['admin'],
       IsActive: true,
       Uuid: TEST_USER_UUID,
     });
 
     await user.insert();
+    await seedGlobalRole(user.Uuid, 'admin');
 
     user.Metadata['test:test'] = 'test';
 
@@ -67,12 +76,12 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
       Email: 'test-banned@spinajs.pl',
       Login: 'test-banned',
       Password: await provider.hash('bbbb'),
-      Role: ['admin'],
       IsActive: true,
       Uuid: TEST_USER_UUID_3,
     });
 
     await bannedUser.insert();
+    await seedGlobalRole(bannedUser.Uuid, 'admin');
     
     bannedUser.Metadata[USER_COMMON_METADATA.USER_BAN_IS_BANNED] = true;
     await bannedUser.Metadata.sync();
@@ -81,23 +90,23 @@ export class RbacMigration_2022_06_28_01_13_00 extends OrmMigration {
       Email: 'test-notactive@spinajs.pl',
       Login: 'test-notactive',
       Password: await provider.hash('bbbb'),
-      Role: ['admin'],
       IsActive: false,
       Uuid: uuidv4(),
     });
 
     await notActiveUser.insert();
+    await seedGlobalRole(notActiveUser.Uuid, 'admin');
 
     const deletedUser = new User({
       Email: 'test-deleted@spinajs.pl',
       Login: 'test-deleted',
       Password: await provider.hash('bbbb'),
-      Role: ['admin'],
       IsActive: false,
       Uuid: uuidv4(),
     });
 
     await deletedUser.insert();
+    await seedGlobalRole(deletedUser.Uuid, 'admin');
     await deletedUser.destroy();
   }
 }

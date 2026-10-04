@@ -99,7 +99,6 @@ export class RbacBootstrapper extends Bootstrapper {
       return new (userModel())({
         Login: 'guest',
         Email: 'guest@spinajs.com',
-        Role: ['guest'],
         IsActive: guestEnabled,
       });
     }).as('RbacGuestUserFactory');
@@ -121,7 +120,7 @@ export class RbacBootstrapper extends Bootstrapper {
        * active role or token info.
        */
       const store = DI.get(AsyncLocalStorage) as AsyncLocalStorage<IRbacAsyncStorage> | undefined;
-      const lookup = () => userModel().select().where('Role', ['system']).where('Login', '__system__').firstOrFail();
+      const lookup = () => userModel().select().where('Login', '__system__').firstOrFail();
 
       if (!store) {
         return await lookup();
@@ -129,14 +128,5 @@ export class RbacBootstrapper extends Bootstrapper {
 
       return await store.run({ ...(store.getStore() ?? {}), SkipModelPermissionCheck: true }, lookup);
     }).as('RbacSystemUserFactory');
-
-    DI.register(async (_, role: string) => {
-      return new (userModel())({
-        Login: `__user_from_role_${role}__`,
-        Email: `__user_from_role_${role}__@system`,
-        Role: [role],
-        IsActive: true,
-      });
-    }).as('RbacUserFromRoleFactory');
   }
 }

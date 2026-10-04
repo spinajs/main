@@ -140,60 +140,6 @@ describe('User model tests', function () {
     });
   });
 
-  describe('User roles', () => {
-    it('Should check if guest role is set by default', async () => {
-      const user = new User({
-        Email: 'test@test.pl',
-        Login: 'tes t',
-        IsActive: true,
-        Password: 'test',
-        Uuid: TEST_USER_UUID_2,
-      });
-
-      expect(user.IsGuest).to.be.true;
-
-      await user.insert();
-
-      const user2 = await User.get(user.Id);
-      expect(user2.IsGuest).to.be.true;
-      expect(user2.Role.length).to.be.eq(1);
-    });
-
-    it('Should save multiple roles', async () => {
-      const user = new User({
-        Email: 'test@test.pl',
-        Login: 'test ddd',
-        IsActive: true,
-        Uuid: TEST_USER_UUID_2,
-        Password: 'test',
-        Role: ['admin', 'user'],
-      });
-
-      await user.insert();
-
-      const user2 = await User.get(user.Id);
-      expect(user2.Role.length).to.be.eq(2);
-    });
-
-    it('Should convert roles to and from string to array', async () => {
-      const user = new User({
-        Email: 'roles@test.pl',
-        Login: 'roles user',
-        IsActive: true,
-        Uuid: TEST_USER_UUID_2,
-        Password: 'test',
-        Role: ['admin', 'user', 'editor'],
-      });
-
-      await user.insert();
-
-      // Role is stored as a delimited string (@Set) and must hydrate back to an array
-      const reloaded = await User.get(user.Id);
-      expect(reloaded.Role).to.be.an('array');
-      expect(reloaded.Role).to.have.members(['admin', 'user', 'editor']);
-    });
-  });
-
   describe('Permission checks (can*)', () => {
     beforeEach(() => {
       // editor has full :any grants on Article; viewer only has read:own

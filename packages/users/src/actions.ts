@@ -13,13 +13,13 @@ import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProv
 import { DateTime } from 'luxon';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserIsBanned, UserNotActive } from './exceptions.js';
-import { AccessControl } from 'accesscontrol';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
+import { assignGlobalRoles, globalRoleHolders, revokeGlobalRole } from './role-assignments.js';
 
 /**
  * ===============================================
@@ -61,25 +61,21 @@ export async function getUserUnsafe(identifier: number | string | User): Promise
 }
 
 /**
- * Gets system user account
+ * Users holding any of the roles as a live GLOBAL assignment (`AssignmentStore.holders`), soft
+ * deleted ones excluded. Assignments of subject sets are not expanded.
  *
- * @returns system user
- */
-export async function getSystemUser(): Promise<User> {
-  const systemRole = _check_arg(_trim(), _non_empty())(cfg<string>('rbac.systemRole'), 'rbac.systemRole');
-  const roleColumn = _check_arg(_trim(), _non_empty())(cfg<string>('rbac.roleColumn'), 'rbac.roleColumn');
-
-  // base User on purpose: system account must resolve inside scoped request contexts
-  return User.query().where(roleColumn, systemRole).firstOrFail();
-}
-
-/**
- * Gets users by role.
- *
- * @param role user roles
+ * @param role role names
  */
 export async function getUsersByRole(role: string[]): Promise<User[]> {
-  return userModel().select().withRole(role);
+  const uuids = await globalRoleHolders(roleList(role));
+  const users: User[] = [];
+
+  // Bounded IN lists: SQLite allows 999 bound parameters per statement.
+  for (let i = 0; i < uuids.length; i += 500) {
+    users.push(...(await userModel().select().whereIn('Uuid', uuids.slice(i, i + 500))));
+  }
+
+  return users;
 }
 
 /**
@@ -227,13 +223,6 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
  *  FP WRAPPERS ( kept for compatibility and for use in chains )
  * ===============================================
  */
-
-/**
- * Thunk form of {@link getSystemUser}.
- */
-export function _get_system_user() {
-  return getSystemUser();
-}
 
 /**
  * Thunk form of {@link getUsersByRole}.
@@ -430,60 +419,6 @@ export function roleList(role?: string | string[]): string[] {
 }
 
 /**
- * Refuses a role the application has not configured.
- *
- * A role counts as configured if it either holds grants in the resolved
- * {@link AccessControl} instance or is merely declared in `rbac.roles` - the
- * same definition of "known" `DefaultRoleGuard` (`@spinajs/authz-http-admin`)
- * already uses for its own route-level check. A role may legitimately be named
- * before it is given any permission, and a narrower definition here would
- * refuse a role the route layer of this same codebase already accepts.
- * `hasRole` resolves roles defined only through `$extend`, so an
- * inheritance-only role such as `system` is recognised.
- *
- * `rbac.requireKnownRole: false` turns the whole check off - see the comment
- * at its first use below.
- *
- * @param roles - role names to check; every unknown name is reported at once
- */
-export function assertRolesExist(roles: string[]): void {
-  // An application whose roles are defined at runtime rather than in static
-  // config turns this off wholesale. `authz-http-admin`'s DefaultRoleGuard has
-  // carried the same escape hatch for its own route-level check since before
-  // this one existed; a library-level check that could not be turned off would
-  // make rbac unusable for those applications.
-  if (cfg<boolean>('rbac.requireKnownRole', true) === false) {
-    return;
-  }
-
-  const ac = DI.get<AccessControl>('AccessControl');
-
-  if (!ac) {
-    // No grants loaded at all means the application has not configured rbac, not
-    // that every role is invalid - refusing here would break bootstrap ordering.
-    return;
-  }
-
-  // "Known" the same way DefaultRoleGuard already means it: holding grants, or
-  // merely DECLARED. A role may legitimately be named before it is given any
-  // permission, and a narrower definition here would refuse roles the route
-  // layer of this same codebase already accepts.
-  //
-  // Guarded the way DefaultRoleGuard guards the same list: `rbac.roles` may be
-  // assembled dynamically, and one malformed entry must not turn every create()
-  // in the application into an unhandled TypeError. An entry without a `Name`
-  // simply never matches a real role.
-  const configured = cfg<Array<{ Name: string }>>('rbac.roles', []);
-  const declared = (Array.isArray(configured) ? configured : []).map((r) => r?.Name).filter(Boolean);
-
-  const unknown = roles.filter((r) => !ac.hasRole(r) && !declared.includes(r));
-
-  if (unknown.length > 0) {
-    throw new InvalidArgument(`Role(s) not configured in rbac.grants or rbac.roles: ${unknown.join(', ')}`, 'roles');
-  }
-}
-
-/**
  * Refuses metadata keys that decide account access: every reserved key
  * ({@link isReservedMetadataKey}) and globs.
  *
@@ -584,7 +519,8 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
  *
  * @param email - user email address (max 64 chars)
  * @param login - user login name (max 32 chars)
- * @param roles - array of role names to assign
+ * @param roles - role names, granted to `user:<Uuid>` at GLOBAL through `AuthzAdmin` as SYSTEM;
+ *   a refused role is an `InvalidArgument` thrown before anything is written
  * @param options - see {@link ICreateUserOptions}
  * @returns an object containing the persisted {@link User} and the plain-text password
  */
@@ -604,8 +540,6 @@ export async function create(email: string, login: string, roles: string[], opti
   if (roleNames.length === 0) {
     throw new InvalidArgument('At least one role must be given', 'roles');
   }
-
-  assertRolesExist(roleNames);
 
   const password = _check_arg(
     _trim(),
@@ -632,21 +566,27 @@ export async function create(email: string, login: string, roles: string[], opti
   assertNoProtectedMetadata(metadata);
   await assertUserUnique(login, email);
 
+  const uuid = uuidv4();
+
+  // AuthzAdmin refuses an unknown or unassignable role; the dry run makes that refusal come
+  // before the account is written rather than leave an account without its roles.
+  await assignGlobalRoles(uuid, roleNames, 'users:create', true);
+
   let u = new User({
     Id: options?.id,
     Email: email,
     Login: login,
     Password: hPassword,
-    Role: roleNames,
     RegisteredAt: DateTime.now(),
     CreatedAt: DateTime.now(),
     IsActive: false,
-    Uuid: uuidv4(),
+    Uuid: uuid,
   });
 
   u = await runCreateMiddleware(u, 'users.actions.create.beforeCreate');
 
   await insertModel(u);
+  await assignGlobalRoles(u.Uuid, roleNames, 'users:create');
 
   if (metadata !== undefined) {
     await setUserMeta(
@@ -657,7 +597,7 @@ export async function create(email: string, login: string, roles: string[], opti
 
   u = await runCreateMiddleware(u, 'users.actions.create.afterCreate');
 
-  await ev(new UserCreated(u));
+  await ev(new UserCreated(u, roleNames));
 
   // Hand the account to its owner when nobody else can: the password above was
   // invented here and immediately hashed, so without this the account is
@@ -725,44 +665,41 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
 }
 
 /**
- * Grants an additional role to a user.
- * The role is added only if not already present. Emits a {@link UserRoleGranted} event.
+ * Grants `role` to the user at GLOBAL: `AuthzAdmin` `assignment.grant` of `user:<Uuid>` as SYSTEM.
+ * Granting a held role again changes nothing. An unknown or unassignable role is an `InvalidArgument`.
+ * Emits a {@link UserRoleGranted} event.
  *
+ * @deprecated 3.0: AuthzAdmin.assign(actor, { subject: { type: 'user', id: uuid }, role, scope: GLOBAL }). R1 deletes it.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param role - role name to grant
- * @returns the updated {@link User}
+ * @returns the user
  */
 export async function grant(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
-  // A role you cannot create an account with must not be one you can add
-  // afterwards - otherwise grant is a way around the creation check.
-  assertRolesExist([role]);
-
   const u = await getUser(identifier);
 
-  u.Role = _.uniq([...u.Role, role]);
-  await updateUser(u);
+  await assignGlobalRoles(u.Uuid, [role], 'users:grant');
   await ev(new UserRoleGranted(u, role));
 
   return u;
 }
 
 /**
- * Revokes a role from a user.
- * Removes the role from the user's role list and emits a {@link UserRoleRevoked} event.
+ * Revokes the user's GLOBAL assignment of `role`: `AuthzAdmin` `assignment.revokeWhere` as SYSTEM.
+ * Emits a {@link UserRoleRevoked} event.
  *
+ * @deprecated 3.0: AuthzAdmin.execute(actor, [{ kind: 'assignment.revokeWhere', scope: GLOBAL, subject, role }]) or AuthzAdmin.revoke(actor, id). R1 deletes it.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param role - role name to revoke
- * @returns the updated {@link User}
+ * @returns the user
  */
 export async function revoke(identifier: number | string | User, role: string): Promise<User> {
   role = _check_arg(_trim(), _non_empty())(role, 'role');
 
   const u = await getUser(identifier);
 
-  u.Role = u.Role.filter((r) => r !== role);
-  await updateUser(u);
+  await revokeGlobalRole(u.Uuid, role, 'users:revoke');
   await ev(new UserRoleRevoked(u, role));
 
   return u;

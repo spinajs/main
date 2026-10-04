@@ -192,6 +192,37 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
       },
 
+      // The root authz host of test/support/authz-host.ts: roles are GLOBAL assignments written
+      // through AuthzAdmin (DbAuthzAdminBackend) into the test database.
+      authz: {
+        permissions: {
+          'users:read': {},
+          'users:update': {},
+          'authz:assignments.manage': { types: ['project'] },
+        },
+        rbac: {
+          roles: {
+            guest: {},
+            user: {},
+            normal: {},
+            editor: {},
+            'admin.users': { assignable: false, grants: ['users:read', 'users:update'] },
+            admin: { extends: ['admin.users'] },
+          },
+        },
+        admin: {
+          backend: 'DbAuthzAdminBackend',
+          guard: {
+            service: 'DefaultAdminGuard',
+            privilegedPermission: 'users:update',
+            protectSystemRole: true,
+            preventEscalation: true,
+            preventSelfLockout: true,
+            preventLastPrivilegedRemoval: true,
+          },
+        },
+      },
+
       authn: {
         session: {
           service: 'MemorySessionStore',

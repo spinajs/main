@@ -19,6 +19,7 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { UserCreated } from '../src/events/UserCreated.js';
 import { DateTime } from 'luxon';
+import { registerAuthzHost } from './support/authz-host.js';
 
 chai.use(chaiAsPromised);
 
@@ -34,6 +35,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
     DI.register(TestConfiguration).as(Configuration);
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
+    registerAuthzHost();
   });
 
   beforeEach(async () => {

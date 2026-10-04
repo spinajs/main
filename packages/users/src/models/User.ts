@@ -1,24 +1,35 @@
 import { DateTime } from 'luxon';
-import { _update, ModelBase, Primary, Connection, Model, Set, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
+import { _update, ModelBase, Primary, Connection, Model, CreatedAt, SoftDelete, HasMany, Hidden, DateTime as DT, QueryScope, ISelectQueryBuilder, MetadataRelation, RawQuery, IDehydrateOptions, ModelDataWithRelationData } from '@spinajs/orm';
 import { AccessControl, Permission } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { UserMetadata, UserMetadataBase } from './UserMetadata.js';
 import { v4 as uuidv4 } from 'uuid';
 import { _check_arg, _gt, _non_nil, _is_email, _non_empty, _trim, _is_number, _or, _is_string, _to_int, _default, _is_uuid, _max_length, _min_length, _is_object } from '@spinajs/util';
 import _ from 'lodash';
-import { _cfg } from '@spinajs/configuration';
+import { GLOBAL } from '@spinajs/authz';
+import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 
 export class UserQueryScopes implements QueryScope {
   /**
+   * Users holding any of `roles` as a live GLOBAL assignment of `user:<Uuid>`.
    *
-   * Fetch users with specified role. If user has more roles and one of them is matching it will be included as well
+   * It reads `authz_assignment` on the users' own connection, so it misses assignments that
+   * `authz.rbac.connection` keeps elsewhere.
    *
-   * @param role  one of user roles. If user has this role it will be included in result. If user has more roles and one of them is matching it will be included as well
-   * @returns
+   * @deprecated 3.0: getUsersByRole() or AssignmentStore.holders(role, GLOBAL, at). R1 deletes it.
    */
   public withRole(this: ISelectQueryBuilder<User[]> & UserQueryScopes, roles: string[]) {
     const r = _check_arg(_trim(), _non_empty())(roles, 'roles');
-    return this.whereInSet('Role', r);
+    const holders = this.Driver.select()
+      .from(AUTHZ_ASSIGNMENT_TABLE)
+      .columns(['subject_id'])
+      .where({ subject_type: 'user', subject_role: '', scope_type: GLOBAL.type, scope_id: '' })
+      .whereIn('role', r)
+      .where(function () {
+        this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
+      });
+
+    return this.whereIn('Uuid', holders);
   }
 
   /**
@@ -242,7 +253,6 @@ export class UserBase extends ModelBase<UserBase> {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
-    this.Role = _check_arg(_default([_cfg('rbac.defaultRole')()]))(this.Role, 'role');
 
     this._ac = DI.get('AccessControl')!;
   }
@@ -271,10 +281,13 @@ export class UserBase extends ModelBase<UserBase> {
   public Login!: string;
 
   /**
-   * User role
+   * Type only: authz-rbac's migrations copy the `users.Role` column into `authz_assignment` and
+   * drop it. Nothing in users sets it; only the deprecated 2.x checks (`can*`, `effectiveRoles`)
+   * still read a value a 2.x caller put on an instance in memory.
+   *
+   * @deprecated 3.0: RbacService.rolesOf(principal) or AssignmentStore.forSubjects([user:<Uuid>]). R1 deletes it.
    */
-  @Set()
-  public Role!: string[];
+  public declare Role: string[];
 
   /**
    * User creation date
@@ -314,8 +327,13 @@ export class UserBase extends ModelBase<UserBase> {
   })
   public Metadata!: MetadataRelation<UserMetadataBase, User>;
 
+  /**
+   * Only a user that was never stored, such as the guest factory's, is a guest.
+   *
+   * @deprecated 3.0: the anonymous principal of `@spinajs/authn`. R1 deletes it.
+   */
   public get IsGuest(): boolean {
-    return this.Role.indexOf('guest') !== -1 || this.Role.length === 0;
+    return !this.Id;
   }
 
   public get IsBanned(): boolean {
