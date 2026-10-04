@@ -35,6 +35,9 @@ export class OidcDiscovery {
   ) {}
 
   public async metadata(now: number = Date.now()): Promise<OidcProviderMetadata> {
+    if (!Number.isFinite(now)) {
+      throw new Error('authn-oidc: discovery needs a finite time');
+    }
     if (this.document && now < this.fetchedAt + DISCOVERY_MAX_AGE_MS) {
       return this.document;
     }

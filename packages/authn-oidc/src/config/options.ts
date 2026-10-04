@@ -45,7 +45,7 @@ export interface OidcOptions {
 }
 
 export interface ReadOidcOptionsExtra {
-  /** The global authn.linking switches; a provider switch without its global one only earns a warning. */
+  /** The global authn.linking switches (default off); a provider switch without its global one only earns a warning. */
   readonly linking?: { readonly jit: boolean; readonly byVerifiedEmail: boolean };
   readonly log?: { warn(message: string): void };
 }
@@ -56,6 +56,15 @@ const SOURCE_KEYS = ['preset', 'issuer', 'tenant', 'baseUrl', 'realm', 'domain',
 const MUTABLE_SUBJECT_CLAIMS = new Set(['email', 'upn', 'preferred_username', 'login', 'name']);
 
 let validateProvider: ValidateFunction | undefined;
+
+/** The secret stays readable, but JSON and util.inspect show it redacted, so a dump of the options never leaks it. */
+function redacted(secret: string): OidcSecretRef {
+  const ref = { secret };
+  const hidden = { secret: '[redacted]' };
+  Object.defineProperty(ref, 'toJSON', { value: () => hidden, enumerable: false });
+  Object.defineProperty(ref, Symbol.for('nodejs.util.inspect.custom'), { value: () => hidden, enumerable: false });
+  return ref;
+}
 
 const fail = (message: string): never => {
   throw new InvalidOption(message);
@@ -140,9 +149,10 @@ function readProvider(name: string, input: unknown, env: string | undefined, ext
   const scopes = idToken && !configuredScopes.includes('openid') ? ['openid', ...configuredScopes] : [...configuredScopes];
 
   const linking = { jit: false, byVerifiedEmail: false, ...((raw.linking ?? {}) as { jit?: boolean; byVerifiedEmail?: boolean }) };
-  if (extra.linking && extra.log) {
+  if (extra.log) {
+    const global = extra.linking ?? { jit: false, byVerifiedEmail: false };
     for (const k of ['jit', 'byVerifiedEmail'] as const) {
-      if (linking[k] && !extra.linking[k]) {
+      if (linking[k] && !global[k]) {
         extra.log.warn(`${at}.linking.${k} is on but authn.linking.${k} is off, so it has no effect`);
       }
     }
@@ -158,7 +168,7 @@ function readProvider(name: string, input: unknown, env: string | undefined, ext
     issuerAliases: preset?.issuerAliases ? [...preset.issuerAliases] : [],
     endpoints: idToken ? null : { ...resolveEndpoints(source) },
     clientId: raw.clientId as string,
-    clientSecret: { secret: (raw.clientSecret as OidcSecretRef).secret },
+    clientSecret: redacted((raw.clientSecret as OidcSecretRef).secret),
     tokenEndpointAuth: (raw.tokenEndpointAuth as OidcTokenEndpointAuth | undefined) ?? preset?.tokenEndpointAuth ?? 'client_secret_basic',
     redirectUri: (raw.redirectUri as string | undefined) ?? null,
     scopes,

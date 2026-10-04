@@ -79,7 +79,13 @@ export class OidcJwks {
     if (!isAlgorithm(alg)) {
       throw new Error('authn-oidc: the token algorithm is not allowed');
     }
-    const kid = typeof header.kid === 'string' ? header.kid : undefined;
+    if (!Number.isFinite(now)) {
+      throw new Error('authn-oidc: the JWKS needs a finite time');
+    }
+    if (header.kid !== undefined && typeof header.kid !== 'string') {
+      throw new Error('authn-oidc: the token kid is not a string');
+    }
+    const kid = header.kid;
 
     await this.load(now, now >= this.fetchedAt + JWKS_MAX_AGE_MS);
     let found = this.find(alg, kid);
@@ -94,8 +100,12 @@ export class OidcJwks {
     const cacheKey = `${index}|${alg}`;
     let key = this.imported.get(cacheKey);
     if (!key) {
-      key = importJWK(found.jwk!, alg) as Promise<CryptoKey>;
-      this.imported.set(cacheKey, key);
+      const importing = importJWK(found.jwk!, alg) as Promise<CryptoKey>;
+      key = importing;
+      this.imported.set(cacheKey, importing);
+      importing.catch(() => {
+        if (this.imported.get(cacheKey) === importing) this.imported.delete(cacheKey);
+      });
     }
     return key;
   }

@@ -18,10 +18,11 @@ export interface UrlRules {
 
 /**
  * The URL when `value` is an absolute https (or, relaxed, http) URL without credentials or fragment; else null.
- * Whitespace and backslashes are refused before parsing, because the WHATWG parser silently trims or rewrites them.
+ * Control characters, spaces and backslashes are refused before parsing, because the WHATWG parser silently drops or
+ * rewrites them, and callers use the raw string.
  */
 export function checkedUrl(value: unknown, rules: UrlRules): URL | null {
-  if (typeof value !== 'string' || value.length === 0 || /[\s\\]/.test(value)) {
+  if (typeof value !== 'string' || value.length === 0 || /[\x00-\x20\x7f\\]/.test(value)) {
     return null;
   }
   let url: URL;

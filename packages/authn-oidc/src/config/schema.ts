@@ -4,11 +4,14 @@ import type { OidcReservedParam } from '../contracts.js';
 export const OIDC_RESERVED_PARAMS: readonly OidcReservedParam[] = Object.freeze(['response_type', 'response_mode', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method', 'request', 'request_uri', 'max_age', 'acr_values'] satisfies OidcReservedParam[]);
 
 export const OIDC_PROVIDER_NAME_PATTERN = '^[a-z0-9_-]{1,59}$';
-/** One leading '/', never '//' or '/\' (protocol-relative URLs). */
-export const OIDC_APP_PATH_PATTERN = '^/(?![/\\\\])';
+/**
+ * One leading '/', never '//' or '/\' (protocol-relative URLs), and no control character, space or backslash anywhere:
+ * browsers drop tabs and newlines from a Location, so '/\t/evil.example' would become '//evil.example'.
+ */
+export const OIDC_APP_PATH_PATTERN = '^/(?![/\\\\])[^\\x00-\\x20\\x7f\\\\]*$';
 export const OIDC_ENTRA_TENANT_PATTERN = '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$';
 /** A host name with an optional port; no scheme, path, credentials or empty labels. */
-export const OIDC_HOST_PATTERN = '^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*(:[0-9]{1,5})?$';
+export const OIDC_HOST_PATTERN = '^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*(:(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3}))?$';
 /** A single path segment, never '.' or '..'. */
 export const OIDC_SEGMENT_PATTERN = '^[A-Za-z0-9_-][A-Za-z0-9._-]*$';
 /** RFC 6749 §3.3 scope-token. */
