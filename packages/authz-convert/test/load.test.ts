@@ -43,7 +43,33 @@ describe('loadLayers', () => {
 
   it('refuses a dir of TypeScript sources and names the compiled dir to use', async () => {
     const err = await refusal([fixture('ts-only')]);
-    expect(err.problems[0]).to.match(/TypeScript sources only.*compiled config dir/);
+    expect(err.problems[0]).to.match(/TypeScript sources .*compiled config dir/);
+  });
+
+  it('refuses a dir that holds TypeScript sources next to other config files', async () => {
+    const err = await refusal([fixture('mixed')]);
+    expect(err.problems[0]).to.match(/TypeScript sources \(rbac\.ts\)/);
+  });
+
+  it('skips files the configuration loader never reads and says so', async () => {
+    const layers = await loadLayers([fixture('skip')]);
+    expect([...layers.envs.keys()]).to.deep.equal([]);
+    expect(layers.common).to.deep.equal({ rbac: { defaultRole: 'user' } });
+    expect(layers.skipped).to.have.length(2);
+    expect(layers.skipped.join('\n')).to.match(/rbac\.production\.js: the loader reads env 'production' as 'prod'/);
+  });
+
+  it('builds the view of an env in the loader order: JS files, then JSON files', async () => {
+    const layers = await loadLayers([fixture('load', 'a'), fixture('load', 'b')]);
+    const prod = layers.view('prod');
+    expect(prod.http).to.deep.equal({ cors: { origins: ['https://a.example'] } });
+    expect((prod.rbac as any).systemRole).to.equal('system');
+    expect(layers.view(null)).to.deep.equal(layers.common);
+  });
+
+  it('refuses a key an env JS file and a common JSON file both set, where the loader lets the JSON win', async () => {
+    const err = await refusal([fixture('clash')]);
+    expect(err.problems[0]).to.match(/env 'local' JS files and common JSON files both set rbac\.systemRole/);
   });
 
   it('refuses a missing dir', async () => {
