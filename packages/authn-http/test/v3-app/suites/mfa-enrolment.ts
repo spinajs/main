@@ -33,11 +33,15 @@ export function mfaEnrolmentGateSuite(): void {
     const child = DI.RootContainer.child();
     child.register({ TotpService: class {} }.TotpService).asSelf();
     // The app lists the kit's fake step under the name totp; with a key set only the step check is left to refuse.
+    const mfa = config().get<Record<string, unknown>>('authn.mfa');
+    const had = Object.hasOwn(mfa, 'encryptionKey');
+    const old = mfa.encryptionKey;
     config().set('authn.mfa.encryptionKey', { secret: 'a'.repeat(64) });
     try {
       for (const container of [new Container(), child]) await expectGateClosed(container);
     } finally {
-      delete config().get<Record<string, unknown>>('authn.mfa').encryptionKey;
+      if (had) config().set('authn.mfa.encryptionKey', old);
+      else delete config().get<Record<string, unknown>>('authn.mfa').encryptionKey;
     }
     expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'the gate loaded no authn-totp').to.eq(loaded);
   });

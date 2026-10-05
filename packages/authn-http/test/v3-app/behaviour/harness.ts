@@ -140,10 +140,10 @@ function checkSupported(config: ConfigOverrides, supported: readonly string[]): 
   return leaves;
 }
 
-/** False where the factory would answer UnsupportedConfig, which makes the case pending. */
-export function supports(overrides: ConfigOverrides): boolean {
+/** False where the factory would answer UnsupportedConfig, which makes the case pending; `lane`: a lane's own keys. */
+export function supports(overrides: ConfigOverrides, lane: readonly string[] = []): boolean {
   try {
-    checkSupported(overrides, SUPPORTED_CONFIG);
+    checkSupported(overrides, [...SUPPORTED_CONFIG, ...lane]);
     return true;
   } catch (e) {
     if (e instanceof UnsupportedConfig) return false;

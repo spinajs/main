@@ -122,7 +122,7 @@ Status (N8c task 4): done. The 2.x controller is in `src/account/legacy/` (compi
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5); N8a task 6: `test/v3-app/suites/mfa.ts` ("under authn.mfa.policy.force > a user enrolled in no step gets a pending session that reaches the enrolment routes and nothing else"), against a stub of N8b's enrolment route behind `PendingMfaEnrolment`; N8c task 4: `test/legacy-v2/login-controller.test.ts` |
+| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5); N8a task 6: `test/v3-app/suites/mfa.ts` ("under authn.mfa.policy.force > a user enrolled in no step gets a pending session that reaches the enrolment routes and nothing else"), against a stub of N8b's enrolment route behind `PendingMfaEnrolment`; N8b task 7: the same flow on the real enrolment routes, kit case "A09 under force a pending session reaches the enrolment routes only" (A09/http, claimed in `test/v3-app/behaviour/n8b.test.ts`); N8c task 4: `test/legacy-v2/login-controller.test.ts` |
 
 ## test/logout-handlers.test.ts
 
@@ -240,6 +240,8 @@ Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite; excluded i
 
 Status (N8b task 3): N8b adds no `/user/tokens/roles` or `/user/tokens/profiles` route (proposed home C2, plan r6 item 5). `POST /user/tokens` takes `profile` (2.x `Profile`) and authn-token checks it through `TokenProfilePolicy`; rows 12, 13 and 16 name that 3.0 case, the read-route rows stay with T3 and C2.
 
+Status (N8b task 7): nothing left to move here (the file went to `test/legacy-v2/` with N8a task 9). The routes it tests leave with `AccessTokenController` when N8c's switch-on commit stops scanning `token/controllers` (`.authz-sdd/N8b-N8c-addendum.md`).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 110 | AccessTokenController - scopes route > answers with the roles the policy allows the caller | rewrite | C5 → T3 | authz-rbac/test/ported/; `authz.token.rolePolicy` decides what the caller may mint (B24); N8a task 9: `test/legacy-v2/token-controller-roles.test.ts` |
@@ -268,6 +270,8 @@ Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder):
 Status (N8a task 9): rows 1 and 10 stay here and pass; every other row is in `test/legacy-v2/token-controller.test.ts` (see "C1 merge" above). Adapt rows 3, 8 and 9 are parked there, not adapted: each needs a session or token user with roles, which the 2.x stack no longer has; the 3.0 counterparts are N8b's token routes (rows 3, 8, 9) and `test/v3/authn-policies.test.ts` ("NoTokenAuthPolicy", "NoImpersonationPolicy" rows). Drop rows 6 and 7 wait there for N8b.
 
 Status (N8b task 3): `AuthnTokensController` (`src/v3/controllers/`, switched off until N8c) serves `GET /user/tokens`, `POST /user/tokens` and `DELETE /user/tokens/:uuid` over `TokenService`; the routes run on authn-token's `DbTokenService` in `test/v3-app/suites/tokens.ts` (from `test/v3-app/behaviour/n8b.test.ts`), the gate in `test/v3/route-groups-boot.test.ts` (apps booted with and without authn-token) and `test/v3-app/auth-tokens.test.ts`. Each row names its 3.0 case. Drop rows 6 and 7 are deleted from `test/legacy-v2/token-controller.test.ts`. Rows 1 and 10 keep testing the live 2.x controller here; N8c's switch-on commit stops scanning `token/controllers` (which retires `AccessTokenController` with its roles, profiles and role-edit routes) and moves this file to `test/legacy-v2/`.
+
+Status (N8b task 7): the C5 line above ("N8b moves the rewrite rows") is done as far as N8b goes: the rewrite rows went with N8a task 9, the drop rows are deleted, the adapt rows name their 3.0 cases. The last move (rows 1 and 10 with the file) is N8c's, listed in `.authz-sdd/N8b-N8c-addendum.md`.
 
 Status (N8c task 4, fix round): rows 1 and 10 stay here (`test/token-controller.test.ts`) and pass; the first switch-on commit had parked them in `test/legacy-v2/token-controller-rest.test.ts` although only the import of the deleted `src/token/middlewares.ts` blocked them (review 4, I2). `AccessTokenController` stays scanned until N8b replaces it; every route of it answers 401 now (`@Permission` needs a 2.x session, which the bridge never sets), and row 10 pins the controller-scope group the bridge's `TokenAuth` and `Impersonator` markers feed.
 
@@ -343,6 +347,8 @@ Token authentication plus RBAC grants through a real server. Class: rewrite per 
 Status (C5): not moved yet: it drives the live 2.x token middleware and RBAC policy, which N8a/N8b retire; that lane moves it to `test/legacy-v2/` and T3 replaces it. The 3.0 behaviour it checks (token roles, never above the owner, excluded roles) runs end to end with RBAC in `authz-rbac/test/token/` (B07.token, B24.token, B37.token).
 
 Status (N8a task 9): the whole file is in `test/legacy-v2/` (rewrite). After C1 every row but row 3 failed (see "C1 merge" above); row 3 passed and moved with its file.
+
+Status (N8b task 7): nothing left for N8b; the 2.x token middleware it drives retires in N8c's switch-on commit (N8a-N8c checklist step 3).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|

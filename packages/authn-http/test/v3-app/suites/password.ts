@@ -339,6 +339,18 @@ export function passwordRoutesSuite(): void {
       expect(fake.of('change')).to.deep.eq([]);
     });
 
+    it('a cookie PATCH from a foreign origin is refused before the route and changes nothing (A22)', async () => {
+      const c = await loggedIn(await seedUser());
+      const before = c.cookie;
+      const res = await c.patch('/user/password', body(), { Origin: 'https://evil.example' });
+      expect(res.status).to.eq(403);
+      expect(res.body).to.have.nested.property('error.code', 'E_CSRF_ORIGIN');
+      expect(sessionSetCookie(res), 'no session cookie').to.eq(undefined);
+      expect(fake.of('change')).to.deep.eq([]);
+      expect(c.cookie).to.eq(before);
+      expect((await c.get('/auth')).status, 'the session stays').to.eq(200);
+    });
+
     it('a token principal is refused with session_required', async () => {
       const u = await seedUser();
       const token = `spt_${randomUUID()}`;

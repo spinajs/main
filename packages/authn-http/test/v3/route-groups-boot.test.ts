@@ -89,6 +89,8 @@ const CASES: Case[] = [
 
 const label = (c: Case) => `${c.mode.toUpperCase()} ${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;
 const isOn = (c: Case, g: Group) => c.packages.includes(PACKAGE_OF[g]);
+/** Express matches `:a` and `:b` alike, so two routes that differ only in a parameter name clash. */
+const routeShape = (route: string): string => route.replace(/:\w+/g, ':param');
 
 const children: ChildProcess[] = [];
 
@@ -168,10 +170,15 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
   }
 
   describe('lane route table', () => {
+    it('two routes that differ only in a parameter name have one shape', () => {
+      expect(routeShape('DELETE /user/x/:a')).to.eq(routeShape('DELETE /user/x/:b'));
+      expect(routeShape('DELETE /user/x/:a')).to.not.eq(routeShape('DELETE /user/y/:a'));
+    });
+
     it('with every strategy package loaded each N8b route is mounted exactly once and no method and path twice across the N8a and N8b controllers', () => {
       for (const c of CASES.filter((x) => x.packages.length === ALL.length)) {
         const { routes } = boots.get(c)!;
-        const shapes = routes.map((r) => r.replace(/:w+/g, ':param'));
+        const shapes = routes.map(routeShape);
         for (const route of GROUPS.flatMap((g) => N8B_ROUTES[g]))
           expect(
             routes.filter((r) => r === route),

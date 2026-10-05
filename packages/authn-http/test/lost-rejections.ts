@@ -5,11 +5,12 @@ import 'mocha';
 // drains, and the process exits 0 after the first describe.
 // The exitCode below only counts when the run never ends: mocha overwrites it on exit once a run finishes. A run that
 // finishes fails through the root after() hook instead. A rejection raised after that hook is only logged.
-const lost = new Set<unknown>();
+// Keyed by the promise: mocha's re-emit passes the same one, while two promises may reject with the same value.
+const lost = new Set<Promise<unknown>>();
 
-process.on('unhandledRejection', (reason) => {
-  if (lost.has(reason)) return;
-  lost.add(reason);
+process.on('unhandledRejection', (reason, promise) => {
+  if (lost.has(promise)) return;
+  lost.add(promise);
   console.error('Unhandled rejection:', reason);
   process.exitCode = 1;
 });
