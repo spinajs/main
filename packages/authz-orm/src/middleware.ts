@@ -576,16 +576,17 @@ async function authorizeUpdate(builder: UpdateQueryBuilder<unknown>, scope: Quer
 
 async function insert(builder: InsertQueryBuilder, scope: QueryScope): Promise<void> {
   const residual = await allowedResidual(scope);
+  if (residual.op !== 'true') {
+    const failed = await authorizeInsert(builder, { model: scope.model, entry: scope.entry, principal: relationPrincipalOf(scope.principal, scope.service), residual });
+    if (failed >= 0) throw new Forbidden(`authz-orm: row ${failed} of the insert does not satisfy ${scope.permission}`);
+  }
   // An upsert or a replace may change or remove a row that exists: it needs those permissions unconditionally.
+  // Checked after the policies, which may have turned the insert into one.
   if (builder.Update || builder.Replace) {
     for (const kind of builder.Replace ? (['update', 'delete'] as const) : (['update'] as const)) {
       const f = await scope.service.filter(scope.principal, scope.entry.permissions[kind], scope.entry.type);
       if (f.op !== 'true') throw new Forbidden(`authz-orm: an insert that may overwrite ${scope.entry.type} rows needs ${scope.entry.permissions[kind]} on every row`);
     }
-  }
-  if (residual.op !== 'true') {
-    const failed = await authorizeInsert(builder, { model: scope.model, entry: scope.entry, principal: relationPrincipalOf(scope.principal, scope.service), residual });
-    if (failed >= 0) throw new Forbidden(`authz-orm: row ${failed} of the insert does not satisfy ${scope.permission}`);
   }
   scope.checked = true;
 }
