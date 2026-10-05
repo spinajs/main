@@ -15,7 +15,7 @@ import '@spinajs/authn-token';
 
 /**
  * Lets the nested `profiles` block mint a profiled token: the shipped
- * `OwnRolesTokenRolePolicy` offers no profiles at all, so `createToken` would
+ * `LegacyOwnRolesTokenRolePolicy` offers no profiles at all, so `createToken` would
  * refuse the pin and `validateToken` would then reject the token on every
  * request.
  *
@@ -277,7 +277,7 @@ describe('TokenAuthMiddleware', function () {
 
     after(async () => {
       const cfg = await DI.resolve(Configuration);
-      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+      cfg.set('rbac.token.rolePolicy.service', 'LegacyOwnRolesTokenRolePolicy');
     });
 
     /**

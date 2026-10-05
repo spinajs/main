@@ -146,7 +146,7 @@ describe('AccessTokenController - scopes route', function () {
     const response = await req().get('user/tokens/profiles').set('Cookie', cookie);
 
     expect(response.status).to.equal(200);
-    // `OwnRolesTokenRolePolicy` does not override `allowedProfiles`, so an
+    // `LegacyOwnRolesTokenRolePolicy` does not override `allowedProfiles`, so an
     // application that never opted into profile tokens is offered none - and
     // the route still answers a well formed body rather than 404 / undefined.
     expect(response.body.Profiles).to.deep.equal([]);
@@ -191,7 +191,7 @@ describe('AccessTokenController - scopes route', function () {
 
     after(async () => {
       const cfg = await DI.resolve(Configuration);
-      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+      cfg.set('rbac.token.rolePolicy.service', 'LegacyOwnRolesTokenRolePolicy');
     });
 
     it('reports the policy answer, not the callers own roles', async () => {
