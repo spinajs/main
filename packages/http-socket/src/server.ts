@@ -4,7 +4,7 @@ import { AsyncService, Autoinject, ClassInfo, Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ListFromFiles } from '@spinajs/reflection';
-import { UNATTENDED, Unauthenticated } from '@spinajs/authz';
+import { AuthzConfigError, UNATTENDED, Unauthenticated } from '@spinajs/authz';
 import { DisconnectNotice, EventFrame, MAX_ID_LENGTH, PROTOCOL_VERSION, SYSTEM_EVENTS, SocketError, SocketException, WIRE_EVENTS, isId } from '@spinajs/http-socket-common';
 import { ISocketAuthState, ISocketClientState, ISocketHandshake, ISocketServerConfig, SocketHttpHost, SocketPrincipalSource } from './interfaces.js';
 import { SocketConnection, toHandshake } from './connection.js';
@@ -251,6 +251,10 @@ export class SocketServer extends AsyncService {
 
     for (const source of sources) {
       const principal = await source.authenticate(handshake);
+      // no credential yields SYSTEM or UNATTENDED; authz-http's PrincipalMiddleware refuses them the same way ( design §14.1 )
+      if (principal && (principal.type === 'system' || principal.type === 'unattended')) {
+        throw new AuthzConfigError(`socket principal source ${source.name} returned a ${principal.type} principal`);
+      }
       if (principal) {
         return { principal, source: source.name, checkedAt: Date.now() };
       }

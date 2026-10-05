@@ -25,6 +25,7 @@ The v2 API is gone. No package in the repo used it.
 ### Authentication and authorization (authz-v3)
 
 - A connection without credentials runs as `UNATTENDED`: authz denies it, and scoped ORM queries fail closed. Set `http.socket.auth.required: true` to refuse such handshakes instead.
+- A `SocketPrincipalSource` that yields a system or unattended principal refuses the handshake as `internal`, as authz-http refuses such a `PrincipalSource`.
 - Bearer tokens (`auth.token` or `Authorization`), keys and signatures resolve through `@spinajs/authn` (`AuthnCredentialSource`). Cookies are never a socket credential.
 - Every command, event and hook runs with the principal in the AsyncLocalStorage store under `Principal`, so `AuthzService.current()` works in socket handlers.
 - `@SocketAccess(permission, { resource, also, domain, allowAnonymous })` is the socket form of `@Access`. The legacy rbac policies (`LoggedPolicy`, `RbacPolicy`, `TokenPolicy`) are not supported on sockets.

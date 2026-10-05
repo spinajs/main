@@ -145,6 +145,13 @@ export interface IEmail {
   retryCount?: number;
 
   /**
+   * Secret values that `model` or `text` carries, e.g. a reset token or the link holding it. A mail with any is never queued:
+   * `sendDeferred` refuses it, the `EmailSent` event leaves out its model and text, and errors are logged and thrown with each
+   * value, raw and URI-encoded, replaced by `[redacted]`.
+   */
+  redact?: readonly string[];
+
+  /**
    * Email delivery schedule. If we want to repeat email, schedule to send at specific time, send delayed etc..
    */
   schedule?: {
@@ -183,6 +190,31 @@ export interface EmailConfiguration {
      */
     count?: number;
   };
+
+  /**
+   * Reset and invite mails sent by `EmailPasswordMailer`.
+   */
+  password?: PasswordMailConfiguration;
+}
+
+export interface PasswordMailPurposeConfiguration {
+  subject?: string;
+
+  /**
+   * Without a template the mail is a short plain-text body.
+   */
+  template?: string | IEmailTemplate;
+}
+
+export interface PasswordMailConfiguration {
+  /**
+   * Defaults to `email.defaultConnection`.
+   */
+  connection?: string;
+  from?: string;
+  lang?: string;
+  reset?: PasswordMailPurposeConfiguration;
+  invite?: PasswordMailPurposeConfiguration;
 }
 
 export interface EmailConnectionOptions {

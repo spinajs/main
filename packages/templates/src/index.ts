@@ -11,6 +11,27 @@ export * from './io.js';
 export * from './CompiledTemplateRenderer.js';
 export * from './cli/renderHelpers.js';
 
+/** Same rules as `redactError` in `@spinajs/email`, which this package cannot depend on. */
+function redactError(err: unknown, secrets: readonly string[]): unknown {
+  const forms = [...new Set(secrets.filter((s) => s.length > 0).flatMap((s) => [s, encodeURIComponent(s)]))].sort((a, b) => b.length - a.length);
+  if (forms.length === 0) {
+    return err;
+  }
+  const redact = (text: string) => forms.reduce((t, s) => t.split(s).join('[redacted]'), text);
+  const e = new Error(redact(err instanceof Error ? err.message : String(err)));
+  e.name = redact(err instanceof Error ? err.name : 'Error');
+  return e;
+}
+
+/** Redacts inside the span: Perf hands a failed span's error to every sink, and the log sink prints it. */
+async function redacting<T>(options: IRenderOptions | undefined, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw options?.redact ? redactError(err, options.redact) : err;
+  }
+}
+
 /**
  * Inject INTL module for language support. We does nothing but to initialize module for use in templates.
  */
@@ -28,7 +49,7 @@ export class Templates extends AsyncService {
 
   public async compileToFile(template: string, renderer: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
     const engine = this.engineByType(renderer);
-    return await Perf.measure('template.compile', () => engine.renderToFile(template, model, filePath, language, options), { labels: { engine: engine.Type }, fields: { template } });
+    return await Perf.measure('template.compile', () => redacting(options, () => engine.renderToFile(template, model, filePath, language, options)), { labels: { engine: engine.Type }, fields: { template } });
   }
 
   /**
@@ -44,7 +65,7 @@ export class Templates extends AsyncService {
    */
   public async compile(template: string, renderer: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
     const engine = this.engineByType(renderer);
-    return await Perf.measure('template.compile', () => engine.render(template, model, language, options), { labels: { engine: engine.Type }, fields: { template } });
+    return await Perf.measure('template.compile', () => redacting(options, () => engine.render(template, model, language, options)), { labels: { engine: engine.Type }, fields: { template } });
   }
 
   /**
@@ -60,12 +81,12 @@ export class Templates extends AsyncService {
    */
   public async render(template: string, model: unknown, language?: string, options?: IRenderOptions): Promise<string> {
     const renderer = this.engineByExtension(template);
-    return await Perf.measure('template.render', () => renderer.render(template, model, language, options), { labels: { engine: renderer.Type }, fields: { template } });
+    return await Perf.measure('template.render', () => redacting(options, () => renderer.render(template, model, language, options)), { labels: { engine: renderer.Type }, fields: { template } });
   }
 
   public async renderToFile(template: string, model: unknown, filePath: string, language?: string, options?: IRenderOptions): Promise<void> {
     const renderer = this.engineByExtension(template);
-    return await Perf.measure('template.render', () => renderer.renderToFile(template, model, filePath, language, options), { labels: { engine: renderer.Type }, fields: { template } });
+    return await Perf.measure('template.render', () => redacting(options, () => renderer.renderToFile(template, model, filePath, language, options)), { labels: { engine: renderer.Type }, fields: { template } });
   }
 
   /**
