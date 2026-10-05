@@ -1,10 +1,14 @@
+import { randomBytes } from 'node:crypto';
+import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
+import { totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
 import type { LocalPasswordService, PasswordMail } from '@spinajs/authn-local';
-import type { AuthnFromUserMetadata_2026_10_02_00_01_00, DbSecretStore } from '@spinajs/authn-orm';
+import type { AuthnFromUserMetadata_2026_10_02_00_01_00, DbMfaStore, DbSecretStore } from '@spinajs/authn-orm';
+import type { TotpService } from '@spinajs/authn-totp/service';
 
 import { bind } from '../app.js';
 import type { AppFakes } from '../app.js';
@@ -20,7 +24,11 @@ import type { HarnessLane, StrategyEntry } from './harness.js';
  * (migrations included, so they run when the database boots), `strategies` lists its strategy, `open` uncaches its
  * services and clears its tables per case, `ports` names and `addPorts` builds its kit ports, `close` waits for its
  * deferred work. Modules are imported dynamically: until a part loads it, no strategy service is registered, which
- * the gate suites rely on.
+ * the gate suites rely on (test/v3-app/auth-*.test.ts sort before behaviour/).
+ *
+ * Boot the lane once per process: registrations outlive shutdownN8bApp, among them the A32 upgrade migration, which a
+ * second boot would run on a database without users_metadata. Suites after auth-password.test.ts also keep its
+ * recording PasswordService registered beneath authn-local's.
  */
 
 export interface PartCase {
@@ -206,8 +214,171 @@ export const passwordPart: LanePart = {
   },
 };
 
+/** Every event of the strategy packages' class-resolved sinks (see N8bInviteActivation), per case. */
+export const laneEvents: AuthnEvent[] = [];
+
+class N8bEventRecorder extends AuthnEventSink {
+  public async publish(e: AuthnEvent): Promise<void> {
+    laneEvents.push(e);
+  }
+}
+
+let recorderBound = false;
+
+// TotpService comes through the users-free subpath export; the step, the store base and authn-orm's DbMfaStore by file,
+// since authn-totp's and authn-orm's roots load @spinajs/users or register authn-orm's throttle and audit sink.
+const TOTP_LIB = new URL('../../../../authn-totp/lib/mjs/', import.meta.url);
+const totpModule = async <T>(file: string): Promise<T> => (await import(new URL(file, TOTP_LIB).href)) as T;
+
+export const MFA_ROUTES: Partial<HttpRoutes> = {
+  mfaEnrol: () => ({ method: 'POST', path: '/user/mfa' }),
+  mfaConfirm: (code) => ({ method: 'POST', path: '/user/mfa/confirm', body: { code } }),
+  mfaDisable: (code) => ({ method: 'POST', path: '/user/mfa/disable', body: { code } }),
+};
+
+export const MFA_STEPS = [{ name: 'totp', service: 'TotpMfaStep' }];
+const MFA_ENCRYPTION_KEY = { secret: randomBytes(32).toString('hex') };
+
+export type TotpStepLike = MfaStep & { regenerateRecoveryCodes(id: IdentityRef): Promise<readonly string[]> };
+
+interface TotpModules {
+  readonly TotpService: new (...args: never[]) => TotpService;
+  readonly TotpMfaStep: new (...args: never[]) => TotpStepLike;
+  readonly MfaSecretStore: abstract new (...args: never[]) => unknown;
+  readonly DbMfaStore: new (...args: ConstructorParameters<typeof DbMfaStore>) => DbMfaStore;
+}
+
+interface TotpState {
+  readonly db: DbMfaStore;
+  /** Set: the store's code checks throw, as a broken database would. */
+  failing: boolean;
+  readonly provisioning: Map<string, string>;
+  readonly recoveryCodes: Map<string, readonly string[]>;
+  readonly restore: () => void;
+}
+
+let totp: TotpModules | undefined;
+let totpState: TotpState | undefined;
+let totpBound = false;
+
+const totpNow = (): TotpState => loaded(totpState, 'the TOTP part');
+const refKey = (id: IdentityRef): string => `${id.type}:${id.id}`;
+
+/** authn-totp's MfaSecretStore contract over authn-orm's DbMfaStore, as authn-totp's DbMfaSecretStore implements it. */
+function laneMfaStore(): unknown {
+  const db = (): DbMfaStore => totpNow().db;
+  const guarded = <T>(work: () => Promise<T>): Promise<T> => (totpNow().failing ? Promise.reject(new Error('the lane MFA store is down')) : work());
+  return {
+    get: async (id: IdentityRef, step: string) => {
+      const row = await db().get(id, step);
+      return row && Object.freeze({ ...row });
+    },
+    put: (id: IdentityRef, step: string, secretEnc: string, keyId: string) => db().putPending(id, step, secretEnc, keyId),
+    confirm: (id: IdentityRef, step: string, at: Date | undefined, expected: string | undefined) => {
+      if (expected === undefined) return Promise.reject(new Error('the lane MFA store confirms a known cipher text only'));
+      return db().confirm(id, step, at, expected);
+    },
+    acceptStep: (id: IdentityRef, step: string, timeStep: number) => guarded(() => db().acceptStep(id, step, timeStep)),
+    remove: (id: IdentityRef, step: string) => db().remove(id, step),
+    replaceRecoveryCodes: (id: IdentityRef, raw: readonly string[]) => db().replaceRecoveryCodes(id, raw),
+    redeemRecoveryCode: (id: IdentityRef, raw: string) => guarded(() => db().redeemRecoveryCode(id, raw)),
+    countRecoveryCodes: (id: IdentityRef) => db().countRecoveryCodes(id),
+    removeRecoveryCodes: (id: IdentityRef) => db().removeRecoveryCodes(id),
+  };
+}
+
+/** Sets `path` and returns what puts the old value back, or removes the key when there was none. */
+function setConfig(path: string, value: unknown): () => void {
+  const c = DI.get(Configuration)!;
+  const dot = path.lastIndexOf('.');
+  const parentPath = path.slice(0, dot);
+  const key = path.slice(dot + 1);
+  const parent = c.get<Record<string, unknown>>(parentPath);
+  const had = Object.hasOwn(parent, key);
+  const old = parent[key];
+  c.set(path, value);
+  return () => {
+    if (had) c.set(path, old);
+    else delete c.get<Record<string, unknown>>(parentPath)[key];
+  };
+}
+
+/** The resolved TotpMfaStep, the one MfaStepRegistry hands out for authn.mfa.steps. */
+export async function laneTotpStep(): Promise<TotpStepLike> {
+  return (await DI.resolve(loaded(totp, 'authn-totp').TotpMfaStep as unknown as Class<TotpStepLike>)) as TotpStepLike;
+}
+
+/** The TotpService class the subpath export registered. */
+export const laneTotpServiceClass = (): TotpModules['TotpService'] => loaded(totp, 'authn-totp').TotpService;
+
+/** Puts the lane's TOTP store out of order (code checks throw) until the case ends. */
+export function failMfaStore(): void {
+  totpNow().failing = true;
+}
+
+/** authn-totp: the real TotpMfaStep as the `totp` step and TotpService behind the enrolment routes, on authn_mfa in sqlite. */
+export const totpPart: LanePart = {
+  name: 'totp',
+  async beforeDb() {
+    const { TotpService } = await import('@spinajs/authn-totp/service');
+    const { TotpMfaStep } = await totpModule<{ TotpMfaStep: TotpModules['TotpMfaStep'] }>('step/totp-step.js');
+    const { MfaSecretStore } = await totpModule<{ MfaSecretStore: TotpModules['MfaSecretStore'] }>('store/store.js');
+    const { DbMfaStore } = await ormModule<{ DbMfaStore: TotpModules['DbMfaStore'] }>('mfa/db-mfa-store.js');
+    // A second copy of the module graph would register a second TotpMfaStep beside the subpath's.
+    if (!(DI.getRegisteredTypes(MfaStep as unknown as Class<unknown>) ?? []).includes(TotpMfaStep as unknown as Class<unknown>)) throw new Error('authn-totp is loaded twice: the step loaded by file is not the one the subpath registered');
+    totp = { TotpService, TotpMfaStep, MfaSecretStore, DbMfaStore };
+    if (!totpBound) {
+      totpBound = true;
+      bind(MfaSecretStore, 'N8bMfaSecretStore', laneMfaStore);
+    }
+    if (!recorderBound) {
+      recorderBound = true;
+      DI.register(N8bEventRecorder).as(AuthnEventSink);
+    }
+  },
+  supportedConfig: ['authn.mfa.totp'],
+  routes: MFA_ROUTES,
+  ports: ['mfa'],
+  async open() {
+    const t = loaded(totp, 'authn-totp');
+    for (const type of [t.TotpService, t.TotpMfaStep]) DI.uncache(type as unknown as Class<unknown>);
+    const db = tokenDb();
+    for (const table of ['authn_mfa', 'authn_recovery_code']) await db.del().from(table);
+    laneEvents.length = 0;
+    const undo = [setConfig('authn.mfa.steps', MFA_STEPS), setConfig('authn.mfa.encryptionKey', MFA_ENCRYPTION_KEY)];
+    totpState = { db: new t.DbMfaStore(db), failing: false, provisioning: new Map(), recoveryCodes: new Map(), restore: () => undo.reverse().forEach((u) => u()) };
+  },
+  async addPorts() {
+    const state = totpNow();
+    const step = await laneTotpStep();
+    const provisioningOf = (id: IdentityRef): string => {
+      const uri = state.provisioning.get(refKey(id));
+      if (!uri) throw new Error(`${refKey(id)} is not enrolled through mfa.enrol`);
+      return uri;
+    };
+    return {
+      mfa: {
+        step,
+        async enrol(id) {
+          const { provisioning } = await step.beginEnrolment(id);
+          // The previous time step confirms, so the current one stays free for code().
+          const { recoveryCodes } = await step.confirmEnrolment(id, totpFromProvisioning(provisioning, new Date(Date.now() - 30_000)));
+          state.provisioning.set(refKey(id), provisioning);
+          state.recoveryCodes.set(refKey(id), recoveryCodes ?? []);
+        },
+        code: async (id) => totpFromProvisioning(provisioningOf(id), new Date()),
+        recoveryCodes: async (id) => state.recoveryCodes.get(refKey(id)) ?? [],
+      },
+    };
+  },
+  async close() {
+    totpState?.restore();
+    totpState = undefined;
+  },
+};
+
 /** The lane's parts; later tasks append theirs. */
-export const PARTS: readonly LanePart[] = [passwordPart];
+export const PARTS: readonly LanePart[] = [passwordPart, totpPart];
 
 function strategiesOf(parts: readonly LanePart[]): StrategyEntry[] {
   const out = [...STRATEGIES];
