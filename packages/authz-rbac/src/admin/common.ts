@@ -143,6 +143,16 @@ export async function grantClosure(roles: RoleIndex, role: string, holds: (ladde
 }
 
 /**
+ * The subject set roles whose sets a principal holding `role` at a scope is a member of there: the
+ * `subjectSet` roles of its closure without implies, as the model's set resolver counts them.
+ */
+export function setRolesOf(roles: RoleIndex, role: string): string[] {
+  return roleClosure(roles, role, 'none')
+    .defs.filter((d) => d.subjectSet === true)
+    .map((d) => d.name);
+}
+
+/**
  * A grant of the role's closure matches `permission` at the role's own scope: implied roles held
  * `self-and-descendants` count, `descendants` ones do not. Grants are names or globs; conditions do not matter.
  */

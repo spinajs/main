@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantClosure, grantsPermission, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
+import { assignmentStore, grantClosure, grantsPermission, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex, setRolesOf } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
@@ -81,6 +81,8 @@ interface Call {
   readonly cfg: AdminGuardConfig;
   readonly roles: RoleIndex;
   readonly privileged: (role: string) => boolean;
+  /** setRolesOf, once per role. */
+  readonly sets: (role: string) => readonly string[];
   /** The actor's effective role per ladder and scope, asked once per command. */
   readonly ranks: Map<string, Promise<string | undefined>>;
 }
@@ -111,7 +113,12 @@ export class DefaultAdminGuard extends AdminGuard {
       if (!memo.has(role)) memo.set(role, roles.roles.has(role) && grantsPermission(roles, role, cfg.privilegedPermission));
       return memo.get(role)!;
     };
-    const call: Call = { actor, ctx, cfg, roles, privileged, ranks: new Map() };
+    const setMemo = new Map<string, readonly string[]>();
+    const sets = (role: string): readonly string[] => {
+      if (!setMemo.has(role)) setMemo.set(role, setRolesOf(roles, role));
+      return setMemo.get(role)!;
+    };
+    const call: Call = { actor, ctx, cfg, roles, privileged, sets, ranks: new Map() };
     if (cfg.preventEscalation) await this.escalation(call, c);
     await this.removals(call, c);
   }
@@ -191,11 +198,29 @@ export class DefaultAdminGuard extends AdminGuard {
     return (await this.setRoles(call, role, scope)).map((r) => ({ ...r, field }));
   }
 
-  /** Holding a subject set role at a scope also gives every role assigned to that set. */
+  /** Holding `role` at a scope also gives every role assigned to the sets it makes the holder a member of. */
   private async setRoles(call: Call, role: string, scope: ResourceRef): Promise<{ role: string; scope: ResourceRef }[]> {
-    if (call.roles.roles.get(role)?.subjectSet !== true) return [];
-    const { items } = await (await assignmentStore(call.ctx)).find({ subject: { set: { role, scope } }, at: call.ctx.now });
-    return items.map((a) => ({ role: a.role, scope: a.scope }));
+    return (await this.setRows(call, role, scope)).map((a) => ({ role: a.role, scope: a.scope }));
+  }
+
+  /** The live rows assigned to the sets a principal holding `role` at `scope` is a member of. */
+  private async setRows(call: Call, role: string, scope: ResourceRef): Promise<Assignment[]> {
+    const store = await assignmentStore(call.ctx);
+    const out: Assignment[] = [];
+    for (const set of call.sets(role)) out.push(...(await store.find({ subject: { set: { role: set, scope } }, at: call.ctx.now })).items);
+    return out;
+  }
+
+  /** The live principal rows at the set's scope that make their subject a member of it. */
+  private async setMembers(call: Call, set: { readonly role: string; readonly scope: ResourceRef }): Promise<Assignment[]> {
+    const store = await assignmentStore(call.ctx);
+    const out: Assignment[] = [];
+    for (const role of call.roles.roles.keys()) {
+      if (!call.sets(role).includes(set.role)) continue;
+      const { items } = await store.find({ scope: set.scope, role, at: call.ctx.now });
+      out.push(...items.filter((a) => !isSetSubject(a.subject)));
+    }
+    return out;
   }
 
   /** A role a rule names (minRole, a string maxRole) must not rank above the actor's own at the rule scope. */
@@ -288,21 +313,39 @@ export class DefaultAdminGuard extends AdminGuard {
     }
   }
 
-  /** The actor reaches privilegedPermission through a removed row: its own, its set's, or a set membership. */
+  /**
+   * At a scope where a removed row is on one of the actor's paths to privilegedPermission, no path that
+   * avoids the removed rows is left. A path at a scope is an own privileged row there, or a privileged row
+   * there assigned to a set the actor is a member of (by closure).
+   */
   private async locksOut(call: Call, removed: readonly Assignment[]): Promise<boolean> {
-    const store = await assignmentStore(call.ctx);
+    const gone = new Set(removed.map((a) => a.id));
+    const scopes = new Map<string, ResourceRef>();
+    const onPath = (scope: ResourceRef) => scopes.set(resourceKey(scope), scope);
     for (const a of removed) {
       if (isSetSubject(a.subject)) {
-        if (!call.privileged(a.role)) continue;
-        const { items } = await store.find({ scope: a.subject.set.scope, role: a.subject.set.role, at: call.ctx.now });
-        if (items.some((m) => sameSubject(m.subject, call.actor))) return true;
+        if (call.privileged(a.role) && (await this.setMembers(call, a.subject.set)).some((m) => sameSubject(m.subject, call.actor))) onPath(a.scope);
         continue;
       }
       if (!sameSubject(a.subject, call.actor)) continue;
-      if (call.privileged(a.role)) return true;
-      if (call.roles.roles.get(a.role)?.subjectSet === true) {
-        const { items } = await store.find({ subject: { set: { role: a.role, scope: a.scope } }, at: call.ctx.now });
-        if (items.some((s) => call.privileged(s.role))) return true;
+      if (call.privileged(a.role)) onPath(a.scope);
+      for (const s of await this.setRows(call, a.role, a.scope)) if (call.privileged(s.role)) onPath(s.scope);
+    }
+    for (const scope of scopes.values()) if (!(await this.keepsPath(call, scope, gone))) return true;
+    return false;
+  }
+
+  private async keepsPath(call: Call, scope: ResourceRef, gone: ReadonlySet<string>): Promise<boolean> {
+    const store = await assignmentStore(call.ctx);
+    for (const role of call.roles.roles.keys()) {
+      if (!call.privileged(role)) continue;
+      for (const a of (await store.find({ scope, role, at: call.ctx.now })).items) {
+        if (gone.has(a.id)) continue;
+        if (!isSetSubject(a.subject)) {
+          if (sameSubject(a.subject, call.actor)) return true;
+          continue;
+        }
+        if ((await this.setMembers(call, a.subject.set)).some((m) => !gone.has(m.id) && sameSubject(m.subject, call.actor))) return true;
       }
     }
     return false;
@@ -330,7 +373,7 @@ export class DefaultAdminGuard extends AdminGuard {
           path(a.subject, [a.id]);
           continue;
         }
-        for (const m of (await store.find({ scope: a.subject.set.scope, role: a.subject.set.role, at: call.ctx.now })).items) path(m.subject, [a.id, m.id]);
+        for (const m of await this.setMembers(call, a.subject.set)) path(m.subject, [a.id, m.id]);
       }
     }
     return before.size > 0 && after.size === 0;

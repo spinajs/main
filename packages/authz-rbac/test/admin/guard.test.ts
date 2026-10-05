@@ -710,6 +710,135 @@ describe('DefaultAdminGuard', function () {
     });
   });
 
+  describe('subject sets through role closures', () => {
+    // org.admin ranks above the subject set role org.member; org.lead (a set) and org.helper extend it.
+    const ROLES = [...GUARD_ROLES, role('org.member', { ladder: 'org', subjectSet: true, grants: grants('authz:assignments.read') }), role('org.admin', { ladder: 'org' }), role('org.lead', { subjectSet: true, extends: ['org.member'] }), role('org.helper', { extends: ['org.member'] })];
+    const LADDERS = [...GUARD_LADDERS, { name: 'org', roles: ['org.member', 'org.admin'] }];
+    const ORG: AssignmentSubject = { set: { role: 'org.member', scope: O1 } };
+    const LEAD: AssignmentSubject = { set: { role: 'org.lead', scope: O1 } };
+    const closure = (rows: readonly Assignment[], links?: RbacDomainOptions['links']) => world({ rows: [...BASE, ...rows], roles: ROLES, ladders: LADDERS, links });
+    const addMember = (set: string, member: string): AuthzCommand => ({ kind: 'set.addMember', set: { role: set, scope: O1 }, member: user(member) });
+    const setExpiry = (id: string, expiresAt: Date | null): AuthzCommand => ({ kind: 'assignment.setExpiry', id, expiresAt });
+    const refusedAt = async (actor: Principal, c: AuthzCommand, code: string, field?: string): Promise<void> => {
+      expect(failure(await run(actor, [c]))).to.deep.equal({ at: 0, code, ...(field !== undefined ? { field } : {}) });
+    };
+    const ORG_ADMIN = { allow: ['authz:*.manage', 'authz:assignments.read'], roles: { org: 'org.admin' } };
+
+    beforeEach(() => {
+      const top = { allow: ['*'], roles: { project: 'maintainer', staff: 'admin', org: 'org.admin' } };
+      for (const id of ['root', 'root2', 'super']) table.set(id, '*', top);
+      table.set('ops', '*', { allow: ['authz:assignments.manage', 'authz:assignments.read'], roles: { staff: 'admin', org: 'org.admin' } });
+      // olga runs the org and holds every permission of maintainer at p1, but ranks editor there; omar ranks maintainer.
+      table.set('olga', O1, ORG_ADMIN);
+      table.set('olga', P1, { allow: ['file:read', 'file:edit', 'project:settings', 'authz:*.manage'], roles: { project: 'editor' } });
+      table.set('omar', O1, ORG_ADMIN);
+      table.set('omar', P1, { allow: ['file:read', 'file:edit', 'project:settings', 'authz:*.manage'], roles: { project: 'maintainer' } });
+    });
+
+    describe('escalation', () => {
+      it('a higher ladder role makes its holder a member of the lower subject set role, so it gives what the set holds', async () => {
+        await closure([row('o-mt', ORG, 'maintainer', P1)]);
+        const [r] = await run(p('olga'), [grant('org.admin', O1, user('dave'))]);
+        expect(failure([r])).to.deep.equal({ at: 0, code: 'escalation', field: 'role' });
+        const message = (r as Extract<AuthzCommandResult, { ok: false }>).error.message;
+        for (const part of ['"maintainer"', '"p1"', 'ladder "project"']) expect(message).to.include(part);
+        await refusedAt(p('olga'), grant('org.member', O1, user('dave')), 'escalation', 'role');
+        await passes(p('omar'), [grant('org.admin', O1, user('dave'))]);
+        await closure([row('o-ed', ORG, 'editor', P1)]);
+        await passes(p('olga'), [grant('org.admin', O1, user('dave'))]);
+      });
+
+      it('a role that extends a subject set role gives what the set holds', async () => {
+        await closure([row('o-mt', ORG, 'maintainer', P1)]);
+        await refusedAt(p('olga'), grant('org.helper', O1, user('dave')), 'escalation', 'role');
+        await refusedAt(p('olga'), addMember('org.lead', 'dave'), 'escalation', 'set.role');
+        await passes(p('omar'), [grant('org.helper', O1, user('dave')), addMember('org.lead', 'dave')]);
+        await closure([row('o-ed', ORG, 'editor', P1)]);
+        await passes(p('olga'), [grant('org.helper', O1, user('dave')), addMember('org.lead', 'dave')]);
+      });
+
+      it('a set role reaches what its own set holds; a role below it in the closure does not', async () => {
+        await closure([row('l-mt', LEAD, 'maintainer', P1)]);
+        await refusedAt(p('olga'), addMember('org.lead', 'dave'), 'escalation', 'set.role');
+        await passes(p('olga'), [grant('org.admin', O1, user('dave'))]);
+      });
+
+      it('links and expiry extensions follow the closure', async () => {
+        const links = [{ link: { id: 'l-oa', scope: O1, attributes: {}, expiresAt: at(-HOUR) }, token: 'tok-oa', role: 'org.admin' }];
+        await closure([row('o-mt', ORG, 'maintainer', P1), row('oa-dave', user('dave'), 'org.admin', O1, { expiresAt: at(-HOUR) })], links);
+        await refusedAt(p('olga'), { kind: 'link.create', scope: O1, role: 'org.admin' }, 'escalation', 'role');
+        await refusedAt(p('olga'), { kind: 'link.update', id: 'l-oa', expiresAt: null }, 'escalation', 'expiresAt');
+        await refusedAt(p('olga'), setExpiry('oa-dave', null), 'escalation', 'expiresAt');
+        await passes(p('omar'), [{ kind: 'link.create', scope: O1, role: 'org.admin' }, { kind: 'link.update', id: 'l-oa', expiresAt: null }, setExpiry('oa-dave', null)]);
+      });
+
+      it('a grant to a set makes no member of another set', async () => {
+        await closure([row('o-mt', ORG, 'maintainer', P1)]);
+        await passes(p('olga'), [grant('org.admin', O1, LEAD)]);
+      });
+
+      it('removing a higher ladder role or an extending role takes the roles of the subject set role below it', async () => {
+        await closure([row('o-mt', ORG, 'maintainer', P1), row('oa-dave', user('dave'), 'org.admin', O1), row('oh-dave', user('dave'), 'org.helper', O1)]);
+        await refusedAt(p('olga'), revoke('oa-dave'), 'escalation', 'id');
+        await refusedAt(p('olga'), setExpiry('oa-dave', at(HOUR)), 'escalation', 'id');
+        await refusedAt(p('olga'), revoke('oh-dave'), 'escalation', 'id');
+        expect(await exists('oa-dave')).to.equal(true);
+        await passes(p('omar'), [setExpiry('oa-dave', at(HOUR)), revoke('oa-dave'), revoke('oh-dave')]);
+      });
+    });
+
+    describe('removals', () => {
+      // The org.member set at o1 holds admin, the privileged role, at GLOBAL.
+      const S_ORG = row('s-org', ORG, 'admin');
+
+      it('last holder: a member by closure is a holder', async () => {
+        await closure([S_ORG, row('oa-root', user('root'), 'org.admin', O1)]);
+        await refusedAt(p('ops'), revoke('oa-root'), 'last_holder', 'id');
+        await refusedAt(p('ops'), revoke('s-org'), 'last_holder', 'id');
+        await refusedAt(p('ops'), setExpiry('oa-root', at(HOUR)), 'last_holder', 'id');
+        await closure([S_ORG, row('ol-root', user('root'), 'org.lead', O1)]);
+        await refusedAt(p('ops'), revoke('ol-root'), 'last_holder', 'id');
+        await closure([S_ORG, row('oh-root', user('root'), 'org.helper', O1)]);
+        await refusedAt(p('ops'), revoke('oh-root'), 'last_holder', 'id');
+        await closure([S_ORG, row('oa-root', user('root'), 'org.admin', O1), ...admins('root2')]);
+        await passes(p('ops'), [revoke('oa-root')]);
+      });
+
+      it('self-lockout: a row whose closure holds a set role on a privileged path', async () => {
+        await closure([S_ORG, row('oa-root', user('root'), 'org.admin', O1), ...admins('root2')]);
+        await refusedAt(p('root'), revoke('oa-root'), 'self_lockout', 'id');
+        await refusedAt(p('root'), setExpiry('oa-root', at(HOUR)), 'self_lockout', 'id');
+        await closure([S_ORG, row('oh-root', user('root'), 'org.helper', O1), ...admins('root2')]);
+        await refusedAt(p('root'), revoke('oh-root'), 'self_lockout', 'id');
+        await refusedAt(p('root'), revoke('s-org'), 'self_lockout', 'id');
+      });
+
+      it('self-lockout: another path to the privilege at the same scope keeps the actor in', async () => {
+        const both = [S_ORG, row('om-root', user('root'), 'org.member', O1), row('oa-root', user('root'), 'org.admin', O1), ...admins('root2')];
+        await closure(both);
+        await passes(p('root'), [revoke('om-root')]);
+        await closure(both);
+        await passes(p('root'), [revoke('oa-root')]);
+        await closure(both);
+        await refusedAt(p('root'), { kind: 'assignment.revokeWhere', scope: O1, subject: user('root') }, 'self_lockout');
+        await refused(p('root'), [revoke('om-root'), revoke('oa-root')], 'self_lockout', 1);
+        // An own privileged row and a set path at the same scope stand in for each other.
+        const mixed = [S_ORG, row('oa-root', user('root'), 'org.admin', O1), ...admins('root', 'root2')];
+        await closure(mixed);
+        await passes(p('root'), [revoke('oa-root')]);
+        await closure(mixed);
+        await passes(p('root'), [revoke('a-root')]);
+        await closure(mixed);
+        await refused(p('root'), [revoke('a-root'), revoke('oa-root')], 'self_lockout', 1);
+      });
+
+      it('self-lockout: a privileged row at another scope is no other path', async () => {
+        await closure([S_ORG, row('oa-root', user('root'), 'org.admin', O1), row('a-p1', user('root'), 'admin', P1), ...admins('root2')]);
+        await refusedAt(p('root'), revoke('oa-root'), 'self_lockout', 'id');
+      });
+    });
+  });
+
   async function rbacDomainWithoutRoles(): Promise<RbacDomain> {
     return rbacDomain('bare', { without: ['roles'], admin: { backend: 'TestBackend', guard: GUARD }, model: table.model(), permissions: USER_PERMISSIONS });
   }
