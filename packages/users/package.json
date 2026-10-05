@@ -9,6 +9,11 @@
       "types": "./lib/mjs/index.d.ts",
       "import": "./lib/mjs/index.js",
       "require": "./lib/cjs/index.js"
+    },
+    "./queue": {
+      "types": "./lib/mjs/queue/index.d.ts",
+      "import": "./lib/mjs/queue/index.js",
+      "require": "./lib/cjs/queue/index.js"
     }
   },
   "type": "module",
@@ -55,6 +60,7 @@
     "@spinajs/authn": "3.0.0-alpha.0",
     "@spinajs/authn-local": "3.0.0-alpha.0",
     "@spinajs/authz": "3.0.0-alpha.0",
+    "@spinajs/authz-queue": "3.0.0-alpha.0",
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
