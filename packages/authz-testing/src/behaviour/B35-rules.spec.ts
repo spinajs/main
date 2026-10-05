@@ -21,7 +21,8 @@ const PW = ['project', 'org'];
 const TYPES = ['org', 'project', 'file', 'branch'];
 
 const ids = ['alice', 'bob', 'carol', 'dan', 'eve', 'ella', 'fay', 'gus', 'hal', 'ivy', 'jon', 'kay', 'lou', 'mia', 'ned', 'olga'] as const;
-const principals: World['principals'] = { ...Object.fromEntries(ids.map((id) => [id, userPrincipal(id)])), svc: servicePrincipal('svc'), pam: userPrincipal('pam', { attributes: { contractor: true } }), agentDan: agentPrincipal('ag-dan', userPrincipal('dan')) };
+const dan = userPrincipal('dan', { attributes: { contractor: false } });
+const principals: World['principals'] = { ...Object.fromEntries(ids.map((id) => [id, userPrincipal(id)])), dan, svc: servicePrincipal('svc'), pam: userPrincipal('pam', { attributes: { contractor: true } }), agentDan: agentPrincipal('ag-dan', dan) };
 const u = (id: (typeof ids)[number] | 'svc' | 'pam') => principals![id];
 
 // o1 → p1 → f1, f2, b1 'release/1', b2 'release/1/hotfix', b3 'main'; o2 → p3 → f3.
@@ -188,6 +189,11 @@ const conditionCases: Case[] = [
     name: 'subjects.when selects the principals a rule applies to (a principal attribute)',
     world: world([{ id: 'c1', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', subjects: { when: { attr: 'principal.attributes.contractor', eq: true } } }], [...editorDan, assignment('p1', u('pam'), 'editor', P1)]),
     steps: [on('pam', 'file:edit', f1, tooLow('viewer', 'editor')), on('dan', 'file:edit', f1, ALLOWED)],
+  },
+  {
+    name: 'a cap whose subjects.when is UNKNOWN (attribute missing) still applies',
+    world: world([{ id: 'c1', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', subjects: { when: { attr: 'principal.attributes.contractor', eq: true } } }], [assignment('e1', u('eve'), 'editor', P1)]),
+    steps: [on('eve', 'file:edit', f1, tooLow('viewer', 'editor'))],
   },
   {
     name: "a wildcard resource pattern selects by the resource's attribute ('*' crosses '/')",
