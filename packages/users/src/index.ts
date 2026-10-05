@@ -5,7 +5,6 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { Log } from '@spinajs/log';
 
 import type { IRbacAsyncStorage } from './interfaces.js';
 
@@ -75,15 +74,11 @@ export class RbacBootstrapper extends Bootstrapper {
     /** @deprecated 3.0: roles and grants live in `authz.rbac`; users no longer reads it. R1 deletes it. */
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
+    // users ships no rbac.grants any more: only an application still on the 2.x checks sets them.
     DI.once('di.resolved.Configuration', (container: IContainer, configuration: Configuration) => {
-      const ac = container.get<AccessControl>('AccessControl');
       const grants = configuration.get('rbac.grants');
-
-      if (!grants) {
-        const log = container.resolve(Log, ['rbac']);
-        log.warn(`No grants are set in configuration for access control. Please check grants & permission configuration.`);
-      } else {
-        ac!.setGrants(grants);
+      if (grants) {
+        container.get<AccessControl>('AccessControl')!.setGrants(grants);
       }
     });
 

@@ -3,10 +3,13 @@
 import { IPasswordPolicy, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
-import { AutoinjectService, Config } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { DataValidator } from '@spinajs/validation';
 import { UnexpectedServerError } from '@spinajs/exceptions';
 import { randomInt } from 'crypto';
+
+/** The 2.x shipped `authn.local.policy.rule`: eight characters or more, one of them a digit. */
+const DEFAULT_RULE = { type: 'string', pattern: '^(?=.*\\d).{8,}$' };
 
 /**
  * How many draws `generate()` makes before declaring the generator pool and the
@@ -41,7 +44,9 @@ export class BasicPasswordProvider implements PasswordProvider {
   @Config('authn.local.generator')
   protected GeneratorOptions: { length: number; characters: string[] };
 
-  @AutoinjectService('authn.local.policy')
+  // The registered one, not `authn.local.policy.service`: authn-local ships that path as an object without a 2.x
+  // service, which the config-named injection cannot resolve.
+  @Autoinject(PasswordValidationProvider)
   protected Validation: PasswordValidationProvider;
 
   public async hash(input: string): Promise<string> {
@@ -107,7 +112,12 @@ export class BasicPasswordProvider implements PasswordProvider {
 @Injectable(PasswordValidationProvider)
 export class BasicPasswordValidationProvider extends PasswordValidationProvider {
   @Config('authn.local.policy.rule')
-  protected ValidationSchema: object;
+  protected ConfiguredRule: object | null | undefined;
+
+  /** authn-local reads the same key and treats null as "no rule"; the 2.x provider keeps the 2.x default then. */
+  protected get ValidationSchema(): object {
+    return this.ConfiguredRule ?? DEFAULT_RULE;
+  }
 
   /**
    * Optional human-readable statement of the rule, surfaced verbatim through

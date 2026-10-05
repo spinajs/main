@@ -4,7 +4,8 @@ import _ from 'lodash';
 import { emailDeferred, IEmailAttachement } from '@spinajs/email';
 import { ev } from '@spinajs/queue';
 import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedLogin, isReservedMetadataKey } from './models/User.js';
-import { cfg, service } from '@spinajs/configuration';
+import { cfg } from '@spinajs/configuration';
+import { legacyService } from './legacy-services.js';
 import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
@@ -220,7 +221,7 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
     return;
   }
 
-  const provider = await service('authn.session', SessionProvider);
+  const provider = await legacyService('authn.session', SessionProvider);
   await provider.deleteByUser(userId);
 }
 
@@ -1016,8 +1017,8 @@ function secureCompare(a: string, b: string): boolean {
 export async function changeUserPassword(u: User, password: string): Promise<User> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  const pwd = await service('authn.local.hasher', PasswordProvider);
-  const validator = await service('authn.local.policy', PasswordValidationProvider);
+  const pwd = await legacyService('authn.local.hasher', PasswordProvider);
+  const validator = await legacyService('authn.local.policy', PasswordValidationProvider);
 
   if (!validator.check(password)) {
     // `InvalidArgument`, not a bare `Error`: a password the caller typed is
@@ -1077,7 +1078,7 @@ export function changePassword(password: string): (u: User) => Promise<User> {
 export async function expirePassword(identifier: number | string | User): Promise<void> {
   const u = await getUser(identifier);
 
-  const sPassword = await service('authn.local.hasher', PasswordProvider);
+  const sPassword = await legacyService('authn.local.hasher', PasswordProvider);
   const hPassword = await sPassword.hash(sPassword.generate());
   await updateModel(u, { Password: hPassword });
 
@@ -1111,7 +1112,7 @@ export async function notifyPasswordWillExpire(identifier: number | string | Use
 export async function verifyPassword(u: User, password: string): Promise<boolean> {
   password = _check_arg(_trim(), _non_empty())(password, 'password');
 
-  const sPwd = await service('authn.local.hasher', PasswordProvider);
+  const sPwd = await legacyService('authn.local.hasher', PasswordProvider);
   return sPwd.verify(u.Password, password);
 }
 
@@ -1147,7 +1148,7 @@ export async function login(identifier: number | string | User, password: string
     // cannot be probed at all during the lockout window.
     assertNotLocked(u);
 
-    const sAuth = await service('rbac.auth', AuthProvider);
+    const sAuth = await legacyService('rbac.auth', AuthProvider);
 
     // the authenticated user is a FRESH row read by the auth provider ( with
     // metadata populated ) - every step below acts on it, not on the lookup

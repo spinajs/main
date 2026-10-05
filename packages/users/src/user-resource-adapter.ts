@@ -1,5 +1,5 @@
 import { AuthzService, GLOBAL, ResourceAdapter, SYSTEM } from '@spinajs/authz';
-import type { ResourceRef } from '@spinajs/authz';
+import type { PermissionDef, ResourceRef } from '@spinajs/authz';
 import { DI, Injectable } from '@spinajs/di';
 
 import type { User } from './models/User.js';
@@ -26,6 +26,15 @@ export class UserResourceAdapter extends ResourceAdapter<User> {
 
   public accepts(_target: unknown): _target is User {
     return false;
+  }
+
+  /** The `user` permissions users' shipped roles name; a role's literal permission must be registered. */
+  public permissions(): readonly Omit<PermissionDef, 'source'>[] {
+    return [
+      { name: 'user:read', resource: USER, action: 'read', types: [USER], fields: true },
+      { name: 'user:update', resource: USER, action: 'update', types: [USER], fields: true },
+      { name: 'user:impersonate', resource: USER, action: 'impersonate', types: [USER] },
+    ];
   }
 
   /** The `user` ref of a record, for callers that build the check themselves. */

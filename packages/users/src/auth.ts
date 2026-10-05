@@ -1,18 +1,20 @@
 import { AuthProvider, PasswordProvider } from './interfaces.js';
 import { User, UserBase } from './models/User.js';
 import { Autoinject, Container, IContainer, Injectable } from '@spinajs/di';
-import { AutoinjectService } from '@spinajs/configuration';
 import { _check_arg, _is_email, _is_object, _is_string, _max_length, _non_empty, _non_nil, _or, _trim } from '@spinajs/util';
 import { InvalidCredentials, UserIsBanned, UserNotActive } from './exceptions.js';
 import { userModel } from './model-token.js';
+import { legacyService } from './legacy-services.js';
 
 @Injectable(AuthProvider)
 export class SimpleDbAuthProvider implements AuthProvider<User> {
   @Autoinject(Container)
   protected Container: IContainer;
 
-  @AutoinjectService('authn.local.hasher')
-  protected PasswordProvider: PasswordProvider;
+  /** `authn.local.hasher.service` when it names a 2.x `PasswordProvider`, else the registered one. */
+  protected hasher(): Promise<PasswordProvider> {
+    return Promise.resolve(legacyService('authn.local.hasher', PasswordProvider));
+  }
 
   public async exists(userOrEmail: User | string): Promise<boolean> {
     const result = await userModel().where('Email', userOrEmail instanceof User ? userOrEmail.Email : userOrEmail).first();
@@ -45,7 +47,7 @@ export class SimpleDbAuthProvider implements AuthProvider<User> {
     // `ERROR  Exception:  (http)` with nothing to go on.
     const user = await UserBase.query().whereEmail(email).notDeleted().populate('Metadata').firstOrThrow(new InvalidCredentials('no user with given email'));
 
-    const valid = await this.PasswordProvider.verify(user.Password, password);
+    const valid = await (await this.hasher()).verify(user.Password, password);
     if (!valid) {
       throw new InvalidCredentials('invalid password');
     }

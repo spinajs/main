@@ -1,6 +1,6 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
-import { AutoinjectService } from '@spinajs/configuration';
+import { legacyService } from './legacy-services.js';
 import { IDeleteQueryBuilder, IModelDescriptor, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -220,13 +220,21 @@ export abstract class FederatedAuthProvider<C, U = User> {
 }
 
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
+  private _expiration?: SessionExpirationProvider;
+
   /**
    * Expiration strategy, resolved by config service name at
    * `authn.session.expiration`. Every store shares the same strategy so
-   * expiration semantics are uniform across providers.
+   * expiration semantics are uniform across providers. Without the key, the
+   * last registered strategy (`SlidingCappedExpiration`, the 2.x default).
    */
-  @AutoinjectService('authn.session.expiration')
-  protected Expiration!: SessionExpirationProvider;
+  protected get Expiration(): SessionExpirationProvider {
+    return (this._expiration ??= legacyService('authn.session.expiration', SessionExpirationProvider) as SessionExpirationProvider);
+  }
+
+  protected set Expiration(value: SessionExpirationProvider) {
+    this._expiration = value;
+  }
 
   /**
    * Load session from store. Returns `null` when the session is missing OR
