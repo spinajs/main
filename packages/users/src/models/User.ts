@@ -320,6 +320,14 @@ export class UserBase extends ModelBase<UserBase> {
   public RegisteredAt!: DateTime<true>;
 
   /**
+   * When the current password was set, from authn's events (`UserAccountSink`); null: none recorded. Hidden like
+   * `Password`: credential state, not profile data.
+   */
+  @DT()
+  @Hidden()
+  public PasswordSetAt!: DateTime;
+
+  /**
    * User deletion date
    */
   @SoftDelete()

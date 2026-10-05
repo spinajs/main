@@ -31,6 +31,7 @@ export * from './models/User.js';
 export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
 export * from './migrations/RBACRegisteredAt_2026_07_28_00_00_00.js';
+export * from './migrations/UsersPasswordSetAt_2026_10_04_00_00_00.js';
 export * from './events/index.js';
 export * from './actions.js';
 export * from './middleware.js';
@@ -47,6 +48,7 @@ export * from './principal/index.js';
 export * from './self-relation.js';
 export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
+export * from './identity/index.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;

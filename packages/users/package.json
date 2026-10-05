@@ -53,6 +53,7 @@
   "homepage": "https://github.com/spinajs/main#readme",
   "dependencies": {
     "@spinajs/authn": "3.0.0-alpha.0",
+    "@spinajs/authn-local": "3.0.0-alpha.0",
     "@spinajs/authz": "3.0.0-alpha.0",
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/cli": "2.0.549",
@@ -74,6 +75,10 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@spinajs/authn-testing": "3.0.0-alpha.0",
+    "@spinajs/orm-mssql": "2.0.549",
+    "@spinajs/orm-mysql": "2.0.549",
+    "@spinajs/orm-postgres": "2.0.549",
     "@spinajs/orm-sqlite": "2.0.549",
     "@types/cron": "^2.0.0",
     "@types/entropy-string": "^4.2.0"
