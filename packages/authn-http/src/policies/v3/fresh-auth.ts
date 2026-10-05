@@ -89,7 +89,12 @@ export class FreshAuth extends BasePolicy {
     if (typeof body === 'object' && body !== null) {
       password = (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
       // The route behind the policy must not get the account password: a body-to-model copy or a request log could keep it.
-      delete (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
+      // The raw bytes go too, not a re-serialised copy that a route checking a signature would take for the client's.
+      // AuthnMiddleware read them for HTTP signatures before any policy ran.
+      if (REAUTH_PASSWORD_FIELD in body) {
+        delete (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
+        delete (req as { rawBody?: unknown }).rawBody;
+      }
     }
     await assertFreshAuth(this.Container, req, this.maxAgeSeconds, password);
   }

@@ -1,5 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
@@ -7,6 +10,16 @@ import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import { FakeIdentityStore, FakeStrategy, MemoryPasswordCredentialStore } from '@spinajs/authn-testing';
 
 import { AuthnCheckConfig } from '../../src/cli/AuthnCheckConfig.js';
+import { importIfInstalled } from '../../src/optional-import.js';
+
+const PKG_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+// The provider packages are loaded in a child process below; this process keeps its registrations.
+class InProcessCheckConfig extends AuthnCheckConfig {
+  protected async loadProviders(): Promise<void> {
+    return;
+  }
+}
 
 const STRONG = 'k'.repeat(64);
 const PUBLIC_SECRET = '1234adreewD';
@@ -83,7 +96,7 @@ describe('authn:check-config (CLI)', function () {
     await child.resolve(Configuration);
     const strategy = FakeStrategy.password({ identities: new FakeIdentityStore(), passwords: new MemoryPasswordCredentialStore() });
     child.register({ N8aCliKitPassword: () => strategy }.N8aCliKitPassword).as(AuthenticationStrategy);
-    const command = await child.resolve(AuthnCheckConfig);
+    const command = await child.resolve(InProcessCheckConfig);
     await command.execute();
     const exitCode = process.exitCode;
     process.exitCode = 0;
@@ -128,5 +141,97 @@ describe('authn:check-config (CLI)', function () {
     expect(r.lines.length).to.be.greaterThan(2);
     expect(r.exitCode).to.eq(1);
     noSecretIn(r.lines);
+  });
+});
+
+/** A process like `spinajs authn:check-config`: the configuration, the files of the scanned cli dirs, the command. No package root. */
+const CLI_PROCESS = `
+  const { DI } = await import('@spinajs/di');
+  const { Configuration, FrameworkConfiguration } = await import('@spinajs/configuration');
+  const { readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  DI.setESMModuleSupport();
+  const values = JSON.parse(process.env.N8A_CHECK_CONFIG_VALUES);
+  class CliProcessConfiguration extends FrameworkConfiguration {
+    constructor() { super(); this.Env = 'production'; }
+    loadSources() { this.Sources = []; }
+    onLoad() { return JSON.parse(JSON.stringify(values)); }
+  }
+  DI.register(CliProcessConfiguration).as(Configuration);
+  await DI.resolve(Configuration);
+  const dirs = [join(process.cwd(), 'lib', 'mjs', 'cli'), join(process.cwd(), '..', '..', 'node_modules', '@spinajs', 'authn-local', 'lib', 'mjs', 'cli')];
+  for (const dir of dirs) for (const f of readdirSync(dir).filter((f) => f.endsWith('.js'))) await import(pathToFileURL(join(dir, f)).href);
+  const { AuthnCheckConfig } = await import(pathToFileURL(join(dirs[0], 'AuthnCheckConfig.js')).href);
+  await (await DI.resolve(AuthnCheckConfig)).execute();
+  console.log(JSON.stringify({ exitCode: process.exitCode ?? 0 }));
+  process.exit(0);
+`;
+
+function cliProcess(strategies: unknown[]): { findings: string[]; exitCode: number } {
+  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } } } };
+  const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values) };
+  delete env.NODE_OPTIONS;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS], { cwd: PKG_ROOT, encoding: 'utf8', env });
+  expect(r.status, r.stderr).to.eq(0);
+  const out = r.stdout.trim().split(/\r?\n/);
+  const findings = out.filter((l) => /^(error|warning) [a-z]+: /.test(l) || l === 'authn:check-config: no findings');
+  return { findings, exitCode: (JSON.parse(out[out.length - 1]) as { exitCode: number }).exitCode };
+}
+
+describe('authn:check-config in a process that loads only what the CLI loads', function () {
+  this.timeout(120000);
+
+  it('finds the strategy of an installed authn package: LocalPasswordStrategy gives no strategies error', () => {
+    const r = cliProcess([{ name: 'local', service: 'LocalPasswordStrategy' }]);
+    expect(r.findings).to.deep.eq(['authn:check-config: no findings']);
+    expect(r.exitCode).to.eq(0);
+  });
+
+  it('still reports a strategy no installed package provides', () => {
+    const r = cliProcess([{ name: 'x', service: 'N8aNoSuchStrategy' }]);
+    expect(r.findings.filter((l) => l.startsWith('error strategies: '))).to.have.length(1);
+    expect(r.exitCode).to.eq(1);
+  });
+});
+
+describe('importIfInstalled', () => {
+  const failing = (e: object) => () => Promise.reject(Object.assign(new Error((e as { message: string }).message), e));
+
+  it('answers undefined for a package that is not installed, in plain node (ESM and CJS builds)', function () {
+    // ts-node's loader drops the error code, so the real errors are checked against the built package outside it.
+    this.timeout(60000);
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    delete env.NODE_OPTIONS;
+    const esm = `const { importIfInstalled } = await import('./lib/mjs/optional-import.js'); console.log(String(await importIfInstalled('@spinajs/n8a-no-such-package')));`;
+    const cjs = `require('./lib/cjs/optional-import.js').importIfInstalled('@spinajs/n8a-no-such-package').then((m) => console.log(String(m)), (e) => { console.error(e); process.exit(1); });`;
+    for (const [inputType, body] of [['module', esm], ['commonjs', cjs]]) {
+      const r = spawnSync(process.execPath, [`--input-type=${inputType}`, '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
+      expect(r.status, r.stderr).to.eq(0);
+      expect(r.stdout.trim(), inputType).to.eq('undefined');
+    }
+  });
+
+  it('answers undefined only when the named package itself is missing (ESM and CJS errors)', async () => {
+    expect(await importIfInstalled('@x/y', failing({ code: 'ERR_MODULE_NOT_FOUND', message: "Cannot find package '@x/y' imported from /app/a.js" }))).to.eq(undefined);
+    expect(await importIfInstalled('@x/y', failing({ code: 'MODULE_NOT_FOUND', message: "Cannot find module '@x/y'\nRequire stack:\n- /app/a.js" }))).to.eq(undefined);
+  });
+
+  it('rethrows a missing dependency of the package and any other error', async () => {
+    const cases = [
+      failing({ code: 'ERR_MODULE_NOT_FOUND', message: "Cannot find package 'dep' imported from /app/node_modules/@x/y/index.js" }),
+      failing({ code: 'MODULE_NOT_FOUND', message: "Cannot find module 'dep'\nRequire stack:\n- /app/node_modules/@x/y/index.js" }),
+      failing({ code: 'ERR_MODULE_NOT_FOUND', message: "Cannot find package '@x/y-extra' imported from /app/a.js" }),
+      failing({ message: 'boom at load' }),
+    ];
+    for (const load of cases) {
+      const err = await importIfInstalled('@x/y', load).then(() => null, (e: Error) => e);
+      expect(err, String(load)).to.be.instanceOf(Error);
+    }
+  });
+
+  it('answers the module when it loads', async () => {
+    const mod = { ok: true };
+    expect(await importIfInstalled('@x/y', () => Promise.resolve(mod))).to.eq(mod);
   });
 });

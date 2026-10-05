@@ -483,11 +483,14 @@ describe('3.0 authn policies and route args', function () {
         expect(s.passwordStrategy.verifyCalls).to.have.length(0);
       });
 
-      it('the right password of a banned identity fails', async () => {
+      it('the right password of a banned identity fails, refused for the ban', async () => {
         const req = await request({ reauthPassword: ALICE_PASSWORD });
         s.identities.setStatus(alice, { banned: true });
         expect(await run(resolve(FreshAuth, [60]), req)).to.eq('401 E_AUTH_FAILED');
         expect(s.throttle.succeeds).to.have.length(0);
+        expect(reauthAttempts(), 'the attempt reached core').to.have.length(1);
+        const refused = s.events.ofType('reauth').filter((e) => e.identity?.id === alice.id);
+        expect(refused.map((e) => [e.outcome, e.reason])).to.deep.eq([['failure', 'banned']]);
       });
     });
 
@@ -538,6 +541,19 @@ describe('3.0 authn policies and route args', function () {
       const wrong = await requestOf('session', { facts: { authenticatedAt: secondsAgo(400) }, body: { reauthPassword: 'wrong-password-1' } });
       expect(await run(resolve(FreshAuth), wrong)).to.eq('401 E_AUTH_FAILED');
       expect(wrong.body).to.deep.eq({});
+    });
+
+    it('drops the raw body bytes too when they held reauthPassword; a body without the field keeps them', async () => {
+      const raw = Buffer.from(JSON.stringify({ reauthPassword: ALICE_PASSWORD, note: 'kept' }));
+      const req = await requestOf('session', { facts: { authenticatedAt: secondsAgo(400) }, body: { reauthPassword: ALICE_PASSWORD, note: 'kept' } });
+      (req as unknown as { rawBody?: Buffer }).rawBody = raw;
+      expect(await run(resolve(FreshAuth), req)).to.eq('pass');
+      expect((req as unknown as { rawBody?: Buffer }).rawBody).to.eq(undefined);
+      const other = await requestOf('session', { facts: { authenticatedAt: secondsAgo(290) }, body: { note: 'kept' } });
+      const otherRaw = Buffer.from('{"note":"kept"}');
+      (other as unknown as { rawBody?: Buffer }).rawBody = otherRaw;
+      expect(await run(resolve(FreshAuth), other)).to.eq('pass');
+      expect((other as unknown as { rawBody?: Buffer }).rawBody).to.eq(otherRaw);
     });
   });
 
@@ -635,6 +651,7 @@ describe('3.0 authn policies and route args', function () {
       const res = await post('fresh', { Cookie: cookieOf(h.id) }, { reauthPassword: ALICE_PASSWORD, note: 'kept' });
       expect(res.status).to.eq(200);
       expect(res.body.bodyKeys).to.deep.eq(['note']);
+      expect(res.body.rawBody, 'nor the raw bytes').to.eq(null);
     });
 
     it('@Policy(FreshAuth, 600) reaches the policy: 400 s old passes there and not on the default route', async () => {

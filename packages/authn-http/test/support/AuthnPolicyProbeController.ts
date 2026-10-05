@@ -19,7 +19,8 @@ export class AuthnPolicyProbeController extends BaseController {
   @Post('fresh')
   @Policy(SuiteFreshAuth)
   public fresh(@Req() req: Request) {
-    return new Ok({ ok: true, bodyKeys: Object.keys((req.body as object | undefined) ?? {}) });
+    const raw = (req as { rawBody?: Buffer }).rawBody;
+    return new Ok({ ok: true, bodyKeys: Object.keys((req.body as object | undefined) ?? {}), rawBody: raw ? raw.toString('utf8') : null });
   }
 
   @Post('fresh-600')

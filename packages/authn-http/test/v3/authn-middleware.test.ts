@@ -517,11 +517,20 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.tokenStrategy.verifyCalls.at(-1)).to.deep.eq({ kind: 'bearer', token });
     });
 
-    it('a duplicated Authorization or api-key header reads as no credentials', async () => {
+    it('a duplicated Authorization or api-key header gives no principal', async () => {
       const token = tokenFor(alice);
       expect(await principalWith({ Authorization: [`Bearer ${token}`, `Bearer ${token}`] })).to.eq(null);
       expect(await principalWith({ 'X-Api-Key': [token, token] })).to.eq(null);
-      expect(s.tokenStrategy.verifyCalls).to.have.length(0);
+      expect(s.tokenStrategy.verifyCalls, 'the repeated Authorization is a failing credential; the api key none').to.have.length(1);
+    });
+
+    it('M2 a malformed or repeated Authorization bearer with the token prefix stops resolution: our x-api-key does not answer', async () => {
+      const good = tokenFor(alice);
+      for (const authorization of [`Bearer ${good} extra`, `Bearer spt_bad!value`, [`Bearer ${good}`, `Bearer ${good}`]]) {
+        expect(await principalWith({ Authorization: authorization, 'X-Api-Key': good }), String(authorization)).to.eq(null);
+      }
+      expect(s.tokenStrategy.verifyCalls.map((c) => (c as { token: string }).token)).to.deep.eq([`${good} extra`, 'spt_bad!value', `${good}, Bearer ${good}`]);
+      expect((await principalWith({ Authorization: 'Bearer ', 'X-Api-Key': good }))?.id, 'an empty bearer is no credential, as in 2.x').to.eq(alice.id);
     });
 
     it('a malformed Authorization header reads as no credentials', async () => {
@@ -879,9 +888,10 @@ describe('AuthnMiddleware units', () => {
       const e = extractor(AuthorizationBearerExtractor);
       expect(e.extract(sreq({ authorization: 'Bearer not-json.payload.sig' }))).to.deep.eq({ kind: 'bearer', token: 'not-json.payload.sig' });
       expect(e.extract(sreq({ authorization: 'BEARER spt_upper' }))).to.deep.eq({ kind: 'bearer', token: 'spt_upper' });
-      for (const value of ['Bearer opaque-token', 'Bearer a.b', 'Bearer a.b.c.d', 'Bearer a..c', 'Bearer SPT_wrong-case']) {
+      for (const value of ['Bearer opaque-token', 'Bearer a.b', 'Bearer a.b.c.d', 'Bearer a..c', 'Bearer SPT_wrong-case', 'Bearer opaque, Bearer spt_k']) {
         expect(e.extract(sreq({ authorization: value })), value).to.eq(null);
       }
+      expect(e.extract(sreq({ authorization: 'Bearer spt_a b' })), 'a malformed prefix value is a failing credential').to.deep.eq({ kind: 'bearer', token: 'spt_a b' });
       expect(e.extract(sreq({}))).to.eq(null);
     });
 
