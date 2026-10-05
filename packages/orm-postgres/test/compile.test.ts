@@ -12,6 +12,7 @@ import { NotSupported } from '@spinajs/exceptions';
 import { SelectQueryBuilder, InsertQueryBuilder, SchemaQueryBuilder, TableQueryBuilder, Orm, ICompilerOutput } from '@spinajs/orm';
 
 import { ConnectionConf, FakePostgresDriver } from './fixture.js';
+import { ExistsItem } from './models/exists.js';
 
 const expect = chai.expect;
 chai.use(chaiAsPromised);
@@ -79,6 +80,66 @@ describe('postgres SQL compilation', function () {
 
       expect(result.expression).to.equal('SELECT * FROM "users" OFFSET ?');
       expect(result.bindings).to.deep.equal([20]);
+    });
+  });
+
+  describe('whereExist correlation', () => {
+    function compiled(query: { toDB(): unknown }) {
+      return sql(query.toDB() as ICompilerOutput);
+    }
+
+    const byId = function (this: any) {
+      this.where('id', '=', '42');
+    };
+
+    it('quotes a belongsTo correlation with double quotes', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Owner', byId));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE "user_id" IS NOT NULL AND EXISTS ( SELECT * FROM "account" as "account_exists" WHERE "account_exists"."id" = ? AND "account_exists"."id" = "model"."user_id" )');
+    });
+
+    it('quotes a belongsTo correlation against the outer alias', () => {
+      const stmt = compiled(ExistsItem.select().setAlias('m').whereNotExists('Owner', byId));
+
+      expect(stmt).to.contain('NOT EXISTS (');
+      expect(stmt).to.contain('"account_exists"."id" = "m"."user_id"');
+      expect(stmt).to.not.contain('`');
+    });
+
+    it('quotes a hasMany correlation with double quotes', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Notes', byId));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE EXISTS ( SELECT * FROM "note" as "note_exists" WHERE "note_exists"."id" = ? AND "note_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a hasMany correlation for whereNotExists', () => {
+      const stmt = compiled(ExistsItem.select().whereNotExists('Notes'));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE NOT EXISTS ( SELECT * FROM "note" as "note_exists" WHERE "note_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a many-to-many correlation through the junction table', () => {
+      const stmt = compiled(ExistsItem.select().whereExist('Tags'));
+
+      expect(stmt).to.equal('SELECT * FROM "model" WHERE EXISTS ( SELECT * FROM "item_tag" as "item_tag_exists" WHERE "item_tag_exists"."item_id" = "model"."id" )');
+    });
+
+    it('quotes a many-to-many correlation for whereNotExists with a callback', () => {
+      const stmt = compiled(ExistsItem.select().setAlias('m').whereNotExists('Tags', byId));
+
+      expect(stmt).to.contain('NOT EXISTS (');
+      expect(stmt).to.contain('WHERE "item_tag_exists"."item_id" = "m"."id"');
+      expect(stmt).to.not.contain('`');
+    });
+
+    it('keeps the quoting on a clone', () => {
+      const query = ExistsItem.select().whereExist('Owner', byId);
+
+      const clone = compiled(query.clone());
+
+      expect(clone).to.equal(compiled(query));
+      expect(clone).to.contain('"account_exists"');
+      expect(clone).to.not.contain('`');
     });
   });
 

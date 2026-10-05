@@ -71,6 +71,11 @@ export function insertedValue(info: ColumnInfo, present: boolean, value: unknown
   throw new Unknown();
 }
 
+/** The column statements, then each row's cells; compared by identity. */
+const payloadOf = (builder: InsertQueryBuilder): unknown[][] => [[...builder.getColumns()], ...builder.Values.map((row: unknown[]) => [...row])];
+
+const samePayload = (a: unknown[][], b: unknown[][]): boolean => a.length === b.length && a.every((row, i) => row.length === b[i]?.length && row.every((v, j) => Object.is(v, b[i]?.[j])));
+
 interface InsertCheck {
   readonly model: ModelClass;
   readonly entry: ResourceEntry;
@@ -81,8 +86,9 @@ interface InsertCheck {
 
 /**
  * Conventions §6 inserts: stamp the owner (D-L4-7), let the other relations' policies stamp or
- * refuse, then every row must satisfy the residual in memory. Returns the index of the first row that
- * does not, or -1.
+ * refuse, then every row must satisfy the residual in memory. A refusing policy's relation does not
+ * hold. Returns the index of the first row that does not satisfy it, or -1; throws the last refusal
+ * instead of returning an index when a policy refused.
  */
 export async function authorizeInsert(builder: InsertQueryBuilder, c: InsertCheck): Promise<number> {
   const columns = columnsOf(c.model);
@@ -98,13 +104,22 @@ export async function authorizeInsert(builder: InsertQueryBuilder, c: InsertChec
   }
 
   const stamped = new Set<string>();
+  let refusal: { error: unknown } | undefined;
   for (const [name, { positive }] of relations) {
     if (!positive || (name === 'owner' && ownerInfo)) continue;
     const cls = scopePolicyOf(c.model, name);
     if (cls === undefined) continue;
     const policy = (await DI.resolve(cls as never)) as OrmScopePolicy;
     if (typeof policy.authorizeCreate !== 'function') continue;
-    await policy.authorizeCreate(builder, c.principal);
+    const before = payloadOf(builder);
+    try {
+      await policy.authorizeCreate(builder, c.principal);
+    } catch (error) {
+      // Its stamps would land unchecked through a relation whose policy accepted the row before them.
+      if (!samePayload(before, payloadOf(builder))) throw error;
+      refusal = { error };
+      continue;
+    }
     stamped.add(name);
   }
 
@@ -136,7 +151,10 @@ export async function authorizeInsert(builder: InsertQueryBuilder, c: InsertChec
       native: () => undefined,
       ctx: {} as EvaluationContext,
     };
-    if ((await evaluateResidual(c.residual, row, env)) !== true) return i;
+    if ((await evaluateResidual(c.residual, row, env)) !== true) {
+      if (refusal) throw refusal.error;
+      return i;
+    }
   }
   return -1;
 }

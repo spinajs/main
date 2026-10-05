@@ -1,4 +1,5 @@
-import { IdentifierQuoter, OrmDriver, RawQuery } from '@spinajs/orm';
+import { DI } from '@spinajs/di';
+import { IdentifierQuoter, Orm, OrmDriver, RawQuery } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
 import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
@@ -9,6 +10,14 @@ export const USERS_TABLE = 'users';
 /** @internal The states of `users.Password` that hold no password. */
 export function isNoPassword(value: unknown): boolean {
   return value === null || value === undefined || value === '' || value === NO_PASSWORD;
+}
+
+/**
+ * @internal A cli process resolves only its command, so nothing else may have booted the Orm and the models are bare. Not
+ * `@Autoinject(Orm)` on the stores: an async dependency makes their `DI.resolve` a Promise, and callers use it unawaited.
+ */
+export async function usersOrmUp(): Promise<void> {
+  await DI.resolve(Orm);
 }
 
 /** @internal The users' connection: the one the base `User` model writes to. */

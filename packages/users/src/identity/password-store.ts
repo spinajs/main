@@ -5,7 +5,7 @@ import { PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { runAsSystem } from '../system.js';
-import { USERS_TABLE, exactlyEquals, holdsNoPassword, isNoPassword, raw, rowsAffected, usersDriver } from './sql.js';
+import { USERS_TABLE, exactlyEquals, holdsNoPassword, isNoPassword, raw, rowsAffected, usersDriver, usersOrmUp } from './sql.js';
 
 const isUser = (id: IdentityRef | undefined): id is IdentityRef => id?.type === 'user' && typeof id.id === 'string';
 
@@ -26,6 +26,7 @@ export class UserPasswordStore extends PasswordCredentialStore {
       return null;
     }
 
+    if (!this.Deps?.driver) await usersOrmUp();
     const rows = (await runAsSystem('password-store', async () => this.driver().select().from(USERS_TABLE).columns(['Password']).where('Uuid', id.id))) as { Password?: unknown }[];
     const stored = rows[0]?.Password;
     return isNoPassword(stored) ? null : String(stored);
@@ -45,6 +46,7 @@ export class UserPasswordStore extends PasswordCredentialStore {
       return false;
     }
 
+    if (!this.Deps?.driver) await usersOrmUp();
     return runAsSystem('password-store', async () => {
       try {
         return await this.write(this.driver(), id, hash, expected);

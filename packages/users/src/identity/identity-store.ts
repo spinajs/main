@@ -4,7 +4,7 @@ import type { IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 
 import { USER_COMMON_METADATA, User } from '../models/User.js';
 import { runAsSystem } from '../system.js';
-import { usersMatchingLogin } from './sql.js';
+import { usersMatchingLogin, usersOrmUp } from './sql.js';
 
 const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false });
 
@@ -25,6 +25,7 @@ export class UserIdentityStore extends IdentityStore {
       return null;
     }
 
+    await usersOrmUp();
     const typed = login.trim();
     const rows = await runAsSystem('identity-store', () => usersMatchingLogin(login));
 
@@ -68,6 +69,7 @@ export class UserIdentityStore extends IdentityStore {
       return undefined;
     }
 
+    await usersOrmUp();
     return runAsSystem('identity-store', async () => {
       const query = User.query().withDeleted().where('Uuid', id.id);
       return (await (withMetadata ? query.populate('Metadata') : query).first()) ?? undefined;

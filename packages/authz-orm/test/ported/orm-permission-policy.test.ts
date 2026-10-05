@@ -24,6 +24,8 @@ interface PolicyImpl {
 
 const rel = (relation: string): ResourceFilter => ({ op: 'relation', relation });
 const or = (...args: ResourceFilter[]): ResourceFilter => ({ op: 'or', args });
+const and = (...args: ResourceFilter[]): ResourceFilter => ({ op: 'and', args });
+const not = (arg: ResourceFilter): ResourceFilter => ({ op: 'not', arg });
 
 // Ported from users legacy-v2/orm-permission-policy.test.ts (B20, B15, B21, B02): the 2.x
 // OrmPermissionPolicy is an @OrmScope policy. The 2.x "default" policy is the `owner` relation of a model
@@ -491,8 +493,7 @@ describe('OrmScopePolicy where-path', function () {
             return { owner: policy(make('default', rejectDefault)), subset: policy(make('subset', rejectSubset)) };
           };
 
-          // BUG(T1): authorizeInsert stops at the first authorizeCreate that throws, so an OR of two relations never falls through to the second, see .authz-sdd/T1-handoffs.md
-          it.skip('first-success-wins: row lands via the second policy after the first rejects', async () => {
+          it('first-success-wins: row lands via the second policy after the first rejects', async () => {
             const type = typeName();
             const Res = await model({ type, policies: pair(true, false) });
             await grantAll(type, or(rel('owner'), rel('subset')));
@@ -503,8 +504,7 @@ describe('OrmScopePolicy where-path', function () {
             expect(await w.stored(Res)).to.eql([[normal.id, 'created-by-subset']]);
           });
 
-          // BUG(T1): same short circuit; the first policy's error surfaces and the second never runs, see .authz-sdd/T1-handoffs.md
-          it.skip('all-reject: insert is rejected and the last policy error surfaces', async () => {
+          it('all-reject: insert is rejected and the last policy error surfaces', async () => {
             const type = typeName();
             const Res = await model({ type, policies: pair(true, true) });
             await grantAll(type, or(rel('owner'), rel('subset')));
@@ -528,6 +528,148 @@ describe('OrmScopePolicy where-path', function () {
             expect((e as Error).message).to.match(/policy rejects create/);
             expect(await w.stored(Res)).to.eql([]);
           });
+
+          it('and(a, b) with a rejecting is refused, surfaces its error and leaves no row', async () => {
+            const type = typeName();
+            const Res = await model({ type, policies: pair(true, false) });
+            await grantAll(type, and(rel('owner'), rel('subset')));
+
+            const e = await fails(as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' })));
+
+            expect(e).to.be.instanceOf(Forbidden);
+            expect((e as Error).message).to.match(/default policy rejects create/);
+            expect(calls).to.eql(['authorizeCreate:default', 'authorizeCreate:subset']);
+            expect(await w.stored(Res)).to.eql([]);
+          });
+
+          it('or(a, b) with b rejecting lands through a', async () => {
+            const type = typeName();
+            const Res = await model({ type, policies: pair(false, true) });
+            await grantAll(type, or(rel('owner'), rel('subset')));
+
+            await as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' }));
+
+            expect(calls).to.eql(['authorizeCreate:default', 'authorizeCreate:subset']);
+            expect(await w.stored(Res)).to.eql([[normal.id, 'created-by-default']]);
+          });
+
+          it('a relation that occurs only under not never runs its authorizeCreate', async () => {
+            const type = typeName();
+            const Res = await model({ type, policies: pair(false, false) });
+            await grantAll(type, or(rel('subset'), not(rel('owner'))));
+
+            await as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' }));
+
+            expect(calls).to.eql(['authorizeCreate:subset']);
+            expect(await w.stored(Res)).to.eql([[normal.id, 'created-by-subset']]);
+          });
+
+          it('a rejecting relation is unknown, not false, so a not of it does not hold', async () => {
+            const type = typeName();
+            const Res = await model({ type, policies: pair(false, true) });
+            await grantAll(type, or(rel('subset'), not(rel('subset'))));
+
+            const e = await fails(as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' })));
+
+            expect(e).to.be.instanceOf(Forbidden);
+            expect((e as Error).message).to.match(/subset policy rejects create/);
+            expect(calls).to.eql(['authorizeCreate:subset']);
+            expect(await w.stored(Res)).to.eql([]);
+          });
+
+          it('a rejecting policy that already changed the row refuses the insert although another relation holds', async () => {
+            const type = typeName();
+            const Res = await model({
+              type,
+              policies: {
+                owner: policy({
+                  scope: () => undefined,
+                  authorizeCreate(q) {
+                    calls.push('authorizeCreate:default');
+                    q.forceColumn('Value', 'created-by-default');
+                  },
+                }),
+                subset: policy({
+                  scope: () => undefined,
+                  authorizeCreate(q) {
+                    calls.push('authorizeCreate:subset');
+                    q.forceColumn('UserId', '1000');
+                    throw new Forbidden('subset policy rejects create');
+                  },
+                }),
+              },
+            });
+            await grantAll(type, or(rel('owner'), rel('subset')));
+
+            const e = await fails(as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' })));
+
+            expect(e).to.be.instanceOf(Forbidden);
+            expect((e as Error).message).to.match(/subset policy rejects create/);
+            expect(calls).to.eql(['authorizeCreate:default', 'authorizeCreate:subset']);
+            expect(await w.stored(Res)).to.eql([]);
+          });
+
+          // IDOR closure: do not weaken. A rejecting policy next to the @Owner relation must not let a forged owner id land.
+          const rejectingPool = (forge: boolean): PolicyImpl => ({
+            scope: () => undefined,
+            authorizeCreate(q) {
+              calls.push('authorizeCreate:pool');
+              if (forge) q.forceColumn('UserId', '1000');
+              throw new Forbidden('pool policy rejects create');
+            },
+          });
+
+          it('a rejecting policy OR-ed with the @Owner relation still stamps the owner column', async () => {
+            const type = typeName();
+            const Res = await model({ type, owner: true, policies: { pool: policy(rejectingPool(false)) } });
+            await grantAll(type, or(ownerRelation, rel('pool')));
+
+            await as(normal, () => Res.insert({ id: 'r1', UserId: '1000', Value: 'forged' }));
+
+            expect(calls).to.eql(['authorizeCreate:pool']);
+            expect(await w.stored(Res)).to.eql([[normal.id, 'forged']]);
+          });
+
+          it('a rejecting policy OR-ed with the @Owner relation cannot forge the owner column', async () => {
+            const type = typeName();
+            const Res = await model({ type, owner: true, policies: { pool: policy(rejectingPool(true)) } });
+            await grantAll(type, or(ownerRelation, rel('pool')));
+
+            const e = await fails(as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'forged' })));
+
+            expect(e).to.be.instanceOf(Forbidden);
+            expect((e as Error).message).to.match(/pool policy rejects create/);
+            expect(await w.stored(Res)).to.eql([]);
+          });
+
+          for (const [label, overwrite] of [
+            ['a replace', (q: InsertQueryBuilder) => void q.orReplace()],
+            ['an upsert', (q: InsertQueryBuilder) => void q.onDuplicate('id').update(['Value'])],
+          ] as const) {
+            it(`a rejecting policy that turns the insert into ${label} still needs the overwrite permissions`, async () => {
+              const type = typeName();
+              const Res = await model({
+                type,
+                policies: {
+                  owner: policy({
+                    scope: () => undefined,
+                    authorizeCreate(q) {
+                      overwrite(q);
+                      throw new Forbidden('default policy rejects create');
+                    },
+                  }),
+                  subset: policy(stamping()),
+                },
+              });
+              await grantAll(type, or(rel('owner'), rel('subset')));
+
+              const e = await fails(as(normal, () => Res.insert({ id: 'r1', UserId: normal.id, Value: 'from-payload' })));
+
+              expect(e).to.be.instanceOf(Forbidden);
+              expect((e as Error).message).to.match(/may overwrite/);
+              expect(await w.stored(Res)).to.eql([]);
+            });
+          }
         });
       });
 

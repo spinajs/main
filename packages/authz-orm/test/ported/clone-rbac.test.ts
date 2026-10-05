@@ -104,9 +104,6 @@ describe('rbac constraints survive query cloning', function () {
         ['@Owner column', ownerRelation],
       ] as const) {
         describe(shape, () => {
-          // BUG(T1): the ORM correlates whereExist with backtick quoting on Postgres, see .authz-sdd/T1-handoffs.md
-          const it = dialect === 'postgres' && readOwn === via ? globalThis.it.skip : globalThis.it;
-
           it('a readOwn caller gets a count that matches the rows it is allowed to see', async () => {
             const { Res, owned } = await seed(dialect);
             await w.grant({ [w.P.read]: permit(readOwn) });
@@ -117,7 +114,7 @@ describe('rbac constraints survive query cloning', function () {
             expect(count).to.eq(owned);
           });
 
-          globalThis.it('a readAny caller still counts everything', async () => {
+          it('a readAny caller still counts everything', async () => {
             const { Res, total } = await seed(dialect);
             await w.grant({ [w.P.read]: permit() });
 

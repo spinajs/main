@@ -4,7 +4,7 @@ import { PasswordAgeSource } from '@spinajs/authn-local';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { runAsSystem } from '../system.js';
-import { USERS_TABLE, holdsPassword, quoted, raw, sqlDateTime, usersDriver } from './sql.js';
+import { USERS_TABLE, holdsPassword, quoted, raw, sqlDateTime, usersDriver, usersOrmUp } from './sql.js';
 
 /**
  * Ages from `users.PasswordSetAt`, which `UserAccountSink` writes on the authn events of a real password set.
@@ -19,6 +19,7 @@ export class UserPasswordAgeSource extends PasswordAgeSource {
 
   /** Users not deleted, holding a password (not a marker), set before `cutoff` or at no recorded time. */
   public async passwordsSetBefore(cutoff: Date): Promise<readonly IdentityRef[]> {
+    if (!this.Deps?.driver) await usersOrmUp();
     const rows = (await runAsSystem('password-age', async () => {
       const driver = this.Deps?.driver ?? usersDriver();
       const setAt = quoted(driver, 'PasswordSetAt');

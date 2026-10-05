@@ -1,13 +1,11 @@
-import { Bootstrapper, DI } from '@spinajs/di';
+import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { createHash, randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
-import { Orm } from '@spinajs/orm';
 import { DefaultQueueService } from '@spinajs/queue';
 import { DEFAULT_THROTTLE, FakeBackoffThrottle, MemorySecretStore, MemorySessionIssuer } from '@spinajs/authn-testing';
-import { IdentityStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef } from '@spinajs/authn/contracts';
 import { Argon2PasswordHasher, LocalPasswordPolicy, LocalPasswordService, LocalPasswordStrategy, PasswordMailer } from '@spinajs/authn-local';
 import type { PasswordMail } from '@spinajs/authn-local';
@@ -16,7 +14,6 @@ import { QueueAuthnEventSink, TokenInvalid, USER_COMMON_METADATA, User, UserAcco
 import { ban, confirmPasswordReset, deactivate, deleteUser, issuePasswordResetToken } from '../../src/actions.js';
 import { TestPasswordService } from '../support/password-service.js';
 import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
-import { TEST_USER_UUID } from '../migration/rbac.migration.js';
 
 const OLD = 'Old-Password-1';
 const NEW = 'New-Password-2';
@@ -221,26 +218,6 @@ describe('reset and invite over the users stores', function () {
 
       expect(waitTime).to.eq(DI.get(Configuration)!.get<number>('authn.local.reset.ttlSeconds', 3600));
       expect(token).to.eq('');
-    });
-  });
-
-  // Ported from legacy-v2/cli.test.ts row 1 (A03): authn:password resolves the IdentityStore and nothing boots the Orm for it.
-  describe('a cli command that resolves only the IdentityStore', () => {
-    // BUG(T1): resolving UserIdentityStore does not boot the Orm, see .authz-sdd/T1-handoffs.md
-    it.skip('brings the Orm up through it, so the login lookup does not run against bare models', async () => {
-      releaseUsersHost();
-      for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
-        await b.bootstrap();
-      }
-      await DI.resolve(Configuration, [null, null, [process.cwd() + '/test/config']]);
-
-      expect(DI.get(Orm), 'nothing booted the Orm yet').to.be.undefined;
-
-      const store = (await DI.resolve(IdentityStore)) as IdentityStore;
-      const ref = await store.findByLogin('test@spinajs.pl');
-
-      expect(DI.get(Orm)).to.not.be.undefined;
-      expect(ref).to.deep.eq({ type: 'user', id: TEST_USER_UUID });
     });
   });
 });

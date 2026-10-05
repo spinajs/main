@@ -58,6 +58,8 @@ const registrations = new Map<ModelClass, Registration>();
 const properties = new WeakMap<ModelClass, PropertyMetadata>();
 // Decorators write these once, at class definition, so the test seams never drop them.
 const scopes = new WeakMap<ModelClass, Map<string, ModelClass>>();
+// scopes is not iterable; the boot check walks this.
+const scoped = new Set<ModelClass>();
 // entryOf runs for every query builder; any registry write clears it.
 let entries = new WeakMap<ModelClass, ResourceEntry | null>();
 let version = 0;
@@ -65,7 +67,7 @@ let version = 0;
 /** Changes whenever a class is registered or forgotten. */
 export const registryVersion = (): number => version;
 
-const nameOf = (c: unknown): string => (typeof c === 'function' && c.name ? c.name : '<anonymous class>');
+export const nameOf = (c: unknown): string => (typeof c === 'function' && c.name ? c.name : '<anonymous class>');
 
 function chain(model: ModelClass): ModelClass[] {
   const out: ModelClass[] = [];
@@ -141,6 +143,7 @@ export function addScopePolicy(model: ModelClass, relation: string, policy: Mode
   const prev = byRelation.get(relation);
   if (prev !== undefined && prev !== policy) throw new AuthzConfigError(`@OrmScope(${nameOf(model)}, '${relation}'): ${nameOf(prev)} is already the policy of that relation; ${nameOf(policy)} cannot be another`);
   byRelation.set(relation, policy);
+  scoped.add(model);
 }
 
 /** The entry of `model` or of its nearest registered ancestor; property metadata merges over the whole chain of `model`. */
@@ -210,6 +213,23 @@ export function scopeRelationsOf(model: unknown): string[] {
   const out = new Set<string>();
   for (const c of chain(model)) for (const r of scopes.get(c)?.keys() ?? []) out.add(r);
   return [...out];
+}
+
+export interface UncheckedScope {
+  readonly model: ModelClass;
+  readonly relation: string;
+  readonly policy: ModelClass;
+}
+
+/** `@OrmScope` declarations no query can reach: neither the model, an ancestor nor a subclass of it is registered. */
+export function uncheckedScopes(): UncheckedScope[] {
+  const out: UncheckedScope[] = [];
+  const registered = [...registrations.keys()];
+  for (const model of scoped) {
+    if (entryOf(model) !== undefined || registered.some((c) => chain(c).includes(model))) continue;
+    for (const [relation, policy] of scopes.get(model) ?? []) out.push({ model, relation, policy });
+  }
+  return out;
 }
 
 export function permissionFor(model: unknown, kind: QueryKind): Permission | undefined {
