@@ -8,7 +8,16 @@ function dir(path: string) {
 const authzHttpAdmin = {
   system: {
     dirs: {
-      controllers: [dir('legacy/controllers')],
+      controllers: [dir('controllers')],
+    },
+  },
+
+  authz: {
+    http: {
+      admin: {
+        /** The domain whose AuthzAdmin the /authz admin routes use. */
+        domain: 'root',
+      },
     },
   },
 

@@ -17,6 +17,8 @@ type GrantMap = { [resource: string]: { [action: string]: string[] } };
  * turns one off in configuration instead of replacing the whole service — and
  * an application that needs a different rule entirely registers its own class
  * under {@link RoleGuard} and names it in `rbac.admin.roleGuard.service`.
+ *
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
  */
 @Injectable(RoleGuard)
 export class DefaultRoleGuard extends RoleGuard {
