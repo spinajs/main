@@ -41,6 +41,7 @@ function rbacHostHarness(): BehaviourHarness {
     async extend(host, session) {
       const authz = session.authz as unknown as AuthzService;
       const rbac = (await host.container.resolve(RbacService)) as RbacService;
+      // GLOBAL holdings only; users' guard also reads scoped and inherited roles, so keep the world's roles at GLOBAL.
       const heldRoles = async (p: Principal) => (await rbac.rolesOf(p, GLOBAL, { ceiling: false })).map((h) => h.role);
 
       const http: HttpHandle = {

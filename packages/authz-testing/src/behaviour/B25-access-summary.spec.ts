@@ -122,7 +122,7 @@ export const B25 = fixture('B25', [
     name: 'authn',
     facets: ['engine', 'rbac', 'http', 'authn'],
     lanes: ['C3'],
-    note: "Each flow answer carries Access, equal to GET /user/access for the principal the session then yields (design §11.4, §22.11). Runs on real RBAC roles (RFC C3-2), so an app's real role source and impersonation guard (users, C3) can run it; its runner wires authz-rbac's RbacModel over world.rbac through hostHarness({ register }). The impersonation case needs no user resource type: user:impersonate is checked at GLOBAL and covers compares GLOBAL permission sets.",
+    note: "Each flow answer carries Access, equal to GET /user/access for the principal the session then yields (design §11.4, §22.11). Runs on real RBAC roles (RFC C3-2), so an app's real role source and impersonation guard (users, C3) can run it; the runner wires authz-rbac's RbacModel over world.rbac (the kit's own test does it through hostHarness({ register })). The impersonation case needs no user resource type: user:impersonate is checked at GLOBAL and covers compares GLOBAL permission sets.",
     world: authnWorld,
     cases: [
       { name: 'the login response carries Access', steps: [flow('login', { kind: 'login', as: 'alice' }), accessOfFlow('login')] },
