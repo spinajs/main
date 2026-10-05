@@ -14,12 +14,20 @@
       "types": "./lib/mjs/contracts/index.d.ts",
       "import": "./lib/mjs/contracts/index.js",
       "require": "./lib/cjs/contracts/index.js"
+    },
+    "./env": {
+      "types": "./lib/mjs/service/boot/env.d.ts",
+      "import": "./lib/mjs/service/boot/env.js",
+      "require": "./lib/cjs/service/boot/env.js"
     }
   },
   "typesVersions": {
     "*": {
       "contracts": [
         "lib/cjs/contracts/index.d.ts"
+      ],
+      "env": [
+        "lib/cjs/service/boot/env.d.ts"
       ]
     }
   },

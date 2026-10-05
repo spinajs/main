@@ -81,27 +81,10 @@ describe('authn boot: app env', () => {
     for (const env of ['production', 'prod', 'staging', 'qa', 'Development', 'TEST', '', undefined]) expect(isLenientAuthnEnv(env), String(env)).to.eq(false);
   });
 
-  it('mirrors the public cookie secret of @spinajs/http and @spinajs/authn-session', () => {
+  it('mirrors the public cookie secret of @spinajs/http', () => {
     const http = readFileSync(join(PACKAGES, 'http', 'src', 'config', 'http.ts'), 'utf8');
-    const session = readFileSync(join(PACKAGES, 'authn-session', 'src', 'cookie.ts'), 'utf8');
     expect(http).to.match(/cookie: \{\s*secret: '([^']+)'/);
     expect(http.match(/cookie: \{\s*secret: '([^']+)'/)![1]).to.eq(AUTHN_PUBLIC_COOKIE_SECRET);
-    expect(session.match(/PUBLIC_DEFAULT_COOKIE_SECRET = '([^']+)'/)?.[1]).to.eq(AUTHN_PUBLIC_COOKIE_SECRET);
-  });
-
-  it('uses the same lenient envs and env detection as @spinajs/authn-session', () => {
-    const session = readFileSync(join(PACKAGES, 'authn-session', 'src', 'cookie.ts'), 'utf8');
-    expect(session).to.match(/normalized === 'dev' \|\| normalized === 'test'/);
-    // authn-session keeps a copy of the authnEnvFellBack condition (SR-16); both must name the same sources.
-    const env = readFileSync(join(PACKAGES, 'authn', 'src', 'service', 'boot', 'env.ts'), 'utf8');
-    const sources = env.match(/return resolvedAppEnv\(config\) === 'development' && !\[(config\.Env, [^\]]*)\]\.includes\('development'\);/)?.[1];
-    expect(sources).to.be.a('string');
-    expect(env).to.contain("const env = config.get<unknown>('process.env.APP_ENV');");
-    expect(session).to.contain("const env = config.get<string | undefined>('process.env.APP_ENV');");
-    expect(session).to.contain(`const fellBack = env === 'development' && ![${sources!.replace('config.Env', '(config as { Env?: unknown }).Env')}].includes('development');`);
-    expect(env).to.contain("const registered = DI.get<NodeJS.ProcessEnv>('process.env');");
-    expect(session).to.contain("const registered = DI.get<NodeJS.ProcessEnv>('process.env');");
-    expect(session).to.contain('return fellBack ? undefined : env;');
   });
 
   describe('with no env set (SR-16)', () => {
