@@ -35,14 +35,12 @@ export function compileRule(def: RuleDef, graph: RoleGraph, ladders: LadderIndex
   checkNames(def, where, graph, ladders);
   const expires = def.expiresAt == null ? undefined : Date.prototype.getTime.call(def.expiresAt);
   if (expires !== undefined && Number.isNaN(expires)) throw new AuthzConfigError(`${where}: expiresAt is not a valid date`);
-  // A store other than ConfigRuleStore is not held to the config schema.
-  if (def.kind !== 'threshold' && def.resource !== undefined) throw new AuthzConfigError(`${where}: resource belongs to a threshold; a ${def.kind} rule cannot follow it per row`);
-  if (def.kind === 'threshold' && (def.minRole === undefined || def.minRole === null)) throw new AuthzConfigError(`${where}: a threshold needs minRole`);
-  if (def.kind === 'cap' && def.maxRole !== undefined && def.ladder === undefined) throw new AuthzConfigError(`${where}: a cap with maxRole needs the ladder it caps`);
+  const shape = ruleShapeFault(def);
+  if (shape) throw new AuthzConfigError(`${where}: ${shape.message}`);
   const when = def.when ? parse(def.when, `${where} when`) : undefined;
   const subjectsWhen = def.subjects?.when ? parse(def.subjects.when, `${where} subjects.when`) : undefined;
-  if (subjectsWhen?.facts.roots.includes('resource')) throw new AuthzConfigError(`${where}: subjects.when reads resource.*, but it selects principals before any row is read`);
-  if (def.kind !== 'threshold' && when?.facts.roots.includes('resource')) throw new AuthzConfigError(`${where}: its when reads resource.*, which a ${def.kind} rule cannot follow per row (a threshold's resource can)`);
+  const reads = ruleConditionFault(def.kind, when, subjectsWhen);
+  if (reads) throw new AuthzConfigError(`${where}: ${reads.message}`);
   return Object.freeze({
     def,
     where,
@@ -53,6 +51,33 @@ export function compileRule(def: RuleDef, graph: RoleGraph, ladders: LadderIndex
     ...(def.kind === 'threshold' ? { permissions: expand(def.permissions ?? [], registry) } : {}),
     ...(expires !== undefined ? { expiresAt: expires } : {}),
   });
+}
+
+/** A fault compileRule finds without the role graph: the RuleDef key it is about and why. */
+export interface RuleFault {
+  readonly field: 'resource' | 'minRole' | 'ladder' | 'when' | 'subjects.when';
+  readonly message: string;
+}
+
+/** compileRule's checks of the kind-dependent keys; rule.put runs them too, so no store holds a rule the model refuses. */
+export function ruleShapeFault(def: Pick<RuleDef, 'kind' | 'resource' | 'minRole' | 'maxRole' | 'ladder'>): RuleFault | undefined {
+  // A store other than ConfigRuleStore is not held to the config schema.
+  if (def.kind !== 'threshold' && def.resource !== undefined) return { field: 'resource', message: `resource belongs to a threshold; a ${def.kind} rule cannot follow it per row` };
+  if (def.kind === 'threshold' && (def.minRole === undefined || def.minRole === null)) return { field: 'minRole', message: 'a threshold needs minRole' };
+  if (def.kind === 'cap' && def.maxRole !== undefined && def.ladder === undefined) return { field: 'ladder', message: 'a cap with maxRole needs the ladder it caps' };
+  return undefined;
+}
+
+/** compileRule's checks of what the parsed `when` and `subjects.when` read. */
+export function ruleConditionFault(kind: RuleDef['kind'], when: ParsedCondition | undefined, subjectsWhen: ParsedCondition | undefined): RuleFault | undefined {
+  if (subjectsWhen?.facts.roots.includes('resource')) return { field: 'subjects.when', message: 'subjects.when reads resource.*, but it selects principals before any row is read' };
+  if (kind !== 'threshold' && when?.facts.roots.includes('resource')) return { field: 'when', message: `its when reads resource.*, which a ${kind} rule cannot follow per row (a threshold's resource can)` };
+  return undefined;
+}
+
+/** Whether a `{ ref }` maxRole or minRole has a form the model resolves. */
+export function isRuleValueRef(ref: string): boolean {
+  return REF.test(ref);
 }
 
 function expand(globs: readonly string[], registry: PermissionRegistry): ReadonlySet<Permission> {
@@ -86,7 +111,7 @@ function checkNames(def: RuleDef, where: string, graph: RoleGraph, ladders: Ladd
   }
   for (const s of def.allow ?? []) if ('set' in s && !graph.has(s.set.role)) throw new AuthzConfigError(`${where}: allow names unknown role '${s.set.role}' (${RULE})`);
   for (const ref of [def.maxRole, def.minRole]) {
-    if (ref !== null && typeof ref === 'object' && !REF.test(ref.ref)) throw new AuthzConfigError(`${where}: '${ref.ref}' is not a ref of the form scope.<type>.<path>, principal.<path>, actor.<path> or env.<path>`);
+    if (ref !== null && typeof ref === 'object' && !isRuleValueRef(ref.ref)) throw new AuthzConfigError(`${where}: '${ref.ref}' is not a ref of the form scope.<type>.<path>, principal.<path>, actor.<path> or env.<path>`);
   }
 }
 

@@ -25,6 +25,21 @@ const LADDERLESS_CAPS: Rule[] = [
   { id: 'c', kind: 'cap', scope: P1, maxRole: null },
   { id: 'c', kind: 'cap', scope: P1, maxRole: { ref: 'scope.project.cap' } },
 ];
+type Refusal = [string, Rule, { code: string; field: string }];
+// Shapes the model's compileRule refuses: once stored, every check on the rule's path fails.
+const UNCOMPILABLE: Refusal[] = [
+  ...LADDERLESS_CAPS.map((cap): Refusal => [`a cap with maxRole ${JSON.stringify(cap.maxRole)} and no ladder`, cap, { code: 'rule_not_compilable', field: 'rule.ladder' }]),
+  ['a threshold minRole on no ladder', threshold({ minRole: 'plain' }), { code: 'unknown_role', field: 'rule.minRole' }],
+  ['a restrict maxRole on no ladder', { id: 'x', kind: 'restrict', scope: P1, allow: [DAVE], maxRole: 'plain' }, { code: 'unknown_role', field: 'rule.maxRole' }],
+  ['a threshold minRole of null', threshold({ minRole: null as never }), { code: 'invalid_command', field: 'rule.minRole' }],
+  ['a maxRole ref of no known root', { id: 'c', kind: 'cap', scope: P1, ladder: 'project', maxRole: { ref: 'resource.owner' } }, { code: 'rule_not_compilable', field: 'rule.maxRole' }],
+  ['a minRole ref without a path', threshold({ ladder: 'project', minRole: { ref: 'scope.project' } }), { code: 'rule_not_compilable', field: 'rule.minRole' }],
+  ['resource on a cap', { id: 'c', kind: 'cap', scope: P1, stripTags: true, resource: { attr: 'resource.name', eq: 'x' } }, { code: 'rule_not_compilable', field: 'rule.resource' }],
+  ['resource on a restrict', { id: 'x', kind: 'restrict', scope: P1, allow: [DAVE], resource: { attr: 'resource.name', eq: 'x' } }, { code: 'rule_not_compilable', field: 'rule.resource' }],
+  ['a restrict when reading resource.*', { id: 'x', kind: 'restrict', scope: P1, allow: [DAVE], when: { attr: 'resource.owner', eq: 'x' } }, { code: 'rule_not_compilable', field: 'rule.when' }],
+  ['a cap when reading resource.*', { id: 'c', kind: 'cap', scope: P1, stripTags: true, when: { attr: 'resource.owner', null: true } }, { code: 'rule_not_compilable', field: 'rule.when' }],
+  ['a subjects.when reading resource.*', threshold({ subjects: { when: { attr: 'resource.owner', null: true } } }), { code: 'rule_not_compilable', field: 'rule.subjects.when' }],
+];
 
 /** Compiles anything but { attr: 'principal.bad' }; { attr: 'scope.x' } reads the scope attributes first. */
 class FakeCompiler extends ConditionCompiler {
@@ -214,7 +229,9 @@ describe('RBAC link, rule, reader and forget commands', function () {
       ['a type-level scope', threshold({ scope: { type: 'project' } }), { code: 'invalid_command', field: 'rule.scope' }],
       ['a threshold without minRole', threshold({ minRole: undefined }), { code: 'invalid_command', field: 'rule.minRole' }],
       ['a threshold naming at without a ladder', threshold({ at: 'project' }), { code: 'invalid_command', field: 'rule.ladder' }],
-      ...LADDERLESS_CAPS.map((cap): [string, Rule, { code: string; field: string }] => [`a cap with maxRole ${JSON.stringify(cap.maxRole)} and no ladder`, cap, { code: 'rule_not_compilable', field: 'rule.ladder' }]),
+      ['at on a cap', { id: 'c', kind: 'cap', scope: P1, stripTags: true, at: 'project' }, { code: 'invalid_command', field: 'rule.at' }],
+      ['at on a restrict', { id: 'x', kind: 'restrict', scope: P1, allow: [DAVE], at: 'project' }, { code: 'invalid_command', field: 'rule.at' }],
+      ...UNCOMPILABLE,
       ['a cap that neither clamps nor strips', { id: 'c', kind: 'cap', scope: P1, ladder: 'project' }, { code: 'invalid_command', field: 'rule.maxRole' }],
       ['a condition with an unknown operator', threshold({ when: { attr: 'scope.org.policies.x', equals: false } }), { code: 'rule_not_compilable', field: 'rule.when' }],
     ];
@@ -225,8 +242,8 @@ describe('RBAC link, rule, reader and forget commands', function () {
       });
     }
 
-    it('a cap with maxRole and no ladder is refused for an actor that manages rules too', async () => {
-      for (const cap of LADDERLESS_CAPS) expect(failure(await d.admin.execute(alice, [put(cap)]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.ladder' });
+    it('a rule the model cannot compile is refused for an actor that manages rules too', async () => {
+      for (const [what, rule, expected] of UNCOMPILABLE) expect(failure(await d.admin.execute(alice, [put(rule)])), what).to.deep.equal({ at: 0, ...expected });
       expect((await d.rules.find({})).total).to.equal(0);
     });
 
@@ -236,7 +253,20 @@ describe('RBAC link, rule, reader and forget commands', function () {
       expect(await d.rules.byId('r1')).to.deep.equal({ ...threshold({ ladder: 'project' }), source: 'memory' });
     });
 
-    it('a refused ladderless cap leaves the checks on its path working (real RbacModel)', async () => {
+    it('a threshold may read resource.* in when and resource and take its minRole from a ref', async () => {
+      ok(await d.admin.execute(SYSTEM, [put(threshold({ ladder: 'project', minRole: { ref: 'scope.project.policies.min_role' }, when: { attr: 'resource.owner', null: true }, resource: { attr: 'resource.name', eq: 'x' } }))]));
+      expect((await d.rules.find({})).total).to.equal(1);
+    });
+
+    it('the model parses conditions itself, so a custom compiler does not let through what that parse refuses', async () => {
+      await resetHost();
+      d = await rbacDomain('test', { register: (c) => c.register(FakeCompiler).as(ConditionCompiler) });
+      for (const [what, rule, expected] of UNCOMPILABLE) if (expected.field.endsWith('when')) expect(failure(await d.admin.execute(SYSTEM, [put(rule)])), what).to.deep.equal({ at: 0, ...expected });
+      expect(failure(await d.admin.execute(SYSTEM, [put(threshold({ when: { attr: 'principal.id', eq: { ref: 'resource.owner' } } }))]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.when' });
+      expect((await d.rules.find({})).total).to.equal(0);
+    });
+
+    it('a refused rule the model cannot compile leaves the checks on its path working (real RbacModel)', async () => {
       await resetHost();
       const assignments = new MemoryAdminAssignmentStore();
       const rules = new MemoryRuleStore();
@@ -259,7 +289,7 @@ describe('RBAC link, rule, reader and forget commands', function () {
       const dave = userPrincipal('dave');
       ok(await d.admin.execute(SYSTEM, [{ kind: 'assignment.grant', subject: DAVE, role: 'viewer', scope: P1 }]));
       expect(await d.service.can(dave, 'file:read', P1)).to.equal(true);
-      for (const cap of LADDERLESS_CAPS) expect(failure(await d.admin.execute(SYSTEM, [put(cap)]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.ladder' });
+      for (const [what, rule, expected] of UNCOMPILABLE) expect(failure(await d.admin.execute(SYSTEM, [put(rule)])), what).to.deep.equal({ at: 0, ...expected });
       expect((await rules.find({})).total).to.equal(0);
       expect(await d.service.can(dave, 'file:read', P1)).to.equal(true);
     });
