@@ -49,8 +49,8 @@ function bodyOf(req: Request): Uint8Array | undefined {
  * that is not undefined, else null, to req.storage.AuthnPrincipal (D26).
  *
  * The cookie is a browser-session cookie the issuer slides server side (N8a-D7), so it is never re-sent here. Store
- * errors go to next(err): no principal, never a silent anonymous. Not registered as a ServerMiddleware until the 2.x
- * RbacMiddleware retires (N8a task 4): both read the same cookie, and the issuer migrates a 2.x row away from under it.
+ * errors go to next(err): no principal, never a silent anonymous. Registered only by registerAuthnHttpV3: beside the 2.x
+ * RbacMiddleware both read the same cookie, and the issuer migrates a 2.x row away from under it.
  */
 export class AuthnMiddleware extends ServerMiddleware {
   @Autoinject(Configuration)
@@ -119,6 +119,8 @@ export class AuthnMiddleware extends ServerMiddleware {
     const principal = await this.principalOf(req, credentials, ctx);
     req.storage.AuthnPrincipal = principal;
     if (principal) res.setHeader('Cache-Control', 'no-store');
+    // An active session without a principal has ended (revoked or expired) or gives nothing, so no route may act on it.
+    else if (session?.handle.state === 'active') req.storage.AuthnSession = null;
   }
 
   protected contextOf(req: Request): AuthnContext {
@@ -149,10 +151,22 @@ export class AuthnMiddleware extends ServerMiddleware {
     return restored;
   }
 
+  /** `targetUri` is the origin-form target (path and query); the signature extractor adds authn.http.publicOrigin. */
   protected extract(req: Request): Credentials | null {
-    const origin = signaturePublicOrigin(this.Configuration);
     const target = req.originalUrl ?? req.url;
-    const signed: SignedRequest = { method: req.method, targetUri: origin === undefined ? target : `${origin}${target}`, headers: headersOf(req), body: bodyOf(req) };
+    // An absolute-form or '*' target is no target any client signs.
+    if (typeof target !== 'string' || !target.startsWith('/')) return null;
+    let body: Uint8Array | undefined | null = null;
+    const signed: SignedRequest = {
+      method: req.method,
+      targetUri: target,
+      headers: headersOf(req),
+      // Only the signature extractor reads it, so a request without signature headers draws no random bytes.
+      get body() {
+        if (body === null) body = bodyOf(req);
+        return body;
+      },
+    };
     for (const extractor of this.Extractors) {
       const credentials = extractor.extract(signed);
       if (credentials !== null) return credentials;

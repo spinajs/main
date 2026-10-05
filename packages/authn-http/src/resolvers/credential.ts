@@ -1,4 +1,4 @@
-import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { AuthnService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, Principal } from '@spinajs/authn/contracts';
@@ -16,7 +16,6 @@ async function principalOf(container: IContainer, credentials: Credentials, ctx:
 
 /** Order 45: jws-assertion and http-signature credentials. The key owner (user, service or agent per the key record) with the key's scope as ceiling (§22.10). */
 @PerChildInstance()
-@Injectable(AuthnPrincipalResolver)
 export class KeyPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 45;
 
@@ -34,7 +33,6 @@ export class KeyPrincipalResolver extends AuthnPrincipalResolver {
  * A JWT gives the linked user (§22.9).
  */
 @PerChildInstance()
-@Injectable(AuthnPrincipalResolver)
 export class TokenPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 50;
 

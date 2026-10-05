@@ -2,6 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import http from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import * as cs from 'cookie-signature';
@@ -29,6 +30,7 @@ import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../../src/resolvers/credential.js';
 import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor, HttpSignatureExtractor } from '../../src/extractors/index.js';
+import { registerAuthnHttpV3 } from '../../src/v3.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { COOKIE_SECRET, TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
 
@@ -174,6 +176,7 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
   bind(child, AuthenticationStrategy, 'SuiteTokenStrategy', tokenStrategy);
   bind(child, AuthenticationStrategy, 'SuiteKeyStrategy', keyStrategy);
+  await registerAuthnHttpV3(child);
   return { child, identities, principals, guard, issuer, store, throttle, tokens, jws, signatures, tokenStrategy, keyStrategy, ctxs };
 }
 
@@ -283,10 +286,13 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(auth).to.be.lessThan(key);
     });
 
-    it('resolvers and extractors are registered; the middleware waits for task 4 (2.x RbacMiddleware still runs)', () => {
-      expect(DI.getRegisteredTypes(AuthnPrincipalResolver)).to.include.members([KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]);
-      expect(DI.getRegisteredTypes(CredentialExtractor)).to.include.members([HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]);
+    it('nothing of the 3.0 layer is registered in the root; registerAuthnHttpV3 registers it in the container it is given', () => {
+      expect(DI.getRegisteredTypes(AuthnPrincipalResolver) ?? []).to.deep.eq([]);
+      expect(DI.getRegisteredTypes(CredentialExtractor) ?? []).to.deep.eq([]);
       expect(DI.getRegisteredTypes(ServerMiddleware)).to.not.include(AuthnMiddleware);
+      expect(s.child.getRegisteredTypes(AuthnPrincipalResolver, false)).to.have.members([KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver]);
+      expect(s.child.getRegisteredTypes(CredentialExtractor, false)).to.have.members([HttpSignatureExtractor, AuthorizationBearerExtractor, ApiKeyHeaderExtractor]);
+      expect(s.child.getRegisteredTypes(ServerMiddleware, false)).to.include(AuthnMiddleware);
     });
   });
 
@@ -355,7 +361,10 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       const h2 = await s.issuer.issue(alice, FACTS());
       const imp = await s.issuer.issue(bob, FACTS({ impersonator: alice }));
       s.identities.setStatus(alice, { banned: true });
-      expect(await principalWith({ Cookie: cookieOf(h1.id) })).to.eq(null);
+      const res = await probe({ Cookie: cookieOf(h1.id) });
+      expect(res.body.principal).to.eq(null);
+      expect(res.body.session, 'the ended session is not left in AuthnSession').to.eq(null);
+      expect(res.headers['cache-control']).to.eq('no-store');
       expect(await s.issuer.restore(h1.id)).to.eq(null);
       expect(await s.issuer.restore(h2.id), 'another session of the banned subject').to.eq(null);
       expect(await s.issuer.restore(imp.id), 'an impersonation by the banned subject').to.eq(null);
@@ -425,6 +434,18 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
     it('a store error fails the request (500), never a silent anonymous', async () => {
       const h = await s.issuer.issue(alice, FACTS());
       const stub = sinon.stub(s.issuer, 'restore').rejects(new Error('store down'));
+      try {
+        const res = await probe({ Cookie: cookieOf(h.id) });
+        expect(res.status).to.eq(500);
+        expect(res.ran).to.eq(false);
+      } finally {
+        stub.restore();
+      }
+    });
+
+    it('an IdentityStore error in the session resolver fails the request (500)', async () => {
+      const h = await s.issuer.issue(alice, FACTS());
+      const stub = sinon.stub(s.identities, 'status').rejects(new Error('users db down'));
       try {
         const res = await probe({ Cookie: cookieOf(h.id) });
         expect(res.status).to.eq(500);
@@ -536,6 +557,15 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.tokenStrategy.verifyCalls.map((c) => (c as { token: string }).token)).to.deep.eq(['spt_unknown', 'spt_unknown']);
     });
 
+    it('C7 an opaque bearer of another service gives no credentials: no strategy runs and no failure counts', async () => {
+      const attempts = s.throttle.attempts.length;
+      expect(await principalWith({ Authorization: 'Bearer telemetry-0123456789abcdef' })).to.eq(null);
+      expect(await principalWith({ Authorization: 'Bearer a.b' })).to.eq(null);
+      expect(s.tokenStrategy.verifyCalls).to.have.length(0);
+      expect(s.keyStrategy.verifyCalls).to.have.length(0);
+      expect(s.throttle.attempts.length, 'nothing counted').to.eq(attempts);
+    });
+
     it('an anonymous request stays cacheable', async () => {
       const res = await probe();
       expect(res.body.principal).to.eq(null);
@@ -610,6 +640,38 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
         const t = `spt_${randomBytes(12).toString('base64url')}`;
         s.tokens.set(t, { ok: true, identity: id, method: 'token' });
         return t;
+      }
+    });
+
+    it('an absolute-form request target gives no credentials', async () => {
+      const sig = `sig=:${randomBytes(8).toString('base64')}:`;
+      s.signatures.set(sig, { ok: true, identity: alice, method: 'http-signature' });
+      const token = `spt_${randomBytes(12).toString('base64url')}`;
+      s.tokens.set(token, { ok: true, identity: alice, method: 'token' });
+      const body = await new Promise<{ status: number; body: { principal: unknown } }>((done, fail) => {
+        const r = http.request({ host: 'localhost', port: 8889, method: 'GET', path: `http://localhost:8889/${AUTHN_PROBE_PATH}`, headers: { ...sigHeaders(sig), Authorization: `Bearer ${token}`, Accept: 'application/json' } }, (res) => {
+          let text = '';
+          res.on('data', (c) => (text += c));
+          res.on('end', () => done({ status: res.statusCode ?? 0, body: JSON.parse(text) }));
+        });
+        r.on('error', fail);
+        r.end();
+      });
+      expect(body.status).to.eq(200);
+      expect(body.body.principal).to.eq(null);
+      expect(s.keyStrategy.verifyCalls).to.have.length(0);
+      expect(s.tokenStrategy.verifyCalls).to.have.length(0);
+    });
+
+    it('a malformed publicOrigin set at runtime fails only signed requests, not anonymous ones', async () => {
+      const config = DI.get(Configuration)!;
+      config.set('authn.http.publicOrigin', 'not an origin');
+      try {
+        expect((await probe()).status).to.eq(200);
+        const sig = `sig=:${randomBytes(8).toString('base64')}:`;
+        expect((await probe(sigHeaders(sig))).status).to.eq(500);
+      } finally {
+        config.set('authn.http.publicOrigin', PUBLIC_ORIGIN);
       }
     });
   });
@@ -770,6 +832,19 @@ describe('AuthnMiddleware units', () => {
       expect(logged).to.not.contain(forged);
       expect(logged).to.not.contain(sha(rawId));
     });
+
+    it('an unknown session id logs a hashed value, never the raw id or its storage key', async () => {
+      const { mw, log: l } = unit({ 'http.cookie.secret': STRONG, 'authn.http.publicOrigin': PUBLIC_ORIGIN });
+      await mw.resolve();
+      const rawId = randomBytes(16).toString('base64url');
+      const r = fakeReq({ cookies: { [sessionCookieName({}, undefined)]: cs.sign(rawId, STRONG) } });
+      await run(mw, r);
+      expect(r.storage.AuthnSession).to.eq(null);
+      expect(l.warn.calledOnce).to.eq(true);
+      const logged = JSON.stringify(l.warn.args);
+      expect(logged).to.not.contain(rawId);
+      expect(logged).to.not.contain(sha(rawId));
+    });
   });
 
   describe('extractors', () => {
@@ -789,10 +864,13 @@ describe('AuthnMiddleware units', () => {
       expect(custom.extract(sreq({ authorization: `Bearer ${jwsOf('spinajs-client+jwt')}` }))?.kind).to.eq('bearer');
     });
 
-    it('Authorization: an undecodable JWS header is still a three-part bearer; opaque values are bearer', () => {
+    it('Authorization: an undecodable JWS header is still a three-part bearer; C7 other values give nothing', () => {
       const e = extractor(AuthorizationBearerExtractor);
       expect(e.extract(sreq({ authorization: 'Bearer not-json.payload.sig' }))).to.deep.eq({ kind: 'bearer', token: 'not-json.payload.sig' });
-      expect(e.extract(sreq({ authorization: 'BEARER opaque-token' }))).to.deep.eq({ kind: 'bearer', token: 'opaque-token' });
+      expect(e.extract(sreq({ authorization: 'BEARER spt_upper' }))).to.deep.eq({ kind: 'bearer', token: 'spt_upper' });
+      for (const value of ['Bearer opaque-token', 'Bearer a.b', 'Bearer a.b.c.d', 'Bearer a..c', 'Bearer SPT_wrong-case']) {
+        expect(e.extract(sreq({ authorization: value })), value).to.eq(null);
+      }
       expect(e.extract(sreq({}))).to.eq(null);
     });
 
@@ -804,12 +882,15 @@ describe('AuthnMiddleware units', () => {
       expect(e.extract(sreq({ 'x-token': '' }))).to.eq(null);
     });
 
-    it('signature: both headers and a public origin are needed', () => {
+    it('signature: both headers, a public origin and an origin-form target are needed; the origin comes from config', () => {
       const e = extractor(HttpSignatureExtractor, { 'authn.http.publicOrigin': PUBLIC_ORIGIN });
-      const r = sreq({ signature: 'sig=:x:', 'signature-input': 'sig=()' });
-      expect(e.extract(r)).to.deep.eq({ kind: 'http-signature', request: r });
-      expect(e.extract(sreq({ signature: 'sig=:x:' }))).to.eq(null);
-      expect(extractor(HttpSignatureExtractor).extract(r)).to.eq(null);
+      const headers = { signature: 'sig=:x:', 'signature-input': 'sig=()' };
+      const body = new Uint8Array([1, 2]);
+      expect(e.extract(sreq(headers, { targetUri: '/x?y=1', method: 'POST', body }))).to.deep.eq({ kind: 'http-signature', request: { method: 'POST', targetUri: `${PUBLIC_ORIGIN}/x?y=1`, headers, body } });
+      expect(e.extract(sreq(headers, { targetUri: 'http://other.example/x' })), 'absolute-form').to.eq(null);
+      expect(e.extract(sreq(headers, { targetUri: '*' })), 'asterisk-form').to.eq(null);
+      expect(e.extract(sreq({ signature: 'sig=:x:' }, { targetUri: '/x' }))).to.eq(null);
+      expect(extractor(HttpSignatureExtractor).extract(sreq(headers, { targetUri: '/x' })), 'no publicOrigin').to.eq(null);
     });
   });
 
@@ -857,6 +938,27 @@ describe('AuthnMiddleware units', () => {
       expect(await res.resolve({ storage: { AuthnSession: null } } as unknown as Request, null, ctx)).to.eq(undefined);
       const pending = { handle: { id: 'x', state: 'pending' } as SessionHandle, identity: { type: 'user', id: 'u' }, facts: FACTS(), data: new Map() };
       expect(await res.resolve({ storage: { AuthnSession: pending } } as unknown as Request, null, ctx)).to.eq(null);
+    });
+
+    it('M1 a session that yields nothing never asks the store about service or agent identities', async () => {
+      const ended: IdentityRef[] = [];
+      const asked: IdentityRef[] = [];
+      const parts = new Map<unknown, unknown>([
+        [IdentityStore, { status: async (id: IdentityRef) => (asked.push(id), id.type === 'user' ? { exists: true, active: true, banned: true, deleted: false } : Promise.reject(new Error('not a user'))) }],
+      ]);
+      const res = new SessionPrincipalResolver();
+      Object.defineProperty(res, 'Container', {
+        value: {
+          resolve: async (t: unknown) => parts.get(t) ?? { principalOf: async () => null, endFor: async (id: IdentityRef) => (ended.push(id), 0) },
+        },
+      });
+      const active = (identity: IdentityRef, impersonator?: IdentityRef) => ({ storage: { AuthnSession: { handle: { id: 'x', state: 'active' }, identity, facts: FACTS(impersonator ? { impersonator } : {}), data: new Map() } } }) as unknown as Request;
+      expect(await res.resolve(active({ type: 'service', id: 's1' }, { type: 'agent', id: 'a1' }), null, ctx)).to.eq(null);
+      expect(asked).to.deep.eq([]);
+      expect(ended).to.deep.eq([]);
+      expect(await res.resolve(active({ type: 'agent', id: 'a2' }, { type: 'user', id: 'u1' }), null, ctx)).to.eq(null);
+      expect(asked).to.deep.eq([{ type: 'user', id: 'u1' }]);
+      expect(ended).to.deep.eq([{ type: 'user', id: 'u1' }]);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, PerChildInstance } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { CredentialExtractor } from '@spinajs/authn/contracts';
 import type { Credentials, SignedRequest } from '@spinajs/authn/contracts';
@@ -19,12 +19,12 @@ function jwsTyp(header: string): unknown {
 }
 
 /**
- * `Authorization: Bearer <value>` (scheme in any case): a three-part value whose JWS header has `typ`
- * `authn.keys.assertion.typ` ⇒ jws-assertion; any other value, a `authn.token.prefix` token or a JWT, ⇒ bearer.
- * A malformed or repeated header ⇒ null.
+ * `Authorization: Bearer <value>` (scheme in any case): an `authn.token.prefix` token ⇒ bearer; a three-part value ⇒
+ * jws-assertion when its JWS header `typ` is `authn.keys.assertion.typ`, else bearer (a JWT). Any other value is
+ * someone else's token (a telemetry service token, say) and gives no credentials, so no strategy runs and no failure
+ * counts. A malformed or repeated header ⇒ null.
  */
 @PerChildInstance()
-@Injectable(CredentialExtractor)
 export class AuthorizationBearerExtractor extends CredentialExtractor {
   public readonly order: number = 20;
 
@@ -40,16 +40,13 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
     if (typeof prefix === 'string' && prefix !== '' && token.startsWith(prefix)) return { kind: 'bearer', token };
 
     const parts = token.split('.');
-    if (parts.length === 3 && parts.every((p) => p !== '') && jwsTyp(parts[0]) === this.Configuration.get<string>('authn.keys.assertion.typ', DEFAULT_ASSERTION_TYP)) {
-      return { kind: 'jws-assertion', jws: token };
-    }
-    return { kind: 'bearer', token };
+    if (parts.length !== 3 || parts.some((p) => p === '')) return null;
+    return jwsTyp(parts[0]) === this.Configuration.get<string>('authn.keys.assertion.typ', DEFAULT_ASSERTION_TYP) ? { kind: 'jws-assertion', jws: token } : { kind: 'bearer', token };
   }
 }
 
 /** The `authn.token.headerName` header (default `x-api-key`) ⇒ bearer; a malformed or repeated value ⇒ null. */
 @PerChildInstance()
-@Injectable(CredentialExtractor)
 export class ApiKeyHeaderExtractor extends CredentialExtractor {
   public readonly order: number = 30;
 

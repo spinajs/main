@@ -1,4 +1,4 @@
-import { Autoinject, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, PerChildInstance } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { parseOrigin } from '@spinajs/http';
@@ -19,9 +19,12 @@ export function signaturePublicOrigin(config: Pick<Configuration, 'get'>): strin
   return origin;
 }
 
-/** `signature` + `signature-input` headers ⇒ http-signature; null without `authn.http.publicOrigin`. */
+/**
+ * `signature` + `signature-input` headers ⇒ http-signature. `req.targetUri` is the origin-form target (path and
+ * query); the credential's target is `authn.http.publicOrigin` plus that path. null without the setting, and for any
+ * other target form (absolute-form, `*`), which no client signs.
+ */
 @PerChildInstance()
-@Injectable(CredentialExtractor)
 export class HttpSignatureExtractor extends CredentialExtractor {
   public readonly order: number = 10;
 
@@ -29,8 +32,9 @@ export class HttpSignatureExtractor extends CredentialExtractor {
   protected Configuration!: Configuration;
 
   public extract(req: SignedRequest): Credentials | null {
-    if (typeof req.headers.signature !== 'string' || typeof req.headers['signature-input'] !== 'string') return null;
-    if (signaturePublicOrigin(this.Configuration) === undefined) return null;
-    return { kind: 'http-signature', request: req };
+    if (typeof req.headers.signature !== 'string' || typeof req.headers['signature-input'] !== 'string' || !req.targetUri.startsWith('/')) return null;
+    const origin = signaturePublicOrigin(this.Configuration);
+    if (origin === undefined) return null;
+    return { kind: 'http-signature', request: { method: req.method, targetUri: `${origin}${req.targetUri}`, headers: req.headers, ...(req.body !== undefined ? { body: req.body } : {}) } };
   }
 }

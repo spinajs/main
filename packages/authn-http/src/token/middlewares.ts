@@ -64,6 +64,9 @@ export class TokenAuthMiddleware extends ServerMiddleware {
   @Config('authn.token.lastUsedUpdateInterval', { defaultValue: 60 })
   protected LastUsedUpdateInterval: number;
 
+  @Config('authn.token.prefix', { defaultValue: 'spt_' })
+  protected TokenPrefix: string;
+
   constructor() {
     super();
     // After RbacMiddleware ( Order 0 ): session auth takes precedence.
@@ -79,7 +82,8 @@ export class TokenAuthMiddleware extends ServerMiddleware {
         }
 
         const plaintext = this.extract(req);
-        if (!plaintext) {
+        // A value without our prefix is another service's token (a telemetry bearer, say): not ours to reject or log.
+        if (!plaintext || (this.TokenPrefix && !plaintext.startsWith(this.TokenPrefix))) {
           return next();
         }
 

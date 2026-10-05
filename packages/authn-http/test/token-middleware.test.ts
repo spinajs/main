@@ -190,6 +190,25 @@ describe('TokenAuthMiddleware', function () {
     expect(next.firstCall.args.length).to.equal(0);
   });
 
+  it('C7 leaves a bearer value without the token prefix alone: no lookup, no warning', async () => {
+    const logSpy = makeLogSpy();
+    Object.defineProperty(middleware, 'Log', { value: logSpy, configurable: true, writable: true });
+    const lookup = sinon.spy(AccessToken, 'where');
+    try {
+      for (const headers of [{ authorization: 'Bearer telemetry-opaque-token' }, { 'x-api-key': 'telemetry-opaque-token' }] as Record<string, string>[]) {
+        const { req, res, next } = makeReqRes(headers);
+        await middleware.before()(req, res, next);
+        expect(req.storage.TokenAuth).to.be.undefined;
+        sinon.assert.calledOnce(next);
+        expect(next.firstCall.args.length).to.equal(0);
+      }
+      expect(lookup.called, 'no token lookup').to.eq(false);
+      expect(logSpy.Calls, 'nothing logged').to.deep.eq([]);
+    } finally {
+      lookup.restore();
+    }
+  });
+
   /**
    * Node hands a header sent twice over as an array. `.startsWith` / `.trim` on
    * one throws, and the outer catch would forward that to `next(err)` - turning

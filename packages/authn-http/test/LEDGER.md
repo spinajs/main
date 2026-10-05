@@ -252,6 +252,7 @@ Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder):
 | 13 | 316 | TokenAuthMiddleware > runs after RbacMiddleware | drop | N8a | Two middlewares ordered against each other no longer exist: one `AuthnMiddleware` resolves key, token, session (N8a task 4); the order is tested by the row at line 210 |
 | 14 | 325 | TokenAuthMiddleware > leaves Profile undefined on TokenAuth for a legacy token | rewrite | N8a → T3 | authn-http/test/v3/; a token without a profile leaves `attributes.profile` unset (B24, design §14) |
 | 15 | 354 | TokenAuthMiddleware > profiles > stamps the token profile on TokenAuth | rewrite | N8a → T3 | authn-http/test/v3/; the token profile becomes `attributes.profile` (B24, design §14) |
+| 16 | 193 | TokenAuthMiddleware > C7 leaves a bearer value without the token prefix alone: no lookup, no warning | rewrite | N8a | added in N8a task 3 (C7 hand-off); 3.0 intent already in authn-http/test/v3/authn-middleware.test.ts ("C7 an opaque bearer of another service gives no credentials"); goes with the file to legacy-v2 in task 4 |
 
 ## test/token-policies.test.ts
 

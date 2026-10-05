@@ -1,6 +1,6 @@
-import { Autoinject, Container, Injectable, PerChildInstance } from '@spinajs/di';
+import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { AuthnImpersonationService } from '@spinajs/authn';
+import type { AuthnImpersonationService } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
@@ -11,6 +11,9 @@ type Restored = NonNullable<Request['storage']['AuthnSession']>;
 
 /** Session data key of the role chosen by a role switch (D14). */
 export const ACTIVE_ROLE_KEY = 'ActiveRole';
+
+// N1 vouches for these through the strategies' own record checks and never asks the store about them (D4b).
+const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
 
@@ -27,7 +30,6 @@ function activeRoleCeiling(data: ReadonlyMap<string, unknown>): Ceiling | undefi
  * subject or impersonator is banned, inactive or deleted, every session of that identity ends (SR-06).
  */
 @PerChildInstance()
-@Injectable(AuthnPrincipalResolver)
 export class SessionPrincipalResolver extends AuthnPrincipalResolver {
   public readonly order: number = 100;
 
@@ -39,6 +41,8 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
     if (!session) return undefined;
     if (session.handle.state !== 'active') return null;
 
+    // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
+    const { AuthnImpersonationService } = await import('@spinajs/authn');
     const impersonation = await this.Container.resolve(AuthnImpersonationService);
     const principal = await impersonation.principalOf(session.handle, ctx);
     if (!principal) {
@@ -57,6 +61,7 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
     const identities = await this.Container.resolve(IdentityStore);
     const subjects: IdentityRef[] = [session.identity, ...(session.facts.impersonator ? [session.facts.impersonator] : [])];
     for (const subject of subjects) {
+      if (VOUCHED_TYPES.has(subject.type)) continue;
       if (refused(await identities.status(subject))) await impersonation.endFor({ type: subject.type, id: subject.id });
     }
   }

@@ -40,3 +40,4 @@ export { AuthnMiddleware } from './middleware/authn.js';
 export { KeyPrincipalResolver, TokenPrincipalResolver } from './resolvers/credential.js';
 export { SessionPrincipalResolver } from './resolvers/session.js';
 export * from './extractors/index.js';
+export { registerAuthnHttpV3 } from './v3.js';
