@@ -64,11 +64,7 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   cfg.set(['http', 'port'], 0);
   // The package defaults list the controller dirs of every installed package (users-http, authz-http-admin, …).
   cfg.set(['system', 'dirs', 'controllers'], []);
-  cfg.set(['fs', 'providers'], [
-    ...((cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__')),
-    { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test-cache') },
-    { service: 'fsNative', name: 'authz-http-admin-test', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test') },
-  ]);
+  cfg.set(['fs', 'providers'], [...(cfg.get<unknown[]>(['fs', 'providers']) ?? []).filter((p) => (p as { name?: string }).name !== '__fs_controller_cache__'), { service: 'fsNative', name: '__fs_controller_cache__', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test-cache') }, { service: 'fsNative', name: 'authz-http-admin-test', basePath: join(tmpdir(), 'spinajs-authz-http-admin-test') }]);
   cfg.set(['fs', 'defaultProvider'], 'authz-http-admin-test');
   for (const [path, value] of Object.entries(opts.config ?? {})) cfg.set(path.split('.'), value);
 

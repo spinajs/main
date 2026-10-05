@@ -31,20 +31,8 @@ const baseWorld = (config?: WorldConfig): World => ({
   combine: combine('deny-overrides', 'rbac'),
   rbac: {
     ladders: [],
-    roles: [
-      role('reader', ['file:read']),
-      role('writer', ['file:edit']),
-      role('sys', ['file:read'], { assignable: false }),
-      role('manager', ['authz:assignments.manage', 'authz:assignments.read', 'file:read']),
-      role('admin', ['file:read', 'file:edit', 'users:update', ...MANAGE, ...READ]),
-    ],
-    assignments: [
-      assignment('ra', root, 'admin'),
-      assignment('da', dave, 'admin'),
-      assignment('l1', lead, 'manager', P1),
-      assignment('e1', erin, 'reader', P1),
-      assignment('c1', carol, 'sys', P1),
-    ],
+    roles: [role('reader', ['file:read']), role('writer', ['file:edit']), role('sys', ['file:read'], { assignable: false }), role('manager', ['authz:assignments.manage', 'authz:assignments.read', 'file:read']), role('admin', ['file:read', 'file:edit', 'users:update', ...MANAGE, ...READ])],
+    assignments: [assignment('ra', root, 'admin'), assignment('da', dave, 'admin'), assignment('l1', lead, 'manager', P1), assignment('e1', erin, 'reader', P1), assignment('c1', carol, 'sys', P1)],
   },
   ...(config ? { config } : {}),
 });

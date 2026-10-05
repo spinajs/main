@@ -49,27 +49,7 @@ export const policyBody: JsonSchema = obj(
 );
 
 /** The command kinds of AuthzCommand (packages/authz/src/contracts/admin.ts), in declaration order. */
-export const COMMAND_KINDS = [
-  'assignment.grant',
-  'assignment.revoke',
-  'assignment.revokeWhere',
-  'assignment.setTags',
-  'assignment.addTags',
-  'assignment.removeTags',
-  'assignment.setExpiry',
-  'set.addMember',
-  'set.removeMember',
-  'link.create',
-  'link.update',
-  'link.revoke',
-  'rule.put',
-  'rule.delete',
-  'policy.put',
-  'policy.delete',
-  'scope.setAttributes',
-  'scope.replaceAttributes',
-  'scope.forget',
-] as const;
+export const COMMAND_KINDS = ['assignment.grant', 'assignment.revoke', 'assignment.revokeWhere', 'assignment.setTags', 'assignment.addTags', 'assignment.removeTags', 'assignment.setExpiry', 'set.addMember', 'set.removeMember', 'link.create', 'link.update', 'link.revoke', 'rule.put', 'rule.delete', 'policy.put', 'policy.delete', 'scope.setAttributes', 'scope.replaceAttributes', 'scope.forget'] as const;
 
 export const commandSchemas: readonly JsonSchema[] = [
   command('assignment.grant', ['subject', 'role', 'scope'], { subject: assignmentSubject, role: text, scope: resourceRef, tags, expiresAt: nullableDateTime, replaceLadder: { type: 'boolean', description: "revoke the subject's other roles of the same ladder at this scope" } }, 'Grants a role to a subject at a scope'),

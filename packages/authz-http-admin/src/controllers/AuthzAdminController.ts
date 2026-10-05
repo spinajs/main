@@ -90,7 +90,7 @@ export class AuthzAdminController extends BaseController {
    * Run a batch of commands
    * Runs the commands in order in one transaction on the configured domain; the first failure rolls the batch back and its status is the answer.
    * Body: { commands, reason?, idempotencyKey?, dryRun? } (schema AuthzAdminBatch); `commands` lists the command kinds of AuthzCommand, with dates as ISO 8601 strings. The options go in the body, not the query string.
-   * The result of a link.create carries the link token, shown once: every answer of this route is sent with `Cache-Control: no-store`, and a retried or dry-run batch answers without the token.
+   * The result of a link.create carries the link token, shown once: every answer the route sends carries `Cache-Control: no-store` (the 401 of the authentication check comes before the route and holds no token), and a retried or dry-run batch answers without the token.
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
@@ -199,7 +199,7 @@ export class AuthzAdminController extends BaseController {
 
   /**
    * Create a share link
-   * Creates a share link that grants a role at a scope (link.create). The result carries the link id and its token: the token is shown once, here, and every answer of this route is sent with `Cache-Control: no-store`. A dry run or a retried request (same idempotency key) answers without the token.
+   * Creates a share link that grants a role at a scope (link.create). The result carries the link id and its token: the token is shown once, here, and every answer the route sends carries `Cache-Control: no-store` (the 401 of the authentication check comes before the route and holds no token). A dry run or a retried request (same idempotency key) answers without the token.
    * Body: the fields of link.create without `kind` (schema AuthzLinkCreate).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} The link was created; results[0] holds its id and token

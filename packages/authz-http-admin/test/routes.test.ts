@@ -61,13 +61,7 @@ const world: World = {
   combine: combine('deny-overrides', 'rbac'),
   rbac: {
     ladders: [{ name: 'project', roles: ['viewer', 'editor'] }],
-    roles: [
-      role('viewer', ['file:read'], { ladder: 'project' }),
-      role('editor', ['file:read', 'file:edit'], { ladder: 'project' }),
-      role('manager', ['authz:assignments.manage', 'authz:assignments.read']),
-      role('group.member', [], { subjectSet: true, scopeTypes: ['group'] }),
-      role('superuser', ['file:read', 'file:edit', ...MANAGE, ...READ]),
-    ],
+    roles: [role('viewer', ['file:read'], { ladder: 'project' }), role('editor', ['file:read', 'file:edit'], { ladder: 'project' }), role('manager', ['authz:assignments.manage', 'authz:assignments.read']), role('group.member', [], { subjectSet: true, scopeTypes: ['group'] }), role('superuser', ['file:read', 'file:edit', ...MANAGE, ...READ])],
     assignments: [assignment('r1', root, 'superuser'), assignment('r2', root, 'editor'), assignment('b1', bob, 'manager', P1), assignment('b2', bob, 'editor', P1), assignment('u1', alice, 'viewer', UPLOAD)],
   },
   scopeAttributes: { schemas: [ORG_SCHEMA] },
@@ -311,7 +305,12 @@ describe('authz-http-admin routes', function () {
       expect(linkResult.token).to.be.a('string');
       const rows = await assignments('?subject=user:carol');
       expect(rows.map((r) => r.expiresAt)).to.deep.equal([LATER, LATER]);
-      const update = await commands(root, { commands: [{ kind: 'link.update', id: linkResult.id, expiresAt: '2028-01-01T00:00:00Z' }, { kind: 'assignment.setExpiry', id: rows[0].id, expiresAt: '2028-01-01T00:00:00Z' }] });
+      const update = await commands(root, {
+        commands: [
+          { kind: 'link.update', id: linkResult.id, expiresAt: '2028-01-01T00:00:00Z' },
+          { kind: 'assignment.setExpiry', id: rows[0].id, expiresAt: '2028-01-01T00:00:00Z' },
+        ],
+      });
       expect(update.status, JSON.stringify(update.body)).to.equal(200);
       const rule = await call('GET', '/authz/rules?scope=project:p1');
       expect(rule.body.items[0].expiresAt).to.equal(LATER);
@@ -703,7 +702,12 @@ describe('authz-http-admin routes', function () {
           expect(() => adminDomain(), String(bad)).to.throw(AuthzConfigError);
         }
         cfg.set(['authz', 'http', 'admin', 'domain'], '');
-        expect((await commands(root, { commands: [grant('carol')] })).status).to.equal(500);
+        const failed = await commands(root, { commands: [grant('carol')] });
+        expect(failed.status).to.equal(500);
+        expect(failed.headers['cache-control'], 'a 500 of POST /authz/commands').to.equal('no-store');
+        const failedLink = await call('POST', '/authz/links', root, { scope: P1, role: 'viewer' });
+        expect(failedLink.status).to.equal(500);
+        expect(failedLink.headers['cache-control'], 'a 500 of POST /authz/links').to.equal('no-store');
       } finally {
         cfg.set(['authz', 'http', 'admin', 'domain'], before);
       }

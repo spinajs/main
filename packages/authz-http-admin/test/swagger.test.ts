@@ -132,12 +132,20 @@ describe('authz-http-admin swagger', function () {
     expect(bodyOf('/authz/links/{id}', 'patch')).to.eq('#/components/schemas/AuthzLinkPatch');
     expect(bodyOf('/authz/links/{id}', 'delete')).to.eq(undefined);
     expect(query('/authz/links', 'get')).to.have.members(['scope', 'limit', 'offset']);
-    for (const [path, method] of [['/authz/links', 'post'], ['/authz/links/{id}', 'patch'], ['/authz/links/{id}', 'delete']]) expect(query(path, method), `${method} ${path}`).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
+    for (const [path, method] of [
+      ['/authz/links', 'post'],
+      ['/authz/links/{id}', 'patch'],
+      ['/authz/links/{id}', 'delete'],
+    ])
+      expect(query(path, method), `${method} ${path}`).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
     expect(doc.paths['/authz/links'].get.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');
     expect(doc.components.schemas.AuthzLinkCreate.required).to.deep.eq(['scope', 'role']);
     expect(Object.keys(doc.components.schemas.AuthzLinkPatch.properties)).to.have.members(['id', 'expiresAt', 'attributes', 'role', 'tags']);
 
-    for (const [path, method] of [['/authz/links', 'post'], ['/authz/commands', 'post']]) {
+    for (const [path, method] of [
+      ['/authz/links', 'post'],
+      ['/authz/commands', 'post'],
+    ]) {
       const op = doc.paths[path][method];
       const text = `${op.summary} ${op.description}`;
       expect(text, `${method} ${path}`).to.match(/no-store/);
@@ -154,7 +162,9 @@ describe('authz-http-admin swagger', function () {
         expect(text, `${r.method} ${r.path}`).to.match(/invalid_query/);
         expect(text, `${r.method} ${r.path}`).to.not.match(/invalid_request/);
       } else if (r.path === '/authz/commands') {
-        expect(text).to.match(/invalid_request/).and.to.match(/invalid_batch/);
+        expect(text)
+          .to.match(/invalid_request/)
+          .and.to.match(/invalid_batch/);
         expect(text).to.not.match(/invalid_query/);
       } else {
         expect(text, `${r.method} ${r.path}`).to.match(/invalid_query/);

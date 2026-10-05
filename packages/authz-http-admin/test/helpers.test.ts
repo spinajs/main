@@ -91,7 +91,12 @@ describe('status mapping', () => {
   it('answers 200 when every result is ok, else the status of the failed result', () => {
     expect(resultsStatus([])).to.equal(200);
     expect(resultsStatus([{ ok: true, kind: 'assignment.revoke', affected: 1 }])).to.equal(200);
-    expect(resultsStatus([{ ok: true, kind: 'assignment.revoke', affected: 0 }, { ok: false, kind: 'assignment.revoke', error: { code: 'not_found', message: 'x' } }])).to.equal(404);
+    expect(
+      resultsStatus([
+        { ok: true, kind: 'assignment.revoke', affected: 0 },
+        { ok: false, kind: 'assignment.revoke', error: { code: 'not_found', message: 'x' } },
+      ]),
+    ).to.equal(404);
   });
 });
 
