@@ -4,6 +4,7 @@ import { Orm } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { join, normalize, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { DateTime } from 'luxon';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { AuthProvider, BasicPasswordProvider, NO_PASSWORD, PasswordProvider, SimpleDbAuthProvider, USER_COMMON_METADATA, User } from '../../src/index.js';
@@ -64,4 +65,34 @@ export async function seedUser(spec: SeedSpec): Promise<{ user: User; ref: Ident
 /** The stored row, deleted ones included, with its metadata. */
 export function storedUser(uuid: string): Promise<User> {
   return User.query().withDeleted().where('Uuid', uuid).populate('Metadata').firstOrFail() as Promise<User>;
+}
+
+export type IdentityFlags = { active?: boolean; banned?: boolean; deleted?: boolean; invitePending?: boolean };
+
+/** Status flags only, written straight to the row and its metadata: no revocation, no event. */
+export async function setIdentityFlags(ref: IdentityRef, flags: IdentityFlags): Promise<void> {
+  const driver = User.query().Driver;
+  const u = await storedUser(ref.id);
+
+  if (flags.active !== undefined) {
+    await driver.update().in('users').update({ IsActive: flags.active }).where('Uuid', ref.id);
+  }
+  if (flags.deleted !== undefined) {
+    await driver
+      .update()
+      .in('users')
+      .update({ DeletedAt: flags.deleted ? DateTime.now().toSQL({ includeOffset: false }) : null })
+      .where('Uuid', ref.id);
+  }
+  for (const [flag, key] of [
+    ['banned', USER_COMMON_METADATA.USER_BAN_IS_BANNED],
+    ['invitePending', USER_COMMON_METADATA.USER_INVITE_PENDING],
+  ] as const) {
+    if (flags[flag] === true) {
+      u.Metadata[key] = true;
+      await u.Metadata.update();
+    } else if (flags[flag] === false) {
+      await u.Metadata.delete(key);
+    }
+  }
 }

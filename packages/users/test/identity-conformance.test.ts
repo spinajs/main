@@ -4,40 +4,9 @@ import { PostgresOrmDriver } from '@spinajs/orm-postgres';
 import { randomBytes } from 'node:crypto';
 import { runIdentityStoreConformance } from '@spinajs/authn-testing';
 import type { IdentitySubject } from '@spinajs/authn-testing';
-import type { IdentityRef } from '@spinajs/authn/contracts';
-import { DateTime } from 'luxon';
 
-import { USER_COMMON_METADATA, User, UserIdentityStore, UserPasswordStore } from '../src/index.js';
-import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
-
-type Flags = { active?: boolean; banned?: boolean; deleted?: boolean; invitePending?: boolean };
-
-async function setFlags(ref: IdentityRef, flags: Flags): Promise<void> {
-  const driver = User.query().Driver;
-  const u = await storedUser(ref.id);
-
-  if (flags.active !== undefined) {
-    await driver.update().in('users').update({ IsActive: flags.active }).where('Uuid', ref.id);
-  }
-  if (flags.deleted !== undefined) {
-    await driver
-      .update()
-      .in('users')
-      .update({ DeletedAt: flags.deleted ? DateTime.now().toSQL({ includeOffset: false }) : null })
-      .where('Uuid', ref.id);
-  }
-  for (const [flag, key] of [
-    ['banned', USER_COMMON_METADATA.USER_BAN_IS_BANNED],
-    ['invitePending', USER_COMMON_METADATA.USER_INVITE_PENDING],
-  ] as const) {
-    if (flags[flag] === true) {
-      u.Metadata[key] = true;
-      await u.Metadata.update();
-    } else if (flags[flag] === false) {
-      await u.Metadata.delete(key);
-    }
-  }
-}
+import { User, UserIdentityStore, UserPasswordStore } from '../src/index.js';
+import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags } from './support/users-db.js';
 
 function subject(): IdentitySubject {
   const ids: number[] = [];
@@ -51,11 +20,11 @@ function subject(): IdentitySubject {
         const { user, ref } = await seedUser({ login: spec.login, ...(spec.email ? { email: spec.email } : {}) });
         ids.push(user.Id);
         if (spec.status) {
-          await setFlags(ref, spec.status);
+          await setIdentityFlags(ref, spec.status);
         }
         return ref;
       },
-      setStatus: setFlags,
+      setStatus: setIdentityFlags,
     },
     async dispose() {
       const driver = User.query().Driver;
