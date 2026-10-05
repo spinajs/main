@@ -110,7 +110,7 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
   let users: Map<string, FakeUser>;
 
   /** req.storage as AuthnMiddleware leaves it for each principal kind; session kinds hold a real issued session of alice. */
-  async function storageOf(kind: Kind, o: { impersonator?: IdentityRef } = {}): Promise<Record<string, unknown>> {
+  async function storageOf(kind: Kind, o: { impersonator?: IdentityRef; attributes?: Record<string, unknown>; ownerAttributes?: Record<string, unknown> } = {}): Promise<Record<string, unknown>> {
     const storage: Record<string, unknown> = { AuthnPrincipal: null, AuthnSession: null, ClientIp: '203.0.113.7' };
     const perRequest = (type: string, id: string, authn: Partial<AuthnFacts>, extra: Partial<Principal> = {}): Principal => ({ type, id, authenticated: true, source: 'token', attributes: {}, authn: FACTS(authn), ...extra });
     if (kind === 'pending' || kind === 'session' || kind === 'impersonation') {
@@ -120,10 +120,10 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
       storage.AuthnSession = restored;
       if (kind !== 'pending') storage.AuthnPrincipal = { type: alice.type, id: alice.id, authenticated: true, source: 'session', attributes: {}, authn: restored.facts } satisfies Principal;
     }
-    if (kind === 'token') storage.AuthnPrincipal = perRequest(alice.type, alice.id, { method: 'token', strategy: 'token' });
+    if (kind === 'token') storage.AuthnPrincipal = perRequest(alice.type, alice.id, { method: 'token', strategy: 'token' }, o.attributes ? { attributes: o.attributes } : {});
     if (kind === 'agent') {
-      const owner = perRequest(alice.type, alice.id, { method: 'token', strategy: 'token' });
-      storage.AuthnPrincipal = perRequest('agent', 'agent-1', { method: 'token', strategy: 'token' }, { onBehalfOf: owner, delegation: 'inherit', ceiling: { reason: 'out_of_scope' } });
+      const owner = perRequest(alice.type, alice.id, { method: 'token', strategy: 'token' }, o.ownerAttributes ? { attributes: o.ownerAttributes } : {});
+      storage.AuthnPrincipal = perRequest('agent', 'agent-1', { method: 'token', strategy: 'token' }, { onBehalfOf: owner, delegation: 'inherit', ceiling: { reason: 'out_of_scope' }, ...(o.attributes ? { attributes: o.attributes } : {}) });
     }
     if (kind === 'key') storage.AuthnPrincipal = perRequest(alice.type, alice.id, { method: 'jws', strategy: 'keys' });
     if (kind === 'service') storage.AuthnPrincipal = perRequest('service', 'billing', { method: 'jws', strategy: 'keys' });
@@ -275,6 +275,37 @@ describe('LegacyStorageBridge: the 2.x storage keys from req.storage.AuthnPrinci
       const r = await runBridge(containerWith(users), await storageOf('service'));
       expect(r.storage.User).to.eq(GUEST);
       expect(r.storage.TokenAuth).to.be.an('object');
+    });
+
+    it('a token pinned to a profile: TokenAuth carries it (TokenStrategy sets principal.attributes.profile)', async () => {
+      const r = await runBridge(containerWith(users), await storageOf('token', { attributes: { profile: 'editor' } }));
+      expect(r.storage.TokenAuth).to.deep.eq({ Uuid: '', Profile: 'editor' });
+      expect(Object.isFrozen(r.storage.TokenAuth)).to.eq(true);
+    });
+
+    it('a token without a usable profile: TokenAuth has no Profile', async () => {
+      for (const attributes of [{}, { profile: '' }, { profile: 42 }, { profile: ['editor'] }]) {
+        const r = await runBridge(containerWith(users), await storageOf('token', { attributes }));
+        expect(r.storage.TokenAuth, JSON.stringify(attributes)).to.deep.eq({ Uuid: '' });
+      }
+    });
+
+    it("agent (TokenStrategy): TokenAuth.Uuid is the agent's id, its access token's id; the profile is read off the agent, never off onBehalfOf", async () => {
+      const r = await runBridge(containerWith(users), await storageOf('agent', { ownerAttributes: { profile: 'owner-attribute' } }));
+      expect(r.storage.TokenAuth).to.deep.eq({ Uuid: 'agent-1' });
+      const pinned = await runBridge(containerWith(users), await storageOf('agent', { attributes: { profile: 'editor' } }));
+      expect(pinned.storage.TokenAuth).to.deep.eq({ Uuid: 'agent-1', Profile: 'editor' });
+    });
+
+    it('key, service and an agent not authenticated by a token name no token row: Uuid stays empty', async () => {
+      for (const kind of ['key', 'service'] as const) {
+        const r = await runBridge(containerWith(users), await storageOf(kind));
+        expect(r.storage.TokenAuth, kind).to.deep.eq({ Uuid: '' });
+      }
+      const storage = await storageOf('agent');
+      const agent = storage.AuthnPrincipal as Principal;
+      storage.AuthnPrincipal = { ...agent, authn: FACTS({ method: 'jws', strategy: 'keys' }) };
+      expect((await runBridge(containerWith(users), storage)).storage.TokenAuth).to.deep.eq({ Uuid: '' });
     });
 
     it('without users TokenAuth is still set', async () => {

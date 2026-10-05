@@ -20,9 +20,9 @@ import '@spinajs/authn-token';
  * impersonating therefore turns a temporary, reversible grant into a permanent
  * one that the account owner never consented to and cannot see.
  *
- * `RbacMiddleware` puts the impersonation TARGET in `req.storage.User` and the
- * original administrator in `req.storage.Impersonator`
- * ( `authn-http/src/middlewares.ts` ), so every ownership and permission check
+ * `LegacyStorageBridge` puts the impersonation TARGET in `req.storage.User` and
+ * the original administrator in `req.storage.Impersonator`
+ * ( `authn-http/src/middleware/legacy-bridge.ts` ), so every ownership and permission check
  * downstream already reads as the victim - this policy is the only thing that
  * can tell the two situations apart.
  *

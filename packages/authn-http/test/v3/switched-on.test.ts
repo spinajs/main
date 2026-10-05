@@ -110,7 +110,36 @@ const CJS = `
   })().catch((e) => { console.error(e); process.exit(1); });
 `;
 
-function run(inputType: 'module' | 'commonjs', body: string): Run {
+// An app that never imports the barrel loads the package through its controller scan: a scanned 3.0 controller
+// imports v3/index.js, a scanned 2.x controller registrations.js.
+const SCAN_ENTRY = (entry: string) => `
+  const di = await import('@spinajs/di');
+  const http = await import('@spinajs/http');
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  await import(pathToFileURL(join(process.cwd(), 'lib', 'mjs', ${JSON.stringify(entry)})).href);
+  console.log(JSON.stringify((di.DI.getRegisteredTypes(http.ServerMiddleware) ?? []).map((t) => t.name)));
+`;
+
+// The cached object stands in for the server Controllers constructs before its scan; a real HttpServer needs a whole
+// app configuration.
+const LATE_LOAD = (serverFirst: boolean) => `
+  const di = await import('@spinajs/di');
+  const http = await import('@spinajs/http');
+  const { Log } = await import('@spinajs/log');
+  const errors = [];
+  class CapturingLog {
+    constructor(name) { this.Name = name; }
+    error(m) { errors.push(String(m)); }
+    warn() {} info() {} debug() {} trace() {} success() {} fatal() {} security() {}
+  }
+  di.DI.register(CapturingLog).as(Log);
+  if (${serverFirst}) di.DI.RootContainer.Cache.add(http.HttpServer, { standIn: true });
+  await import('@spinajs/authn-http');
+  console.log(JSON.stringify(errors));
+`;
+
+function run<T = Run>(inputType: 'module' | 'commonjs', body: string): T {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
   const r = spawnSync(process.execPath, [`--input-type=${inputType}`, '-e', body], { cwd: PKG_ROOT, encoding: 'utf8', env });
@@ -190,6 +219,21 @@ describe('the 3.0 authn layer is switched on when the package loads (N8c)', func
       });
     });
   }
+
+  for (const entry of ['v3/index.js', 'registrations.js']) {
+    it(`loading only ${entry}, as the controller scan does, registers AuthnMiddleware and the bridge`, () => {
+      const middlewares = run<string[]>('module', SCAN_ENTRY(entry));
+      expect(count(middlewares, 'AuthnMiddleware')).to.eq(1);
+      expect(count(middlewares, 'LegacyStorageBridge')).to.eq(1);
+    });
+  }
+
+  it('loaded after HttpServer was resolved (too late to join its middlewares), it logs an error naming the fix', () => {
+    const errors = run<string[]>('module', LATE_LOAD(true));
+    expect(errors).to.have.length(1);
+    expect(errors[0]).to.include('import @spinajs/authn-http before resolving Controllers or HttpServer');
+    expect(run<string[]>('module', LATE_LOAD(false)), 'loaded before the server').to.deep.eq([]);
+  });
 
   it('the barrel reaches no file of src/v3/controllers or src/account/legacy, so no import loads a 3.0 or a moved 2.x controller', () => {
     const graph = [...barrelGraph()].map((f) => f.replace(/\\/g, '/'));

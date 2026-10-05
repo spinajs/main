@@ -16,8 +16,17 @@ type LegacyUser = NonNullable<Request['storage']['User']>;
 const USER_FACTORY = 'RbacUserFactory';
 const GUEST_FACTORY = 'RbacGuestUserFactory';
 
-// The 2.x policies only test it for truthiness; a 3.0 principal names no token row.
-const PER_REQUEST_CREDENTIAL: ITokenAuthInfo = Object.freeze({ Uuid: '' });
+/**
+ * The 2.x policies only test it for truthiness; app row scoping reads Profile. Only authn-token's agent principal names
+ * its token row (TokenService gives an agent the token's id); any other principal leaves Uuid empty.
+ */
+function tokenAuthOf(principal: Principal): ITokenAuthInfo {
+  const profile = principal.attributes?.profile;
+  return Object.freeze({
+    Uuid: principal.type === 'agent' && principal.authn?.method === 'token' ? principal.id : '',
+    ...(typeof profile === 'string' && profile !== '' ? { Profile: profile } : {}),
+  });
+}
 
 const hasSessionHandle = (principal: Principal): boolean => typeof principal.authn?.sessionHandle === 'string' && principal.authn.sessionHandle !== '';
 
@@ -28,7 +37,8 @@ const hasSessionHandle = (principal: Principal): boolean => typeof principal.aut
  * - User: the principal's user (the principal itself, or onBehalfOf) through users' RbacUserFactory; otherwise the 2.x
  *   guest, as 2.x did without a session, because the users ORM checks skip every row check for a request without a User;
  * - Impersonator: while impersonating, the impersonator, or a marker when it cannot be loaded;
- * - TokenAuth: a marker for a per-request credential (a principal without a session handle).
+ * - TokenAuth: a marker for a per-request credential (a principal without a session handle), with the token's profile
+ *   (principal.attributes.profile, set by TokenStrategy) when it has one.
  *
  * It never sets Session or ActiveRole, so a route behind the 2.x LoggedPolicy, AuthorizedPolicy or RbacPolicy answers
  * 401 until its lane moves it to the 3.0 policies.
@@ -77,7 +87,7 @@ export class LegacyStorageBridge extends ServerMiddleware {
       storage.Impersonator = (impersonator.type === 'user' ? await this.userOf(impersonator.id) : undefined) ?? (Object.freeze({ Uuid: impersonator.id }) as unknown as LegacyUser);
     }
 
-    if (principal && !hasSessionHandle(principal)) storage.TokenAuth = PER_REQUEST_CREDENTIAL;
+    if (principal && !hasSessionHandle(principal)) storage.TokenAuth = tokenAuthOf(principal);
   }
 
   /** The user's 2.x model, or undefined when users is not loaded or cannot load an active user of that id. */

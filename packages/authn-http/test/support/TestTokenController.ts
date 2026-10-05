@@ -47,7 +47,8 @@ export class TestTokenController extends BaseController {
    * holds on `test.resource` ( see `common.ts`: `user` gets `read:own`, `admin`
    * gets `read:any` ).
    *
-   * It exists to pin the multi-role behaviour of `TokenAuthMiddleware`. A token
+   * It pinned the multi-role behaviour of the 2.x `TokenAuthMiddleware` (gone
+   * since N8c; its suites are parked in `legacy-v2/`). A token
    * carrying `[ 'user', 'admin' ]` in that order can only reach this route when
    * the WHOLE effective set is authorized - pinning `req.storage.ActiveRole` to
    * the first effective role would leave the request authorized as `user` alone
