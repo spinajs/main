@@ -112,6 +112,21 @@ describe('FakeRbacModel', () => {
     }
   });
 
+  it('check ⇔ list for a type-only assignment scope: it applies to rows under any node of that type', async () => {
+    const m = new FakeRbacModel({ roles, assignments: [{ subject: alice, role: 'viewer', scope: { type: 'project' } }] });
+    const context = ctx();
+    const residual = ((await m.evaluate(req(alice, 'file:read', { type: 'file' }), context)) as Vote).permitWhen;
+    const listed = (await adapter.rows('file', residual, { principal: alice, context })).map((r) => r.id);
+    const checked: string[] = [];
+    for (const row of adapter.all('file')) {
+      const ref = { type: 'file', id: row.id };
+      const vote = (await m.evaluate(req(alice, 'file:read', ref), context)) as Vote;
+      if (isAllowed(await evaluateFilter(vote.permitWhen, row, { principal: alice, ref, context }))) checked.push(row.id);
+    }
+    expect(checked).to.deep.eq(['f1', 'f2']);
+    expect(listed).to.deep.eq(checked);
+  });
+
   it('companions speak too', async () => {
     const link = { ...userPrincipal('l1'), type: 'link', companions: [{ type: 'user', id: 'alice' }] };
     const m = new FakeRbacModel({ roles, assignments: [{ subject: alice, role: 'viewer' }] });
