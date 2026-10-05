@@ -33,6 +33,13 @@ const validConfig = () => ({
   audit: { denials: true, runAs: false, unscoped: true, service: 'MyAudit' },
   bus: { service: 'MyBus' },
   config: { rejectLegacyKeys: true },
+  admin: {
+    maxBatch: 50,
+    backend: 'DbAuthzAdminBackend',
+    connection: 'authz',
+    permissions: { 'assignment.*': 'app:members.manage', 'assignment.grant': { project: 'app:project.share', '*': 'app:any.share' } },
+    guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: false },
+  },
 });
 
 describe('authz config schema', () => {
@@ -383,6 +390,56 @@ describe('authz configuration through a child Configuration', function () {
       [{ domains: { fs: { parent: {} } } }, 'authz.domains.fs.parent'],
     ];
     for (const [authz, path] of cases) expect(await violationsOf({ authz }), path).to.include(path);
+  });
+});
+
+describe('authz.admin through a child Configuration', function () {
+  this.timeout(30000);
+  const children: IContainer[] = [];
+  const ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
+
+  afterEach(async () => {
+    for (const c of children.splice(0)) await c.dispose();
+  });
+
+  async function admin(values: Record<string, unknown>): Promise<unknown> {
+    const { child, configuration } = await childWith(values);
+    children.push(child);
+    return configuration.get(['authz', 'admin']);
+  }
+
+  it('fills maxBatch, backend and permissions from ADMIN_DEFAULTS, and no guard', async () => {
+    expect(await admin({})).to.deep.equal({ ...ADMIN_DEFAULTS, permissions: {} });
+  });
+
+  it('turns every switch of a configured guard on', async () => {
+    expect(await admin({ authz: { admin: { guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } } } })).to.deep.equal({
+      ...ADMIN_DEFAULTS,
+      permissions: {},
+      guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true },
+    });
+  });
+
+  it('needs privilegedPermission while a self-lockout or last-holder check is on', async () => {
+    expect(await violationsOf({ authz: { admin: { guard: { service: 'X' } } } })).to.include('authz.admin.guard.privilegedPermission');
+    expect(await violationsOf({ authz: { admin: { guard: { preventSelfLockout: false } } } })).to.include('authz.admin.guard.privilegedPermission');
+    expect(await admin({ authz: { admin: { guard: { service: 'X', preventSelfLockout: false, preventLastPrivilegedRemoval: false } } } })).to.have.nested.property('guard.service', 'X');
+  });
+
+  it('refuses a bad value, naming its full path', async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ maxBatch: 0 }, 'authz.admin.maxBatch'],
+      [{ maxBatch: 1.5 }, 'authz.admin.maxBatch'],
+      [{ backend: '' }, 'authz.admin.backend'],
+      [{ connection: '' }, 'authz.admin.connection'],
+      [{ guard: { service: '', privilegedPermission: 'users:update' } }, 'authz.admin.guard.service'],
+      [{ guard: { privilegedPermission: 'users' } }, 'authz.admin.guard.privilegedPermission'],
+      [{ guard: { protectSystemRole: 'sometimes', privilegedPermission: 'users:update' } }, 'authz.admin.guard.protectSystemRole'],
+      [{ permissions: 'x' }, 'authz.admin.permissions'],
+      [{ permissions: { 'assignment.grant': 42 } }, 'authz.admin.permissions.assignment.grant'],
+      [{ permissions: { 'assignment.grant': { project: 'not a permission' } } }, 'authz.admin.permissions.assignment.grant'],
+    ];
+    for (const [value, path] of cases) expect(await violationsOf({ authz: { admin: value } }), path).to.include(path);
   });
 });
 

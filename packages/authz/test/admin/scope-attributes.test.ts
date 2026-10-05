@@ -1,11 +1,14 @@
 import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
+import type { IContainer } from '@spinajs/di';
+import { CONFIGURATION_CONTAINER_KEY } from '@spinajs/configuration';
 
 import { AuthzAdminFailure, AuthzConfigError, AuthzContributor, ConfigScopeAttributeSchemas, GLOBAL, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, SCOPE_ATTRIBUTE_LIMITS, SYSTEM, ScopeAttributeReader, ScopeAttributeStore, WritableScopeAttributeStore, flattenAttributes, unflattenAttributes } from '@spinajs/authz';
 import type { AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzTx, ResourceRef, ScopeAttributeSchema } from '@spinajs/authz';
 import { adminConfig, adminDomain, installHost, instance, rejection, resetHost, setConfig, uninstallHost } from './support.js';
 import type { AdminDomain } from './support.js';
+import { childWith, violationsOf } from '../host/support.js';
 
 const expect = chai.expect;
 
@@ -231,6 +234,20 @@ describe('ConfigScopeAttributeSchemas', () => {
     await resetHost();
   });
 
+  const children: IContainer[] = [];
+
+  afterEach(async () => {
+    for (const c of children.splice(0)) await c.dispose();
+  });
+
+  async function contributorOn(values: Record<string, unknown>): Promise<ConfigScopeAttributeSchemas> {
+    const { child } = await childWith(values);
+    children.push(child);
+    const contributor = new ConfigScopeAttributeSchemas();
+    (contributor as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
+    return contributor;
+  }
+
   it('contributes authz.scopes.attributes as scope attribute schemas', async () => {
     const schema = { type: 'object' };
     setConfig(['authz', 'scopes', 'attributes'], { org: { schema, defaults: { policies: { a: 1 } } }, project: { schema } });
@@ -246,18 +263,25 @@ describe('ConfigScopeAttributeSchemas', () => {
     expect(await new ConfigScopeAttributeSchemas().contribute('any')).to.deep.equal({});
   });
 
-  it('refuses a malformed section, naming the key', async () => {
-    for (const [value, key] of [
-      ['x', 'authz.scopes.attributes '],
-      [{ org: 1 }, 'authz.scopes.attributes.org '],
+  it('reads authz.scopes.attributes from the Configuration of the container that built it, with the schema default for defaults', async () => {
+    const schema = { type: 'object' };
+    const contributor = await contributorOn({ authz: { scopes: { attributes: { org: { schema } } } } });
+    expect((await contributor.contribute('any')).scopeAttributeSchemas).to.deep.equal([{ scopeType: 'org', schema, defaults: {} }]);
+  });
+
+  it('a null section contributes nothing', async () => {
+    expect(await (await contributorOn({ authz: { scopes: { attributes: null } } })).contribute('any')).to.deep.equal({});
+  });
+
+  it('refuses a malformed section at boot, naming the full path', async () => {
+    const cases: [unknown, string][] = [
+      ['x', 'authz.scopes.attributes'],
+      [{ org: 1 }, 'authz.scopes.attributes.org'],
       [{ org: { defaults: {} } }, 'authz.scopes.attributes.org.schema'],
       [{ org: { schema: {}, defaults: [] } }, 'authz.scopes.attributes.org.defaults'],
-    ] as const) {
-      setConfig(['authz', 'scopes', 'attributes'], value);
-      const e = await rejection(Promise.resolve().then(() => new ConfigScopeAttributeSchemas().contribute('any')));
-      expect(e, key).to.be.instanceOf(AuthzConfigError);
-      expect(e.message).to.contain(key);
-    }
+      [{ '': { schema: {} } }, 'authz.scopes.attributes.'],
+    ];
+    for (const [attributes, path] of cases) expect(await violationsOf({ authz: { scopes: { attributes } } }), path).to.include(path);
   });
 
   it('is registered as an AuthzContributor every domain asks', async () => {

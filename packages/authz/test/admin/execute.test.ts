@@ -1,11 +1,13 @@
 import * as chai from 'chai';
 import 'mocha';
 import { userPrincipal } from '@spinajs/authz-testing';
+import { Configuration } from '@spinajs/configuration';
 
-import { AuthzAdminFailure, AuthzConfigError, DefaultAuthzAdmin, SYSTEM, UnknownPermission, adminActor, adminContainer } from '@spinajs/authz';
+import { AuthzAdminFailure, DefaultAuthzAdmin, SYSTEM, UnknownPermission, adminActor, adminContainer } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzCommandResult, ResourceRef } from '@spinajs/authz';
-import { FailingBus, HOUR, START, ThrowingAudit, ThrowingSink, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
+import { FailingBus, HOUR, PERMISSIONS, START, ThrowingAudit, ThrowingSink, adminConfig, adminDomain, installHost, rejection, resetHost, uninstallHost } from './support.js';
 import type { AdminDomain } from './support.js';
+import { registerConfiguration, violationPaths } from '../host/support.js';
 
 const expect = chai.expect;
 
@@ -372,13 +374,36 @@ describe('DefaultAuthzAdmin.execute', function () {
       await d.admin.execute(alice, [grant('dan', 'editor', p1)]);
       expect(checked(d)).to.deep.equal(['app:members.manage@project']);
     });
+  });
 
-    it('rejects a malformed mapping with an AuthzConfigError naming the key', async () => {
-      adminConfig({ permissions: { 'assignment.grant': 42 } });
-      const d = await adminDomain();
-      const err = await rejection(d.admin.execute(alice, [grant('bob')]));
-      expect(err).to.be.instanceOf(AuthzConfigError);
-      expect(err.message).to.match(/authz\.admin\.permissions/);
+  describe('authz.admin from the Configuration of the domain container', () => {
+    const own = (admin: Record<string, unknown>) => ({
+      authz: {
+        admin: { guard: { service: 'FakeGuard', privilegedPermission: 'app:settings.manage' }, backend: 'TestBackend', ...admin },
+        domains: { test: { permissions: PERMISSIONS, cache: { maxEntries: 0 } } },
+      },
+    });
+
+    it('takes maxBatch from it over the root value', async () => {
+      adminConfig({ maxBatch: 50 });
+      const d = await adminDomain('test', { register: (c) => registerConfiguration(c, own({ maxBatch: 2 })) });
+      const err = await rejection(d.admin.execute(alice, [grant('a'), grant('b'), grant('c')]));
+      expect((err as AuthzAdminFailure).code).to.equal('invalid_batch');
+      expect(await d.admin.execute(alice, [grant('a'), grant('b')])).to.have.length(2);
+    });
+
+    it('gets maxBatch 100 from the schema when it sets none', async () => {
+      adminConfig({ maxBatch: 2 });
+      const d = await adminDomain('test', { register: (c) => registerConfiguration(c, own({})) });
+      expect(d.container.get(Configuration)?.get('authz.admin.maxBatch')).to.equal(100);
+      const many = Array.from({ length: 101 }, (_, i) => grant(`u${i}`));
+      expect(((await rejection(d.admin.execute(alice, many))) as AuthzAdminFailure).code).to.equal('invalid_batch');
+      expect(await d.admin.execute(alice, many.slice(1))).to.have.length(100);
+    });
+
+    it('fails the domain boot on a bad authz.admin value, naming the full path', async () => {
+      const err = await rejection(adminDomain('test', { register: (c) => registerConfiguration(c, own({ maxBatch: 0 })) }));
+      expect(await violationPaths(Promise.reject(err))).to.include('authz.admin.maxBatch');
     });
   });
 

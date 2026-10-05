@@ -1,4 +1,5 @@
 import { AUTHZ_DEFAULTS } from './defaults.js';
+import { ADMIN_DEFAULTS } from '../../admin/config.js';
 
 const D = AUTHZ_DEFAULTS;
 
@@ -38,6 +39,25 @@ const permissions = {
       fields: { type: 'boolean' },
       types: stringList,
       implies: stringList,
+    },
+  },
+};
+
+// null turns off a section a shipped config sets (config merges never remove a key).
+const scopes = {
+  type: 'object',
+  properties: {
+    attributes: {
+      type: ['object', 'null'],
+      propertyNames: { minLength: 1 },
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          schema: { type: 'object' },
+          defaults: { type: 'object', default: {} },
+        },
+        required: ['schema'],
+      },
     },
   },
 };
@@ -85,6 +105,41 @@ const audit = (root: boolean) => ({
   },
 });
 
+/** A permission name as contracts/permission.ts accepts it. */
+const permissionName = { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$' };
+
+const className = { type: 'string', minLength: 1 };
+
+const admin = {
+  type: 'object',
+  default: {},
+  properties: {
+    maxBatch: { type: 'integer', minimum: 1, default: ADMIN_DEFAULTS.maxBatch },
+    backend: { ...className, default: ADMIN_DEFAULTS.backend },
+    connection: { type: 'string', minLength: 1 },
+    // { [kind or 'family.*']: permission | { [scopeType or '*']: permission } }
+    permissions: {
+      type: 'object',
+      default: {},
+      additionalProperties: { anyOf: [permissionName, { type: 'object', additionalProperties: permissionName }] },
+    },
+    guard: {
+      type: 'object',
+      properties: {
+        service: className,
+        privilegedPermission: permissionName,
+        protectSystemRole: { type: 'boolean', default: true },
+        preventEscalation: { type: 'boolean', default: true },
+        preventSelfLockout: { type: 'boolean', default: true },
+        preventLastPrivilegedRemoval: { type: 'boolean', default: true },
+      },
+      // The self-lockout and last-holder checks need privilegedPermission unless both are off; an unset switch is on.
+      if: { not: { properties: { preventSelfLockout: { const: false }, preventLastPrivilegedRemoval: { const: false } }, required: ['preventSelfLockout', 'preventLastPrivilegedRemoval'] } },
+      then: { required: ['privilegedPermission'] },
+    },
+  },
+};
+
 // The root object stays open: sections such as authz.http or authz.rbac belong to other packages
 // and the configuration's removeAdditional would strip them.
 export const AUTHZ_CONFIGURATION_SCHEMA = {
@@ -120,11 +175,13 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
         roleSwitch: { type: 'object', properties: { requirePassword: stringList } },
       },
     },
+    scopes,
     fields: fields(true),
     engine: engine(true),
     cache: cache(true),
     audit: audit(true),
     bus: { type: 'object', properties: { service: { type: 'string', minLength: 1 } } },
+    admin,
     config: { type: 'object', default: {}, properties: { rejectLegacyKeys: { type: 'boolean', default: D.config.rejectLegacyKeys } } },
   },
 };

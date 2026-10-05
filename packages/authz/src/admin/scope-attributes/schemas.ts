@@ -1,6 +1,6 @@
-import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import AjvModule from 'ajv';
 import type { ErrorObject, Options, ValidateFunction } from 'ajv';
 
@@ -9,8 +9,6 @@ import type { ScopeAttributeSchema } from '../../contracts/adapter.js';
 import type { ResourceType } from '../../contracts/principal.js';
 import { AuthzContributor } from '../../host/contributor.js';
 import type { AuthzContribution } from '../../host/contributor.js';
-
-const CONFIG_KEY = 'authz.scopes.attributes';
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isPlainObject = (v: unknown): v is Record<string, unknown> => isObject(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
@@ -34,24 +32,14 @@ const describeError = (e: unknown): string => (e instanceof Error ? e.message : 
 @Singleton()
 @Injectable(AuthzContributor)
 export class ConfigScopeAttributeSchemas extends AuthzContributor {
-  async contribute(_domain: string): Promise<AuthzContribution> {
-    const configuration = (await DI.resolve(Configuration)) as unknown as Configuration;
-    const section = configuration.get<unknown>(['authz', 'scopes', 'attributes']);
-    if (section === undefined || section === null) return {};
-    const fail = (key: string, expected: string, got: unknown): never => {
-      throw new AuthzConfigError(`configuration key ${CONFIG_KEY}${key} must be ${expected}, got ${q(got)}`);
-    };
-    if (!isObject(section)) fail('', 'an object of { schema, defaults } by scope type', section);
+  @Config('authz.scopes.attributes')
+  protected Attributes: Readonly<Record<string, { readonly schema: object; readonly defaults?: Readonly<Record<string, unknown>> }>> | null | undefined;
 
-    const schemas: ScopeAttributeSchema[] = [];
-    for (const [scopeType, entry] of Object.entries(section as Record<string, unknown>)) {
-      if (!isObject(entry)) fail(`.${scopeType}`, 'an object { schema, defaults }', entry);
-      const { schema, defaults = {} } = entry as Record<string, unknown>;
-      if (!isObject(schema)) fail(`.${scopeType}.schema`, 'a JSON schema object', schema);
-      if (!isPlainObject(defaults)) fail(`.${scopeType}.defaults`, 'a plain object', defaults);
-      schemas.push({ scopeType, schema: schema as object, defaults: defaults as Record<string, unknown> });
-    }
-    return { scopeAttributeSchemas: schemas };
+  async contribute(_domain: string): Promise<AuthzContribution> {
+    const section = this.Attributes;
+    if (section === undefined || section === null) return {};
+    // defaults is a schema default; a Configuration that skips the schema can leave it out.
+    return { scopeAttributeSchemas: Object.entries(section).map(([scopeType, { schema, defaults = {} }]) => ({ scopeType, schema, defaults })) };
   }
 }
 

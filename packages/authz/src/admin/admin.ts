@@ -1,6 +1,6 @@
 import { Container, Inject, Injectable, PerChildInstance, ResolveType, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 
 import { AdminGuard, AuthzAdmin, AuthzAdminFailure, AuthzCommandValidator, AuthzEventSink, AuthzWriteHandler } from '../contracts/admin.js';
 import type { AuthzAdminOptions, AuthzAdminQuery, AuthzCommand, AuthzCommandResult, AuthzEvent, AuthzTx } from '../contracts/admin.js';
@@ -16,8 +16,8 @@ import { AuthzClock } from '../host/clock.js';
 import { DefaultAuthzDomains } from '../host/domains.js';
 import { engineLog } from '../host/log.js';
 import { AuthzAdminBackend } from './backend.js';
-import { mapPermission, readAdminConfig } from './config.js';
-import type { AdminConfig } from './config.js';
+import { ADMIN_DEFAULTS, mapPermission } from './config.js';
+import type { AdminConfig, AdminPermissionMap } from './config.js';
 import type { AdminCallContext } from './context.js';
 import { requirePermitted } from './permit.js';
 import { AuthzAdminReader } from './ports.js';
@@ -98,6 +98,22 @@ class Rollback extends Error {}
 @Inject(Container)
 export class DefaultAuthzAdmin extends AuthzAdmin {
   private readonly log = engineLog('authz-admin');
+
+  /** The authz tree, for the bus and audit the domain's lineage configures. */
+  @Config('authz')
+  protected Config: unknown;
+
+  @Config('authz.admin.maxBatch', { defaultValue: ADMIN_DEFAULTS.maxBatch })
+  protected MaxBatch: number;
+
+  @Config('authz.admin.backend', { defaultValue: ADMIN_DEFAULTS.backend })
+  protected Backend: string;
+
+  @Config('authz.admin.guard.service')
+  protected GuardService: string | undefined;
+
+  @Config('authz.admin.permissions', { defaultValue: {} })
+  protected Permissions: AdminPermissionMap;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -371,10 +387,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     const service = (await c.resolve(AuthzService)) as AuthzService;
     const domain = service.domain;
     const where = `Authz domain ${q(domain)}`;
-    const configuration = (await c.resolve(Configuration)) as unknown as Configuration;
-    if (!isObject(configuration) || typeof configuration.get !== 'function') throw new AuthzConfigError(`${where}: the resolved Configuration has no get()`);
-    const get = (path: string[]): unknown => configuration.get(path);
-    const cfg = readAdminConfig(get(['authz', 'admin']), where);
+    const cfg: AdminConfig = Object.freeze({ maxBatch: this.MaxBatch, backend: this.Backend, permissions: this.Permissions, ...(this.GuardService === undefined ? {} : { guard: this.GuardService }) });
 
     if (cfg.guard === undefined) throw new AuthzConfigError(`${where}: authz.admin.guard.service is not set; AuthzAdmin refuses every call until it names a registered AdminGuard class`);
     const guard = await this.named(AdminGuard, cfg.guard, 'authz.admin.guard.service', where);
@@ -387,7 +400,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     // The bus and audit the domain's AuthzService picked at boot, chosen the same way.
     const domains: unknown = await c.resolve(AuthzDomains);
     if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: AuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
-    const domainCfg = readDomainConfig(get(['authz']), domains.lineage(domain));
+    const domainCfg = readDomainConfig(this.Config, domains.lineage(domain));
     const bus = await this.pick(ChangeBus, domainCfg.bus.service, 'authz.bus.service', where);
     const audit = await this.pick(DecisionAudit, domainCfg.audit.service, 'authz.audit.service', where);
 
