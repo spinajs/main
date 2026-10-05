@@ -19,6 +19,12 @@ class RootSingleton {
   public Value: string;
 }
 
+const sharedConfiguration = (values: Record<string, unknown>) => {
+  const Base = configurationOf(values);
+  class SharedConfiguration extends Base {}
+  return SharedConfiguration;
+};
+
 class Plain {
   @Config('feature.value')
   public Value: string;
@@ -102,6 +108,40 @@ describe('@Config reads the Configuration of the container that built the instan
 
   it('reading the property throws when the Configuration of the container is not resolved', () => {
     const service = child({ feature: { value: 'child' } }).resolve(PerChild) as PerChild;
+
+    expect(() => service.Value).to.throw(InvalidOperation, /feature.value/);
+  });
+
+  it('a same-named Configuration class in the root does not leak into a child that has not resolved its own', async () => {
+    const scenario = child(undefined, DI.RootContainer);
+    scenario.register(sharedConfiguration({ feature: { value: 'root' } })).as(Configuration);
+    scenario.register(PerChild).asSelf();
+    await scenario.resolve(Configuration);
+
+    const c = child(undefined, scenario);
+    c.register(sharedConfiguration({ feature: { value: 'child' } })).as(Configuration);
+    const service = c.resolve(PerChild) as PerChild;
+
+    expect(() => service.Value).to.throw(InvalidOperation, /feature.value/);
+
+    await c.resolve(Configuration);
+    expect(service.Value).to.equal('child');
+  });
+
+  it('reads a Configuration registered through a factory, once it is resolved', async () => {
+    const instance = await child({ feature: { value: 'factory' } }).resolve(Configuration);
+
+    const c = child();
+    c.register(() => instance).as(Configuration);
+    const service = c.resolve(PerChild) as PerChild;
+
+    expect(service.Value).to.equal('factory');
+  });
+
+  it('throws for a factory-registered Configuration that is still resolving', () => {
+    const c = child();
+    c.register(() => Promise.resolve(new (configurationOf({}))())).as(Configuration);
+    const service = c.resolve(PerChild) as PerChild;
 
     expect(() => service.Value).to.throw(InvalidOperation, /feature.value/);
   });

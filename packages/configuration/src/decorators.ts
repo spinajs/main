@@ -1,20 +1,46 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService, isFactory, isPromise } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 
 export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
 
 /**
+ * Reads the Configuration owned by the nearest container (self or ancestor) that registers one.
+ * Never goes through `Container.get`'s parent walk: it matches by type name, so a same-named
+ * class in an ancestor would hand out the ancestor's instance.
+ */
+function getOwnConfiguration(container: IContainer): Configuration | null {
+  let owner: IContainer | undefined = container;
+  while (owner && !owner.Registry.ownsRegistration(Configuration)) {
+    owner = owner.Parent;
+  }
+  owner ??= DI.RootContainer;
+
+  const types = owner.getRegisteredTypes(Configuration, false);
+  if (isFactory(types[types.length - 1])) {
+    // A factory result is never cached, so it can only be read by resolving it.
+    const resolved = owner.resolve(Configuration);
+    return isPromise(resolved) ? null : (resolved as Configuration);
+  }
+
+  return owner.get(Configuration, false);
+}
+
+/**
  * Injects configuration value into a class property.
  *
  * The decorated property is replaced with a lazy getter. Every read asks the
  * {@link Configuration} of the container that built the instance, which must be resolved
- * before the property is read (an instance built with `new` reads the root one), and calls `config.get(path, options.defaultValue)`,
+ * before the property is read, and calls `config.get(path, options.defaultValue)`,
  * so the property always reflects the current (possibly reloaded / watched) value
  * instead of a snapshot taken at construction time.
+ *
+ * Properties are read in `resolve()` or later. During the constructor or a field initializer
+ * the container is not injected yet, so the root Configuration is read (as for an instance
+ * built with `new`).
  *
  * Besides defining the getter, the decorator registers `{ path, options }` in the DI
  * container under `__configuration_property__`. Other modules listen for these
@@ -104,7 +130,7 @@ export function Config(path: string, options?: IConfigEntryOptions) {
     Object.defineProperty(target, key, {
       get(this: Record<string, IContainer | undefined>) {
         const container = this[CONFIGURATION_CONTAINER_KEY];
-        const config = container ? container.get(Configuration) : DI.get(Configuration);
+        const config = container ? getOwnConfiguration(container) : DI.get(Configuration);
         if (!config) {
           throw new InvalidOperation(`Cannot read configuration path ${path}: the Configuration of the container is not resolved`);
         }
