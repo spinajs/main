@@ -431,7 +431,8 @@ describe('evaluateFilter (reference residual evaluator)', () => {
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd1' }] }, row, { ancestors })).to.eq(true);
       expect(await ev({ op: 'under', scopes: [ref] }, row, { ancestors })).to.eq(true);
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd2' }] }, row, { ancestors })).to.eq(false);
-      expect(await ev({ op: 'under', scopes: [{ type: 'folder' }] }, row, { ancestors })).to.eq(false);
+      expect(await ev({ op: 'under', scopes: [{ type: 'folder' }] }, row, { ancestors })).to.eq(true);
+      expect(await ev({ op: 'under', scopes: [{ type: 'project' }] }, row, { ancestors })).to.eq(false);
       expect(await ev({ op: 'under', scopes: [{ type: 'folder', id: 'd1' }] }, row, { ancestors: async () => null })).to.eq(null);
       expect(await ev({ op: 'under', scopes: [] }, row, { ancestors: async () => null })).to.eq(false);
     });

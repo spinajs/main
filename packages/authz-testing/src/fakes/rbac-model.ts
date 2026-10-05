@@ -92,14 +92,14 @@ export class FakeRbacModel extends AuthorizationModel {
 
     return ctx.ancestors(req.resource).then((chain) => {
       if (chain == null) return this.vote(FALSE, 'unknown_resource');
-      const applicable = hits.filter((h) => chain.some((a) => sameRef(a, h.scope)));
+      const applicable = hits.filter((h) => chain.some((a) => inScope(a, h.scope)));
       return this.vote(or(...applicable.map((h) => (h.relation ? relation(h.relation) : TRUE))));
     });
   }
 
   async summarize(principal: Principal, at: ResourceRef, ctx: EvaluationContext): Promise<ModelSummary> {
     const chain = (await ctx.ancestors(at)) ?? [];
-    const live = this.of(principal).filter((a) => chain.some((c) => sameRef(c, a.scope)));
+    const live = this.of(principal).filter((a) => chain.some((c) => inScope(c, a.scope)));
     const permissions = new Map<Permission, boolean>();
     for (const a of live) {
       for (const g of this.grants.get(a.role) ?? []) {
@@ -127,6 +127,9 @@ export class FakeRbacModel extends AuthorizationModel {
 }
 
 const normalise = (a: FakeAssignment): Required<FakeAssignment> => ({ subject: { type: a.subject.type, id: a.subject.id }, role: a.role, scope: a.scope ?? GLOBAL });
+
+/** A scope without id is any node of its type, as `under` reads it (RFC E2-1). */
+const inScope = (node: ResourceRef, scope: ResourceRef): boolean => (scope.id == null ? node.type === scope.type : sameRef(node, scope));
 
 const relation = (name: string): ResourceFilter => ({ op: 'relation', relation: name });
 

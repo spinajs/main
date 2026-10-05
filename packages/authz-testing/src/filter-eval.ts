@@ -62,7 +62,8 @@ export const isAllowed = (result: Kleene): boolean => result === true;
  *   that type, then its attributes). Unresolved, null-valued, object-valued or malformed refs are
  *   UNKNOWN; at the isAllowed level this denies exactly where bindRefs (fail closed by polarity) does.
  * - relation without a resolver, native op without a filter, `under` on a row with unknown
- *   ancestors: UNKNOWN. `under []` = FALSE.
+ *   ancestors: UNKNOWN. `under []` = FALSE. A scope without id matches an ancestor of its type, whatever
+ *   the id (the engine's reading, RFC E2-1); a scope with id matches that ref only.
  * - Unknown ops and unknown cmp operators throw TypeError; resolver and native filter errors propagate, and a
  *   non-boolean answer from either throws TypeError.
  */
@@ -211,7 +212,7 @@ class Evaluation {
     if (scopes.length === 0) return false;
     const chain = await this.ancestors(this.env.ref);
     if (chain == null) return null;
-    return chain.some((a) => scopes.some((s) => sameRef(a, s)));
+    return chain.some((a) => scopes.some((s) => (s.id == null ? a.type === s.type : sameRef(a, s))));
   }
 
   private async native(op: `native:${string}`, args: unknown): Promise<Kleene> {
