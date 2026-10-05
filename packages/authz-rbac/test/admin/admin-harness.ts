@@ -2,7 +2,7 @@ import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, Facet, HostSetup } from '@spinajs/authz-testing';
 
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryAuthzAdminBackend, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore } from '@spinajs/authz';
-import type { AuthzEvent, AuthzService } from '@spinajs/authz';
+import type { Assignment, AuthzEvent, AuthzService } from '@spinajs/authz';
 
 import adminConfig from '../../src/config/admin.js';
 import { AdminAssignmentStore, AdminLinkStore, AdminRuleStore, AssignmentStore, LinkStore, MemoryAdminAssignmentStore, MemoryLinkStore, MemoryRuleStore, RoleStore, RuleStore } from '../../src/index.js';
@@ -62,28 +62,28 @@ function deepMerge(base: unknown, over: unknown): unknown {
   return out;
 }
 
-/** The roles and ladders of `world.rbac`. */
 export function worldRoles(host: HostSetup): { roles: readonly RoleDef[]; ladders: readonly LadderDef[] } {
   const rbac = host.world.rbac ?? {};
   return { roles: (rbac.roles ?? []) as readonly RoleDef[], ladders: (rbac.ladders ?? []) as readonly LadderDef[] };
 }
 
-/**
- * Registers the AuthzAdmin side of authz-rbac, all but the model: memory assignment, link and rule
- * stores seeded from `world.rbac` (each behind its read and its admin port), `roleStore` as the
- * RoleStore, a recording AuthzEventSink, a per-domain backend, the `authz.admin` config (the
- * authz-rbac defaults under the world's `config.admin`) and, when the world has `scopeAttributes`,
- * a writable memory attribute store with its schemas.
- */
-export function registerAdminSide(host: HostSetup, roleStore: RoleStore): AdminSideStores {
+export interface AdminSideOptions {
+  /** `world.rbac.rules` are the caller's config rules, so the admin rule store starts empty. */
+  readonly configRules?: boolean;
+}
+
+/** The AuthzAdmin side of authz-rbac, all but the model; each memory store behind its read port and its admin port. */
+export function registerAdminSide(host: HostSetup, roleStore: RoleStore, opts: AdminSideOptions = {}): AdminSideStores {
   const c = host.container;
   const rbac = host.world.rbac ?? {};
 
-  const assignments = new MemoryAdminAssignmentStore({ assignments: rbac.assignments });
+  // As in rbacHarness, a revoked link keeps its assignment: the link principal's empty ceiling must do the denying.
+  const revoked = (rbac.links ?? []).filter((l) => l.revoked).map((l): Assignment => ({ id: `link-${l.id}`, subject: { type: 'link', id: l.id }, role: l.role, scope: l.scope, ...(l.tags ? { tags: l.tags } : {}), source: 'test' }));
+  const assignments = new MemoryAdminAssignmentStore({ assignments: [...(rbac.assignments ?? []), ...revoked] });
   const links = new MemoryLinkStore(assignments, {
     links: (rbac.links ?? []).filter((l) => !l.revoked).map((l) => ({ link: { id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes ?? {}, ...(l.createdBy ? { createdBy: l.createdBy } : {}) }, token: l.token, role: l.role, tags: l.tags })),
   });
-  const rules = new MemoryRuleStore({ rules: rbac.rules });
+  const rules = new MemoryRuleStore(opts.configRules ? {} : { rules: rbac.rules });
   const events = new RecordingEventSink();
 
   c.register(instance(assignments)).as(AssignmentStore);
