@@ -11,8 +11,8 @@ const isUser = (id: IdentityRef | undefined): id is IdentityRef => id?.type === 
 
 /**
  * Passwords in `users.Password`, keyed by `user:<Uuid>` (RFC N3-1). `null`, `''` and `NO_PASSWORD` read as no
- * password; any other value, authn-local's `'!expired'` included, reads back verbatim. Statements run as SYSTEM, as
- * `UserIdentityStore`'s lookups do.
+ * password; any other value, authn-local's `'!expired'` included, reads back verbatim. Statements run as SYSTEM: the
+ * caller at login and reset is anonymous or UNATTENDED, and an application's user model may be an `@AccessResource`.
  */
 @Injectable(PasswordCredentialStore)
 export class UserPasswordStore extends PasswordCredentialStore {

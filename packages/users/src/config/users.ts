@@ -133,7 +133,7 @@ const usersConfig = {
       // The grants lists are concatenated with the application's too: it can add grants to these roles, not remove them.
       roles: {
         guest: {
-          // An account holding guest and user reads only Login on a check until RFC C3-1 unions same-condition grants.
+          // An account holding guest and user reads only Login (check and summary) until RFC C3-1 unions same-condition grants.
           grants: [{ permission: 'user:read', relation: 'self', fields: { read: ['Login'] } }],
         },
         user: {

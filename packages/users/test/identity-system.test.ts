@@ -5,7 +5,7 @@ import * as sinon from 'sinon';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { DefaultQueueService } from '@spinajs/queue';
-import { AuthzContributor, ResourceAdapter, runWithPrincipal } from '@spinajs/authz';
+import { AccessDenied, AuthzContributor, ResourceAdapter, SYSTEM, UNATTENDED, currentPrincipal, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { QueryMiddleware } from '@spinajs/orm';
 import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/contracts';
@@ -33,6 +33,13 @@ const CALLERS: readonly [string, Principal | undefined][] = [
 
 const as = <T>(caller: Principal | undefined, fn: () => Promise<T>): Promise<T> => (caller ? runWithPrincipal(caller, fn) : fn());
 
+/** Runs `call` as `caller` and answers the ambient principal right after it: SYSTEM must not outlive a store call. */
+const principalAfter = async (caller: Principal | undefined, call: () => Promise<unknown>): Promise<Principal> =>
+  as(caller, async () => {
+    await call();
+    return currentPrincipal();
+  });
+
 const event = (type: AuthnEventType, identity: IdentityRef, over: Partial<AuthnEvent> = {}): AuthnEvent => ({ type, at: AT, outcome: 'success', identity, ...over });
 
 describe('the identity stores over a user model that is an @AccessResource', function () {
@@ -41,6 +48,8 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   let orm: AuthzOrm;
   let unregisterResource: (model: unknown) => void;
   let emit: sinon.SinonStub;
+  /** The ambient principal of each queue emit, in order. */
+  let emittedAs: Principal[];
 
   before(async () => {
     registerUsersTestHost();
@@ -53,7 +62,11 @@ describe('the identity stores over a user model that is an @AccessResource', fun
   beforeEach(async () => {
     await bootUsersDb();
     await rootAuthz();
-    emit = sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
+    emittedAs = [];
+    emit = sinon.stub(DefaultQueueService.prototype, 'emit').callsFake(async () => {
+      emittedAs.push(currentPrincipal());
+      return undefined;
+    });
   });
 
   afterEach(() => {
@@ -86,11 +99,11 @@ describe('the identity stores over a user model that is an @AccessResource', fun
       await expect(
         as(caller, () => User.query().withDeleted().where('Uuid', TEST_USER_UUID).first()),
         name,
-      ).to.be.rejected;
+      ).to.be.rejectedWith(AccessDenied);
       await expect(
         as(caller, async () => User.query().Driver.select().from('users').columns(['Uuid']).where('Uuid', TEST_USER_UUID)),
         name,
-      ).to.be.rejected;
+      ).to.be.rejectedWith(AccessDenied);
     }
   });
 
@@ -100,6 +113,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
 
     for (const [name, caller] of CALLERS) {
       expect(await as(caller, () => store.findByLogin('test@spinajs.pl')), name).to.deep.eq({ type: 'user', id: TEST_USER_UUID });
+      expect(await principalAfter(caller, () => store.findByLogin('test@spinajs.pl')), name).to.eq(caller ?? UNATTENDED);
     }
   });
 
@@ -110,6 +124,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
 
     for (const [name, caller] of CALLERS) {
       expect(await as(caller, () => store.status(ref)), name).to.deep.eq({ exists: true, active: false, banned: false, deleted: false, invitePending: true });
+      expect(await principalAfter(caller, () => store.status(ref)), name).to.eq(caller ?? UNATTENDED);
     }
   });
 
@@ -119,6 +134,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
 
     for (const [name, caller] of CALLERS) {
       expect(await as(caller, () => store.display({ type: 'user', id: TEST_USER_UUID })), name).to.deep.eq({ email: 'test@spinajs.pl', name: 'test' });
+      expect(await principalAfter(caller, () => store.display({ type: 'user', id: TEST_USER_UUID })), name).to.eq(caller ?? UNATTENDED);
     }
   });
 
@@ -129,6 +145,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
 
     for (const [name, caller] of CALLERS) {
       expect(await as(caller, () => store.get(ref)), name).to.eq(HASH);
+      expect(await principalAfter(caller, () => store.get(ref)), name).to.eq(caller ?? UNATTENDED);
     }
   });
 
@@ -149,6 +166,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
         expect(await store.set(ref, OTHER, OTHER), `${name}: a stale expected value`).to.eq(false);
         expect(await store.set(ref, OTHER, HASH), `${name}: over the expected value`).to.eq(true);
         expect(await store.set(ref, LAST), `${name}: unconditional`).to.eq(true);
+        expect(currentPrincipal(), name).to.eq(caller ?? UNATTENDED);
       });
     }
 
@@ -165,6 +183,7 @@ describe('the identity stores over a user model that is an @AccessResource', fun
 
     for (const [name, caller] of CALLERS) {
       expect(await as(caller, () => source.passwordsSetBefore(new Date())), name).to.deep.include(ref);
+      expect(await principalAfter(caller, () => source.passwordsSetBefore(new Date())), name).to.eq(caller ?? UNATTENDED);
     }
   });
 
@@ -174,8 +193,8 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     scopeUsers();
     const sink = await DI.resolve(UserAccountSink);
 
-    await as(undefined, () => sink.publish(event('password.reset', reset)));
-    await as(ANONYMOUS, () => sink.publish(event('invite.redeem', invited)));
+    expect(await principalAfter(undefined, () => sink.publish(event('password.reset', reset)))).to.eq(UNATTENDED);
+    expect(await principalAfter(ANONYMOUS, () => sink.publish(event('invite.redeem', invited)))).to.eq(ANONYMOUS);
 
     unregisterResource(User);
     expect((await storedUser(reset.id)).PasswordSetAt?.toMillis()).to.eq(AT.getTime());
@@ -183,16 +202,23 @@ describe('the identity stores over a user model that is an @AccessResource', fun
     expect(Boolean(u.IsActive)).to.eq(true);
     expect(u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING]).to.not.be.ok;
     expect(emit.args.map((a) => a[0]).some((e) => e instanceof UserActivated)).to.eq(true);
+    // UserChanged and UserActivated go to queue subscribers as the anonymous redeemer, never as SYSTEM.
+    expect(emittedAs).to.have.lengthOf(2);
+    expect(emittedAs.every((p) => p === ANONYMOUS)).to.eq(true);
   });
 
   it('QueueAuthnEventSink reads the user of the event', async () => {
     scopeUsers();
     const sink = await DI.resolve(QueueAuthnEventSink);
 
-    for (const [, caller] of CALLERS) {
-      await as(caller, () => sink.publish(event('login', { type: 'user', id: TEST_USER_UUID }, { strategy: 'local' })));
+    for (const [name, caller] of CALLERS) {
+      expect(await principalAfter(caller, () => sink.publish(event('login', { type: 'user', id: TEST_USER_UUID }, { strategy: 'local' }))), name).to.eq(caller ?? UNATTENDED);
     }
 
     expect(emit.args.map((a) => a[0]).filter((e) => e instanceof UserLogged)).to.have.lengthOf(2);
+    expect(emittedAs).to.have.lengthOf(2);
+    expect(emittedAs[0]).to.eq(UNATTENDED);
+    expect(emittedAs[1]).to.eq(ANONYMOUS);
+    expect(emittedAs).to.not.include(SYSTEM);
   });
 });
