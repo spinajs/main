@@ -31,7 +31,7 @@ export class MetricsController extends BaseController {
    * `telemetry.collectDefaultMetrics` is on — the `process_*` / `nodejs_*` set.
    *
    * @response 200 {string} Prometheus exposition text ( text/plain )
-   * @response 401 No credentials: the telemetry token goes in x-metrics-token or Authorization Bearer
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
    * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('/')

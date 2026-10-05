@@ -1,3 +1,4 @@
+// Reference only: the 2.x test, not run (mocha ignores test/legacy-v2) and stale against the 3.0 test config; T4 replaces it.
 import 'mocha';
 import { expect } from 'chai';
 import { DI, Bootstrapper, Injectable } from '@spinajs/di';

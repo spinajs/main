@@ -4,9 +4,13 @@ import { normalizeEnvironment } from '@spinajs/configuration-common';
 
 export type EnvLike = Readonly<Record<string, string | undefined>>;
 
-/** APP_ENV (else NODE_ENV) names development. A missing env normalizes to production. */
-export function isExplicitDevelopment(env: EnvLike = process.env): boolean {
-  return normalizeEnvironment(env.APP_ENV ?? env.NODE_ENV) === 'dev';
+/**
+ * The env names development: `configuredEnv` (the env the configuration loaded) when it is a string,
+ * else APP_ENV, else NODE_ENV. A missing env normalizes to production.
+ */
+export function isExplicitDevelopment(env: EnvLike = process.env, configuredEnv?: unknown): boolean {
+  const configured = typeof configuredEnv === 'string' ? configuredEnv : undefined;
+  return normalizeEnvironment(configured ?? env.APP_ENV ?? env.NODE_ENV) === 'dev';
 }
 
 /**
@@ -16,5 +20,8 @@ export function isExplicitDevelopment(env: EnvLike = process.env): boolean {
 export function telemetrySkipsAuth(env: EnvLike = process.env): boolean {
   const cfg = DI.get(Configuration);
   if (!cfg) return false;
-  return cfg.get<unknown>('telemetry.auth.skipInDevelopment') === true && cfg.get<unknown>('configuration.isProduction') !== true && isExplicitDevelopment(env);
+  // FrameworkConfiguration keeps the env whose files it loaded (`--env`, else APP_ENV) in `Env`. The
+  // tree's `process.env.APP_ENV` is no substitute: it defaults to 'development'.
+  const configuredEnv = (cfg as { Env?: unknown }).Env;
+  return cfg.get<unknown>('telemetry.auth.skipInDevelopment') === true && cfg.get<unknown>('configuration.isProduction') !== true && isExplicitDevelopment(env, configuredEnv);
 }

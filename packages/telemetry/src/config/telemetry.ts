@@ -24,11 +24,17 @@ const config = {
       /**
        * Shared scrape token; set it in your project. A non-empty token becomes the service principal
        * `service:telemetry` (headers `x-metrics-token` and `Authorization: Bearer`) through
-       * `authz.http.services`, unless that list already has an entry named `telemetry`.
+       * `authz.http.services`, unless that list already has an entry named `telemetry`. Read once at
+       * bootstrap: a later change or a configuration reload needs a restart, and a reload drops the
+       * entries, so the token gets 401 until then. Rotate by restart, or list several tokens in an
+       * explicit `authz.http.services` entry.
        */
       token: '',
 
-      /** Skip the 'AccessPolicy' slot checks, only while APP_ENV (else NODE_ENV) names development and configuration.isProduction is not true. */
+      /**
+       * Skip the 'AccessPolicy' slot checks, only while the env the configuration loaded (`--env`,
+       * else APP_ENV, else NODE_ENV) names development and configuration.isProduction is not true.
+       */
       skipInDevelopment: false,
 
       /** The authz domain the 'AccessPolicy' slots check in. */

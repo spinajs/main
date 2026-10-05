@@ -39,7 +39,8 @@ export async function startApp(opts: { controllers?: Class<BaseController>[]; co
   if (running) throw new Error('startApp: an app is already running; call stopApp() first');
 
   DI.setESMModuleSupport();
-  if (ERROR_MAP && !DI.get('__http_error_map__')) for (const [name, type] of ERROR_MAP) DI.register(type).asMapValue('__http_error_map__', name);
+  const errorMap = DI.get<Map<string, Class<unknown>>>('__http_error_map__');
+  for (const [name, type] of ERROR_MAP ?? []) if (!errorMap?.has(name)) DI.register(type).asMapValue('__http_error_map__', name);
   const cfg = await testHost.installHost();
   cfg.set([], testConfig());
   cfg.set(['http', 'port'], 0);

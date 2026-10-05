@@ -325,6 +325,25 @@ describe('TelemetryAccessPolicy', function () {
       expect(isExplicitDevelopment({ APP_ENV: '' })).to.eq(false);
     });
 
+    it('the env the configuration loaded (its Env) wins over APP_ENV and NODE_ENV', () => {
+      expect(isExplicitDevelopment({ APP_ENV: 'development' }, 'prod')).to.eq(false);
+      expect(isExplicitDevelopment({ NODE_ENV: 'development' }, 'production')).to.eq(false);
+      expect(isExplicitDevelopment({ APP_ENV: 'development' }, '')).to.eq(false);
+      expect(isExplicitDevelopment({ APP_ENV: 'production' }, 'development')).to.eq(true);
+      expect(isExplicitDevelopment({ APP_ENV: 'development' }, undefined)).to.eq(true);
+    });
+
+    it('flag on, APP_ENV=development, configuration Env prod: checked', () => {
+      testHost.config().set(FLAG, true);
+      const cfg = testHost.config() as unknown as { Env?: string };
+      cfg.Env = 'prod';
+      try {
+        expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
+      } finally {
+        delete cfg.Env;
+      }
+    });
+
     it('flag off, development env: checked', () => {
       expect(telemetrySkipsAuth({ APP_ENV: 'development' })).to.eq(false);
     });

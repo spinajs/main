@@ -45,7 +45,7 @@ export class TelemetryController extends BaseController {
    * Lifetime request statistics plus the rolling timeline.
    *
    * @returns {StatsResponse} Lifetime stats and the per-bucket timeline
-   * @response 401 No credentials: the telemetry token goes in x-metrics-token or Authorization Bearer
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
    * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('stats')
@@ -70,7 +70,7 @@ export class TelemetryController extends BaseController {
    * @param buckets - how many of the most recent buckets to return; all of them when omitted
    * @returns {TimelineResponse} The annotated timeline
    * @response 400 `buckets` was not a positive integer
-   * @response 401 No credentials: the telemetry token goes in x-metrics-token or Authorization Bearer
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
    * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('timeline')
@@ -124,7 +124,7 @@ export class TelemetryController extends BaseController {
    * `http_request_duration_ms` histogram, which carries the same label values.
    *
    * @returns {RoutesResponse} Per-route request statistics
-   * @response 401 No credentials: the telemetry token goes in x-metrics-token or Authorization Bearer
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
    * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('routes')
@@ -139,7 +139,7 @@ export class TelemetryController extends BaseController {
    * process, including the ORM's `orm.query` spans.
    *
    * @returns {PerfResponse} Aggregated spans and events
-   * @response 401 No credentials: the telemetry token goes in x-metrics-token or Authorization Bearer
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
    * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('perf')

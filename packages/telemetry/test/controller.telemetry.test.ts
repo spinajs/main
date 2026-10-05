@@ -181,10 +181,6 @@ describe('telemetry json api', function () {
     });
 
     it('rejects a bucket count that is not a positive integer', async () => {
-      // The mapped 400 degrades to 500 once a suite has cleared the DI cache ( it
-      // drops the `__http_error_map__` the response classes registered at import
-      // time ), so assert the rejection plus the reason this endpoint produced.
-      //
       // '' covers `?buckets=` — a value that WAS supplied and is not a positive
       // integer, so it is rejected like the rest instead of silently meaning
       // "all buckets". Omitting the parameter entirely still means "all".

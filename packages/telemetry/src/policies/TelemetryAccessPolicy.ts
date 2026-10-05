@@ -1,8 +1,8 @@
-import { DI, NewInstance, isFactory } from '@spinajs/di';
+import { DI, Injectable, NewInstance, isFactory } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
-import { isPermission } from '@spinajs/authz';
-import type { Permission } from '@spinajs/authz';
+import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz';
+import type { AuthzContribution, Permission, PermissionRefDecl } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, AccessPolicy } from '@spinajs/authz-http';
 import type { IAccessDescriptor } from '@spinajs/authz-http';
 import { BasePolicy, Policy, RouteRegistrationException } from '@spinajs/http';
@@ -111,4 +111,33 @@ export class TelemetryAccessPolicy extends BasePolicy {
 /** Guards a route by the telemetry slot `telemetry.auth.policies.<endpoint>`. */
 export function TelemetryAccess(endpoint: string) {
   return Policy(TelemetryAccessPolicy, endpoint);
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Feeds the permissions of every `'AccessPolicy'` slot to boot rule 7 of `telemetry.auth.domain`
+ * (default root), so an unregistered one fails that domain's boot (B02) instead of the first request.
+ * Malformed values emit nothing: TelemetryAccessPolicy refuses them when the route registers.
+ */
+@Injectable(AuthzContributor)
+export class TelemetryAccessContributor extends AuthzContributor {
+  public contribute(domain: string): AuthzContribution {
+    const permissionRefs: PermissionRefDecl[] = [];
+    const cfg = DI.get(Configuration);
+    if (!cfg || (cfg.get<unknown>(['telemetry', 'auth', 'domain']) ?? 'root') !== domain) return { permissionRefs };
+
+    const slots = cfg.get<unknown>(['telemetry', 'auth', 'policies']);
+    if (!isRecord(slots)) return { permissionRefs };
+
+    for (const [endpoint, slot] of Object.entries(slots)) {
+      if (slot !== TELEMETRY_ACCESS_SLOT) continue;
+      const raw = cfg.get<unknown>(['telemetry', 'auth', 'permissions', endpoint]);
+      const source = `telemetry.auth.permissions.${endpoint}`;
+      for (const permission of typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : []) {
+        if (isPermission(permission)) permissionRefs.push({ permission, type: parsePermission(permission).resource, source });
+      }
+    }
+    return { permissionRefs };
+  }
 }
