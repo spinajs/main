@@ -1,4 +1,5 @@
 import { ClassInfo, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { isProduction } from '@spinajs/authz';
 import { BaseController, CONTROLLED_DESCRIPTOR_SYMBOL, ControllerSource } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
@@ -16,9 +17,12 @@ export class ExplainControllerSource extends ControllerSource {
   @Logger('authz-http')
   protected Log: Log;
 
+  @Config('configuration.isProduction')
+  protected IsProduction: boolean | undefined;
+
   public async getControllers(): Promise<ClassInfo<BaseController>[]> {
     if (!httpConfig().explainRoute.enabled) return [];
-    if (isProduction()) {
+    if (isProduction(this.IsProduction)) {
       this.Log.warn('authz.http.explainRoute.enabled is true in production; the explain route is not registered');
       return [];
     }

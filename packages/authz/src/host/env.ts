@@ -1,15 +1,9 @@
-import { DI } from '@spinajs/di';
-import { Configuration, normalizeEnvironment } from '@spinajs/configuration';
+import { normalizeEnvironment } from '@spinajs/configuration';
 
-export function isProduction(): boolean {
-  // Never resolve here: creating a Configuration is not this helper's job.
-  if (DI.has(Configuration)) {
-    try {
-      const flag = DI.get(Configuration)?.get<unknown>('configuration.isProduction');
-      if (typeof flag === 'boolean') return flag;
-    } catch {
-      // fall back to the environment
-    }
-  }
-  return normalizeEnvironment(process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development') === 'prod';
+/**
+ * `flag` is the caller's @Config('configuration.isProduction'). Without it (a Configuration that does not load the
+ * shipped configuration module, such as a test one) the environment decides, which a schema cannot read.
+ */
+export function isProduction(flag: boolean | undefined): boolean {
+  return flag ?? normalizeEnvironment(process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development') === 'prod';
 }

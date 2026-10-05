@@ -1,5 +1,5 @@
 import { DI, NewInstance } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { AccessDenied, AuthzConfigError, AuthzDomains, FALSE, ResourceAdapter, Unauthenticated, authzStorage, isProduction, parsePermission, readDomainConfig, DefaultAuthzDomains } from '@spinajs/authz';
 import type { AuthzService, Decision, DenyReason, Permission, Principal, ResourceRef } from '@spinajs/authz';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -48,6 +48,9 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
  */
 @NewInstance()
 export class AccessPolicy extends BasePolicy {
+  @Config('configuration.isProduction')
+  protected IsProduction: boolean | undefined;
+
   constructor(public readonly scope: AccessScope) {
     super();
   }
@@ -143,7 +146,7 @@ export class AccessPolicy extends BasePolicy {
    * the caller holds the explain permission (`authz.http.explainRoute.permission`, B23, B41).
    */
   protected async trace(authz: AuthzService, domain: string, principal: Principal, denied: Decision): Promise<unknown> {
-    if (isProduction()) return undefined;
+    if (isProduction(this.IsProduction)) return undefined;
 
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
     if (!(domains instanceof DefaultAuthzDomains)) return undefined;
