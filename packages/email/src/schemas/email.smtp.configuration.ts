@@ -29,6 +29,12 @@ const CONFIGURATION_SCHEMA = {
         count: { type: 'number' },
       },
     },
+    attachments: {
+      type: 'object',
+      properties: {
+        check: { type: 'boolean' },
+      },
+    },
     defaultConnection: { type: 'string' },
     password: {
       type: 'object',
