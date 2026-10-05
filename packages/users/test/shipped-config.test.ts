@@ -8,6 +8,7 @@ import { pathToFileURL } from 'url';
 import _ from 'lodash';
 import { DefaultQueueService } from '@spinajs/queue';
 import { AuthzService, ResourceAdapter } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 
 import usersConfig from '../src/config/users.js';
 import { AuthProvider, MemorySessionStore, SessionProvider, SimpleDbAuthProvider, User, UserPrincipalFactory, UserResourceAdapter, UserSession } from '../src/index.js';
@@ -28,6 +29,9 @@ const mergeArrays = (target: unknown, source: unknown) => (Array.isArray(target)
 const authnLegacyKeys = (): Promise<AuthnLegacyKeys> => import(pathToFileURL(join(process.cwd(), '..', 'authn', 'lib', 'mjs', 'service', 'boot', 'legacy-keys.js')).href);
 
 const configDir = join(process.cwd(), 'src', 'config');
+
+// authz-http's anonymous principal; users does not depend on authz-http.
+const ANONYMOUS: Principal = Object.freeze({ type: 'anonymous', id: 'anonymous', authenticated: false, source: 'anonymous', attributes: Object.freeze({}) });
 
 async function shippedConfigs(): Promise<[string, Record<string, unknown>][]> {
   const files = readdirSync(configDir).filter((f) => f.endsWith('.ts'));
@@ -141,6 +145,7 @@ describe('the configuration users ships', function () {
       await bootUsersDb((config: Configuration) => {
         const roles = _.mergeWith({}, config.get('authz.rbac.roles'), usersConfig.authz.rbac.roles, mergeArrays);
         config.set('authz.rbac.roles', roles);
+        config.set('authz.rbac.anonymousRoles', ['guest']);
         config.set('rbac', undefined);
         config.set('authz.config', { rejectLegacyKeys: true });
         config.set('authn.config', { rejectLegacyKeys: true });
@@ -191,28 +196,51 @@ describe('the configuration users ships', function () {
       expect(await authz.can(me, 'user:impersonate')).to.eq(false);
     });
 
-    it('gives guest no wider fields than user, held alone or with user, in a check and in the summary', async () => {
+    /** `user:read` of an account holding `roles` on its own row: the check's fields and its summary entry's. */
+    const ownRead = async (roles: string[], login: string) => {
       const authz = (await DI.resolve(AuthzService)) as AuthzService;
       const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
-      const readFields = async (roles: string[], login: string) => {
-        const { User: created } = await create({ Email: `${login}@spinajs.pl`, Login: login, Password: 'passw0rd123' }, roles);
-        await activate(created);
-        const own = await User.query().where('Uuid', created.Uuid).populate('Metadata').firstOrFail();
-        const principal = await factory.principalOf(own);
-        const read = await authz.check({ principal, permission: 'user:read', resource: { type: 'user', id: own.Uuid }, subject: own });
-        expect(read.allowed, login).to.eq(true);
-        const summary = (await authz.summary(principal)).permissions.find((p) => p.name === 'user:read');
-        return { check: read.fields.read, summary: summary?.fields?.read };
-      };
+      const { User: created } = await create({ Email: `${login}@spinajs.pl`, Login: login, Password: 'passw0rd123' }, roles);
+      await activate(created);
+      const own = await User.query().where('Uuid', created.Uuid).populate('Metadata').firstOrFail();
+      const principal = await factory.principalOf(own);
+      const read = await authz.check({ principal, permission: 'user:read', resource: { type: 'user', id: own.Uuid }, subject: own });
+      expect(read.allowed, login).to.eq(true);
+      const summary = (await authz.summary(principal)).permissions.find((p) => p.name === 'user:read');
+      return { check: read.fields.read, summary: summary?.fields?.read };
+    };
 
-      for (const [roles, login] of [
-        [['guest'], 'guest-only'],
-        [['guest', 'user'], 'guest-and-user'],
-      ] as const) {
-        const fields = await readFields([...roles], login);
-        expect(fields.check, login).to.have.members(['Email', 'Login']);
-        expect(fields.summary, login).to.have.members(['Email', 'Login']);
-      }
+    it('gives a guest-only account its own Login and not its Email, in a check and in the summary', async () => {
+      const fields = await ownRead(['guest'], 'guest-only');
+
+      expect(fields.check).to.have.members(['Login']);
+      expect(fields.summary).to.have.members(['Login']);
+    });
+
+    it('gives a user account its own Email and Login, in a check and in the summary', async () => {
+      const fields = await ownRead(['user'], 'user-only');
+
+      expect(fields.check).to.have.members(['Email', 'Login']);
+      expect(fields.summary).to.have.members(['Email', 'Login']);
+    });
+
+    // Flip both to ['Email', 'Login'] when RFC C3-1 lands: the two grants share their condition (`self`). The summary
+    // entry takes the fields of a type-level check, so it intersects too.
+    it('RFC C3-1: an account holding guest and user reads its own row with Login only (intersection, fail closed)', async () => {
+      const fields = await ownRead(['guest', 'user'], 'guest-and-user');
+
+      expect(fields.check).to.have.members(['Login']);
+      expect(fields.summary).to.have.members(['Login']);
+    });
+
+    it("gives the anonymous principal (anonymousRoles guest) no other user's Email", async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const other = await User.query().where('Uuid', TEST_USER_UUID).firstOrFail();
+
+      const read = await authz.check({ principal: ANONYMOUS, permission: 'user:read', resource: { type: 'user', id: other.Uuid }, subject: other });
+      expect(read.allowed).to.eq(false);
+      const summary = (await authz.summary(ANONYMOUS)).permissions.find((p) => p.name === 'user:read');
+      expect(summary?.fields?.read ?? []).to.not.include('Email');
     });
   });
 });

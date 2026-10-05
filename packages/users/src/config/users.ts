@@ -133,9 +133,8 @@ const usersConfig = {
       // The grants lists are concatenated with the application's too: it can add grants to these roles, not remove them.
       roles: {
         guest: {
-          // user's fields, not §8.2's ['Login']: conditional grants intersect their fields on a check, so a narrower guest
-          // would take Email from every account holding both; with none, a summary would list every field.
-          grants: [{ permission: 'user:read', relation: 'self', fields: { read: ['Email', 'Login'] } }],
+          // An account holding guest and user reads only Login on a check until RFC C3-1 unions same-condition grants.
+          grants: [{ permission: 'user:read', relation: 'self', fields: { read: ['Login'] } }],
         },
         user: {
           grants: [
