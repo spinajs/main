@@ -195,6 +195,12 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
 
       expect(redeem.args[0].slice(0, 3)).to.deep.eq(['test@spinajs.pl', 's3cret', 'n3wpassword']);
     });
+
+    it('confirmPasswordReset returns the account authn found for a differently cased email', async () => {
+      sinon.stub(TestPasswordService.prototype, 'redeemReset').resolves({ status: 'reset', purpose: 'reset' });
+
+      expect((await confirmPasswordReset('Test@Spinajs.PL', 'n3wpassword', 's3cret')).Uuid).to.eq(TEST_USER_UUID);
+    });
   });
 
   describe('A12: users writes no authentication state into metadata', () => {

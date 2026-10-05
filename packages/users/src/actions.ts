@@ -26,6 +26,7 @@ import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
 import { USERS_TABLE, isNoPassword, recordPasswordSetAt, usersDriver, usersMatchingLogin } from './identity/sql.js';
 import { UserPasswordStore } from './identity/password-store.js';
+import { UserIdentityStore } from './identity/identity-store.js';
 
 /**
  * ===============================================
@@ -905,8 +906,11 @@ export async function confirmPasswordReset(identifier: number | string | User, n
 
   const result = await (await passwordService()).redeemReset(login, String(token ?? ''), String(newPassword ?? ''), actionContext());
   switch (result.status) {
-    case 'reset':
-      return getUser(login);
+    case 'reset': {
+      // authn found the account with the folded lookup; an exact getUser(login) would miss a differently cased email.
+      const ref = await new UserIdentityStore().findByLogin(login);
+      return getUser(ref?.id ?? login);
+    }
     case 'rejected':
       throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
     case 'throttled':
