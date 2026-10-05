@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 
 import { DI, Injectable, Singleton } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
 
 import { AuthnThrottle } from '../contracts/throttle.js';
@@ -49,6 +49,11 @@ const SWEEP_BATCH = 8;
 const FULL_RETRY_SECONDS = 60;
 const HOLD_OFF_MS = 1000;
 
+const deepFreeze = <T extends object>(o: T): T => {
+  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
+  return Object.freeze(o);
+};
+
 const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
 
 /**
@@ -90,11 +95,12 @@ export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrott
     return this.options.maxRows ?? (this.explicit ? undefined : this.configured.maxRows) ?? DEFAULT_THROTTLE_MAX_ROWS;
   }
 
-  // Read once: the tables and their eviction assume fixed limits.
+  // Read once: the tables and their eviction assume fixed limits. The copy is frozen: Configuration hands out live objects.
   private get configured(): { readonly params: ThrottleParams; readonly maxRows: number | undefined } {
     if (!this.loaded) {
-      const { service: _service, maxRows, ...params } = this.Throttle;
-      this.loaded = { params, maxRows };
+      if (!this.Throttle) throw new InvalidOperation('authn.throttle is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
+      const { service: _service, maxRows, ...params } = structuredClone(this.Throttle);
+      this.loaded = { params: deepFreeze(params), maxRows };
     }
     return this.loaded;
   }

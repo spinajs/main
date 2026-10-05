@@ -3,13 +3,13 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { InvalidArgument } from '@spinajs/exceptions';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attackerIp, backoffSchedule, burst, expectAllowed, expectRefused, pwKeys, runThrottleConformance, throttleParams, walkBackoff } from '@spinajs/authn-testing';
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
-import { configuredChild, pinConfiguration, violationPaths } from '../behaviour/harness.js';
+import { configuredChild, configurationOf, pinConfiguration, violationPaths } from '../behaviour/harness.js';
 import { Lockout } from '../mutation/throttle-mutants.js';
 
 type Make = (p: ThrottleParams) => AuthnThrottle;
@@ -622,6 +622,27 @@ describe('MemoryAuthnThrottle', function () {
       assert.strictEqual(t.maxRows, 5000);
       child.get(Configuration)!.set('authn.throttle.maxRows', 6000);
       assert.strictEqual(t.maxRows, 5000);
+    });
+
+    it('snapshots the limits: a later set neither changes them nor can a caller mutate the configuration', async () => {
+      const child = await configuredChild({ authn: { throttle: {} } });
+      kids.push(child);
+      const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+      const free = t.params.login.account!.free;
+      child.get(Configuration)!.set('authn.throttle.login.account.free', 0);
+      assert.strictEqual(t.params.login.account!.free, free);
+      assert.ok(Object.isFrozen(t.params.login.account));
+      assert.ok(Object.isFrozen(t.params));
+      assert.strictEqual(child.get(Configuration)!.get<number>('authn.throttle.login.account.free'), 0);
+    });
+
+    it('fails with InvalidOperation, not a TypeError, when authn.throttle is unset', async () => {
+      const child = DI.RootContainer.child();
+      kids.push(child);
+      child.register(configurationOf({}, undefined, true)).as(Configuration);
+      await child.resolve(Configuration);
+      const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+      assert.throws(() => t.params, (e: Error) => e instanceof InvalidOperation && e.message.includes('authn.throttle is unset'));
     });
 
     it('takes explicit params without any Configuration', () => {

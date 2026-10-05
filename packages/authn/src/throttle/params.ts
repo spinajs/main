@@ -29,7 +29,7 @@ export const THROTTLE_FLOWS: readonly ThrottleFlow[] = Object.freeze(['login', '
 
 const backoff = (free: number, baseDelayMs: number, maxDelayMs: number): BackoffParams => Object.freeze({ free, baseDelayMs, maxDelayMs });
 
-// Same values as the schema defaults (test/boot/config-defaults.test.ts); the fallback of explicit params.
+// Same values as the schema defaults (test/boot/config-defaults.test.ts); for tests and callers of explicit params.
 export const DEFAULT_THROTTLE_PARAMS: ThrottleParams = Object.freeze({
   login: Object.freeze({ account: backoff(5, 1000, 60000), ip: backoff(20, 1000, 300000) }),
   mfa: Object.freeze({ account: backoff(3, 1000, 300000), ip: backoff(20, 1000, 300000) }),
