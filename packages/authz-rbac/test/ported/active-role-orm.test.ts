@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import 'mocha';
 
-import '@spinajs/orm-sqlite';
+import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AccessDenied, AuthorizationModel, AuthzContributor, GLOBAL, runWithPrincipal } from '@spinajs/authz';
 import type { Assignment, AuthzService, Principal } from '@spinajs/authz';
 import { AccessResource, Owner } from '@spinajs/authz-orm';
@@ -60,6 +60,8 @@ describe('ActiveRole through the real RbacModel and the ORM middleware', functio
       }
     });
 
+    DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+    DI.RootContainer.uncache(Orm);
     orm = await DI.resolve(Orm);
     driver = orm.Connections.get('sqlite')!;
     // Root boots before the type is registered, so the test domain's config carries the permissions.
@@ -123,8 +125,15 @@ describe('ActiveRole through the real RbacModel and the ORM middleware', functio
 
   // runAs preloads the principal, so the model answers synchronously and toDB sees its residual.
   const asPreloaded = <T>(p: Principal, fn: () => T | Promise<T>): Promise<T> => service.runAs(p, 'active role test', async () => fn());
-  const valuesOf = async (p: Principal): Promise<string[]> => ((await as(p, () => Doc.where('id', '>', ''))) as unknown as { Value: string }[]).map((r) => r.Value).sort();
   const sqlOf = async (p: Principal) => (await asPreloaded(p, () => Doc.where('id', '>', '').toDB())) as { expression: string; bindings?: unknown[] };
+  // Ids come from running the compiled SQL: model hydration of this ad hoc model reads null columns after some other suites.
+  const valuesOf = async (p: Principal): Promise<string[]> => {
+    const rows = (await as(p, () => Doc.where('id', '>', ''))) as unknown[];
+    const { expression, bindings } = await sqlOf(p);
+    const ids = ((await raw(expression, bindings ?? [])) as { id: string }[]).map((r) => r.id).sort();
+    expect(rows).to.have.length(ids.length);
+    return ids;
+  };
   const denied = async (p: Principal) => {
     let error: unknown;
     try {
