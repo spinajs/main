@@ -114,9 +114,9 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
     },
     principals: {
       type: 'object',
-      default: {},
       properties: {
-        anonymous: { type: 'object', default: {}, properties: { enabled: { type: 'boolean', default: D.principals.anonymous.enabled } } },
+        // No default: the deprecated 2.x guest factory reads this key with its own false default, 3.x readers fall back to true.
+        anonymous: { type: 'object', properties: { enabled: { type: 'boolean' } } },
         roleSwitch: { type: 'object', properties: { requirePassword: stringList } },
       },
     },

@@ -70,22 +70,32 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
   });
 
   describe('RbacGuestUserFactory', () => {
-    it('builds a never-stored guest without roles, active by the schema default of authz.principals.anonymous.enabled', async () => {
+    it('builds a never-stored guest without roles, inactive unless authz.principals.anonymous.enabled', async () => {
       const guest = DI.resolve<User>('RbacGuestUserFactory');
 
       expect(guest.Login).to.eq('guest');
       expect(guest.IsGuest).to.eq(true);
-      expect(guest.IsActive).to.eq(true);
+      expect(guest.IsActive).to.eq(false);
       expect(guest.Role).to.eq(undefined);
     });
 
-    it('is inactive when authz.principals.anonymous.enabled is false', async () => {
+    it('stays inactive when the key is unset under a schema-validating configuration', async () => {
       const conf = DI.get(Configuration)!;
-      conf.set('authz.principals.anonymous.enabled', false);
+
+      // proves the authz schema is applied: its defaults are filled, the anonymous switch is not
+      expect(conf.get('authz.engine.modelTimeoutMs')).to.be.a('number');
+      expect(conf.get('authz.principals.anonymous.enabled')).to.eq(undefined);
+      expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(false);
+    });
+
+    it('is active when authz.principals.anonymous.enabled is true', async () => {
+      const conf = DI.get(Configuration)!;
+      const before = conf.get('authz.principals.anonymous.enabled');
+      conf.set('authz.principals.anonymous.enabled', true);
       try {
-        expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(false);
+        expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(true);
       } finally {
-        conf.set('authz.principals.anonymous.enabled', true);
+        conf.set('authz.principals.anonymous.enabled', before);
       }
     });
   });

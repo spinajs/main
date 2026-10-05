@@ -63,9 +63,9 @@ describe('authz config schema', () => {
       fields: AUTHZ_DEFAULTS.fields,
       cache: AUTHZ_DEFAULTS.cache,
       audit: AUTHZ_DEFAULTS.audit,
-      principals: AUTHZ_DEFAULTS.principals,
       config: AUTHZ_DEFAULTS.config,
     });
+    expect(cfg.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
     expect(cfg.domains).to.deep.equal({ fs: { engine: {} } });
   });
 
@@ -345,7 +345,8 @@ describe('authz configuration through a child Configuration', function () {
 
   it('fills the root-level defaults of an unconfigured authz, equal to AUTHZ_DEFAULTS', async () => {
     const authz = (await booted({})).get<Record<string, unknown>>(['authz']);
-    expect(authz).to.deep.include({ combine: AUTHZ_DEFAULTS.combine, engine: AUTHZ_DEFAULTS.engine, fields: AUTHZ_DEFAULTS.fields, cache: AUTHZ_DEFAULTS.cache, audit: AUTHZ_DEFAULTS.audit, principals: AUTHZ_DEFAULTS.principals, config: AUTHZ_DEFAULTS.config });
+    expect(authz).to.deep.include({ combine: AUTHZ_DEFAULTS.combine, engine: AUTHZ_DEFAULTS.engine, fields: AUTHZ_DEFAULTS.fields, cache: AUTHZ_DEFAULTS.cache, audit: AUTHZ_DEFAULTS.audit, config: AUTHZ_DEFAULTS.config });
+    expect(authz.principals ?? {}).to.not.have.nested.property('anonymous.enabled');
   });
 
   it('fills only the keys a root section leaves out', async () => {
