@@ -24,6 +24,7 @@ import type { FileMeta } from '../src/index.js';
 import { FakeConfiguration, configuredChild } from './helpers.js';
 import { installQuietLog } from './support/log.js';
 import { MemoryFileMetadataStore } from './support/memory-store.js';
+import { S3_CLIENT_CONFIG, S3_SKIP_HINT, s3Reachable } from './support/s3.js';
 
 const expect = chai.expect;
 
@@ -504,17 +505,6 @@ describe('authz-fs S3ObjectMetadataStore (provider surface)', () => {
   });
 });
 
-const S3_ENDPOINT = process.env.AUTHZ_FS_S3_ENDPOINT ?? 'http://localhost:4566';
-
-async function s3Reachable(): Promise<boolean> {
-  try {
-    const res = await fetch(`${S3_ENDPOINT}/_localstack/health`, { signal: AbortSignal.timeout(2000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 describe('authz-fs S3ObjectMetadataStore on S3 (localstack)', function () {
   this.timeout(60000);
 
@@ -525,14 +515,14 @@ describe('authz-fs S3ObjectMetadataStore on S3 (localstack)', function () {
 
   const s3 = async (name: string): Promise<fsS3> => {
     const raw = new fsS3({ name, bucket: `${bucket}-${name}` } as never);
-    Object.defineProperty(raw, 'AwsConfig', { value: { forcePathStyle: true, endpoint: S3_ENDPOINT, credentials: { accessKeyId: 'test', secretAccessKey: 'test' }, region: 'us-west-1' } });
+    Object.defineProperty(raw, 'AwsConfig', { value: S3_CLIENT_CONFIG });
     await raw.resolve();
     return raw;
   };
 
   before(async function () {
     if (!(await s3Reachable())) {
-      console.warn(`      S3ObjectMetadataStore on S3 skipped: no localstack at ${S3_ENDPOINT} (docker run --rm -d -p 4566:4566 -e SERVICES=s3 localstack/localstack)`);
+      console.warn(`      S3ObjectMetadataStore on S3 skipped: ${S3_SKIP_HINT}`);
       this.skip();
     }
     undoLog = installQuietLog();

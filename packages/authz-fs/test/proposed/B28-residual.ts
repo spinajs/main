@@ -26,11 +26,13 @@ const editor = (holds: (id: string) => boolean): RelationSpec[] => ['file', 'dir
 
 const idIs = (id: string) => cmp('id', 'eq', id);
 
+/** Entries are compared as names in `dir`: fsS3 lists whole keys (`docs/a.txt`), fsNative names (`a.txt`). */
 const listed = (fs: string, dir: string, expected: readonly string[]): DoStep => ({
   note: `${fs}.list(${dir}) gives ${expected.join(', ')}`,
   do: async (ctx) => {
     const entries = (await laneHandle(ctx, 'fs').call(fs, 'list', [dir as FsArg])) as string[];
-    assert.deepEqual([...entries].sort(), [...expected].sort(), `${fs}.list(${dir})`);
+    const names = entries.map((e) => (e.startsWith(`${dir}/`) ? e.slice(dir.length + 1) : e));
+    assert.deepEqual(names.sort(), [...expected].sort(), `${fs}.list(${dir})`);
   },
 });
 

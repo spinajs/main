@@ -63,6 +63,7 @@
     "luxon": "^3.6.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.821.0",
     "@spinajs/authz-rbac": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/fs-s3": "2.0.549",

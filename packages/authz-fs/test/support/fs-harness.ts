@@ -3,22 +3,36 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import type { S3Client } from '@aws-sdk/client-s3';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsService, getFs } from '@spinajs/fs';
+import { FileHasher, FileInfoService, FsBootsrapper, FsDecorator, fs, fsNative, fsService, fsTemp, getFs } from '@spinajs/fs';
 import type { IProviderConfiguration } from '@spinajs/fs';
+import { S3BucketSigner, fsS3 } from '@spinajs/fs-s3';
 import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import type { ResourceRef } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '@spinajs/authz-rbac';
 import { hostHarness, testHost } from '@spinajs/authz-testing';
 import type { BehaviourHarness, FsArg, FsHandle, FsProviderSpec, FsResolverSpec, HostSetup } from '@spinajs/authz-testing';
+import type { DateTime } from 'luxon';
 
 import { AuthzFsDecorator, FileMetadataStore, FsPathResolver } from '../../src/index.js';
 import { installQuietLog } from './log.js';
 import { MemoryFileMetadataStore } from './memory-store.js';
+import { S3_CLIENT_CONFIG, dropBucket } from './s3.js';
 
-/** How a world provider is built: 'local' is fsNative over a fresh directory; later tasks add fsTemp and S3. */
-export type FsProviderKind = 'local';
+/**
+ * How a world provider is built: 'local' is fsNative over a fresh directory; 'temp' is fsTemp over its own
+ * fsNative backend (`<name>-backend`), so the guarded name is the temp fs; 's3' is fsS3 on a fresh bucket in
+ * localstack, downloading through the case's own `fs-temp-s3`.
+ */
+export type FsProviderKind = 'local' | 'temp' | 's3';
+
+/**
+ * The field RFC L7-1 proposes for the kit's FsProviderSpec: the provider signs URLs. Local and temp providers
+ * get a fake `signedUrl` whose URL carries `expires=<epoch ms>`; S3 providers get the real `S3UrlSigner`.
+ */
+export type SignedFsProviderSpec = FsProviderSpec & { readonly signedUrl?: boolean };
 
 export interface FsHarnessOptions {
   /** The test domain; default 'test'. */
@@ -29,10 +43,14 @@ export interface FsHarnessOptions {
 }
 
 interface CaseState {
+  /** Every provider the case creates: the world's and the backends its kind adds. */
   readonly names: ReadonlySet<string>;
   readonly extra: ReadonlyMap<string, readonly string[]>;
+  readonly fakeSigned: ReadonlySet<string>;
   readonly raw: Map<string, fs>;
 }
+
+const KIND_CLASS: Readonly<Record<FsProviderKind, Class<fs>>> = { local: fsNative, temp: fsTemp, s3: fsS3 };
 
 let recording: CaseState | undefined;
 
@@ -50,6 +68,12 @@ class RecordingFsDecorator extends FsDecorator {
     for (const method of state.extra.get(config.name) ?? []) {
       Object.defineProperty(instance, method, { value: async () => method, configurable: true, writable: true });
     }
+    if (state.fakeSigned.has(config.name)) {
+      // As fsS3: getSignedUrl(path, until) is signedUrl(path, { until }).
+      const signedUrl = async (path: string, opts?: { until?: DateTime }) => `fake-signed://${config.name}/${path}?expires=${opts?.until?.toMillis() ?? ''}`;
+      Object.defineProperty(instance, 'signedUrl', { value: signedUrl, configurable: true, writable: true });
+      Object.defineProperty(instance, 'getSignedUrl', { value: (path: string, until?: DateTime) => signedUrl(path, { until }), configurable: true, writable: true });
+    }
     return instance;
   }
 }
@@ -58,25 +82,69 @@ const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typ
 
 const PROVIDER_MAP = '__file_provider_instance__';
 const PROVIDER_FACTORY = '__file_provider__';
+/** fsS3 downloads (read, append, zip, unzip) through the provider of this name (`@FileSystem('fs-temp-s3')`). */
+const S3_TEMP = 'fs-temp-s3';
 
 function publishedProviders(): Map<string, fs> | undefined {
   const map: unknown = DI.RootContainer.Cache.has(PROVIDER_MAP) ? DI.get(PROVIDER_MAP) : undefined;
   return map instanceof Map ? (map as Map<string, fs>) : undefined;
 }
 
-async function materialise(kind: FsProviderKind, spec: FsProviderSpec, root: string): Promise<IProviderConfiguration> {
+async function writeFiles(basePath: string, files: Readonly<Record<string, string>> = {}): Promise<void> {
+  await mkdir(basePath, { recursive: true });
+  for (const [path, content] of Object.entries(files)) {
+    const at = join(basePath, ...path.split('/'));
+    await mkdir(dirname(at), { recursive: true });
+    await writeFile(at, content);
+  }
+}
+
+const bucketName = (caseId: string, name: string): string => `afs-${caseId}-${name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`.slice(0, 63);
+
+/** The provider configs of one world provider (backends first) and, for S3, the files to write once it exists. */
+async function materialise(kind: FsProviderKind, spec: SignedFsProviderSpec, root: string, caseId: string): Promise<{ configs: IProviderConfiguration[]; seed?: Readonly<Record<string, string>> }> {
+  const basePath = join(root, 'fs', spec.name);
   switch (kind) {
-    case 'local': {
-      const basePath = join(root, 'fs', spec.name);
-      await mkdir(basePath, { recursive: true });
-      for (const [path, content] of Object.entries(spec.files ?? {})) {
-        const at = join(basePath, ...path.split('/'));
-        await mkdir(dirname(at), { recursive: true });
-        await writeFile(at, content);
-      }
-      return { service: 'fsNative', name: spec.name, basePath } as IProviderConfiguration;
+    case 'local':
+      await writeFiles(basePath, spec.files);
+      return { configs: [{ service: 'fsNative', name: spec.name, basePath } as IProviderConfiguration] };
+    case 'temp': {
+      await writeFiles(basePath, spec.files);
+      const backend = `${spec.name}-backend`;
+      return {
+        configs: [{ service: 'fsNative', name: backend, basePath } as IProviderConfiguration, { service: 'fsTemp', name: spec.name, provider: backend, cleanup: false } as IProviderConfiguration],
+      };
+    }
+    case 's3': {
+      const signer = spec.signedUrl ? { signer: { service: 'S3UrlSigner' } } : {};
+      return { configs: [{ service: 'fsS3', name: spec.name, bucket: bucketName(caseId, spec.name), ...signer } as unknown as IProviderConfiguration], seed: spec.files };
     }
   }
+}
+
+async function s3TempProviders(root: string): Promise<IProviderConfiguration[]> {
+  const basePath = join(root, 'fs', S3_TEMP);
+  await mkdir(basePath, { recursive: true });
+  return [{ service: 'fsNative', name: `${S3_TEMP}-local`, basePath } as IProviderConfiguration, { service: 'fsTemp', name: S3_TEMP, provider: `${S3_TEMP}-local`, cleanup: false } as IProviderConfiguration];
+}
+
+/** Empties and deletes the case's buckets and closes the clients (else mocha would not exit). */
+async function disposeS3(instances: Iterable<fs>): Promise<void> {
+  for (const instance of instances) {
+    if (!(instance instanceof fsS3)) continue;
+    const client = (instance as unknown as { S3?: S3Client }).S3;
+    if (!client) continue;
+    try {
+      await dropBucket(client, instance.Options.bucket);
+    } catch {
+      // best effort: localstack is a throwaway container
+    } finally {
+      client.destroy();
+    }
+  }
+  // S3BucketSigner is a singleton holding the first case's bucket and client.
+  const root = DI.RootContainer;
+  for (const key of [S3BucketSigner, 'S3UrlSigner'] as const) if (root.Cache.has(key)) root.uncache(key);
 }
 
 // PerInstanceCheck caches provider instances by name in root; a stale 'uploads' of an earlier case would keep its old base path.
@@ -214,33 +282,56 @@ async function disposeNewDomains(before: ReadonlySet<string>): Promise<void> {
   }
 }
 
-async function buildCase(kind: FsProviderKind, specs: readonly FsProviderSpec[]): Promise<{ handle: FsHandle; dispose(): Promise<void> }> {
+async function buildCase(kind: FsProviderKind, specs: readonly SignedFsProviderSpec[]): Promise<{ handle: FsHandle; dispose(): Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), 'authz-fs-b-'));
+  const caseId = randomUUID().slice(0, 8);
   caseStore.rows.clear();
   caseStore.calls.length = 0;
-  const state: CaseState = { names: new Set(specs.map((s) => s.name)), extra: new Map(specs.map((s) => [s.name, s.extraMethods ?? []])), raw: new Map() };
 
+  const providers: IProviderConfiguration[] = [];
+  const seeds = new Map<string, Readonly<Record<string, string>>>();
   const dispose = async () => {
     if (recording === state) recording = undefined;
-    const published = publishedProviders();
-    for (const name of state.names) published?.delete(name);
-    uncacheInstances(state.raw.values());
-    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try {
+      await disposeS3(state.raw.values());
+    } finally {
+      const published = publishedProviders();
+      for (const name of state.names) published?.delete(name);
+      uncacheInstances(state.raw.values());
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
   };
 
+  let state: CaseState = { names: new Set(), extra: new Map(), fakeSigned: new Set(), raw: new Map() };
   try {
-    const providers: IProviderConfiguration[] = [];
-    for (const spec of specs) providers.push(await materialise(kind, spec, root));
+    for (const spec of specs) {
+      const { configs, seed } = await materialise(kind, spec, root, caseId);
+      providers.push(...configs);
+      if (seed) seeds.set(spec.name, seed);
+    }
+    if (kind === 's3' && specs.length > 0) providers.push(...(await s3TempProviders(root)));
+    state = {
+      names: new Set(providers.map((p) => p.name)),
+      extra: new Map(specs.map((s) => [s.name, s.extraMethods ?? []])),
+      fakeSigned: new Set(kind === 's3' ? [] : specs.filter((s) => s.signedUrl).map((s) => s.name)),
+      raw: new Map(),
+    };
 
     if (providers.length > 0) {
       const service = new fsService();
-      Object.defineProperty(service, 'Config', { value: { defaultProvider: providers[0].name, providers }, configurable: true });
+      // The world's first provider is the default, as before the backends were added.
+      Object.defineProperty(service, 'Config', { value: { defaultProvider: specs[0].name, providers }, configurable: true });
       recording = state;
       try {
         await service.resolve();
       } finally {
         recording = undefined;
       }
+    }
+    for (const spec of specs) {
+      const raw = state.raw.get(spec.name);
+      if (!(raw instanceof KIND_CLASS[kind])) throw new Error(`fs harness: ${spec.name} of kind ${kind} is not a ${KIND_CLASS[kind].name}`);
+      for (const [path, content] of Object.entries(seeds.get(spec.name) ?? {})) await raw.write(path, content);
     }
   } catch (e) {
     await dispose();
@@ -283,9 +374,9 @@ async function buildCase(kind: FsProviderKind, specs: readonly FsProviderSpec[])
  * through a fresh fsService, so the real FsDecorator chain runs. The providers are built in `extend`,
  * after the domain booted, so a world the boot checks refuse leaves no provider behind.
  *
- * For the later fsTemp and S3 kinds: dispose deletes the case's provider names from the published map even
- * when a provider of that name was published before the case, and the suite undo reaches into the private
- * `Registry.registry` map to drop the `__file_provider__` key it added.
+ * Dispose deletes the case's provider names from the published map even when a provider of that name was
+ * published before the case, and the suite undo reaches into the private `Registry.registry` map to drop the
+ * `__file_provider__` key it added.
  */
 export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
   const kind = opts.kind ?? 'local';
@@ -297,6 +388,7 @@ export function fsHarness(opts: FsHarnessOptions = {}): BehaviourHarness {
     facets: opts.rbac ? ['fs', 'rbac'] : ['fs'],
     register(host) {
       pointAtTestDomain(host);
+      if (kind === 's3') host.setConfig(['fs', 's3', 'config'], S3_CLIENT_CONFIG);
       if (opts.rbac) registerRbac(host);
     },
     async extend(host) {
