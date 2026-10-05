@@ -168,15 +168,15 @@ const CLI_PROCESS = `
   process.exit(0);
 `;
 
-function cliProcess(strategies: unknown[]): { findings: string[]; exitCode: number } {
-  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } } } };
+function cliProcess(strategies: unknown, authnExtra: Values = {}): { findings: string[]; exitCode: number; output: string } {
+  const values = { ...sound(), authn: { strategies, mfa: { steps: [], encryptionKey: { secret: STRONG } }, ...authnExtra } };
   const env: NodeJS.ProcessEnv = { ...process.env, N8A_CHECK_CONFIG_VALUES: JSON.stringify(values) };
   delete env.NODE_OPTIONS;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', CLI_PROCESS], { cwd: PKG_ROOT, encoding: 'utf8', env });
   expect(r.status, r.stderr).to.eq(0);
   const out = r.stdout.trim().split(/\r?\n/);
   const findings = out.filter((l) => /^(error|warning) [a-z]+: /.test(l) || l === 'authn:check-config: no findings');
-  return { findings, exitCode: (JSON.parse(out[out.length - 1]) as { exitCode: number }).exitCode };
+  return { findings, output: r.stdout + r.stderr, exitCode: (JSON.parse(out[out.length - 1]) as { exitCode: number }).exitCode };
 }
 
 describe('authn:check-config in a process that loads only what the CLI loads', function () {
@@ -191,6 +191,21 @@ describe('authn:check-config in a process that loads only what the CLI loads', f
   it('still reports a strategy no installed package provides', () => {
     const r = cliProcess([{ name: 'x', service: 'N8aNoSuchStrategy' }]);
     expect(r.findings.filter((l) => l.startsWith('error strategies: '))).to.have.length(1);
+    expect(r.exitCode).to.eq(1);
+  });
+
+  it('reports what the authn schema refuses although the schema was not applied at resolve time, never a secret', () => {
+    const other = 'j'.repeat(64);
+    const local = { pepper: { secret: STRONG, version: 1, previous: [{ secret: other, version: 1 }] } };
+    const r = cliProcess([{ name: 'local', service: 'LocalPasswordStrategy' }], { local });
+    expect(r.findings.some((l) => l.startsWith('error schema: authn.local.pepper.previous.0.version '))).to.eq(true);
+    expect(r.exitCode).to.eq(1);
+    expect(r.output).to.not.contain(STRONG).and.not.contain(other);
+  });
+
+  it('reports a non-array authn.strategies as a schema finding instead of crashing', () => {
+    const r = cliProcess({ name: 'local', service: 'LocalPasswordStrategy' });
+    expect(r.findings.some((l) => l.startsWith('error schema: authn.strategies '))).to.eq(true);
     expect(r.exitCode).to.eq(1);
   });
 });

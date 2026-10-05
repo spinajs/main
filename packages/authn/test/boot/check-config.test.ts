@@ -67,7 +67,7 @@ describe('authn:check-config', () => {
 
   describe('strategies', () => {
     it('warns when no strategy is listed', async () => {
-      for (const strategies of [[], null]) {
+      for (const strategies of [[], undefined]) {
         const f = await check(merge(sound(), { authn: { strategies } }));
         expect(topics(f), JSON.stringify(strategies)).to.deep.eq(['strategies:warning']);
       }
@@ -79,9 +79,14 @@ describe('authn:check-config', () => {
       expect(f[0].message).to.contain('"jwt"').and.contain('"JwtBearerStrategy"');
     });
 
-    it('does not re-check the list shape: the schema refuses a bad list before the Configuration resolves', async () => {
-      const f = await check(merge(sound(), { authn: { strategies: [{ name: 'local', service: 'KitPassword' }] } }));
-      expect(topics(f)).to.deep.eq([]);
+    it('leaves a list the schema refuses to the schema finding: no strategies duplicate', async () => {
+      const child = DI.RootContainer.child();
+      children.push(child);
+      useAuthnSchema(child);
+      child.register(configurationOf(merge(sound(), { authn: { strategies: [{ name: 'local', service: 'KitPassword' }, { name: 'local', service: 'Other' }] } }), 'production', true)).as(Configuration);
+      const f = await checkAuthnConfig(child);
+      expect(topics(f)).to.not.be.empty;
+      expect(f.every((x) => x.topic === 'schema')).to.eq(true);
     });
 
     it('reports a schema violation as an error finding without echoing the value, instead of throwing', async () => {

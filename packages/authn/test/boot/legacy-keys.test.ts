@@ -116,7 +116,7 @@ describe('authn legacy key detector', () => {
       expect(() => checkAuthnLegacyKeys(config({ authn: { config: { rejectLegacyKeys: true } } }), log())).to.not.throw();
     });
 
-    it('treats only an explicit true as rejecting; the schema refuses other values', () => {
+    it('treats only an explicit true as rejecting; the schema types it as a boolean', () => {
       for (const v of ['true', 1, null, undefined]) {
         expect(() => checkAuthnLegacyKeys(config({ rbac: { session: { service: 'MemorySessionStore' } }, authn: { config: { rejectLegacyKeys: v } } }), log()), String(v)).to.not.throw();
       }

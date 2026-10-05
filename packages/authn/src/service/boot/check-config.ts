@@ -1,7 +1,8 @@
 import type { IContainer } from '@spinajs/di';
-import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
+import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 import { nearestRegistration, q } from '../../registry/named.js';
 import type { NamedEntry } from '../../registry/named.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './env.js';
@@ -13,7 +14,10 @@ import type { AuthnConfigFinding } from './secrets.js';
 const set = (v: unknown): boolean => v !== undefined && v !== null;
 
 function strategyFindings(container: IContainer, config: AuthnConfigSource): AuthnConfigFinding[] {
-  const entries = config.get<NamedEntry[] | undefined | null>('authn.strategies') ?? [];
+  const listed = config.get<unknown>('authn.strategies') ?? [];
+  // A list the schema refuses is reported as a schema finding; there is nothing to check here.
+  if (!Array.isArray(listed)) return [];
+  const entries = listed as NamedEntry[];
   if (entries.length === 0) return [{ topic: 'strategies', level: 'warning', message: 'authn.strategies lists no strategy: nothing can authenticate' }];
   const missing = entries.filter((e) => !nearestRegistration(container, AuthenticationStrategy, e.service));
   if (missing.length === 0) return [];
@@ -31,6 +35,8 @@ function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
   }
 }
 
+const schemaFindings = (e: InvalidConfiguration): AuthnConfigFinding[] => e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
+
 /**
  * authn:check-config: what the configuration of `container` gets wrong, by topic. It reports instead of throwing,
  * and covers what boot refuses (secrets, legacy keys with rejectLegacyKeys) and what boot accepts but an operator
@@ -42,8 +48,17 @@ export async function checkAuthnConfig(container: IContainer): Promise<AuthnConf
     config = (await container.resolve(Configuration)) as Configuration;
   } catch (e) {
     // A configuration the schema refuses never resolves; report each violation (path and rule, never a value).
-    if (e instanceof InvalidConfiguration) return e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
+    if (e instanceof InvalidConfiguration) return schemaFindings(e);
     throw e;
+  }
+  // In a CLI process the root Configuration resolves before @spinajs/authn is imported, so the schema was never applied.
+  if (config instanceof FrameworkConfiguration) {
+    try {
+      config.validateModule(AUTHN_CONFIGURATION_SCHEMA);
+    } catch (e) {
+      if (e instanceof InvalidConfiguration) return schemaFindings(e);
+      throw e;
+    }
   }
   const out: AuthnConfigFinding[] = [];
 

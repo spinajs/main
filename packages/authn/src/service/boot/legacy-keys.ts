@@ -50,7 +50,7 @@ export function findAuthnLegacyKeys(rbac: unknown): AuthnLegacyKeyFinding[] {
   return found;
 }
 
-/** `authn.config.rejectLegacyKeys`; false unless it is true (the schema refuses any other value). */
+/** `authn.config.rejectLegacyKeys`; false unless it is true; the schema types it as a boolean. */
 export function rejectsAuthnLegacyKeys(config: AuthnConfigSource): boolean {
   return config.get<boolean | undefined>('authn.config.rejectLegacyKeys') === true;
 }

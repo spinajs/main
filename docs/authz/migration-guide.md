@@ -192,7 +192,7 @@ services, never values.
 | Check | Refused at boot | Only a warning |
 |---|---|---|
 | Strategies | An `authn.strategies` entry with no registered `AuthenticationStrategy` of that service name, a duplicate name, an entry name that differs from the strategy's own name, a strategy with a missing `interactive` flag or no credential kind | An empty list (reported by `authn:check-config` only) |
-| Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a version that repeats) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
+| Secrets (A24, SR-16) | `http.cookie.secret` missing, empty or the public `1234adreewD`; `authn.mfa.encryptionKey.secret` missing while a listed MFA step stores secrets; both **outside development and test**. A malformed pepper in every env fails boot as `InvalidConfiguration` with the full path of each bad value (`version` below 1, `secret` not a string or `null`, a `previous` entry without a non-empty `secret` and a version, a `previous` version that repeats or equals the current `version`) | The same secrets in development and test; an empty `authn.local.pepper.secret` there |
 | Throttle | `authn.throttle.service` names a throttle that is not registered, or is unset while none or several are registered. Boot never falls back to memory, which would split the counts of a multi-instance app | |
 | MFA policy | `force` or `forceForRoles` with no `authn.mfa.steps`; `forceForRoles` with no `RoleSource` or `PrincipalFactory` | |
 | Audit | A sink in `authn.audit.sinks` that is not registered, an unknown key in `authn.audit`, a bad `sampleUse`, `sinkTimeoutMs` or `hashKey` (under 32 characters) | No sink registered at all |
@@ -225,7 +225,7 @@ returns findings (`topic`, `level`, `message`) and throws nothing. It covers eve
 and also warns about: an empty `authn.strategies`; neither `authn.http.trustProxy` nor
 `http.trustProxy` set; `http.cors` without an `origins` list (the CORS check then throws on
 requests); an empty `http.cors.origins`; the env fallback. The topics are `strategies`, `secrets`,
-`proxy`, `cors`, `env`, `mfa` and `legacy`. **The CLI command is not wired yet** (TODO(N8a)); call the
+`proxy`, `cors`, `env`, `mfa`, `legacy` and `schema` (a value the `authn.*` schema refuses, reported as its path and the rule, never the value). **The CLI command is not wired yet** (TODO(N8a)); call the
 function from your own start-up check until it is.
 
 ## 4. Running `spinajs-authz-convert`

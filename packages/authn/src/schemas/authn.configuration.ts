@@ -94,7 +94,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
               properties: {
                 secret: { type: 'string', minLength: 1 },
                 // 3/version: up from the item's version (1), the item (2) and the previous list (3) to the pepper's own version.
-                version: { type: 'integer', minimum: 1, not: { const: { $data: '3/version' } } },
+                version: { type: 'integer', minimum: 1, maximum: 999999999, not: { const: { $data: '3/version' } } },
               },
               required: ['secret', 'version'],
             },

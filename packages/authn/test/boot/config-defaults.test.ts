@@ -89,6 +89,7 @@ describe('authn schema (task 8 edits)', () => {
   it('caps the pepper version and refuses a previous version equal to the current one, implicit 1 included', () => {
     expect(check({ local: { pepper: { secret: 'x', version: 999999999 } } }).ok).to.eq(true);
     expect(check({ local: { pepper: { secret: 'x', version: 1000000000 } } }).paths).to.include('/local/pepper/version');
+    expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 1000000000 }] } } }).paths).to.include('/local/pepper/previous/0/version');
     expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } } }).paths).to.include('/local/pepper/previous/0/version');
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/version');
     expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } } }).ok).to.eq(true);
