@@ -88,6 +88,8 @@ export function parseRbacAssignmentArgs(args: unknown): RbacAssignmentArgs {
  */
 export class RbacAssignmentFilter extends NativeFilter {
   readonly op = RBAC_ASSIGNMENT_OP;
+  // v1 and v2 (RbacListEvaluator) read who asks from `subjects`, `principal`, `companions` and `actor` only.
+  readonly principalInArgs = true;
 
   constructor(private readonly assignments: AssignmentStore, private readonly roles: () => RoleGraph | undefined) {
     super();

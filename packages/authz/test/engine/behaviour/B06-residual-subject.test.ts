@@ -17,6 +17,10 @@ const FOLDERS = [new FakeRow('folder', 'f1'), new FakeRow('folder', 'f2', {}, { 
 
 const editor = () => new FakeRelation('doc', 'editor', (p, _ref, subject) => Array.isArray((subject as FakeRow | undefined)?.editors) && ((subject as FakeRow).editors as string[]).includes(p.id));
 const fav = () => new FakeNativeFilter('native:fav', (args, subject) => Array.isArray((subject as FakeRow | undefined)?.favs) && ((subject as FakeRow).favs as string[]).includes((args as { who: string }).who));
+class PinFilter extends FakeNativeFilter {
+  readonly principalInArgs = true;
+}
+const pin = () => new PinFilter('native:pin', (args, subject) => Array.isArray((subject as FakeRow | undefined)?.pins) && ((subject as FakeRow).pins as string[]).includes((args as { who: string }).who));
 
 const values = fc.constantFrom<Value>('alice', 'bob', 't1', 1, 2, '2', true, null, ['alice', 't1'], [1, 2], { ref: 'principal.id' }, { ref: 'principal.attributes.team' }, { ref: 'principal.attributes.missing' }, { ref: 'env.now' });
 const cmpNode = fc.record({ field: fc.constantFrom('owner', 'level', 'team', 'missing'), cmp: fc.constantFrom('eq', 'ne', 'in', 'nin', 'lt', 'gte', 'null', 'notnull'), value: values }).map((c) => ({ op: 'cmp', ...c } as ResourceFilter));
@@ -102,7 +106,7 @@ describe('B06: residual and subject', () => {
     );
   });
 
-  it('B06 under delegation: check ⇔ filter for a user, intersect agents (one and two hops) and an inherit agent, relation and native leaves included', async function () {
+  it('B06 under delegation: check ⇔ filter for a user, intersect agents (one and two hops) and an inherit agent, relation and native leaves included, principalInArgs ones kept', async function () {
     this.timeout(120000);
     const WHO = 'self';
     const leaf = fc.oneof(
@@ -110,6 +114,7 @@ describe('B06: residual and subject', () => {
       cmpNode,
       fc.constant<ResourceFilter>({ op: 'relation', relation: 'editor' }),
       fc.constant<ResourceFilter>({ op: 'native:fav', args: WHO }),
+      fc.constant<ResourceFilter>({ op: 'native:pin', args: WHO }),
       scopes.map((s) => ({ op: 'under', scopes: s } as ResourceFilter)),
       fc.constantFrom(TRUE, FALSE),
     );
@@ -118,13 +123,13 @@ describe('B06: residual and subject', () => {
     const forPrincipal = (f: ResourceFilter, id: string): ResourceFilter => {
       if (f.op === 'and' || f.op === 'or') return { op: f.op, args: f.args.map((x) => forPrincipal(x, id)) };
       if (f.op === 'not') return { op: 'not', arg: forPrincipal(f.arg, id) };
-      return f.op === 'native:fav' ? { op: 'native:fav', args: { who: id } } : f;
+      return f.op === 'native:fav' || f.op === 'native:pin' ? { op: f.op, args: { who: id } } : f;
     };
     const ids = ['alice', 'bob', 't1', 't2', 't3'] as const;
     const voteArb = fc.record({ permitWhen: fc.oneof(tree, fc.constant(FALSE)), denyWhen: fc.oneof(tree, fc.constant(FALSE)) });
     const modelVotes = fc.record(Object.fromEntries(ids.map((id) => [id, voteArb])) as Record<(typeof ids)[number], typeof voteArb>);
     const people = fc.constantFrom<unknown>(undefined, ['alice'], ['bob'], ['t1', 't3'], ['bob', 't2', 'alice']);
-    const rowArb = fc.record({ owner: attr, level: attr, team: attr, editors: people, favs: people, parent: fc.constantFrom<ResourceRef | undefined>(undefined, { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f2' }) });
+    const rowArb = fc.record({ owner: attr, level: attr, team: attr, editors: people, favs: people, pins: people, parent: fc.constantFrom<ResourceRef | undefined>(undefined, { type: 'folder', id: 'f1' }, { type: 'folder', id: 'f2' }) });
 
     const bob = principal('user', 'bob');
     const principals: readonly Principal[] = [alice, principal('token', 't1', { onBehalfOf: bob }), principal('agent', 'a1', { onBehalfOf: bob, delegation: 'inherit' }), principal('token', 't2', { onBehalfOf: principal('token', 't3', { onBehalfOf: alice }) })];
@@ -133,29 +138,37 @@ describe('B06: residual and subject', () => {
       if (f.op === 'and' || f.op === 'or') return f.args.some(holdsPrincipalOps);
       return f.op === 'not' && holdsPrincipalOps(f.arg);
     };
+    // A native:pin leaf naming another principal than the one asking came from a delegate's residual.
+    const pinOfOther = (f: ResourceFilter, self: string): boolean => {
+      if (f.op === 'native:pin') return (f.args as { who: string }).who !== self;
+      if (f.op === 'and' || f.op === 'or') return f.args.some((x) => pinOfOther(x, self));
+      return f.op === 'not' && pinOfOther(f.arg, self);
+    };
     let stripped = 0;
+    let kept = 0;
 
     await fc.assert(
       fc.asyncProperty(fc.constantFrom('deny-overrides', 'permit-overrides', 'first-applicable'), fc.array(modelVotes, { minLength: 1, maxLength: 2 }), fc.array(rowArb, { minLength: 1, maxLength: 4 }), async (algorithm, votes, rowSpecs) => {
         const rows = rowSpecs.map((r, i) => {
           const attrs: Record<string, unknown> = {};
-          for (const k of ['owner', 'level', 'team', 'editors', 'favs'] as const) if (r[k] !== undefined) attrs[k] = r[k];
+          for (const k of ['owner', 'level', 'team', 'editors', 'favs', 'pins'] as const) if (r[k] !== undefined) attrs[k] = r[k];
           return new FakeRow('doc', `d${i}`, attrs, r.parent);
         });
         const relation = editor();
         const native = fav();
+        const pinned = pin();
         const adapter = new FakeAdapter(['doc', 'folder'], { rows: [...FOLDERS, ...rows] });
         const models = votes.map(
           (byId, i) =>
             new StaticModel(`m${i}`, {
-              capabilities: { residuals: [...CORE_FILTER_OPS, 'native:fav'] },
+              capabilities: { residuals: [...CORE_FILTER_OPS, 'native:fav', 'native:pin'] },
               vote: (req: DecisionRequest): Vote => {
                 const v = byId[req.principal.id as (typeof ids)[number]];
                 return { model: `m${i}`, permitWhen: forPrincipal(v.permitWhen, req.principal.id), denyWhen: forPrincipal(v.denyWhen, req.principal.id), cacheable: true };
               },
             }),
         );
-        const a = new Authorizer({ domain: 'root', registry, adapters: [adapter], relations: [relation], nativeFilters: [native], models, combine: { default: { algorithm } }, clock: () => new Date('2026-10-01T00:00:00Z') });
+        const a = new Authorizer({ domain: 'root', registry, adapters: [adapter], relations: [relation], nativeFilters: [native, pinned], models, combine: { default: { algorithm } }, clock: () => new Date('2026-10-01T00:00:00Z') });
 
         for (const p of principals) {
           const typed = await a.check({ principal: p, permission: 'doc:read', resource: { type: 'doc' } });
@@ -164,15 +177,17 @@ describe('B06: residual and subject', () => {
           expect(JSON.stringify(residual)).to.not.include('"ref"');
           const delegate = p.delegation === 'inherit' ? undefined : p.onBehalfOf;
           const strips = delegate !== undefined && holdsPrincipalOps(await a.filter(delegate, 'doc:read', 'doc'));
+          const keeps = delegate !== undefined && pinOfOther(residual, typed.principal.id);
           const runAs = principal(typed.principal.type, typed.principal.id);
           for (const row of rows) {
             const ref = { type: 'doc', id: row.id };
-            const env: SubjectEnv = { principal: runAs, ref, attribute: defaultAttribute, relation: (t, n) => (t === 'doc' && n === 'editor' ? relation : undefined), ancestors: (r) => adapter.ancestors(r), native: (op) => (op === 'native:fav' ? native : undefined), ctx: {} as EvaluationContext };
+            const env: SubjectEnv = { principal: runAs, ref, attribute: defaultAttribute, relation: (t, n) => (t === 'doc' && n === 'editor' ? relation : undefined), ancestors: (r) => adapter.ancestors(r), native: (op) => (op === 'native:fav' ? native : op === 'native:pin' ? pinned : undefined), ctx: {} as EvaluationContext };
             const expected = (await evaluateResidual(residual, row, env)) === true;
             const d = await a.check({ principal: p, permission: 'doc:read', resource: row });
             expect(d.allowed, JSON.stringify({ principal: p.id, residual, row })).to.equal(expected);
             expect(d.residual).to.equal(expected ? TRUE : FALSE);
             if (strips) stripped++;
+            if (keeps) kept++;
           }
         }
       }),
@@ -180,5 +195,7 @@ describe('B06: residual and subject', () => {
     );
     // Row checks of intersect agents whose delegate's residual held a relation or native op, stripped in the filter.
     expect(stripped).to.be.greaterThan(0);
+    // Row checks of intersect agents whose filter kept the delegate's native:pin leaf.
+    expect(kept).to.be.greaterThan(0);
   });
 });

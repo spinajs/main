@@ -40,7 +40,8 @@ export class FixturePathSource extends RbacScopePathSource {
 const role = (name: string, extra: Partial<RoleDef> = {}): RoleDef => ({ name, extends: [], assignable: true, source: 'test', grants: [{ permission: 'doc:read' }], ...extra });
 
 /** `ghost` has no definition on purpose: its assignments must never count. */
-export const GRAPH: RoleGraph = compileRoles([role('viewer'), role('editor'), role('commenter'), role('orgOnly', { scopeTypes: ['org'] }), role('projectLead', { scopeTypes: ['project', '$global'] }), role('docOnly', { scopeTypes: ['doc'] }), role('fixed', { assignable: false })]);
+export const ROLE_DEFS: readonly RoleDef[] = [role('viewer'), role('editor'), role('commenter'), role('orgOnly', { scopeTypes: ['org'] }), role('projectLead', { scopeTypes: ['project', '$global'] }), role('docOnly', { scopeTypes: ['doc'] }), role('fixed', { assignable: false })];
+export const GRAPH: RoleGraph = compileRoles(ROLE_DEFS);
 
 export class FixtureRoleGraphSource extends RbacRoleGraphSource {
   graph(): RoleGraph {
@@ -166,7 +167,8 @@ export async function createSchema(driver: OrmDriver): Promise<void> {
 const ORG_PREFIX = `org-${'p'.repeat(60)}`;
 const LONG_ORG = `${ORG_PREFIX}-extra`;
 
-const DOCS: ReadonlyArray<[number, number, string]> = [
+/** [id, project_id, org_id] */
+export const DOCS: ReadonlyArray<[number, number, string]> = [
   [1, 10, 'o1'],
   [2, 11, 'o1'],
   [3, 12, 'o2'],
@@ -255,9 +257,9 @@ export const args = (subjects: readonly AssignmentSubject[], roles: readonly str
 
 export const U1_ARGS = args([U1, T1_MEMBERS], ['viewer', 'editor']);
 
-export async function visibleDocs(driver: OrmDriver, compiler: RbacOrmCompiler, termArgs: unknown, alias?: string): Promise<number[]> {
+export async function visibleDocs(driver: OrmDriver, compiler: RbacOrmCompiler, termArgs: unknown, alias?: string, who: Principal = principal('u1')): Promise<number[]> {
   const query = driver.select<Array<{ id: number }>>().from('doc', alias).columns(['id']).orderBy('id');
-  compiler.compile(termArgs, query, DocModel, principal('u1'));
+  compiler.compile(termArgs, query, DocModel, who);
   const rows = (await query) as unknown as Array<{ id: number | string }>;
   return rows.map((r) => Number(r.id));
 }

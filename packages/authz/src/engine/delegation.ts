@@ -188,10 +188,14 @@ export function resolveDelegation(principal: Principal, actor: Principal | undef
  * the subject evaluator read as the request principal; in a delegate's residual
  * they are replaced fail-closed: FALSE under an even number of `not`s, TRUE
  * under an odd one. Malformed, unknown or too deep nodes are replaced the same
- * way. Memoised per node and polarity, so shared subtrees cost once.
+ * way. A `native:*` op listed in `keep` is kept as is under either polarity:
+ * the Authorizer lists the ops whose NativeFilter declares `principalInArgs`,
+ * whose args name the delegate, so they mean the same for whoever evaluates
+ * them. Memoised per node and polarity (one `keep` per call), so shared
+ * subtrees cost once.
  */
-export function stripPrincipalOps(f: ResourceFilter): ResourceFilter {
-  const memo: [WeakMap<object, ResourceFilter>, WeakMap<object, ResourceFilter>] = [new WeakMap(), new WeakMap()];
+export function stripPrincipalOps(f: ResourceFilter, keep?: ReadonlySet<string>): ResourceFilter {
+  const memo: StripState = { keep, byPolarity: [new WeakMap(), new WeakMap()] };
   try {
     return simplify(strip(f, false, 1, memo));
   } catch {
@@ -199,10 +203,12 @@ export function stripPrincipalOps(f: ResourceFilter): ResourceFilter {
   }
 }
 
-function strip(f: unknown, negated: boolean, depth: number, memo: [WeakMap<object, ResourceFilter>, WeakMap<object, ResourceFilter>]): ResourceFilter {
+type StripState = { readonly keep: ReadonlySet<string> | undefined; readonly byPolarity: [WeakMap<object, ResourceFilter>, WeakMap<object, ResourceFilter>] };
+
+function strip(f: unknown, negated: boolean, depth: number, memo: StripState): ResourceFilter {
   const missing = negated ? TRUE : FALSE;
   if (!isObject(f) || depth > MAX_FILTER_DEPTH) return missing;
-  const cache = memo[negated ? 1 : 0];
+  const cache = memo.byPolarity[negated ? 1 : 0];
   const hit = cache.get(f);
   if (hit !== undefined) return hit;
 
@@ -222,6 +228,7 @@ function strip(f: unknown, negated: boolean, depth: number, memo: [WeakMap<objec
     else if (op === 'true') out = TRUE;
     else if (op === 'false') out = FALSE;
     else if (op === 'cmp' || op === 'under') out = f as ResourceFilter;
+    else if (typeof op === 'string' && op.startsWith('native:') && memo.keep?.has(op) === true) out = f as ResourceFilter;
     else out = missing;
   } catch {
     out = missing;

@@ -2,6 +2,7 @@ import 'mocha';
 
 import { bootPostgres, bootSqlite, createSchema, executionCases, parityCases, seed } from './fixture.js';
 import type { BootedDb } from './fixture.js';
+import { intersectCases } from './intersect.js';
 
 describe('authz-rbac orm: native:rbac.assignment on sqlite', function () {
   this.timeout(30000);
@@ -20,6 +21,7 @@ describe('authz-rbac orm: native:rbac.assignment on sqlite', function () {
 
   executionCases(() => db.driver);
   parityCases(() => db.driver);
+  intersectCases(() => db.driver);
 });
 
 describe('authz-rbac orm: native:rbac.assignment on postgres', function () {
@@ -46,6 +48,7 @@ describe('authz-rbac orm: native:rbac.assignment on postgres', function () {
 
   executionCases(() => db!.driver);
   parityCases(() => db!.driver);
+  intersectCases(() => db!.driver);
 });
 
 describe('authz-rbac orm: native:rbac.assignment through authz-orm', () => {
