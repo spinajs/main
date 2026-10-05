@@ -1,4 +1,4 @@
-import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, DEFAULT_DENY_PRIORITY, FALSE, GLOBAL, TRUE, and, compareDenyReasons, or, principalKey, resourceKey, unionFieldGlobs } from '@spinajs/authz';
 import type { Assignment, AssignmentSubject, AuthzContribution, DecisionRequest, DenyReason, EvaluationContext, FieldSet, FilterOp, ModelCapabilities, ModelInitContext, NativeFilter, Permission, PermissionRegistry, Principal, PrincipalRef, ResourceFilter, ResourceRef, ResourceType, Vote } from '@spinajs/authz';
 
 import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
@@ -28,6 +28,7 @@ import { isTypeLevel, patternsFilter } from './patterns.js';
 import type { PatternContext } from './patterns.js';
 import { rbacAssignmentArgs, scopeMatcher } from './native.js';
 import { assignmentProblem } from './roles.js';
+import { sameFilter } from './same-filter.js';
 import type { AssignmentProblem, CompileRolesOptions, RoleGraph } from './roles.js';
 
 /*
@@ -229,21 +230,23 @@ function relationResidual(grant: CompiledGrant): ResourceFilter {
  * other assignments (aggregate for Vote.roles) lower state.validUntil themselves.
  *
  * Fields (voteFieldGlobs): grants whose residual is TRUE for this request decide them; only when
- * none is TRUE do the conditional grants, by intersection. A grant whose residual is FALSE adds none.
+ * none is TRUE do the conditional grants. Those whose residuals are the same filter (sameFilter)
+ * hold on the same rows, so each such group counts once, with the union of its grants' fields
+ * (RFC C3-1); the groups then intersect. A grant whose residual is FALSE adds none.
  * RBAC_SUMMARY_STEPS passes summaryFieldGlobs instead.
  */
 function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
   const ends: number[] = s.validUntil ? [s.validUntil.getTime()] : [];
   const at: PatternContext = { resource: s.input.request.resource, path: s.input.path, principal: s.input.request.principal };
   const unconditional: (FieldGlobs | undefined)[] = [];
-  const conditional: (FieldGlobs | undefined)[] = [];
+  const conditional: ConditionalGroup[] = [];
   for (const c of s.candidates) {
     if (!c.failed) {
       if (c.rows) nativeCannotCarry(s);
       const permits = and(grantResidual(c.grant, at), c.rows ?? TRUE);
       s.permit.push(permits);
       if (permits.op === 'true') unconditional.push(c.grant.fieldGlobs);
-      else if (permits.op !== 'false') conditional.push(c.grant.fieldGlobs);
+      else if (permits.op !== 'false') addToGroup(conditional, permits, c.grant.fieldGlobs);
     }
     for (const h of c.holders) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
@@ -252,12 +255,31 @@ function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
     if (checks.some((c) => c.rows.op !== 'true' && c.rows.op !== 'false')) nativeCannotCarry(s);
     const permits = and(scopedRows(s, holders), grantResidual(g, at), ...checks.map((c) => c.rows));
     s.permit.push(permits);
-    if (permits.op !== 'false') conditional.push(g.fieldGlobs);
+    if (permits.op !== 'false') addToGroup(conditional, permits, g.fieldGlobs);
     for (const h of [...holders, ...checks.flatMap((c) => c.read)]) if (h.expiresAt) ends.push(h.expiresAt.getTime());
   }
   if (ends.length > 0) s.validUntil = new Date(Math.min(...ends));
-  const fields = fieldGlobs(unconditional, conditional);
+  const fields = fieldGlobs(unconditional, conditional.map(groupFields));
   if (fields) s.fields = s.fields ? intersectFieldGlobs(fields, compileFieldSet(s.fields, 'rbac: the fields an earlier step set')) : fields;
+}
+
+interface ConditionalGroup {
+  readonly permits: ResourceFilter;
+  readonly fields: (FieldGlobs | undefined)[];
+}
+
+function addToGroup(groups: ConditionalGroup[], permits: ResourceFilter, fields: FieldGlobs | undefined): void {
+  const group = groups.find((g) => sameFilter(g.permits, permits));
+  if (group) group.fields.push(fields);
+  else groups.push({ permits, fields: [fields] });
+}
+
+/** The union of a group's field sets; `undefined` (every field) when one grant carries none. */
+function groupFields(group: ConditionalGroup): FieldGlobs | undefined {
+  if (group.fields.length === 1) return group.fields[0];
+  if (group.fields.some((f) => f === undefined)) return undefined;
+  const sets = group.fields as readonly FieldGlobs[];
+  return { read: unionFieldGlobs(...sets.map((f) => f.read)), write: unionFieldGlobs(...sets.map((f) => f.write)) };
 }
 
 const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
