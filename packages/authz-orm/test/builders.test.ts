@@ -218,8 +218,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
       describe('many-to-many', () => {
         for (const relationScope of ['where', 'join'] as const) {
           it(`populate and the relation list return only the targets the residual allows (relationScope '${relationScope}')`, async () => {
-            await host({ [READ.tag]: permit(rel('owner')) });
             const { Post } = await posts({ relationScope });
+            await host({ [READ.tag]: permit(rel('owner')) });
             const driver = db.driver(dialect);
             const { result, executed } = await captured(driver, () => as(bob, populatedTags(Post)));
             expect(result).to.deep.equal(['g2', 'g3']);
@@ -231,29 +231,29 @@ describe('authz-orm junction, populate and cloned builders', function () {
         }
 
         it("a registered junction model's residual scopes the junction rows too", async () => {
-          await host({ [READ.tag]: permit(rel('owner')), [READ.link]: permit(cmp('visible', 'eq', 'yes')) });
           const { Post } = await posts({ scopedJunction: true });
+          await host({ [READ.tag]: permit(rel('owner')), [READ.link]: permit(cmp('visible', 'eq', 'yes')) });
           expect(await as(bob, populatedTags(Post))).to.deep.equal(['g2']);
           expect(await as(bob, listedTags(Post))).to.deep.equal(['g2']);
         });
 
         it('FALSE on the target fails closed: AccessDenied, no rows', async () => {
-          await host({});
           const { Post } = await posts();
+          await host({});
           expect(await fails(as(bob, populatedTags(Post)))).to.be.instanceOf(AccessDenied);
           expect(await fails(as(bob, listedTags(Post)))).to.be.instanceOf(AccessDenied);
         });
 
         it("a deferred residual of the target resolves before the junction query runs (sync 'never')", async () => {
-          await host({ [READ.tag]: permit(rel('owner')) }, { sync: 'never' });
           const { Post } = await posts();
+          await host({ [READ.tag]: permit(rel('owner')) }, { sync: 'never' });
           expect(await as(bob, populatedTags(Post))).to.deep.equal(['g2', 'g3']);
           expect(await as(bob, listedTags(Post))).to.deep.equal(['g2', 'g3']);
         });
 
         it('whereExist and whereNotExists test the target rows the residual allows, with and without a callback', async () => {
-          await host({ [READ.tag]: permit(rel('owner')) });
           const { Post } = await posts();
+          await host({ [READ.tag]: permit(rel('owner')) });
           expect(idsOf(await as(bob, () => Post.query().whereExist('tags')))).to.deep.equal(['p1']);
           expect(idsOf(await as(bob, () => Post.query().whereNotExists('tags')))).to.deep.equal(['p2', 'p3']);
           const titled = (title: string) =>
@@ -268,8 +268,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('a junction sub-query the orm builds itself (whereExist inside a nested where) fails closed', async () => {
-          await host({ [READ.tag]: permit(rel('owner')) });
           const { Post } = await posts();
+          await host({ [READ.tag]: permit(rel('owner')) });
           const nested = () =>
             Post.query().where(function (this: IWhereBuilder<never>) {
               this.whereExist('tags');
@@ -280,16 +280,16 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('the static Model.populate joins the target explicitly and fails closed', async () => {
-          await host({ [READ.tag]: permit(rel('owner')) });
           const { Post } = await posts();
+          await host({ [READ.tag]: permit(rel('owner')) });
           expect(await fails(as(bob, () => Post.populate('tags', 'p1')))).to.be.instanceOf(Forbidden);
         });
       });
 
       describe('belongsTo and hasMany', () => {
         it("populate of a belongsTo target: the residual goes into the WHERE ('where') or the JOIN ON ('join')", async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           let { Note } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const query = () => Note.query().select('id', 'nid').populate('task');
           expect(await notesWithTask(bob, query)).to.deep.equal([['n2', 'b']]);
           // The relation object's own query (SingleRelation.populate) is scoped too.
@@ -315,9 +315,9 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('populate of a hasMany target and its relation list are scoped by the target residual', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           for (const relationScope of ['where', 'join'] as const) {
             const { Project } = await tasks({ relationScope });
+            await host({ [READ.task]: permit(rel('owner')) });
             const project: any = await as(bob, (): any => Project.where('id', 'r1').populate('tasks').first());
             expect(idsOf([...project.tasks])).to.deep.equal(['t2']);
             const listed: any = await as(bob, (): any => Project.where('id', 'r1').first());
@@ -328,9 +328,9 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('FALSE on a populated target fails closed: AccessDenied, no rows', async () => {
-          await host({});
           for (const relationScope of ['where', 'join'] as const) {
             const { Note, Project } = await tasks({ relationScope });
+            await host({});
             expect(await fails(notesWithTask(bob, () => Note.query().select('id', 'nid').populate('task')))).to.be.instanceOf(AccessDenied);
             expect(await fails(as(bob, () => Project.where('id', 'r1').populate('tasks').first()))).to.be.instanceOf(AccessDenied);
             await db.clear();
@@ -338,8 +338,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it("a deferred residual of a populated belongsTo resolves before the query runs (sync 'never')", async () => {
-          await host({ [READ.task]: permit(rel('owner')) }, { sync: 'never' });
           let { Note } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) }, { sync: 'never' });
           const query = () => Note.query().select('id', 'nid').populate('task');
           expect(await notesWithTask(bob, query)).to.deep.equal([['n2', 'b']]);
           await db.clear();
@@ -352,14 +352,14 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('the static Model.populate of a hasMany builds a target query, which is scoped', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Project } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           expect(idsOf(await as(bob, () => Project.populate('tasks', 'r1')))).to.deep.equal(['t2']);
         });
 
         it("a join that reuses a populated relation's alias is not the relation's join: Forbidden", async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Task, Note } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const forged = () =>
             Note.query()
               .select('id', 'nid')
@@ -371,8 +371,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
 
       describe('a builder kept across principals', () => {
         it('a select, update or delete built as one principal and run as another is Forbidden; SYSTEM may run it', async () => {
-          await host({ [READ.task]: permit(rel('owner')), [`${TASK}:update`]: permit(rel('owner')), [`${TASK}:delete`]: permit(rel('owner')) });
           const { Task } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')), [`${TASK}:update`]: permit(rel('owner')), [`${TASK}:delete`]: permit(rel('owner')) });
           const built = (): Promise<{ q: any }> => as(alice, () => ({ q: Task.query() }));
           const first = (await built()).q;
           expect(await fails(as(bob, () => first))).to.be.instanceOf(Forbidden);
@@ -398,8 +398,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('the same id with other attributes or other authn facts is another principal; the same object, nested, or a copy is not', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Task } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const aal2: Principal = { ...alice, authn: { method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['totp'], authenticatedAt: new Date(0) } as never };
           const tagged = (attributes: Record<string, unknown>): Principal => ({ ...alice, attributes });
           const built = (p: Principal): Promise<{ q: any }> => as(p, () => ({ q: Task.query() }));
@@ -438,8 +438,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('a principal with a hidden, symbol-keyed or getter field, at any depth, is compared by reference', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Task } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const built = (p: Principal): Promise<{ q: any }> => as(p, () => ({ q: Task.query() }));
           const forbidden = async (build: Principal, run: Principal, what: string) => {
             const q = (await built(build)).q;
@@ -479,8 +479,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('a sub-select built as another principal is Forbidden in whereIn and whereExist', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Task, Note } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const sub = (): Promise<{ q: any }> => as(alice, () => ({ q: Task.query().select('id') }));
           const inSub = (await sub()).q;
           expect(await fails(as(bob, () => Note.query().whereIn('task_id', inSub)))).to.be.instanceOf(Forbidden);
@@ -491,9 +491,9 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('populated relations built as another principal are Forbidden: belongsTo, hasMany, many-to-many', async () => {
-          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
           for (const relationScope of ['where', 'join'] as const) {
             const { Note, Project } = await tasks({ relationScope });
+            await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
             const { q } = await as(alice, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
             expect(await fails(notesWithTask(bob, () => q))).to.be.instanceOf(Forbidden);
             const { p } = await as(alice, () => ({ p: Project.where('id', 'r1').populate('tasks') }));
@@ -501,6 +501,7 @@ describe('authz-orm junction, populate and cloned builders', function () {
             await db.clear();
           }
           const { Post } = await posts();
+          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
           const { q } = await as(alice, () => ({ q: Post.where('id', 'p1').populate('tags') }));
           expect(await fails(as(bob, () => q))).to.be.instanceOf(Forbidden);
         });
@@ -508,8 +509,8 @@ describe('authz-orm junction, populate and cloned builders', function () {
 
       describe('clone', () => {
         it('a clone of a scoped select returns the same rows; its count too', async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           const { Task } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) });
           const { q } = await as(bob, () => ({ q: Task.query().whereIn('title', ['a', 'b']) }));
           expect(idsOf(await as(bob, () => q.clone()))).to.deep.equal(['t2']);
           expect(idsOf(await as(bob, () => q))).to.deep.equal(['t2']);
@@ -517,9 +518,9 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it("a clone of a compiled populated query keeps the relation's residual on the relation's alias, once", async () => {
-          await host({ [READ.task]: permit(rel('owner')) });
           for (const relationScope of ['where', 'join'] as const) {
             const { Note } = await tasks({ relationScope });
+            await host({ [READ.task]: permit(rel('owner')) });
             const { q } = await as(bob, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
             await as(bob, () => void q.toDB());
             // Rebound to the parent, the residual would read the note's own `owner` (bob on n1 and n3, whose tasks are alice's).
@@ -541,9 +542,9 @@ describe('authz-orm junction, populate and cloned builders', function () {
         });
 
         it('a clone taken before the first compile keeps the populated join and residual; its count agrees', async () => {
-          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
           for (const relationScope of ['where', 'join'] as const) {
             const { Note } = await tasks({ relationScope });
+            await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
             const fresh = (): Promise<{ q: any }> => as(bob, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
             const expected =
               relationScope === 'where'
@@ -560,14 +561,15 @@ describe('authz-orm junction, populate and cloned builders', function () {
             await db.clear();
           }
           const { Post } = await posts();
+          await host({ [READ.task]: permit(rel('owner')), [READ.tag]: permit(rel('owner')) });
           const { q } = await as(bob, () => ({ q: Post.where('id', 'p1').populate('tags') }));
           const rows = (await as(bob, () => q.clone())) as unknown[];
           expect(rows.map(tagsOf)).to.deep.equal([['g2', 'g3']]);
         });
 
         it('a clone of a deferred populated query resolves the relation residual it carries', async () => {
-          await host({ [READ.task]: permit(rel('owner')) }, { sync: 'never' });
           const { Note } = await tasks();
+          await host({ [READ.task]: permit(rel('owner')) }, { sync: 'never' });
           const { q } = await as(bob, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
           await as(bob, () => void q.toDB());
           expect(await notesWithTask(bob, () => q.clone())).to.deep.equal([['n2', 'b']]);

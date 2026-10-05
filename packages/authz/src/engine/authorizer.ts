@@ -1,4 +1,4 @@
-import { AuthzConfigError } from '../contracts/errors.js';
+import { AuthzConfigError, UnknownPermission } from '../contracts/errors.js';
 import { FALSE, TRUE, and, bindRefs, not, or, simplify } from '../contracts/filter.js';
 import type { ResourceFilter } from '../contracts/filter.js';
 import type { CombiningAlgorithm, Decision, DecisionRequest, DenyReason, FieldSet, Trace, TraceStep, Vote } from '../contracts/decision.js';
@@ -451,6 +451,7 @@ export class Authorizer {
    */
   async summary(principal: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<AccessSummary> {
     const ref = this.requireRef(at);
+    this.refuseLateType(ref.type);
     const gate = this.principalGate(principal);
     if (gate.kind === 'deny') return deepFreeze({ principal: gate.principal, models: [], permissions: [] });
     const { defs } = this.checkable(ref, 'summary');
@@ -515,6 +516,7 @@ export class Authorizer {
    */
   async covers(holder: Principal, target: Principal, at: ResourceRef = GLOBAL, scope?: RequestScope): Promise<boolean> {
     const ref = this.requireRef(at);
+    this.refuseLateType(ref.type);
     // A refused principal's checks all deny, yet it may hold anything elsewhere (SYSTEM of a second authn copy).
     if (!this.admitted(target)) return false;
     if (holder === SYSTEM) return true;
@@ -853,8 +855,9 @@ export class Authorizer {
     // Engine-owned data goes in as is (frozen with the trace), so a deep residual is never cut.
     const core = (step: string, note: string, data?: unknown) => steps?.push(data === undefined ? { by: CORE, step, note } : { by: CORE, step, note, data });
 
-    const def = this.registry.require(input.permission);
+    const def = this.requirePermission(input.permission);
     const { ref, subject } = resolved ?? (yield* this.resolveResource(input.resource, input.subject, def));
+    this.refuseLateType(ref.type);
     if (ref.type !== GLOBAL_TYPE && !def.types.includes(ref.type)) {
       throw new AuthzConfigError(`${this.where}: permission ${quote(def.name)} is checked on type ${quote(ref.type)}, which is not in its types (${def.types.join(', ')}) or $global`);
     }
@@ -937,18 +940,38 @@ export class Authorizer {
     const bound = yield* this.bind(allow, binder);
     let residual = bound.residual;
     const coreDenials: DenyReason[] = [...ceiling.denials];
+    // Core contexts handed to native filters during the subject steps.
+    const cores: ModelContext[] = [];
+    let subjectFault = false;
+    let typeLevel: Checked | undefined;
     if (delegate) {
+      const strips = delegation.intersectKey !== principalKey(parties.ref);
       // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
-      const theirs = !delegate.allowed ? FALSE : delegation.intersectKey === principalKey(parties.ref) ? delegate.residual : stripPrincipalOps(delegate.residual);
+      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual) : delegate.residual;
+      if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
+        // The filter strips the delegate's relation and native ops, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
+        typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
+        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual) : FALSE;
+        let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
+        let holds = strip.op === 'true';
+        if (strip.op !== 'true' && strip.op !== 'false') {
+          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
+          if (!settled.ok) {
+            subjectFault = true;
+            this.logAt('error', `${this.where}: evaluating the stripped type-level residual of the delegate ${delegation.intersectKey} of ${label} against the subject failed: ${settled.error}`);
+          }
+          holds = settled.ok && settled.value === true;
+          truth = settled.ok ? (settled.value === undefined ? 'UNKNOWN' : String(settled.value)) : settled.error;
+        }
+        core('delegation', `intersect: the delegate's type-level residual, stripped, against the subject: ${truth}`, { residual: strip });
+        if (!holds) theirs = FALSE;
+      }
       if (theirs.op === 'false') coreDenials.push(Object.freeze({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey }));
       residual = and(residual, theirs);
     }
     core('combine', `allow ${residual.op === 'true' ? 'TRUE' : residual.op === 'false' ? 'FALSE' : 'residual'}`, { residual });
 
-    // Core contexts handed to native filters during the subject steps.
-    const cores: ModelContext[] = [];
     let subjectDenied = false;
-    let subjectFault = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
       const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
       const truth = settled.ok ? settled.value : undefined;
@@ -1002,9 +1025,9 @@ export class Authorizer {
     };
     if (parties.actorRef) outcome.actor = parties.actorRef;
     if (reason) outcome.reason = reason;
-    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil]);
+    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil, typeLevel?.decision.validUntil]);
     if (validUntil) outcome.validUntil = validUntil;
-    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
+    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || typeLevel?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
     if (faulted) {
       run.nested.faulted = true;
       // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
@@ -1012,7 +1035,7 @@ export class Authorizer {
       // A marker here would fail every later summary/covers of the request; dropping the memos this decision wrote is enough.
       else for (const ctx of [...contexts.slice(0, votes.length), ...cores]) ctx.detachMemo();
     }
-    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
+    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || typeLevel?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
     return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted, ...(firmFields ? { firmFields } : {}) }, key, run, tags);
   }
 
@@ -1641,7 +1664,10 @@ export class Authorizer {
   private loadAncestors(ref: ResourceRef): MaybePromise<readonly ResourceRef[] | null> {
     if (ref.type === GLOBAL_TYPE && ref.id === undefined) return GLOBAL_ANCESTORS;
     if (ref.id === undefined) return Object.freeze([ref, GLOBAL]);
-    const source = this.adapterByType.get(ref.type) ?? this.resolverByType.get(ref.type);
+    const adapter = this.adapterByType.get(ref.type);
+    // An ancestor or scope node a model reads, not only the checked ref, may be of a late type.
+    if (!adapter) this.refuseLateType(ref.type);
+    const source = adapter ?? this.resolverByType.get(ref.type);
     if (!source) return Object.freeze([ref, GLOBAL]);
     const raw = source.ancestors(ref);
     return isThenable(raw) ? Promise.resolve(raw).then((list) => this.ancestorList(list, ref)) : this.ancestorList(raw, ref);
@@ -1687,6 +1713,7 @@ export class Authorizer {
   private async loadAttributes(ref: ResourceRef, load: NodeLoad): Promise<LoadedAttributes> {
     const adapter = this.adapterByType.get(ref.type);
     const resolver = this.resolverByType.get(ref.type);
+    if (!adapter) this.refuseLateType(ref.type);
     let own: unknown = {};
     if (adapter && typeof adapter.scopeAttributes === 'function') own = await this.attributeLoad(ref, load, `adapter ${quote(adapter.kind)}`, () => adapter.scopeAttributes!(ref));
     else if (resolver && typeof resolver.attributes === 'function') own = await this.attributeLoad(ref, load, 'the scope resolver', () => resolver.attributes!(ref));
@@ -1712,6 +1739,65 @@ export class Authorizer {
     if (r.kind === 'value') return r.value;
     this.logTimeout(node, `${this.where}: scope attributes of ${resourceKey(ref)} from ${source} timed out after ${this.config.modelTimeoutMs} ms; the node is unknown`);
     return TIMED_OUT;
+  }
+
+  /**
+   * Adapters such as authz-orm's list their types live, but the constructor
+   * indexed them once: a type listed only now has no adapter here (no load,
+   * ancestors or attributes), so every use of it throws until a reboot.
+   */
+  private refuseLateType(type: ResourceType): void {
+    const adapter = this.lateType(type);
+    if (adapter) throw this.lateTypeError(type, adapter, AuthzConfigError);
+  }
+
+  /** An unknown permission that a late type's adapter lists now throws the late-type error instead. */
+  private requirePermission(name: Permission): PermissionDef {
+    try {
+      return this.registry.require(name);
+    } catch (e) {
+      if (!(e instanceof UnknownPermission)) throw e;
+      for (const adapter of this.adapterList) {
+        let types: unknown;
+        try {
+          const listed: unknown = typeof adapter.permissions === 'function' ? adapter.permissions() : undefined;
+          const def: unknown = Array.isArray(listed) ? listed.find((d: unknown) => isObject(d) && d.name === name) : undefined;
+          types = isObject(def) ? def.types : undefined;
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(types)) continue;
+        for (const type of types) {
+          const late = typeof type === 'string' ? this.lateType(type) : undefined;
+          if (late) throw this.lateTypeError(type as ResourceType, late, UnknownPermission);
+        }
+      }
+      throw e;
+    }
+  }
+
+  /** The adapter whose live `types` lists `type` although the constructor did not index it; an adapter whose types cannot be read is passed over. */
+  private lateType(type: ResourceType): ResourceAdapter | undefined {
+    if (type === GLOBAL_TYPE || this.adapterByType.has(type)) return undefined;
+    for (const adapter of this.adapterList) {
+      try {
+        const types: unknown = adapter.types;
+        if (Array.isArray(types) && types.includes(type)) return adapter;
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  private lateTypeError(type: ResourceType, adapter: ResourceAdapter, kind: typeof AuthzConfigError): AuthzConfigError {
+    let name: unknown;
+    try {
+      name = adapter.kind;
+    } catch {
+      name = '<unreadable>';
+    }
+    return new kind(`${this.where}: resource type ${quote(type)} was registered with adapter ${quote(name)} after the domain booted; register it before boot, or boot the domain again`);
   }
 
   private requireRef(v: unknown): ResourceRef {

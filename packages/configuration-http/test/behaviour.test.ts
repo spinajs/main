@@ -19,6 +19,8 @@ runBehaviour(
         host.setConfig(['authz', 'orm', 'domain'], host.domain);
         for (const [name, def] of Object.entries(configurationHttpConfig.authz.permissions))
           host.setConfig(['authz', 'domains', host.domain, 'permissions', name], def);
+        // Before the domain boots: a type registered later makes every query on it throw.
+        new ConfigurationHttpBootstrapper().bootstrap();
       },
       async extend(host) {
         host.setConfig(['logger'], {
@@ -34,7 +36,6 @@ runBehaviour(
         DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
         const orm = await DI.resolve(Orm);
 
-        new ConfigurationHttpBootstrapper().bootstrap();
         await authz(host.domain).runAs(SYSTEM, 'test', async () => {
           for (const r of host.world.lane?.configuration?.rows ?? [])
             await DbConfig.insert({

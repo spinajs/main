@@ -246,13 +246,15 @@ export interface Agreement {
   allowed: number;
   /** Selects the middleware refused with AccessDenied. */
   refused: number;
-  /** Rows the check allows and the selects leave out, where only ⊆ is asserted (a stripped intersect delegate, a sound-only leaf). */
+  /** Rows the check allows and the selects leave out, where only ⊆ is asserted (a sound-only leaf). */
   narrower: number;
-  /** Row checks of intersect agents asserted ⇔ (the delegate's residual held no relation or native op). */
+  /** Row checks of intersect agents asserted ⇔ whose delegate's residual held no relation or native op. */
   intersectExact: number;
+  /** Row checks of intersect agents asserted ⇔ whose delegate's residual held a relation or native op, stripped in the filter. */
+  intersectStripped: number;
 }
 
-export const emptyAgreement = (): Agreement => ({ checks: 0, allowed: 0, refused: 0, narrower: 0, intersectExact: 0 });
+export const emptyAgreement = (): Agreement => ({ checks: 0, allowed: 0, refused: 0, narrower: 0, intersectExact: 0, intersectStripped: 0 });
 
 const holdsPrincipalOps = (f: ResourceFilter): boolean => {
   if (f.op === 'relation' || f.op.startsWith('native:')) return true;
@@ -262,9 +264,9 @@ const holdsPrincipalOps = (f: ResourceFilter): boolean => {
 
 /**
  * The engine replaces `relation` and `native:*` in an intersect delegate's type-level residual
- * fail-closed (`stripPrincipalOps`), while a check with a subject evaluates the delegate exactly. So
- * where the delegate's residual holds such an op the filter may list fewer rows than the checks
- * allow, never more; where it holds none nothing is stripped and the two must agree.
+ * fail-closed (`stripPrincipalOps`), and a check with a subject also needs the row to pass that
+ * stripped residual, so the two agree either way. The stripped case is counted apart to show the
+ * worlds reach it.
  */
 async function stripsDelegate(service: AuthzService, p: Principal, permission: string, type: string): Promise<boolean> {
   if (p.onBehalfOf === undefined || p.delegation !== 'intersect') return false;
@@ -273,10 +275,9 @@ async function stripsDelegate(service: AuthzService, p: Principal, permission: s
 
 /**
  * For every principal and permission, and every row: `check` with the row as subject is allowed iff
- * the row is in the middleware's select and in the select of `service.filter` compiled to SQL. For
- * an intersect agent whose delegate's residual is stripped, and for every principal with `sound`
- * (residuals with conventions §5 "sound only" leaves), the two selects are equal and hold only rows
- * the check allows.
+ * the row is in the middleware's select and in the select of `service.filter` compiled to SQL. With
+ * `sound` (residuals with conventions §5 "sound only" leaves) the two selects are equal and hold only
+ * rows the check allows.
  */
 export async function agree(service: AuthzService, tables: OrmTables, principals: readonly Principal[], opts: { readonly sound?: boolean } = {}, into: Agreement = emptyAgreement()): Promise<Agreement> {
   const type = tables.spec.type;
@@ -291,7 +292,7 @@ export async function agree(service: AuthzService, tables: OrmTables, principals
       const filtered = new Set(await sqlIds(cls, residual, relationPrincipalOf(principal, service)));
       const listed = new Set(scoped ?? []);
       const stripped = await stripsDelegate(service, principal, permission, type);
-      const sound = opts.sound === true || stripped;
+      const sound = opts.sound === true;
       // As in a request: the adapter keeps a row's ancestors for the request.
       const decisions = await runWithPrincipal(principal, async () => {
         const out = [];
@@ -308,7 +309,10 @@ export async function agree(service: AuthzService, tables: OrmTables, principals
         into.checks++;
         if (d.allowed) into.allowed++;
         if (d.allowed && !filtered.has(id)) into.narrower++;
-        if (principal.delegation === 'intersect' && !stripped) into.intersectExact++;
+        if (principal.delegation === 'intersect' && !sound) {
+          if (stripped) into.intersectStripped++;
+          else into.intersectExact++;
+        }
       }
     }
   }

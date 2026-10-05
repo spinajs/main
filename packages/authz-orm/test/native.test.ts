@@ -738,8 +738,8 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
         const permitAll = (when: ResourceFilter): VoteTable => Object.fromEntries(['read', 'update', 'delete'].map((a) => [`ndoc:${a}`, { permitWhen: when }]));
 
         it("a list, a caller's orWhere, a clone and its count read only the rows the native residual allows", async () => {
-          await host(permitAll(member()));
           const { Doc } = (await define(dialect)) as { Doc: any };
+          await host(permitAll(member()));
           expect(idsOf(await as(bob, () => Doc.query()))).to.deep.equal(['d2', 'd6']);
           expect(idsOf(await as(bob, () => Doc.query().where('s', 'b').orWhere('s', 'a')))).to.deep.equal(['d2']);
           const { q } = await as(bob, () => ({ q: Doc.query().setAlias('d') }));
@@ -759,8 +759,8 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
             [{ attr: { want: 'none', dflt: 'none' } }, ['d3', 'd4', 'd5', 'd7']],
           ];
           for (const [args, want] of shapes) {
-            await host(permitAll(member(args)));
             const { Doc } = (await define(dialect)) as { Doc: any };
+            await host(permitAll(member(args)));
             const what = JSON.stringify(args);
             expect(idsOf(await as(alice, () => Doc.query())), what).to.deep.equal(want);
             const { q } = await as(alice, () => ({ q: Doc.query() }));
@@ -774,15 +774,15 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
         });
 
         it('under not and inside or, from the residual a model votes', async () => {
-          await host(permitAll(or(cmp('s', 'eq', 'c'), not(member({ role: 'viewer' })))));
           const { Doc } = (await define(dialect)) as { Doc: any };
+          await host(permitAll(or(cmp('s', 'eq', 'c'), not(member({ role: 'viewer' })))));
           // alice is a viewer in o2 only.
           expect(idsOf(await as(alice, () => Doc.query()))).to.deep.equal(['d1', 'd3', 'd4', 'd5', 'd7']);
         });
 
         it('an update and a delete reach only the rows the native residual allows', async () => {
-          await host(permitAll(member()));
           const { Doc } = (await define(dialect)) as { Doc: any };
+          await host(permitAll(member()));
           const table = db.table(Doc);
           await as(bob, () => Doc.update({ s: 'u' }).whereIn('id', ALL));
           const updated = (await db.raw(`SELECT id FROM "${table}" WHERE s = 'u'`, [], dialect)) as { id: string }[];
@@ -793,8 +793,8 @@ describe('authz-orm native compilers: correlated sub-queries', function () {
 
         for (const relationScope of ['where', 'join'] as const) {
           it(`a populated relation correlates with the relation's alias (relationScope '${relationScope}')`, async () => {
-            await host(permitAll(member()));
             const { Doc } = await define(dialect, { relationScope });
+            await host(permitAll(member()));
             const Note = (await db.define(
               {
                 name: 'NNote',
