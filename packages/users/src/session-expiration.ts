@@ -14,7 +14,7 @@ import { ISession, SessionExpirationProvider } from './interfaces.js';
  */
 @Injectable(SessionExpirationProvider)
 export class AbsoluteExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
   public initial(session: ISession): DateTime | undefined {
@@ -37,7 +37,7 @@ export class AbsoluteExpiration extends SessionExpirationProvider {
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
   public initial(_session: ISession): DateTime | undefined {
@@ -61,10 +61,10 @@ export class SlidingExpiration extends SessionExpirationProvider {
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingCappedExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
-  @Config('authn.session.expiration.maxLifetime', { defaultValue: 1440 })
+  @Config('authn.session.expiration.maxLifetime', { defaultValue: 480 })
   protected MaxLifetime!: number;
 
   public initial(_session: ISession): DateTime | undefined {

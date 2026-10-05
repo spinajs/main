@@ -121,4 +121,23 @@ describe('Session expiration strategies', () => {
       closeTo(result, cap);
     });
   });
+
+  describe('code defaults without configuration: what users shipped, 30 idle and 480 absolute minutes', () => {
+    it('AbsoluteExpiration and SlidingExpiration use a ttl of 30', async () => {
+      await withConfig({});
+      const session = new UserSession();
+      session.Creation = DateTime.fromISO('2026-01-01T00:00:00.000Z');
+
+      closeTo((await DI.resolve(AbsoluteExpiration)).initial(session), session.Creation.plus({ minutes: 30 }), 5);
+      closeTo((await DI.resolve(SlidingExpiration)).initial(session), DateTime.now().plus({ minutes: 30 }));
+    });
+
+    it('SlidingCappedExpiration caps at 480 minutes from creation', async () => {
+      await withConfig({});
+      const session = new UserSession();
+      session.Creation = DateTime.now().minus({ minutes: 470 });
+
+      closeTo((await DI.resolve(SlidingCappedExpiration)).renew(session), session.Creation.plus({ minutes: 480 }));
+    });
+  });
 });
