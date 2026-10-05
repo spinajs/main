@@ -6,7 +6,7 @@ import type { Class, IContainer } from '@spinajs/di';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
-import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog } from '../behaviour/harness.js';
+import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
 
@@ -753,6 +753,13 @@ describe('DefaultAuthnService', function () {
       p.externalSubjects.set(sub.subject, sub);
       return p;
     }
+
+    it('reads authn.linking when it decides, not at boot', async () => {
+      const p = await bootLinking({}, subject({ email: 'new@example.test' }));
+      p.identities.provision = async (ext: ExternalSubject) => p.identities.add({ login: ext.email ?? ext.subject, email: ext.email });
+      p.configuration.set('authn.linking.jit', true);
+      assert.strictEqual((await p.service.authenticate(external, ctx())).status, 'success');
+    });
 
     it('logs a linked subject in as its identity', async () => {
       const p = await bootLinking({});
@@ -1567,6 +1574,31 @@ describe('DefaultAuthnService', function () {
       const p = await boot(undefined, { raw: { authn: { mfa: { policy: { service: 'AlwaysPolicy' } } } }, register: (c) => bind(c, MfaPolicy, 'AlwaysPolicy', new Always()) });
       await seedAlice(p);
       assert.strictEqual((await p.service.authenticate(pw(ALICE.login, ALICE.password), ctx())).status, 'mfa_required');
+    });
+
+    it('takes the linking switches from the schema defaults', async () => {
+      const p = await boot([failing()]);
+      assert.deepStrictEqual(p.configuration.get('authn.linking'), { jit: false, byVerifiedEmail: false });
+    });
+
+    it('refuses malformed boot options, naming the path of each', async () => {
+      const cases: [Record<string, unknown>, string][] = [
+        [{ linking: { jit: 'maybe' } }, 'authn.linking.jit'],
+        [{ linking: 'on' }, 'authn.linking'],
+        [{ mfa: { policy: { service: '' } } }, 'authn.mfa.policy.service'],
+        [{ throttle: { service: '' } }, 'authn.throttle.service'],
+      ];
+      for (const [authn, path] of cases) {
+        const paths = await violationPaths(boot([failing()], { raw: { authn } }));
+        assert.ok(paths.includes(path), `${JSON.stringify(authn)}: ${paths.join(', ')}`);
+      }
+    });
+
+    it('adds the global key as soon as authn.throttle.global is set', async () => {
+      const p = await boot([strategy('g', { verify: () => ({ ok: false, reason: 'invalid_credentials' }) })]);
+      p.configuration.set('authn.throttle.global', { free: 100, baseDelayMs: 1, maxDelayMs: 1 });
+      await p.service.authenticate(bearer('x'), ctx());
+      assert.ok(throttle!.attempts[0].keys.some((k) => k.kind === 'global'));
     });
 
     it('is one instance per container (D11)', async () => {

@@ -295,9 +295,10 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     linking: {
       type: 'object',
+      default: {},
       properties: {
-        jit: { type: 'boolean' },
-        byVerifiedEmail: { type: 'boolean' },
+        jit: { type: 'boolean', default: false },
+        byVerifiedEmail: { type: 'boolean', default: false },
       },
     },
     impersonation: {

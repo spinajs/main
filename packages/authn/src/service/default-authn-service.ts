@@ -1,6 +1,6 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
@@ -37,8 +37,6 @@ type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
 
 /** The answer of the first candidate that does not pass the credentials on, or why none gave one. */
 type Verification = { readonly s: AuthenticationStrategy; readonly outcome: StrategyOutcome } | { readonly s: AuthenticationStrategy; readonly broken: 'strategy_error' | 'strategy_contract'; readonly data?: Readonly<Record<string, unknown>> } | null;
-
-const DEFAULT_MFA_POLICY = 'DefaultMfaPolicy';
 
 const MEMORY_THROTTLE = 'MemoryAuthnThrottle';
 
@@ -114,15 +112,6 @@ function checkOutcome(o: unknown): StrategyOutcome | null {
 
 const validKeys = (v: unknown): v is readonly ThrottleKey[] => Array.isArray(v) && v.every((k) => isObject(k) && nonEmpty(k.kind) && typeof k.value === 'string');
 
-function readLinking(raw: unknown): Linking {
-  if (raw === undefined || raw === null) return { jit: false, byVerifiedEmail: false };
-  if (!isObject(raw)) throw new InvalidOption('authn.linking must be an object');
-  for (const k of ['jit', 'byVerifiedEmail']) {
-    if (raw[k] !== undefined && typeof raw[k] !== 'boolean') throw new InvalidOption(`authn.linking.${k} must be a boolean`);
-  }
-  return { jit: raw.jit === true, byVerifiedEmail: raw.byVerifiedEmail === true };
-}
-
 /** The audit reason of a status that refuses the login, or null. */
 function refusal(st: IdentityStatus): string | null {
   if (!st.exists) return 'unknown_identity';
@@ -169,23 +158,33 @@ export class DefaultAuthnService extends AuthnService {
   private sessions: SessionIssuer | undefined;
   private policy: MfaPolicy | undefined;
   private steps: MfaStepRegistry | undefined;
-  private linking: Linking = { jit: false, byVerifiedEmail: false };
-  private globalGate = false;
+
+  @Config('authn.linking')
+  protected Linking!: Linking;
+
+  @Config('authn.throttle.global')
+  protected ThrottleGlobal: unknown;
+
+  @Config('authn.mfa.policy.service')
+  protected PolicyService!: string;
+
+  @Config('authn.throttle.service')
+  protected ThrottleService: string | undefined;
 
   constructor(private readonly container: IContainer) {
     super();
   }
 
+  private get globalGate(): boolean {
+    return isObject(this.ThrottleGlobal);
+  }
+
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('DefaultAuthnService: the resolved Configuration has no get()');
-    }
+    // The boot checks are plain functions over a Configuration and read APP_ENV, so they cannot use @Config.
+    const configuration = await this.container.resolve(Configuration);
     if (authnEnvFellBack(configuration)) warnOnce(AUTHN_ENV_FALLBACK_WARNING);
     checkAuthnLegacyKeys(configuration, { warn: warnOnce });
     await checkAuthnSecrets(configuration, this.container, warnOnce);
-    this.linking = readLinking(configuration.get('authn.linking'));
-    this.globalGate = isObject(configuration.get('authn.throttle.global'));
     this.registry = await this.container.resolve(StrategyRegistry);
     this.auditor = await this.container.resolve(AuthnAudit);
     this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
@@ -194,9 +193,9 @@ export class DefaultAuthnService extends AuthnService {
     if (this.registry.strategies().some((s) => s.interactive)) {
       this.sessions = await this.neighbour(SessionIssuer, 'SessionIssuer', true);
       this.steps = await this.container.resolve(MfaStepRegistry);
-      this.policy = await this.selectPolicy(configuration.get('authn.mfa.policy.service'));
+      this.policy = await this.selectPolicy();
     }
-    this.throttle = await this.selectThrottle(configuration.get('authn.throttle.service'));
+    this.throttle = await this.selectThrottle();
     if (canPeek(this.throttle)) this.peeker = this.throttle;
     else if (this.registry.strategies().some((s) => !s.interactive)) warnOnce(NO_PEEK_WARNING);
     await super.resolve();
@@ -503,13 +502,13 @@ export class DefaultAuthnService extends AuthnService {
     if (!this.links) return { id: null };
     const found = await this.links.find(external.provider, external.subject);
     if (found) return { id: found.identity };
-    const own = this.linking.jit || this.linking.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
-    if (this.linking.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
+    const own = this.Linking.jit || this.Linking.byVerifiedEmail ? linkingSwitchesOf(s, external) : { jit: false, byVerifiedEmail: false };
+    if (this.Linking.byVerifiedEmail && own.byVerifiedEmail && external.emailVerified === true && nonEmpty(external.email)) {
       // findByLogin also matches login names; only the identity's own stored email may decide.
       const id = await this.identities.findByLogin(external.email);
       if (id && sameEmail((await this.identities.display(id))?.email, external.email)) return { id, link: external, provisioned: false };
     }
-    if (this.linking.jit && own.jit && typeof this.identities.provision === 'function') {
+    if (this.Linking.jit && own.jit && typeof this.identities.provision === 'function') {
       return { id: await this.identities.provision(external), link: external, provisioned: true };
     }
     return { id: null };
@@ -592,12 +591,9 @@ export class DefaultAuthnService extends AuthnService {
     return (await this.container.resolve(type as unknown as Class<T>)) as T;
   }
 
-  /** `authn.mfa.policy.service`, DefaultMfaPolicy when unset; the registration nearest to this container wins. */
-  private async selectPolicy(configured: unknown): Promise<MfaPolicy> {
-    if (configured !== undefined && configured !== null && !nonEmpty(configured)) {
-      throw new InvalidOption('authn.mfa.policy.service must be a non-empty string');
-    }
-    const name = (configured as string | null | undefined) ?? DEFAULT_MFA_POLICY;
+  /** `authn.mfa.policy.service` (schema default DefaultMfaPolicy); the registration nearest to this container wins. */
+  private async selectPolicy(): Promise<MfaPolicy> {
+    const name = this.PolicyService;
     const type = nearestRegistration(this.container, MfaPolicy, name);
     if (!type) {
       const listed = registeredNames(this.container, MfaPolicy).map(q).join(', ') || 'none';
@@ -608,14 +604,11 @@ export class DefaultAuthnService extends AuthnService {
     return policy as unknown as MfaPolicy;
   }
 
-  private async selectThrottle(configured: unknown): Promise<AuthnThrottle> {
-    if (configured !== undefined && configured !== null && !nonEmpty(configured)) {
-      throw new InvalidOption('authn.throttle.service must be a non-empty string');
-    }
+  private async selectThrottle(): Promise<AuthnThrottle> {
     const names = registeredNames(this.container, AuthnThrottle);
     const listed = names.map(q).join(', ') || 'none';
-    let name = configured as string | undefined | null;
-    if (name === undefined || name === null) {
+    let name = this.ThrottleService;
+    if (name === undefined) {
       // The core always registers the memory throttle; one more registered throttle is the one the app imported (K6).
       const others = names.filter((n) => n !== MEMORY_THROTTLE);
       const only = names.length === 1 ? names : others.length === 1 ? others : [];
