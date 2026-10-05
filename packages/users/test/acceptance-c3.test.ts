@@ -17,7 +17,7 @@ const { instance } = testHost;
 const roleConfig = (roles: readonly RoleDef[]) => Object.fromEntries(roles.map(({ name, source: _source, ...def }) => [name, def]));
 const ladderConfig = (ladders: readonly LadderDef[]) => Object.fromEntries(ladders.map(({ name, ...def }) => [name, def]));
 
-/** The world's principals as the impersonation session would carry them. */
+/** The world's principals as the impersonation session would carry them: no ceiling, no companions (E1). */
 class WorldPrincipalFactory extends PrincipalFactory {
   constructor(private readonly world: World) {
     super();
@@ -28,7 +28,8 @@ class WorldPrincipalFactory extends PrincipalFactory {
     if (!found) {
       throw new ResourceNotFound(`No ${id.type} ${id.id}`);
     }
-    return { ...found, source: 'session', authn: facts };
+    const { ceiling: _ceiling, companions: _companions, ...principal } = found;
+    return { ...principal, source: 'session', authn: facts };
   }
 }
 

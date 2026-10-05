@@ -1,10 +1,14 @@
 import { AuthzConfigError, AuthzDomains, AuthzService, GLOBAL } from '@spinajs/authz';
-import type { Principal } from '@spinajs/authz';
-import { AssignmentStore, RbacService, RbacSubjectResolver } from '@spinajs/authz-rbac';
-import type { RoleGraph } from '@spinajs/authz-rbac';
+import type { EvaluationContext, Principal } from '@spinajs/authz';
+import { PrincipalFactory } from '@spinajs/authn/contracts';
+import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
+import { RbacService } from '@spinajs/authz-rbac';
+import type { RbacModel, RoleGraph } from '@spinajs/authz-rbac';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
+
+import { UserPrincipalFactory } from '../principal/user-principal-factory.js';
 
 /** The permission an impersonator needs at GLOBAL (B26). */
 export const IMPERSONATION_PERMISSION_KEY = 'authz.impersonation.permission';
@@ -19,11 +23,15 @@ export const ACCESS_DOMAIN_KEY = 'authz.http.access.domain';
 
 export type TargetRuleAnswer = { readonly ok: true } | { readonly ok: false; readonly code: 'protected_role' | 'escalation' };
 
-/** The access domain: its container, and its AuthzService once asked for. */
 export interface AccessDomain {
   readonly name: string;
   readonly container: IContainer;
   service(): Promise<AuthzService>;
+}
+
+export interface AuthzTargetGuardOptions {
+  /** For checkIdentity; default: the PrincipalFactory DI resolves when it is users' own, else a new one. */
+  readonly users?: UserPrincipalFactory;
 }
 
 export async function accessDomain(): Promise<AccessDomain> {
@@ -56,31 +64,63 @@ export async function protectedRoles(): Promise<readonly string[]> {
   return value as string[];
 }
 
+/** The authn facts of a principal the actor's session would carry for another account: the actor's sign-in, nothing it was granted. */
+export function actingFacts(facts: AuthnFacts): AuthnFacts {
+  return {
+    method: facts.method,
+    strategy: facts.strategy,
+    assurance: facts.assurance,
+    mfa: facts.mfa,
+    authenticatedAt: facts.authenticatedAt,
+    ...(facts.sessionHandle ? { sessionHandle: facts.sessionHandle } : {}),
+  };
+}
+
 /**
  * The rule an actor passes to act on another account: impersonation (B26) and the credential admin routes (A25, SR-10).
  * `protected_role` when the target holds a protected role (at any scope, directly, through a subject set, or through a
- * role that reaches one by `extends`, a ladder or `implies`); `escalation` when the actor's combined GLOBAL permission set
- * in the access domain does not strictly contain the target's (`AuthzService.covers`, every model, ABAC included).
- *
- * `target` is the principal the actor would act as or on; build it the way the session that uses it will carry it.
- * @throws AuthzConfigError when the access domain has no RbacService or AssignmentStore, or the config is malformed
+ * role that reaches one by `extends`, a higher ladder rank or `implies`); `escalation` when the actor's combined GLOBAL
+ * permission set in the access domain does not strictly contain the target's (`AuthzService.covers`, every model, ABAC
+ * included).
+ * @throws AuthzConfigError when the access domain has no RbacService of its own, or the config is malformed
  */
 export class AuthzTargetGuard {
+  constructor(private readonly opts: AuthzTargetGuardOptions = {}) {}
+
+  /** `target` is the principal the actor would act as or on; build it the way the session that uses it will carry it. */
   public async check(actor: Principal, target: Principal): Promise<TargetRuleAnswer> {
     const domain = await accessDomain();
-    const rbac = await own(domain, RbacService);
-    const assignments = await own(domain, AssignmentStore);
+    const rbac = await registeredInDomain(domain, RbacService);
     const authz = await domain.service();
 
     const guarded = await protectedRoles();
     if (guarded.length > 0) {
-      const held = await reachableRoles(rbac, assignments, target);
+      const held = await reachableRoles(rbac, domain.name, target);
       if (guarded.some((r) => held.has(r))) {
         return { ok: false, code: 'protected_role' };
       }
     }
 
     return (await authz.covers(actor, target, GLOBAL)) ? { ok: true } : { ok: false, code: 'escalation' };
+  }
+
+  /**
+   * For the credential admin routes (A25): the target user judged on its rights, with the actor's sign-in facts, no
+   * ceiling and no strategy attributes. An inactive or banned account still counts by its roles.
+   * @throws ResourceNotFound for an unknown or soft-deleted user
+   */
+  public async checkIdentity(actor: Principal, target: IdentityRef): Promise<TargetRuleAnswer> {
+    const principal = await (await this.users()).rightsPrincipalOf(target, actor.authn ? actingFacts(actor.authn) : undefined);
+    return this.check(actor, principal);
+  }
+
+  private async users(): Promise<UserPrincipalFactory> {
+    if (this.opts.users) {
+      return this.opts.users;
+    }
+    // Sessions may come from another factory, but the target is a users identity either way.
+    const registered: unknown = await DI.resolve(PrincipalFactory);
+    return registered instanceof UserPrincipalFactory ? registered : new UserPrincipalFactory();
   }
 }
 
@@ -89,28 +129,34 @@ async function configuration(): Promise<Configuration> {
 }
 
 // A child domain's RBAC is its own: falling back to the parent's would judge the target by another model.
-async function own<T>(domain: AccessDomain, token: Class<T>): Promise<T> {
+async function registeredInDomain<T>(domain: AccessDomain, token: Class<T>): Promise<T> {
   if (!domain.container.hasRegistered(token, false)) {
     throw new AuthzConfigError(`users: the authz domain ${JSON.stringify(domain.name)} (${ACCESS_DOMAIN_KEY}) has no ${token.name}; register RBAC there (registerRbac) before checking a target`);
   }
   return (await domain.container.resolve(token)) as T;
 }
 
-/** Every role the target holds at any scope, with every role those reach. */
-async function reachableRoles(rbac: RbacService, store: AssignmentStore, target: Principal): Promise<Set<string>> {
-  const graph = rbac.model.roleGraph();
+/**
+ * Every role the target holds at any scope, with every role those reach. The model's input at GLOBAL carries the stored
+ * rows of all the target's subjects (the model's resolver, its subject sets included) whatever their scope.
+ */
+async function reachableRoles(rbac: RbacService, domain: string, target: Principal): Promise<Set<string>> {
   const now = rbac.model.currentTime();
-  const resolver = new RbacSubjectResolver();
+  const input = await rbac.model.inputAt(target, GLOBAL, scanContext(rbac.model, domain, now));
+  const held = input.assignments.filter((a) => a.expiresAt == null || a.expiresAt.getTime() > now.getTime()).map((a) => a.role);
+  return closure(rbac.model.roleGraph(), held);
+}
 
-  const names = new Set((await rbac.rolesOf(target, GLOBAL, { ceiling: false })).map((h) => h.role));
-  const rows = await store.forSubjects(resolver.subjects(target), now);
-  const sets = [...resolver.memberships(rows, graph, now).values()].map((m) => m.subject);
-  const viaSets = sets.length > 0 ? await store.forSubjects(sets, now) : [];
-  for (const row of [...rows, ...viaSets]) {
-    names.add(row.role);
-  }
-
-  return closure(graph, names);
+// The context RbacService.rolesOf reads with: a read at GLOBAL asks for nothing else; anything more fails, never guesses.
+function scanContext(model: RbacModel, domain: string, now: Date): EvaluationContext {
+  const known: Partial<EvaluationContext> = { domain, now, cache: new Map(), permissions: model.permissions() };
+  return new Proxy(known as EvaluationContext, {
+    get(target, key) {
+      if (key in target) return target[key as keyof EvaluationContext];
+      if (key === 'then') return undefined;
+      throw new AuthzConfigError(`users: the target rule reads the roles at GLOBAL only; the RBAC model asked for '${String(key)}'`);
+    },
+  });
 }
 
 function closure(graph: RoleGraph, start: Iterable<string>): Set<string> {

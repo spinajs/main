@@ -63,6 +63,22 @@ export class UserPrincipalFactory extends PrincipalFactory {
     );
   }
 
+  /**
+   * The principal user `id` would carry signed in with `facts` (none: as for a record in hand), whatever the state of
+   * its account: for judging the rights of an account another user acts on (A25), where an inactive or banned account
+   * still holds its roles.
+   * @throws ResourceNotFound for an unknown or soft-deleted user
+   */
+  public async rightsPrincipalOf(id: IdentityRef, facts?: AuthnFacts): Promise<Principal> {
+    const user = await this.load(id);
+    if (user.DeletedAt) {
+      throw new ResourceNotFound(`No user ${user.Uuid}`);
+    }
+
+    const base = facts ? { source: facts.sessionHandle ? 'session' : 'token', authn: facts } : { source: IDENTITY_PRINCIPAL_SOURCE };
+    return this.build(user, base, undefined, false);
+  }
+
   protected async load(id: IdentityRef): Promise<User> {
     if (id?.type !== 'user') {
       throw new InvalidArgument(`UserPrincipalFactory builds user principals only, not ${JSON.stringify(id?.type)}`, 'id');
@@ -79,8 +95,10 @@ export class UserPrincipalFactory extends PrincipalFactory {
     return user as User;
   }
 
-  protected async build(user: User, base: Omit<Principal, 'type' | 'id' | 'authenticated' | 'attributes' | 'identity'>, asserted: Readonly<Record<string, unknown>> | undefined): Promise<Principal> {
-    assertUsable(user);
+  protected async build(user: User, base: Omit<Principal, 'type' | 'id' | 'authenticated' | 'attributes' | 'identity'>, asserted: Readonly<Record<string, unknown>> | undefined, refuseUnusable = true): Promise<Principal> {
+    if (refuseUnusable) {
+      assertUsable(user);
+    }
 
     const attributes: Record<string, unknown> = { ...(asserted ?? {}) };
     const principal = (): Principal => ({ type: 'user', id: user.Uuid, authenticated: true, ...base, attributes: Object.freeze({ ...attributes }), identity: user });

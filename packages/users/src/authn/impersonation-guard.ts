@@ -5,11 +5,14 @@ import { DI, Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
-import { AuthzTargetGuard, accessDomain, impersonationPermission } from './target-guard.js';
+import { AuthzTargetGuard, accessDomain, actingFacts, impersonationPermission } from './target-guard.js';
 
 type Answer = Awaited<ReturnType<ImpersonationGuard['allowed']>>;
 
 const FORBIDDEN: Answer = Object.freeze({ ok: false, code: 'forbidden' });
+
+/** Sign-ins without a person at a session; impersonation starts from an interactive one. */
+const NON_INTERACTIVE_METHODS: ReadonlySet<string> = new Set(['token', 'jws', 'http-signature']);
 
 export interface AuthzImpersonationGuardOptions {
   /** Default: the PrincipalFactory DI resolves (users' UserPrincipalFactory). */
@@ -18,10 +21,10 @@ export interface AuthzImpersonationGuardOptions {
 }
 
 /**
- * authn's ImpersonationGuard over authz (D26, B26, H18, H26). `forbidden` when the actor is not a user signed in through
- * authn, is already impersonating, names itself, lacks `authz.impersonation.permission` at GLOBAL in the access domain, or
- * when the target is not a user that can act (unknown, deleted, inactive, banned); then {@link AuthzTargetGuard} over the
- * target as the impersonation session will carry it.
+ * authn's ImpersonationGuard over authz (D26, B26, H18, H26). `forbidden` when the actor is not a user signed in
+ * interactively through authn, is already impersonating, names itself, lacks `authz.impersonation.permission` at GLOBAL
+ * in the access domain, or when the target is not a user that can act (unknown, deleted, inactive, banned); then
+ * {@link AuthzTargetGuard} over the target as the impersonation session will carry it.
  */
 @Injectable(ImpersonationGuard)
 export class AuthzImpersonationGuard extends ImpersonationGuard {
@@ -31,7 +34,7 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
 
   public async allowed(actor: Principal, target: IdentityRef): Promise<Answer> {
     const facts = actor.authn;
-    if (actor.type !== 'user' || actor.authenticated !== true || !facts || facts.impersonator || target.type !== 'user' || target.id === actor.id) {
+    if (actor.type !== 'user' || actor.authenticated !== true || !facts || facts.impersonator || NON_INTERACTIVE_METHODS.has(facts.method) || target.type !== 'user' || target.id === actor.id) {
       return FORBIDDEN;
     }
 
@@ -41,7 +44,8 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
     }
 
     const principal = await this.sessionPrincipal(actor, facts, target);
-    if (!principal) {
+    // The store may match ids in another case than the request named them.
+    if (!principal || principal.type !== 'user' || principal.id === actor.id) {
       return FORBIDDEN;
     }
 
@@ -50,14 +54,7 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
 
   /** The target with the actor's authn facts and the actor as impersonator, no ceiling: what the session will carry (E1). */
   protected async sessionPrincipal(actor: Principal, facts: AuthnFacts, target: IdentityRef): Promise<Principal | null> {
-    const sessionFacts: AuthnFacts = {
-      method: facts.method,
-      strategy: facts.strategy,
-      assurance: facts.assurance,
-      mfa: facts.mfa,
-      authenticatedAt: facts.authenticatedAt,
-      impersonator: { type: actor.type, id: actor.id },
-    };
+    const sessionFacts: AuthnFacts = { ...actingFacts(facts), impersonator: { type: actor.type, id: actor.id } };
 
     try {
       return await (await this.principals()).principalOf(target, sessionFacts, {});
