@@ -1755,6 +1755,17 @@ unguarded and there is no permissive fallback. The guard must not inject
 boot, which would deadlock (F4). It reads `ctx.authz` or resolves the
 service lazily.
 
+(C2, plan C2 task 6) Account lifecycle routes are not `AuthzAdmin`
+commands, so users-http adds its own `AccountGuard` with the same
+`authz.admin.guard` switches (absent = on). Deactivate, ban, delete and
+expire-password refuse the caller's own account (`preventSelfLockout`)
+and refuse a target holding `privilegedPermission` unconditionally at
+GLOBAL unless another active, unbanned, undeleted user still holds it
+(`preventLastPrivilegedRemoval`). A role replacement through
+`PATCH /users/:user` runs the same witness rule before its `AuthzAdmin`
+batch, because the AdminGuard's last-holder check also counts holders
+whose accounts are out of service.
+
 #### 6.6.3 Data kinds and storage
 
 | Kind | Rows | Handler package |
