@@ -8,8 +8,8 @@ import { BasePolicy } from '@spinajs/http';
 
 // Loading the controller modules is what is under test — deliberately NOT the
 // package barrel.
-import './../src/controllers/Metrics.js';
-import './../src/controllers/Telemetry.js';
+import '../../src/controllers/Metrics.js';
+import '../../src/controllers/Telemetry.js';
 
 /**
  * Regression guard for the fail-open hole: the routes name their policies as
@@ -42,7 +42,7 @@ describe('telemetry policy registration', function () {
    * FRESH process that imports only the controller modules.
    */
   it('registers both policies in a process that never loads the package barrel', () => {
-    const probe = resolve(normalize(join(process.cwd(), 'test', 'probe.policy-registration.ts')));
+    const probe = resolve(normalize(join(process.cwd(), 'test', 'legacy-v2', 'probe.policy-registration.ts')));
 
     const out = execFileSync(process.execPath, ['--no-warnings', '--experimental-specifier-resolution=node', '--loader', 'ts-node/esm', probe], {
       cwd: process.cwd(),

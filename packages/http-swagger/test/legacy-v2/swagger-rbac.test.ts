@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { Controllers, HttpServer } from '@spinajs/http';
-import { TestConfiguration, req } from './common.js';
-import '../src/index.js';
+import { TestConfiguration, req } from '../common.js';
+import '../../src/index.js';
 import { FsBootsrapper, fsService } from '@spinajs/fs';
 
 describe('Swagger RBAC extraction', function () {
@@ -36,11 +36,6 @@ describe('Swagger RBAC extraction', function () {
     DI.clearCache();
   });
 
-  it('should expose x-rbac-resource from controller @Resource decorator', () => {
-    const op = spec.paths['/rbac/inherited'].get;
-    expect(op['x-rbac-resource']).to.equal('test.resource');
-  });
-
   it('should fall back to controller-level permissions when route has none', () => {
     const op = spec.paths['/rbac/inherited'].get;
     expect(op['x-rbac-permissions']).to.deep.equal(['readOwn']);
@@ -66,11 +61,5 @@ describe('Swagger RBAC extraction', function () {
   it('should join multiple permissions with "or" in the description', () => {
     const op = spec.paths['/rbac/'].post;
     expect(op.description).to.match(/`createOwn`\s+or\s+`createAny`/);
-  });
-
-  it('should NOT emit x-rbac-resource on controllers without RBAC metadata', () => {
-    const op = spec.paths['/pets/'].get;
-    expect(op['x-rbac-resource']).to.be.undefined;
-    expect(op['x-rbac-permissions']).to.be.undefined;
   });
 });

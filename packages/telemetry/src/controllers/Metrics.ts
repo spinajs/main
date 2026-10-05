@@ -1,19 +1,16 @@
-import { BasePath, BaseController, Get, Policy } from '@spinajs/http';
+import { BasePath, BaseController, Get } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 
 import { Metrics } from './../metrics.js';
 import { PrometheusResponse } from './../responses.js';
 
-// Importing the policy modules runs their @Injectable decorators, which is what
-// puts the classes in the DI container under the names the routes below name as
-// STRINGS ( via `telemetry.auth.policies.*` ). Nothing else forces them to load:
-// this controller is mounted by the config-declared directory scan, and that
-// configuration is auto-discovered from node_modules — so an app never has to
-// import the package barrel. And http FAILS OPEN on an unresolvable policy name
-// ( it logs `No policy named ...`, drops it, and a route left with no policies
-// calls next() ), which would serve /metrics unauthenticated.
+// A slot naming a policy class (`PublicPolicy` for the probes, the deprecated
+// `TelemetryTokenPolicy`) needs that class registered, and only an import does
+// it: the directory scan mounts this controller without the package barrel. An
+// unregistered name fails the route's registration.
 import './../policies/TelemetryTokenPolicy.js';
 import './../policies/PublicPolicy.js';
+import { TelemetryAccess } from './../policies/TelemetryAccessPolicy.js';
 
 /**
  * Prometheus scrape endpoint.
@@ -34,10 +31,11 @@ export class MetricsController extends BaseController {
    * `telemetry.collectDefaultMetrics` is on — the `process_*` / `nodejs_*` set.
    *
    * @response 200 {string} Prometheus exposition text ( text/plain )
-   * @response 403 Access token missing or invalid
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
+   * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('/')
-  @Policy('telemetry.auth.policies.metrics')
+  @TelemetryAccess('metrics')
   public async getMetrics() {
     return new PrometheusResponse(this.MetricsService);
   }

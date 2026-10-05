@@ -155,6 +155,14 @@ export interface IOpenApiPathItem {
   [method: string]: IOpenApiOperation;
 }
 
+export interface IAuthzResource {
+  type?: string;
+  in?: 'path' | 'body' | 'query';
+  name?: string;
+  by?: string;
+  model?: string;
+}
+
 export interface IOpenApiOperation {
   operationId?: string;
   summary?: string;
@@ -165,14 +173,19 @@ export interface IOpenApiOperation {
   requestBody?: IOpenApiRequestBody;
   responses: Record<string, IOpenApiResponse>;
   security?: Record<string, string[]>[];
-  /** RBAC resource name (from authn-http @Resource) */
-  'x-rbac-resource'?: string;
-  /**
-   * Permissions accepted for this route (accesscontrol actions:
-   * readAny|readOwn|updateAny|updateOwn|createAny|createOwn|deleteAny|deleteOwn).
-   * Access is granted if the caller's role(s) have at least one.
-   */
-  'x-rbac-permissions'?: string[];
+  /** Any of these permissions grants access (the route's own @Access, else the class's) */
+  'x-authz-permission'?: string[];
+  /** Class-level @Access that a route's own one narrows (both must pass) */
+  'x-authz-controller-permission'?: string[];
+  /** Where the checked resource comes from; empty for a custom extractor */
+  'x-authz-resource'?: IAuthzResource;
+  /** Authz domain the route checks in; absent for root */
+  'x-authz-domain'?: string;
+  'x-authz-anonymous'?: true;
+  /** @Unscoped reason */
+  'x-authz-unscoped'?: string;
+  /** @UnfilteredInput reason */
+  'x-authz-unfiltered-input'?: string;
   /** Policy class names applied to this route (controller-level + route-level, in execution order) */
   'x-policies'?: string[];
 }

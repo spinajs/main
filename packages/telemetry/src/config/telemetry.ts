@@ -21,24 +21,48 @@ const config = {
 
   telemetry: {
     auth: {
-      // set this in your project
+      /**
+       * Shared scrape token; set it in your project. A non-empty token becomes the service principal
+       * `service:telemetry` (headers `x-metrics-token` and `Authorization: Bearer`) through
+       * `authz.http.services`, unless that list already has an entry named `telemetry`. Read once at
+       * bootstrap: a later change or a configuration reload needs a restart, and a reload drops the
+       * entries, so the token gets 401 until then. Rotate by restart, or list several tokens in an
+       * explicit `authz.http.services` entry.
+       */
       token: '',
 
       /**
-       * Policy class name per endpoint. Each route resolves its policy by
-       * reading the config key below, so access can be tightened or loosened
-       * per endpoint without touching code.
+       * Skip the 'AccessPolicy' slot checks, only while the env the configuration loaded (`--env`,
+       * else APP_ENV, else NODE_ENV) names development and configuration.isProduction is not true.
+       */
+      skipInDevelopment: false,
+
+      /** The authz domain the 'AccessPolicy' slots check in. */
+      domain: 'root',
+
+      /**
+       * Per endpoint: 'AccessPolicy' checks `permissions.<endpoint>` through authz; any other value
+       * names a registered BasePolicy that decides instead.
        */
       policies: {
-        metrics: 'TelemetryTokenPolicy',
-        stats: 'TelemetryTokenPolicy',
-        timeline: 'TelemetryTokenPolicy',
-        routes: 'TelemetryTokenPolicy',
-        perf: 'TelemetryTokenPolicy',
+        metrics: 'AccessPolicy',
+        stats: 'AccessPolicy',
+        timeline: 'AccessPolicy',
+        routes: 'AccessPolicy',
+        perf: 'AccessPolicy',
 
         // probe endpoints must be reachable without credentials
         health: 'PublicPolicy',
         ready: 'PublicPolicy',
+      },
+
+      /** A permission, or a list of which any one admits, per 'AccessPolicy' endpoint. */
+      permissions: {
+        metrics: 'telemetry:read',
+        stats: 'telemetry:read',
+        timeline: 'telemetry:read',
+        routes: 'telemetry:read',
+        perf: 'telemetry:read',
       },
     },
 
@@ -83,6 +107,19 @@ const config = {
       failOnDegraded: false,
       /** Reported by /telemetry/health. Omitted from the response when unset. */
       version: undefined as string | undefined,
+    },
+  },
+
+  authz: {
+    permissions: {
+      'telemetry:read': { description: 'Read the telemetry endpoints: /metrics, /telemetry/stats, timeline, routes and perf' },
+    },
+    // Unread unless the app loads @spinajs/authz-rbac.
+    rbac: {
+      roles: {
+        telemetry: { description: 'Scrapes and reads telemetry', grants: ['telemetry:read'] },
+      },
+      serviceRoles: { 'service:telemetry': ['telemetry'] },
     },
   },
 };

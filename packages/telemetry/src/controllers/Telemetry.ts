@@ -1,4 +1,4 @@
-import { BasePath, BaseController, Get, Policy, Query, Ok } from '@spinajs/http';
+import { BasePath, BaseController, Get, Query, Ok } from '@spinajs/http';
 import { Autoinject } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
 import { BadRequest } from '@spinajs/exceptions';
@@ -12,17 +12,13 @@ import { ServiceUnavailable } from './../responses.js';
 // response schemas resolvable by name in the generated OpenAPI document.
 import './../dto/index.js';
 
-// Same reason, for security rather than documentation: importing the policy
-// modules runs their @Injectable decorators, which is what puts the classes in
-// the DI container under the names the routes below name as STRINGS ( via
-// `telemetry.auth.policies.*` ). Nothing else forces them to load — this
-// controller is mounted by the config-declared directory scan, and that
-// configuration is auto-discovered from node_modules, so an app never has to
-// import the package barrel. And http FAILS OPEN on an unresolvable policy name
-// ( it logs `No policy named ...`, drops it, and a route left with no policies
-// calls next() ), which would serve these endpoints unauthenticated.
+// A slot naming a policy class (`PublicPolicy` for the probes, the deprecated
+// `TelemetryTokenPolicy`) needs that class registered, and only an import does
+// it: the directory scan mounts this controller without the package barrel. An
+// unregistered name fails the route's registration.
 import './../policies/TelemetryTokenPolicy.js';
 import './../policies/PublicPolicy.js';
+import { TelemetryAccess } from './../policies/TelemetryAccessPolicy.js';
 
 /**
  * JSON telemetry API. Machine-facing — consumed by dashboards, uptime monitors
@@ -49,10 +45,11 @@ export class TelemetryController extends BaseController {
    * Lifetime request statistics plus the rolling timeline.
    *
    * @returns {StatsResponse} Lifetime stats and the per-bucket timeline
-   * @response 403 Access token missing or invalid
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
+   * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('stats')
-  @Policy('telemetry.auth.policies.stats')
+  @TelemetryAccess('stats')
   public async getStats() {
     const stats = this.Store.RequestStats;
 
@@ -73,10 +70,11 @@ export class TelemetryController extends BaseController {
    * @param buckets - how many of the most recent buckets to return; all of them when omitted
    * @returns {TimelineResponse} The annotated timeline
    * @response 400 `buckets` was not a positive integer
-   * @response 403 Access token missing or invalid
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
+   * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('timeline')
-  @Policy('telemetry.auth.policies.timeline')
+  @TelemetryAccess('timeline')
   public async getTimeline(@Query() buckets?: string) {
     const timeline = this.Store.Timeline;
     const snapshot = timeline.toJSON();
@@ -126,10 +124,11 @@ export class TelemetryController extends BaseController {
    * `http_request_duration_ms` histogram, which carries the same label values.
    *
    * @returns {RoutesResponse} Per-route request statistics
-   * @response 403 Access token missing or invalid
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
+   * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('routes')
-  @Policy('telemetry.auth.policies.routes')
+  @TelemetryAccess('routes')
   public async getRoutes() {
     return new Ok(this.Store.RouteStats.toJSON());
   }
@@ -140,10 +139,11 @@ export class TelemetryController extends BaseController {
    * process, including the ORM's `orm.query` spans.
    *
    * @returns {PerfResponse} Aggregated spans and events
-   * @response 403 Access token missing or invalid
+   * @response 401 No valid credentials (by default the telemetry token in x-metrics-token or Authorization: Bearer)
+   * @response 403 The caller lacks the permission telemetry.auth.permissions names for this endpoint
    */
   @Get('perf')
-  @Policy('telemetry.auth.policies.perf')
+  @TelemetryAccess('perf')
   public async getPerf() {
     return new Ok(this.PerfSink.toJSON());
   }
@@ -155,7 +155,7 @@ export class TelemetryController extends BaseController {
    * @returns {HealthResponse} Process liveness information
    */
   @Get('health')
-  @Policy('telemetry.auth.policies.health')
+  @TelemetryAccess('health')
   public async getHealth() {
     const uptimeMs = Math.round(process.uptime() * 1000);
 
@@ -179,7 +179,7 @@ export class TelemetryController extends BaseController {
    * @response 503 At least one check is down ( or degraded, when `telemetry.health.failOnDegraded` is set )
    */
   @Get('ready')
-  @Policy('telemetry.auth.policies.ready')
+  @TelemetryAccess('ready')
   public async getReady() {
     const report = await this.Health.run();
 

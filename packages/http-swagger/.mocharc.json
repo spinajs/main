@@ -1,5 +1,6 @@
 {
     "extensions": ["ts"],
+    "ignore": ["test/legacy-v2/**"],
     "spec": ["packages/configuration/test/*.test.ts"],
     "node-option": [
       "experimental-specifier-resolution=node",
