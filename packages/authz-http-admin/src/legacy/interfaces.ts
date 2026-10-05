@@ -8,6 +8,8 @@ import { User } from '@spinajs/users';
  * single-tenant back office with two trusted operators wants none of this, a
  * multi-tenant one wants all of it. The shipped defaults are the strict end —
  * an application that needs less has to say so explicitly.
+ *
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
  */
 export interface IRoleGuardConfig {
   /** Registered name of the {@link RoleGuard} implementation to use. */
@@ -59,6 +61,8 @@ export interface IRoleGuardConfig {
  * All methods THROW on refusal ( `Forbidden` / `InvalidArgument`, which the http
  * error map turns into 403 / 400 ) and return normally when the operation is
  * allowed.
+ *
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
  */
 export abstract class RoleGuard {
   /**
@@ -88,5 +92,9 @@ export abstract class RoleGuard {
   public abstract assignableRoles(actor: User): string[];
 }
 
-/** Operations that end an account's ability to act. */
+/**
+ * Operations that end an account's ability to act.
+ *
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
+ */
 export type AccountDisableAction = 'deactivate' | 'delete' | 'ban';

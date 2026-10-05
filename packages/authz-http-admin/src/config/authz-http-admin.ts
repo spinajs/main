@@ -8,7 +8,7 @@ function dir(path: string) {
 const authzHttpAdmin = {
   system: {
     dirs: {
-      controllers: [dir('legacy/controllers'), dir('controllers')],
+      controllers: [dir('controllers')],
     },
   },
 

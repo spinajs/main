@@ -251,7 +251,7 @@ describe('authz-http-admin routes', function () {
     it('answers 400 for a body that is not an object, or commands that are not a list', async () => {
       const list = await commands(root, [grant('carol')]);
       expect(list.status).to.equal(400);
-      expect(list.body.error.code).to.be.a('string');
+      expect(list.body.error.code).to.equal('invalid_request');
       const notList = await commands(root, { commands: grant('carol') });
       expect(notList.status).to.equal(400);
       expect(notList.body.error.code).to.equal('invalid_batch');
@@ -374,10 +374,19 @@ describe('authz-http-admin routes', function () {
       expect((await assignments('?subject=user:carol'))[0].expiresAt).to.equal(null);
     });
 
+    it('PATCH refuses a key it does not serve with 400 invalid_request and changes nothing', async () => {
+      const res = await call('PATCH', '/authz/assignments/u1', root, { role: 'editor' });
+      expect(res.status).to.equal(400);
+      expect(res.body.error).to.deep.include({ code: 'invalid_request', field: 'role' });
+      const rows = await assignments('?subject=user:alice');
+      expect(rows).to.have.length(1);
+      expect(rows[0]).to.deep.include({ id: 'u1', role: 'viewer' });
+    });
+
     it('PATCH refuses an empty patch with 400 and answers the status of a failed command', async () => {
       const empty = await call('PATCH', '/authz/assignments/u1', root, {});
       expect(empty.status).to.equal(400);
-      expect(empty.body.error.code).to.be.a('string');
+      expect(empty.body.error.code).to.equal('invalid_request');
       const missing = await call('PATCH', '/authz/assignments/nope', root, { tags: ['a'] });
       expect(missing.status).to.equal(404);
       expect(missing.body.results[0].error.code).to.equal('not_found');
@@ -406,7 +415,7 @@ describe('authz-http-admin routes', function () {
     it('PUT refuses a body id that is not the path id', async () => {
       const res = await call('PUT', '/authz/rules/thr', root, { ...rule, id: 'other' });
       expect(res.status).to.equal(400);
-      expect(res.body.error).to.deep.include({ field: 'id' });
+      expect(res.body.error).to.deep.include({ code: 'invalid_request', field: 'id' });
       expect((await call('GET', '/authz/rules')).body.items).to.deep.equal([]);
     });
 

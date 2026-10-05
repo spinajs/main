@@ -12,4 +12,4 @@ const fixtures = BEHAVIOUR_FIXTURES.map((f): BehaviourFixture | FixtureExtension
   f.id !== 'B43' ? f : { ...f, parts: f.parts.map((p) => (p.name !== 'http' ? p : { ...p, cases: p.cases.filter((c) => c.name !== NEEDS_LINK_ROUTES) })) },
 );
 
-runBehaviour(['B43.http', 'B12.http', 'B13.http', 'B26.http', 'B27.events'], () => adminHttpHarness(), { strict: true, fixtures });
+runBehaviour(['B43.http', 'B12.http', 'B13.http', 'B26.http', 'B27.events'], () => adminHttpHarness(), { strict: true, fixtures, timeoutMs: 30000 });

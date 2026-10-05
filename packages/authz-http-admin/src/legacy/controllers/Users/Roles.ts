@@ -10,6 +10,9 @@ import { RoleGuard } from '../../interfaces.js';
 // Side effect only — see the note in Users.ts.
 import '../../services/RoleGuard.js';
 
+/**
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
+ */
 @Schema({
   type: 'object',
   $id: 'arrow.common.roleDTO',
@@ -34,6 +37,8 @@ export class RoleDto {
  * role is the one thing in this API that can grant MORE than the caller has, so
  * "may update users" is not by itself an answer to "may hand out this role".
  * @tags Admin Users
+ *
+ * @deprecated Use the AuthzAdmin routes (/authz/assignments, /authz/commands) and the AdminGuard; removed once users-http stops importing it (C2, R1).
  */
 @BasePath('users/role')
 @Policy(AuthorizedPolicy)

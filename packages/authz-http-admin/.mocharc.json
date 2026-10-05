@@ -8,7 +8,6 @@
   "file": [
     "test/setup.ts"
   ],
-  "timeout": 30000,
   "node-option": [
     "experimental-specifier-resolution=node",
     "loader=ts-node/esm"
