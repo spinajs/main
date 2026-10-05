@@ -31,22 +31,26 @@ Token middleware adapt rows target `authn-http/test/ (src/token/)`, N8b's folder
 
 Not ledgered: `authn-api-contract.test.ts` (23 its) is a 3.0 contract test that F6 added; it is not a 2.x test.
 
+`test/v3-app/` (N8a task 6, 3.0 tests, not ledgered) runs in a mocha process of its own (`.mocharc.v3-app.json`, the second half of `npm test`): the app as N8c wires it, with `registerAuthnHttpV3()` on the root, the 3.0 controllers scanned instead of the 2.x account ones, and neither the package barrel nor `@spinajs/users` loaded. The main process ignores the directory.
+
 ## test/active-role.test.ts
 
 Active-role routes (`GET`/`POST /auth/active-role`) of the 2.x account controllers: role list, switch, password gate. Dominant class: rewrite (active-role switching semantics, B24/D14, A26); lane C3, replacement by T2. Rows 1 and 2 are split between `users/test/` and `authn-http/test/v3/` (D26); the others use fakes.
 
+Status (N8a task 6): the 3.0 routes (`src/v3/controllers/AuthnActiveRoleController.ts`, switched off until N8c) are tested in `test/v3-app/suites/active-role.ts` over the kit's `FakeRoleSource`, in the separate `test/v3-app` process; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 180 | ActiveRoleController > AC is wired through DI > controller AC contains grants from configuration | rewrite | C3 → T2 | users/test/ (C3 task 1; B24, A26): `RbacRoleSource` is wired through DI, replaces the `AccessControl` wiring; authn-http/test/v3/ (T2): the HTTP flow reads roles from a fake `RoleSource` (N8a task 8) |
-| 2 | 188 | ActiveRoleController > getActiveRole > returns active role and grants resolved from DI-backed AccessControl | rewrite | C3 → T2 | users/test/ (C3 task 3; B25, B24, A26): the role switch state answers `Access` (summary) instead of `Grants`; authn-http/test/v3/ (T2): the route returns the active role and the answer of a fake `RoleSource` (N8a task 8) |
-| 3 | 199 | ActiveRoleController > getActiveRole > falls back to first available role when session has no ActiveRole | rewrite | C3 → T2 | authn-http/test/v3/; no first-role fallback: without `ceiling.roles` every held role applies (B24, D14); 3.0 expectation differs |
-| 4 | 210 | ActiveRoleController > switchActiveRole > switches successfully when role is in user.Role and persists via SessionProvider | rewrite | C3 → T2 | authn-http/test/v3/; role held per `RoleSource`, not `User.Role` (H13); sets `ceiling.roles`, session rotated (A26, B24, A07) |
-| 5 | 228 | ActiveRoleController > switchActiveRole > regenerates the session on switch: new id issued, old id deleted, ssid cookie reset | rewrite | C3 → T2 | authn-http/test/v3/; rotation through `SessionIssuer`, new id and cookie (A07, A26) |
-| 6 | 251 | ActiveRoleController > switchActiveRole > returns BadRequest when requested role is not assigned to the user | rewrite | C3 → T2 | authn-http/test/v3/; role not held by the principal is refused (A26); error code `E_ROLE_NOT_ASSIGNED` may change |
-| 7 | 264 | ActiveRoleController > switchActiveRole > returns Unauthorized when role requires password but none supplied | rewrite | C3 → T2 | authn-http/test/v3/; `requirePassword` role needs fresh auth or inline re-authentication (A13, A26); 3.0 expectation differs from "password on every switch" |
-| 8 | 286 | ActiveRoleController > switchActiveRole > returns Unauthorized when supplied password is invalid | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20) |
-| 9 | 306 | ActiveRoleController > switchActiveRole > switches when password is required AND correctly verified by DI-resolved PasswordProvider | rewrite | C3 → T2 | authn-http/test/v3/; verified through the throttled fresh-auth path, not `PasswordProvider.verify` (A13, A26) |
-| 10 | 327 | ActiveRoleController > switchActiveRole > does not call PasswordProvider when switching to a role NOT listed in requirePassword | rewrite | C3 → T2 | authn-http/test/v3/; no re-authentication for a role without `requirePassword` (A26) |
+| 1 | 180 | ActiveRoleController > AC is wired through DI > controller AC contains grants from configuration | rewrite | C3 → T2 | users/test/ (C3 task 1; B24, A26): `RbacRoleSource` is wired through DI, replaces the `AccessControl` wiring; authn-http/test/v3/ (T2): the HTTP flow reads roles from a fake `RoleSource` (N8a task 8); N8a task 6: HTTP flow over a fake `RoleSource` in `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: the current role (none yet) and the roles RoleSource gives"); the `RbacRoleSource` wiring stays C3 |
+| 2 | 188 | ActiveRoleController > getActiveRole > returns active role and grants resolved from DI-backed AccessControl | rewrite | C3 → T2 | users/test/ (C3 task 3; B25, B24, A26): the role switch state answers `Access` (summary) instead of `Grants`; authn-http/test/v3/ (T2): the route returns the active role and the answer of a fake `RoleSource` (N8a task 8); N8a task 6: `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: ...", and `Access` from the extension on the switch: "A26 a held role: rotates the session, then sets ActiveRole; ...") |
+| 3 | 199 | ActiveRoleController > getActiveRole > falls back to first available role when session has no ActiveRole | rewrite | C3 → T2 | authn-http/test/v3/; no first-role fallback: without `ceiling.roles` every held role applies (B24, D14); 3.0 expectation differs; N8a task 6: `test/v3-app/suites/active-role.ts` ("GET /auth/active-role: the current role (none yet) ..."): `ActiveRole: null`, no first-role fallback |
+| 4 | 210 | ActiveRoleController > switchActiveRole > switches successfully when role is in user.Role and persists via SessionProvider | rewrite | C3 → T2 | authn-http/test/v3/; role held per `RoleSource`, not `User.Role` (H13); sets `ceiling.roles`, session rotated (A26, B24, A07); N8a task 6: `test/v3-app/suites/active-role.ts` ("A26 a held role: rotates the session, then sets ActiveRole; the ceiling and the role-switch extensions follow") |
+| 5 | 228 | ActiveRoleController > switchActiveRole > regenerates the session on switch: new id issued, old id deleted, ssid cookie reset | rewrite | C3 → T2 | authn-http/test/v3/; rotation through `SessionIssuer`, new id and cookie (A07, A26); N8a task 6: `test/v3-app/suites/active-role.ts` (same case: rotate, then `set('ActiveRole')` on the new id, new cookie, old cookie dead) |
+| 6 | 251 | ActiveRoleController > switchActiveRole > returns BadRequest when requested role is not assigned to the user | rewrite | C3 → T2 | authn-http/test/v3/; role not held by the principal is refused (A26); error code `E_ROLE_NOT_ASSIGNED` may change; N8a task 6: `test/v3-app/suites/active-role.ts` ("a role the principal does not hold is refused 403 role_not_held and changes nothing"); 403, not 400 (the kit's A26 expects 401 or 403) |
+| 7 | 264 | ActiveRoleController > switchActiveRole > returns Unauthorized when role requires password but none supplied | rewrite | C3 → T2 | authn-http/test/v3/; `requirePassword` role needs fresh auth or inline re-authentication (A13, A26); 3.0 expectation differs from "password on every switch"; N8a task 6: `test/v3-app/suites/active-role.ts` ("a stale session without a password is refused 403 fresh_auth_required"); a fresh session needs no password |
+| 8 | 286 | ActiveRoleController > switchActiveRole > returns Unauthorized when supplied password is invalid | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20); N8a task 6: `test/v3-app/suites/active-role.ts` ("a wrong password answers the login failure body, no Retry-After, counted in the reauth flow", "another account's password never counts as fresh auth") |
+| 9 | 306 | ActiveRoleController > switchActiveRole > switches when password is required AND correctly verified by DI-resolved PasswordProvider | rewrite | C3 → T2 | authn-http/test/v3/; verified through the throttled fresh-auth path, not `PasswordProvider.verify` (A13, A26); N8a task 6: `test/v3-app/suites/active-role.ts` ("a stale session switches with the right password, counted in the reauth flow") |
+| 10 | 327 | ActiveRoleController > switchActiveRole > does not call PasswordProvider when switching to a role NOT listed in requirePassword | rewrite | C3 → T2 | authn-http/test/v3/; no re-authentication for a role without `requirePassword` (A26); N8a task 6: `test/v3-app/suites/active-role.ts` ("a role without requirePassword switches on a stale session with no password", "a fresh session switches without a password and verifies nothing") |
 
 ## test/descriptor-inheritance.test.ts
 
@@ -75,51 +79,57 @@ Active-role routes (`GET`/`POST /auth/active-role`) of the 2.x account controlle
 
 2.x `ImpersonationController` start, stop and state. Dominant class: rewrite (the 2.x impersonation rule is replaced by B26 and A20); lane C3, replacement by T2. Rows 4, 7 and 8 are split between `users/test/` (B26 guard cases) and `authn-http/test/v3/` (D26); the others use fakes.
 
+Status (N8a task 6): the 3.0 routes (`src/v3/controllers/AuthnImpersonationController.ts`, switched off until N8c) are tested in `test/v3-app/suites/impersonation.ts` over the kit's `FakeImpersonationGuard`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`. Every refusal of the service is one 403 `impersonation_refused` (it answers only `{ ok: false }`).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 236 | ImpersonationController > start > happy path: admin impersonates user with correct password | rewrite | C3 → T2 | authn-http/test/v3/; A20, B26, A13, A07; session keys `Impersonator` and `OriginalActiveRole` become `authn.impersonator` and the session handle; start event audited (A21) |
-| 2 | 288 | ImpersonationController > start > 409 Conflict when an impersonation is already active | rewrite | C3 → T2 | authn-http/test/v3/; a second impersonation while one is active (A20) |
-| 3 | 299 | ImpersonationController > start > 400 BadRequest when impersonating self | rewrite | C3 → T2 | authn-http/test/v3/; self-impersonation refused, equal sets fail the B26 strict subset (B26, A20) |
-| 4 | 309 | ImpersonationController > start > 403 Forbidden when caller lacks user:impersonate createAny | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): `user:impersonate` held through the authz summary, `AuthzImpersonationGuard`; authn-http/test/v3/ (T2): the 403 path with a fake `ImpersonationGuard` |
-| 5 | 319 | ImpersonationController > start > 404 NotFound when loadTarget returns undefined | rewrite | C3 → T2 | authn-http/test/v3/; unknown target (A20, B26) |
-| 6 | 330 | ImpersonationController > start > 404 NotFound when target is banned | rewrite | C3 → T2 | authn-http/test/v3/; banned target is refused (A20, B26) |
-| 7 | 341 | ImpersonationController > start > 403 E_TARGET_PROTECTED when target has a protected role | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): protected role refused by the guard; authn-http/test/v3/ (T2): the 403 `E_TARGET_PROTECTED` path with a fake `ImpersonationGuard` |
-| 8 | 353 | ImpersonationController > start > 403 E_PRIVILEGE_ESCALATION when target has grants admin lacks | rewrite | C3 → T2 | users/test/ (C3 task 2; B26, H18): target combined GLOBAL permissions must be a strict subset, equal refused, ABAC included; authn-http/test/v3/ (T2): the 403 `E_PRIVILEGE_ESCALATION` path with a fake `ImpersonationGuard` |
-| 9 | 365 | ImpersonationController > start > 401 E_PASSWORD_REQUIRED when requirePassword=true and no password supplied | rewrite | C3 → T2 | authn-http/test/v3/; fresh auth and an MFA-satisfied session required (A20, A13); 3.0 expectation differs from a password in the body |
-| 10 | 377 | ImpersonationController > start > 401 E_PASSWORD_INVALID when password is wrong | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20) |
-| 11 | 390 | ImpersonationController > start > skips password verification when requirePassword=false | rewrite | C3 → T2 | authn-http/test/v3/; A20 always needs fresh auth, so `authn.impersonation.requirePassword=false` can only skip the inline password; 3.0 expectation differs |
-| 12 | 405 | ImpersonationController > stop > restores original session and emits UserImpersonationEnded | rewrite | C3 → T2 | authn-http/test/v3/; stop restores the impersonator, rotates the session, audits the end (A20, A07, A21) |
-| 13 | 442 | ImpersonationController > stop > returns 400 when no impersonation is active | rewrite | C3 → T2 | authn-http/test/v3/; stop without an active impersonation (A20) |
-| 14 | 449 | ImpersonationController > stop > returns 400 E_IMPERSONATOR_GONE and cleans state when original cannot be loaded | rewrite | C3 → T2 | authn-http/test/v3/; `SR-06 banning the impersonator ends the impersonation`, A20 |
-| 15 | 470 | ImpersonationController > getState > returns Active=false when no impersonation | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, inactive (A20) |
-| 16 | 475 | ImpersonationController > getState > returns full impersonation state when active | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, active, `authn.impersonator` fact (A20, A23) |
+| 1 | 236 | ImpersonationController > start > happy path: admin impersonates user with correct password | rewrite | C3 → T2 | authn-http/test/v3/; A20, B26, A13, A07; session keys `Impersonator` and `OriginalActiveRole` become `authn.impersonator` and the session handle; start event audited (A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("A20 start: a new session for the target with authn.impersonator, ...") |
+| 2 | 288 | ImpersonationController > start > 409 Conflict when an impersonation is already active | rewrite | C3 → T2 | authn-http/test/v3/; a second impersonation while one is active (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("a nested start while impersonating is refused"); 403, not 409 |
+| 3 | 299 | ImpersonationController > start > 400 BadRequest when impersonating self | rewrite | C3 → T2 | authn-http/test/v3/; self-impersonation refused, equal sets fail the B26 strict subset (B26, A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("impersonating yourself, an unknown or a banned target is refused 403; ..."); 403, not 400 |
+| 4 | 309 | ImpersonationController > start > 403 Forbidden when caller lacks user:impersonate createAny | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): `user:impersonate` held through the authz summary, `AuthzImpersonationGuard`; authn-http/test/v3/ (T2): the 403 path with a fake `ImpersonationGuard`; N8a task 6: the 403 path with a fake guard in `test/v3-app/suites/impersonation.ts` ("the guard decides: a refusal is 403 impersonation_refused and the admin session survives") |
+| 5 | 319 | ImpersonationController > start > 404 NotFound when loadTarget returns undefined | rewrite | C3 → T2 | authn-http/test/v3/; unknown target (A20, B26); N8a task 6: `test/v3-app/suites/impersonation.ts` ("impersonating yourself, an unknown or a banned target ..."); 403, not 404 |
+| 6 | 330 | ImpersonationController > start > 404 NotFound when target is banned | rewrite | C3 → T2 | authn-http/test/v3/; banned target is refused (A20, B26); N8a task 6: `test/v3-app/suites/impersonation.ts` (same case); 403, not 404 |
+| 7 | 341 | ImpersonationController > start > 403 E_TARGET_PROTECTED when target has a protected role | rewrite | C3 → T2 | users/test/ (C3 task 2; B26): protected role refused by the guard; authn-http/test/v3/ (T2): the 403 `E_TARGET_PROTECTED` path with a fake `ImpersonationGuard`; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the guard decides: ..."); the code is `impersonation_refused`, not `E_TARGET_PROTECTED` |
+| 8 | 353 | ImpersonationController > start > 403 E_PRIVILEGE_ESCALATION when target has grants admin lacks | rewrite | C3 → T2 | users/test/ (C3 task 2; B26, H18): target combined GLOBAL permissions must be a strict subset, equal refused, ABAC included; authn-http/test/v3/ (T2): the 403 `E_PRIVILEGE_ESCALATION` path with a fake `ImpersonationGuard`; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the guard decides: ..."); the code is `impersonation_refused`, not `E_PRIVILEGE_ESCALATION` |
+| 9 | 365 | ImpersonationController > start > 401 E_PASSWORD_REQUIRED when requirePassword=true and no password supplied | rewrite | C3 → T2 | authn-http/test/v3/; fresh auth and an MFA-satisfied session required (A20, A13); 3.0 expectation differs from a password in the body; N8a task 6: `test/v3-app/suites/impersonation.ts` ("a stale session without a password is refused 403 fresh_auth_required and verifies nothing"); a fresh session needs no password |
+| 10 | 377 | ImpersonationController > start > 401 E_PASSWORD_INVALID when password is wrong | rewrite | C3 → T2 | authn-http/test/v3/; failed re-authentication counts into the `reauth` throttle (A13, SR-20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("a wrong password answers the login failure body with no Retry-After, counted once in the reauth flow") |
+| 11 | 390 | ImpersonationController > start > skips password verification when requirePassword=false | rewrite | C3 → T2 | authn-http/test/v3/; A20 always needs fresh auth, so `authn.impersonation.requirePassword=false` can only skip the inline password; 3.0 expectation differs; N8a task 6: `test/v3-app/suites/impersonation.ts` ("the route still needs fresh auth ...; only the service skips its own check") |
+| 12 | 405 | ImpersonationController > stop > restores original session and emits UserImpersonationEnded | rewrite | C3 → T2 | authn-http/test/v3/; stop restores the impersonator, rotates the session, audits the end (A20, A07, A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("DELETE /auth/impersonate: a new session for the impersonator, the impersonation one ends") |
+| 13 | 442 | ImpersonationController > stop > returns 400 when no impersonation is active | rewrite | C3 → T2 | authn-http/test/v3/; stop without an active impersonation (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("DELETE without an impersonation is 400 not_impersonating and leaves the session alone") |
+| 14 | 449 | ImpersonationController > stop > returns 400 E_IMPERSONATOR_GONE and cleans state when original cannot be loaded | rewrite | C3 → T2 | authn-http/test/v3/; `SR-06 banning the impersonator ends the impersonation`, A20; N8a task 6: `test/v3-app/suites/impersonation.ts` ("SR-06 a banned impersonator: the next request, a stop included, finds the impersonation ended") |
+| 15 | 470 | ImpersonationController > getState > returns Active=false when no impersonation | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, inactive (A20); N8a task 6: `test/v3-app/suites/impersonation.ts` ("GET /auth/impersonate: the state from authn.impersonator") |
+| 16 | 475 | ImpersonationController > getState > returns full impersonation state when active | rewrite | C3 → T2 | authn-http/test/v3/; impersonation state route, active, `authn.impersonator` fact (A20, A23); N8a task 6: `test/v3-app/suites/impersonation.ts` (same case) |
 
 ## test/login-controller.test.ts
 
 Login with forced 2FA enrolment while the system switch is off (lockout regression). Class: rewrite; lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5) |
+| 1 | 94 | LoginController (database backed) — forceUser vs. system-wide switch > does not answer TwoFactorInitRequired when the system-wide switch is off, even with forceUser on | rewrite | N8a → N8a | authn-http/test/v3/; forced enrolment must have a route out: `rbac.twoFactorAuth.forceUser` becomes `authn.mfa.policy.force`, the pending session may call enrol and confirm (A09, A10, §22.5); N8a task 6: `test/v3-app/suites/mfa.ts` ("under authn.mfa.policy.force > a user enrolled in no step gets a pending session that reaches the enrolment routes and nothing else"), against a stub of N8b's enrolment route behind `PendingMfaEnrolment` |
 
 ## test/logout-handlers.test.ts
 
 Logout handler chain (impersonation handler, default handler, DI ordering). Dominant class: adapt; the two impersonation-state rows are rewrite; lane N8a.
 
+Status (N8a task 6): decided, the 3.0 logout (`AuthnLoginController.logout`) has no handler chain: it revokes the session, pending ones included, clears the cookie and the site data (`test/v3-app/suites/login.ts`, "A08 revokes the session, clears the cookie and the site data"); logging out of an impersonation is a plain revoke (N1). The adapt rows keep testing the live 2.x chain until N8c; the chain has no 3.0 counterpart, so R1 deletes them with the 2.x account code. the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 140 | Logout handler chain > ImpersonationLogoutHandler > Priority is 10 (runs early) | adapt | N8a | authn-http/test/; the handler chain stays in authn-http (design §4.1.1) |
-| 2 | 145 | Logout handler chain > ImpersonationLogoutHandler > returns null when session is null (defers) | adapt | N8a | authn-http/test/ |
-| 3 | 151 | Logout handler chain > ImpersonationLogoutHandler > returns null when no impersonation in session (defers) | adapt | N8a | authn-http/test/ |
-| 4 | 157 | Logout handler chain > ImpersonationLogoutHandler > reverts impersonation, saves session, emits event when active | rewrite | N8a → N8a | authn-http/test/v3/; logout of an impersonated session returns to the impersonator, rotates the id, audits the end (A20, A07, A21) |
-| 5 | 206 | Logout handler chain > ImpersonationLogoutHandler > defers to the default handler when the impersonator account is gone | rewrite | N8a → N8a | authn-http/test/v3/; impersonator account gone or revoked ends the impersonation and logs out (A20, SR-06) |
-| 6 | 244 | Logout handler chain > DefaultLogoutHandler > Priority is 999 (runs last) | adapt | N8a | authn-http/test/ |
-| 7 | 249 | Logout handler chain > DefaultLogoutHandler > deletes session and returns clear-cookie payload | adapt | N8a | authn-http/test/; logout deletes the session and clears the cookie (A08); cookie name follows A07 (`__Host-` outside dev and test) |
-| 8 | 263 | Logout handler chain > DefaultLogoutHandler > returns a result even with empty Ssid (no delete called) | adapt | N8a | authn-http/test/ |
-| 9 | 273 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > resolves both built-in handlers via DI | adapt | N8a | authn-http/test/ |
-| 10 | 279 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > sorts by Priority ascending — impersonation before default | adapt | N8a | authn-http/test/ |
-| 11 | 286 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > first non-null result short-circuits the chain | adapt | N8a | authn-http/test/ |
-| 12 | 312 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > null returns are skipped — next handler runs | adapt | N8a | authn-http/test/ |
+| 1 | 140 | Logout handler chain > ImpersonationLogoutHandler > Priority is 10 (runs early) | adapt | N8a | authn-http/test/; the handler chain stays in authn-http (design §4.1.1); N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 2 | 145 | Logout handler chain > ImpersonationLogoutHandler > returns null when session is null (defers) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 3 | 151 | Logout handler chain > ImpersonationLogoutHandler > returns null when no impersonation in session (defers) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 4 | 157 | Logout handler chain > ImpersonationLogoutHandler > reverts impersonation, saves session, emits event when active | rewrite | N8a → N8a | authn-http/test/v3/; logout of an impersonated session returns to the impersonator, rotates the id, audits the end (A20, A07, A21); N8a task 6: `test/v3-app/suites/impersonation.ts` ("A20 logout during impersonation ends it"); 3.0 expectation differs: the logout ends the impersonation and logs out, it does not return to the impersonator |
+| 5 | 206 | Logout handler chain > ImpersonationLogoutHandler > defers to the default handler when the impersonator account is gone | rewrite | N8a → N8a | authn-http/test/v3/; impersonator account gone or revoked ends the impersonation and logs out (A20, SR-06); N8a task 6: `test/v3-app/suites/impersonation.ts` ("SR-06 a banned impersonator: ...") |
+| 6 | 244 | Logout handler chain > DefaultLogoutHandler > Priority is 999 (runs last) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 7 | 249 | Logout handler chain > DefaultLogoutHandler > deletes session and returns clear-cookie payload | adapt | N8a | authn-http/test/; logout deletes the session and clears the cookie (A08); cookie name follows A07 (`__Host-` outside dev and test); N8a task 6: the 3.0 logout in `test/v3-app/suites/login.ts` ("A08 revokes the session, clears the cookie and the site data"); the chain itself until N8c/R1 |
+| 8 | 263 | Logout handler chain > DefaultLogoutHandler > returns a result even with empty Ssid (no delete called) | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0; a logout without a session answers 401 (`test/v3-app/suites/login.ts`, "401 without a session") |
+| 9 | 273 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > resolves both built-in handlers via DI | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 10 | 279 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > sorts by Priority ascending — impersonation before default | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 11 | 286 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > first non-null result short-circuits the chain | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
+| 12 | 312 | Logout handler chain > DI chain — Array.ofType(LogoutHandler) > null returns are skipped — next handler runs | adapt | N8a | authn-http/test/; N8a task 6: no handler chain in 3.0 (see status); until N8c/R1 |
 
 ## test/password-reset.test.ts
 
@@ -175,16 +185,18 @@ Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2;
 
 Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
+Status (N8a task 6): re-pointed to the 3.0 routes (`src/v3/controllers/AuthnSessionsController.ts`) in `test/v3-app/suites/sessions.ts`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 62 | SessionsController > list > never returns a session id — only its opaque handle | adapt | N8a | authn-http/test/; list over `SessionIssuer.list`, ids hashed at rest (A07, A08) |
-| 2 | 72 | SessionsController > list > flags the session making the request | adapt | N8a | authn-http/test/ |
-| 3 | 82 | SessionsController > list > lists newest first and reports creation / expiry | adapt | N8a | authn-http/test/ |
-| 4 | 90 | SessionsController > list > only ever looks at the calling user own sessions | adapt | N8a | authn-http/test/; own sessions only (A08) |
-| 5 | 98 | SessionsController > revoke > ends the session behind a handle | adapt | N8a | authn-http/test/; revoke through `SessionIssuer.revoke` |
-| 6 | 105 | SessionsController > revoke > 404s on a handle that is not one of the user own sessions | adapt | N8a | authn-http/test/; IDOR guard: a foreign handle is a 404 (A08) |
-| 7 | 116 | SessionsController > revokeOthers > ends every session except the current one | adapt | N8a | authn-http/test/ |
-| 8 | 124 | SessionsController > revokeOthers > ends all of them when the caller presents no session id | adapt | N8a | authn-http/test/ |
+| 1 | 62 | SessionsController > list > never returns a session id — only its opaque handle | adapt | N8a | authn-http/test/; list over `SessionIssuer.list`, ids hashed at rest (A07, A08); N8a task 6: `test/v3-app/suites/sessions.ts` ("GET /user/sessions lists the caller own sessions, newest first, the current one flagged, never a raw id or storage key") |
+| 2 | 72 | SessionsController > list > flags the session making the request | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` (same case) |
+| 3 | 82 | SessionsController > list > lists newest first and reports creation / expiry | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` (same case); `Expires` becomes `LastSeen`: `SessionIssuer.list` gives no expiry |
+| 4 | 90 | SessionsController > list > only ever looks at the calling user own sessions | adapt | N8a | authn-http/test/; own sessions only (A08); N8a task 6: `test/v3-app/suites/sessions.ts` (same case, with another user's session present) |
+| 5 | 98 | SessionsController > revoke > ends the session behind a handle | adapt | N8a | authn-http/test/; revoke through `SessionIssuer.revoke`; N8a task 6: `test/v3-app/suites/sessions.ts` ("DELETE /user/sessions/:handle ends one own session; a foreign handle is 404") |
+| 6 | 105 | SessionsController > revoke > 404s on a handle that is not one of the user own sessions | adapt | N8a | authn-http/test/; IDOR guard: a foreign handle is a 404 (A08); N8a task 6: `test/v3-app/suites/sessions.ts` (same case) |
+| 7 | 116 | SessionsController > revokeOthers > ends every session except the current one | adapt | N8a | authn-http/test/; N8a task 6: `test/v3-app/suites/sessions.ts` ("DELETE /user/sessions ends every other session and keeps the current one") |
+| 8 | 124 | SessionsController > revokeOthers > ends all of them when the caller presents no session id | adapt | N8a | authn-http/test/; N8a task 6: 3.0 expectation differs: without a session the routes answer 401 (`test/v3-app/suites/sessions.ts`, "needs a session principal: ...") |
 
 ## test/token-controller-roles.test.ts
 
@@ -302,12 +314,14 @@ Status (C5): not moved yet: it drives the live 2.x token middleware and RBAC pol
 
 Login-window 2FA verification and session regeneration. Class: rewrite (pending session, A09); lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 70 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > regenerates the session: new id issued, old id deleted, Authorized set, ssid cookie reset | rewrite | N8a → N8a | authn-http/test/v3/; MFA completion elevates the pending session and rotates the id (A07, A09, A10) |
-| 2 | 101 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > activates a pending enrolment before authorizing the session | rewrite | N8a → N8a | authn-http/test/v3/; a pending enrolment is activated on a valid code, state in `DbMfaStore` (A10, A12) |
-| 3 | 110 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > does not re-activate an account that already has 2fa on | rewrite | N8a → N8a | authn-http/test/v3/; an already enabled account is not re-activated (A10) |
-| 4 | 135 | TwoFactorAuthController — login window policies > requires the 2fa window and an unauthorized session together | rewrite | N8a → N8a | authn-http/test/v3/; MFA window routes accept only a pending session (A09); policy names change |
+| 1 | 70 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > regenerates the session: new id issued, old id deleted, Authorized set, ssid cookie reset | rewrite | N8a → N8a | authn-http/test/v3/; MFA completion elevates the pending session and rotates the id (A07, A09, A10); N8a task 6: `test/v3-app/suites/mfa.ts` ("A09 verify: elevates to aal2, rotates the id, keeps the stored client data, answers the mfa extensions") |
+| 2 | 101 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > activates a pending enrolment before authorizing the session | rewrite | N8a → N8a | authn-http/test/v3/; a pending enrolment is activated on a valid code, state in `DbMfaStore` (A10, A12); N8a task 6: the 3.0 login-window verify activates nothing; confirming an enrolment is the enrolment route of N8b (`/user/mfa/confirm`) |
+| 3 | 110 | TwoFactorAuthController.verifyToken — session regeneration on 2FA authorize > does not re-activate an account that already has 2fa on | rewrite | N8a → N8a | authn-http/test/v3/; an already enabled account is not re-activated (A10); N8a task 6: as row 2, N8b |
+| 4 | 135 | TwoFactorAuthController — login window policies > requires the 2fa window and an unauthorized session together | rewrite | N8a → N8a | authn-http/test/v3/; MFA window routes accept only a pending session (A09); policy names change; N8a task 6: `test/v3-app/suites/mfa.ts` ("the MFA routes take only a pending session: none 401, active 403") |
 
 ## test/two-factor-self-service.test.ts
 
@@ -355,29 +369,35 @@ System 2FA switch over a real HTTP request. Class: adapt; lane N8b.
 
 `LoginController.whoami` answer for active and mid-2FA sessions. Class: rewrite (pending whoami, SR-07, B25); lane N8a.
 
+Status (N8a task 6): the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`. The 3.0 whoami is `GET /auth` (2.x: `GET /auth/whoami`).
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 142 | LoginController.whoami > reports Authorized: true for a fully authorized session | rewrite | N8a → N8a | authn-http/test/v3/; the whoami answer for an active session carries `Access` (B25); whether `Authorized` stays is for N8a to decide |
-| 2 | 162 | LoginController.whoami > sends every assigned role, not the flattened relation | rewrite | N8a → N8a | authn-http/test/v3/; the role list comes from the principal and `Access`, `User.Role` is removed (H13, B25) |
-| 3 | 171 | LoginController.whoami > reports Authorized: false for a session mid-2FA | rewrite | N8a → N8a | authn-http/test/v3/; `SR-07 pending whoami shows only MfaRequired` (A09, D25); 3.0 expectation differs |
-| 4 | 190 | LoginController.whoami > reports Authorized: true when the session carries no Authorized key | rewrite | N8a → N8a | authn-http/test/v3/; a 2.x row without `Authorized` is handled by N2 task 4 (pending vs active state); A07 lazy migration covers raw session ids only |
+| 1 | 142 | LoginController.whoami > reports Authorized: true for a fully authorized session | rewrite | N8a → N8a | authn-http/test/v3/; the whoami answer for an active session carries `Access` (B25); whether `Authorized` stays is for N8a to decide; N8a task 6: `test/v3-app/suites/login.ts` ("an active session: the principal summary and the whoami extensions"); decided: no `Authorized`, the summary carries `Authn.assurance` |
+| 2 | 162 | LoginController.whoami > sends every assigned role, not the flattened relation | rewrite | N8a → N8a | authn-http/test/v3/; the role list comes from the principal and `Access`, `User.Role` is removed (H13, B25); N8a task 6: the whoami summary lists no roles; `Access` (extension) and `GET /auth/active-role` (`test/v3-app/suites/active-role.ts`) do |
+| 3 | 171 | LoginController.whoami > reports Authorized: false for a session mid-2FA | rewrite | N8a → N8a | authn-http/test/v3/; `SR-07 pending whoami shows only MfaRequired` (A09, D25); 3.0 expectation differs; N8a task 6: `test/v3-app/suites/login.ts` ("SR-07 pending whoami shows only MfaRequired") |
+| 4 | 190 | LoginController.whoami > reports Authorized: true when the session carries no Authorized key | rewrite | N8a → N8a | authn-http/test/v3/; a 2.x row without `Authorized` is handled by N2 task 4 (pending vs active state); A07 lazy migration covers raw session ids only; N8a task 6: no 3.0 whoami case: the 2.x row is migrated by the issuer (`test/v3/authn-middleware.test.ts`, A07) |
 
 ## test/z-account-session-context.test.ts
 
 `SessionContextProvider` fields on whoami, login payload and role switch. Class: rewrite per plan T2; lane C3. Rows use fakes of the extension inputs; no `users` or `authz*` dependency in authn-http (D26).
 
+Status (N8a task 6): the extension runs are tested with a recording `AuthnResponseExtension` in `test/v3-app`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 166 | SessionContextProvider > adds provider fields to whoami, resolved for the session active role | rewrite | C3 → T2 | authn-http/test/v3/; `AuthnResponseExtension` runs on whoami (B25) |
-| 2 | 172 | SessionContextProvider > adds provider fields to the login-style payload | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on the login answer; `buildUserWithGrants` is deleted by C3 (B25) |
-| 3 | 178 | SessionContextProvider > adds provider fields to GET /auth/active-role | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on role switch, `GET /auth/active-role` is replaced (B25, A26) |
-| 4 | 184 | SessionContextProvider > resolves provider fields for the role switched to, not the one switched from | rewrite | C3 → T2 | authn-http/test/v3/; the extension resolves for the role switched to (A26, B25) |
+| 1 | 166 | SessionContextProvider > adds provider fields to whoami, resolved for the session active role | rewrite | C3 → T2 | authn-http/test/v3/; `AuthnResponseExtension` runs on whoami (B25); N8a task 6: `test/v3-app/suites/login.ts` ("an active session: the principal summary and the whoami extensions") |
+| 2 | 172 | SessionContextProvider > adds provider fields to the login-style payload | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on the login answer; `buildUserWithGrants` is deleted by C3 (B25); N8a task 6: `test/v3-app/suites/login.ts` ("logs in: the session cookie, the principal summary and the login extensions; ...") |
+| 3 | 178 | SessionContextProvider > adds provider fields to GET /auth/active-role | rewrite | C3 → T2 | authn-http/test/v3/; the extension runs on role switch, `GET /auth/active-role` is replaced (B25, A26); N8a task 6: 3.0 expectation differs: `GET /auth/active-role` runs no extension (no answer kind for it); the switch does (`test/v3-app/suites/active-role.ts`, "A26 a held role: ...") |
+| 4 | 184 | SessionContextProvider > resolves provider fields for the role switched to, not the one switched from | rewrite | C3 → T2 | authn-http/test/v3/; the extension resolves for the role switched to (A26, B25); N8a task 6: `test/v3-app/suites/active-role.ts` ("A26 a held role: ..."): the extension gets the principal with `ceiling.roles` = the new role |
 
 ## test/z-login-failure-parity.test.ts
 
 Failed logins give one answer (account enumeration). Class: adapt (A02); lane N8a.
 
+Status (N8a task 6): the 3.0 login's A02 rows are in `test/v3-app/suites/login.ts`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 89 | LoginController — failed logins are indistinguishable > answers Unauthorized for an email that is not registered | adapt | N8a | authn-http/test/; an unknown email gives 401 `E_AUTH_FAILED` (A02, SR-04) |
-| 2 | 101 | LoginController — failed logins are indistinguishable > answers Unauthorized for a registered email with the wrong password | adapt | N8a | authn-http/test/; a wrong password gives the same 401 (A02) |
+| 1 | 89 | LoginController — failed logins are indistinguishable > answers Unauthorized for an email that is not registered | adapt | N8a | authn-http/test/; an unknown email gives 401 `E_AUTH_FAILED` (A02, SR-04); N8a task 6: `test/v3-app/suites/login.ts` ("answers 401 with the one failure body: unknown account") |
+| 2 | 101 | LoginController — failed logins are indistinguishable > answers Unauthorized for a registered email with the wrong password | adapt | N8a | authn-http/test/; a wrong password gives the same 401 (A02); N8a task 6: `test/v3-app/suites/login.ts` ("answers 401 with the one failure body: wrong password") |

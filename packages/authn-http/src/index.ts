@@ -45,3 +45,6 @@ export { MfaSatisfied } from './policies/v3/mfa.js';
 export { Identity, AuthnSession } from './args/authn.js';
 export * from './extractors/index.js';
 export { registerAuthnHttpV3 } from './v3/register.js';
+// For authn-oidc (N10): the one 401 body of a failed authentication and the session cookie helpers. Plain values and
+// functions: loading them registers nothing of the 3.0 layer.
+export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';

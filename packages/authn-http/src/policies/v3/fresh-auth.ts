@@ -12,8 +12,8 @@ import { authenticatedPrincipal, isSessionPrincipal } from './principal.js';
 /** The body field of an inline re-authentication on a FreshAuth route. */
 export const REAUTH_PASSWORD_FIELD = 'reauthPassword';
 
-// authn-local's hard cap (N3): a longer value never verifies, so no strategy has to hash it.
-const PASSWORD_HARD_CAP = 1024;
+/** authn-local's hard cap (N3): a longer value never verifies, so no strategy has to hash it. The login routes cap their fields at it too. */
+export const PASSWORD_HARD_CAP = 1024;
 
 async function passwordCredentials(container: IContainer, identity: IdentityRef, password: string): Promise<Credentials | null> {
   if (password.length > PASSWORD_HARD_CAP) return null;
@@ -28,9 +28,10 @@ async function passwordCredentials(container: IContainer, identity: IdentityRef,
  * authn.freshAuth.maxAgeSeconds), or `password` re-authenticates its identity with purpose 'reauth', counted in the reauth
  * throttle (SR-20). 401 without a principal, or after a failed or throttled re-authentication (the A02 body, no retry
  * information); 403 for a per-request principal, an impersonation (never fresh) or a stale session without a password.
- * Routes that take the password in their own body (role switch) call it with that password.
+ * Routes that take the password in their own body (role switch, impersonation) call it with that password. Answers the
+ * credentials it verified, or null when the session was fresh without them.
  */
-export async function assertFreshAuth(container: IContainer, req: Request, maxAgeSeconds?: number, password?: unknown): Promise<void> {
+export async function assertFreshAuth(container: IContainer, req: Request, maxAgeSeconds?: number, password?: unknown): Promise<Credentials | null> {
   const principal = authenticatedPrincipal(req);
   const authn = principal.authn;
   const session = req.storage.AuthnSession;
@@ -41,7 +42,7 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
   const check = await container.resolve(FreshAuthCheck);
   const maxAge = maxAgeSeconds ?? check.maxAgeSeconds;
   const ctx: AuthnContext = { ip: req.storage.ClientIp, userAgent: req.headers['user-agent'], now: new Date(), purpose: 'reauth', session: session.handle };
-  if (isFresh(authn, ctx.now, maxAge)) return;
+  if (isFresh(authn, ctx.now, maxAge)) return null;
 
   if (typeof password !== 'string' || password === '') throw refused('fresh_auth_required', 'this route needs a recent login or the password');
   const credentials = await passwordCredentials(container, session.identity, password);
@@ -50,6 +51,7 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
   // stricter route age therefore verifies through the core re-authentication itself.
   const ok = maxAge >= check.maxAgeSeconds ? await check.check(session.handle, ctx, credentials) : await (await container.resolve(AuthnService)).reauthenticate(session.handle, credentials, ctx);
   if (!ok) throw authnFailed();
+  return credentials;
 }
 
 /**
@@ -74,9 +76,9 @@ export class FreshAuth extends BasePolicy {
     return true;
   }
 
-  public execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
+  public async execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
     const body: unknown = req.body;
     const password = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD] : undefined;
-    return assertFreshAuth(this.Container, req, this.maxAgeSeconds, password);
+    await assertFreshAuth(this.Container, req, this.maxAgeSeconds, password);
   }
 }
