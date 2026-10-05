@@ -1,7 +1,7 @@
 import { Container } from './container.js';
 import { IBind, IContainer, ResolvableObject, ResolveChainResult } from './interfaces.js';
 import { Class, InferClass, InferTypedArray, ResolveResult, ResolveArrayResult, Factory } from './types.js';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 
 /**
  * App main DI container
@@ -125,6 +125,8 @@ export function resolve<T>(type: string, options?: unknown[], check?: boolean): 
 export function resolve<T>(type: string, check?: boolean): T;
 export function resolve<T>(type: Class<T>, check?: boolean): ResolveResult<T>;
 export function resolve<T>(type: Class<T>, options?: unknown[] | boolean, check?: boolean): ResolveResult<T>;
+export function resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
+export function resolve<T>(type: ChainArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveChainResult<T>;
 export function resolve<T>(type: TypedArray<T>, check?: boolean): ResolveArrayResult<T>;
 export function resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<T>;
 export function resolve<T extends Class<any>>(type: T, check?: boolean): ResolveResult<InferClass<T>>;
@@ -133,17 +135,6 @@ export function resolve<T extends Class<any>>(type: T, options?: unknown[] | boo
 export function resolve<T extends TypedArray<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
 export function resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown {
   return RootContainer.resolve(type as any, options, check);
-}
-
-
-
-/**
- * Resolves every registration of `type` in the root container. Unlike
- * `resolve(Array.ofType(type))` it also returns factory results and does not
- * populate the Array.ofType collection cache.
- */
-export function resolveChain<T>(type: Class<T>): ResolveChainResult<T> {
-  return RootContainer.resolveChain(type);
 }
 
 /**
@@ -163,7 +154,9 @@ export function get<T>(serviceName: string | Class<T> | TypedArray<T>): T | T[] 
  *
  * @param type - base type to check
  */
-export function getRegisteredTypes<T>(type: string | Class<T>): Class<T>[] {
+export function getRegisteredTypes<T>(type: TypedArray<T>): Array<Class<unknown> | Factory<unknown>>;
+export function getRegisteredTypes<T>(type: string | Class<T>): Class<T>[];
+export function getRegisteredTypes<T>(type: string | Class<T> | TypedArray<T>): Array<Class<unknown> | Factory<unknown>> {
   return RootContainer.getRegisteredTypes(type);
 }
 

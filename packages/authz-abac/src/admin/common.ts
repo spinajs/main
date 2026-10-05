@@ -31,7 +31,7 @@ export async function writableStore(ctx: AdminContext, required: false): Promise
 export async function writableStore(ctx: AdminContext, required = true): Promise<WritablePolicyStore | undefined> {
   const container = adminContainer(ctx);
   const where = `Authz domain ${quote(ctx.domain)}`;
-  const stores = container.hasRegistered(PolicyStore) ? [...(await container.resolveChain(PolicyStore))] : [];
+  const stores = container.hasRegistered(PolicyStore) ? [...(await container.resolve(Array.chainOf(PolicyStore)))] : [];
   const writable = [...new Set(stores.filter((s): s is WritablePolicyStore => s instanceof MemoryPolicyStore || s instanceof DbPolicyStore))];
   if (writable.length > 1) throw new AuthzConfigError(`${where}: more than one writable PolicyStore is registered (${writable.map((s) => s.constructor.name).join(', ')}); register only the one the AbacModel writes to`);
   if (writable.length === 0 && required) throw new AuthzConfigError(`${where}: no MemoryPolicyStore or DbPolicyStore is registered as PolicyStore; the ABAC policy commands of AuthzAdmin write to the one the domain's AbacModel reads`);

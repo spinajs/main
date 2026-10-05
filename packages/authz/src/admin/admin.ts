@@ -411,7 +411,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
 
   private async chain<T>(token: Class<T>): Promise<T[]> {
     if (!this.container.hasRegistered(token)) return [];
-    return [...(await this.container.resolveChain(token))];
+    return [...(await this.container.resolve(Array.chainOf(token)))];
   }
 
   /** The class named `service` among the registrations of `token`; a missing one is an AuthzConfigError naming `key`. */
@@ -422,7 +422,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
       .pop();
     if (!entry) throw new AuthzConfigError(`${where}: ${key} names ${q(service)}, but no ${token.name} class of that name is registered`);
     const type = entry.type as Class<T>;
-    // Resolved where resolveChain would: per-child classes here, the rest in the registering container.
+    // Resolved where Array.chainOf would: per-child classes here, the rest in the registering container.
     const at = this.container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? this.container : entry.container;
     return (await at.resolve(type)) as T;
   }

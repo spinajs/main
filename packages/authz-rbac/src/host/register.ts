@@ -76,7 +76,7 @@ export async function registerRbac(container: IContainer, configuration: Pick<Co
   const store = async <T>(token: Class<T>): Promise<T | undefined> => (container.hasRegistered(token, false) ? ((await container.resolve(token)) as T) : undefined);
   // The chain resolves this container's registrations here; a parent's other rule stores are left out.
   const own = new Set<unknown>(container.Registry.getTypes(RuleStore, false) ?? []);
-  const rules = own.size > 0 ? ((await container.resolveChain(RuleStore)) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
+  const rules = own.size > 0 ? ((await container.resolve(Array.chainOf(RuleStore))) as RuleStore[]).filter((s) => own.has(s.constructor)) : [];
   ruleStoreParts(rules);
   const links = await store(LinkStore);
   const options: RbacModelOptions = {

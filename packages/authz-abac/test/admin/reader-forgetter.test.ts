@@ -67,7 +67,7 @@ describe('ABAC policy reader and scope forgetter', function () {
     });
 
     it('is registered for kind policies', async () => {
-      const readers = (await d.container.resolveChain(AuthzAdminReader)) as AuthzAdminReader[];
+      const readers = (await d.container.resolve(Array.chainOf(AuthzAdminReader))) as AuthzAdminReader[];
       expect(readers.filter((x) => x instanceof AbacPolicyReader).map((x) => [...x.kinds])).to.deep.equal([['policies']]);
     });
 
@@ -96,7 +96,7 @@ describe('ABAC policy reader and scope forgetter', function () {
     });
 
     it('is registered as a ScopeForgetter and skips a domain without a PolicyStore', async () => {
-      const forgetters = (await d.container.resolveChain(ScopeForgetter)) as ScopeForgetter[];
+      const forgetters = (await d.container.resolve(Array.chainOf(ScopeForgetter))) as ScopeForgetter[];
       expect(forgetters.filter((x) => x instanceof AbacScopeForgetter)).to.have.length(1);
       await resetHost();
       d = await abacDomain('test', { without: ['store'] });

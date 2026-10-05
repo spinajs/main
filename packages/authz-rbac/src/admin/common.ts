@@ -58,7 +58,7 @@ async function loadRoles(ctx: AdminContext): Promise<RoleIndex> {
   if (!container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${where}: no RoleStore is registered; the RBAC write handlers of AuthzAdmin read role definitions from it`);
   const roles = new Map<string, RoleDef>();
   const ladders = new Map<string, LadderDef>();
-  for (const s of await container.resolveChain(RoleStore)) {
+  for (const s of await container.resolve(Array.chainOf(RoleStore))) {
     const loaded = await (s as RoleStore).load();
     for (const r of loaded.roles) {
       if (roles.has(r.name)) throw new AuthzConfigError(`${where}: role ${q(r.name)} is defined twice (${roles.get(r.name)!.source}, ${r.source})`);

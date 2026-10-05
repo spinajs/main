@@ -160,7 +160,7 @@ describe('the configuration users ships', function () {
     it('compiles them; UserResourceAdapter declares the user permissions they name', async () => {
       expect(await DI.resolve(AuthzService)).to.be.instanceOf(AuthzService);
 
-      const chain = (await DI.RootContainer.resolveChain(ResourceAdapter)) as ResourceAdapter[];
+      const chain = (await DI.RootContainer.resolve(Array.chainOf(ResourceAdapter))) as ResourceAdapter[];
       const adapter = chain.find((a) => a instanceof UserResourceAdapter)!;
       expect(adapter.permissions!()).to.deep.eq([
         { name: 'user:read', resource: 'user', action: 'read', types: ['user'], fields: true },

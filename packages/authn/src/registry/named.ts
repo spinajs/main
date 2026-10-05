@@ -53,12 +53,12 @@ export const registrationName = (t: unknown): string => {
 
 /** Names of the registrations of `base` along the container lineage, without repeats. */
 export function registeredNames(container: IContainer, base: Class<unknown>): string[] {
-  return [...new Set((container.getRegisteredTypesChain(base) ?? []).map(registrationName).filter(nonEmpty))];
+  return [...new Set((container.getRegisteredTypes(Array.chainOf(base)) ?? []).map(registrationName).filter(nonEmpty))];
 }
 
 /** The registration of `base` named `name` nearest to `container` (its own before its ancestors'). */
 export function nearestRegistration(container: IContainer, base: Class<unknown>, name: string): Registration | undefined {
-  return [...(container.getRegisteredTypesChain(base) ?? [])].reverse().find((t) => registrationName(t) === name);
+  return [...(container.getRegisteredTypes(Array.chainOf(base)) ?? [])].reverse().find((t) => registrationName(t) === name);
 }
 
 /** A factory is called with the container; a class resolves through DI, so its lifetime decorators apply. */

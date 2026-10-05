@@ -35,7 +35,7 @@ export class DefaultRolesBootCheck extends AuthzContributor {
 
     const defs: RoleDef[] = [];
     const ladders: LadderDef[] = [];
-    for (const store of (await DI.RootContainer.resolveChain(RoleStore)) as RoleStore[]) {
+    for (const store of (await DI.RootContainer.resolve(Array.chainOf(RoleStore))) as RoleStore[]) {
       const loaded = await store.load();
       defs.push(...loaded.roles);
       ladders.push(...loaded.ladders);

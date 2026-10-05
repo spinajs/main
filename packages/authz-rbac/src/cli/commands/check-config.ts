@@ -79,7 +79,7 @@ export class CheckConfigCommand extends AuthzCliCommand {
   private async roleStores(): Promise<readonly RoleStore[]> {
     if (this.Roles) return [this.Roles];
     const root = DI.RootContainer;
-    if (root.hasRegistered(RoleStore)) return (await root.resolveChain(RoleStore)) as RoleStore[];
+    if (root.hasRegistered(RoleStore)) return (await root.resolve(Array.chainOf(RoleStore))) as RoleStore[];
 
     const names = rbacStoreNames(await this.configuration(), 'roles');
     const missing = names.filter((n) => !root.hasRegistered(n));

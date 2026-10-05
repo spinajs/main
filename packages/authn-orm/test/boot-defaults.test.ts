@@ -40,7 +40,7 @@ describe('authn-orm with no throttle config (K6)', function () {
 
   it('boots the core with both throttles registered and no throttle config of the app, on DbAuthnThrottle', async () => {
     child = DI.RootContainer.child();
-    expect((child.getRegisteredTypesChain(AuthnThrottle) ?? []).map((t) => (t as { name?: string }).name)).to.include.members(['MemoryAuthnThrottle', 'DbAuthnThrottle']);
+    expect((child.getRegisteredTypes(Array.chainOf(AuthnThrottle)) ?? []).map((t) => (t as { name?: string }).name)).to.include.members(['MemoryAuthnThrottle', 'DbAuthnThrottle']);
     child.register(StandardAppConfiguration).as(Configuration);
     bind(child, IdentityStore, 'K6IdentityStore', new FakeIdentityStore());
     bind(child, PrincipalFactory, 'K6PrincipalFactory', new RecordingPrincipalFactory());

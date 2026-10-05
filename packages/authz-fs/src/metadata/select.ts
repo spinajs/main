@@ -20,8 +20,8 @@ export async function fileMetadataStore(fsName: string, container: IContainer = 
   if (named === undefined) return undefined;
   const cached = found.get(container)?.get(named);
   if (cached) return cached;
-  // resolveChain, not Array.ofType: it also returns instances registered through factories and those of parent containers.
-  const registered = [...(await container.resolveChain(FileMetadataStore))] as FileMetadataStore[];
+  // Array.chainOf, not Array.ofType: it also returns instances registered through factories and those of parent containers.
+  const registered = [...(await container.resolve(Array.chainOf(FileMetadataStore)))] as FileMetadataStore[];
   const store = registered.find((s) => s.constructor.name === named);
   if (!store) {
     const known = registered.map((s) => s.constructor.name).join(', ') || 'none';

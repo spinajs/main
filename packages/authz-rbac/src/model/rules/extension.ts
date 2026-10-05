@@ -440,6 +440,6 @@ function dig(value: unknown, path: readonly string[]): unknown {
 }
 
 async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
-  const list = (await DI.resolveChain(ConditionFunction)) as readonly ConditionFunction[];
+  const list = (await DI.resolve(Array.chainOf(ConditionFunction))) as readonly ConditionFunction[];
   return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
 }

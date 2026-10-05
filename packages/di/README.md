@@ -144,6 +144,32 @@ SpinaJS depencendy injection implementation also have concept of child container
 
 ```
 
+### All registrations of a type: `Array.ofType` and `Array.chainOf`
+
+`Array.ofType(T)` resolves the list of the nearest container that registers `T`, so a child's list hides its parent's. `Array.chainOf(T)` merges the lists of the container and all its ancestors:
+
+* ancestors come first;
+* a class registered in a child under the name of an ancestor's class replaces that class in place;
+* factory registrations are always kept;
+* every element is resolved in the container that registered it, except `PerChildContainer` classes, which are resolved in the resolving container.
+
+```typescript
+DI.register(Rbac).as(Model);
+const child = DI.child();
+child.register(Abac).as(Model);
+
+child.resolve(Array.ofType(Model));          // [ Abac ]
+await child.resolve(Array.chainOf(Model));   // [ Rbac, Abac ]
+child.getRegisteredTypes(Array.chainOf(Model)); // [ Rbac, Abac ], element i is the registration of instance i
+
+class Consumer {
+  @Autoinject(Array.chainOf(Model))
+  public models: Model[];
+}
+```
+
+`resolve(Array.chainOf(T))` returns a promise when `T` or any element is an `AsyncService`, so await it. `get` and `isResolved` do not accept a chain.
+
 ## Object lifetime
 
 ## Overriding objects

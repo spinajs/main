@@ -264,7 +264,7 @@ describe('ConfigScopeAttributeSchemas', () => {
     setConfig(['authz', 'scopes', 'attributes'], { project: { schema: { type: 'object' }, defaults: { policies: { level: 'bronze' } } } });
     adminConfig();
     const d = await adminDomain();
-    expect((await d.container.resolveChain(AuthzContributor)).some((c) => c instanceof ConfigScopeAttributeSchemas)).to.equal(true);
+    expect((await d.container.resolve(Array.chainOf(AuthzContributor))).some((c) => c instanceof ConfigScopeAttributeSchemas)).to.equal(true);
   });
 });
 
