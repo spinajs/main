@@ -4,11 +4,11 @@ import 'mocha';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AccessDenied, AuthorizationModel, AuthzContributor, GLOBAL, runWithPrincipal } from '@spinajs/authz';
 import type { Assignment, AuthzService, Principal } from '@spinajs/authz';
-import { AccessResource, Owner } from '@spinajs/authz-orm';
+import { AccessResource, Owner, OrmScope, OrmScopePolicy } from '@spinajs/authz-orm';
 import { testHost, userPrincipal } from '@spinajs/authz-testing';
 import { DI } from '@spinajs/di';
 import { Connection, Model, ModelBase, Orm, Primary, QueryContext } from '@spinajs/orm';
-import type { OrmDriver } from '@spinajs/orm';
+import type { IWhereBuilder, ModelBase as OrmModelBase, OrmDriver } from '@spinajs/orm';
 
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
@@ -20,14 +20,27 @@ const expect = chai.expect;
 const TYPE = 'ActiveRoleDoc';
 const TABLE = `active_role_doc_${process.pid}`;
 
-const role = (name: string, grants: RoleDef['grants']): RoleDef => ({ name, extends: [], assignable: true, source: 'test', grants });
+const role = (name: string, grants: RoleDef['grants'], extendsRoles: string[] = []): RoleDef => ({ name, extends: extendsRoles, assignable: true, source: 'test', grants });
 const hold = (id: string, ...roles: string[]): Assignment[] => roles.map((r) => ({ id: `${id}-${r}`, subject: { type: 'user', id }, role: r, scope: GLOBAL, source: 'test' }));
 
 // admin: read any; normal: read own; guest: nothing on this type.
-const ROLES: RoleDef[] = [role('admin', [{ permission: `${TYPE}:read` }]), role('normal', [{ permission: `${TYPE}:read`, relation: 'owner' }]), role('guest', [{ permission: 'unrelated:read' }])];
-const ASSIGNMENTS: Assignment[] = [...hold('admin-and-normal', 'admin', 'normal'), ...hold('admin-and-guest', 'admin', 'guest'), ...hold('normal-only', 'normal')];
+// base reads own rows, extender (extends base) reads rows of the 'subset' relation: the extender holds both.
+const ROLES: RoleDef[] = [
+  role('admin', [{ permission: `${TYPE}:read` }]),
+  role('normal', [{ permission: `${TYPE}:read`, relation: 'owner' }]),
+  role('guest', [{ permission: 'unrelated:read' }]),
+  role('base', [{ permission: `${TYPE}:read`, relation: 'owner' }]),
+  role('extender', [{ permission: `${TYPE}:read`, relation: 'subset' }], ['base']),
+];
+const ASSIGNMENTS: Assignment[] = [...hold('admin-and-normal', 'admin', 'normal'), ...hold('admin-and-guest', 'admin', 'guest'), ...hold('normal-only', 'normal'), ...hold('extender-user', 'extender')];
 
 const switched = (id: string, roles?: string[]): Principal => userPrincipal(id, roles ? { ceiling: { roles } } : {});
+class SubsetPolicy extends OrmScopePolicy {
+  scope(q: IWhereBuilder<OrmModelBase>): void {
+    q.where('Value', 'subset-visible');
+  }
+}
+
 const as = <T>(p: Principal, fn: () => T | Promise<T>): Promise<T> => runWithPrincipal(p, async () => fn());
 
 describe('ActiveRole through the real RbacModel and the ORM middleware', function () {
@@ -72,6 +85,7 @@ describe('ActiveRole through the real RbacModel and the ORM middleware', functio
     Primary()(cls.prototype, 'id');
     AccessResource(TYPE)(cls);
     Owner()(cls.prototype, 'UserId');
+    OrmScope(cls as never, 'subset')(SubsetPolicy as never);
     Connection('sqlite')(cls);
     Model(TABLE)(cls);
     await raw(`CREATE TABLE "${TABLE}" ("id" TEXT PRIMARY KEY, "UserId" TEXT, "Value" TEXT)`);
@@ -183,5 +197,15 @@ describe('ActiveRole through the real RbacModel and the ORM middleware', functio
     const p = switched('normal-only', ['admin', 'normal']);
     expect(await valuesOf(p)).to.deep.equal([]);
     expect((await sqlOf(p)).expression).to.match(/UserId/i);
+  });
+
+  // B12, B15 (2.x known limitation, ported from orm-permission-policy): 'extends' inherits grants and relations OR, so the
+  // extender sees its own rows (owner, inherited from base) and the subset rows, not only the extender's own relation.
+  it("a relation inherited through 'extends' ORs with the extender's own relation", async () => {
+    await raw(`INSERT INTO "${TABLE}" ("id", "UserId", "Value") VALUES ('own', 'extender-user', 'plain'), ('sub', 'someone-else', 'subset-visible')`);
+    const p = switched('extender-user');
+
+    expect(await valuesOf(p)).to.deep.equal(['own', 'sub']);
+    expect((await sqlOf(p)).expression).to.match(/UserId/i).and.to.match(/Value/i);
   });
 });

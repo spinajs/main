@@ -6,7 +6,7 @@ import { expect } from 'chai';
 import { User } from '../../src/index.js';
 import { create } from '../../src/actions.js';
 import { TEST_USER_UUID_2 } from '../migration/rbac.migration.js';
-import { bootUsersDb, registerUsersTestHost } from '../support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, releaseUsersHost } from '../support/users-db.js';
 import { globalRolesOf } from '../support/authz-host.js';
 import { Configuration } from '@spinajs/configuration';
 
@@ -25,7 +25,7 @@ describe('User roles', function () {
   });
 
   afterEach(() => {
-    DI.clearCache();
+    releaseUsersHost();
   });
 
   it('Should check if guest role is set by default', async () => {

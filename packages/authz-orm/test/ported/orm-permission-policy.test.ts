@@ -293,10 +293,23 @@ describe('OrmScopePolicy where-path', function () {
           },
         });
 
-        it('insert uses authorizeCreate and suppresses @Owner stamping', async () => {
+        it('insert uses authorizeCreate of the policy relation', async () => {
           const type = typeName();
           const Res = await model({ type, policies: { owner: policy(stamping()) } });
           await grantAll(type, ownerRelation);
+
+          await as(normal, () => Res.insert({ id: 'r1', UserId: '4242', Value: 'from-payload' }));
+
+          expect(calls).to.eql(['authorizeCreate']);
+          expect(await w.stored(Res)).to.eql([['4242', 'stamped-by-policy']]);
+        });
+
+        // Changed shape (B05, B20): the 2.x policy on an @Owner model could not coexist with the owner policy; the policy sits on
+        // `pool` and the create grant names only `pool`, so the owner relation is not held and nothing stamps the column.
+        it('insert on an @Owner model uses authorizeCreate and suppresses @Owner stamping', async () => {
+          const type = typeName();
+          const Res = await model({ type, owner: true, policies: { pool: policy(stamping()) } });
+          await grantAll(type, rel('pool'));
 
           await as(normal, () => Res.insert({ id: 'r1', UserId: '4242', Value: 'from-payload' }));
 
@@ -599,7 +612,9 @@ describe('OrmScopePolicy where-path', function () {
           expect(values(rows)).to.eql(['subset-visible']);
         });
 
-        it("a relation inherited through 'extends' runs next to the role's own (the 2.x known limitation is gone)", async () => {
+        // The 2.x limitation was about `extends`; the real RbacModel case is authz-rbac/test/ported/active-role-orm.test.ts. Here only
+        // the shape an extender resolves to is pinned: owner OR another relation, both resolvers run.
+        it('a grant of owner OR another relation runs both resolvers and shows both row sets', async () => {
           const type = typeName();
           const Res = await model({ type, policies: scoped() });
           await three(Res);

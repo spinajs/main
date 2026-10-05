@@ -15,7 +15,7 @@ import type { PasswordMail } from '@spinajs/authn-local';
 import { QueueAuthnEventSink, TokenInvalid, USER_COMMON_METADATA, User, UserAccountSink, UserIdentityStore, UserPasswordStore } from '../../src/index.js';
 import { ban, confirmPasswordReset, deactivate, deleteUser, issuePasswordResetToken } from '../../src/actions.js';
 import { TestPasswordService } from '../support/password-service.js';
-import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from '../support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, releaseUsersHost, seedUser, storedUser } from '../support/users-db.js';
 import { TEST_USER_UUID } from '../migration/rbac.migration.js';
 
 const OLD = 'Old-Password-1';
@@ -53,7 +53,7 @@ describe('reset and invite over the users stores', function () {
 
   afterEach(() => {
     sinon.restore();
-    DI.clearCache();
+    releaseUsersHost();
   });
 
   async function setup() {
@@ -228,7 +228,7 @@ describe('reset and invite over the users stores', function () {
   describe('a cli command that resolves only the IdentityStore', () => {
     // BUG(T1): resolving UserIdentityStore does not boot the Orm, see .authz-sdd/T1-handoffs.md
     it.skip('brings the Orm up through it, so the login lookup does not run against bare models', async () => {
-      DI.clearCache();
+      releaseUsersHost();
       for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
         await b.bootstrap();
       }

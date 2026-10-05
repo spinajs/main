@@ -10,7 +10,7 @@ import { expect } from 'chai';
 import { v4 as uuidv4 } from 'uuid';
 
 import { PasswordProvider, RBAC_USER_MODEL, SYSTEM_LOGIN, User } from '../../src/index.js';
-import { bootUsersDb, registerUsersTestHost } from '../support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, releaseUsersHost } from '../support/users-db.js';
 
 chai.use(chaiAsPromised);
 
@@ -20,8 +20,6 @@ chai.use(chaiAsPromised);
 class AppUserModel extends User {}
 
 let scoping = false;
-
-const STALE_AUTHZ_SINGLETONS = ['ConfigRoleStore', 'DbAssignmentStore', 'UsersTestRbac', 'OrmResourceAdapter', 'UserResourceAdapter', 'UserSelfRelation', 'UsersSelfRelation', 'ConfigScopeAttributeSchemas', 'OrmAuthzContributor', 'DefaultRolesBootCheck', 'OwnRolesTokenRolePolicy', 'OrmNativeCompiler', 'RbacOrmCompiler', 'DefaultAuthzAdmin'];
 
 // Stands in for authz-orm's query middleware, which cannot be loaded into this package's suites (its shield needs a booted
 // host before any query, migrations included). Scopes the model to nothing for every principal but SYSTEM.
@@ -46,8 +44,6 @@ describe('RbacSystemUserFactory', function () {
   this.timeout(30000);
 
   before(() => {
-    // The run restores authz singletons built by an earlier suite (role store, assignment store, contributors) and they hide this suite's roles.
-    for (const key of STALE_AUTHZ_SINGLETONS) DI.RootContainer.uncache(key);
     registerUsersTestHost();
   });
 
@@ -72,7 +68,7 @@ describe('RbacSystemUserFactory', function () {
 
   afterEach(() => {
     scoping = false;
-    DI.clearCache();
+    releaseUsersHost();
   });
 
   it('returns an instance of the registered user model, not the base class', async () => {

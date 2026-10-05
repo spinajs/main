@@ -11,7 +11,7 @@ import { AssignmentStore } from '@spinajs/authz-rbac';
 import { User } from '../../src/index.js';
 import { create } from '../../src/actions.js';
 import { TEST_USER_UUID } from '../migration/rbac.migration.js';
-import { bootUsersDb, registerUsersTestHost } from '../support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, releaseUsersHost } from '../support/users-db.js';
 import { globalRolesOf, rootAdmin } from '../support/authz-host.js';
 
 chai.use(chaiAsPromised);
@@ -43,7 +43,7 @@ describe('role grants through AuthzAdmin', function () {
 
   afterEach(() => {
     sinon.restore();
-    DI.clearCache();
+    releaseUsersHost();
   });
 
   it('Should grant role', async () => {
