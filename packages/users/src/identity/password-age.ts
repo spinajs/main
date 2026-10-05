@@ -3,6 +3,7 @@ import { OrmDriver } from '@spinajs/orm';
 import { PasswordAgeSource } from '@spinajs/authn-local';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
+import { runAsSystem } from '../system.js';
 import { USERS_TABLE, holdsPassword, quoted, raw, sqlDateTime, usersDriver } from './sql.js';
 
 /**
@@ -18,15 +19,17 @@ export class UserPasswordAgeSource extends PasswordAgeSource {
 
   /** Users not deleted, holding a password (not a marker), set before `cutoff` or at no recorded time. */
   public async passwordsSetBefore(cutoff: Date): Promise<readonly IdentityRef[]> {
-    const driver = this.Deps?.driver ?? usersDriver();
-    const setAt = quoted(driver, 'PasswordSetAt');
-    const rows = (await driver
-      .select()
-      .from(USERS_TABLE)
-      .columns(['Uuid'])
-      .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [sqlDateTime(cutoff)] }))
-      .whereNull('DeletedAt')
-      .where(raw(holdsPassword(driver, 'Password')))) as { Uuid: unknown }[];
+    const rows = (await runAsSystem('password-age', async () => {
+      const driver = this.Deps?.driver ?? usersDriver();
+      const setAt = quoted(driver, 'PasswordSetAt');
+      return driver
+        .select()
+        .from(USERS_TABLE)
+        .columns(['Uuid'])
+        .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [sqlDateTime(cutoff)] }))
+        .whereNull('DeletedAt')
+        .where(raw(holdsPassword(driver, 'Password')));
+    })) as { Uuid: unknown }[];
 
     return rows.map((r) => ({ type: 'user', id: String(r.Uuid) }));
   }

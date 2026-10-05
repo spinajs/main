@@ -3,13 +3,15 @@ import { IdentityStore } from '@spinajs/authn/contracts';
 import type { IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 
 import { USER_COMMON_METADATA, User } from '../models/User.js';
+import { runAsSystem } from '../system.js';
 import { usersMatchingLogin } from './sql.js';
 
 const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false });
 
 /**
  * Users as authn identities (`user:<Uuid>`). Every lookup uses the base `User` and includes soft-deleted rows, so
- * `status` can answer `deleted`. No `provision`: JIT provisioning is off (design §22.5) and users does not offer it.
+ * `status` can answer `deleted`. Lookups run as SYSTEM: the caller is anonymous or UNATTENDED at login and reset, and an
+ * application's user model may be an `@AccessResource`. No `provision`: JIT provisioning is off (design §22.5) and users does not offer it.
  */
 @Injectable(IdentityStore)
 export class UserIdentityStore extends IdentityStore {
@@ -24,7 +26,7 @@ export class UserIdentityStore extends IdentityStore {
     }
 
     const typed = login.trim();
-    const rows = await usersMatchingLogin(login);
+    const rows = await runAsSystem('identity-store', () => usersMatchingLogin(login));
 
     const ranked = rows.map((u) => ({ u, rank: u.Email === typed ? 0 : u.Login === typed ? 1 : 2 }));
     const best = Math.min(...ranked.map((r) => r.rank));
@@ -58,7 +60,9 @@ export class UserIdentityStore extends IdentityStore {
       return undefined;
     }
 
-    const query = User.query().withDeleted().where('Uuid', id.id);
-    return (await (withMetadata ? query.populate('Metadata') : query).first()) ?? undefined;
+    return runAsSystem('identity-store', async () => {
+      const query = User.query().withDeleted().where('Uuid', id.id);
+      return (await (withMetadata ? query.populate('Metadata') : query).first()) ?? undefined;
+    });
   }
 }

@@ -12,6 +12,7 @@ import { UserPasswordChangeRequest } from '../events/UserPasswordChangeRequest.j
 import { UserPasswordChanged } from '../events/UserPasswordChanged.js';
 import { UserPasswordExpired } from '../events/UserPasswordExpired.js';
 import { User } from '../models/User.js';
+import { runAsSystem } from '../system.js';
 
 type Ref = { readonly type: string; readonly id: string };
 
@@ -102,6 +103,6 @@ export class QueueAuthnEventSink extends AuthnEventSink {
     if (ref?.type !== 'user' || typeof ref.id !== 'string') {
       return undefined;
     }
-    return (await User.query().withDeleted().where('Uuid', ref.id).first()) ?? undefined;
+    return (await runAsSystem('queue-sink', async () => User.query().withDeleted().where('Uuid', ref.id).first())) ?? undefined;
   }
 }

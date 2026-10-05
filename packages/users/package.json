@@ -77,6 +77,7 @@
   "devDependencies": {
     "@spinajs/authn-testing": "3.0.0-alpha.0",
     "@spinajs/authz-abac": "3.0.0-alpha.0",
+    "@spinajs/authz-orm": "3.0.0-alpha.0",
     "@spinajs/authz-testing": "3.0.0-alpha.0",
     "@spinajs/orm-mssql": "2.0.549",
     "@spinajs/orm-mysql": "2.0.549",
