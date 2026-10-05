@@ -119,7 +119,7 @@ describe('access token actions - validate & cleanup', function () {
 
     after(async () => {
       const cfg = await DI.resolve(Configuration);
-      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+      cfg.set('rbac.token.rolePolicy.service', 'LegacyOwnRolesTokenRolePolicy');
     });
 
     beforeEach(() => {

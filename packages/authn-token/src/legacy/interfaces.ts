@@ -50,7 +50,7 @@ export interface ITokenAuthInfo {
  *
  * Replaceable via config `rbac.token.rolePolicy.service`, the same pattern
  * `authn.token.generation.service` uses for the token generator. The shipped
- * default ( `OwnRolesTokenRolePolicy` ) answers with the owner's own roles,
+ * default ( `LegacyOwnRolesTokenRolePolicy` ) answers with the owner's own roles,
  * which is the behaviour this package had before the seam existed.
  *
  * @deprecated 2.x API; use TokenService. R1 removes it.
