@@ -13,7 +13,8 @@ const expect = chai.expect;
 // Ported from users legacy-v2/active-role.test.ts (B24, B07, D14, B20): the 2.x `ActiveRole` of the
 // async storage is `ceiling.roles` on the principal. The model below keeps the RBAC rule that matters
 // here (B07: `ceiling.roles` removes roles, never adds) so the suite pins what the ORM does with the
-// decision; the real RbacModel's ceiling handling is covered in authz-rbac.
+// decision; the real RbacModel's ceiling handling runs through the ORM in authz-rbac
+// test/ported/active-role-orm.test.ts.
 describe('Rbac ActiveRole middleware', function () {
   this.timeout(60000);
   const w = new PortedWorld();
@@ -91,6 +92,8 @@ describe('Rbac ActiveRole middleware', function () {
         }
         expect(error).to.be.instanceOf(AccessDenied);
         expect(error).to.be.instanceOf(Forbidden);
+        expect((error as AccessDenied).decision.permission).to.equal(w.P.read);
+        expect((error as AccessDenied).decision.reason?.code).to.equal('no_access');
       });
 
       it('Without ActiveRole the full role list is used (admin role wins)', async () => {
@@ -103,7 +106,7 @@ describe('Rbac ActiveRole middleware', function () {
         expect((await sqlOf(p, query)).expression).to.not.match(/UserId/i);
       });
 
-      it('a role switch to a role the user does not hold never widens access (B07)', async () => {
+      it('a ceiling naming a role the user does not hold reaches the model and the empty decision is AccessDenied', async () => {
         const Res = await seed();
         const p = switched('normal-only', 'admin');
 
