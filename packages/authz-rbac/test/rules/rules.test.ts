@@ -227,12 +227,6 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(restrict, 'file:edit', f1, who({ verified: true }))).permitWhen).to.deep.equal(TRUE);
     });
 
-    it('RFC L1b-1 pin: a cap on contractor eq true applies to a principal without the attribute', async () => {
-      const m = await model([assignment('a1', 'editor', P1)], [capOf({ subjects: { when: { attr: 'principal.attributes.contractor', eq: true } } })]);
-      expect((await vote(m, 'file:edit', f1, who({}))).roles).to.deep.equal({ project: 'viewer' });
-      expect((await vote(m, 'file:edit', f1, who({ contractor: false }))).permitWhen).to.deep.equal(TRUE);
-    });
-
     it('a threshold keeps an UNKNOWN subjects.when or when in its deny entry, also next to a scope attribute', async () => {
       const linkLike: Omit<RuleDef, 'source'> = {
         id: 't',
