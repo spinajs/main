@@ -27,3 +27,14 @@ export async function dropBucket(client: S3Client, bucket: string): Promise<void
   }
   await client.send(new DeleteBucketCommand({ Bucket: bucket }));
 }
+
+/** `AUTHZ_FS_S3=required` (release gate job): an unreachable localstack fails the S3 suites instead of skipping them. */
+export const S3_REQUIRED = process.env.AUTHZ_FS_S3 === 'required';
+
+/** For a mocha `before`: returns when localstack answers, else skips the suite, or throws under AUTHZ_FS_S3=required. */
+export async function requireOrSkipS3(ctx: Mocha.Context, label: string): Promise<void> {
+  if (await s3Reachable()) return;
+  if (S3_REQUIRED) throw new Error(`${label}: AUTHZ_FS_S3=required, but ${S3_SKIP_HINT}`);
+  console.warn(`      ${label} skipped: ${S3_SKIP_HINT}`);
+  ctx.skip();
+}

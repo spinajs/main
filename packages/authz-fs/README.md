@@ -35,10 +35,14 @@ typo never turns a guard off silently.
 | `metadata` | none | Class name of the `FileMetadataStore` that holds owners. |
 | `stampOwner` | `false` | Record the first writer as the owner; needs `metadata`. |
 | `resolver` | every `FsPathResolver` whose `fs` matches | Class name of the resolver that gives a path its domain parents (fs-inherit). |
-| `inherit` | none | `fs:<op>` → action on the domain parent (fs-inherit). Not on a filesystem checked in `root`. |
-| `policies` | none | ABAC policies of the filesystem (fs-abac). Not on a filesystem checked in `root`. |
+| `inherit` | none | `fs:<op>` → action on the domain parent (fs-inherit). |
+| `policies` | none | ABAC policies of the filesystem (fs-abac). |
 
-Other keys: `authz.fsMetadata.connection` (ORM connection of `OrmFileMetadataStore`, default `default`) and
+`inherit` or `policies` on a filesystem checked in `root` is an `AuthzConfigError` (decorator, and every domain
+boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
+
+Other keys: `authz.fsMetadata.connection` (ORM connection of `OrmFileMetadataStore` and its migration, default
+`default`; not under `authz.fs`, which is keyed by filesystem name) and
 `authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`).
 
 Every permission the effective operation table of a filesystem names (its `operations` and `inherit` keys
@@ -283,9 +287,8 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 
 Stores:
 
-- `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path, on the connection
-  `authz.fsMetadata.connection` names, else `default` (migration `AuthzFsObject_2026_10_01_00_00_00`). The key is
-  not under `authz.fs`, which is keyed by filesystem name. `delete` removes one row; `deleteTree` and `move` take
+- `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`), one row per
+  filesystem and normalised path, on the connection `authz.fsMetadata.connection`. `delete` removes one row; `deleteTree` and `move` take
   the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are
   matched exactly in code and rows changed by their stored key. The migration gives the key columns a binary
   collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key (MSSQL, or a table created
@@ -346,22 +349,19 @@ authz: {
   domain's first `AuthzDomains.service()`. A boot that is still running when the providers resolve is not
   detected. With a `combine` that lists the fs models, that boot then fails rule 1. Without one, the domain runs
   without them, and the `fs-abac` deny policies do not apply.
-- `inherit` or `policies` on a filesystem checked in root is an `AuthzConfigError` (decorator, and every domain
-  boot): root never holds the fs models. Root-wide policies belong in `authz.abac.policies`.
 
 ## fs-abac
 
 `authz.fs.<name>.policies` (the ABAC policy shape of `authz.abac.policies`) become one `AbacModel` named `fs-abac`
 in the filesystem's domain. It runs over a `ConfigPolicyStore` of the policies of every filesystem checked there,
 with a contributor, so a policy naming an unregistered permission fails the domain's boot. Boot errors name the
-`authz.fs.<name>.policies` key of the policy.
+`authz.fs.<name>.policies` key of the policy. The domain's `combine` lists `fs-abac` as in the example above.
 
 ```ts
 authz: {
   fs: { uploads: { mode: 'enforce', domain: 'fs',
                    policies: [{ id: 'public', effect: 'permit', permissions: ['fs:read', 'fs:stat'],
                                 when: { attr: 'resource.id', glob: 'uploads:public/**' } }] } },
-  domains: { fs: { combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'abac', 'fs-abac', 'fs-inherit'] } } } },
 }
 ```
 
@@ -382,3 +382,16 @@ authz: {
   or a scope, which every fs policy has.
 - Importing `@spinajs/authz-fs` also loads `@spinajs/authz-abac`, which registers its `authz_policy` migration and
   its admin handlers, and `@spinajs/http`.
+
+## Tests
+
+`npm run test` runs the behaviour fixtures once per provider kind, in suites titled `local`, `temp` and `s3`. The
+`s3` suites (and the S3 metadata store tests) need localstack at `AUTHZ_FS_S3_ENDPOINT`
+(default `http://localhost:4566`):
+
+```sh
+docker run --rm -d -p 4566:4566 -e SERVICES=s3 localstack/localstack
+```
+
+Without it they are skipped with a message. Set `AUTHZ_FS_S3=required` (the release gate job should) to make an
+unreachable localstack fail them instead.

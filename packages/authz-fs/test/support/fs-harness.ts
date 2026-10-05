@@ -136,8 +136,9 @@ async function disposeS3(instances: Iterable<fs>): Promise<void> {
     if (!client) continue;
     try {
       await dropBucket(client, instance.Options.bucket);
-    } catch {
-      // best effort: localstack is a throwaway container
+    } catch (e) {
+      // Not a test failure, but a shared localstack would collect the bucket unseen.
+      console.warn(`      fs harness: could not delete bucket ${instance.Options.bucket}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       client.destroy();
     }

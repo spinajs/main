@@ -24,7 +24,7 @@ import type { FileMeta } from '../src/index.js';
 import { FakeConfiguration, configuredChild } from './helpers.js';
 import { installQuietLog } from './support/log.js';
 import { MemoryFileMetadataStore } from './support/memory-store.js';
-import { S3_CLIENT_CONFIG, S3_SKIP_HINT, s3Reachable } from './support/s3.js';
+import { S3_CLIENT_CONFIG, requireOrSkipS3 } from './support/s3.js';
 
 const expect = chai.expect;
 
@@ -521,10 +521,7 @@ describe('authz-fs S3ObjectMetadataStore on S3 (localstack)', function () {
   };
 
   before(async function () {
-    if (!(await s3Reachable())) {
-      console.warn(`      S3ObjectMetadataStore on S3 skipped: ${S3_SKIP_HINT}`);
-      this.skip();
-    }
+    await requireOrSkipS3(this, 'S3ObjectMetadataStore on S3');
     undoLog = installQuietLog();
     child = await configuredChild(undefined);
     for (const name of ['s3a', 's3b']) {
