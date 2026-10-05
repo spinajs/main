@@ -2,7 +2,8 @@ import { GLOBAL, SYSTEM } from '@spinajs/authz';
 
 import { userPrincipal } from '../principals.js';
 import { assignment, combine, fixture, permit, ref, role, staticModel } from './dsl.js';
-import type { Throws, World } from './types.js';
+import { as, fsCall, fsRaw } from './lane.js';
+import type { Case, Throws, World } from './types.js';
 
 const alice = userPrincipal('alice');
 const f1 = ref('file', 'f1');
@@ -17,6 +18,48 @@ const coreWorld: World = {
 };
 
 const boot = (message: string[]) => ({ throws: 'AuthzConfigError', message });
+
+/** uploads holds a.txt and has a `compact` method no operation table maps; m1 permits alice everything. */
+const adapterWorld = (fs: Readonly<Record<string, unknown>>, permissions: World['permissions'] = []): World => ({
+  permissions,
+  principals: { alice },
+  combine: combine('deny-overrides', 'm1'),
+  models: [staticModel('m1', { votes: (req) => (req.principal.id === 'alice' ? permit() : {}) })],
+  config: { fs },
+  lane: { fs: { providers: [{ name: 'uploads', files: { 'a.txt': 'A' }, extraMethods: ['compact'] }] } },
+});
+
+const unregisteredOperation = (mode: string) => ({ uploads: { mode, operations: { compact: 'fs:compact' } } });
+
+const adapterCases: Case[] = [
+  {
+    name: 'enforce: an operation mapped to an unregistered permission fails the boot of the domain that checks the filesystem',
+    world: adapterWorld(unregisteredOperation('enforce')),
+    boot: { throws: 'AuthzConfigError', message: ['$domain', 'fs:compact', 'authz.fs.uploads.operations.compact'] },
+    steps: [],
+  },
+  {
+    name: 'audit: the same mapping fails the boot too',
+    world: adapterWorld(unregisteredOperation('audit')),
+    boot: { throws: 'AuthzConfigError', message: ['fs:compact'] },
+    steps: [],
+  },
+  {
+    name: "control: mode 'off' maps nothing, so the domain boots",
+    world: adapterWorld(unregisteredOperation('off')),
+    steps: [fsRaw('uploads', true)],
+  },
+  {
+    name: 'control: a filesystem checked in another domain does not fail this one',
+    world: adapterWorld({ uploads: { mode: 'enforce', domain: 'elsewhere', operations: { compact: 'fs:compact' } } }),
+    steps: [fsRaw('uploads', false)],
+  },
+  {
+    name: 'control: with the permission registered the domain boots and the method is checked',
+    world: adapterWorld(unregisteredOperation('enforce'), [{ name: 'fs:compact', types: ['fs', 'dir', 'file'] }]),
+    steps: [as('alice', fsCall('uploads', 'compact', ['a.txt'], 'resolves')), { calls: { model: 'm1', atLeast: 1 } }, fsCall('uploads', 'compact', ['a.txt'], { throws: 'AccessDenied', reason: 'unattended' })],
+  },
+];
 
 export const B02 = fixture('B02', [
   {
@@ -106,9 +149,9 @@ export const B02 = fixture('B02', [
   },
   {
     name: 'adapter',
-    facets: ['fs'],
+    facets: ['boot', 'fs'],
     lanes: ['L7'],
-    note: "An adapter's operations() naming an unregistered permission fails at boot. Only the fs adapter declares an operation table (design §13), so L7 proposes the case; no kit fake has operations().",
-    cases: [],
+    note: "An adapter's operations() naming an unregistered permission fails at boot. Only the fs adapter declares an operation table (design §13), and the cases run against the fs adapter of authz-fs, since no kit fake has operations(). The boot facet is needed because most cases expect the boot to fail.",
+    cases: adapterCases,
   },
 ]);

@@ -833,7 +833,7 @@ export type ResourceFilter =
   | { readonly op: 'cmp'; readonly field: string; readonly cmp: 'eq' | 'ne' | 'in' | 'nin' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'glob' | 'wildcard' | 'null' | 'notnull'; readonly value?: Value }
     // glob: segment-aware ('*' stops at '/', '**' crosses it); (r2) wildcard: '*' is any run of characters, '/' included (C6 branch rules)
   | { readonly op: 'relation'; readonly relation: string }          // the current principal holds `relation` on the row
-  | { readonly op: 'under'; readonly scopes: readonly ResourceRef[] } // the row has one of these as an ancestor (or is one)
+  | { readonly op: 'under'; readonly scopes: readonly ResourceRef[] } // the row has one of these as an ancestor (or is one); a scope without id matches any node of its type
   | { readonly op: `native:${string}`; readonly args?: unknown };    // compiled by a registered NativeFilter
 
 export const TRUE: ResourceFilter; export const FALSE: ResourceFilter;
