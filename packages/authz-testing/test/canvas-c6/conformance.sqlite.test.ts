@@ -2,8 +2,6 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { SYSTEM, principalKey } from '@spinajs/authz';
-import type { ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
-import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -69,7 +67,7 @@ describe('canvas C6 conformance (sqlite)', function () {
 
   after(() => close(harness, session));
 
-  it('every case answers as canvas expects, or as its known mismatch is pinned (B40)', async () => {
+  it('all 64 cases answer as canvas expects, with no known mismatches (B40)', async () => {
     const started = Date.now();
     const result = await canvasConformance(canvas.facade, fixtures.cases);
     const verdict = judgeConformance(result, KNOWN_MISMATCHES.sqlite);
@@ -77,7 +75,7 @@ describe('canvas C6 conformance (sqlite)', function () {
     const known = verdict.known.length > 0 ? verdict.known.join(', ') : 'none';
     console.log(`  ${verdict.conform}/${verdict.cases} conform on SQLite; known mismatches: ${known} (${Date.now() - started} ms for 64 checks)`);
     expect(verdict.unexpected).to.deep.equal([]);
-    expect(verdict.conform + verdict.known.length).to.equal(64);
+    expect(verdict).to.deep.include({ conform: 64, cases: 64, known: [] });
   });
 
   it('AuthzAdmin wrote the state into the authz tables: the row counts the state implies', async () => {
@@ -123,7 +121,6 @@ describe('canvas C6 conformance (sqlite)', function () {
   });
 });
 
-// The branch rows cannot show it: every branch check is pinned to K1-2 (model_error) before the rules run.
 describe('canvas C6 on SQLite: the restriction comes from the authz_rule row', function () {
   this.timeout(120000);
   const harness = canvasHarness({ store: 'sqlite' });
@@ -148,38 +145,25 @@ describe('canvas C6 on SQLite: the restriction comes from the authz_rule row', f
   });
 });
 
-const COLUMN_MAX = 64;
-
-/** RFC K1-2's proposed read: a node whose type or id does not fit authz_scope_attribute's columns has no rows. */
-class K1_2ScopeAttributeStore extends DbScopeAttributeStore {
-  private static fits(ref: ResourceRef): boolean {
-    return ref.type.length <= COLUMN_MAX && (ref.id ?? '').length <= COLUMN_MAX;
-  }
-
-  override async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
-    return K1_2ScopeAttributeStore.fits(ref) ? super.get(ref) : {};
-  }
-
-  override async rows(ref: ResourceRef): Promise<Readonly<Record<string, ScopeAttributeLeaf>>> {
-    return K1_2ScopeAttributeStore.fits(ref) ? super.rows(ref) : {};
-  }
-}
-
-describe('RFC K1-2 acceptance: with over-long refs read as no rows, canvas C6 conforms on SQLite', function () {
+describe('canvas C6 on SQLite: branch protection comes from the authz_rule rows', function () {
   this.timeout(120000);
-  const harness = canvasHarness({ store: 'sqlite', dbScopeAttributeStore: K1_2ScopeAttributeStore });
+  const harness = canvasHarness({ store: 'sqlite' });
   let session: HarnessSession | undefined;
 
   after(() => close(harness, session));
 
-  it('64/64 conform in one system with no known mismatches', async () => {
-    const opened = await openSession(harness, 'RFC K1-2 scope attribute read');
+  it('deleting the main push row with raw SQL and publishing the change lets ED push to main as editor', async () => {
+    const opened = await openSession(harness, 'branch rule row');
     session = opened.session;
-    const result = await canvasConformance(opened.canvas.facade, fixtures.cases);
-    for (const line of result.failures) console.log(`  mismatch: ${line}`);
-    const verdict = judgeConformance(result, {});
-    expect(verdict.unexpected).to.deep.equal([]);
-    expect(verdict).to.deep.include({ conform: 64, cases: 64, known: [] });
+    const c = fixtures.cases.find((x) => x.name === 'main needs maintainer to push')!;
+    const ask = () => opened.canvas.facade.can(c.principal, c.capability, c.resource);
+    expect(await ask()).to.deep.equal(c.expected);
+
+    const rule = `branch:${id('WEB')}:main:push`;
+    await rawQuery(opened.driver, 'DELETE FROM authz_rule WHERE id = ?', [rule], QueryContext.Delete);
+    expect(await countRows(opened.driver, 'authz_rule')).to.equal(EXPECTED_ROWS.authz_rule - 1);
+    await opened.session.bus!.publish({ domain: opened.session.domain, tags: [`rule:${rule}`], actor: { type: SYSTEM.type, id: SYSTEM.id }, at: new Date() });
+    expect(await ask()).to.deep.equal({ allowed: true, role: 'editor' });
   });
 });
 

@@ -97,8 +97,7 @@ describe('canvas C6 checkMany equals 30 single checks (sqlite, one system)', fun
     }
   });
 
-  // The K1-2 branch cases read their pinned model_error from checkMany, and check agrees with it.
-  it('each branch, SECRET and link pair: checkMany and check agree as engine and C6 decisions, and each case reads its expected or K1-2 pinned answer from checkMany (B40)', async () => {
+  it('each branch, SECRET and link pair: checkMany and check agree as engine and C6 decisions, and each case reads its expected answer from checkMany (B40)', async () => {
     const run = await agreeAll(harness, 'sqlite', SQLITE_PAIRS);
     session = run.session;
     console.log(`  ${SQLITE_PAIRS.length} pairs x ${CANVAS_PERMISSIONS.length} permissions on SQLite: ${run.lines.length} disagreement(s) (${run.ms} ms)`);

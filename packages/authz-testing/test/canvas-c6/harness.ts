@@ -107,12 +107,8 @@ export function canvasWorld(store: CanvasStoreKind): World {
   };
 }
 
-export type CanvasDbScopeAttributeStore = new (opts: ConstructorParameters<typeof DbScopeAttributeStore>[0]) => WritableScopeAttributeStore;
-
 export interface CanvasHarnessOptions {
   readonly store: CanvasStoreKind;
-  /** SQLite only: registered instead of DbScopeAttributeStore. */
-  readonly dbScopeAttributeStore?: CanvasDbScopeAttributeStore;
 }
 
 /** What a case's RBAC wiring hands the rest of the harness. */
@@ -143,7 +139,7 @@ function registerMemoryRbac(host: HostSetup, configuration: Configuration): Canv
 }
 
 /** The §8.5 stores by name through authz-rbac's registerRbac, over the canvas test database (tables cleared first). */
-async function registerSqliteRbac(host: HostSetup, configuration: Configuration, db: CanvasDb, AttributeStore: CanvasDbScopeAttributeStore): Promise<CanvasRbac> {
+async function registerSqliteRbac(host: HostSetup, configuration: Configuration, db: CanvasDb): Promise<CanvasRbac> {
   const c = host.container;
   await clearCanvasTables(db.driver);
   c.register(instance(db.orm)).as(Orm);
@@ -151,7 +147,7 @@ async function registerSqliteRbac(host: HostSetup, configuration: Configuration,
   // A role store holding an earlier group's TestConfiguration would read stale roles.
   const roles = (await c.resolve(RoleStore)) as unknown as { configuration?: unknown };
   if (roles.configuration !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
-  return { service, attributes: new AttributeStore({ container: db.container }) };
+  return { service, attributes: new DbScopeAttributeStore({ container: db.container }) };
 }
 
 const FACETS: Readonly<Record<CanvasStoreKind, readonly Facet[]>> = Object.freeze({
@@ -180,7 +176,7 @@ export function canvasHarness(opts: CanvasHarnessOptions): BehaviourHarness {
       if (opts.store === 'sqlite') {
         if (!db) throw new Error('canvasHarness: the SQLite database is not booted (beforeAll did not run)');
         activeDb = db;
-        rbac = await registerSqliteRbac(host, configuration, db, opts.dbScopeAttributeStore ?? DbScopeAttributeStore);
+        rbac = await registerSqliteRbac(host, configuration, db);
       } else {
         rbac = registerMemoryRbac(host, configuration);
       }
