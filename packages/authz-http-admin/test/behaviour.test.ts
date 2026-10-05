@@ -12,4 +12,8 @@ const fixtures = BEHAVIOUR_FIXTURES.map((f): BehaviourFixture | FixtureExtension
   f.id !== 'B43' ? f : { ...f, parts: f.parts.map((p) => (p.name !== 'http' ? p : { ...p, cases: p.cases.filter((c) => c.name !== NEEDS_LINK_ROUTES) })) },
 );
 
-runBehaviour(['B43.http', 'B12.http', 'B13.http', 'B26.http', 'B27.events'], () => adminHttpHarness(), { strict: true, fixtures, timeoutMs: 30000 });
+// The first hook boots the app and loads authz-rbac's src through ts-node, which takes more than mocha's 2 s.
+describe('authz-http-admin behaviour', function () {
+  this.timeout(30000);
+  runBehaviour(['B43.http', 'B12.http', 'B13.http', 'B26.http', 'B27.events'], () => adminHttpHarness(), { strict: true, fixtures });
+});

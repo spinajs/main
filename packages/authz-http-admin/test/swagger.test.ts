@@ -69,6 +69,9 @@ describe('authz-http-admin swagger', function () {
   it('answers a write with { results } and a list with { items, total }', () => {
     expect(doc.paths['/authz/commands'].post.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminResults');
     expect(doc.paths['/authz/rules'].get.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');
+    const attributes = doc.paths['/authz/scopes/{type}/{id}/attributes'].get.responses;
+    expect(attributes['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');
+    expect(attributes, 'an unknown scope answers 200 with empty attributes').to.not.have.property('404');
     expect(doc.components.schemas.AuthzAdminResults.required).to.deep.eq(['results']);
     expect(doc.components.schemas.AuthzAdminPage.required).to.deep.eq(['items', 'total']);
     expect(doc.components.schemas.AuthzAdminError.properties.error.required).to.deep.eq(['code', 'message']);

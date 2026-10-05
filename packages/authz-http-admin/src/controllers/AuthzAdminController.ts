@@ -73,7 +73,7 @@ export class AuthzAdminController extends BaseController {
    * Runs the commands in order in one transaction on the configured domain; the first failure rolls the batch back and its status is the answer.
    * Body: { commands, reason?, idempotencyKey?, dryRun? } (schema AuthzAdminBatch); `commands` lists the command kinds of AuthzCommand, with dates as ISO 8601 strings. The options go in the body, not the query string.
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -95,9 +95,9 @@ export class AuthzAdminController extends BaseController {
    * Lists assignments, filtered by the query.
    * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('assignments')
   @Policy(IsAuthenticated)
@@ -111,7 +111,7 @@ export class AuthzAdminController extends BaseController {
    * Body: the fields of assignment.grant without `kind` (schema AuthzAssignmentGrant).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -129,7 +129,7 @@ export class AuthzAdminController extends BaseController {
    * Body: { tags?, addTags?, removeTags?, expiresAt? } with at least one key (schema AuthzAssignmentPatch); the keys run as one batch.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -156,7 +156,7 @@ export class AuthzAdminController extends BaseController {
    * Revokes the assignment with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -173,9 +173,9 @@ export class AuthzAdminController extends BaseController {
    * Lists the RBAC rules held as rows.
    * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('rules')
   @Policy(IsAuthenticated)
@@ -189,7 +189,7 @@ export class AuthzAdminController extends BaseController {
    * Body: a rule (schema AuthzRuleBody); an `id` in the body must equal the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -206,7 +206,7 @@ export class AuthzAdminController extends BaseController {
    * Deletes the RBAC rule with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -223,9 +223,9 @@ export class AuthzAdminController extends BaseController {
    * Lists the ABAC policies held as rows.
    * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('policies')
   @Policy(IsAuthenticated)
@@ -239,7 +239,7 @@ export class AuthzAdminController extends BaseController {
    * Body: a policy (schema AuthzPolicyBody); an `id` in the body must equal the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -256,7 +256,7 @@ export class AuthzAdminController extends BaseController {
    * Deletes the ABAC policy with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -271,11 +271,10 @@ export class AuthzAdminController extends BaseController {
   /**
    * Read scope attributes
    * Returns the attributes of the scope node `<type>:<id>`.
-   * @response 200 {AuthzAdminAttributes} The attributes object
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 200 {AuthzAdminPage} items holds one entry, the attributes object of the scope; total is 1
+   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
-   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
-   * @response 404 {AuthzAdminError} not_found: the scope node is unknown
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('scopes/:type/:id/attributes')
   @Policy(IsAuthenticated)
@@ -289,7 +288,7 @@ export class AuthzAdminController extends BaseController {
    * Body: an object (schema AuthzAttributesPatch).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
@@ -307,7 +306,7 @@ export class AuthzAdminController extends BaseController {
    * Body: an object (schema AuthzAttributesBody).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_query or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
