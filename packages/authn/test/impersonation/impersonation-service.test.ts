@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import 'mocha';
 import { fakeHash } from '@spinajs/authn-testing';
 
-import { FreshAuthCheck, AuthnImpersonationService, isFresh } from '../../src/index.js';
+import { ACTIVE_ROLE_KEY, FreshAuthCheck, AuthnImpersonationService, activeRoleCeiling, isFresh } from '../../src/index.js';
 import type { AuthnContext, AuthnEvent, AuthnEventType, AuthnFacts, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
 import { IMPERSONATION_BLOCK } from '../../src/impersonation/impersonation-service.js';
 import { buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
@@ -102,13 +102,15 @@ describe('AuthnImpersonationService', function () {
     it('asks the guard with the actor principal built through PrincipalFactory', async () => {
       const { p, svc, a, b } = await boot();
       const admin = await issue(p, a);
+      const handle = (await p.sessions.restore(admin.id))?.facts.sessionHandle;
       assert.ok((await svc.start(admin, b, ctx())).ok);
       assert.strictEqual(p.guard.calls.length, 1);
       const [call] = p.guard.calls;
       assert.strictEqual(call.actor.id, a.id);
       assert.strictEqual(call.actor.authn?.assurance, 'aal2');
       assert.strictEqual(call.actor.authn?.impersonator, undefined);
-      assert.strictEqual(call.actor.authn?.sessionHandle, undefined, 'the same facts as on each later request');
+      assert.ok(nonEmptyString(handle));
+      assert.strictEqual(call.actor.authn?.sessionHandle, handle, 'the session the actor acts through');
       assert.deepStrictEqual(call.target, b);
       assert.ok(p.principals.calls.some((c) => c.id.id === a.id));
     });
@@ -595,6 +597,187 @@ describe('AuthnImpersonationService', function () {
         throw new RangeError('store down');
       };
       await assert.rejects(svc.principalOf(imp, ctx()), RangeError);
+    });
+  });
+
+  describe('the actor role switch (D14)', () => {
+    async function switched(b: Booted, role: unknown = 'user'): Promise<{ admin: SessionHandle; handle: string }> {
+      const admin = await issue(b.p, b.a);
+      await b.p.sessions.set(admin, ACTIVE_ROLE_KEY, role);
+      const handle = (await b.p.sessions.restore(admin.id))!.facts.sessionHandle!;
+      return { admin, handle };
+    }
+
+    /** Refuses an actor that carries a ceiling, as an authz guard refuses an admin narrowed to a lesser role. */
+    const refuseCeilinged = (p: CoreParts) => {
+      const allowed = p.guard.allowed.bind(p.guard);
+      p.guard.allowed = async (actor, target) => {
+        const answer = await allowed(actor, target);
+        return actor.ceiling ? { ok: false, code: 'escalation' } : answer;
+      };
+    };
+
+    it('activeRoleCeiling: none before a switch, the role after one, no role for a value no switch writes', () => {
+      assert.strictEqual(activeRoleCeiling(new Map()), undefined);
+      assert.strictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, null]])), undefined);
+      assert.deepStrictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, 'user']])), { roles: ['user'] });
+      for (const bad of ['', 42, ['admin'], { role: 'admin' }, true]) {
+        assert.deepStrictEqual(activeRoleCeiling(new Map([[ACTIVE_ROLE_KEY, bad]])), { roles: [] }, JSON.stringify(bad));
+      }
+    });
+
+    it('start: the guard judges the actor with its role switch ceiling and its session handle', async () => {
+      const booted = await boot();
+      const { p, svc, a, b } = booted;
+      const { admin, handle } = await switched(booted);
+      const r = await svc.start(admin, b, ctx());
+      assert.ok(r.ok);
+      const [call] = p.guard.calls;
+      assert.strictEqual(call.actor.id, a.id);
+      assert.deepStrictEqual(call.actor.ceiling, { roles: ['user'] });
+      assert.strictEqual(call.actor.authn?.sessionHandle, handle);
+      assert.strictEqual(call.actor.source, 'session');
+      const stored = await p.sessions.restore(r.session.id);
+      assert.deepStrictEqual(stored?.data.get(IMPERSONATION_BLOCK), { startedAt: T0.toISOString(), actorRoles: ['user'] });
+      assert.strictEqual(stored?.data.has(ACTIVE_ROLE_KEY), false, 'the switch would narrow the target');
+    });
+
+    it('start: a guard that refuses the narrowed actor refuses the start; the same actor unswitched starts', async () => {
+      const booted = await boot();
+      const { p, svc, b } = booted;
+      refuseCeilinged(p);
+      const { admin } = await switched(booted);
+      assert.deepStrictEqual(await svc.start(admin, b, ctx()), { ok: false });
+      assert.ok(await p.sessions.restore(admin.id), 'the actor session stays');
+      assert.deepStrictEqual(reasons(p, 'impersonation.start'), ['escalation']);
+      assert.ok((await svc.start(await issue(p, booted.a), b, ctx())).ok);
+    });
+
+    it('principalOf: every recheck judges the actor with the ceiling it had at start and the impersonation session handle', async () => {
+      const booted = await boot();
+      const { p, svc, a, b } = booted;
+      const { admin } = await switched(booted);
+      const r = await svc.start(admin, b, ctx());
+      assert.ok(r.ok);
+      const handle = (await p.sessions.restore(r.session.id))!.facts.sessionHandle;
+      p.guard.calls.length = 0;
+      for (const m of [1, 2]) {
+        const pr = await svc.principalOf(r.session, ctx(at(m * MINUTE)));
+        assert.strictEqual(pr?.id, b.id);
+        assert.strictEqual(pr?.ceiling, undefined, 'the target is not narrowed');
+      }
+      assert.strictEqual(p.guard.calls.length, 2);
+      for (const call of p.guard.calls) {
+        assert.strictEqual(call.actor.id, a.id);
+        assert.deepStrictEqual(call.actor.ceiling, { roles: ['user'] });
+        assert.ok(nonEmptyString(handle));
+        assert.strictEqual(call.actor.authn?.sessionHandle, handle);
+        assert.strictEqual(call.actor.authn?.impersonator, undefined);
+      }
+      refuseCeilinged(p);
+      assert.strictEqual(await svc.principalOf(r.session, ctx(at(3 * MINUTE))), null);
+      assert.deepStrictEqual(reasons(p, 'impersonation.end'), ['escalation']);
+    });
+
+    it('stop: the actor session comes back with its role switch', async () => {
+      const booted = await boot();
+      const { p, svc, a, b } = booted;
+      const { admin } = await switched(booted);
+      const r = await svc.start(admin, b, ctx());
+      assert.ok(r.ok);
+      const back = await svc.stop(r.session, ctx(at(MINUTE)));
+      assert.ok(back);
+      const stored = await p.sessions.restore(back.id);
+      assert.deepStrictEqual(stored?.identity, a);
+      assert.strictEqual(stored?.data.get(ACTIVE_ROLE_KEY), 'user');
+      assert.deepStrictEqual(activeRoleCeiling(stored!.data), { roles: ['user'] });
+      assert.strictEqual(events(p, 'impersonation.end').at(-1)?.outcome, 'success');
+      p.guard.calls.length = 0;
+      assert.ok((await svc.start(back, b, ctx(at(2 * MINUTE)))).ok, 'a later start');
+      assert.deepStrictEqual(p.guard.calls[0].actor.ceiling, { roles: ['user'] }, 'is judged restricted again');
+    });
+
+    it('an actor without a role switch is unchanged: no ceiling, none in the block, none after stop', async () => {
+      const booted = await boot();
+      const { p, svc, b } = booted;
+      const admin = await issue(p, booted.a);
+      const r = await svc.start(admin, b, ctx());
+      assert.ok(r.ok);
+      assert.strictEqual(p.guard.calls[0].actor.ceiling, undefined);
+      assert.deepStrictEqual(p.principals.calls.at(-1)?.extra, {});
+      assert.deepStrictEqual((await p.sessions.restore(r.session.id))?.data.get(IMPERSONATION_BLOCK), { startedAt: T0.toISOString() });
+      assert.strictEqual((await svc.principalOf(r.session, ctx()))?.id, b.id);
+      assert.strictEqual(p.guard.calls[1].actor.ceiling, undefined);
+      const back = await svc.stop(r.session, ctx());
+      assert.ok(back);
+      assert.strictEqual((await p.sessions.restore(back.id))?.data.has(ACTIVE_ROLE_KEY), false);
+    });
+
+    for (const bad of ['', 42, ['admin'], { role: 'admin' }]) {
+      it(`a malformed stored switch ${JSON.stringify(bad)} narrows the actor to no role, through start, rechecks and stop`, async () => {
+        const booted = await boot();
+        const { p, svc, b } = booted;
+        const { admin } = await switched(booted, bad);
+        const r = await svc.start(admin, b, ctx());
+        assert.ok(r.ok);
+        assert.deepStrictEqual(p.guard.calls[0].actor.ceiling, { roles: [] });
+        assert.ok(await svc.principalOf(r.session, ctx()));
+        assert.deepStrictEqual(p.guard.calls[1].actor.ceiling, { roles: [] });
+        const back = await svc.stop(r.session, ctx());
+        assert.ok(back);
+        assert.deepStrictEqual(activeRoleCeiling((await p.sessions.restore(back.id))!.data), { roles: [] });
+      });
+    }
+
+    for (const [label, actorRoles] of [
+      ['roles that are no list', 'user'],
+      ['a role that is no string', [42]],
+      ['an empty role', ['']],
+      ['more than one role', ['user', 'admin']],
+      ['null', null],
+    ] as const) {
+      it(`ends the impersonation on a block whose actor ceiling holds ${label} (fail closed)`, async () => {
+        const booted = await boot();
+        const { p, svc } = booted;
+        const { admin } = await switched(booted);
+        const r = await svc.start(admin, booted.b, ctx());
+        assert.ok(r.ok);
+        await p.sessions.set(r.session, IMPERSONATION_BLOCK, { startedAt: T0.toISOString(), actorRoles });
+        assert.strictEqual(await svc.principalOf(r.session, ctx(at(MINUTE))), null);
+        assert.strictEqual(await p.sessions.restore(r.session.id), null);
+        assert.deepStrictEqual(reasons(p, 'impersonation.end'), ['invalid_block']);
+      });
+    }
+
+    it('stop ends, with no new session, an impersonation whose block ceiling is unreadable', async () => {
+      const booted = await boot();
+      const { p, svc } = booted;
+      const { admin } = await switched(booted);
+      const r = await svc.start(admin, booted.b, ctx());
+      assert.ok(r.ok);
+      await p.sessions.set(r.session, IMPERSONATION_BLOCK, { startedAt: T0.toISOString(), actorRoles: [42] });
+      assert.strictEqual(await svc.stop(r.session, ctx()), null);
+      assert.deepStrictEqual(await p.sessions.storage.storedKeys(), []);
+      assert.deepStrictEqual(reasons(p, 'impersonation.end'), ['invalid_block']);
+    });
+
+    it('stop fails closed when the switch cannot be given back: the new session is revoked, the impersonation goes on', async () => {
+      const booted = await boot();
+      const { p, svc } = booted;
+      const { admin } = await switched(booted);
+      const r = await svc.start(admin, booted.b, ctx());
+      assert.ok(r.ok);
+      const set = p.sessions.set.bind(p.sessions);
+      p.sessions.set = async (h, key, value) => {
+        if (key === ACTIVE_ROLE_KEY) throw new TypeError('store down');
+        return set(h, key, value);
+      };
+      assert.strictEqual(await svc.stop(r.session, ctx()), null);
+      assert.ok(await p.sessions.restore(r.session.id), 'the impersonation goes on');
+      assert.strictEqual((await p.sessions.storage.storedKeys()).length, 1, 'no unrestricted actor session is left');
+      const e = events(p, 'impersonation.end').at(-1);
+      assert.strictEqual(e?.reason, 'session_error');
+      assert.deepStrictEqual(e?.data, { error: 'TypeError' });
     });
   });
 

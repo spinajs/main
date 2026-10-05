@@ -1,28 +1,20 @@
 import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { AuthnImpersonationService } from '@spinajs/authn';
+import { AuthnImpersonationService, activeRoleCeiling } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
-import type { AuthnContext, Ceiling, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
+import type { AuthnContext, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
 
 import { AuthnPrincipalResolver } from '../api.js';
 
 type Restored = NonNullable<Request['storage']['AuthnSession']>;
 
-/** Session data key of the role chosen by a role switch (D14). */
-export const ACTIVE_ROLE_KEY = 'ActiveRole';
+export { ACTIVE_ROLE_KEY } from '@spinajs/authn';
 
 // N1 vouches for these through the strategies' own record checks and never asks the store about them (D4b).
 const VOUCHED_TYPES: ReadonlySet<string> = new Set(['service', 'agent']);
 
 const refused = (st: IdentityStatus): boolean => !st.exists || st.deleted || st.banned || !st.active;
-
-function activeRoleCeiling(data: ReadonlyMap<string, unknown>): Ceiling | undefined {
-  const role = data.get(ACTIVE_ROLE_KEY);
-  if (role === undefined || role === null) return undefined;
-  // A value no role switch writes narrows to no role instead of lifting the narrowing.
-  return { roles: typeof role === 'string' && role !== '' ? [role] : [] };
-}
 
 /**
  * Order 100: req.storage.AuthnSession. Pending ⇒ null (D25, A09). Otherwise the session's user with its authn facts,

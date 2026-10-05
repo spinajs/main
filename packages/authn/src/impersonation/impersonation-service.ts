@@ -9,14 +9,18 @@ import type { AuthnContext, Credentials, IdentityRef } from '../contracts/creden
 import { IdentityStore } from '../contracts/identity.js';
 import type { IdentityStatus } from '../contracts/identity.js';
 import { ImpersonationGuard } from '../contracts/impersonation.js';
-import type { AuthnFacts, Principal, PrincipalRef } from '../contracts/principal.js';
+import type { AuthnFacts, Ceiling, Principal, PrincipalRef } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
 import { AuthnAudit } from '../audit/authn-audit.js';
 import { FreshAuthCheck } from '../freshauth/fresh-auth-check.js';
+import { ACTIVE_ROLE_KEY, activeRoleCeiling } from './active-role.js';
 
-/** The session data key of the impersonation block: `{ startedAt }` as an ISO string. */
+/**
+ * The session data key of the impersonation block: `{ startedAt, actorRoles? }`, the start as an ISO string and the
+ * `ceiling.roles` of the actor's role switch at start. Not under ActiveRole, which would narrow the target.
+ */
 export const IMPERSONATION_BLOCK = 'Impersonation';
 
 export type ImpersonationStart = { readonly ok: true; readonly session: SessionHandle } | { readonly ok: false };
@@ -36,6 +40,10 @@ type EventBody = Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>;
 type Denial = { readonly reason: string; readonly data?: Readonly<Record<string, unknown>> };
 
 type Ending = { readonly type: AuthnEventType; readonly reason: string };
+
+type Block = { readonly startedAt: Date; readonly actorCeiling?: Ceiling };
+
+type Live = { readonly block: Block } | { readonly ending: Ending };
 
 const MINUTE_MS = 60_000;
 
@@ -74,6 +82,18 @@ function refusal(st: IdentityStatus): string | null {
 /** The facts of the impersonator's own session, rebuilt from those of an impersonation session. */
 function ownFacts(f: AuthnFacts): AuthnFacts {
   return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt };
+}
+
+/** The actor's facts for the guard: its own, through the session it acts through now. */
+function actingFacts(f: AuthnFacts): AuthnFacts {
+  return { ...ownFacts(f), ...(nonEmpty(f.sessionHandle) ? { sessionHandle: f.sessionHandle } : {}) };
+}
+
+/** The block's actor ceiling: absent is none, null cannot be read. A role switch writes at most one role. */
+function blockCeiling(block: Record<string, unknown>): Ceiling | undefined | null {
+  if (!('actorRoles' in block)) return undefined;
+  const roles: unknown = block.actorRoles;
+  return Array.isArray(roles) && roles.length <= 1 && roles.every(nonEmpty) ? { roles: [...roles] } : null;
 }
 
 // Per process, across containers: two parallel starts (or stops) on one session must not both pass the checks.
@@ -152,13 +172,13 @@ export class AuthnImpersonationService extends AsyncService {
       if (await this.statusRefusal(stored.identity)) return null;
       return this.principals.principalOf(stored.identity, stored.facts, {});
     }
-    const ending = this.ending(stored, ctx);
-    if (ending) return this.end(ctx, stored, ending.type, ending.reason);
+    const live = this.live(stored, ctx);
+    if ('ending' in live) return this.end(ctx, stored, live.ending.type, live.ending.reason);
     const actorRefused = await this.statusRefusal(refOf(impersonator));
     if (actorRefused) return this.end(ctx, stored, 'impersonation.end', `impersonator_${actorRefused}`);
     const targetRefused = await this.statusRefusal(stored.identity);
     if (targetRefused) return this.end(ctx, stored, 'impersonation.end', `target_${targetRefused}`);
-    const denied = await this.denial(refOf(impersonator), ownFacts(stored.facts), stored.identity);
+    const denied = await this.denial(refOf(impersonator), actingFacts(stored.facts), stored.identity, live.block.actorCeiling);
     if (denied) return this.end(ctx, stored, 'impersonation.end', denied.reason, denied.data);
     return this.principals.principalOf(stored.identity, stored.facts, {});
   }
@@ -179,11 +199,12 @@ export class AuthnImpersonationService extends AsyncService {
       if (!stored) return await this.refuseStart(ctx, 'not_active', about);
       const actor = refOf(stored.identity);
       about = { actor, ...(isRef(target) ? { identity: refOf(target) } : {}), ...this.handleOf(stored) };
-      const refused = await this.startRefusal(stored, target, ctx, reauth);
+      const actorCeiling = activeRoleCeiling(stored.data);
+      const refused = await this.startRefusal(stored, target, ctx, actorCeiling, reauth);
       if (refused) return await this.refuseStart(ctx, refused.reason, about, refused.data);
 
       issued = await this.sessions.issue(refOf(target), { ...ownFacts(stored.facts), impersonator: actor });
-      await this.sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString() });
+      await this.sessions.set(issued, IMPERSONATION_BLOCK, { startedAt: ctx.now.toISOString(), ...(actorCeiling ? { actorRoles: [...(actorCeiling.roles ?? [])] } : {}) });
       const now = await this.sessions.restore(issued.id);
       // An endFor of the actor that ran since the first restore swept the old session but not the new one.
       if (!(await this.sessions.restore(stored.handle.id))) {
@@ -208,12 +229,15 @@ export class AuthnImpersonationService extends AsyncService {
       const impersonator = stored.facts.impersonator;
       about = { identity: refOf(stored.identity), ...(impersonator ? { actor: refOf(impersonator) } : {}), ...this.handleOf(stored) };
       if (!impersonator) return await this.refuseStop(ctx, 'not_impersonating', about);
-      const ending = this.ending(stored, ctx);
-      if (ending) return await this.end(ctx, stored, ending.type, ending.reason);
+      const live = this.live(stored, ctx);
+      if ('ending' in live) return await this.end(ctx, stored, live.ending.type, live.ending.reason);
       const refused = await this.statusRefusal(refOf(impersonator));
       if (refused) return await this.end(ctx, stored, 'impersonation.end', `impersonator_${refused}`);
 
       issued = await this.sessions.issue(refOf(impersonator), ownFacts(stored.facts));
+      const { actorCeiling } = live.block;
+      // No role is stored as '', which activeRoleCeiling narrows to no role as it did the actor's malformed value.
+      if (actorCeiling) await this.sessions.set(issued, ACTIVE_ROLE_KEY, actorCeiling.roles?.[0] ?? '');
       const now = await this.sessions.restore(issued.id);
       if (!(await this.sessions.restore(stored.handle.id))) {
         await this.sessions.revoke(issued);
@@ -228,7 +252,7 @@ export class AuthnImpersonationService extends AsyncService {
     }
   }
 
-  private async startRefusal(stored: Stored, target: IdentityRef, ctx: AuthnContext, reauth?: Credentials): Promise<Denial | null> {
+  private async startRefusal(stored: Stored, target: IdentityRef, ctx: AuthnContext, actorCeiling: Ceiling | undefined, reauth?: Credentials): Promise<Denial | null> {
     if (!this.guard) return { reason: 'no_guard' };
     if (stored.facts.impersonator !== undefined) return { reason: 'nested' };
     if (this.beyondLifetime(stored.facts, ctx)) return { reason: 'session_lifetime' };
@@ -244,7 +268,7 @@ export class AuthnImpersonationService extends AsyncService {
     }
     const targetRefused = await this.statusRefusal(target);
     if (targetRefused) return { reason: `target_${targetRefused}` };
-    return this.denial(stored.identity, ownFacts(stored.facts), target);
+    return this.denial(stored.identity, actingFacts(stored.facts), target, actorCeiling);
   }
 
   private async restore(h: SessionHandle): Promise<Stored | null> {
@@ -253,32 +277,35 @@ export class AuthnImpersonationService extends AsyncService {
     return stored && stored.handle.state === 'active' ? stored : null;
   }
 
-  /** Why an impersonation session is over whatever the stores say, or null. */
-  private ending(stored: Stored, ctx: AuthnContext): Ending | null {
-    const started = this.startedAt(stored, ctx);
-    if (started === null) return { type: 'impersonation.end', reason: 'invalid_block' };
+  /** The block of a live impersonation, or why the impersonation is over whatever the stores say. */
+  private live(stored: Stored, ctx: AuthnContext): Live {
+    const block = this.block(stored, ctx);
+    if (block === null) return { ending: { type: 'impersonation.end', reason: 'invalid_block' } };
     const max = this.Settings.maxMinutes;
-    if (!positive(max) || ctx.now.getTime() - started.getTime() >= max * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
-    if (this.beyondLifetime(stored.facts, ctx)) return { type: 'impersonation.end', reason: 'session_lifetime' };
-    return null;
+    if (!positive(max) || ctx.now.getTime() - block.startedAt.getTime() >= max * MINUTE_MS) return { ending: { type: 'impersonation.expire', reason: 'max_minutes' } };
+    if (this.beyondLifetime(stored.facts, ctx)) return { ending: { type: 'impersonation.end', reason: 'session_lifetime' } };
+    return { block };
   }
 
   /**
-   * The block's start; without a block (a migrated 2.x session) the authentication time, which never comes after it.
-   * A start that cannot be read, or lies ahead or before the authentication by more than the clock skew allowed
-   * between instances, is null: nothing honest writes one.
+   * The block; without one (a migrated 2.x session) the authentication time as the start, which never comes after it,
+   * and no actor ceiling. A block whose start or actor ceiling cannot be read, or whose start lies ahead or before the
+   * authentication by more than the clock skew allowed between instances, is null: nothing honest writes one.
    */
-  private startedAt(stored: Stored, ctx: AuthnContext): Date | null {
+  private block(stored: Stored, ctx: AuthnContext): Block | null {
     const authenticated = stored.facts.authenticatedAt;
     if (!validDate(authenticated)) return null;
-    if (!stored.data.has(IMPERSONATION_BLOCK)) return authenticated;
+    if (!stored.data.has(IMPERSONATION_BLOCK)) return { startedAt: authenticated };
     const block = stored.data.get(IMPERSONATION_BLOCK);
-    const raw = isObject(block) ? block.startedAt : undefined;
+    if (!isObject(block)) return null;
+    const raw = block.startedAt;
     const started = typeof raw === 'string' ? new Date(raw) : raw;
     if (!validDate(started)) return null;
     const t = started.getTime();
     if (t > ctx.now.getTime() + CLOCK_SKEW_MS || t < authenticated.getTime() - CLOCK_SKEW_MS) return null;
-    return started;
+    const actorCeiling = blockCeiling(block);
+    if (actorCeiling === null) return null;
+    return { startedAt: started, ...(actorCeiling ? { actorCeiling } : {}) };
   }
 
   /** Start and stop issue new sessions, so the store's absolute lifetime would start again without this bound (I1). */
@@ -288,11 +315,11 @@ export class AuthnImpersonationService extends AsyncService {
     return !validDate(at) || !positive(max) || ctx.now.getTime() - at.getTime() >= max * MINUTE_MS;
   }
 
-  /** Why the guard, or its absence, refuses `actor` impersonating `target` now; null when it consents. */
-  private async denial(actor: IdentityRef, facts: AuthnFacts, target: IdentityRef): Promise<Denial | null> {
+  /** Why the guard, or its absence, refuses `actor`, narrowed by its role switch, impersonating `target` now; null when it consents. */
+  private async denial(actor: IdentityRef, facts: AuthnFacts, target: IdentityRef, ceiling: Ceiling | undefined): Promise<Denial | null> {
     if (!this.guard) return { reason: 'no_guard' };
     try {
-      const principal = await this.principals.principalOf(actor, facts, {});
+      const principal = await this.principals.principalOf(actor, facts, ceiling ? { ceiling } : {});
       const answer: unknown = await this.guard.allowed(principal, target);
       if (isObject(answer) && answer.ok === true) return null;
       return { reason: isObject(answer) && nonEmpty(answer.code) ? answer.code : 'forbidden' };
