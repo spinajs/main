@@ -558,6 +558,7 @@ async function discardInsertedUser(u: User): Promise<void> {
 }
 
 async function passwordService(): Promise<PasswordService> {
+  // authn-local, which users imports, registers LocalPasswordService; this only fires in a container that lost it.
   if (!DI.RootContainer.hasRegistered(PasswordService)) {
     throw new InvalidOption('users: create() needs a PasswordService (register @spinajs/authn-local) to set or invite a password');
   }
@@ -568,9 +569,11 @@ async function passwordService(): Promise<PasswordService> {
 /**
  * Creates a user account.
  *
- * Refuses, before anything is written: a missing `PasswordService`, a supplied password that fails its
- * policy (`PasswordService.check`), protected metadata, a taken login or email, and a role `AuthzAdmin`
- * would refuse (a dry run of the grants). Then it inserts the user, sets the password or marks the account
+ * `PasswordService` is the last one registered: authn-local's `LocalPasswordService`, which importing users registers,
+ * unless the application registers its own after importing users.
+ *
+ * Refuses, before anything is written: a supplied password that fails its policy (`PasswordService.check`), protected
+ * metadata, a taken login or email, and a role `AuthzAdmin` would refuse (a dry run of the grants). Then it inserts the user, sets the password or marks the account
  * `user:invite:pending`, grants the roles at GLOBAL, writes the metadata, runs the `beforeCreate` /
  * `afterCreate` middleware and emits {@link UserCreated}. If the password or the grants fail after the
  * insert, the row is removed again so no half-made account keeps the login.

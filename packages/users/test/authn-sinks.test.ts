@@ -8,6 +8,7 @@ import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/con
 import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserActivated, UserChanged, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { MetadataRelation } from '@spinajs/orm';
+import { InvalidCredentials, UserIsBanned, UserNotActive } from '../src/exceptions.js';
 import { deactivate } from '../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 
@@ -213,6 +214,20 @@ describe('users authn event sinks', function () {
       expect(sent).to.be.instanceOf(UserLoginFailed);
       expect(sent.UserUUID).to.eq(ref.id);
       expect(sent.Error.message).to.eq('Login failed: invalid_credentials');
+      expect(sent.Error).to.be.instanceOf(InvalidCredentials);
+    });
+
+    it('gives UserLoginFailed the 2.x error class of a status refusal', async () => {
+      const { ref } = await seedUser({ login: 'refused', password: HASH });
+      const sink = await DI.resolve(QueueAuthnEventSink);
+
+      for (const reason of ['banned', 'inactive', 'deleted', 'wrong_password']) {
+        await sink.publish(event('login', ref, { outcome: 'failure', reason }));
+      }
+
+      const errors = emitted().map((x) => (x as UserLoginFailed).Error);
+      expect(errors.map((e) => e.constructor)).to.deep.eq([UserIsBanned, UserNotActive, UserNotActive, InvalidCredentials]);
+      expect(errors.map((e) => e.message)).to.deep.eq(['Login failed: banned', 'Login failed: inactive', 'Login failed: deleted', 'Login failed: wrong_password']);
     });
 
     it('maps impersonation start, end and expiry with the impersonator as UserUUID', async () => {

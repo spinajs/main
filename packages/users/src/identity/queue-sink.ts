@@ -3,7 +3,7 @@ import { ev } from '@spinajs/queue';
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent } from '@spinajs/authn/contracts';
 
-import { InvalidCredentials } from '../exceptions.js';
+import { InvalidCredentials, UserIsBanned, UserNotActive } from '../exceptions.js';
 import { UserImpersonationEnded } from '../events/UserImpersonationEnded.js';
 import { UserImpersonationStarted } from '../events/UserImpersonationStarted.js';
 import { UserLogged } from '../events/UserLogged.js';
@@ -15,12 +15,29 @@ import { User } from '../models/User.js';
 
 type Ref = { readonly type: string; readonly id: string };
 
+/** The 2.x error class of a login refusal; authn's other reasons have none, and 2.x answered them as invalid credentials. */
+function loginError(reason: string | undefined): Error {
+  const message = `Login failed: ${reason ?? 'unknown'}`;
+  switch (reason) {
+    case 'banned':
+      return new UserIsBanned(message);
+    case 'inactive':
+    case 'deleted':
+      return new UserNotActive(message);
+    default:
+      return new InvalidCredentials(message);
+  }
+}
+
 /**
  * Re-emits, through the queue, the 2.x user events that authn now decides: `UserLogged`, `UserLoginFailed`,
  * `UserPasswordChanged`, `UserPasswordExpired`, `UserPasswordChangeRequest` (also for an invite, as 2.x did),
  * `UserImpersonationStarted` and `UserImpersonationEnded`. Each carries the `User` row, deleted ones included;
  * an event about an identity that is not a stored user is not re-emitted. The 2FA events live in authn-totp,
  * which depends on users. Errors propagate to the publisher, which logs their class.
+ *
+ * Unlike 2.x, `create()` with a password also emits `UserPasswordChanged`: authn's `set` event (cause `set`) does not
+ * tell a create from an admin or CLI set.
  */
 @Injectable(AuthnEventSink)
 export class QueueAuthnEventSink extends AuthnEventSink {
@@ -33,7 +50,7 @@ export class QueueAuthnEventSink extends AuthnEventSink {
           await this.emit(e.identity, (u) => new UserLogged(u));
         } else {
           // Only the audit reason: the event never carries the credentials that failed.
-          await this.emit(e.identity, (u) => new UserLoginFailed(u, new InvalidCredentials(`Login failed: ${e.reason ?? 'unknown'}`)));
+          await this.emit(e.identity, (u) => new UserLoginFailed(u, loginError(e.reason)));
         }
         return;
       case 'password.change':
