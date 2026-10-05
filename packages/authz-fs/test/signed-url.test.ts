@@ -193,6 +193,22 @@ describe('authz-fs signed URLs (D9)', function () {
       expect(untilOf(calls[0])).to.equal(at(31.5).getTime());
     });
 
+    for (const [label, now] of [
+      ['an invalid Date', () => new Date(Number.NaN)],
+      ['a value that is not a Date', () => '2026-10-04' as unknown as Date],
+    ] as const) {
+      it(`a now option that gives ${label} falls back to the system time, as the domain clock does`, async () => {
+        const calls: Call[] = [];
+        const g = guard(signer('uploads', calls), { mode: 'enforce' }, new FakeAuthz(), { now });
+        const before = Date.now();
+        await g.signedUrl!('a.txt');
+        const until = untilOf(calls[0]);
+        expect(until)
+          .to.be.a('number')
+          .within(before + 900_000, Date.now() + 900_000);
+      });
+    }
+
     it('audit: a denied fs:share warns, signs, and the TTL still narrows', async () => {
       const calls: Call[] = [];
       const g = guard(signer('uploads', calls), { mode: 'audit', signedUrl: { maxTtlSeconds: 60 } }, new FakeAuthz(() => false));

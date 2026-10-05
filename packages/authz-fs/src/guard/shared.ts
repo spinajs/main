@@ -62,13 +62,15 @@ export async function domainService(container: IContainer, domain: string): Prom
   return ((await container.resolve(AuthzDomains)) as AuthzDomains).service(domain);
 }
 
+/** `now` when it is a valid Date, else the system time. */
+export const validNow = (now: unknown): Date => (now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date());
+
 /** The AuthzClock of the domain, else the system time. */
 export async function domainNow(container: IContainer, domain: string): Promise<Date> {
   try {
     const domains = (await container.resolve(AuthzDomains)) as AuthzDomains;
     const clock = (await domains.container(domain).resolve(AuthzClock)) as AuthzClock | undefined;
-    const now: unknown = clock?.now();
-    if (now instanceof Date && !Number.isNaN(now.getTime())) return now;
+    return validNow(clock?.now());
   } catch {
     // no authz host or no such domain: the system time
   }

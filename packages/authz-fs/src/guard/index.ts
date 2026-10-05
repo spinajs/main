@@ -21,7 +21,7 @@ import type { FsRow } from '../refs/index.js';
 import { planMetadata } from './metadata.js';
 import type { MetadataPath } from './metadata.js';
 import { rememberRaw } from './raw.js';
-import { basePathOf, decideFs, definite, domainNow, domainService, publishedFs, refOf, warnDenied } from './shared.js';
+import { basePathOf, decideFs, definite, domainNow, domainService, publishedFs, refOf, validNow, warnDenied } from './shared.js';
 import type { FsGuardLog, FsGuardService } from './shared.js';
 import { SIGNING_METHODS, askedUntil, signingCall, signingUntil } from './signed-url.js';
 
@@ -39,7 +39,7 @@ export interface FsGuardOptions {
   readonly log?: FsGuardLog;
   /** How long a writeStream's 'close' waits for the metadata store; default 30 s. */
   readonly metadataTimeoutMs?: number;
-  /** The time signed URL lifetimes count from; default the AuthzClock of the filesystem's domain, else the system time. */
+  /** The time signed URL lifetimes count from; default the AuthzClock of the filesystem's domain. Either falls back to the system time when it gives no valid Date. */
   readonly now?: () => Date;
 }
 
@@ -110,7 +110,7 @@ export function guardFs<T extends fs>(raw: T, fsName: string, opts: FsGuardOptio
     log: opts.log ?? engineLog('authz-fs'),
     metadataTimeoutMs: opts.metadataTimeoutMs ?? 30_000,
     service: opts.service ?? ((domain) => domainService(container, domain)),
-    now: opts.now ? async () => opts.now!() : (domain) => domainNow(container, domain),
+    now: opts.now ? async () => validNow(opts.now!()) : (domain) => domainNow(container, domain),
   };
   const guard = makeGuard(fsName, raw, config, env);
   const wrappers = new Map<string, { readonly fn: unknown; readonly wrapper: unknown }>();
