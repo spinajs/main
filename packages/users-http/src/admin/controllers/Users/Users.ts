@@ -7,6 +7,7 @@ import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IF
 import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
 import { GLOBAL } from '@spinajs/authz';
+import type { AuthzCommand } from '@spinajs/authz';
 import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
@@ -489,15 +490,16 @@ export class Users extends BaseController {
    * Metadata is NOT handled here; use the `/user/:uuid/metadata` routes.
    * `Role` takes one role name or a list of them and REPLACES the account's GLOBAL roles: one
    * AuthzAdmin batch, run as the caller, grants the added roles and revokes the ones left out, so
-   * AuthzAdmin's guard decides escalation, self lockout and the last holder. The batch is checked
-   * before anything is written; a refused role leaves the login and email untouched too. An empty
-   * list is refused rather than applied.
+   * AuthzAdmin's guard decides escalation, self lockout and the last holder. A replacement that takes
+   * the privileged permission from an account must also leave another active account holding it
+   * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
+   * role leaves the login and email untouched too. An empty list is refused rather than applied.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
    * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required, no caller, or AuthzAdmin refused the role change
+   * @response 403 Forbidden — updateAny permission required, no caller, AuthzAdmin refused the role change, or the account guard refused it (own privilege, last active privileged account)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
@@ -518,7 +520,16 @@ export class Users extends BaseController {
       throw new InvalidArgument('Role must name at least one role', 'Role');
     }
 
-    const commands = next ? replacementCommands(user.Uuid, await globalRolesOf(user.Uuid), next) : [];
+    let commands: AuthzCommand[] = [];
+    if (next) {
+      const current = await globalRolesOf(user.Uuid);
+      commands = replacementCommands(user.Uuid, current, next);
+
+      if (current.some((r) => !next.includes(r))) {
+        await this.AccountGuard.assertCanDemote(by, user, current.filter((r) => next.includes(r)));
+      }
+    }
+
     await executeAsActor(by, commands, { reason: 'users-http:update', dryRun: true });
 
     if (renamed || (data.Email && data.Email !== user.Email)) {

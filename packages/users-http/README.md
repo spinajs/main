@@ -63,7 +63,9 @@ and removing the last holder of `privilegedPermission`. A refusal answers `403` 
 The `Role` list filter matches the GLOBAL holders of the named roles; `Role` is not sortable.
 
 Delete, deactivate, ban and password expiry are not AuthzAdmin commands. They go through the
-`AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches:
+`AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches.
+A `PATCH` that removes a role goes through it too (`assertCanDemote`): AuthzAdmin's last-holder rule
+counts deactivated, banned and deleted holders, the account guard counts only active ones.
 
 ```js
 authz: {

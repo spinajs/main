@@ -23,6 +23,8 @@ export const TEST_ROLES = {
   'scoped-admin': {},
   // users:update on one's own record only: a conditional grant.
   'self-editor': { grants: [{ permission: 'users:update', relation: 'self' }] },
+  // May change roles without holding users:update: a third party to a demotion.
+  'role-manager': { grants: ['authz:assignments.manage'] },
   admin: { grants: ['users:read', 'users:create', 'users:update', 'users:delete', 'authz:assignments.manage'] },
   superadmin: { extends: ['admin'], grants: ['secrets:read'] },
   system: { assignable: false, extends: ['admin'] },

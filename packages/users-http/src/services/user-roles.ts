@@ -49,17 +49,25 @@ export async function executeAsActor(actor: Principal, commands: readonly AuthzC
   }
 }
 
-/** Names of the configured roles that may be assigned at all (`assignable` is not false). */
-async function assignableDefinitions(): Promise<string[]> {
+/** The configured role definitions: the authz-rbac `RoleStore` when registered, else `authz.rbac.roles`. */
+async function roleDefinitions(): Promise<Array<{ name: string; assignable?: boolean }>> {
   if (DI.RootContainer.hasRegistered(RoleStore)) {
     const { roles } = await ((await DI.resolve(RoleStore)) as RoleStore).load();
-    return roles.filter((r) => r.assignable !== false).map((r) => r.name);
+    return roles.map((r) => ({ name: r.name, assignable: r.assignable }));
   }
 
   const configured = DI.get(Configuration)?.get<Record<string, { assignable?: boolean }>>('authz.rbac.roles', {}) ?? {};
-  return Object.entries(configured)
-    .filter(([, def]) => def?.assignable !== false)
-    .map(([name]) => name);
+  return Object.entries(configured).map(([name, def]) => ({ name, assignable: def?.assignable }));
+}
+
+/** Names of every configured role, assignable or not. */
+export async function configuredRoleNames(): Promise<string[]> {
+  return (await roleDefinitions()).map((r) => r.name);
+}
+
+/** Names of the configured roles that may be assigned at all (`assignable` is not false). */
+async function assignableDefinitions(): Promise<string[]> {
+  return (await roleDefinitions()).filter((r) => r.assignable !== false).map((r) => r.name);
 }
 
 /** The roles `actor` may grant at GLOBAL: those whose dry-run grant AuthzAdmin accepts. */

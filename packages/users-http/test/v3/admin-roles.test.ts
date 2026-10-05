@@ -193,6 +193,13 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
       expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
     });
 
+    it('refuses a request without a caller and writes nothing', async () => {
+      await expect(world.users.updateUser(undefined as any, await byUuid(USER_UUID), { Login: 'nocaller', Role: ['guest'] } as any)).to.be.rejectedWith(Forbidden);
+
+      expect((await byUuid(USER_UUID)).Login).to.eq('user');
+      expect(await globalRolesOf(USER_UUID)).to.deep.eq(['user']);
+    });
+
     it('leaves the roles alone when no Role is sent', async () => {
       await world.users.updateUser(await admin(), await byUuid(INACTIVE_UUID), { Login: 'stillinactive' } as any);
 
@@ -204,7 +211,7 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
     it('lists exactly the roles the caller may grant', async () => {
       const roles = await body<string[]>(await world.users.assignableRoles(await admin()));
 
-      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'admin']);
+      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin']);
     });
 
     it('offers a stronger caller the stronger role too', async () => {
@@ -212,7 +219,11 @@ describe('users-http v3: role changes through AuthzAdmin', function () {
 
       const roles = await body<string[]>(await world.users.assignableRoles(await admin()));
 
-      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'admin', 'superadmin']);
+      expect(roles).to.have.members(['guest', 'user', 'scoped-admin', 'self-editor', 'role-manager', 'admin', 'superadmin']);
+    });
+
+    it('refuses a request without a caller', async () => {
+      await expect(world.users.assignableRoles(undefined as any)).to.be.rejectedWith(Forbidden);
     });
 
     it('offers nothing to a caller who may not manage assignments', async () => {
