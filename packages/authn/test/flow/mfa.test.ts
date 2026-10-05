@@ -133,13 +133,48 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), ['second']);
     });
 
-    it('fails boot when force has no step to require', async () => {
-      await bootFails({ steps: [], mfa: { policy: { force: true } } }, 'authn.mfa.policy.force', 'authn.mfa.steps');
+    it('refuses force with no step to require, naming authn.mfa.steps', async () => {
+      const paths = await violationPaths(boot({ steps: [], mfa: { policy: { force: true } } }));
+      assert.ok(paths.includes('authn.mfa.steps'), paths.join(', '));
     });
 
-    it('fails boot on malformed policy options', async () => {
-      await bootFails({ mfa: { policy: { force: 'yes' } } }, 'authn.mfa.policy.force');
-      await bootFails({ mfa: { policy: { forceForRoles: 'admin' } } }, 'authn.mfa.policy.forceForRoles');
+    it('refuses forceForRoles with no step to require, naming authn.mfa.steps', async () => {
+      const paths = await violationPaths(boot({ steps: [], mfa: { policy: { forceForRoles: ['admin'] } } }));
+      assert.ok(paths.includes('authn.mfa.steps'), paths.join(', '));
+    });
+
+    it('accepts an empty step list while nothing is forced', async () => {
+      const p = await boot({ steps: [] });
+      assert.deepStrictEqual(await (await policyOf(p)).required(ALICE, PASSWORD), []);
+    });
+
+    it('refuses malformed policy options, naming the path of each', async () => {
+      const cases: [Record<string, unknown>, string][] = [
+        [{ force: 'yes' }, 'authn.mfa.policy.force'],
+        [{ forceForRoles: 'admin' }, 'authn.mfa.policy.forceForRoles'],
+        [{ forceForRoles: [''] }, 'authn.mfa.policy.forceForRoles.0'],
+        [{ service: '' }, 'authn.mfa.policy.service'],
+      ];
+      for (const [policy, path] of cases) {
+        const paths = await violationPaths(boot({ mfa: { policy } }));
+        assert.ok(paths.includes(path), `${JSON.stringify(policy)}: ${paths.join(', ')}`);
+      }
+    });
+
+    it('takes the policy defaults from the schema', async () => {
+      const p = await boot();
+      assert.deepStrictEqual(p.configuration.get('authn.mfa.policy'), { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
+      const policy = await policyOf(p);
+      assert.strictEqual(policy.force, false);
+      assert.deepStrictEqual(policy.forceForRoles, []);
+    });
+
+    it('reads force when it decides, not at boot', async () => {
+      const p = await boot();
+      const policy = await policyOf(p);
+      assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), []);
+      p.configuration.set('authn.mfa.policy.force', true);
+      assert.deepStrictEqual(await policy.required(ALICE, PASSWORD), ['fake']);
     });
 
     it('fails boot when forceForRoles is set and no RoleSource is registered', async () => {

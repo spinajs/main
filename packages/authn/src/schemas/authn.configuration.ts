@@ -168,13 +168,15 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     mfa: {
       type: 'object',
+      default: {},
       properties: {
         policy: {
           type: 'object',
+          default: {},
           properties: {
-            service: { type: 'string', minLength: 1 },
-            force: { type: 'boolean', description: "Requires a step on logins whose strategy reports method 'password' only (D13): key and OIDC logins get none." },
-            forceForRoles: stringList,
+            service: { type: 'string', minLength: 1, default: 'DefaultMfaPolicy' },
+            force: { type: 'boolean', default: false, description: "Requires a step on logins whose strategy reports method 'password' only (D13): key and OIDC logins get none." },
+            forceForRoles: { ...stringList, default: [] },
           },
         },
         steps: { ...named, items: { ...named.items, properties: { ...named.items.properties, name: { type: 'string', minLength: 1, not: { enum: ['recovery'] }, description: "'recovery' is reserved for recovery codes (AuthnService.completeMfa)." } } } },
@@ -191,6 +193,17 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           },
         },
       },
+      allOf: [
+        // force and forceForRoles both require the first step, so there must be one (DefaultMfaPolicy).
+        {
+          if: { type: 'object', required: ['policy'], properties: { policy: { type: 'object', required: ['force'], properties: { force: { const: true } } } } },
+          then: { required: ['steps'], properties: { steps: { type: 'array', minItems: 1 } } },
+        },
+        {
+          if: { type: 'object', required: ['policy'], properties: { policy: { type: 'object', required: ['forceForRoles'], properties: { forceForRoles: { type: 'array', minItems: 1 } } } } },
+          then: { required: ['steps'], properties: { steps: { type: 'array', minItems: 1 } } },
+        },
+      ],
     },
     throttle: {
       type: 'object',

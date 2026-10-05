@@ -278,7 +278,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer, config);
+      const policy = new DefaultMfaPolicy(DI.RootContainer);
       const login = { method: 'password', strategy: 'local' };
 
       expect(await policy.required(await user('support'), login)).to.deep.eq(['totp']);
@@ -289,7 +289,7 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       const config = (await DI.resolve(Configuration)) as Configuration;
       config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
       config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
-      const policy = new DefaultMfaPolicy(DI.RootContainer, config);
+      const policy = new DefaultMfaPolicy(DI.RootContainer);
       const ref = await user('member');
       await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p2' });
 

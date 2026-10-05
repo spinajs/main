@@ -1,6 +1,6 @@
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import type { IdentityRef } from '../contracts/credentials.js';
@@ -8,51 +8,47 @@ import { RoleSource } from '../contracts/hooks.js';
 import { MfaPolicy } from '../contracts/mfa.js';
 import type { AuthnFacts } from '../contracts/principal.js';
 import { PrincipalFactory } from '../contracts/service.js';
-import { nonEmpty, readNamedEntries } from '../registry/named.js';
 import { MfaStepRegistry } from './mfa-step-registry.js';
-
-function readForce(raw: unknown): boolean {
-  if (raw === undefined || raw === null) return false;
-  if (typeof raw !== 'boolean') throw new InvalidOption('authn.mfa.policy.force must be a boolean');
-  return raw;
-}
-
-function readRoles(raw: unknown): readonly string[] {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw) || !raw.every(nonEmpty)) throw new InvalidOption('authn.mfa.policy.forceForRoles must be a list of role names');
-  return Object.freeze([...new Set(raw)]);
-}
 
 /**
  * Design §22.3: the steps of `authn.mfa.steps` the identity is enrolled in, for password logins only (D13: a key
  * challenge proves possession and an IdP does its own MFA). When none is enrolled, `force`, or a role of
  * `forceForRoles` (asked through RoleSource), requires the first configured step, so the pending session can only
- * enrol. Boot fails when force has no step to require, or forceForRoles has no RoleSource to ask.
+ * enrol. Boot fails when forceForRoles has no RoleSource or PrincipalFactory to ask; the schema refuses force and
+ * forceForRoles with no step to require.
  */
 @PerChildInstance()
 @Injectable(MfaPolicy)
-@Inject(Container, Configuration)
+@Inject(Container)
 export class DefaultMfaPolicy extends MfaPolicy {
-  public readonly force: boolean;
-  public readonly forceForRoles: readonly string[];
+  @Config('authn.mfa.policy.force')
+  protected Force: boolean;
 
-  constructor(private readonly container: IContainer, configuration: Configuration) {
+  @Config('authn.mfa.policy.forceForRoles')
+  protected ForceForRoles: string[];
+
+  constructor(private readonly container: IContainer) {
     super();
-    this.force = readForce(configuration.get('authn.mfa.policy.force'));
-    this.forceForRoles = readRoles(configuration.get('authn.mfa.policy.forceForRoles'));
-    if (!this.force && this.forceForRoles.length === 0) return;
-    const option = this.force ? 'authn.mfa.policy.force' : 'authn.mfa.policy.forceForRoles';
-    if (readNamedEntries(configuration.get('authn.mfa.steps'), 'authn.mfa.steps', 'step').length === 0) {
-      throw new InvalidOption(`${option} needs a step to require, but authn.mfa.steps is empty`);
-    }
+  }
+
+  public get force(): boolean {
+    return this.Force === true;
+  }
+
+  public get forceForRoles(): readonly string[] {
+    return this.ForceForRoles ?? [];
+  }
+
+  public resolve(): void {
     if (this.forceForRoles.length > 0) {
       for (const [type, name] of [
         [RoleSource, 'RoleSource'],
         [PrincipalFactory, 'PrincipalFactory'],
       ] as const) {
-        if (!container.hasRegistered(type as unknown as Class<unknown>)) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
+        if (!this.container.hasRegistered(type as unknown as Class<unknown>)) throw new InvalidOption(`authn.mfa.policy.forceForRoles needs a ${name} to read roles, and none is registered`);
       }
     }
+    super.resolve();
   }
 
   public async required(id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {

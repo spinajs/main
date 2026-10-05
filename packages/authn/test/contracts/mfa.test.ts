@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+import { SyncService } from '@spinajs/di';
 import { MfaPolicy, MfaStep } from '../../src/contracts/mfa.js';
 import { SecretStore } from '../../src/contracts/secrets.js';
 import type { IdentityRef } from '../../src/contracts/credentials.js';
@@ -142,10 +143,12 @@ describe('mfa and secret contracts', () => {
       expect(index.MfaStep).to.eq(MfaStep);
       expect(index.MfaPolicy).to.eq(MfaPolicy);
       expect(index.SecretStore).to.eq(SecretStore);
-      for (const c of [MfaStep, MfaPolicy, SecretStore]) {
+      for (const c of [MfaStep, SecretStore]) {
         expect(c).to.be.a('function');
         expect(Object.getPrototypeOf(c)).to.eq(Function.prototype);
       }
+      expect(MfaPolicy).to.be.a('function');
+      expect(Object.getPrototypeOf(MfaPolicy)).to.eq(SyncService);
     });
 
     it('a concrete step and policy work', async () => {
@@ -209,7 +212,7 @@ describe('mfa and secret contracts', () => {
           ],
         },
         MfaPolicy: {
-          base: null,
+          base: 'SyncService',
           members: [{ name: 'required', modifiers: ['abstract'], optional: false, params: ['id', 'facts'] }],
         },
       });
