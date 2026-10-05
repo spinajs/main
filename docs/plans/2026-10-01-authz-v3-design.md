@@ -1381,8 +1381,8 @@ evaluate(req):
                ⇒ the rule's reason (priority default 600, sortKey) as a deny entry
   9 residual   permitWhen = OR over passing g of AND(relation(g.relation…), pattern(g.on));
                denyWhen = OR of step-8 entries; Vote.denies lists them; reason = min (priority, sortKey)
-               fields = ∪ g.fields over the unconditional g if any, else (F8, RFC C3-1) ∩ over groups of g with the
-                 same simplified permit (structurally equal) of ∪ g.fields; g without fields = every field
+               fields = ∪ g.fields over the unconditional g if any, else (F8, RFC C3-1) ∩ over groups G
+                 (g with structurally equal simplified permits) of ∪ g∈G g.fields; g without fields = every field
                validUntil = min a.expiresAt
   type-level request (no id): path = [type, GLOBAL]; GLOBAL assignments decide directly; scoped assignments
     add native:rbac.assignment to permitWhen (rows whose ancestors carry the assignment); (r3, H23) its args

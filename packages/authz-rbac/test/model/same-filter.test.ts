@@ -93,7 +93,22 @@ describe('authz-rbac model: sameFilter (RFC C3-1)', () => {
     expect(sameFilter(native(cycle()), native(cycle()))).to.equal(false);
   });
 
-  it('a throwing proxy answers false', () => {
+  it('a long array of primitives is over the work budget', () => {
+    expect(sameFilter(native(Array.from({ length: 5_000 }, (_, i) => i)), native(Array.from({ length: 5_000 }, (_, i) => i)))).to.equal(true);
+    expect(sameFilter(native(Array.from({ length: 20_000 }, (_, i) => i)), native(Array.from({ length: 20_000 }, (_, i) => i)))).to.equal(false);
+    const huge = () => new Array<number>(2_000_000).fill(0);
+    expect(sameFilter(native(huge()), native(huge()))).to.equal(false);
+    const wide = () => Object.fromEntries(Array.from({ length: 20_000 }, (_, i) => [`k${i}`, i]));
+    expect(sameFilter(native(wide()), native(wide()))).to.equal(false);
+  });
+
+  it('an array with a reset prototype is never the same as a non-array', () => {
+    expect(sameFilter(native(Object.setPrototypeOf([1], null)), native(Object.assign(Object.create(null), { 0: 1 })))).to.equal(false);
+    expect(sameFilter(native(Object.setPrototypeOf([1], Object.prototype)), native({ 0: 1 }))).to.equal(false);
+    expect(sameFilter(native(Object.setPrototypeOf([1], Object.prototype)), native(Object.setPrototypeOf([1], Object.prototype)))).to.equal(false);
+  });
+
+  it('proxies are the same only as the same reference', () => {
     const trap = new Proxy(
       {},
       {
@@ -103,6 +118,25 @@ describe('authz-rbac model: sameFilter (RFC C3-1)', () => {
       },
     );
     expect(sameFilter(native(trap), native({}))).to.equal(false);
+    const lying = (v: number) => new Proxy({ v: 1 }, { get: () => v });
+    expect(sameFilter(native(lying(1)), native(lying(2)))).to.equal(false);
+    expect(sameFilter(native(new Proxy({ v: 1 }, {})), native({ v: 1 }))).to.equal(false);
+    const p = lying(1);
+    expect(sameFilter(native(p), native(p))).to.equal(true);
+  });
+
+  it('objects with internal slots and a reset prototype are not the same', () => {
+    const plain = <T extends object>(o: T): T => Object.setPrototypeOf(o, Object.prototype) as T;
+    expect(sameFilter(native(plain(new Map([['a', 1]]))), native(plain(new Map([['b', 2]]))))).to.equal(false);
+    expect(sameFilter(native(plain(new Set([1]))), native(plain(new Set([2]))))).to.equal(false);
+    expect(sameFilter(native(plain(new Date(1))), native(plain(new Date(2))))).to.equal(false);
+    expect(sameFilter(native(plain(new Date(1))), native({}))).to.equal(false);
+    expect(sameFilter(native(plain(Object(1) as object)), native(plain(Object(2) as object)))).to.equal(false);
+    expect(sameFilter(native(plain(new Uint8Array([1]))), native({ 0: 1 }))).to.equal(false);
+    expect(sameFilter(native(plain(new ArrayBuffer(1))), native(plain(new ArrayBuffer(1))))).to.equal(false);
+    expect(sameFilter(native(plain(/a/)), native(plain(/b/)))).to.equal(false);
+    expect(sameFilter(native(plain(Promise.resolve(1))), native(plain(Promise.resolve(2))))).to.equal(false);
+    expect(sameFilter(native(plain(new WeakMap())), native(plain(new WeakMap())))).to.equal(false);
   });
 
   describe('properties', () => {
@@ -122,37 +156,41 @@ describe('authz-rbac model: sameFilter (RFC C3-1)', () => {
       );
     });
 
-    it('two filters whose JSON differs are never the same', () => {
+    // Every primitive in the tree: an op, a field name, a value or a native arg.
+    it('a clone with exactly one primitive changed is not the same', () => {
       fc.assert(
-        fc.property(filter, filter, (f, g) => {
-          if (JSON.stringify(f) !== JSON.stringify(g)) expect(sameFilter(f, g)).to.equal(false);
+        fc.property(filter, fc.nat(), fc.constantFrom('swap', 'array', 'object'), (f, pick, how) => {
+          const g = structuredClone(f);
+          const sites = primitiveSites(g);
+          const [parent, key] = sites[pick % sites.length];
+          const old = parent[key];
+          parent[key] = how === 'swap' ? otherPrimitive(old) : how === 'array' ? [old] : { 0: old };
+          expect(JSON.stringify(g)).to.not.equal(JSON.stringify(f));
+          expect(sameFilter(f, g)).to.equal(false);
+          expect(sameFilter(g, f)).to.equal(false);
         }),
         { numRuns: 1000 },
-      );
-    });
-
-    it('changing any one leaf makes them different', () => {
-      fc.assert(
-        fc.property(filter, fc.nat(), (f, pick) => {
-          const leaves = countLeaves(f);
-          const changed = changeLeaf(structuredClone(f), { left: pick % leaves });
-          expect(sameFilter(f, changed)).to.equal(false);
-        }),
-        { numRuns: 500 },
       );
     });
   });
 });
 
-function countLeaves(f: ResourceFilter): number {
-  if (f.op === 'and' || f.op === 'or') return f.args.reduce((n, a) => n + countLeaves(a), 0);
-  if (f.op === 'not') return countLeaves(f.arg);
-  return 1;
+type Slot = [Record<string | number, unknown>, string | number];
+
+function primitiveSites(node: unknown, out: Slot[] = []): Slot[] {
+  if (typeof node !== 'object' || node === null) return out;
+  const parent = node as Record<string | number, unknown>;
+  for (const key of Array.isArray(node) ? node.keys() : Object.keys(node)) {
+    const v = parent[key];
+    if (typeof v === 'object' && v !== null) primitiveSites(v, out);
+    else out.push([parent, key]);
+  }
+  return out;
 }
 
-// Gives the leaf at index `at.left` (depth first) a property no generator produces.
-function changeLeaf(f: ResourceFilter, at: { left: number }): ResourceFilter {
-  if (f.op === 'and' || f.op === 'or') return { op: f.op, args: f.args.map((a) => changeLeaf(a, at)) };
-  if (f.op === 'not') return { op: 'not', arg: changeLeaf(f.arg, at) };
-  return at.left-- === 0 ? ({ ...f, mark: 1 } as unknown as ResourceFilter) : f;
+function otherPrimitive(v: unknown): unknown {
+  if (typeof v === 'number') return v === 0 ? 1 : -v;
+  if (typeof v === 'string') return `${v}z`;
+  if (typeof v === 'boolean') return !v;
+  return 0;
 }
