@@ -56,6 +56,7 @@
     "@spinajs/authn-session": "3.0.0-alpha.0",
     "@spinajs/authn-token": "3.0.0-alpha.0",
     "@spinajs/authn-totp": "3.0.0-alpha.0",
+    "@spinajs/cli": "2.0.549",
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "@spinajs/exceptions": "2.0.549",

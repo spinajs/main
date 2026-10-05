@@ -24,6 +24,10 @@ interface Run {
   n10: { body: unknown; functions: string[] };
   /** CJS only: loaded module files under v3/controllers; null in ESM, which lists no loaded modules. */
   loadedV3Controllers: string[] | null;
+  /** The files of the shipped cli dir, loaded before the first snapshot as the CLI's scan loads them. */
+  cliFiles: string[];
+  /** CJS only: loaded module files of the @spinajs/authn build outside its contracts; null in ESM. */
+  loadedAuthnRoot: string[] | null;
 }
 
 // Plain JS for the ESM and the CJS child: the built package, loaded as an app loads it.
@@ -50,8 +54,9 @@ const BODY = `
     functions: ['authnFailureResponse', 'authnSessionCookie', 'authnClearedSessionCookie'].filter((n) => typeof pkg[n] === 'function'),
   };
   const loadedV3Controllers = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]v3[\\\\/]controllers[\\\\/]/.test(f)) : null;
+  const loadedAuthnRoot = typeof require === 'function' ? Object.keys(require.cache).filter((f) => /[\\\\/]authn[\\\\/]lib[\\\\/]cjs[\\\\/]/.test(f) && !/[\\\\/]contracts[\\\\/]/.test(f)) : null;
   await pkg.registerAuthnHttpV3();
-  console.log(JSON.stringify({ before, after: snap(di, http, contracts, pkg), n10, loadedV3Controllers }));
+  console.log(JSON.stringify({ before, after: snap(di, http, contracts, pkg), n10, loadedV3Controllers, cliFiles, loadedAuthnRoot }));
 `;
 
 const ESM = `
@@ -59,6 +64,12 @@ const ESM = `
   const http = await import('@spinajs/http');
   const contracts = await import('@spinajs/authn/contracts');
   const pkg = await import('@spinajs/authn-http');
+  const { readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const cliDir = join(process.cwd(), 'lib', 'mjs', 'cli');
+  const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
+  for (const f of cliFiles) await import(pathToFileURL(join(cliDir, f)).href);
   ${BODY}
 `;
 
@@ -68,6 +79,11 @@ const CJS = `
     const http = require('@spinajs/http');
     const contracts = require('@spinajs/authn/contracts');
     const pkg = require('@spinajs/authn-http');
+    const { readdirSync } = require('node:fs');
+    const { join } = require('node:path');
+    const cliDir = join(process.cwd(), 'lib', 'cjs', 'cli');
+    const cliFiles = readdirSync(cliDir).filter((f) => f.endsWith('.js'));
+    for (const f of cliFiles) require(join(cliDir, f));
     ${BODY}
   })().catch((e) => { console.error(e); process.exit(1); });
 `;
@@ -101,8 +117,10 @@ describe('the 3.0 authn layer ships switched off (N8c)', function () {
     ['ESM', 'module', ESM],
     ['CJS', 'commonjs', CJS],
   ] as const) {
-    it(`${label}: importing the package registers no authn service, extractor, resolver, route arg, controller or AuthnMiddleware; registerAuthnHttpV3 does`, () => {
-      const { before, after, n10, loadedV3Controllers } = run(inputType, body);
+    it(`${label}: importing the package and its cli dir registers no authn service, extractor, resolver, route arg, controller or AuthnMiddleware; registerAuthnHttpV3 does`, () => {
+      const { before, after, n10, loadedV3Controllers, cliFiles, loadedAuthnRoot } = run(inputType, body);
+      expect(cliFiles, 'the shipped cli dir').to.include('AuthnCheckConfig.js');
+      if (loadedAuthnRoot !== null) expect(loadedAuthnRoot, 'modules of the @spinajs/authn root').to.deep.eq([]);
       expect(before.AuthnService, 'AuthnService').to.deep.eq([]);
       expect(before.MfaPolicy, 'MfaPolicy').to.deep.eq([]);
       expect(before.AuthnThrottle, 'AuthnThrottle').to.deep.eq([]);

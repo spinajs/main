@@ -20,6 +20,7 @@ const authnHttp = {
     dirs: {
       // Controllers are found by a filesystem scan, not by import.
       controllers: [singleDir('account/controllers'), ...dirWithParent('token/controllers')],
+      cli: [singleDir('cli')],
     },
   },
 };
