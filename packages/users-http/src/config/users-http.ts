@@ -13,6 +13,15 @@ const usersHttp = {
       views: [dir('views')],
     },
   },
+  authz: {
+    // The admin record routes; read and update carry field sets so a grant can narrow them.
+    permissions: {
+      'users:read': { fields: true },
+      'users:create': {},
+      'users:update': { fields: true },
+      'users:delete': {},
+    },
+  },
 };
 
 export default usersHttp;

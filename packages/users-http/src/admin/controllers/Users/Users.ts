@@ -1,20 +1,19 @@
-import { AutoinjectService } from '@spinajs/configuration';
+import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, Ok, Param, Patch, Policy, Post, Query } from '@spinajs/http';
 import { InvalidArgument, ResourceDuplicated, ResourceNotFound } from '@spinajs/exceptions';
 import { SortOrder, SqlOperator } from '@spinajs/orm';
+import type { ISelectQueryBuilder } from '@spinajs/orm';
 import { Filter, FilterableOperators, FromModel, IColumnFilter, IFilterEntry, IFilterRequest, isFilterGroup, OrderDTO, PaginationDTO } from '@spinajs/orm-http';
-import { assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, userModel } from '@spinajs/users';
+import { assertLoginNotReserved, assertUserUnique, create, deleteUser, updateUser, User, UserAlreadyExists, UserCreatedIncomplete, userModel } from '@spinajs/users';
 import { AuthorizedPolicy, Permission, Resource, User as CurrentUser } from '@spinajs/authn-http';
+import { GLOBAL } from '@spinajs/authz';
+import type { AuthzCommand } from '@spinajs/authz';
+import { AUTHZ_ASSIGNMENT_TABLE } from '@spinajs/authz-rbac';
 import { Schema } from '@spinajs/validation';
 
-import { RoleGuard } from '@spinajs/authz-http-admin';
-
-// Side effect only: registers DefaultRoleGuard under the RoleGuard base so
-// `rbac.admin.roleGuard.service` has something to resolve to. The type import
-// above is erased at compile time, and controllers are loaded by path rather
-// than through the package index, so without this the guard is missing in
-// exactly the deployments that never import the package themselves.
-import '@spinajs/authz-http-admin';
+import { AccountGuard } from '../../../services/AccountGuard.js';
+import { actorPrincipal, asHttpRefusal } from '../../../services/actor.js';
+import { assignableRoles, executeAsActor, globalRolesOf, replacementCommands } from '../../../services/user-roles.js';
 
 /**
  * Columns a client may sort by.
@@ -25,7 +24,7 @@ import '@spinajs/authz-http-admin';
  * wrong. Whitelisting turns that into a 400 and keeps the sortable surface a
  * deliberate decision rather than "whatever columns the table happens to have".
  */
-const SORTABLE_COLUMNS = ['Uuid', 'Login', 'Email', 'Role', 'IsActive', 'CreatedAt', 'LastLoginAt', 'DeletedAt'];
+const SORTABLE_COLUMNS = ['Uuid', 'Login', 'Email', 'IsActive', 'CreatedAt', 'LastLoginAt', 'DeletedAt'];
 
 /**
  * Upper bound on `pagination.limit`. An admin list endpoint with no ceiling is
@@ -64,7 +63,7 @@ const ROLE_NAME = {
 /**
  * The `Role` field of both DTOs: one role name, or a list of them.
  *
- * An account has always held a role LIST (`User.Role` is a set), and the roles
+ * An account holds a role LIST (its GLOBAL assignments), and the roles
  * an application defines are typically switchable profiles a person may hold
  * several of at once. The single-string form is kept because it is what every
  * existing caller sends.
@@ -202,8 +201,35 @@ const USER_FILTER: IColumnFilter<User>[] = [
     operators: ['eq'],
   },
   {
+    // Holders of live GLOBAL assignments of the named roles. Reads `authz_assignment` on the users
+    // connection, like users' `withRole` scope, so assignments kept on another connection are missed.
     column: 'Role',
     operators: ['eq', 'neq', 'in-set', 'nin-set'],
+    query: (operator: FilterableOperators, value: any) => {
+      const roles = (Array.isArray(value) ? value : [value]).map((r) => String(r));
+      if (roles.length === 0) {
+        throw new InvalidArgument('The Role filter needs at least one role', 'Role');
+      }
+
+      const holders = userModel()
+        .query()
+        .Driver.select()
+        .from(AUTHZ_ASSIGNMENT_TABLE)
+        .columns(['subject_id'])
+        .where({ subject_type: 'user', subject_role: '', scope_type: GLOBAL.type, scope_id: '' })
+        .whereIn('role', roles)
+        .where(function () {
+          this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
+        }) as unknown as ISelectQueryBuilder<unknown>;
+
+      return function () {
+        if (operator === 'neq' || operator === 'nin-set') {
+          this.whereNotIn('Uuid', holders);
+        } else {
+          this.whereIn('Uuid', holders);
+        }
+      };
+    },
   },
   {
     column: 'user:niceName',
@@ -250,8 +276,8 @@ const USER_FILTER: IColumnFilter<User>[] = [
 @Policy(AuthorizedPolicy)
 @Resource('users')
 export class Users extends BaseController {
-  @AutoinjectService('rbac.admin.roleGuard')
-  protected RoleGuard: RoleGuard;
+  @Autoinject(AccountGuard)
+  protected AccountGuard: AccountGuard;
 
   /**
    * List users (admin)
@@ -260,13 +286,13 @@ export class Users extends BaseController {
    * X-Total-Count response header.
    * Filterable fields: Uuid (eq), Email (eq, like), Login (eq, like), CreatedAt (eq, gte, lte, lt, gt),
    * LastLoginAt and DeletedAt (eq, gte, lte, lt, gt, isnull, notnull), IsActive (eq),
-   * Role (eq, neq, in-set: holds any of the listed roles, nin-set: holds none of them),
+   * Role (eq, neq, in-set: holds any of the listed roles at GLOBAL, nin-set: holds none of them),
    * user:niceName metadata (eq, neq, like). Soft-deleted accounts are listed only when the
    * filter has a DeletedAt condition.
    * @security cookieAuth
    * @param pagination.page Page number (zero-based)
    * @param pagination.limit Number of users per page (default: 10, max: 100)
-   * @param order.column Column to sort by (default: CreatedAt). One of Uuid, Login, Email, Role, IsActive, CreatedAt, LastLoginAt, DeletedAt
+   * @param order.column Column to sort by (default: CreatedAt). One of Uuid, Login, Email, IsActive, CreatedAt, LastLoginAt, DeletedAt
    * @param order.order Sort direction: ASC or DESC (default: DESC)
    * @param include Relations to include — currently supports: Metadata
    * @returns {User[]} Paginated list of user accounts, each with optional Metadata relation
@@ -351,18 +377,18 @@ export class Users extends BaseController {
 
   /**
    * List assignable roles (admin)
-   * Returns the roles the calling administrator is allowed to grant, as decided by the
-   * configured role guard — the system role and anything granting more than the caller
-   * holds are left out, so a UI cannot offer an operation the guard will refuse.
+   * Returns the configured roles the caller may grant at GLOBAL: those AuthzAdmin accepts in a
+   * dry-run grant by the caller. Non-assignable roles and anything granting more than the caller
+   * holds are left out, so a UI cannot offer an operation AuthzAdmin will refuse.
    * @security cookieAuth
    * @returns {string[]} Role names the caller may assign
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — readAny permission required on users resource
+   * @response 403 Forbidden — readAny permission required on users resource, or no caller
    */
   @Get('roles')
   @Permission(['readAny', 'readOwn'])
   public async assignableRoles(@CurrentUser() actor: User) {
-    return new Ok(this.RoleGuard.assignableRoles(actor));
+    return new Ok(await assignableRoles(await actorPrincipal(actor)));
   }
 
   /**
@@ -425,85 +451,96 @@ export class Users extends BaseController {
 
   /**
    * Create user (admin)
-   * Creates a new user account with a system-generated temporary password. The account is
-   * created inactive and the temporary password is never returned: a single-use password-reset
-   * link is mailed to the address instead, so the owner sets their own password and nothing
-   * has to travel back through an administrator. Activate the account once they have.
-   * `Role` takes one role name or a list of them; every entry is checked by the role guard, and
-   * one refused entry refuses the whole request.
+   * Creates an inactive account without a password: `create()` sends the owner an invite to set
+   * one, so nothing has to travel back through an administrator. Activate the account once they
+   * have. `Role` takes one role name or a list of them, granted at GLOBAL through AuthzAdmin with
+   * the caller as actor; one refused entry refuses the whole request and nothing is created.
+   * When a step after the grants fails, the account exists: the answer is still 200 with the
+   * account, plus `Incomplete: { resendInvite }` telling whether the invite must be sent again.
    * @security cookieAuth
    * @returns {User} Created user account
-   * @response 400 Validation error — missing required fields, invalid format, an empty or unknown role, or a protected metadata key
+   * @response 400 Validation error — missing required fields, invalid format, an empty, unknown or non-assignable role, a reserved login, or a protected metadata key
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — createAny permission required, or a requested role grants more than the caller holds
+   * @response 403 Forbidden — createAny permission required, no caller, or AuthzAdmin refused a requested role (escalation)
    * @response 409 Login or email already in use, naming the clashing field in `parameter`
    */
   @Post('/')
   @Permission(['createAny', 'createOwn'])
   public async addUser(@CurrentUser() actor: User, @Body() data: CreateUserDto) {
+    const by = await actorPrincipal(actor);
     const roles = roleList(data.Role);
 
-    await this.RoleGuard.assertCanAssignRoles(actor, null, roles);
+    try {
+      const { User: created } = await this.asDuplicateResponse(() => asHttpRefusal(() => create({ Email: data.Email, Login: data.Login, Metadata: data.Metadata }, roles, by)));
+      return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
+    } catch (err) {
+      if (!(err instanceof UserCreatedIncomplete)) {
+        throw err;
+      }
 
-    // No password: `create()` generates one AND mails the reset link that hands
-    // the account to its owner. Both belong to the action, not to this route —
-    // every other caller that creates an account needs them just as much, and
-    // the uniqueness refusal comes from there now for the same reason.
-    const { User: created } = await this.asDuplicateResponse(() => create(data.Email, data.Login, roles, { metadata: data.Metadata }));
-
-    // NOTE: create() also returns the plaintext generated password. It must NOT
-    // be sent in the response — return only the created user (dehydrated, so the
-    // hash and internal id stay hidden too).
-    return new Ok(created.dehydrateWithRelations({ dateTimeFormat: 'iso' }));
+      // A retry would only get a 409: answer with the account that exists.
+      const created = await userModel().query().where('Uuid', err.data.user).populate('Metadata').firstOrFail();
+      return new Ok({ ...created.dehydrateWithRelations({ dateTimeFormat: 'iso' }), Incomplete: { resendInvite: err.data.resendInvite } });
+    }
   }
 
   /**
    * Update user (admin)
    * Partially updates a user account. All fields are optional — only provided fields are changed.
    * Metadata is NOT handled here; use the `/user/:uuid/metadata` routes.
-   * `Role` takes one role name or a list of them and REPLACES the account's whole role list, so
-   * an entry left out is revoked and goes through the revoke half of the role guard. An empty
-   * list is refused rather than applied.
+   * `Role` takes one role name or a list of them and REPLACES the account's GLOBAL roles: one
+   * AuthzAdmin batch, run as the caller, grants the added roles and revokes the ones left out, so
+   * AuthzAdmin's guard decides escalation, self lockout and the last holder. A replacement that takes
+   * the privileged permission from an account must also leave another active account holding it
+   * ({@link AccountGuard.assertCanDemote}). The batch is checked before anything is written; a refused
+   * role leaves the login and email untouched too. An empty list is refused rather than applied.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 User updated successfully
-   * @response 400 Validation error — invalid field format, an empty role list or an unknown role
+   * @response 400 Validation error — invalid field format, a reserved login, an empty role list or an unknown or non-assignable role
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — updateAny permission required, or the role change is refused by the role guard
+   * @response 403 Forbidden — updateAny permission required, no caller, AuthzAdmin refused the role change, or the account guard refused it (own privilege, last active privileged account)
    * @response 409 Login or email already in use by another account, naming the clashing field in `parameter`
    * @response 404 User not found
    */
   @Patch(':user')
   @Permission(['updateAny', 'updateOwn'])
   public async updateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() data: UpdateUserDto) {
+    const by = await actorPrincipal(actor);
+    const renamed = !!data.Login && data.Login !== user.Login;
+
+    if (renamed) {
+      assertLoginNotReserved(data.Login!);
+    }
+
     // `data.Role` may be an ARRAY, and `[]` is truthy — so the presence check is
-    // on the FIELD, not on the value. An empty or blanks-only list never gets
-    // this far: `ROLE_FIELD` refuses it during body validation.
+    // on the FIELD, not on the value.
     const next = data.Role !== undefined ? roleList(data.Role) : null;
+    if (next && next.length === 0) {
+      throw new InvalidArgument('Role must name at least one role', 'Role');
+    }
 
+    let commands: AuthzCommand[] = [];
     if (next) {
-      const added = next.filter((r) => !user.Role.includes(r));
-      const removed = user.Role.filter((r) => !next.includes(r));
+      const current = await globalRolesOf(user.Uuid);
+      commands = replacementCommands(user.Uuid, current, next);
 
-      // A role list REPLACEMENT is a grant and a revoke at the same time, and
-      // both halves have their own rules — dropping the caller's last privileged
-      // role through PATCH must fail exactly as `revoke` does.
-      await this.RoleGuard.assertCanAssignRoles(actor, user, added);
-
-      for (const role of removed) {
-        await this.RoleGuard.assertCanRevokeRole(actor, user, role);
+      if (current.some((r) => !next.includes(r))) {
+        await this.AccountGuard.assertCanDemote(by, user, current.filter((r) => next.includes(r)));
       }
     }
 
-    if ((data.Login && data.Login !== user.Login) || (data.Email && data.Email !== user.Email)) {
+    await executeAsActor(by, commands, { reason: 'users-http:update', dryRun: true });
+
+    if (renamed || (data.Email && data.Email !== user.Email)) {
       await this.asDuplicateResponse(() => assertUserUnique(data.Login !== user.Login ? data.Login : undefined, data.Email !== user.Email ? data.Email : undefined, user.Id));
     }
 
     user.Login = data.Login ?? user.Login;
     user.Email = data.Email ?? user.Email;
-    user.Role = next ?? user.Role;
 
     await user.update();
+    await executeAsActor(by, commands, { reason: 'users-http:update' });
 
     return new Ok();
   }
@@ -517,13 +554,13 @@ export class Users extends BaseController {
    * @param user User UUID path parameter
    * @response 200 User deleted
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, or the deletion is refused by the role guard
+   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Del(':user')
   @Permission(['deleteAny', 'deleteOwn'])
   public async removeUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await this.RoleGuard.assertCanDisableAccount(actor, user, 'delete');
+    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'delete');
     await deleteUser(user);
 
     return new Ok();
