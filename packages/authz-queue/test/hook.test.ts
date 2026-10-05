@@ -215,6 +215,36 @@ describe('StampedInitiatorPrincipalFactory', () => {
     const p = await new StampedInitiatorPrincipalFactory().principalOf({ type: 'anonymous', id: 'a1' });
     expect(p.authenticated).to.equal(false);
   });
+
+  describe('warning', () => {
+    const warnings = async (factory: InitiatorPrincipalFactory): Promise<number> => {
+      const original = console.warn;
+      let count = 0;
+      console.warn = () => {
+        count++;
+      };
+      try {
+        await factory.principalOf({ type: 'user', id: 'u1' });
+        await factory.principalOf({ type: 'user', id: 'u2' });
+      } finally {
+        console.warn = original;
+      }
+      return count;
+    };
+
+    it('warns once by default', async () => {
+      expect(await warnings(new StampedInitiatorPrincipalFactory())).to.equal(1);
+    });
+
+    it('never warns with warn: false', async () => {
+      expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: false }))).to.equal(0);
+    });
+
+    it('still warns with warn: true or empty options', async () => {
+      expect(await warnings(new StampedInitiatorPrincipalFactory({}))).to.equal(1);
+      expect(await warnings(new StampedInitiatorPrincipalFactory({ warn: true }))).to.equal(1);
+    });
+  });
 });
 
 describe('AuthzQueueHook.beforeEmit, principals the stamp cannot carry', () => {

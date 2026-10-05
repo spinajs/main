@@ -59,7 +59,13 @@ export function reviveCeiling(raw: unknown): Ceiling | undefined {
 /** Trusts the stamp: type, id and ceiling are all the principal has. A malformed stamp yields `UNATTENDED`. */
 @Injectable(InitiatorPrincipalFactory)
 export class StampedInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
-  private warned = false;
+  private warned: boolean;
+
+  /** `warn: false` silences the one-time warning, for a wrapper that does reload the user. */
+  constructor(options: { readonly warn?: boolean } = {}) {
+    super();
+    this.warned = options.warn === false;
+  }
 
   async principalOf(initiator: Initiator): Promise<Principal> {
     if (!this.warned) {
