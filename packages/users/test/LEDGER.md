@@ -258,21 +258,21 @@ Insert-time ownership stamping, a 2.x IDOR regression. All rewrite (C1 → T1); 
 
 ## test/impersonation.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/impersonation.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 2: ported to `test/v3/impersonation.test.ts` (legacy file deleted). Rows 2-8 run `AuthzService.covers` (B26 strict-subset core) over a real RbacModel host; rows 1 and 9 need the protected-role part of `AuthzImpersonationGuard` (C3, not built) and are `it.skip` PENDING(C3).
 
 The 2.x `canImpersonate` rule. All rewrite (C1 → T1); B26 and the `AuthzImpersonationGuard` of C3 replace it.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 35 | canImpersonate > denies when target has a protected role | rewrite | C1 → T1 | users/test/v3/; B26 (protected roles refused, A20); reason code may be renamed |
-| 2 | 48 | canImpersonate > denies user → admin (privilege escalation) | rewrite | C1 → T1 | users/test/v3/; B26 (target set not a strict subset) |
-| 3 | 60 | canImpersonate > denies admin → admin (equal privileges count as escalation) | rewrite | C1 → T1 | users/test/v3/; B26 (equal sets refused) |
-| 4 | 72 | canImpersonate > denies moderator → admin (target has grants moderator lacks) | rewrite | C1 → T1 | users/test/v3/; B26 |
-| 5 | 84 | canImpersonate > allows admin → user | rewrite | C1 → T1 | users/test/v3/; B26 (strict subset allowed) |
-| 6 | 95 | canImpersonate > allows admin → guest | rewrite | C1 → T1 | users/test/v3/; B26, C3 (`AuthzImpersonationGuard`); with the same fixture admin's set lacks guest's `public:read`, so 3.0 still refuses: keep "refused" and rename the test, whose title says "allows" |
-| 7 | 110 | canImpersonate > honors $extend when comparing grants | rewrite | C1 → T1 | users/test/v3/; B12, B26 (extends inherited transitively) |
-| 8 | 131 | canImpersonate > treats target with unknown role as having no grants (still allowed by superset check) | rewrite | C1 → T1 | users/test/v3/; B12, B26 (unknown stored role ignored with a warning, empty set is a strict subset) |
-| 9 | 143 | canImpersonate > does not flag protected role when protectedRoles is empty | rewrite | C1 → T1 | users/test/v3/; B26 |
+| 1 | 35 | canImpersonate > denies when target has a protected role | rewrite | C1 → T1 | users/test/v3/; B26 (protected roles refused, A20); reason code may be renamed Ported: `v3/impersonation.test.ts` "denies when target has a protected role", PENDING(C3); expected code `protected_role` (was PROTECTED_ROLE). |
+| 2 | 48 | canImpersonate > denies user → admin (privilege escalation) | rewrite | C1 → T1 | users/test/v3/; B26 (target set not a strict subset) Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 3 | 60 | canImpersonate > denies admin → admin (equal privileges count as escalation) | rewrite | C1 → T1 | users/test/v3/; B26 (equal sets refused) Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 4 | 72 | canImpersonate > denies moderator → admin (target has grants moderator lacks) | rewrite | C1 → T1 | users/test/v3/; B26 Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 5 | 84 | canImpersonate > allows admin → user | rewrite | C1 → T1 | users/test/v3/; B26 (strict subset allowed) Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 6 | 95 | canImpersonate > allows admin → guest | rewrite | C1 → T1 | users/test/v3/; B26, C3 (`AuthzImpersonationGuard`); with the same fixture admin's set lacks guest's `public:read`, so 3.0 still refuses: keep "refused" and rename the test, whose title says "allows" Ported: `v3/impersonation.test.ts` "refuses admin → guest (admin's set lacks public:read)"; changed expectation: title only, outcome stays refused (B26). |
+| 7 | 110 | canImpersonate > honors $extend when comparing grants | rewrite | C1 → T1 | users/test/v3/; B12, B26 (extends inherited transitively) Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 8 | 131 | canImpersonate > treats target with unknown role as having no grants (still allowed by superset check) | rewrite | C1 → T1 | users/test/v3/; B12, B26 (unknown stored role ignored with a warning, empty set is a strict subset) Ported: `v3/impersonation.test.ts` (B26.users-impersonation, same title); decision is `covers` only, the guard's `escalation` code is C3's. |
+| 9 | 143 | canImpersonate > does not flag protected role when protectedRoles is empty | rewrite | C1 → T1 | users/test/v3/; B26 Ported: `v3/impersonation.test.ts` "does not flag protected role when protectedRoles is empty", PENDING(C3). |
 
 ## test/m2m-rbac.test.ts
 
