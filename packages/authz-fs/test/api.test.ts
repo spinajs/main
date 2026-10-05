@@ -5,6 +5,8 @@ import { FileMetadataStore, FsDecorator, FsPathResolver, fromFsPath } from '../s
 import * as root from '../src/index.js';
 import type { FileMeta } from '../src/index.js';
 import type { PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { DI } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { IProviderConfiguration, fs } from '@spinajs/fs';
 
 const expect = chai.expect;
@@ -41,11 +43,75 @@ class TaskResolver extends FsPathResolver {
   }
 }
 
-describe('authz-fs api', () => {
-  it('fromFsPath throws not implemented', () => {
-    expect(() => fromFsPath('uploads', 'path')).to.throw(Error, /^@spinajs\/authz-fs: fromFsPath is not implemented yet$/);
+describe('authz-fs fromFsPath', () => {
+  const extract = (req: unknown, fsName = 'uploads', param = 'path') => fromFsPath(fsName, param)(req);
+
+  const published = (provider: object, run: () => void): void => {
+    const hadMap = DI.RootContainer.Cache.has('__file_provider_instance__');
+    DI.register(provider).asMapValue('__file_provider_instance__', 'uploads');
+    try {
+      run();
+    } finally {
+      (DI.get('__file_provider_instance__') as Map<string, unknown>).delete('uploads');
+      if (!hadMap) DI.uncache('__file_provider_instance__');
+    }
+  };
+
+  it('gives the file ref of the url parameter, normalised as the guard does', () => {
+    expect(extract({ params: { path: 'docs/a.txt' } })).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+    expect(extract({ params: { path: './docs//b.txt' } })).to.deep.equal({ type: 'file', id: 'uploads:docs/b.txt' });
+    expect(extract({ params: { path: 'docs\\c.txt' } })).to.deep.equal({ type: 'file', id: 'uploads:docs/c.txt' });
+    expect(extract({ params: { 0: 'docs/d.txt' } }, 'uploads', '0')).to.deep.equal({ type: 'file', id: 'uploads:docs/d.txt' });
   });
 
+  it('reads a rooted path from the filesystem root, and gives the fs ref for the root itself', () => {
+    expect(extract({ params: { path: '/docs/a.txt' } })).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+    for (const path of ['/', '.', '']) expect(extract({ params: { path } }), JSON.stringify(path)).to.deep.equal({ type: 'fs', id: 'uploads' });
+  });
+
+  it('makes an absolute path inside the published base path relative to it', () => {
+    published({ Name: 'uploads', Options: { basePath: 'C:\\srv\\uploads' } }, () => {
+      expect(extract({ params: { path: 'C:\\srv\\uploads\\docs\\a.txt' } })).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+      expect(() => extract({ params: { path: 'C:\\srv\\other\\a.txt' } })).to.throw(InvalidArgument);
+    });
+  });
+
+  it('refuses .. above the root and other refused paths with InvalidArgument (400)', () => {
+    for (const path of ['../a.txt', 'docs/../../a.txt', 'x\0y', 'a.txt::$DATA', 'D:\\a.txt']) {
+      expect(() => extract({ params: { path } }), JSON.stringify(path)).to.throw(InvalidArgument);
+    }
+  });
+
+  it('joins the segments of an Express 5 wildcard parameter (*path) with /', () => {
+    expect(extract({ params: { path: ['docs', 'a.txt'] } })).to.deep.equal({ type: 'file', id: 'uploads:docs/a.txt' });
+    expect(extract({ params: { path: ['a.txt'] } })).to.deep.equal({ type: 'file', id: 'uploads:a.txt' });
+  });
+
+  it('refuses a wildcard parameter that is empty, holds a non-string, or has a segment the normaliser refuses', () => {
+    for (const path of [[], ['docs', 1], ['docs', null], ['..', 'a.txt'], ['docs', '..', 'a.txt'], ['docs', 'a\0b'], ['docs', 'x::$DATA'], ['docs', '../../a.txt'], ['docs', ''], ['docs', 'a/b'], ['docs', 'a\\b']]) {
+      expect(() => extract({ params: { path } }), JSON.stringify(path)).to.throw(InvalidArgument);
+    }
+  });
+
+  it('refuses a missing or non-string parameter, and reads url parameters only', () => {
+    for (const req of [{ params: {} }, { params: { path: 7 } }, { params: { path: { 0: 'a' } } }, { params: { other: 'a' } }, { query: { path: 'a.txt' } }, { params: {}, query: { path: 'a.txt' } }, {}, null, undefined, 'a.txt']) {
+      expect(() => extract(req), JSON.stringify(req)).to.throw(InvalidArgument, /url parameter path/);
+    }
+    expect(() => extract({ params: Object.create({ path: 'a.txt' }) })).to.throw(InvalidArgument);
+  });
+
+  it('refuses a filesystem name or a parameter name it cannot use when it is built', () => {
+    for (const [fsName, param] of [
+      ['', 'path'],
+      ['a:b', 'path'],
+      ['uploads', ''],
+    ]) {
+      expect(() => fromFsPath(fsName, param), `${fsName} ${param}`).to.throw(InvalidArgument);
+    }
+  });
+});
+
+describe('authz-fs api', () => {
   it('abstract classes are runtime exports and take minimal fakes', async () => {
     for (const k of ['FsDecorator', 'FileMetadataStore', 'FsPathResolver']) {
       expect((root as any)[k], k).to.be.a('function');

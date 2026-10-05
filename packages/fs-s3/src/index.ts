@@ -404,6 +404,31 @@ export class fsS3 extends fs {
   }
 
   /**
+   * Replaces the user metadata of an object ( x-amz-meta-* ) with `metadata`, keeping its content and content headers.
+   * S3 cannot edit metadata in place: the object is copied onto itself, so this is limited to objects of up to 5 GB.
+   */
+  public async setMetadata(path: string, metadata: Record<string, string>): Promise<void> {
+    const head = await this.S3.send(new HeadObjectCommand({ Bucket: this.Options.bucket, Key: path }));
+
+    await this.S3.send(
+      new CopyObjectCommand({
+        Bucket: this.Options.bucket,
+        Key: path,
+        CopySource: `${this.Options.bucket}/${path.split('/').map(encodeURIComponent).join('/')}`,
+        MetadataDirective: 'REPLACE',
+        Metadata: metadata,
+        // REPLACE drops every header not given again
+        ContentType: head.ContentType,
+        ContentEncoding: head.ContentEncoding,
+        ContentDisposition: head.ContentDisposition,
+        ContentLanguage: head.ContentLanguage,
+        CacheControl: head.CacheControl,
+        Expires: head.Expires,
+      }),
+    );
+  }
+
+  /**
    *
    * Returns writable stream for given path. Data written to the returned stream
    * is uploaded to s3 via multipart streaming upload ( @aws-sdk/lib-storage ).
@@ -584,8 +609,7 @@ export class fsS3 extends fs {
     };
   }
 
-  public async getSignedUrl(path: string) {
-
+  public async signedUrl(path: string, opts?: { until?: DateTime; disposition?: string }): Promise<string> {
     if (!this.Signer) {
       throw new InvalidOperation(`Cannot sign url for this S3, no signer service configured`);
     }
@@ -595,8 +619,12 @@ export class fsS3 extends fs {
       throw new IOFail(`File ${path} does not exists in bucket ${this.Options.bucket}, fs: ${this.Options.name}`);
     }
 
+    // Neither signer supports a content disposition yet, so opts.disposition is not applied.
+    return this.Signer.sign(path, opts?.until);
+  }
 
-    return this.Signer.sign(path);
+  public async getSignedUrl(path: string, until?: DateTime) {
+    return this.signedUrl(path, { until });
   }
 
   public tmppath(): string {
