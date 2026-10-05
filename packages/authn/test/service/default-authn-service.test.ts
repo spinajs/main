@@ -6,7 +6,7 @@ import type { Class, IContainer } from '@spinajs/di';
 
 import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, DefaultAuthnService, ExternalLoginHook, MemoryAuthnThrottle, MfaPolicy, MfaStep } from '../../src/index.js';
 import type { AuthenticationResult, AuthnContext, AuthnEvent, AuthnFacts, Credentials, ExternalSubject, IdentityRef, SessionHandle, StrategyOutcome, ThrottleFlow, ThrottleKey } from '../../src/index.js';
-import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { KIT_MFA_STEP, bind, buildCore, pinConfiguration, useHarnessLog } from '../behaviour/harness.js';
 import { TestLog } from '../audit/test-log.js';
 import type { CoreOptions, CoreParts, StrategySpec } from '../behaviour/harness.js';
 
@@ -123,7 +123,7 @@ describe('DefaultAuthnService', function () {
 
   async function boot(strategies: FakeStrategy[] | undefined, opts: CoreOptions = {}, config = {}): Promise<CoreParts> {
     parts = await buildCore(config, {
-      throttle: (c: Configuration) => (throttle = new RecordingThrottle(c)),
+      throttle: (_c: Configuration, k: IContainer) => (throttle = pinConfiguration(new RecordingThrottle(), k)),
       ...(strategies ? { strategies: strategies.map((s) => spec(s)) } : {}),
       ...opts,
     });
@@ -488,7 +488,7 @@ describe('DefaultAuthnService', function () {
           return this.inner.succeed(keys, flow);
         }
       }
-      parts = await buildCore({}, { strategies: [spec(keyLike())], throttle: (c) => new NoPeek(new MemoryAuthnThrottle(c)) });
+      parts = await buildCore({}, { strategies: [spec(keyLike())], throttle: (_c, k) => new NoPeek(pinConfiguration(new MemoryAuthnThrottle(), k)) });
       const p = parts;
       p.identities.add({ id: OWNER.id, login: 'owner@example.test' });
       const free = DEFAULT_THROTTLE_PARAMS.login.account!.free;

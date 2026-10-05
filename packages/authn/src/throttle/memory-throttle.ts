@@ -1,15 +1,15 @@
 import { createHmac, randomBytes } from 'node:crypto';
 
-import { DI, Inject, Injectable, Singleton } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { DI, Injectable, Singleton } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Log } from '@spinajs/log-common';
 
 import { AuthnThrottle } from '../contracts/throttle.js';
 import type { ThrottleFlow, ThrottleKey } from '../contracts/throttle.js';
 import type { AuthnContext } from '../contracts/credentials.js';
-import { DEFAULT_THROTTLE_MAX_ROWS, THROTTLE_FLOWS, backoffDelayMs, checkMaxRows, checkThrottleParams, readThrottleConfig } from './params.js';
-import type { BackoffParams, ThrottleFlowParams, ThrottleParams } from './params.js';
+import { DEFAULT_THROTTLE_MAX_ROWS, THROTTLE_FLOWS, backoffDelayMs } from './params.js';
+import type { BackoffParams, ThrottleConfig, ThrottleFlowParams, ThrottleParams } from './params.js';
 import type { PeekableThrottle } from './peek.js';
 
 export interface ThrottleRow {
@@ -51,14 +51,12 @@ const HOLD_OFF_MS = 1000;
 
 const refused = (waitMs: number): Verdict => ({ allowed: false, retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)) });
 
-const isConfiguration = (v: unknown): v is Configuration => v !== null && typeof v === 'object' && typeof (v as Configuration).get === 'function';
-
 /**
  * Backoff per key, never a lock (A05, A06, H31), for a single app instance. `attempt` checks every gating key and
  * claims the slot with no `await` in between, so parallel attempts are atomic. Rows are keyed by an HMAC of
  * `flow|kind|value` under a random per-instance secret (D7).
  *
- * Capacity: each flow has its own table of at most `maxRows` rows (default 1,000,000; a fresh login attempt adds 3),
+ * Capacity: each flow has its own table of at most `maxRows` rows (schema default 1,000,000; a fresh login attempt adds 3),
  * so traffic in one flow never evicts another flow's rows. Each attempt sweeps a few expired rows. When a table is
  * full, rows that delay nobody at that moment are evicted, oldest last attempt first: first expired rows and rows
  * below their key's `free`, then rows deeper in backoff, which loses their count between two slots. A row that is
@@ -67,29 +65,38 @@ const isConfiguration = (v: unknown): v is Configuration => v !== null && typeof
  */
 @Singleton()
 @Injectable(AuthnThrottle)
-@Inject(Configuration)
 export class MemoryAuthnThrottle extends AuthnThrottle implements PeekableThrottle {
-  public readonly params: ThrottleParams;
-  public readonly maxRows: number;
+  @Config('authn.throttle')
+  protected Throttle: ThrottleConfig;
+
   protected readonly tables: Readonly<Record<ThrottleFlow, ThrottleTable>>;
   protected sweepBatch = SWEEP_BATCH;
   private readonly secret = randomBytes(32);
   private seq = 0;
+  private loaded: { readonly params: ThrottleParams; readonly maxRows: number | undefined } | undefined;
 
-  /** DI passes the Configuration (`authn.throttle`); tests pass complete params. */
-  constructor(source: Configuration | ThrottleParams, options: MemoryThrottleOptions = {}) {
+  /** DI passes nothing and the limits come from `authn.throttle`; tests pass complete, trusted params. */
+  constructor(private readonly explicit?: ThrottleParams, private readonly options: MemoryThrottleOptions = {}) {
     super();
-    if (isConfiguration(source)) {
-      const raw: unknown = source.get('authn.throttle');
-      this.params = readThrottleConfig(raw);
-      const configured = (raw as { maxRows?: unknown } | null | undefined)?.maxRows;
-      this.maxRows = options.maxRows !== undefined ? checkMaxRows(options.maxRows) : configured !== undefined ? checkMaxRows(configured, 'authn.throttle.maxRows') : DEFAULT_THROTTLE_MAX_ROWS;
-    } else {
-      this.params = checkThrottleParams(source);
-      this.maxRows = checkMaxRows(options.maxRows ?? DEFAULT_THROTTLE_MAX_ROWS);
-    }
     const table = (): ThrottleTable => ({ rows: new Map(), cursor: undefined, fullUntilMs: 0, fullReported: false });
     this.tables = Object.freeze({ login: table(), mfa: table(), reset: table(), reauth: table() });
+  }
+
+  public get params(): ThrottleParams {
+    return this.explicit ?? this.configured.params;
+  }
+
+  public get maxRows(): number {
+    return this.options.maxRows ?? (this.explicit ? undefined : this.configured.maxRows) ?? DEFAULT_THROTTLE_MAX_ROWS;
+  }
+
+  // Read once: the tables and their eviction assume fixed limits.
+  private get configured(): { readonly params: ThrottleParams; readonly maxRows: number | undefined } {
+    if (!this.loaded) {
+      const { service: _service, maxRows, ...params } = this.Throttle;
+      this.loaded = { params, maxRows };
+    }
+    return this.loaded;
   }
 
   public async attempt(keys: readonly ThrottleKey[], flow: ThrottleFlow, ctx: AuthnContext): Promise<Verdict> {

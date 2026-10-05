@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import 'mocha';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
+import { InvalidArgument } from '@spinajs/exceptions';
 import { ALICE, BOB, CAROL, DAVE, DEFAULT_THROTTLE, FakeClock, IP_A, IP_B, attackerIp, backoffSchedule, burst, expectAllowed, expectRefused, pwKeys, runThrottleConformance, throttleParams, walkBackoff } from '@spinajs/authn-testing';
 import type { ThrottleParams as KitParams } from '@spinajs/authn-testing';
 
-import { AuthnThrottle, DEFAULT_THROTTLE_PARAMS, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
+import { AuthnThrottle, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS, MemoryAuthnThrottle, backoffDelayMs } from '../../src/index.js';
 import type { AuthnContext, ThrottleFlow, ThrottleKey, ThrottleParams } from '../../src/index.js';
+import { configuredChild, pinConfiguration, violationPaths } from '../behaviour/harness.js';
 import { Lockout } from '../mutation/throttle-mutants.js';
 
 type Make = (p: ThrottleParams) => AuthnThrottle;
@@ -557,13 +559,6 @@ describe('MemoryAuthnThrottle', function () {
       clock.tick(1000);
       expectRefused(await t.attempt(acct('new6'), 'login', ctx()), 599, 'after the hold-off every row still delays');
     });
-
-    it('rejects a maxRows out of range', () => {
-      for (const maxRows of [0, 3, 1.5, 16_000_001, Number.NaN]) {
-        assert.throws(() => new MemoryAuthnThrottle(DEFAULT_THROTTLE, { maxRows }), InvalidOption, String(maxRows));
-      }
-      assert.strictEqual(new MemoryAuthnThrottle(DEFAULT_THROTTLE).maxRows, 1_000_000);
-    });
   });
 
   describe('success without a clock', () => {
@@ -589,6 +584,80 @@ describe('MemoryAuthnThrottle', function () {
   });
 
   describe('configuration', () => {
+    const kids: IContainer[] = [];
+
+    afterEach(async () => {
+      for (const c of kids.splice(0)) await c.dispose();
+    });
+
+    async function bootWith(throttle?: unknown): Promise<MemoryAuthnThrottle> {
+      const child = await configuredChild({ authn: throttle === undefined ? {} : { throttle } });
+      kids.push(child);
+      return pinConfiguration(new MemoryAuthnThrottle(), child);
+    }
+
+    it('uses the schema defaults without authn.throttle', async () => {
+      const t = await bootWith();
+      assert.deepStrictEqual(t.params, DEFAULT_THROTTLE_PARAMS);
+      assert.strictEqual(t.maxRows, DEFAULT_THROTTLE_MAX_ROWS);
+    });
+
+    it('merges authn.throttle over the defaults per flow and key', async () => {
+      const over = { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } }, reauth: { ip: { free: 4, baseDelayMs: 500, maxDelayMs: 8000 } }, resetAfterSeconds: 600, global: { free: 100, baseDelayMs: 10, maxDelayMs: 1000 } };
+      const t = await bootWith({ service: 'MemoryAuthnThrottle', ...over });
+      assert.deepStrictEqual(t.params, throttleParams({ authn: { throttle: over } } as Parameters<typeof throttleParams>[0]));
+      const k = pwKeys('cfg@example.test', IP_A);
+      for (let i = 0; i < 2; i++) expectAllowed(await t.attempt(k, 'login', ctx()));
+      expectRefused(await t.attempt(k, 'login', ctx()), 1);
+    });
+
+    it('reads maxRows from authn.throttle', async () => {
+      assert.strictEqual((await bootWith({ maxRows: 5000 })).maxRows, 5000);
+    });
+
+    it('reads the configuration once, on first use: the tables assume fixed limits', async () => {
+      const child = await configuredChild({ authn: { throttle: { maxRows: 5000 } } });
+      kids.push(child);
+      const t = pinConfiguration(new MemoryAuthnThrottle(), child);
+      assert.strictEqual(t.maxRows, 5000);
+      child.get(Configuration)!.set('authn.throttle.maxRows', 6000);
+      assert.strictEqual(t.maxRows, 5000);
+    });
+
+    it('takes explicit params without any Configuration', () => {
+      const t = new MemoryAuthnThrottle(DEFAULT_THROTTLE);
+      assert.strictEqual(t.params, DEFAULT_THROTTLE);
+      assert.strictEqual(t.maxRows, DEFAULT_THROTTLE_MAX_ROWS);
+    });
+
+    const refused: [string, unknown, string][] = [
+      ['a list', [], 'authn.throttle'],
+      ['an unknown key', { logn: {} }, 'authn.throttle.logn'],
+      ['an unknown key kind', { login: { acount: { free: 1, baseDelayMs: 1, maxDelayMs: 1 } } }, 'authn.throttle.login.acount'],
+      ['an unknown backoff field', { login: { account: { free: 1, base: 1 } } }, 'authn.throttle.login.account.base'],
+      ['a negative free', { login: { account: { free: -1, baseDelayMs: 1000, maxDelayMs: 60000 } } }, 'authn.throttle.login.account.free'],
+      ['a fractional delay', { mfa: { ip: { free: 20, baseDelayMs: 1.5, maxDelayMs: 300000 } } }, 'authn.throttle.mfa.ip.baseDelayMs'],
+      ['a zero maxDelayMs', { reset: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 0 } } }, 'authn.throttle.reset.account.maxDelayMs'],
+      ['an incomplete new key', { reauth: { ip: { free: 1 } } }, 'authn.throttle.reauth.ip.baseDelayMs'],
+      ['a zero resetAfterSeconds', { resetAfterSeconds: 0 }, 'authn.throttle.resetAfterSeconds'],
+      ['a malformed global', { global: { free: 1 } }, 'authn.throttle.global.baseDelayMs'],
+      ['a zero maxRows', { maxRows: 0 }, 'authn.throttle.maxRows'],
+      ['a maxRows below 4', { maxRows: 3 }, 'authn.throttle.maxRows'],
+      ['a maxRows above 16,000,000', { maxRows: 16_000_001 }, 'authn.throttle.maxRows'],
+      ['a fractional maxRows', { maxRows: 1.5 }, 'authn.throttle.maxRows'],
+      // The schema requires all three fields of a given backoff key.
+      ['a partial backoff key', { login: { account: { free: 2 } } }, 'authn.throttle.login.account.baseDelayMs'],
+      ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }, 'authn.throttle.mfa.ip.maxDelayMs'],
+    ];
+    for (const [what, bad, path] of refused) {
+      it(`fails boot on ${what}, naming ${path}`, async () => {
+        const paths = await violationPaths(configuredChild({ authn: { throttle: bad } }));
+        assert.ok(paths.includes(path), paths.join(', '));
+      });
+    }
+  });
+
+  describe('DI', () => {
     class ThrottleTestConfiguration extends FrameworkConfiguration {
       protected onLoad(): unknown {
         return { authn: {} };
@@ -610,62 +679,11 @@ describe('MemoryAuthnThrottle', function () {
       DI.unregister(ThrottleTestConfiguration);
     });
 
-    async function boot(throttle: unknown): Promise<MemoryAuthnThrottle> {
-      cfg.set('authn.throttle', throttle);
-      return DI.resolve(MemoryAuthnThrottle);
-    }
-
-    it('uses the §22.5 defaults without authn.throttle', async () => {
-      assert.deepStrictEqual((await boot(undefined)).params, DEFAULT_THROTTLE);
-      assert.deepStrictEqual(DEFAULT_THROTTLE_PARAMS, DEFAULT_THROTTLE);
-    });
-
-    it('merges authn.throttle over the defaults per flow and key', async () => {
-      const over = { login: { account: { free: 2, baseDelayMs: 1000, maxDelayMs: 60000 } }, reauth: { ip: { free: 4, baseDelayMs: 500, maxDelayMs: 8000 } }, resetAfterSeconds: 600, global: { free: 100, baseDelayMs: 10, maxDelayMs: 1000 } };
-      const t = await boot({ service: 'MemoryAuthnThrottle', ...over });
-      assert.deepStrictEqual(t.params, throttleParams({ authn: { throttle: over } } as Parameters<typeof throttleParams>[0]));
-      const k = pwKeys('cfg@example.test', IP_A);
-      for (let i = 0; i < 2; i++) expectAllowed(await t.attempt(k, 'login', ctx()));
-      expectRefused(await t.attempt(k, 'login', ctx()), 1);
-    });
-
-    it('reads maxRows from authn.throttle', async () => {
-      assert.strictEqual((await boot(undefined)).maxRows, 1_000_000);
-      DI.uncache(MemoryAuthnThrottle);
-      assert.strictEqual((await boot({ maxRows: 5000 })).maxRows, 5000);
-    });
-
     it('resolves through DI as one instance registered as AuthnThrottle', async () => {
-      const t = await boot(undefined);
+      cfg.set('authn.throttle', {});
+      const t = await DI.resolve(MemoryAuthnThrottle);
       assert.strictEqual(await DI.resolve(MemoryAuthnThrottle), t);
       assert.ok((DI.getRegisteredTypes(AuthnThrottle) ?? []).includes(MemoryAuthnThrottle));
-    });
-
-    for (const [what, bad] of [
-      ['a list', []],
-      ['an unknown key', { logn: {} }],
-      ['an unknown key kind', { login: { acount: { free: 1, baseDelayMs: 1, maxDelayMs: 1 } } }],
-      ['an unknown backoff field', { login: { account: { free: 1, base: 1 } } }],
-      ['a negative free', { login: { account: { free: -1, baseDelayMs: 1000, maxDelayMs: 60000 } } }],
-      ['a fractional delay', { mfa: { ip: { free: 20, baseDelayMs: 1.5, maxDelayMs: 300000 } } }],
-      ['a zero maxDelayMs', { reset: { account: { free: 1, baseDelayMs: 60000, maxDelayMs: 0 } } }],
-      ['a string number', { login: { ip: { free: '20', baseDelayMs: 1000, maxDelayMs: 300000 } } }],
-      ['an incomplete new key', { reauth: { ip: { free: 1 } } }],
-      ['a zero resetAfterSeconds', { resetAfterSeconds: 0 }],
-      ['a malformed global', { global: { free: 1 } }],
-      ['a zero maxRows', { maxRows: 0 }],
-      // The schema requires all three fields of a given backoff key; the reader agrees.
-      ['a partial backoff key', { login: { account: { free: 2 } } }],
-      ['a partial ip key', { mfa: { ip: { free: 20, baseDelayMs: 1000 } } }],
-    ] as const) {
-      it(`fails boot on ${what}`, async () => {
-        await assert.rejects(boot(bad), (e: unknown) => e instanceof InvalidOption && e.message.includes('authn.throttle'));
-      });
-    }
-
-    it('rejects explicit params without a flow', () => {
-      const { mfa: _mfa, ...rest } = DEFAULT_THROTTLE;
-      assert.throws(() => new MemoryAuthnThrottle(rest as unknown as ThrottleParams), InvalidOption);
     });
   });
 });

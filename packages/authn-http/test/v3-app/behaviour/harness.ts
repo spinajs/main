@@ -248,7 +248,7 @@ function freshFakes(): CaseFakes {
   return {
     identities,
     passwords,
-    // Built from the case's config; MemoryAuthnThrottle reads authn.throttle when constructed.
+    // Built from the case's config; MemoryAuthnThrottle reads authn.throttle on first use.
     throttle: undefined as unknown as AuthnThrottle,
     step: new FakeMfaStep({ name: 'totp' }),
     guard: new FakeImpersonationGuard(),
@@ -461,7 +461,7 @@ export async function httpHarness(ctx: HarnessContext): Promise<Harness> {
   };
   try {
     const { MemoryAuthnThrottle, AuthnImpersonationService } = await import('@spinajs/authn');
-    fakes.throttle = new MemoryAuthnThrottle(config());
+    fakes.throttle = new MemoryAuthnThrottle();
     kit = fakes;
     useFakes(fakes);
     await uncacheCaseServices();

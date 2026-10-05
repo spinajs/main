@@ -32,7 +32,7 @@ export interface CoreOptions {
   /** Replaces the kit strategies. */
   readonly strategies?: readonly StrategySpec[];
   /** Builds the throttle registered as `MemoryAuthnThrottle` from the child's Configuration. */
-  readonly throttle?: (configuration: Configuration) => AuthnThrottle;
+  readonly throttle?: (configuration: Configuration, child: IContainer) => AuthnThrottle;
   /** Merged into the app config after the semantic overrides (keys ConfigOverrides lacks). */
   readonly raw?: Readonly<Record<string, unknown>>;
   readonly omit?: readonly Neighbour[];
@@ -228,7 +228,7 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
     useAuthnSchema(child);
     child.register(configurationOf(values, opts.unsetEnv ? undefined : (config.env ?? 'test'))).as(Configuration);
     const configuration = await child.resolve(Configuration);
-    const throttle = (opts.throttle ?? ((c) => new MemoryAuthnThrottle(c)))(configuration);
+    const throttle = (opts.throttle ?? ((_c, k) => pinConfiguration(new MemoryAuthnThrottle(), k)))(configuration, child);
     bind(child, AuthnThrottle, 'MemoryAuthnThrottle', throttle);
     const omit = new Set(opts.omit ?? []);
     const neighbours: [Neighbour, Class<unknown>, unknown][] = [

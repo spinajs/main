@@ -4,7 +4,7 @@ import { expect } from 'chai';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnService, ExternalLoginHook, AuthnThrottle, DefaultAuthnService, DEFAULT_THROTTLE_PARAMS, IdentityLinkStore, IdentityStore, MemoryAuthnThrottle, MfaStep, PrincipalFactory, SessionIssuer, StrategyRegistry } from '@spinajs/authn';
 import type { AuthenticationResult, Credentials, ExternalSubject, IdentityRef } from '@spinajs/authn';
 import { FakeIdentityStore, FakeMfaStep, MemoryLinkStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory } from '@spinajs/authn-testing';
 import { MemoryNonceStore, NonceStore } from '@spinajs/authn-orm';
@@ -71,8 +71,8 @@ async function core(linking: { jit: boolean; byVerifiedEmail: boolean }, provide
       },
     }),
   ).as(Configuration);
-  const configuration = await child.resolve(Configuration);
-  bind(child, AuthnThrottle, 'MemoryAuthnThrottle', new MemoryAuthnThrottle(configuration));
+  await child.resolve(Configuration);
+  bind(child, AuthnThrottle, 'MemoryAuthnThrottle', new MemoryAuthnThrottle(DEFAULT_THROTTLE_PARAMS));
   bind(child, IdentityStore, 'KitIdentityStore', identities);
   bind(child, IdentityLinkStore, 'KitIdentityLinkStore', links);
   bind(child, SessionIssuer, 'KitSessionIssuer', sessions);

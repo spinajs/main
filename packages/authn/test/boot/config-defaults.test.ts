@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import shipped from '../../src/config/authn.js';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 
 const expect = chai.expect;
@@ -52,9 +52,11 @@ describe('authn shipped config', () => {
     expect(authn.throttle).to.not.have.property('service');
   });
 
-  it('keeps the throttle block equal to the schema defaults', () => {
-    expect(authn.throttle).to.deep.eq(check({}).config.throttle);
-    expect(authn.throttle).to.deep.eq(clone(DEFAULT_THROTTLE_PARAMS));
+  it('keeps the throttle block equal to the schema defaults, maxRows aside', () => {
+    const { maxRows, ...limits } = check({}).config.throttle;
+    expect(maxRows).to.eq(DEFAULT_THROTTLE_MAX_ROWS);
+    expect(authn.throttle).to.deep.eq(limits);
+    expect(limits).to.deep.eq(clone(DEFAULT_THROTTLE_PARAMS));
   });
 
   it('keeps the other values equal to the code defaults', () => {
@@ -70,7 +72,7 @@ describe('authn shipped config', () => {
   it('passes the schema unchanged', () => {
     const r = check(authn);
     expect(r.paths).to.deep.eq([]);
-    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [] } });
+    expect(r.config).to.deep.eq({ ...clone(authn), mfa: { ...clone(authn.mfa), steps: [] }, throttle: { ...clone(authn.throttle), maxRows: DEFAULT_THROTTLE_MAX_ROWS } });
   });
 });
 
@@ -84,9 +86,9 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 0 }] } } }).paths).to.include('/local/pepper/previous/0/version');
   });
 
-  it('takes maxRows per throttle flow, 4 to 16,000,000, with no default', () => {
+  it('takes maxRows per throttle flow, 4 to 16,000,000, 1,000,000 by default', () => {
     expect(check({ throttle: { maxRows: 5000 } }).ok).to.eq(true);
-    expect(check({}).config.throttle).to.not.have.property('maxRows');
+    expect(check({}).config.throttle.maxRows).to.eq(1_000_000);
     for (const bad of [3, 16_000_001, 1.5]) expect(check({ throttle: { maxRows: bad } }).paths, String(bad)).to.include('/throttle/maxRows');
   });
 

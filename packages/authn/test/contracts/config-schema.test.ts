@@ -63,6 +63,7 @@ const THROTTLE_DEFAULTS = {
   reauth: { account: { free: 3, baseDelayMs: 1000, maxDelayMs: 300000 } },
   resetAfterSeconds: 86400,
   global: null as null | Json,
+  maxRows: 1_000_000,
 };
 
 // Design §22.5, with authn.oidc.providers holding one generic provider (discovery by issuer).
