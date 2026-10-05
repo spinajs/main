@@ -174,4 +174,4 @@ Status (N6): file moved to `legacy-v2/role-policy-actions.test.ts` with rows 1, 
 | 7 | 89 | access token role policy - defaults > _role_excluded > does not treat the prefix as a bare string match | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | done (C5): moved to `authz-rbac/test/token/rules.test.ts` > roleExcluded > does not treat the prefix as a bare string match (assertions unchanged) |
 | 8 | 95 | access token role policy - defaults > _role_excluded > excludes nothing when no patterns are given | move | C5 | authz-rbac/test/token/ (same function, unchanged assertions) | done (C5): moved to `authz-rbac/test/token/rules.test.ts` > roleExcluded > excludes nothing when no patterns are given (assertions unchanged) |
 
-Status (C5): rows 1-8 moved to `authz-rbac/test/token/rules.test.ts`; file deleted (C5 task 4). The 2.x `_role_excluded` and `OwnRolesTokenRolePolicy` stay in `src/legacy/` until R1.
+Status (C5): rows 1-8 moved to `authz-rbac/test/token/rules.test.ts`; file deleted (C5 task 4). The 2.x `_role_excluded` and `LegacyOwnRolesTokenRolePolicy` stay in `src/legacy/` until R1.

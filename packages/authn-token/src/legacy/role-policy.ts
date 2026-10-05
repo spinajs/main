@@ -14,7 +14,7 @@ import { AccessTokenRolePolicy } from './interfaces.js';
  * @deprecated 2.x API; use TokenService. R1 removes it.
  */
 @Injectable(AccessTokenRolePolicy)
-export class OwnRolesTokenRolePolicy extends AccessTokenRolePolicy {
+export class LegacyOwnRolesTokenRolePolicy extends AccessTokenRolePolicy {
   public async allowedRoles(owner: User, _profile?: string): Promise<string[]> {
     return [...owner.Role];
   }

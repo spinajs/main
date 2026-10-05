@@ -23,7 +23,7 @@ import '../../src/legacy/role-policy.js';
  *
  * Selected by name through `rbac.token.rolePolicy.service`, so only the nested
  * `profiles` block below runs against it; the rest of this suite keeps the
- * shipped `OwnRolesTokenRolePolicy`.
+ * shipped `LegacyOwnRolesTokenRolePolicy`.
  */
 @Injectable(AccessTokenRolePolicy)
 class CrudProfileStubPolicy extends AccessTokenRolePolicy {
@@ -93,7 +93,7 @@ describe('access token actions - crud', function () {
 
     after(async () => {
       const cfg = await DI.resolve(Configuration);
-      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+      cfg.set('rbac.token.rolePolicy.service', 'LegacyOwnRolesTokenRolePolicy');
     });
 
     beforeEach(() => {

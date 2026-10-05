@@ -102,13 +102,13 @@ const authnToken = {
        * implementation of AccessTokenRolePolicy registered under this name.
        */
       rolePolicy: {
-        service: 'OwnRolesTokenRolePolicy',
+        service: 'LegacyOwnRolesTokenRolePolicy',
       },
 
       /**
        * Role name patterns for a custom AccessTokenRolePolicy to consult - not
        * read by anything shipped in this package, including the default
-       * `OwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
+       * `LegacyOwnRolesTokenRolePolicy`. An exact name, or a name ending in `.*`
        * matching that prefix and everything under it; matching is implemented
        * by `_role_excluded(role, patterns)` in `src/legacy/role-policy.ts`. Empty by
        * default: this package has no opinion about which of an application's
