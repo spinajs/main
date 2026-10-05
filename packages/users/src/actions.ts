@@ -12,7 +12,7 @@ import { UserEvent } from './events/UserEvent.js';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserIsBanned, UserNotActive } from './exceptions.js';
+import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned, UserNotActive } from './exceptions.js';
 import { createHash, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
@@ -508,6 +508,8 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
   const clashes: string[] = [];
 
   if (login) {
+    assertLoginNotReserved(login);
+
     const found = await User.query().withDeleted().where('Login', login).first();
     if (found && found.Id !== exceptUserId) {
       clashes.push('Login');
@@ -523,6 +525,16 @@ export async function assertUserUnique(login?: string, email?: string, exceptUse
 
   if (clashes.length > 0) {
     throw new UserAlreadyExists(`${clashes.join(' and ')} already in use`, { fields: clashes });
+  }
+}
+
+/**
+ * Refuses a login {@link isReservedLogin} reserves for the accounts the framework seeds: an `InvalidArgument`
+ * on field `login`. {@link assertUserUnique} applies it, so a rename is refused too.
+ */
+export function assertLoginNotReserved(login: string): void {
+  if (isReservedLogin(login)) {
+    throw new InvalidArgument(`Login ${login} is reserved`, 'login');
   }
 }
 
@@ -583,9 +595,7 @@ export async function create(dataOrEmail: ICreateUserData | string, a?: string |
 async function createUser(data: ICreateUserData, roles: string[] | undefined, actor: Principal): Promise<ICreateUserResult> {
   const email = _check_arg(_trim(), _non_empty(), _is_email(), _max_length(64))(data?.Email, 'email');
   const login = _check_arg(_trim(), _non_empty(), _max_length(32))(data?.Login, 'login');
-  if (isReservedLogin(login)) {
-    throw new InvalidArgument(`Login ${login} is reserved`, 'login');
-  }
+  assertLoginNotReserved(login);
 
   const password = typeof data.Password === 'string' && data.Password !== '' ? data.Password : undefined;
   const metadata = data.Metadata;
@@ -644,23 +654,32 @@ async function createUser(data: ICreateUserData, roles: string[] | undefined, ac
     throw err;
   }
 
-  if (metadata !== undefined) {
-    await setUserMeta(
-      u,
-      Object.entries(metadata).map(([key, value]) => ({ key, value })),
-    );
-  }
+  // The account exists and keeps its roles from here on, so a failure is not a reason to remove it; the caller
+  // learns which account it is and whether to send the invite again.
+  let invited = false;
+  try {
+    if (metadata !== undefined) {
+      await setUserMeta(
+        u,
+        Object.entries(metadata).map(([key, value]) => ({ key, value })),
+      );
+    }
 
-  u = await runCreateMiddleware(u, 'users.actions.create.afterCreate');
+    u = await runCreateMiddleware(u, 'users.actions.create.afterCreate');
 
-  await ev(new UserCreated(u, roleNames));
+    await ev(new UserCreated(u, roleNames));
 
-  // The account exists and keeps its roles from here on: an invite that fails is the caller's to
-  // re-send (PasswordService.invite), not a reason to remove the account.
-  if (password === undefined) {
-    await passwords.invite(ref, ctx, { actor: by });
-  } else {
-    await sendUserEmail(u, 'created');
+    if (password === undefined) {
+      await passwords.invite(ref, ctx, { actor: by });
+      invited = true;
+    } else {
+      await sendUserEmail(u, 'created');
+    }
+  } catch (err) {
+    const error = (err as Error)?.name ?? typeof err;
+    const resendInvite = password === undefined && !invited;
+    const invite = resendInvite ? '; its invite was not sent, send it again with PasswordService.invite' : '';
+    throw new UserCreatedIncomplete(`Account ${uuid} was created, but a later step failed (${error})${invite}`, { user: uuid, resendInvite, error });
   }
 
   return { User: u };

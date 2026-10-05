@@ -1,7 +1,6 @@
 // tslint:disable-next-line: no-var-requires
 
 import { IPasswordPolicy, PasswordProvider, PasswordValidationProvider } from './interfaces.js';
-import { NO_PASSWORD } from './models/User.js';
 import * as argon from 'argon2';
 import { Autoinject, Injectable } from '@spinajs/di';
 import { AutoinjectService, Config } from '@spinajs/configuration';
@@ -58,8 +57,9 @@ export class BasicPasswordProvider implements PasswordProvider {
    * @param password - password to validate
    */
   public async verify(hash: string, password: string): Promise<boolean> {
-    // argon2 throws on a value that is not a hash, which a login would report as a server error.
-    if (hash === NO_PASSWORD) {
+    // argon2 throws on a value that is not a hash, which a login would report as a server error. No hash starts
+    // with '!': the markers NO_PASSWORD and authn-local's '!expired' do.
+    if (typeof hash === 'string' && hash.startsWith('!')) {
       return false;
     }
 

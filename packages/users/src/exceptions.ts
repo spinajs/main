@@ -45,6 +45,15 @@ export class UserNotActive extends AuthenticationException {}
 export class UserAlreadyExists extends RbacException {}
 
 /**
+ * Thrown by `create()` when a step after the grants failed: the account exists and keeps its roles, so a retry
+ * would get {@link UserAlreadyExists}. `data`: `user` (the Uuid), `resendInvite` (the invite was due and not sent:
+ * send it with `PasswordService.invite`), `error` (the failure's class; its message is left out, it may echo a secret).
+ */
+export class UserCreatedIncomplete extends RbacException {
+  public declare data: { user: string; resendInvite: boolean; error: string };
+}
+
+/**
  * Thrown when user metadata relation was not populated before use.
  */
 export class MetadataNotPopulated extends RbacException {}

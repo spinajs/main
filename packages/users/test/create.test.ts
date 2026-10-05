@@ -15,11 +15,11 @@ import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, InvalidCredentials, PasswordProvider, SimpleDbAuthProvider, User, UserCreated, USER_COMMON_METADATA, passwordMatch } from '../src/index.js';
+import { AuthProvider, InvalidCredentials, PasswordProvider, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA, passwordMatch } from '../src/index.js';
 import { create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
-import { passwordCalls, resetPasswordCalls } from './support/password-service.js';
+import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
 
 chai.use(chaiAsPromised);
 
@@ -151,6 +151,23 @@ describe('create(user, roles?)', function () {
       expect(emit.args.map((a) => a[0]).filter((e) => e instanceof EmailSend)).to.have.lengthOf(1);
     });
 
+    it('that PasswordService.set refuses after the insert removes the account again', async () => {
+      sinon.stub(TestPasswordService.prototype, 'set').resolves({ status: 'rejected', violations: ['rule'] });
+
+      const err = await rejection(create({ Email: 'setrefused@spinajs.pl', Login: 'setrefused', Password: 'passw0rd123' }));
+
+      expect(err).to.be.instanceOf(InvalidArgument);
+      await nothingWritten('setrefused');
+    });
+
+    it('that PasswordService.set fails to store removes the account again and rethrows', async () => {
+      sinon.stub(TestPasswordService.prototype, 'set').rejects(new Error('credential store down'));
+
+      await expect(create({ Email: 'setfailed@spinajs.pl', Login: 'setfailed', Password: 'passw0rd123' })).to.be.rejectedWith('credential store down');
+
+      await nothingWritten('setfailed');
+    });
+
     it('is not returned', async () => {
       const result = await create({ Email: 'noecho@spinajs.pl', Login: 'noecho', Password: 'passw0rd123' });
 
@@ -184,6 +201,34 @@ describe('create(user, roles?)', function () {
 
       const auth = (await DI.resolve(AuthProvider)) as SimpleDbAuthProvider;
       await expect(auth.authenticate('nologin@spinajs.pl', 'passw0rd123')).to.be.rejectedWith(InvalidCredentials);
+    });
+
+    it('that fails to invite says the account exists, with its Uuid, so the invite can be sent again', async () => {
+      sinon.stub(TestPasswordService.prototype, 'invite').rejects(new Error('mail down: https://app.test/reset?token=s3cret'));
+
+      const err = await rejection(create({ Email: 'uninvited@spinajs.pl', Login: 'uninvited' }, ['editor']));
+
+      const user = await User.query().whereLogin('uninvited').firstOrFail();
+      expect(err).to.be.instanceOf(UserCreatedIncomplete);
+      expect((err as UserCreatedIncomplete).data).to.deep.eq({ user: user.Uuid, resendInvite: true, error: 'Error' });
+      expect(err.message).to.contain(user.Uuid);
+      expect(JSON.stringify({ message: err.message, data: (err as UserCreatedIncomplete).data, inner: (err as { inner?: unknown }).inner ?? null })).to.not.contain('s3cret');
+      expect(await globalRolesOf(user.Uuid)).to.deep.eq(['editor']);
+    });
+
+    it('whose afterCreate fails says the account exists and was not invited', async () => {
+      DI.get(Configuration)!.set('users.actions.create.afterCreate', [
+        () => {
+          throw new Error('mirror down');
+        },
+      ]);
+
+      const err = await rejection(create({ Email: 'aftercreate@spinajs.pl', Login: 'aftercreate' }));
+
+      const user = await User.query().whereLogin('aftercreate').firstOrFail();
+      expect(err).to.be.instanceOf(UserCreatedIncomplete);
+      expect((err as UserCreatedIncomplete).data).to.deep.include({ user: user.Uuid, resendInvite: true });
+      expect(passwordCalls.map((c) => c.method)).to.deep.eq([]);
     });
 
     it('sends no users mail and writes no reset token', async () => {

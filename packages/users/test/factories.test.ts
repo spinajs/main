@@ -13,7 +13,7 @@ import { SYSTEM } from '@spinajs/authz';
 import { join, normalize, resolve } from 'path';
 
 import { AuthProvider, PasswordProvider, SimpleDbAuthProvider, SYSTEM_LOGIN, User, isReservedLogin } from '../src/index.js';
-import { create } from '../src/actions.js';
+import { assertUserUnique, create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -109,6 +109,18 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
         expect(err).to.be.instanceOf(InvalidArgument);
         expect((err as InvalidArgument).fieldName).to.eq('login');
         expect(await User.query().withDeleted().whereLogin(login).first()).to.not.exist;
+      });
+    }
+
+    for (const login of [SYSTEM_LOGIN, '＿＿system＿＿']) {
+      it(`assertUserUnique refuses the login ${login}, so a rename cannot take it`, async () => {
+        const err = await assertUserUnique(login, undefined, 1).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+
+        expect(err).to.be.instanceOf(InvalidArgument);
+        expect((err as InvalidArgument).fieldName).to.eq('login');
       });
     }
 

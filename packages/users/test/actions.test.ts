@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, changePassword, _user_update, passwordChangeRequest, confirmPasswordReset, passwordMatch, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, UserPasswordChangeRequest, CreateMiddleware, SessionProvider, UserSession, issuePasswordResetToken } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { UserAlreadyExists } from '../src/exceptions.js';
+import { UserAlreadyExists, UserCreatedIncomplete } from '../src/exceptions.js';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { join, normalize, resolve } from 'path';
@@ -360,7 +360,7 @@ describe('User model tests', function () {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
     sinon.stub(TestPasswordService.prototype, 'invite').rejects(new Error('secret store down'));
 
-    await expect(create('nolink@wp.pl', 'nolink', ['admin'])).to.be.rejectedWith('secret store down');
+    await expect(create('nolink@wp.pl', 'nolink', ['admin'])).to.be.rejectedWith(UserCreatedIncomplete, 'its invite was not sent');
 
     const u = await User.query().whereAnything('nolink@wp.pl').first();
     expect(u, 'the account must survive a failed invite').to.exist;
