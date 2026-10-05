@@ -5,12 +5,12 @@ import { DefaultQueueService } from '@spinajs/queue';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
-import { SYSTEM } from '@spinajs/authz';
+import { SYSTEM, UNATTENDED, runWithPrincipal } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 
-import { LoginAttemptsExceeded, PasswordChangeConflict, PasswordProvider, SessionProvider, TokenInvalid, USER_COMMON_METADATA, User, UserMetadataBase, UserPasswordStore, UserSession } from '../src/index.js';
+import { LoginAttemptsExceeded, PasswordChangeConflict, PasswordProvider, SessionProvider, TokenInvalid, USER_COMMON_METADATA, User, UserIsBanned, UserMetadataBase, UserPasswordStore, UserSession } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
-import { _set_user_meta, activate, ban, changeUserPassword, confirmPasswordReset, create, deactivate, deleteUser, expirePassword, issuePasswordResetToken, passwordChangeRequest, setUserMeta } from '../src/actions.js';
+import { _set_user_meta, activate, ban, changeUserPassword, confirmPasswordReset, create, deactivate, deleteUser, expirePassword, issuePasswordResetToken, passwordChangeRequest, revokeUserTokens, setUserMeta } from '../src/actions.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
 import { RecordingSessionIssuer, registerRecordingSessionIssuer } from './support/session-issuer.js';
@@ -18,6 +18,10 @@ import { RecordingTokenService, registerRecordingTokenService } from './support/
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 
 const FACTS = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() } as const;
+
+const ADMIN: Principal = Object.freeze({ type: 'user', id: TEST_USER_UUID, authenticated: true, source: 'session', attributes: Object.freeze({}) });
+// authz-http's anonymous principal; users does not depend on authz-http.
+const ANONYMOUS: Principal = Object.freeze({ type: 'anonymous', id: 'anonymous', authenticated: false, source: 'anonymous', attributes: Object.freeze({}) });
 
 /** Keys of authentication state, which 3.0 never keeps in identity metadata (A12). */
 const AUTH_STATE = /^(user:pwd_reset:|user:pwd:|user:login:|2fa:|user:2fa:)/;
@@ -98,22 +102,27 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
 
   describe('token revocation (N8a hand-off)', () => {
     const userRef = (u: { Uuid: string }): IdentityRef => ({ type: 'user', id: u.Uuid });
+    const failFirstRevocation = (): void => {
+      const stub = sinon.stub(RecordingTokenService.prototype, 'revokeAllFor').callThrough();
+      stub.onFirstCall().rejects(new Error('token store down'));
+    };
 
     for (const [title, act] of [
       ['ban', (u: User) => ban(u)],
       ['deactivate', (u: User) => deactivate(u)],
       ['deleteUser', (u: User) => deleteUser(u)],
     ] as const) {
-      it(`${title} revokes every API and agent token of user:<Uuid> through TokenService.revokeAllFor`, async () => {
+      it(`${title} revokes every API and agent token of user:<Uuid> through TokenService.revokeAllFor, naming the caller`, async () => {
         const { user } = await seedUser({ login: `tokens-${title}` });
 
-        await act(await storedUser(user.Uuid));
+        await runWithPrincipal(ADMIN, async () => act(await storedUser(user.Uuid)));
 
         expect(RecordingTokenService.calls.map((c) => c.owner)).to.deep.eq([userRef(user)]);
-        const [{ ctx, opts }] = RecordingTokenService.calls;
+        const [{ ctx, opts, ambient }] = RecordingTokenService.calls;
         expect(ctx.purpose).to.eq('request');
         expect(ctx.now).to.be.instanceOf(Date);
-        expect(opts, 'the action names no actor').to.eq(undefined);
+        expect(opts).to.deep.eq({ actor: { type: 'user', id: ADMIN.id } });
+        expect(ambient, 'the audit sinks run as the caller, never as SYSTEM').to.eq(ADMIN);
       });
 
       it(`${title} propagates a token revocation failure`, async () => {
@@ -121,6 +130,54 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
         const { user } = await seedUser({ login: `tokens-fail-${title}` });
 
         await expect(act(await storedUser(user.Uuid))).to.be.rejectedWith('token store down');
+      });
+
+      it(`${title} after a failed token revocation is finished by revokeUserTokens`, async () => {
+        failFirstRevocation();
+        const { user } = await seedUser({ login: `tokens-retry-${title}` });
+
+        await expect(act(await storedUser(user.Uuid))).to.be.rejectedWith('token store down');
+        // By numeric id: a soft-deleted row is still found.
+        await revokeUserTokens(user.Id);
+
+        expect(RecordingTokenService.calls.map((c) => c.owner)).to.deep.eq([userRef(user)]);
+      });
+    }
+
+    it('a ban whose token revocation failed is stored, cannot be repeated, and revokeUserTokens ends the tokens', async () => {
+      failFirstRevocation();
+      const { user } = await seedUser({ login: 'tokens-retry-ban' });
+
+      await expect(ban(await storedUser(user.Uuid))).to.be.rejectedWith('token store down');
+      const stored = await storedUser(user.Uuid);
+      expect(stored.IsBanned).to.eq(true);
+      await expect(ban(stored)).to.be.rejectedWith(UserIsBanned);
+
+      await revokeUserTokens(stored);
+
+      expect(RecordingTokenService.calls.map((c) => c.owner)).to.deep.eq([userRef(user)]);
+    });
+
+    it('revokeUserTokens of an unknown numeric id revokes nothing', async () => {
+      await revokeUserTokens(987654);
+
+      expect(RecordingTokenService.calls).to.deep.eq([]);
+    });
+
+    for (const [title, caller, actor] of [
+      ['SYSTEM', SYSTEM, { type: 'system', id: SYSTEM.id }],
+      ['UNATTENDED', undefined, undefined],
+      ['an anonymous caller', ANONYMOUS, undefined],
+    ] as const) {
+      it(`a ban run by ${title} passes ${actor ? 'it as the actor' : 'no actor'}`, async () => {
+        const { user } = await seedUser({ login: `tokens-actor-${title.replace(/\W/g, '')}` });
+        const run = async () => ban(await storedUser(user.Uuid));
+
+        await (caller ? runWithPrincipal(caller, run) : run());
+
+        const [{ opts, ambient }] = RecordingTokenService.calls;
+        expect(opts).to.deep.eq(actor ? { actor } : undefined);
+        expect(ambient).to.eq(caller ?? UNATTENDED);
       });
     }
 

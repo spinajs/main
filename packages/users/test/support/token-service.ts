@@ -1,11 +1,15 @@
 import { DI } from '@spinajs/di';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
+import { currentPrincipal } from '@spinajs/authz';
+import type { Principal } from '@spinajs/authz';
 
 export interface RevokeAllForCall {
   readonly owner: IdentityRef;
   readonly ctx: AuthnContext;
   readonly opts?: { readonly actor?: PrincipalRef };
+  /** authn-token's audit sinks run under this principal. */
+  readonly ambient: Principal;
 }
 
 /** One per process, recording every revokeAllFor; users calls nothing else on a TokenService. */
@@ -13,7 +17,7 @@ export class RecordingTokenService extends TokenService {
   public static readonly calls: RevokeAllForCall[] = [];
 
   public async revokeAllFor(owner: IdentityRef, ctx: AuthnContext, opts?: { readonly actor?: PrincipalRef }): Promise<number> {
-    RecordingTokenService.calls.push({ owner, ctx, ...(opts ? { opts } : {}) });
+    RecordingTokenService.calls.push({ owner, ctx, ...(opts ? { opts } : {}), ambient: currentPrincipal() });
     return 0;
   }
 

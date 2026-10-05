@@ -23,7 +23,7 @@ import { DEFAULT_ROLES_KEY, assignGlobalRoles, defaultRoles, globalRoleHolders, 
 import { PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
-import { SYSTEM } from '@spinajs/authz';
+import { SYSTEM, currentPrincipal } from '@spinajs/authz';
 import { USERS_TABLE, isNoPassword, recordPasswordSetAt, usersDriver, usersMatchingLogin } from './identity/sql.js';
 import { UserPasswordStore } from './identity/password-store.js';
 import { UserIdentityStore } from './identity/identity-store.js';
@@ -242,14 +242,30 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
  * Ends every API and agent token of `user:<Uuid>` through `TokenService.revokeAllFor` when one is registered (none: no
  * tokens exist). Validation already refuses a token of a banned, inactive or deleted owner; revoking keeps an unban,
  * a reactivation or a restored row from bringing the tokens back. Errors propagate, as in {@link revokeUserSessions}.
+ *
+ * The `token.revoke` audit names the ambient principal as the actor, SYSTEM included; an unattended or anonymous
+ * caller is no one to name. The call runs as that caller, not as SYSTEM: authn-token's audit sinks run inside it, and
+ * what they queue would be stamped with SYSTEM.
+ *
+ * @param user - the user whose tokens are revoked, or their numeric id (soft-deleted rows included)
  */
-async function revokeUserTokens(u: User): Promise<void> {
+export async function revokeUserTokens(user: User | number): Promise<void> {
+  const actor = actorOf(currentPrincipal());
   if (!DI.RootContainer.hasRegistered(TokenService)) {
     return;
   }
 
+  const u = _.isNumber(user) ? await User.query().withDeleted().where('Id', user).first() : user;
+  if (!u?.Uuid) {
+    return;
+  }
+
   const tokens = (await DI.resolve(TokenService)) as TokenService;
-  await tokens.revokeAllFor(userRef(u.Uuid), actionContext());
+  await tokens.revokeAllFor(userRef(u.Uuid), actionContext(), actor ? { actor } : undefined);
+}
+
+function actorOf(p: Principal): PrincipalRef | undefined {
+  return p.type === 'unattended' || p.type === 'anonymous' ? undefined : { type: p.type, id: p.id };
 }
 
 // R1 deletes it with the 2.x session store.
@@ -369,7 +385,8 @@ export async function activate(identifier: number | string | User): Promise<User
 /**
  * Deactivates a user account.
  * Sets `IsActive` to `false`, ends its sessions and API and agent tokens, emits a {@link UserDeactivated} event, and
- * sends the deactivation email.
+ * sends the deactivation email. When a revocation throws, the deactivation is already stored: the caller finishes with
+ * {@link revokeUserSessions} and {@link revokeUserTokens}.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
@@ -730,7 +747,8 @@ async function createUser(data: ICreateUserData, roles: string[] | undefined, ac
 
 /**
  * Soft-deletes a user and ends its sessions ({@link revokeUserSessions}) and API and agent tokens.
- * Emits a {@link UserDeleted} event and sends the "deleted" email.
+ * Emits a {@link UserDeleted} event and sends the "deleted" email. When a revocation throws, the row is already
+ * deleted: the caller finishes with {@link revokeUserSessions} and {@link revokeUserTokens}, by numeric id.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
@@ -801,7 +819,8 @@ export async function revoke(identifier: number | string | User, role: string, a
 
 /**
  * Bans user for specified time. If duration is not given user is banned for 24h. Ends its sessions and API and agent
- * tokens.
+ * tokens. When a revocation throws, the ban is already stored (a second ban is refused): the caller finishes with
+ * {@link revokeUserSessions} and {@link revokeUserTokens}.
  *
  * @param identifier user identifier one of : id, uuid, email, login
  * @param reason reason for ban
