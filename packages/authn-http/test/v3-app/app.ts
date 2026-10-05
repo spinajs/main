@@ -92,8 +92,31 @@ export const tokens = new Map<string, IdentityRef>();
 export const tokenStrategy = FakeStrategy.bearer({ tokens, name: 'token' });
 export const events = new RecordingEventSink();
 
-function bind(base: Class<unknown> | (abstract new (...args: never[]) => unknown), name: string, value: unknown): void {
-  const factory = { [name]: () => value }[name];
+/** The instances the registrations below answer with; the behaviour harness swaps in a fresh set per case. */
+export interface AppFakes {
+  identities: FakeIdentityStore;
+  passwords: MemoryPasswordCredentialStore;
+  throttle: AuthnThrottle;
+  step: FakeMfaStep;
+  guard: FakeImpersonationGuard;
+  roles: FakeRoleSource;
+  principals: RecordingPrincipalFactory;
+  passwordStrategy: FakeStrategy;
+  tokenStrategy: FakeStrategy;
+  events: RecordingEventSink;
+}
+
+const shared: AppFakes = { identities, passwords, throttle, step, guard, roles, principals, passwordStrategy, tokenStrategy, events };
+let current: AppFakes = shared;
+
+/** From now on the registrations answer with `fakes`; without an argument, with the shared ones the account suites use. */
+export function useFakes(fakes: AppFakes = shared): void {
+  current = fakes;
+}
+
+/** A named factory (registries look services up by the registration's name) answering with the current fake. */
+export function bind(base: Class<unknown> | (abstract new (...args: never[]) => unknown), name: string, value: () => unknown): void {
+  const factory = { [name]: () => value() }[name];
   DI.register(factory).as(base as Class<unknown>);
 }
 
@@ -107,16 +130,16 @@ async function wire(): Promise<void> {
   wired = true;
   DI.setESMModuleSupport();
   DI.register(V3AppConfiguration).as(Configuration);
-  bind(IdentityStore, 'V3AppIdentityStore', identities);
-  bind(PasswordCredentialStore, 'V3AppPasswordStore', passwords);
-  bind(PrincipalFactory, 'V3AppPrincipalFactory', principals);
-  bind(AuthnThrottle, 'V3AppThrottle', throttle);
+  bind(IdentityStore, 'V3AppIdentityStore', () => current.identities);
+  bind(PasswordCredentialStore, 'V3AppPasswordStore', () => current.passwords);
+  bind(PrincipalFactory, 'V3AppPrincipalFactory', () => current.principals);
+  bind(AuthnThrottle, 'V3AppThrottle', () => current.throttle);
   // Before anything resolves AuthnAudit, which reads its sinks once.
-  bind(AuthnEventSink, 'V3AppEventSink', events);
-  bind(AuthenticationStrategy, 'V3AppPasswordStrategy', passwordStrategy);
-  bind(AuthenticationStrategy, 'V3AppTokenStrategy', tokenStrategy);
+  bind(AuthnEventSink, 'V3AppEventSink', () => current.events);
+  bind(AuthenticationStrategy, 'V3AppPasswordStrategy', () => current.passwordStrategy);
+  bind(AuthenticationStrategy, 'V3AppTokenStrategy', () => current.tokenStrategy);
   const { MfaStep } = await import('@spinajs/authn/contracts');
-  bind(MfaStep, 'V3AppMfaStep', step);
+  bind(MfaStep, 'V3AppMfaStep', () => current.step);
   DI.register(V3AppResponseExtension).as(AuthnResponseExtension);
   await registerAuthnHttpV3();
 }
@@ -129,25 +152,37 @@ async function wire(): Promise<void> {
 export async function switchHooksOn(): Promise<void> {
   if (hooksOn) return;
   hooksOn = true;
-  bind(RoleSource, 'V3AppRoleSource', roles);
-  bind(ImpersonationGuard, 'V3AppImpersonationGuard', guard);
+  bind(RoleSource, 'V3AppRoleSource', () => current.roles);
+  bind(ImpersonationGuard, 'V3AppImpersonationGuard', () => current.guard);
   // It reads the guard when it resolves, which a request with a session may have done already.
   const { AuthnImpersonationService } = await import('@spinajs/authn');
   DI.uncache(AuthnImpersonationService);
 }
 
-/** Boots the app without any app env (SR-16), so every cookie gets the production flags. */
-export async function startApp(): Promise<void> {
+let booted = false;
+
+/** Wires and boots the app (once per process) without any app env (SR-16), so every cookie gets the production flags. */
+export async function bootApp(): Promise<void> {
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
+  if (booted) return;
+  booted = true;
   await wire();
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) await b.bootstrap();
   await DI.resolve(Configuration);
   await DI.resolve(fsService);
+}
+
+export async function startServer(): Promise<void> {
   await DI.resolve(Controllers);
   await (await DI.resolve(HttpServer)).start();
+}
+
+export async function startApp(): Promise<void> {
+  await bootApp();
+  await startServer();
 }
 
 /** releaseHttpServer() of packages/http/test/common.ts, which imports http's sources and so cannot be shared. */
