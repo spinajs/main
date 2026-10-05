@@ -263,7 +263,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, freshAuth: { maxAgeSeconds: 300 }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -283,6 +283,7 @@ describe('authn.* configuration schema', () => {
         http: { csrf: { enabled: true, allowedOrigins: [] } },
         strategies: [],
         mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] },
+        freshAuth: { maxAgeSeconds: 300 },
         throttle: THROTTLE_DEFAULTS,
       });
     });
