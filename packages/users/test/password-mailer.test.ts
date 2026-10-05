@@ -45,14 +45,40 @@ describe('reset and invite mails (SR-09, C9 EmailPasswordMailer)', function () {
     expect(await DI.resolve(PasswordMailer)).to.be.instanceOf(EmailPasswordMailer);
   });
 
-  it('keeps a PasswordMailer the application registered before it runs', async () => {
-    const hasRegistered = DI.RootContainer.hasRegistered.bind(DI.RootContainer);
-    sinon.stub(DI.RootContainer, 'hasRegistered').callsFake((token: unknown, parent?: boolean) => (token === PasswordMailer ? true : hasRegistered(token as never, parent)));
-    const register = sinon.spy(DI.RootContainer, 'register');
+  describe("an application's own PasswordMailer", () => {
+    class AppMailer extends PasswordMailer {
+      public async send(): Promise<void> {}
+    }
 
-    await (await DI.resolve(Array.ofType(Bootstrapper))).find((b) => b instanceof RbacBootstrapper)!.bootstrap();
+    const bootstrap = async () => (await DI.resolve(Array.ofType(Bootstrapper))).find((b) => b instanceof RbacBootstrapper)!.bootstrap();
+    const mailerTypes = () => DI.RootContainer.Registry.getTypes(PasswordMailer).map((t) => t as unknown);
 
-    expect(register.args.some(([type]) => type === EmailPasswordMailer)).to.eq(false);
+    afterEach(() => {
+      DI.unregister(AppMailer);
+      if (!mailerTypes().includes(EmailPasswordMailer)) {
+        DI.register(EmailPasswordMailer).as(PasswordMailer);
+      }
+      DI.uncache(PasswordMailer);
+    });
+
+    it('registered before the bootstrapper runs, is kept and resolves', async () => {
+      DI.unregister(EmailPasswordMailer);
+      DI.register(AppMailer).as(PasswordMailer);
+
+      await bootstrap();
+      DI.uncache(PasswordMailer);
+
+      expect(mailerTypes()).to.not.include(EmailPasswordMailer);
+      expect(await DI.resolve(PasswordMailer)).to.be.instanceOf(AppMailer);
+    });
+
+    it('registered after the bootstrapper ran, resolves (last registration wins)', async () => {
+      await bootstrap();
+      DI.register(AppMailer).as(PasswordMailer);
+      DI.uncache(PasswordMailer);
+
+      expect(await DI.resolve(PasswordMailer)).to.be.instanceOf(AppMailer);
+    });
   });
 
   it('puts the secret of an invite and of a reset only into the mail sent at once, never into a queued payload', async () => {
