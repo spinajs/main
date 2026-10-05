@@ -364,7 +364,7 @@ export class FrameworkConfiguration extends Configuration {
     this.ValidationSchemas.forEach((s) => this.validateModule(s));
   }
 
-  protected validateModule(s: IConfigurationSchema) {
+  public validateModule(s: IConfigurationSchema) {
     const config = this.get(s.$configurationModule);
 
     if (!config) {

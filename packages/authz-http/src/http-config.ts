@@ -1,5 +1,5 @@
 import { Bootstrapper, DI, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 import { AuthzConfigError } from '@spinajs/authz';
 
 export interface ServicePrincipalConfig {
@@ -55,7 +55,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
 @Injectable(Bootstrapper)
 export class AuthzHttpConfigBootstrapper extends Bootstrapper {
   public bootstrap(): void {
-    DI.register(AUTHZ_HTTP_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    registerConfigurationSchema(AUTHZ_HTTP_CONFIGURATION_SCHEMA);
   }
 }
 

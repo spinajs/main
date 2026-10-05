@@ -1,4 +1,5 @@
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
+import { registerConfigurationSchema } from '@spinajs/configuration';
+import { Bootstrapper, Injectable } from '@spinajs/di';
 
 import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js';
 
@@ -6,6 +7,6 @@ import { AUTHN_CONFIGURATION_SCHEMA } from '../../schemas/authn.configuration.js
 @Injectable(Bootstrapper)
 export class AuthnConfigBootstrapper extends Bootstrapper {
   public bootstrap(): void {
-    DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    registerConfigurationSchema(AUTHN_CONFIGURATION_SCHEMA);
   }
 }

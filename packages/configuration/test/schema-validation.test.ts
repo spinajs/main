@@ -6,6 +6,7 @@ import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/config
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { InvalidConfiguration } from '../src/exception.js';
+import { registerConfigurationSchema } from '../src/schemas.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
@@ -102,5 +103,16 @@ describe('configuration schema validation', () => {
     await expect(boot({ range: { min: 10, max: 5 } }, RANGE)).to.be.rejectedWith(InvalidConfiguration);
     const { config } = await boot({ range: { min: 5, max: 10 } }, RANGE);
     expect(config.get('range.max')).to.equal(10);
+  });
+
+  it('validates and defaults a module whose schema is registered after the Configuration resolved', async () => {
+    const { child, config } = await boot({});
+    registerConfigurationSchema(WITH_DEFAULTS, child);
+    expect(config.get('withDefaults.timeoutMs')).to.equal(2000);
+  });
+
+  it('fails at registration when the already loaded module violates the late schema', async () => {
+    const { child } = await boot({ range: { min: 10, max: 5 } });
+    expect(() => registerConfigurationSchema(RANGE, child)).to.throw(InvalidConfiguration);
   });
 });
