@@ -4,13 +4,12 @@ import { AuthorizationModel, AuthzContributor } from '@spinajs/authz';
 import { MemoryAssignmentStore, MemoryRoleStore, RbacContributor, RbacModel, RbacService } from '@spinajs/authz-rbac';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, ImpersonationGuard, Principal } from '@spinajs/authn/contracts';
-import { Configuration } from '@spinajs/configuration';
-import { DI } from '@spinajs/di';
 import { BEHAVIOUR_FIXTURES, fixtureDsl, hostHarness, runBehaviour, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { Case, CoversStep, DoStep, World } from '@spinajs/authz-testing';
 import { expect } from 'chai';
 
 import { AuthzImpersonationGuard } from '../../src/index.js';
+import { useKitConfiguration } from '../support/kit-configuration.js';
 
 const { assignment, combine, extension, role } = fixtureDsl;
 
@@ -132,36 +131,8 @@ const harness = () =>
     },
   });
 
-// Earlier suites leave their own Configuration resolved in the root cache; hostHarness installs its own.
 describe('impersonation (B26)', () => {
-  const kept = new Map<string, unknown[]>();
-
-  const stash = () => {
-    const cache = DI.RootContainer.Cache;
-    const keys = new Set<string>(['Configuration']);
-    for (const inst of cache.get(Configuration) ?? []) keys.add((inst as object).constructor.name);
-    for (const key of keys) {
-      const held = cache.get(key);
-      if (held) kept.set(key, [...held]);
-      DI.RootContainer.uncache(key);
-    }
-  };
-
-  // Earlier suites register their own Configuration classes; the first registered one would win over the harness's.
-  let registered: unknown[] = [];
-  const registrations = () => (DI.RootContainer.Registry as unknown as { registry: Map<string, unknown[]> }).registry.get('Configuration');
-
-  before(() => {
-    stash();
-    const list = registrations();
-    registered = list ? list.splice(0) : [];
-  });
-
-  after(() => {
-    registrations()?.splice(0, Infinity, ...registered);
-    for (const [key, held] of kept) for (const inst of held) DI.RootContainer.Cache.add(key, inst);
-    kept.clear();
-  });
+  useKitConfiguration();
 
   runBehaviour(['B26.users-impersonation', 'B26.users-impersonation-guard'], harness, {
     strict: true,

@@ -23,6 +23,7 @@ import { QueueAuthnEventSink, UserAccountSink, UserIdentityStore, UserPasswordSt
 import { ban, create, deactivate, grant, revoke, setUserMeta } from '../src/actions.js';
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { registerRecordingSessionIssuer } from './support/session-issuer.js';
+import { useKitConfiguration } from './support/kit-configuration.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags, storedUser } from './support/users-db.js';
 
 /**
@@ -109,6 +110,10 @@ describe('plan C1 acceptance', function () {
   this.timeout(60000);
 
   describe('B10, B27: the parts that name lane C1, through a real host with users roles', () => {
+    // Still has to run before any suite calls registerAuthzHost: the root RBAC model it leaves registered boots under
+    // the kit's config and fails B10's anonymousRoles.
+    useKitConfiguration();
+
     runBehaviour(['B10.rbac'], () => usersRbacHarness(false), { strict: true });
     // B12.write stays off after RFC C1-1 (applied in G2): the guard now covers glob grants against the registry, but a
     // glob that matches no registered permission refuses. admin.users' 'user.metadata:*' matches none in this world

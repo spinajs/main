@@ -11,6 +11,7 @@ import { hostHarness, runBehaviour, testHost, withAuthn } from '@spinajs/authz-t
 import type { BehaviourHarness, World } from '@spinajs/authz-testing';
 
 import { AuthzImpersonationGuard } from '../src/index.js';
+import { useKitConfiguration } from './support/kit-configuration.js';
 
 const { instance } = testHost;
 
@@ -34,9 +35,6 @@ class WorldPrincipalFactory extends PrincipalFactory {
 }
 
 /**
- * This file must run before any suite registers users' own TestConfiguration in root: DI keys types by name, so the
- * kit's TestConfiguration cannot be installed after it. The file name sorts first (acceptance.test.ts relies on the same).
- *
  * The kit's host harness with authz-rbac's `RbacModel` over the world's roles (when the world has an `rbac` section) and
  * authz-abac's `AbacModel` over its policies, in the test domain, which the guard reads as the access domain.
  */
@@ -85,6 +83,7 @@ function impersonationHarness(): BehaviourHarness {
 
 describe('plan C3 task 2 acceptance: the impersonation guard over a real host', function () {
   this.timeout(60000);
+  useKitConfiguration();
 
   runBehaviour(['B26.impersonation', 'B26.abac', 'B45.rbac'], impersonationHarness, { strict: true });
 });
