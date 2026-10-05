@@ -32,7 +32,7 @@ export function decisionFields(decision: Decision | undefined, domain: string = 
   let neverRead: readonly string[] = AUTHZ_DEFAULTS.fields.neverRead;
   let writeMode: 'strip' | 'reject' = AUTHZ_DEFAULTS.fields.write.mode;
   if (domains instanceof DefaultAuthzDomains) {
-    const cfg = readDomainConfig((path) => configuration?.get(path), domains.lineage(domain));
+    const cfg = readDomainConfig(configuration?.get(['authz']), domains.lineage(domain));
     neverRead = cfg.fields.neverRead;
     writeMode = cfg.fields.writeMode;
   }

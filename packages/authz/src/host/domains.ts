@@ -1,10 +1,11 @@
 import { Container, Inject, Injectable, Singleton } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 
 import { AuthzConfigError } from '../contracts/errors.js';
 import { AuthzDomains, AuthzService } from '../contracts/service.js';
 import { engineLog } from './log.js';
+import { configAt } from './config/domain-config.js';
 
 const DOMAIN_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 
@@ -33,7 +34,23 @@ const q = (v: unknown): string => {
   }
 };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** The parent `authz.domains.<name>.parent` names in the authz tree. */
+export function configuredParent(tree: unknown, name: string): string | undefined {
+  return configAt(tree, ['domains', name, 'parent']) as string | undefined;
+}
+
+/** Domain names from 'root' to `name` by the configured parents: the lineage before the host has created its domains. */
+export function configuredLineage(tree: unknown, name: string): readonly string[] {
+  const out = [name];
+  for (let d = name; d !== ROOT; ) {
+    const parent = configuredParent(tree, d) ?? ROOT;
+    // The schema checks each entry on its own; only the chain across entries can loop.
+    if (out.includes(parent)) throw new AuthzConfigError(`The configured parents of authz domain ${q(name)} form a cycle`);
+    out.unshift(parent);
+    d = parent;
+  }
+  return Object.freeze(out);
+}
 
 @Singleton()
 @Injectable(AuthzDomains)
@@ -43,7 +60,11 @@ export class DefaultAuthzDomains extends AuthzDomains {
   /** Every service that ever entered a domain boot. */
   private readonly entered = new WeakSet<AuthzService>();
 
-  constructor(private readonly rootContainer: IContainer) {
+  /** Read synchronously by create(): the root Configuration must be resolved before the first create(). */
+  @Config('authz')
+  protected Config: unknown;
+
+  constructor(rootContainer: IContainer) {
     super();
     this.records.set(ROOT, { name: ROOT, container: rootContainer, services: new Set() });
   }
@@ -54,7 +75,7 @@ export class DefaultAuthzDomains extends AuthzDomains {
     if (this.records.has(name)) throw new AuthzConfigError(`Authz domain ${q(name)} already exists`);
     if (parent !== undefined && typeof parent !== 'string') throw new AuthzConfigError(`Authz domain ${q(name)}: parent must be a domain name, got ${q(parent)}`);
 
-    const configured = this.configuredParent(name);
+    const configured = configuredParent(this.Config, name);
     if (parent !== undefined && configured !== undefined && parent !== configured) {
       throw new AuthzConfigError(`Authz domain ${q(name)}: parent ${q(parent)} differs from authz.domains.${name}.parent (${q(configured)})`);
     }
@@ -163,21 +184,5 @@ export class DefaultAuthzDomains extends AuthzDomains {
           .catch((e: unknown) => engineLog('authz').error(`Authz domain ${q(n)}: disposing its service failed: ${e instanceof Error ? e.message : q(e)}`));
       }
     }
-  }
-
-  private configuredParent(name: string): string | undefined {
-    // create() is synchronous, so it reads the already resolved Configuration.
-    const configuration = this.rootContainer.get(Configuration) as Configuration | undefined;
-    if (!configuration || typeof configuration.get !== 'function') {
-      throw new AuthzConfigError(`Authz domain ${q(name)}: Configuration is not resolved; await DI.resolve(Configuration) before AuthzDomains.create`);
-    }
-    let cur: unknown = configuration.get(['authz']);
-    for (const seg of ['domains', name, 'parent']) {
-      if (!isRecord(cur) || !Object.hasOwn(cur, seg)) return undefined;
-      cur = cur[seg];
-    }
-    if (cur === undefined) return undefined;
-    if (typeof cur !== 'string') throw new AuthzConfigError(`Authz domain ${q(name)}: configuration key authz.domains.${name}.parent must be a string`);
-    return cur;
   }
 }

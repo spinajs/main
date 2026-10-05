@@ -148,7 +148,7 @@ export class AccessPolicy extends BasePolicy {
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
     if (!(domains instanceof DefaultAuthzDomains)) return undefined;
     const configuration = DI.get(Configuration);
-    if (!readDomainConfig((path) => configuration?.get(path), domains.lineage(domain)).engine.explain) return undefined;
+    if (!readDomainConfig(configuration?.get(['authz']), domains.lineage(domain)).engine.explain) return undefined;
 
     const permission: Permission = httpConfig().explainRoute.permission;
     // Only an unconditional grant: a residual on the explain permission would not be enforced here.

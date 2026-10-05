@@ -34,7 +34,7 @@ export async function auditUnscoped(domain: string, entry: AuditEntry): Promise<
   // A bypass must not go unaudited, and only the host's AuthzDomains tells a domain's config lineage.
   if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError('@Unscoped needs the host AuthzDomains to audit the bypass');
   const configuration = DI.get(Configuration);
-  const cfg = readDomainConfig((path) => configuration?.get(path), domains.lineage(domain));
+  const cfg = readDomainConfig(configuration?.get(['authz']), domains.lineage(domain));
   if (!cfg.audit.unscoped) return;
   const audit = await pickAudit(domains.container(domain), cfg.audit.service);
   await audit?.record(entry);

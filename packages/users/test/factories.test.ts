@@ -70,19 +70,23 @@ describe('users DI factories (deprecated, 2.x consumers)', function () {
   });
 
   describe('RbacGuestUserFactory', () => {
-    it('builds a never-stored guest without roles, inactive unless authz.principals.anonymous.enabled', async () => {
+    it('builds a never-stored guest without roles, active by the schema default of authz.principals.anonymous.enabled', async () => {
       const guest = DI.resolve<User>('RbacGuestUserFactory');
 
       expect(guest.Login).to.eq('guest');
       expect(guest.IsGuest).to.eq(true);
-      expect(guest.IsActive).to.eq(false);
+      expect(guest.IsActive).to.eq(true);
       expect(guest.Role).to.eq(undefined);
     });
 
-    it('is active when authz.principals.anonymous.enabled is true', async () => {
-      DI.get(Configuration)!.set('authz.principals.anonymous.enabled', true);
-
-      expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(true);
+    it('is inactive when authz.principals.anonymous.enabled is false', async () => {
+      const conf = DI.get(Configuration)!;
+      conf.set('authz.principals.anonymous.enabled', false);
+      try {
+        expect(DI.resolve<User>('RbacGuestUserFactory').IsActive).to.eq(false);
+      } finally {
+        conf.set('authz.principals.anonymous.enabled', true);
+      }
     });
   });
 

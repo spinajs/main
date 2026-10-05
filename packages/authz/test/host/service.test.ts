@@ -6,8 +6,8 @@ import { RecordingAudit, StaticModel, userPrincipal } from '@spinajs/authz-testi
 import type { ModelCall, StaticModelOptions } from '@spinajs/authz-testing';
 
 import { DefaultAuthzAdmin, DefaultAuthzService, AuthzContributor, authz, requestScope, AuthorizationModel, AuthzAdmin, AuthzConfigError, ChangeBus, DecisionAudit, DecisionCache, LruDecisionCache, ResourceAdapter, SYSTEM, TRUE, UNATTENDED, UnknownPermission } from '@spinajs/authz';
-import type { AuthzChange, AuthzService, ModelInitContext, ResourceRef, LruDecisionCacheOptions, DefaultAuthzDomains } from '@spinajs/authz';
-import { domains, installHost, instance, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost } from './support.js';
+import type { AuthzChange, AuthzService, DomainConfig, ModelInitContext, ResourceRef, LruDecisionCacheOptions, DefaultAuthzDomains } from '@spinajs/authz';
+import { domains, installHost, instance, registerConfiguration, registerInRoot, resetHost, resetRoot, rootService, setConfig, uninstallHost, violationPaths } from './support.js';
 
 const expect = chai.expect;
 
@@ -587,6 +587,39 @@ describe('DefaultAuthzService', function () {
 
       expect(await nol2.can(alice, 'job:run', { type: 'job', id: 'j' })).to.equal(true);
       expect(await rejection(l2.check({ principal: alice, permission: 'job:run', resource: { type: 'job', id: 'j' } }))).to.be.instanceOf(UnknownPermission);
+    });
+
+    it('reads the Configuration of its domain container: root keys the schema defaulted, each level over its parent', async () => {
+      const d = await domains();
+      const c = d.create('own-cfg');
+      registerConfiguration(c, { authz: { engine: { maxDelegation: 5 }, domains: { 'own-cfg': { engine: { modelTimeoutMs: 20 }, permissions: { 'job:run': {} } } } } });
+      const svc = await d.service('own-cfg');
+      const cfg = (svc as unknown as { booted: { cfg: DomainConfig } }).booted.cfg;
+      expect(cfg.engine).to.deep.equal({ explain: false, modelTimeoutMs: 20, maxDelegation: 5 });
+      expect(cfg.cache).to.deep.equal({ maxEntries: 10000, ttlSeconds: 60 });
+      expect(Object.keys(cfg.permissions)).to.deep.equal(['job:run']);
+      expect((await svc.check({ principal: alice, permission: 'job:run', resource: { type: 'job', id: 'j' } })).allowed).to.equal(false);
+    });
+
+    it('a model init reads authz.<model>.* from the Configuration of its domain container', async () => {
+      let seen: unknown;
+      class Reading extends StaticModel {
+        init(ctx: ModelInitContext): void {
+          seen = [ctx.config('opts.level', 0), ctx.config('missing', 'dflt')];
+        }
+      }
+      const d = await domains();
+      const c = d.create('rdown-domain');
+      registerConfiguration(c, { authz: { rdown: { opts: { level: 4 } } } });
+      c.register(instance(new Reading({ name: 'rdown' }))).as(AuthorizationModel);
+      await d.service('rdown-domain');
+      expect(seen).to.deep.equal([4, 'dflt']);
+    });
+
+    it('fails boot with the InvalidConfiguration of its domain container, naming every full path', async () => {
+      const d = await domains();
+      registerConfiguration(d.create('bad-cfg'), { authz: { domains: { 'bad-cfg': { parent: 'no such/name', engine: { maxDelegation: -1 } } } } });
+      expect(await violationPaths(d.service('bad-cfg'))).to.include.members(['authz.domains.bad-cfg.parent', 'authz.domains.bad-cfg.engine.maxDelegation']);
     });
   });
 

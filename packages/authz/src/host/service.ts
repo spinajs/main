@@ -1,6 +1,6 @@
 import { Container, Inject, Injectable, PerChildInstance, ResolveType, Service, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 
 import { AccessDenied, AuthzConfigError } from '../contracts/errors.js';
 import { AuthorizationModel, Combinator, NativeFilter } from '../contracts/model.js';
@@ -23,7 +23,8 @@ import type { PermissionInput } from '../engine/registry.js';
 import { validateBoot } from '../engine/validate.js';
 import type { PermissionRefDecl, RelationRefDecl, ScopeRefDecl } from '../engine/validate.js';
 import { checkLegacyKeys } from './config/legacy-keys.js';
-import { readDomainConfig } from './config/domain-config.js';
+import { AUTHZ_DEFAULTS } from './config/defaults.js';
+import { configAt, readDomainConfig } from './config/domain-config.js';
 import type { DomainConfig } from './config/domain-config.js';
 import { AuthzContributor } from './contributor.js';
 import type { AuthzContribution } from './contributor.js';
@@ -109,6 +110,17 @@ export class DefaultAuthzService extends AuthzService {
   /** Tags of the changes published while booting, applied once the boot ends. */
   private buffered: (readonly string[])[] | undefined;
   private readonly log: EngineLog = engineLog('authz');
+
+  /** The whole authz tree: domain names may contain dots, so a domain's section is indexed (configAt), never read by a dotted path. */
+  @Config('authz')
+  protected Config: unknown;
+
+  @Config('authz.config.rejectLegacyKeys', { defaultValue: AUTHZ_DEFAULTS.config.rejectLegacyKeys })
+  protected RejectLegacyKeys: boolean;
+
+  /** The 2.x section, read only to report its keys. */
+  @Config('rbac')
+  protected LegacyRbac: unknown;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -320,12 +332,11 @@ export class DefaultAuthzService extends AuthzService {
       parent = svc.booted;
     }
 
-    const configuration = (await container.resolve(Configuration)) as unknown as Configuration;
-    if (!isObject(configuration) || typeof configuration.get !== 'function') throw new AuthzConfigError(`${where}: the resolved Configuration has no get()`);
-    const get = (path: string[]): unknown => configuration.get(path);
+    // @Config reads only a resolved Configuration, and a domain container may register its own.
+    await container.resolve(Configuration);
     const lineage = domains.lineage(name);
-    if (parent === undefined) checkLegacyKeys(get, this.log);
-    const cfg = readDomainConfig(get, lineage);
+    if (parent === undefined) checkLegacyKeys(this.LegacyRbac, this.RejectLegacyKeys, this.log);
+    const cfg = readDomainConfig(this.Config, lineage);
     const disables = [...(parent?.disables ?? []), cfg.disable];
     const levels = lineage.map((n) => domains.container(n));
 
@@ -401,7 +412,7 @@ export class DefaultAuthzService extends AuthzService {
     const modelRelations: RelationResolver[] = [];
     const modelFilters: NativeFilter[] = [];
     for (const model of models) {
-      const record = await this.initModel(where, name, model, registry, configuration, register, fresh);
+      const record = await this.initModel(where, name, model, registry, register, fresh);
       modelRelations.push(...record.relations);
       modelFilters.push(...record.nativeFilters);
     }
@@ -512,7 +523,7 @@ export class DefaultAuthzService extends AuthzService {
     });
   }
 
-  private async initModel(where: string, domain: string, model: AuthorizationModel, registry: PermissionRegistryImpl, configuration: Configuration, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
+  private async initModel(where: string, domain: string, model: AuthorizationModel, registry: PermissionRegistryImpl, register: (defs: readonly PermissionInput[], source: string) => readonly PermissionInput[], fresh: AuthorizationModel[]): Promise<ModelInit> {
     const source = `model:${model.name}`;
     const existing = inits.get(model);
     if (existing) {
@@ -540,7 +551,10 @@ export class DefaultAuthzService extends AuthzService {
     const ctx: ModelInitContext = Object.freeze({
       domain,
       permissions: registry,
-      config: <T>(path: string, dflt?: T): T => configuration.get<T>(['authz', model.name, ...String(path).split('.')], dflt as T),
+      config: <T>(path: string, dflt?: T): T => {
+        const v = configAt(this.Config, [model.name, ...String(path).split('.')]);
+        return (v === undefined ? dflt : v) as T;
+      },
       registerPermissions(defs: readonly Omit<PermissionDef, 'source'>[]) {
         closed('registerPermissions');
         permissions.push(register(defs, source));

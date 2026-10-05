@@ -1,29 +1,16 @@
-import { AuthzConfigError, AuthzDomains, DefaultAuthzDomains, readDomainConfig, resolveDelegation } from '@spinajs/authz';
-import type { AuthzService, ConfigGetter, DomainConfig, Principal } from '@spinajs/authz';
+import { AuthzDomains, DefaultAuthzDomains, configuredLineage, readDomainConfig, resolveDelegation } from '@spinajs/authz';
+import type { AuthzService, DomainConfig, Principal } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 
 const ROOT = 'root';
 
-/** Domain names from root to `domain`: the host's when it has created its domains, else the configured parents. */
-function lineageOf(domain: string, get: ConfigGetter): readonly string[] {
-  const domains: unknown = DI.get(AuthzDomains);
-  if (domains instanceof DefaultAuthzDomains) return domains.lineage(domain);
-  const out = [domain];
-  for (let d = domain; d !== ROOT; ) {
-    const parent = get(['authz', 'domains', d, 'parent']) ?? ROOT;
-    if (typeof parent !== 'string') throw new AuthzConfigError(`authz-orm: authz.domains.${d}.parent must be a string`);
-    if (out.includes(parent)) throw new AuthzConfigError(`authz-orm: the parents of authz domain ${JSON.stringify(domain)} form a cycle`);
-    out.unshift(parent);
-    d = parent;
-  }
-  return out;
-}
-
+/** The domain's config over its lineage: the host's lineage once it has created its domains, else the configured parents. */
 function domainConfig(domain: string): DomainConfig {
-  const configuration = DI.get(Configuration) as Configuration | undefined;
-  const get: ConfigGetter = (path) => (configuration && typeof configuration.get === 'function' ? configuration.get(path) : undefined);
-  return readDomainConfig(get, lineageOf(domain, get));
+  const tree = DI.get(Configuration)?.get<unknown>(['authz']);
+  const domains: unknown = DI.get(AuthzDomains);
+  const lineage = domains instanceof DefaultAuthzDomains ? domains.lineage(domain) : configuredLineage(tree, domain);
+  return readDomainConfig(tree, lineage);
 }
 
 /** `engine.maxDelegation` of `domain`, merged over its lineage as the host reads it (default 2). */

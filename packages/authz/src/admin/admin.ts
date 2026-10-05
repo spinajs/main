@@ -387,7 +387,7 @@ export class DefaultAuthzAdmin extends AuthzAdmin {
     // The bus and audit the domain's AuthzService picked at boot, chosen the same way.
     const domains: unknown = await c.resolve(AuthzDomains);
     if (!(domains instanceof DefaultAuthzDomains)) throw new AuthzConfigError(`${where}: AuthzAdmin needs DefaultAuthzDomains as the AuthzDomains singleton`);
-    const domainCfg = readDomainConfig(get, domains.lineage(domain));
+    const domainCfg = readDomainConfig(get(['authz']), domains.lineage(domain));
     const bus = await this.pick(ChangeBus, domainCfg.bus.service, 'authz.bus.service', where);
     const audit = await this.pick(DecisionAudit, domainCfg.audit.service, 'authz.audit.service', where);
 
