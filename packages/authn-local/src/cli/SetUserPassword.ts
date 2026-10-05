@@ -47,7 +47,8 @@ export class SetUserPassword extends CliCommand {
   protected Log: Log;
 
   public async execute(login: string, options: SetUserPasswordOptions): Promise<void> {
-    const id = await DI.resolve(IdentityStore).findByLogin(login);
+    const store = await DI.resolve(IdentityStore);
+    const id = await store.findByLogin(login);
     if (!id) {
       this.Log.error('No identity has this login; no password was set');
       throw new InvalidArgument('no identity has this login');
