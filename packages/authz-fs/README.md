@@ -1,13 +1,124 @@
 # `@spinajs/authz-fs`
 
-File system integration for SpinaJS authorization.
+Authorization checks for `@spinajs/fs` filesystems. Each filesystem named in `authz.fs` is wrapped in a guard
+that checks the caller's `fs:*` permissions on every path before the provider runs. Tested on fsNative, fsTemp
+over fsNative and fsS3 (localstack).
+
+Import the package before `fsService` resolves. It registers, in the root container, the `FsDecorator` that
+wraps the providers (`AuthzFsDecorator`), the resource adapter for the `fs:*` permissions
+(`FsResourceAdapter`), the contributor that declares the permissions each filesystem checks
+(`FsAuthzContributor`) and the upload middleware (`AuthzUploadMiddleware`).
+
+```ts
+authz: {
+  fs: {
+    uploads: { mode: 'enforce' },
+    archive: { mode: 'audit', list: 'each' },
+  },
+}
+```
+
+## Configuration
+
+`authz.fs.<name>`, where `<name>` is the fs provider name. A filesystem without an entry is off: `getFs(name)`
+returns the raw provider. An entry must state a valid `mode`, and an unknown key is an `AuthzConfigError`, so a
+typo never turns a guard off silently.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mode` | none, required | `off`: the raw provider. `audit`: check, warn on a denial, go on (the engine records the denial when `authz.audit.denials` is on). `enforce`: a denial throws `AccessDenied`. |
+| `domain` | `root` | The authz domain the checks run in (see "Domain and fs-inherit"). |
+| `operations` | none | Method → permission or list of permissions, checked on argument 0. Adds a method, or replaces one that checks a single path (it keeps its `file`/`dir` kind). |
+| `list` | `dir` | `dir`: `list` needs `fs:list` on the directory. `each`: each entry also needs `fs:stat`; `enforce` drops the others, `audit` keeps them and warns. |
+| `signedUrl.defaultTtlSeconds` | 900 | Lifetime of a signed URL when the caller asks none. |
+| `signedUrl.maxTtlSeconds` | none | Cap on any signed URL lifetime. |
+| `metadata` | none | Class name of the `FileMetadataStore` that holds owners. |
+| `stampOwner` | `false` | Record the first writer as the owner; needs `metadata`. |
+| `resolver` | every `FsPathResolver` whose `fs` matches | Class name of the resolver that gives a path its domain parents (fs-inherit). |
+| `inherit` | none | `fs:<op>` → action on the domain parent (fs-inherit). Not on a filesystem checked in `root`. |
+| `policies` | none | ABAC policies of the filesystem (fs-abac). Not on a filesystem checked in `root`. |
+
+Other keys: `authz.fsMetadata.connection` (ORM connection of `OrmFileMetadataStore`, default `default`) and
+`authz.domains.<domain>.parent` (parent of a domain the package creates, default `root`).
+
+Every permission the effective operation table of a filesystem names (its `operations` and `inherit` keys
+included) is declared to the boot of its domain, so an unregistered one fails that boot.
+
+## Permissions and refs
+
+`fs:read`, `fs:stat`, `fs:list`, `fs:write`, `fs:delete` and `fs:share`, on the types `fs`, `dir` and `file`.
+`fs:read` and `fs:write` imply `fs:stat`.
+
+A path is the ref `{ type: 'file' | 'dir', id: '<fs name>:<normalised path>' }`; the root of a filesystem is
+`{ type: 'fs', id: <fs name> }`. Its ancestors are the parent directories, nearest first, then the filesystem,
+then GLOBAL, so a grant on `{ type: 'dir', id: 'uploads:users/alice' }` covers everything below it. Domain
+parents from a resolver are not ancestors; fs-inherit reads them.
+
+## Operations
+
+| Method | Checks |
+|---|---|
+| `read`, `readStream`, `download`, `hash`, `metadata` | `fs:read` on the file |
+| `exists`, `stat` | `fs:stat` on the file |
+| `isDir`, `dirExists` | `fs:stat` on the directory |
+| `list(dir)` | `fs:list` on the directory (and `fs:stat` per entry with `list: 'each'`) |
+| `write`, `writeStream`, `append` | `fs:write` on the file |
+| `mkdir` | `fs:write` on the directory |
+| `upload(src, dest?)` | `fs:write` on `dest`, else on the basename of `src` |
+| `rm` | `fs:delete` |
+| `copy(src, dest, dstFs?)` | `fs:read` on `src`; `fs:write` on `dest` in `dstFs`, else here |
+| `move(src, dest, dstFs?)` | `fs:read` and `fs:delete` on `src`; `fs:write` on `dest` in `dstFs`, else here |
+| `rename(src, dest)` | `fs:read` and `fs:delete` on `src`; `fs:write` on `dest` |
+| `zip(srcs, dstFs?, dstFile?)` | `fs:read` on each source; `fs:write` on the archive |
+| `unzip(src, dest?, dstFs?)` | `fs:read` on `src`; `fs:write` on the destination directory |
+| `signedUrl`, `getSignedUrl` | `fs:share` on the file |
+
+Never checked: `resolvePath`, `tmppath`, `tmpname`, properties, symbols, `Object.prototype` members and the DI
+lifecycle (`resolve`, `dispose`, `__checkInstance__`); `operations` cannot map them. Replacing `copy`, `move`,
+`rename`, `zip`, `unzip` or `upload` is refused too, since one check on argument 0 would drop the others. Any
+other method throws `AuthzConfigError` in `enforce` unless the principal is SYSTEM, and warns in `audit`.
+
+## Guard
+
+- The checks run in the filesystem's domain, as the ALS principal, else UNATTENDED, which is denied with
+  reason `unattended`.
+- Every check passes the path's row `{ id, type, fs, path }` as the subject (what `FsResourceAdapter.load`
+  gives), so relation grants (`owner`) and `resource.*` conditions are decided for that path. An answer that is
+  not a plain permit (a residual is left) counts as a denial: `enforce` throws `AccessDenied` (`needs_subject`),
+  `audit` warns, `list: 'each'` drops the entry.
+- `upload` does not check `src`: it is a local file outside every filesystem, so whoever may write may upload
+  any file the process can read.
+- `list` hands the provider the directory with a trailing `/`, so key stores do not match siblings by prefix.
+- The guard is a Proxy: `instanceof`, `Name` and `Options.basePath` work as on the provider.
+
+### Nested calls
+
+Every path an operation touches, a destination on another filesystem included, is checked before the provider
+runs. A destination filesystem is checked with its own entry (mode, domain); with mode `off` there it is not
+checked. The provider then runs on the raw instance, and guarded calls it makes until the operation settles
+(into `dstFs`, an fsTemp backend, a temp filesystem) are not checked again. Callbacks that run after the
+operation settled (a `'data'` listener on a returned stream) are checked as usual.
+
+`zip` and `unzip` without `dstFs` are checked where the provider writes: fsTemp writes into itself, fsNative
+unzips into itself and zips into the published `fs-temp` (checked with that filesystem's entry). The guard names
+a missing destination itself (`tmpname`), checks it and passes it. For other providers (S3, FTP) it checks only
+the sources and refuses a named destination (`dstFile`, `dest`) without `dstFs`. The placement goes by
+`instanceof fsNative` / `fsTemp`: a subclass that writes elsewhere is still checked where the base class writes.
+
+The guard protects filesystems from principals, not from application code:
+
+- properties pass through (`fsTemp.Provider`, `fsS3.S3`, `fsS3.TempFs` are raw), and app objects handed to an
+  operation (a custom stream, a custom `dstFs`) run inside it, where nested guarded calls are not checked; an
+  operation that never settles keeps that window open;
+- internal temp filesystems (`fs-temp` behind fsNative zips, fsS3's temp filesystem) are reached unchecked
+  inside an operation and checked as the principal outside one when they are guarded;
+- an fsTemp with mode `off` over a guarded backend exposes the backend's storage, since fsTemp holds the raw
+  backend (fsService wires providers before it decorates them).
 
 ## Paths
 
-Every path a filesystem method gets is normalised before it is checked, and the guard passes the
-normalised path to the provider, so the path checked is the path accessed. Ref ids are
-`<fs name>:<normalised path>` with the types `file` and `dir`; the root of a filesystem is
-`{ type: 'fs', id: <fs name> }`.
+Every path a method gets is normalised before it is checked, and the guard passes the normalised path to the
+provider, so the path checked is the path accessed.
 
 `normalizeFsPath(path, basePath?)`:
 
@@ -34,57 +145,23 @@ that names one form does not match the others, so grants fail closed, but deny r
 on `resource.id`, or a deny bound to a `dir` ref) do not: another form of the path skips them. Do not rely
 on deny rules on fs paths there.
 
-## Guard
+## Providers
 
-`AuthzFsDecorator` (an `FsDecorator` of `@spinajs/fs`, order 100) wraps every filesystem whose
-`authz.fs.<name>` entry has mode `audit` or `enforce` in `guardFs`, a Proxy over the provider. A filesystem
-without an entry, or with mode `off`, stays the raw provider.
+The checks are the same on every provider; what the provider does with an allowed call is its own. On fsS3:
 
-- Each method of `FS_OPERATIONS` checks its path arguments in the domain `authz.fs.<name>.domain` (default
-  `root`), as the ALS principal, before the provider runs. `enforce` throws `AccessDenied`; `audit` logs a
-  warning and goes on.
-- Every check passes the path's row `{ id, type, fs, path }` as the subject (what `FsResourceAdapter.load`
-  gives), so relation grants (`owner`) and `resource.*` conditions are decided for that path. An answer that
-  is not a plain permit (a residual is left) counts as a denial: `enforce` throws `AccessDenied`
-  (`needs_subject`), `audit` warns, `list: 'each'` drops the entry.
-- `authz.fs.<name>.operations` adds methods (checked on argument 0 as a file) or replaces a method that checks
-  one path (it keeps its kind). Replacing `copy`, `move`, `rename`, `zip`, `unzip` or `upload`, or mapping
-  `resolvePath`, `tmppath`, `tmpname` or a DI lifecycle method, is an `AuthzConfigError`.
-- Any other method throws `AuthzConfigError` in `enforce` unless the principal is SYSTEM (`audit` warns).
-  `resolvePath`, `tmppath`, `tmpname`, properties and DI lifecycle methods are never checked; `resolvePath`
-  is not a boundary.
-- A destination on another filesystem (`copy`, `move`, `zip`, `unzip` with `dstFs`) is checked with that
-  filesystem's own entry; with mode `off` there it is not checked. Guarded calls a provider makes while an
-  authorised operation runs (into `dstFs`, or an fsTemp backend) are not checked again.
-- `zip` and `unzip` without `dstFs` are checked where the provider writes: fsTemp writes into itself, fsNative
-  unzips into itself and zips into the published `fs-temp` (checked with that filesystem's entry). The guard
-  names a missing destination itself (`tmpname`), checks it and passes it. For other providers (S3, FTP) it
-  checks only the sources and refuses a named destination (`dstFile`, `destPath`) without `dstFs`.
-- `list` hands the provider the directory with a trailing `/`, so key stores do not match siblings by prefix.
-- `upload(srcPath, destPath?)` checks `fs:write` on `destPath`, or on the basename of `srcPath` when it is
-  missing. `srcPath` is a local file and is not checked: whoever may write may upload any file the process
-  can read.
-- `list: 'each'` also drops the entries the principal lacks `fs:stat` on.
-
-The guard protects filesystems from principals, not from application code:
-
-- properties pass through (`fsTemp.Provider`, `fsS3.S3`, `fsS3.TempFs` are raw), and app objects handed to
-  an operation (a custom stream, a custom `dstFs`) run inside it, where nested guarded calls are not checked;
-  an operation that never settles keeps that window open;
-- internal temp filesystems (`fs-temp` behind fsNative zips, fsS3's temp filesystem) are reached unchecked
-  inside an operation and checked as the principal outside one when they are guarded;
-- an fsTemp with mode `off` over a guarded backend exposes the backend's storage, since fsTemp holds the raw
-  backend (fsService wires providers before it decorates them).
-- `zip` and `unzip` destinations are placed by `instanceof fsNative` / `fsTemp`: a subclass that overrides them to
-  write elsewhere is still checked where the base class writes.
+- `list` gives whole keys (`docs/a.txt`), fsNative gives names (`a.txt`);
+- there are no directories: `isDir` is always `false`, `dirExists` always `true`, and `rm` or `move` of a
+  "directory" touches one key, so directory rules (owners of a directory, `deleteTree`) do not apply;
+- `resolvePath` of a relative path and `tmppath` throw `MethodNotImplemented` (the guard does not check them);
+- `unzip` cannot extract onto S3: the destination must be a filesystem with local paths.
 
 ## Signed URLs
 
 `signedUrl(path, opts?)` and `getSignedUrl(path, until?)` need `fs:share` on the file. The URL expires at the
 earliest of:
 
-- the asked `until`, or, when the caller asks none, now + `authz.fs.<name>.signedUrl.defaultTtlSeconds`
-  (default 900, the S3 signer's own default);
+- the asked `until`, or, when the caller asks none, now + `signedUrl.defaultTtlSeconds` (default 900, the S3
+  signer's own default);
 - now + `signedUrl.maxTtlSeconds`, when set;
 - the `validUntil` of the `fs:share` decision (an expiring grant), when it has one.
 
@@ -154,9 +231,9 @@ path does not match. The guard still checks the `dir` ref when the handler calls
 
 ## Owners and metadata
 
-`authz.fs.<name>.metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among
-the stores registered under `FileMetadataStore` (`AuthzConfigError` when none has that name). `stampOwner: true`
-(which needs `metadata`) records who wrote a file:
+`metadata` names a `FileMetadataStore` by class name; the guard and the `owner` relation pick it among the
+stores registered under `FileMetadataStore` (`AuthzConfigError` when none has that name). `stampOwner: true`
+records who wrote a file:
 
 ```ts
 authz: {
@@ -174,8 +251,7 @@ authz: {
   rights over it. A path that did not exist starts empty: before the IO, rows left there (by an `rm` outside the
   guard, or a failed update) are deleted: the row of the path, and the rows under it too when the provider reports
   no directory there either (a key store such as S3 reports every directory, so there only the row goes). After
-  the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins), so a slow write
-  does not take over what others created at that path while it ran.
+  the IO the owner is stamped only if no owner appeared there meanwhile (the first stamp wins).
 - First-writer works both ways: in a writable tree several principals share, whoever creates a path first (even an
   empty file, or a `writeStream` left open) owns what others later write there, and reads it through an owner
   grant. Where reads go by owner, grant `fs:write` on per-user prefixes
@@ -188,10 +264,9 @@ authz: {
   nothing (anonymous callers and the bearers of a link share one id).
 - `writeStream` stamps when the stream closes after it finished, and holds the `'close'` event back until then, at
   most `metadataTimeoutMs` (30 s); a stream that failed or was destroyed stamps nothing.
-- `rm` deletes the metadata of the path, and of everything under it when the provider reports a directory (a key
-  store such as S3 has none, so removing a key leaves the other keys under that prefix alone). `move` and
-  `rename` probe the destination like a write: onto an existing path, the destination keeps its metadata and only
-  the source rows are deleted. Otherwise the metadata moves: with one store on both sides the whole tree, also
+- `rm` deletes the metadata of the path, and of everything under it when the provider reports a directory. `move`
+  and `rename` probe the destination like a write: onto an existing path, the destination keeps its metadata and
+  only the source rows are deleted. Otherwise the metadata moves: with one store on both sides the whole tree, also
   between filesystems; between two stores only the row of the moved path, and the files under a moved directory
   lose their owners (a warning is logged). To a filesystem without a store the metadata is dropped. This happens
   with or without `stampOwner` once a store is configured. Unchecked calls a provider makes inside an operation
@@ -208,15 +283,15 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 
 Stores:
 
-- `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path. The store and its migration
-  `AuthzFsObject_2026_10_01_00_00_00` use the connection `authz.fsMetadata.connection` names (not under `authz.fs`,
-  which is keyed by filesystem name), else `default`. `delete` removes one row; `deleteTree` and `move` take
+- `OrmFileMetadataStore`: table `fs_object`, one row per filesystem and normalised path, on the connection
+  `authz.fsMetadata.connection` names, else `default` (migration `AuthzFsObject_2026_10_01_00_00_00`). The key is
+  not under `authz.fs`, which is keyed by filesystem name. `delete` removes one row; `deleteTree` and `move` take
   the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are
-  matched exactly in code and rows changed by their stored key.
-  The migration gives the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a
-  case-insensitive key (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored,
-  and its update fails instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the
-  `(fs, path)` key can exceed the 900-byte index key limit, and an insert of a very long path then fails.
+  matched exactly in code and rows changed by their stored key. The migration gives the key columns a binary
+  collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key (MSSQL, or a table created
+  otherwise) a case variant of an existing path cannot be stored, and its update fails instead of sharing the
+  row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the `(fs, path)` key can exceed the
+  900-byte index key limit, and an insert of a very long path then fails.
 - `S3ObjectMetadataStore`: the metadata lives on the object as the user metadata `x-amz-meta-authz-meta`
   (URI-encoded JSON, within S3's 2 KB). It needs `getMetadata` and `setMetadata` (fsS3) on the provider and calls
   the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself: objects over 5 GB cannot be
@@ -227,11 +302,11 @@ Stores:
 
 ## Domain and fs-inherit
 
-`authz.fs.<name>.domain` names the authz domain a filesystem is checked in (default `root`). For any other
-domain, `AuthzFsDecorator` (and, for a guard built by hand, the guard's first call) runs `ensureFsDomain` once
-per domain. It creates the domain with `AuthzDomains.create(domain)` when it is missing (its parent is
-`authz.domains.<domain>.parent`, else root). It then registers `FsInheritModel` (`fs-inherit`) there when one of
-the domain's filesystems maps `inherit`, and `fs-abac` when one has `policies` (see below). Root never holds them.
+For a filesystem whose `domain` is not `root`, `AuthzFsDecorator` (and, for a guard built by hand, the guard's
+first call) runs `ensureFsDomain` once per domain. It creates the domain with `AuthzDomains.create(domain)` when
+it is missing (its parent is `authz.domains.<domain>.parent`, else root). It then registers `FsInheritModel`
+(`fs-inherit`) there when one of the domain's filesystems maps `inherit`, and `fs-abac` when one has `policies`.
+Root never holds them.
 
 ```ts
 authz: {
@@ -251,10 +326,10 @@ authz: {
   `combine` that names `fs-inherit` without any `inherit` mapping fails boot rule 1, since the model is then not
   registered.
 - `fs-inherit` permits `fs:<op>` on a file or directory when the principal holds `<parent type>:<action>` on a
-  domain parent of the path (`FsPathResolver`, `authz.fs.<name>.resolver`, nearest parent first), where `inherit`
-  maps `fs:<op>` to `<action>`. A permission also follows from the entries of those that imply it: with
-  `'fs:read': 'read'`, `fs:stat` goes to `<type>:read` as well. Keys are `fs:` permissions and must be
-  registered (they are boot refs); values are action names.
+  domain parent of the path (`FsPathResolver`, nearest parent first), where `inherit` maps `fs:<op>` to
+  `<action>`. A permission also follows from the entries of those that imply it: with `'fs:read': 'read'`,
+  `fs:stat` goes to `<type>:read` as well. Keys are `fs:` permissions and must be registered (they are boot
+  refs); values are action names.
 - The parent check runs in the same domain, as the principal the models run with (the delegate under `inherit`
   delegation), with the request's actor and env. Only an unconditional allow counts: the parent row is not
   loaded, so a parent permit with a condition gives nothing. `fs-inherit` never denies.
@@ -306,4 +381,4 @@ authz: {
 - The model's summary lists each permitted permission. The entry is conditional when the policy has a condition
   or a scope, which every fs policy has.
 - Importing `@spinajs/authz-fs` also loads `@spinajs/authz-abac`, which registers its `authz_policy` migration and
-  its admin handlers.
+  its admin handlers, and `@spinajs/http`.
