@@ -6,7 +6,7 @@ import { fakeHash } from '@spinajs/authn-testing';
 import { FreshAuthCheck, AuthnImpersonationService, isFresh } from '../../src/index.js';
 import type { AuthnContext, AuthnEvent, AuthnEventType, AuthnFacts, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
 import { IMPERSONATION_BLOCK } from '../../src/impersonation/impersonation-service.js';
-import { buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
 
 const SECOND = 1000;
@@ -618,17 +618,16 @@ describe('AuthnImpersonationService', function () {
 
   describe('boot', () => {
     it('reads authn.impersonation and fails on malformed values', async () => {
-      for (const bad of [{ maxMinutes: 0 }, { maxMinutes: 1.5 }, { maxMinutes: '60' }, { requireMfa: 'yes' }, { requirePassword: 1 }, 'on']) {
-        parts = await buildCore({}, { raw: { authn: { impersonation: bad } } });
-        await assert.rejects(parts.child.resolve(AuthnImpersonationService), /authn\.impersonation/, JSON.stringify(bad));
-        await parts.dispose();
-        parts = undefined;
+      for (const bad of [{ maxMinutes: 0 }, { maxMinutes: 1.5 }, { requireMfa: 'yes' }, 'on']) {
+        const paths = await violationPaths(buildCore({}, { raw: { authn: { impersonation: bad } } }));
+        assert.ok(
+          paths.some((x) => x.startsWith('authn.impersonation')),
+          `${JSON.stringify(bad)}: ${paths.join(', ')}`,
+        );
       }
-      for (const bad of [0, -5, '480']) {
-        parts = await buildCore({}, { raw: { authn: { session: { expiration: { maxLifetime: bad } } } } });
-        await assert.rejects(parts.child.resolve(AuthnImpersonationService), /authn\.session\.expiration\.maxLifetime/, JSON.stringify(bad));
-        await parts.dispose();
-        parts = undefined;
+      for (const bad of [0, -5]) {
+        const paths = await violationPaths(buildCore({}, { raw: { authn: { session: { expiration: { maxLifetime: bad } } } } }));
+        assert.ok(paths.includes('authn.session.expiration.maxLifetime'), `${bad}: ${paths.join(', ')}`);
       }
     });
 

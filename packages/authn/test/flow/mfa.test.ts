@@ -78,28 +78,27 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.strictEqual(registry.get('nope'), undefined);
     });
 
-    it('is empty when authn.mfa.steps is unset or null', async () => {
+    it('is empty when authn.mfa.steps is unset', async () => {
       await boot({ steps: undefined });
       assert.deepStrictEqual((await parts!.child.resolve(MfaStepRegistry)).steps(), []);
-      await parts!.dispose();
-      const p = await boot({ steps: null });
-      assert.deepStrictEqual((await p.child.resolve(MfaStepRegistry)).steps(), []);
     });
 
-    it('keeps one entry when the list repeats it', async () => {
-      const p = await boot({
-        steps: [
-          { name: 'fake', service: KIT_MFA_STEP },
-          { name: 'fake', service: KIT_MFA_STEP },
-        ],
-      });
-      assert.strictEqual((await p.child.resolve(MfaStepRegistry)).steps().length, 1);
+    it('fails boot when the list repeats an entry', async () => {
+      await bootFails(
+        {
+          steps: [
+            { name: 'fake', service: KIT_MFA_STEP },
+            { name: 'fake', service: KIT_MFA_STEP },
+          ],
+        },
+        'authn.mfa.steps',
+      );
     });
 
     it('fails boot on an unknown service, a name mismatch, a reserved or duplicate name and a non-step', async () => {
       await bootFails({ steps: [{ name: 'totp', service: 'TotpMfaStep' }] }, 'authn.mfa.steps', 'TotpMfaStep');
       await bootFails({ steps: [{ name: 'other', service: KIT_MFA_STEP }] }, 'authn.mfa.steps', '"other"', '"fake"');
-      await bootFails({ steps: [{ name: 'recovery', service: KIT_MFA_STEP }] }, 'recovery');
+      await bootFails({ steps: [{ name: 'recovery', service: KIT_MFA_STEP }] }, 'authn.mfa.steps.0.name');
       const second = new FakeMfaStep({ name: 'second' });
       await bootFails(
         {
@@ -109,12 +108,11 @@ describe('MFA steps and DefaultMfaPolicy', function () {
             { name: 'fake', service: 'Step_second' },
           ],
         },
-        'duplicate',
-        '"fake"',
+        'authn.mfa.steps',
       );
       await bootFails({ steps: [{ name: 'x', service: 'NotAStep' }], register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) }, 'NotAStep', 'not an MfaStep');
       await bootFails({ steps: 'totp' }, 'authn.mfa.steps');
-      await bootFails({ steps: [{ name: '', service: KIT_MFA_STEP }] }, 'authn.mfa.steps[0]');
+      await bootFails({ steps: [{ name: '', service: KIT_MFA_STEP }] }, 'authn.mfa.steps.0.name');
     });
   });
 

@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { Injectable, PerChildInstance } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
@@ -46,8 +47,13 @@ export class LogAuthnAuditSink extends AuthnEventSink {
 
   private keyBuffer: Buffer | undefined;
 
+  private get config(): AuditConfig {
+    if (!this.Config) throw new InvalidOperation('authn.audit is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
+    return this.Config;
+  }
+
   private get key(): Buffer {
-    const secret = this.Config.hashKey?.secret;
+    const secret = this.config.hashKey?.secret;
     return (this.keyBuffer ??= secret ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32)));
   }
 
@@ -70,7 +76,7 @@ export class LogAuthnAuditSink extends AuthnEventSink {
   }
 
   private id(domain: string, value: string, shown = value): string {
-    if (!this.Config.hashIdentifiers && !value.includes('@')) return enc(shown);
+    if (!this.config.hashIdentifiers && !value.includes('@')) return enc(shown);
     return createHmac('sha256', this.key).update(`${domain}|${value}`).digest('base64url');
   }
 }

@@ -3,7 +3,7 @@ import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from '@spinajs/configuration';
-import { InvalidOption } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, DEFAULT_AUDIT_SAMPLE_USE, LogAuthnAuditSink } from '../../src/index.js';
 import type { AuditConfig, AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
@@ -429,12 +429,14 @@ describe('AuthnAudit', function () {
       await bootFails({ typo: 1 }, 'authn.audit.typo');
       await bootFails({ sinks: 'FirstSink' }, 'authn.audit.sinks');
       await bootFails({ sinks: ['FirstSink', ''] }, 'authn.audit.sinks.1');
+      await bootFails({ sinks: [{}] }, 'authn.audit.sinks.0');
       for (const v of [-0.01, 1.01, 2, 'half']) await bootFails({ sampleUse: v }, 'authn.audit.sampleUse');
       await bootFails({ hashIdentifiers: 'yes' }, 'authn.audit.hashIdentifiers');
       await bootFails({ hashKey: 'k'.repeat(40) }, 'authn.audit.hashKey');
       await bootFails({ hashKey: { secret: 'short' } }, 'authn.audit.hashKey.secret');
       await bootFails({ hashKey: { secret: 'k'.repeat(32), version: 1 } }, 'authn.audit.hashKey.version');
-      for (const v of [0, -1, 1.5, 60001]) await bootFails({ sinkTimeoutMs: v }, 'authn.audit.sinkTimeoutMs');
+      for (const v of [0, -1, 1.5, 60001, Number.NaN]) await bootFails({ sinkTimeoutMs: v }, 'authn.audit.sinkTimeoutMs');
+      await bootFails({ hashKey: { secret: 7 } }, 'authn.audit.hashKey.secret');
     });
 
     it('reports every bad value of one boot', async () => {
@@ -456,6 +458,22 @@ describe('AuthnAudit', function () {
       expect(calls).to.have.members(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'ChildSink:login']);
       expect(sinkNames(a)).to.include('LogAuthnAuditSink');
       expect(a.sinks()).to.include(await DI.resolve(FirstSink));
+    });
+
+    it('fails with InvalidOperation, not a TypeError, when the schema is not registered', async () => {
+      const child = DI.RootContainer.child();
+      children.push(child);
+      child.register(configurationOf({}, undefined, true)).as(Configuration);
+      await child.resolve(Configuration);
+      for (const build of [() => child.resolve(AuthnAudit), async () => (await child.resolve(LogAuthnAuditSink)).publish(ev('login'))]) {
+        try {
+          await build();
+          expect.fail('expected the call to fail');
+        } catch (e) {
+          expect(e).to.be.instanceOf(InvalidOperation);
+          expect((e as Error).message).to.contain('authn.audit is unset');
+        }
+      }
     });
 
     it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {

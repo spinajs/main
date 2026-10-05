@@ -70,6 +70,7 @@ export class AuthnAudit extends AsyncService {
 
   public async resolve(): Promise<void> {
     const config = this.Config;
+    if (!config) throw new InvalidOperation('authn.audit is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
     // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. Array.chainOf builds each sink
     // where it was registered (a root singleton stays the root's), per-child sinks here; both lists share one order.
     const types = this.container.getRegisteredTypes(Array.chainOf(AuthnEventSink)) ?? [];

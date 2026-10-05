@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
@@ -113,6 +113,45 @@ export function configurationOf(values: Record<string, unknown>, env?: string, i
   } as unknown as Class<Configuration>;
 }
 
+/** Registers the authn schema in `child`, as the AuthnConfigBootstrapper does for the app. */
+export function useAuthnSchema(child: IContainer): void {
+  child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+}
+
+/** A child of the root with the authn schema and a Configuration of `values`, resolved: schema defaults applied, bad values refused. */
+export async function configuredChild(values: Record<string, unknown>, env?: string, isolated = false): Promise<IContainer> {
+  const child = DI.RootContainer.child();
+  try {
+    useAuthnSchema(child);
+    child.register(configurationOf(values, env, isolated)).as(Configuration);
+    await child.resolve(Configuration);
+    return child;
+  } catch (e) {
+    await child.dispose();
+    throw e;
+  }
+}
+
+/** An instance built with `new` has no injected container: point its `@Config` properties at `container`. */
+export function pinConfiguration<T extends object>(instance: T, container: IContainer): T {
+  (instance as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = container;
+  return instance;
+}
+
+export async function invalidOf(boot: Promise<unknown>): Promise<InvalidConfiguration> {
+  try {
+    await boot;
+  } catch (e) {
+    if (e instanceof InvalidConfiguration) return e;
+    throw e;
+  }
+  throw new Error('expected the boot to fail with InvalidConfiguration');
+}
+
+export async function violationPaths(boot: Promise<unknown>): Promise<string[]> {
+  return (await invalidOf(boot)).violations.map((v) => v.path);
+}
+
 /** A named factory: registries look services up by the registration's name. */
 export function bind(child: IContainer, base: Class<unknown>, name: string, value: unknown): void {
   const factory = { [name]: () => value }[name];
@@ -164,10 +203,6 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
   }
 }
 
-// The part of the authn schema whose defaults the services read. Not the whole schema yet: the other blocks are still
-// checked by hand, and their tests pass values the schema refuses. No $id, so it can sit beside the full schema.
-const AUDIT_SCHEMA = { $configurationModule: 'authn', type: 'object', properties: { audit: AUTHN_CONFIGURATION_SCHEMA.properties.audit } };
-
 /** buildCore up to, but not including, resolving the service. The app env is `config.env`, else `test`. */
 async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<Omit<CoreParts, 'service'>> {
   const jit = config.authn?.linking?.jit ?? false;
@@ -190,7 +225,7 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
 
   const child = DI.RootContainer.child();
   try {
-    child.register(AUDIT_SCHEMA).asValue('__configurationSchema__');
+    useAuthnSchema(child);
     child.register(configurationOf(values, opts.unsetEnv ? undefined : (config.env ?? 'test'))).as(Configuration);
     const configuration = await child.resolve(Configuration);
     const throttle = (opts.throttle ?? ((c) => new MemoryAuthnThrottle(c)))(configuration);

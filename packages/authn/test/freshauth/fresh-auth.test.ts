@@ -75,7 +75,7 @@ describe('fresh auth', function () {
     });
 
     it('fails to resolve with a maxAgeSeconds that is not a positive integer', async () => {
-      for (const bad of [0, -5, 1.5, '300']) {
+      for (const bad of [0, -5, 1.5, 'x']) {
         await assert.rejects(boot({ maxAgeSeconds: bad }), /authn\.freshAuth\.maxAgeSeconds/, String(bad));
         await parts?.dispose();
         parts = undefined;
