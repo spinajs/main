@@ -16,6 +16,32 @@ export function usersDriver(): OrmDriver {
   return User.query().Driver;
 }
 
+/** authn-local's `normalizeLogin`, which keys the login throttle. */
+const normalized = (login: string) => login.normalize('NFKC').trim().toLowerCase();
+
+/**
+ * @internal Every user, soft-deleted ones included, whose Email or Login equals `login` as typed (trimmed) or, lower-cased
+ * by the database, one of its folded forms. The typed match is what finds a non-ASCII capital on SQLite, whose `LOWER`
+ * folds ASCII only. `LOWER()` keeps the unique indexes out, so this scans `users`.
+ */
+export async function usersMatchingLogin(login: string): Promise<User[]> {
+  const typed = login.trim();
+  const wanted = [...new Set([typed.toLowerCase(), normalized(login)])];
+  const driver = usersDriver();
+  const marks = wanted.map(() => '?').join(', ');
+  const email = quoted(driver, 'Email');
+  const name = quoted(driver, 'Login');
+
+  return User.query()
+    .withDeleted()
+    .where(
+      raw({
+        sql: `(${email} = ? OR ${name} = ? OR LOWER(${email}) IN (${marks}) OR LOWER(${name}) IN (${marks}))`,
+        bindings: [typed, typed, ...wanted, ...wanted],
+      }),
+    );
+}
+
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mssql' | 'other';
 
 function dialectOf(driver: OrmDriver): Dialect {

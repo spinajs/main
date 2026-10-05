@@ -130,6 +130,30 @@ describe('actions fundamentals ( imperative helpers )', function () {
     it('passes for free values', async () => {
       await expect(assertUserUnique('free-login', 'free@spinajs.pl')).to.be.fulfilled;
     });
+
+    it('refuses a login or email that differs from a stored one only as the login lookup folds it', async () => {
+      for (const login of ['TEST', ' Test ', 'ｔｅｓｔ']) {
+        const err = await assertUserUnique(login).catch((e) => e);
+        expect(err, login).to.be.instanceOf(UserAlreadyExists);
+        expect((err as UserAlreadyExists).data, login).to.deep.eq({ fields: ['Login'] });
+      }
+
+      const err = await assertUserUnique(undefined, 'Test@SpinaJS.pl').catch((e) => e);
+      expect((err as UserAlreadyExists).data).to.deep.eq({ fields: ['Email'] });
+    });
+
+    it("refuses a login equal, folded, to another account's email", async () => {
+      const err = await assertUserUnique('TEST@spinajs.pl').catch((e) => e);
+
+      expect(err).to.be.instanceOf(UserAlreadyExists);
+      expect((err as UserAlreadyExists).data).to.deep.eq({ fields: ['Login'] });
+    });
+
+    it('lets an account keep its own values in another case', async () => {
+      const u = await getUser('test@spinajs.pl');
+
+      await expect(assertUserUnique('TEST', 'TEST@spinajs.pl', u.Id)).to.be.fulfilled;
+    });
   });
 
   describe('setUserMeta / getUserMeta', () => {

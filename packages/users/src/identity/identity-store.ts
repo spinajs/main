@@ -3,12 +3,9 @@ import { IdentityStore } from '@spinajs/authn/contracts';
 import type { IdentityRef, IdentityStatus } from '@spinajs/authn/contracts';
 
 import { USER_COMMON_METADATA, User } from '../models/User.js';
-import { quoted, raw, usersDriver } from './sql.js';
+import { usersMatchingLogin } from './sql.js';
 
 const UNKNOWN: IdentityStatus = Object.freeze({ exists: false, active: false, banned: false, deleted: false, invitePending: false });
-
-/** authn-local's `normalizeLogin`, which keys the login throttle. */
-const normalized = (login: string) => login.normalize('NFKC').trim().toLowerCase();
 
 /**
  * Users as authn identities (`user:<Uuid>`). Every lookup uses the base `User` and includes soft-deleted rows, so
@@ -27,15 +24,7 @@ export class UserIdentityStore extends IdentityStore {
     }
 
     const typed = login.trim();
-    const wanted = [...new Set([typed.toLowerCase(), normalized(login)])];
-    const driver = usersDriver();
-    const marks = wanted.map(() => '?').join(', ');
-    const email = quoted(driver, 'Email');
-    const name = quoted(driver, 'Login');
-
-    const rows = await User.query()
-      .withDeleted()
-      .where(raw({ sql: `(LOWER(${email}) IN (${marks}) OR LOWER(${name}) IN (${marks}))`, bindings: [...wanted, ...wanted] }));
+    const rows = await usersMatchingLogin(login);
 
     const ranked = rows.map((u) => ({ u, rank: u.Email === typed ? 0 : u.Login === typed ? 1 : 2 }));
     const best = Math.min(...ranked.map((r) => r.rank));

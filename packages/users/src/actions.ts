@@ -25,6 +25,7 @@ import { PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
+import { usersMatchingLogin } from './identity/sql.js';
 
 /**
  * ===============================================
@@ -482,7 +483,8 @@ export function assertNoProtectedMetadata(metadata?: { [key: string]: any }): vo
 }
 
 /**
- * Refuses a login / email already taken by another account.
+ * Refuses a login / email already taken by another account: equal to its Login or Email in any form the login lookup
+ * (`UserIdentityStore.findByLogin`) folds alike, so no account can take a case or width variant of another's login.
  *
  * Exported because uniqueness is not only a creation-time rule: an update that
  * renames an account has to apply exactly the same one, and a second
@@ -506,21 +508,18 @@ export function assertNoProtectedMetadata(metadata?: { [key: string]: any }): vo
  */
 export async function assertUserUnique(login?: string, email?: string, exceptUserId?: number): Promise<void> {
   const clashes: string[] = [];
+  const taken = async (value: string) => (await usersMatchingLogin(value)).some((u) => u.Id !== exceptUserId);
 
   if (login) {
     assertLoginNotReserved(login);
 
-    const found = await User.query().withDeleted().where('Login', login).first();
-    if (found && found.Id !== exceptUserId) {
+    if (await taken(login)) {
       clashes.push('Login');
     }
   }
 
-  if (email) {
-    const found = await User.query().withDeleted().where('Email', email).first();
-    if (found && found.Id !== exceptUserId) {
-      clashes.push('Email');
-    }
+  if (email && (await taken(email))) {
+    clashes.push('Email');
   }
 
   if (clashes.length > 0) {

@@ -62,6 +62,14 @@ describe('UserIdentityStore', function () {
       expect(await store.findByLogin('TWIN')).to.eq(null);
     });
 
+    it('finds a login or email with a non-ASCII capital typed as stored (SQLite LOWER folds ASCII only)', async () => {
+      const { ref: login } = await seedUser({ login: 'Łukasz', email: 'lukasz@seed.test' });
+      const { ref: email } = await seedUser({ login: 'zaneta', email: 'Żaneta@X.pl' });
+
+      expect(await store.findByLogin('Łukasz')).to.deep.eq(login);
+      expect(await store.findByLogin(' Żaneta@X.pl ')).to.deep.eq(email);
+    });
+
     it('does not look a user up by Uuid or Id', async () => {
       const u = await User.query().where('Uuid', TEST_USER_UUID).firstOrFail();
 
