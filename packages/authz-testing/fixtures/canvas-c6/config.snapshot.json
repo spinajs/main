@@ -221,7 +221,8 @@
         "org",
         "project",
         "file",
-        "branch"
+        "branch",
+        "group"
       ]
     },
     "org:billing": {

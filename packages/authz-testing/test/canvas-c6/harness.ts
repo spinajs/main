@@ -84,9 +84,6 @@ export const CANVAS_ADMIN_BACKENDS: Readonly<Record<CanvasStoreKind, Class<Authz
 /** authz.rbac.links.secret: DbLinkStore hashes the share link tokens with it. */
 export const CANVAS_LINK_SECRET = 'k1-canvas-c6-link-secret-of-at-least-32-chars';
 
-// AuthzAdmin checks set.addMember at the group scope, and §8.5 types no permission on `group`.
-const ADMIN_EXTRA_TYPES: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'org:manage': ['group'] });
-
 /**
  * The world of every canvas case: the generated §8.5 config, the admin section, and T0. In memory the stores
  * are built by hand, so `authz.rbac.stores` is left out; on SQLite it stays as generated and registerRbac reads it.
@@ -96,7 +93,7 @@ export function canvasWorld(store: CanvasStoreKind): World {
   const { stores, ...rbac } = config.rbac;
   return {
     now: T0,
-    permissions: Object.entries(config.permissions).map(([name, def]) => ({ name, types: [...def.types, ...(ADMIN_EXTRA_TYPES[name] ?? [])] })),
+    permissions: Object.entries(config.permissions).map(([name, def]) => ({ name, types: [...def.types] })),
     combine: config.combine,
     principals: {},
     config: {

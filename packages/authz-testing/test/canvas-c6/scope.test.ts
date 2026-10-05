@@ -43,8 +43,8 @@ describe('canvas C6 scope resolver', () => {
     }
   };
 
-  it('handles the four canvas types', () => {
-    expect(resolver.types).to.deep.equal(['org', 'project', 'file', 'branch']);
+  it('handles the canvas types', () => {
+    expect(resolver.types).to.deep.equal(['org', 'project', 'file', 'branch', 'group']);
   });
 
   describe('ancestors', () => {
@@ -89,8 +89,14 @@ describe('canvas C6 scope resolver', () => {
       expect(list.every((r) => Object.isFrozen(r))).to.equal(true);
     });
 
+    it('group: [group, org, GLOBAL]', async () => {
+      const design: ResourceRef = { type: 'group', id: id('DESIGN') };
+      expect(await resolver.ancestors(design)).to.deep.equal([design, org('ACME'), GLOBAL]);
+      expect(await resolver.attributes(design)).to.deep.equal({});
+    });
+
     it('a type-level ref of a canvas type gives [ref, GLOBAL], as the engine does', async () => {
-      for (const type of ['org', 'project', 'file', 'branch']) expect(await resolver.ancestors({ type })).to.deep.equal([{ type }, GLOBAL]);
+      for (const type of ['org', 'project', 'file', 'branch', 'group']) expect(await resolver.ancestors({ type })).to.deep.equal([{ type }, GLOBAL]);
     });
 
     describe('null (unknown resource)', () => {
@@ -108,6 +114,8 @@ describe('canvas C6 scope resolver', () => {
         ['a branch id with a bad escape', () => ({ type: 'branch', id: `${id('WEB')}::%E0%A4%A` })],
         ['a branch id with an empty name', () => ({ type: 'branch', id: `${id('WEB')}::` })],
         ['a branch id not in canonical encoding', () => ({ type: 'branch', id: `${id('WEB')}::release%2f1.0` })],
+        ['an unknown group', () => ({ type: 'group', id: UNKNOWN })],
+        ['an org id used as a group', () => ({ type: 'group', id: id('ACME') })],
         ['a type the resolver does not handle', () => ({ type: 'user', id: id('ED') })],
       ];
       for (const [name, ref] of unknown) {

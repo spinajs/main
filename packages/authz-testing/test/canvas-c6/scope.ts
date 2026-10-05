@@ -5,7 +5,7 @@ import { ROLES } from './c6/access.js';
 import type { AccessState } from './c6/state.js';
 import { DEFAULT_ORG_POLICIES } from './c6/state.js';
 
-export const CANVAS_SCOPE_TYPES = ['org', 'project', 'file', 'branch'] as const satisfies readonly ResourceType[];
+export const CANVAS_SCOPE_TYPES = ['org', 'project', 'file', 'branch', 'group'] as const satisfies readonly ResourceType[];
 
 export interface BranchId {
   readonly project: string;
@@ -45,7 +45,7 @@ export function parseBranchId(id: string): BranchId | null {
 
 const freezeRefs = (refs: ResourceRef[]): readonly ResourceRef[] => Object.freeze(refs.map((r) => Object.freeze({ ...r })));
 
-/** Scope tree over a C6 `AccessState`: org → project → file → branch, with the unknown-resource rules of C6 `resolve()`. */
+/** Scope tree over a C6 `AccessState`: org → project → file → branch, and org → group, with the unknown-resource rules of C6 `resolve()`. */
 export class CanvasScopeResolver extends ScopeResolver {
   readonly types: readonly ResourceType[] = CANVAS_SCOPE_TYPES;
 
@@ -74,6 +74,10 @@ export class CanvasScopeResolver extends ScopeResolver {
     switch (ref.type) {
       case 'org':
         return this.state.orgs.has(id) ? [{ type: 'org', id }] : null;
+      case 'group': {
+        const org = this.state.groups.get(id)?.org;
+        return org !== undefined && this.state.orgs.has(org) ? [{ type: 'group', id }, { type: 'org', id: org }] : null;
+      }
       case 'project':
         return this.inProject(id);
       case 'file': {

@@ -4,8 +4,11 @@ import * as chai from 'chai';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+import type { HarnessSession } from '../../src/index.js';
 import { branchRulePermissions } from './config.js';
 import { CANVAS_FIXTURES_DIR, loadCanvasFixtures } from './fixtures.js';
+import { toPrincipal } from './facade.js';
+import { canvasHarness, canvasWorld } from './harness.js';
 import { canvasCommands, loadCanvasState } from './load.js';
 import type { CanvasBatch } from './load.js';
 
@@ -285,5 +288,48 @@ describe('canvas C6 state loader', () => {
       expect(error!.message).to.include('field role');
       expect(admin.calls).to.have.length(2);
     });
+  });
+});
+
+describe('canvas C6 group members through AuthzAdmin (RFC K1-1)', function () {
+  this.timeout(60000);
+  const f = loadCanvasFixtures();
+  const id = (symbol: string): string => f.ids.get(symbol)!;
+  const harness = canvasHarness({ store: 'memory' });
+  let session: HarnessSession;
+
+  before(async () => {
+    await harness.beforeAll?.();
+    session = await harness.setup(canvasWorld('memory'), { id: 'B40', part: 'memory', case: 'group members', title: 'canvas C6 group members', facets: [...harness.facets] });
+  });
+
+  after(async () => {
+    try {
+      await session?.dispose();
+    } finally {
+      await harness.afterAll?.();
+    }
+  });
+
+  const addMember = async (actor: string, member: string) => {
+    const canvas = session.lane!.canvas!;
+    const principal = await toPrincipal({ kind: 'user', user: id(actor) }, canvas.deps);
+    const command: AuthzCommand = { kind: 'set.addMember', set: { role: 'group.member', scope: { type: 'group', id: id('DESIGN') } }, member: { type: 'user', id: id(member) } };
+    return (await session.admin!.execute(principal, [command], { reason: 'k1-1' }))[0];
+  };
+
+  it('lets an org admin who is not SYSTEM add a member to a group of the org', async () => {
+    const result = await addMember('ADAM', 'MIA');
+    expect(result.ok, JSON.stringify(result)).to.equal(true);
+    if (result.ok) expect(result.affected).to.equal(1);
+  });
+
+  it('refuses a plain org member', async () => {
+    const result = await addMember('ED', 'NED');
+    expect(result.ok).to.equal(false);
+    if (result.ok) return;
+    expect(result.error.code).to.equal('forbidden');
+    expect(result.error.message).to.contain(`may not org:manage on group:${id('DESIGN')} (role_too_low)`);
+    expect(result.error.message).not.to.contain('unknown_resource');
   });
 });
