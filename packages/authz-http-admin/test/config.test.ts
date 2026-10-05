@@ -25,7 +25,7 @@ describe('shipped configuration', () => {
     expect(config.authz.http.admin.domain).to.equal('root');
   });
 
-  it('keeps the 2.x role guard block that users-http still resolves', () => {
-    expect(config.rbac.admin.roleGuard.service).to.equal('DefaultRoleGuard');
+  it('ships no 2.x rbac.* keys', () => {
+    expect(config).to.not.have.property('rbac');
   });
 });

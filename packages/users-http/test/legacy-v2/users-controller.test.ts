@@ -33,7 +33,6 @@ import {
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
 
 import { Users } from '../../src/admin/controllers/Users/Users.js';
-import { Roles } from '@spinajs/authz-http-admin';
 import { Security } from '../../src/admin/controllers/Users/Security.js';
 import { Profile } from '../../src/admin/controllers/Users/Profile.js';
 
@@ -72,7 +71,6 @@ describe('Admin user controllers', function () {
   this.timeout(25000);
 
   let usersController: Users;
-  let rolesController: Roles;
   let securityController: Security;
   let profileController: Profile;
 
@@ -100,7 +98,6 @@ describe('Admin user controllers', function () {
     emitStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
     usersController = await DI.resolve(Users);
-    rolesController = await DI.resolve(Roles);
     securityController = await DI.resolve(Security);
     profileController = await DI.resolve(Profile);
 
