@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI, IContainer, PerChildInstance } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
@@ -51,7 +52,9 @@ describe('@Config reads the Configuration of the container that built the instan
   });
 
   it('a per-child service in a child with its own Configuration reads the child value', async () => {
-    const service = await child({ feature: { value: 'child' } }).resolve(PerChild);
+    const c = child({ feature: { value: 'child' } });
+    await c.resolve(Configuration);
+    const service = await c.resolve(PerChild);
 
     expect(service.Value).to.equal('child');
   });
@@ -61,7 +64,9 @@ describe('@Config reads the Configuration of the container that built the instan
   });
 
   it('a root singleton reads the root value, also when resolved through a child', async () => {
-    expect((await child({ feature: { value: 'child' } }).resolve(RootSingleton)).Value).to.equal('root');
+    const c = child({ feature: { value: 'child' } });
+    await c.resolve(Configuration);
+    expect((await c.resolve(RootSingleton)).Value).to.equal('root');
   });
 
   it('an instance built with new falls back to the root Configuration', () => {
@@ -80,6 +85,24 @@ describe('@Config reads the Configuration of the container that built the instan
   });
 
   it('the default applies when the path is missing', async () => {
-    expect((await child({}).resolve(PerChild)).Value).to.equal('fallback');
+    const c = child({});
+    await c.resolve(Configuration);
+    expect((await c.resolve(PerChild)).Value).to.equal('fallback');
+  });
+
+  it('a class with @Config resolves synchronously before the Configuration boots', async () => {
+    const c = child({ feature: { value: 'child' } });
+    const result = c.resolve(PerChild);
+
+    expect(result).to.not.be.instanceOf(Promise);
+
+    await c.resolve(Configuration);
+    expect((result as PerChild).Value).to.equal('child');
+  });
+
+  it('reading the property throws when the Configuration of the container is not resolved', () => {
+    const service = child({ feature: { value: 'child' } }).resolve(PerChild) as PerChild;
+
+    expect(() => service.Value).to.throw(InvalidOperation, /feature.value/);
   });
 });

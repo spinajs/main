@@ -1,17 +1,18 @@
 import _ from 'lodash';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-common';
-import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { AddDependencyForProperty, Class, Container, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { InternalLogger } from '@spinajs/internal-logger';
 
-export const CONFIGURATION_INJECTION_KEY = '__injectedConfiguration__';
+export const CONFIGURATION_CONTAINER_KEY = '__configurationContainer__';
 
 /**
  * Injects configuration value into a class property.
  *
  * The decorated property is replaced with a lazy getter. Every read asks the
- * {@link Configuration} of the container that built the instance (the root one for an
- * instance built with `new`) and calls `config.get(path, options.defaultValue)`,
+ * {@link Configuration} of the container that built the instance, which must be resolved
+ * before the property is read (an instance built with `new` reads the root one), and calls `config.get(path, options.defaultValue)`,
  * so the property always reflects the current (possibly reloaded / watched) value
  * instead of a snapshot taken at construction time.
  *
@@ -93,16 +94,21 @@ export function Config(path: string, options?: IConfigEntryOptions) {
     // register conf, so we can expose eg. in db if config is set
     DI.register({ path, options }).asValue('__configuration_property__');
 
-    // Injected rather than read from the root: a child container may register its own Configuration.
+    // The container is injected, not the (async) Configuration, so the class keeps resolving synchronously.
     AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
-      if (!descriptor.inject.some((i) => i.autoinjectKey === CONFIGURATION_INJECTION_KEY)) {
-        descriptor.inject.push({ autoinject: true, autoinjectKey: CONFIGURATION_INJECTION_KEY, inject: Configuration, mapFunc: undefined });
+      if (!descriptor.inject.some((i) => i.autoinjectKey === CONFIGURATION_CONTAINER_KEY)) {
+        descriptor.inject.push({ autoinject: true, autoinjectKey: CONFIGURATION_CONTAINER_KEY, inject: Container, mapFunc: undefined });
       }
     })(target, key);
 
     Object.defineProperty(target, key, {
-      get(this: Record<string, Configuration | undefined>) {
-        const config = this[CONFIGURATION_INJECTION_KEY] ?? DI.get(Configuration)!;
+      get(this: Record<string, IContainer | undefined>) {
+        const container = this[CONFIGURATION_CONTAINER_KEY];
+        const config = container ? container.get(Configuration) : DI.get(Configuration);
+        if (!config) {
+          throw new InvalidOperation(`Cannot read configuration path ${path}: the Configuration of the container is not resolved`);
+        }
+
         return config.get(path, options ? options.defaultValue ?? undefined : undefined);
       },
       enumerable: false,
