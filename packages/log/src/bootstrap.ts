@@ -1,4 +1,4 @@
-import { Configuration } from "@spinajs/configuration";
+import { Configuration, registerConfigurationSchema } from "@spinajs/configuration";
 import { Injectable, Bootstrapper, DI } from "@spinajs/di";
 import { Log, setLogContextProvider } from "@spinajs/log-common";
 import { LogContext, scalarContext } from "./context.js";
@@ -36,7 +36,7 @@ let beforeExitAttached = false;
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
-    DI.register(CONFIGURATION_SCHEMA).asValue("__configurationSchema__");
+    registerConfigurationSchema(CONFIGURATION_SCHEMA);
 
     // Best-effort teardown drain: on a CLEAN process exit, force-flush every
     // logger's targets so buffered File / Loki / OTLP entries are written out.

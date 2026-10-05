@@ -22,7 +22,7 @@ import {
 } from '@spinajs/configuration-common';
 import { Autoinject, Class, Container, IContainer, Injectable, DI } from '@spinajs/di';
 
-import { InvalidConfiguration } from './exception.js';
+import { ConfigurationViolation, InvalidConfiguration } from './exception.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
 import config from './config/configuration.js';
 import './sources.js';
@@ -39,6 +39,35 @@ const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://'
  * Becouse of ajv not supporting esm default exports we need to
  * check for default export module property and if not provided use module itself
  */
+
+const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
+
+// Keywords that report the parent object, with the offending key in `params`.
+const KEY_PARAMS: Record<string, string> = { propertyNames: 'propertyName', required: 'missingProperty', additionalProperties: 'additionalProperty' };
+
+function toViolations(module: string, schema: string, errors: ErrorObject[]): ConfigurationViolation[] {
+  const isNameError = (e: ErrorObject) => e.keyword !== 'propertyNames' && (e.propertyName !== undefined || e.schemaPath.includes('/propertyNames/'));
+  const violations: ConfigurationViolation[] = [];
+
+  for (const e of errors) {
+    if (isNameError(e)) continue;
+
+    const segments = e.instancePath.split('/').filter((p) => p !== '').map(decodePointer);
+    const keyParam = KEY_PARAMS[e.keyword];
+    const key = keyParam ? (e.params as Record<string, unknown>)[keyParam] : undefined;
+    if (key !== undefined) segments.push(String(key));
+
+    let message = e.message ?? e.keyword;
+    if (e.keyword === 'propertyNames') {
+      const detail = errors.filter((n) => n !== e && isNameError(n) && n.instancePath === e.instancePath && n.propertyName === key).map((n) => n.message ?? n.keyword);
+      message = `property name is invalid${detail.length ? `: ${detail.join(', ')}` : ''}`;
+    }
+
+    violations.push({ path: [module, ...segments].join('.'), schema, message });
+  }
+
+  return violations;
+}
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -361,13 +390,32 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected validate() {
-    this.ValidationSchemas.forEach((s) => this.validateModule(s));
+    this.ValidationSchemas = this.schemasOfLineage();
+    const errors: ErrorObject[] = [];
+    const violations: ConfigurationViolation[] = [];
+    for (const s of this.ValidationSchemas) {
+      const r = this.checkModule(s);
+      errors.push(...r.errors);
+      violations.push(...r.violations);
+    }
+    this.throwIfInvalid(errors, violations);
   }
 
   public validateModule(s: IConfigurationSchema) {
+    const r = this.checkModule(s);
+    this.throwIfInvalid(r.errors, r.violations);
+  }
+
+  private throwIfInvalid(errors: ErrorObject[], violations: ConfigurationViolation[]) {
+    if (violations.length === 0) return;
+    violations.forEach((v) => InternalLogger.error('Invalid configuration at %s ( schema %s ): %s', 'Configuration', v.path, v.schema, v.message));
+    throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+  }
+
+  private checkModule(s: IConfigurationSchema): { errors: ErrorObject[]; violations: ConfigurationViolation[] } {
     const config = this.get(s.$configurationModule);
 
-    if (!config) {
+    if (config === undefined) {
       // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
       const empty = {};
       if (this.Validator.validate(s, empty)) {
@@ -375,21 +423,16 @@ export class FrameworkConfiguration extends Configuration {
       } else {
         InternalLogger.warn(`Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`, 'Configuration');
       }
-      return;
+      return { errors: [], violations: [] };
     }
 
-    if (!this.Validator.validate(s, config)) {
-      const errors: ErrorObject[] = this.Validator.errors ?? [];
-      const schema = (s as { $id?: string }).$id ?? s.$configurationModule;
-      const violations = errors.map((ve) => ({
-        path: [s.$configurationModule, ...ve.instancePath.split('/').filter((p) => p !== '')].join('.'),
-        schema,
-        message: ve.message ?? ve.keyword,
-      }));
-      violations.forEach((v) => InternalLogger.error('Invalid configuration at %s ( schema %s ): %s', 'Configuration', v.path, v.schema, v.message));
-
-      throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+    if (this.Validator.validate(s, config)) {
+      return { errors: [], violations: [] };
     }
+
+    const errors: ErrorObject[] = this.Validator.errors ?? [];
+    const schema = (s as { $id?: string }).$id ?? s.$configurationModule;
+    return { errors, violations: toViolations(s.$configurationModule, schema, errors) };
   }
 
   protected initValidator() {

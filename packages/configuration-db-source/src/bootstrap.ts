@@ -4,6 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/require-await */
 import { Autoinject, Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
+import { registerConfigurationSchema } from '@spinajs/configuration';
 import { DbConfig, isConfigValueEqual } from './models/DbConfig.js';
 import { DbConfigValueConverter } from './converter.js';
 import CONFIGURATION_SCHEMA from './schemas/configuration.db.source.schema.js';
@@ -38,7 +39,7 @@ export class DbConfigSourceBotstrapper extends Bootstrapper {
   public authzDomain = 'root';
 
   public async bootstrap(): Promise<void> {
-    DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    registerConfigurationSchema(CONFIGURATION_SCHEMA);
 
     // persist & load exposed options as they get registered (eg. lazily resolved services).
     // before ORM is resolved there is no connection - those vars are handled by the

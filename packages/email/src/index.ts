@@ -1,7 +1,7 @@
 import { InvalidOperation } from '@spinajs/exceptions';
-import { DI, Bootstrapper, Injectable } from '@spinajs/di';
+import { Bootstrapper, Injectable } from '@spinajs/di';
 import { Perf } from '@spinajs/log';
-import { Config } from '@spinajs/configuration';
+import { Config, registerConfigurationSchema } from '@spinajs/configuration';
 import { IEmail, EmailService } from './interfaces.js';
 import CONFIGURATION_SCHEMA from './schemas/email.smtp.configuration.js';
 import { EmailSent } from './events/EmailSent.js';
@@ -25,7 +25,7 @@ export * from './password-mailer.js';
 @Injectable(Bootstrapper)
 export class LogBotstrapper extends Bootstrapper {
   public bootstrap(): void {
-    DI.register(CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    registerConfigurationSchema(CONFIGURATION_SCHEMA);
   }
 }
 

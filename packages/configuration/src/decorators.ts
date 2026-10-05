@@ -4,6 +4,8 @@ import { Configuration, IConfigEntryOptions } from '@spinajs/configuration-commo
 import { AddDependencyForProperty, Class, DI, IContainer, IInjectDescriptor, IMappableService } from '@spinajs/di';
 import { InternalLogger } from '@spinajs/internal-logger';
 
+export const CONFIGURATION_INJECTION_KEY = '__injectedConfiguration__';
+
 /**
  * Injects configuration value into a class property.
  *
@@ -86,8 +88,6 @@ import { InternalLogger } from '@spinajs/internal-logger';
  * @param options - entry options, see {@link IConfigEntryOptions}
  * @returns property decorator
  */
-export const CONFIGURATION_INJECTION_KEY = '__configuration__';
-
 export function Config(path: string, options?: IConfigEntryOptions) {
   return (target: any, key: string): any => {
     // register conf, so we can expose eg. in db if config is set
