@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { AuthzAdminFailure, GLOBAL } from '@spinajs/authz';
 
-import { adminErrorStatus, decodeCommand, decodeCommands, parseAssignmentSubject, parseResourceRef, readAssignmentsQuery, readPageQuery, readWriteOptions, resultsStatus } from '../src/controllers/index.js';
+import { adminErrorStatus, decodeCommand, decodeCommands, parseAssignmentSubject, parseResourceRef, readAssignmentsQuery, readPageQuery, readWriteOptions, resultsStatus } from '../src/routes/index.js';
 
 const ISO = '2027-03-04T05:06:07.000Z';
 const AT = new Date(ISO);

@@ -8,7 +8,7 @@ import type { IControllerDescriptor } from '@spinajs/http';
 import { OpenApiBuilder, SwaggerDocCache } from '@spinajs/http-swagger';
 import type { IOpenApiDocument } from '@spinajs/http-swagger';
 
-import { AuthzAdminController } from '../src/controllers/index.js';
+import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
 import { AUTHZ_ADMIN_ROUTES, AUTHZ_ADMIN_SCHEMAS, COMMAND_KINDS, commandSchemas, describeAuthzAdminDocument } from '../src/schemas/index.js';
 import { startApp, stopApp } from './support/app.js';
 

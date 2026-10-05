@@ -11,7 +11,8 @@ import { CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
 import { FrameworkLogger } from '@spinajs/log';
 
-import { AuthzAdminController, adminDomain, domainAdmin } from '../src/controllers/index.js';
+import { AuthzAdminController } from '../src/controllers/AuthzAdminController.js';
+import { adminDomain, domainAdmin } from '../src/routes/index.js';
 import { DOMAIN, adminHttpHarness, send } from './support/admin-http.js';
 import type { RawRequest, RawResponse } from './support/admin-http.js';
 

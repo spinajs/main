@@ -12,7 +12,7 @@ import type { AdminHttpHandle, BehaviourHarness, Facet, HarnessSession, RbacLink
 // register the write handlers twice.
 import { adminHarness, harnessStores } from '../../../authz-rbac/test/admin/admin-harness.js';
 import { UNRESOLVED_LINK_ID, linkPrincipalOf } from '../../../authz-rbac/src/index.js';
-import { AuthzAdminController } from '../../src/controllers/index.js';
+import { AuthzAdminController } from '../../src/controllers/AuthzAdminController.js';
 import { startApp, stopApp } from './app.js';
 import type { TestApp } from './app.js';
 
