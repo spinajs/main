@@ -10,7 +10,7 @@ import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, U
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, PasswordProvider, SessionProvider } from './interfaces.js';
+import { AuthProvider, LegacySessionProvider, PasswordProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, PasswordChangeConflict, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned } from './exceptions.js';
@@ -270,7 +270,7 @@ function actorOf(p: Principal): PrincipalRef | undefined {
 
 // R1 deletes it with the 2.x session store.
 async function revokeLegacySessions(u: User): Promise<void> {
-  const provider = await legacyService('authn.session', SessionProvider);
+  const provider = await legacyService('authn.session', LegacySessionProvider);
   await provider.deleteByUser(u.Id);
 }
 
