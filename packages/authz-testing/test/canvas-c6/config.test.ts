@@ -46,13 +46,13 @@ describe('canvas C6 config generator (design §8.5)', () => {
   });
 
   describe('agrees with the design listing', () => {
-    it('has the 30 permissions in wire order, each on org, project, file and branch', () => {
+    it('has the 30 permissions in wire order, each on org, project, file and branch (org:manage also on group)', () => {
       expect(Object.keys(config.permissions)).to.deep.equal([
         'project:read', 'project:export', 'inspect:view', 'code:view', 'history:read', 'repo:read', 'presence:join', 'comment:create', 'comment:resolve', 'mr:comment',
         'mr:approve', 'file:edit', 'branch:create', 'version:save', 'version:restore', 'mr:create', 'repo:push', 'file:manage', 'library:read', 'library:use',
         'library:render', 'branch:merge', 'library:publish', 'project:settings', 'grants:invite', 'grants:manage', 'project:delete', 'org:manage', 'org:billing', 'audit:read',
       ]);
-      for (const p of Object.values(config.permissions)) expect(p).to.deep.equal({ types: ['org', 'project', 'file', 'branch'] });
+      for (const [name, p] of Object.entries(config.permissions)) expect(p, name).to.deep.equal({ types: name === 'org:manage' ? ['org', 'project', 'file', 'branch', 'group'] : ['org', 'project', 'file', 'branch'] });
     });
 
     it('fixes combine, ladders and stores', () => {

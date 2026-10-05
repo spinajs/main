@@ -1771,7 +1771,8 @@ Canvas calls `AuthzAdmin` as the acting user (its own capability check runs
 inside, through `authz.admin.permissions` mapped to C6 capabilities:
 `assignment.*` at project and file → `grants:manage`, or `grants:invite`
 for grants up to the actor's role; `link.*` → `grants:manage`; `rule.*` at
-file and project → `project:settings`; `scope.*` at org → `org:manage`).
+file and project → `project:settings`; `scope.*` at org → `org:manage`;
+`set.*` (group members) at group → `org:manage`).
 Background jobs (imports, org deletion) use `runAs(SYSTEM, reason)`.
 
 | C6 operation | `AuthzAdmin` call |
@@ -2040,7 +2041,9 @@ grant on `org.admin` or `org.owner`.
 ```ts
 const PW = ['project', 'org'];               // project-derived access (C6 project_wide)
 authz: {
-  permissions: { /* 30 entries, generated: 'project:read': { types: ['org', 'project', 'file', 'branch'] }, ... */ },
+  permissions: { /* 30 entries, generated: 'project:read': { types: ['org', 'project', 'file', 'branch'] }, ... */
+    'org:manage': { types: ['org', 'project', 'file', 'branch', 'group'] },   // (K1-1) group members are written at group:G
+  },
   combine: { default: { algorithm: 'deny-overrides', models: ['rbac', 'abac'] } },
   rbac: {
     ladders: {
@@ -2124,8 +2127,9 @@ lane loads `state.json` through the same commands):
 | Agent session | `agent` principal from an authn-token agent token (§22.9): `onBehalfOf` = user, `delegation: 'inherit'`, ceiling `{ permissions: scope capabilities, resources: files ?? projects, reason: 'out_of_scope' }` |
 
 Canvas code that remains: the scope resolver (org → project → file →
-branch ancestors and the branch `name`; r3: org policies are no longer
-served by it), the `org` attribute schema, the generator from
+branch ancestors and the branch `name`, and `group:G` → `[group:G,
+org:O]` so an org admin can add group members; r3: org policies are
+no longer served by it), the `org` attribute schema, the generator from
 `capabilities.json`, a translation facade that implements C6's `Authz`
 over `authz().check()` (shapes and code names only; §16.3), and the S3
 write calls of §6.6.4. No decision logic, no SQL on `authz_*` tables.

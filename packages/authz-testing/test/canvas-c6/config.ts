@@ -3,6 +3,8 @@
 export const PROJECT_LADDER = ['viewer', 'commenter', 'editor', 'maintainer'] as const;
 export const ORG_LADDER = ['org.file_guest', 'org.guest', 'org.member', 'org.admin', 'org.owner'] as const;
 export const PERMISSION_TYPES = ['org', 'project', 'file', 'branch'] as const;
+// Group members are written at group:G, and AuthzAdmin checks the command's permission there (RFC K1-1).
+const EXTRA_PERMISSION_TYPES: Readonly<Record<string, readonly string[]>> = { 'org:manage': ['group'] };
 
 const PW = ['project', 'org'] as const;
 const TABLE_KEYS = ['roles', 'addons', 'capabilities'];
@@ -190,7 +192,10 @@ export function canvasAuthzConfig(capabilities: CapabilityTable | unknown): Canv
   const table = readCapabilities(capabilities);
   const rows = table.capabilities;
   const permissions: CanvasAuthzConfig['permissions'] = {};
-  for (const row of rows) permissions[capabilityPermission(row.name)] = { types: [...PERMISSION_TYPES] };
+  for (const row of rows) {
+    const name = capabilityPermission(row.name);
+    permissions[name] = { types: [...PERMISSION_TYPES, ...(EXTRA_PERMISSION_TYPES[name] ?? [])] };
+  }
 
   const projectGrants = (role: ProjectRole) => rows.filter((r) => r.min_role === role).map(grantOf);
   const orgGrants = (role: 'admin' | 'owner') => rows.filter((r) => r.org_role === role).map(grantOf);

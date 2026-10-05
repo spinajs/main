@@ -84,9 +84,6 @@ export const CANVAS_ADMIN_BACKENDS: Readonly<Record<CanvasStoreKind, Class<Authz
 /** authz.rbac.links.secret: DbLinkStore hashes the share link tokens with it. */
 export const CANVAS_LINK_SECRET = 'k1-canvas-c6-link-secret-of-at-least-32-chars';
 
-// AuthzAdmin checks set.addMember at the group scope, and §8.5 types no permission on `group`.
-const ADMIN_EXTRA_TYPES: Readonly<Record<string, readonly string[]>> = Object.freeze({ 'org:manage': ['group'] });
-
 /**
  * The world of every canvas case: the generated §8.5 config, the admin section, and T0. In memory the stores
  * are built by hand, so `authz.rbac.stores` is left out; on SQLite it stays as generated and registerRbac reads it.
@@ -96,7 +93,7 @@ export function canvasWorld(store: CanvasStoreKind): World {
   const { stores, ...rbac } = config.rbac;
   return {
     now: T0,
-    permissions: Object.entries(config.permissions).map(([name, def]) => ({ name, types: [...def.types, ...(ADMIN_EXTRA_TYPES[name] ?? [])] })),
+    permissions: Object.entries(config.permissions).map(([name, def]) => ({ name, types: [...def.types] })),
     combine: config.combine,
     principals: {},
     config: {
@@ -107,12 +104,8 @@ export function canvasWorld(store: CanvasStoreKind): World {
   };
 }
 
-export type CanvasDbScopeAttributeStore = new (opts: ConstructorParameters<typeof DbScopeAttributeStore>[0]) => WritableScopeAttributeStore;
-
 export interface CanvasHarnessOptions {
   readonly store: CanvasStoreKind;
-  /** SQLite only: registered instead of DbScopeAttributeStore. */
-  readonly dbScopeAttributeStore?: CanvasDbScopeAttributeStore;
 }
 
 /** What a case's RBAC wiring hands the rest of the harness. */
@@ -143,7 +136,7 @@ function registerMemoryRbac(host: HostSetup, configuration: Configuration): Canv
 }
 
 /** The §8.5 stores by name through authz-rbac's registerRbac, over the canvas test database (tables cleared first). */
-async function registerSqliteRbac(host: HostSetup, configuration: Configuration, db: CanvasDb, AttributeStore: CanvasDbScopeAttributeStore): Promise<CanvasRbac> {
+async function registerSqliteRbac(host: HostSetup, configuration: Configuration, db: CanvasDb): Promise<CanvasRbac> {
   const c = host.container;
   await clearCanvasTables(db.driver);
   c.register(instance(db.orm)).as(Orm);
@@ -151,7 +144,7 @@ async function registerSqliteRbac(host: HostSetup, configuration: Configuration,
   // A role store holding an earlier group's TestConfiguration would read stale roles.
   const roles = (await c.resolve(RoleStore)) as unknown as { configuration?: unknown };
   if (roles.configuration !== configuration) throw new Error("canvasHarness: the RoleStore does not read this case's Configuration");
-  return { service, attributes: new AttributeStore({ container: db.container }) };
+  return { service, attributes: new DbScopeAttributeStore({ container: db.container }) };
 }
 
 const FACETS: Readonly<Record<CanvasStoreKind, readonly Facet[]>> = Object.freeze({
@@ -180,7 +173,7 @@ export function canvasHarness(opts: CanvasHarnessOptions): BehaviourHarness {
       if (opts.store === 'sqlite') {
         if (!db) throw new Error('canvasHarness: the SQLite database is not booted (beforeAll did not run)');
         activeDb = db;
-        rbac = await registerSqliteRbac(host, configuration, db, opts.dbScopeAttributeStore ?? DbScopeAttributeStore);
+        rbac = await registerSqliteRbac(host, configuration, db);
       } else {
         rbac = registerMemoryRbac(host, configuration);
       }

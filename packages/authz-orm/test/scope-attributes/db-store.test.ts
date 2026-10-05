@@ -261,6 +261,51 @@ describe('DbScopeAttributeStore on SQLite', function () {
     expect(await rejection(inTx((tx) => store.write({ type: 'org', id: 'i'.repeat(65) }, { set: { a: 1 }, remove: [] }, ALICE, tx)))).to.be.instanceOf(AuthzConfigError);
   });
 
+  it('a node whose type or id does not fit the columns has no rows: reads answer {}, forget 0, write refuses', async () => {
+    const longs: ResourceRef[] = [
+      { type: 'branch', id: 'i'.repeat(65) },
+      { type: 't'.repeat(65), id: 'x' },
+    ];
+    const spied = db as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const ref of longs) {
+      let selects = 0;
+      const original = spied.select;
+      spied.select = function (this: unknown, ...args: unknown[]) {
+        selects++;
+        return original.apply(this, args);
+      };
+      try {
+        expect(await store.get(ref)).to.deep.equal({});
+        expect(await store.rows(ref)).to.deep.equal({});
+        expect(selects, 'reads issue no query').to.equal(0);
+      } finally {
+        delete spied.select;
+      }
+      const v0 = await store.version();
+      expect(await inTx((tx) => store.forget(ref, tx))).to.equal(0);
+      expect(await store.version()).to.equal(v0);
+      expect(await rejection(inTx((tx) => store.write(ref, { set: { a: 1 }, remove: [] }, ALICE, tx)))).to.be.instanceOf(AuthzConfigError);
+      expect(await store.version()).to.equal(v0);
+    }
+  });
+
+  it('a malformed ref still fails the read and forget', async () => {
+    for (const ref of [null, 'org', { type: '' }, { type: 'org', id: 5 }]) {
+      expect(await rejection(store.get(ref as never))).to.be.instanceOf(AuthzConfigError);
+      expect(await rejection(store.rows(ref as never))).to.be.instanceOf(AuthzConfigError);
+      expect(await rejection(inTx((tx) => store.forget(ref as never, tx)))).to.be.instanceOf(AuthzConfigError);
+    }
+  });
+
+  it('a type and id of 64 characters still fit', async () => {
+    const ref: ResourceRef = { type: 't'.repeat(64), id: 'i'.repeat(64) };
+    await inTx((tx) => store.write(ref, { set: { 'a.b': 1 }, remove: [] }, ALICE, tx));
+    expect(await store.rows(ref)).to.deep.equal({ 'a.b': 1 });
+    expect(await store.get(ref)).to.deep.equal({ a: { b: 1 } });
+    expect(await inTx((tx) => store.forget(ref, tx))).to.equal(1);
+    expect(await store.get(ref)).to.deep.equal({});
+  });
+
   it('a row that holds no scalar fails the read', async () => {
     await db.insert().into(TABLE).values({ scope_type: 'org', scope_id: 'o1', path: 'bad', value_json: '[1]', updated_at: new Date() });
     expect(await rejection(store.get(o1))).to.be.instanceOf(AuthzConfigError);

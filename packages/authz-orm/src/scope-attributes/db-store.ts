@@ -62,14 +62,17 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
   }
 
   async rows(ref: ResourceRef): Promise<Readonly<Record<string, ScopeAttributeLeaf>>> {
+    const key = keyOf(ref);
     const out: Record<string, ScopeAttributeLeaf> = {};
-    for (const r of await this.select(await this.reader(), ref)) out[r.path] = parseAttributeLeaf(r.value_json, `${TABLE} row ${JSON.stringify(r.path)}`);
+    if (!fits(key)) return out;
+    for (const r of await this.select(await this.reader(), key)) out[r.path] = parseAttributeLeaf(r.value_json, `${TABLE} row ${JSON.stringify(r.path)}`);
     return out;
   }
 
   async write(ref: ResourceRef, change: { readonly set: Readonly<Record<string, ScopeAttributeLeaf>>; readonly remove: readonly string[] }, actor: PrincipalRef, tx: AuthzTx): Promise<number> {
     const driver = await this.writer(tx);
     const key = keyOf(ref);
+    if (!fits(key)) throw new AuthzConfigError(`DbScopeAttributeStore: ${JSON.stringify(ref)} does not fit ${TABLE}.scope_type/scope_id (${KEY_MAX} characters each)`);
     const set = Object.entries(change?.set ?? {});
     const remove = [...(change?.remove ?? [])];
     for (const [path, v] of set) {
@@ -80,7 +83,7 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
     if (!remove.every((p) => typeof p === 'string' && p !== '')) throw new AuthzConfigError('DbScopeAttributeStore: remove must list paths');
 
     await this.bump(driver);
-    const existing = (await this.select(driver, ref)).map((r) => r.path);
+    const existing = (await this.select(driver, key)).map((r) => r.path);
     const setPaths = set.map(([p]) => p);
     // A set path also drops the rows above and below it, so the node always forms one object.
     const removed = existing.filter((p) => remove.some((r) => underPath(p, r)) || setPaths.some((s) => s !== p && (underPath(p, s) || underPath(s, p))));
@@ -97,14 +100,15 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
   async forget(ref: ResourceRef, tx: AuthzTx): Promise<number> {
     const driver = await this.writer(tx);
     const key = keyOf(ref);
+    if (!fits(key)) return 0;
     await this.bump(driver);
-    const count = (await this.select(driver, ref)).length;
+    const count = (await this.select(driver, key)).length;
     if (count > 0) await driver.del().from(TABLE).where(key);
     return count;
   }
 
-  private async select(driver: OrmDriver, ref: ResourceRef): Promise<Row[]> {
-    return ((await driver.select().from(TABLE).columns(['path', 'value_json']).where(keyOf(ref))) ?? []) as Row[];
+  private async select(driver: OrmDriver, key: Key): Promise<Row[]> {
+    return ((await driver.select().from(TABLE).columns(['path', 'value_json']).where(key)) ?? []) as Row[];
   }
 
   /**
@@ -145,9 +149,15 @@ export class DbScopeAttributeStore extends WritableScopeAttributeStore {
   }
 }
 
-function keyOf(ref: ResourceRef): { scope_type: string; scope_id: string } {
-  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || (ref.id != null && typeof ref.id !== 'string')) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
-  const id = ref.id ?? '';
-  if (ref.type.length > KEY_MAX || id.length > KEY_MAX) throw new AuthzConfigError(`DbScopeAttributeStore: ${JSON.stringify(ref)} does not fit ${TABLE}.scope_type/scope_id (${KEY_MAX} characters each)`);
-  return { scope_type: ref.type, scope_id: id };
+interface Key {
+  readonly scope_type: string;
+  readonly scope_id: string;
 }
+
+function keyOf(ref: ResourceRef): Key {
+  if (ref === null || typeof ref !== 'object' || typeof ref.type !== 'string' || ref.type === '' || (ref.id != null && typeof ref.id !== 'string')) throw new AuthzConfigError(`DbScopeAttributeStore needs a resource ref, got ${JSON.stringify(ref)}`);
+  return { scope_type: ref.type, scope_id: ref.id ?? '' };
+}
+
+/** A node whose key does not fit the columns cannot hold rows: reads answer empty, only a write is an error. */
+const fits = (key: Key): boolean => key.scope_type.length <= KEY_MAX && key.scope_id.length <= KEY_MAX;
