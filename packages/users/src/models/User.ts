@@ -263,7 +263,10 @@ export function isReservedLogin(login: string): boolean {
 @Connection('default')
 @Model('users')
 export class UserBase extends ModelBase<UserBase> {
-  protected _ac: AccessControl;
+  /** @deprecated 3.0: authz(); RbacService for introspection. R1 deletes it. */
+  protected get _ac(): AccessControl {
+    return DI.get<AccessControl>('AccessControl')!;
+  }
 
   public static readonly _queryScopes: UserQueryScopes = new UserQueryScopes();
 
@@ -271,8 +274,6 @@ export class UserBase extends ModelBase<UserBase> {
     super(data);
 
     this.Uuid = _check_arg(_default(uuidv4()))(this.Uuid, 'uuid');
-
-    this._ac = DI.get('AccessControl')!;
   }
 
   /**
@@ -396,6 +397,7 @@ export class UserBase extends ModelBase<UserBase> {
     return base as any;
   }
 
+  /** @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it. */
   public can(resource: string, permission: string): Permission {
     resource = _check_arg(_trim(), _non_empty())(resource, 'resource');
     permission = _check_arg(_trim(), _non_empty())(permission, 'permission');
@@ -407,6 +409,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shorthand for check if user can read any of specified resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canReadAny(resource: string) {
     return this.can(resource, 'readAny');
@@ -417,6 +421,8 @@ export class UserBase extends ModelBase<UserBase> {
    *
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canReadOwn(resource: string) {
     return this.can(resource, 'readOwn');
@@ -427,6 +433,8 @@ export class UserBase extends ModelBase<UserBase> {
    *
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canUpdateAny(resource: string) {
     return this.can(resource, 'updateAny');
@@ -436,6 +444,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can update own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canUpdateOwn(resource: string) {
     return this.can(resource, 'updateOwn');
@@ -445,6 +455,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can delete any resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canDeleteAny(resource: string) {
     return this.can(resource, 'deleteAny');
@@ -454,6 +466,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shourtcut for check if user can delete own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canDeleteOwn(resource: string) {
     return this.can(resource, 'deleteOwn');
@@ -463,6 +477,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shortcut for check if user can create any resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canCreateAny(resource: string) {
     return this.can(resource, 'createAny');
@@ -472,6 +488,8 @@ export class UserBase extends ModelBase<UserBase> {
    * Shourtcut for check if user can create own resource
    * @param resource
    * @returns
+   *
+   * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
    */
   public canCreateOwn(resource: string) {
     return this.can(resource, 'createOwn');

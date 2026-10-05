@@ -13,6 +13,8 @@ declare module '@spinajs/orm' {
      * @param query query to alter
      * @param user user to check againts ownership
      * @param modelDescriptor resource model descriptor
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm, scoped queries. R1 deletes it.
      */
     ensureOwnership(query: ISelectQueryBuilder<any> | IUpdateQueryBuilder<any> | IDeleteQueryBuilder<any>, user: User): IQueryBuilder;
 
@@ -20,6 +22,8 @@ declare module '@spinajs/orm' {
      * Checks ownership of retrieved model by user
      * @param model model
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(model: ModelBase<M>, user: User): Promise<boolean>;
 
@@ -27,6 +31,8 @@ declare module '@spinajs/orm' {
      * Checks ownership of model by its primary key
      * @param model primary key to check
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(primaryKey: string | number, user: User): Promise<boolean>;
 
@@ -34,6 +40,8 @@ declare module '@spinajs/orm' {
      * Checks ownership of retrieved model by user
      * @param model model / primary key to check
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(modelOrPrimaryKey: ModelBase<M> | string | number, user: User): Promise<boolean>;
   }
@@ -286,8 +294,10 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   }
 }
 
+/** @deprecated 3.0: permission names '<resource>:<action>' and relations of @spinajs/authz. R1 deletes it. */
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
+/** @deprecated 3.0: @AccessResource and @Owner of @spinajs/authz-orm. R1 deletes it. */
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
 
@@ -378,17 +388,21 @@ export interface IRbacAsyncStorage<U = User> {
   Session?: ISession;
 
   /**
- * Controller route permission context
- * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
- *
- * eg. we want to read only current user data but it has admin privlidges too....
- */
+   * Controller route permission context
+   * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
+   *
+   * eg. we want to read only current user data but it has admin privlidges too....
+   *
+   * @deprecated 3.0: relations of @spinajs/authz decide own versus any. R1 deletes it.
+   */
   PermissionScope?: PermissionType;
 
   /**
    * Currently selected role from User.Role list. When set, all request-bound
    * permission checks (rbac query middleware, RbacPolicy) use this single role
    * instead of the full role array. The user may switch via /auth/active-role.
+   *
+   * @deprecated 3.0: principal.ceiling?.roles (role switch, authn). R1 deletes it.
    */
   ActiveRole?: string;
 
@@ -404,6 +418,8 @@ export interface IRbacAsyncStorage<U = User> {
    * constraints into query builders for this execution context.
    * Set via @SkipModelPermission() decorator for controller actions
    * that are assumed safe to execute without rbac query filtering.
+   *
+   * @deprecated 3.0: runAs(SYSTEM, 'reason', fn) or @Unscoped('reason'). R1 deletes it.
    */
   SkipModelPermissionCheck?: boolean;
 }

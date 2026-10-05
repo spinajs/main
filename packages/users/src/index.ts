@@ -51,6 +51,7 @@ export * from './identity/index.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;
+/** @deprecated 3.0: authz(); RBAC introspection through RbacService. R1 deletes them. */
 export { AccessControl, Permission };
 
 @Injectable(Bootstrapper)

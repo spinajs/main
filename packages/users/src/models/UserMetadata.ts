@@ -29,6 +29,8 @@ export class UserMetadataBase extends MetadataModel<UserMetadataBase> {
   public User: SingleRelation<User>;
 
   @Hidden()
+  // Deprecated 2.x scoping, kept with @OrmResource below: it still guards users-http's legacy metadata routes until
+  // C2 moves them to @AccessResource('user.metadata').
   @ResourceOwner()
   public user_id: number;
 }

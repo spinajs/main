@@ -1,6 +1,7 @@
 import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { AccessControl } from 'accesscontrol';
+import * as sinon from 'sinon';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserMetadata } from '../src/index.js';
@@ -163,6 +164,19 @@ describe('User model tests', function () {
 
     const editor = () => new User({ Role: ['editor'] });
     const viewer = () => new User({ Role: ['viewer'] });
+
+    it('a user is built without reading the 2.x AccessControl; only the deprecated can* read it', () => {
+      const get = sinon.spy(DI.RootContainer, 'get');
+      try {
+        const user = editor();
+        expect(get.calledWith('AccessControl')).to.eq(false);
+
+        expect(user.canReadAny('Article').granted).to.be.true;
+        expect(get.calledWith('AccessControl')).to.eq(true);
+      } finally {
+        get.restore();
+      }
+    });
 
     it('canReadAny should work', () => {
       expect(editor().canReadAny('Article').granted).to.be.true;
