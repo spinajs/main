@@ -387,8 +387,49 @@ export const totpPart: LanePart = {
   },
 };
 
+// N8a's harness loads authn-token's service, strategy and migrations by file from this build (harness.ts); the same
+// URL gives the same module, so TokenProfilePolicy below is the base DbTokenService injects.
+const TOKEN_LIB = new URL('../../../../authn-token/lib/mjs/', import.meta.url);
+
+export const TOKEN_ROUTES: Partial<HttpRoutes> = {
+  tokenCreate: (o) => ({ method: 'POST', path: '/user/tokens', body: { name: o.name, expiresAt: o.expiresAt.toISOString(), ...(o.reauthPassword !== undefined ? { reauthPassword: o.reauthPassword } : {}) } }),
+  tokenList: () => ({ method: 'GET', path: '/user/tokens' }),
+};
+
+/** The profiles the lane's TokenProfilePolicy offers every owner; none at the start of a case, as authn-token's default. */
+let tokenProfiles: readonly string[] = [];
+let tokenBound = false;
+
+/** Lets every owner pin a token to `profiles` until the case ends. */
+export function laneTokenProfiles(profiles: readonly string[]): void {
+  tokenProfiles = [...profiles];
+}
+
+/** authn-token: DbTokenService behind the token routes and TokenStrategy behind bearer requests, on rbac_access_tokens in sqlite. */
+export const tokenPart: LanePart = {
+  name: 'token',
+  async beforeDb() {
+    const { TokenProfilePolicy } = (await import(new URL('service/index.js', TOKEN_LIB).href)) as { TokenProfilePolicy: abstract new () => unknown };
+    if (!tokenBound) {
+      tokenBound = true;
+      // Over authn-token's NoTokenProfilesPolicy, which offers none.
+      bind(TokenProfilePolicy, 'N8bTokenProfiles', () => ({ allowedProfiles: async () => [...tokenProfiles] }));
+    }
+  },
+  routes: TOKEN_ROUTES,
+  ports: ['tokens'],
+  async open() {
+    tokenProfiles = [];
+  },
+  async addPorts(_c, base) {
+    const name = (base.tokens as object | undefined)?.constructor?.name;
+    if (name !== 'DbTokenService') throw new Error(`TokenService resolves to ${name}, not authn-token's DbTokenService`);
+    return {};
+  },
+};
+
 /** The lane's parts; later tasks append theirs. */
-export const PARTS: readonly LanePart[] = [passwordPart, totpPart];
+export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart];
 
 function strategiesOf(parts: readonly LanePart[]): StrategyEntry[] {
   const out = [...STRATEGIES];

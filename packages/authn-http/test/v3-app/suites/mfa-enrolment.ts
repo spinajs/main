@@ -78,7 +78,7 @@ async function expectGateClosed(container: IContainer): Promise<void> {
 }
 
 /** A browser on the lane harness: keeps the session cookie and sends the app's Origin. */
-class LaneClient {
+export class LaneClient {
   public cookie: string | undefined;
   public readonly answers: HttpResponse[] = [];
 
@@ -107,7 +107,7 @@ class LaneClient {
 }
 
 /** `fn` with Date `seconds` ahead (the server shares the process clock). */
-async function later<T>(seconds: number, fn: () => Promise<T>): Promise<T> {
+export async function later<T>(seconds: number, fn: () => Promise<T>): Promise<T> {
   const clock = sinon.useFakeTimers({ now: Date.now() + seconds * 1000, toFake: ['Date'] });
   try {
     return await fn();
@@ -116,14 +116,14 @@ async function later<T>(seconds: number, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function expectFailureBody(res: HttpResponse, retryAfter?: string): void {
+export function expectFailureBody(res: HttpResponse, retryAfter?: string): void {
   expect(res.status, JSON.stringify(res.body)).to.eq(401);
   expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
   expect(res.headers['cache-control']).to.eq('no-store');
   expect(res.headers['retry-after']).to.eq(retryAfter);
 }
 
-function expectRefused(res: HttpResponse, status: number, error: string): void {
+export function expectRefused(res: HttpResponse, status: number, error: string): void {
   expect(res.status, JSON.stringify(res.body)).to.eq(status);
   expect((res.body as { error?: unknown }).error).to.eq(error);
 }

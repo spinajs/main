@@ -7,15 +7,16 @@ import type { Facet, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-t
 
 import { clearLog, logLines } from '../app.js';
 import { mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
+import { tokenRoutesSuite } from '../suites/tokens.js';
 import { ROUTES } from './harness.js';
-import { MFA_ROUTES, N8B_PORTS, PASSWORD_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
+import { MFA_ROUTES, N8B_PORTS, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
 
 /** The http facets N8b owns so far; each task adds its own. */
-const CLAIM: readonly Facet[] = ['A10/http', 'A11/http', 'A30/http', 'A32/http'];
+const CLAIM: readonly Facet[] = ['A09/http', 'A10/http', 'A11/http', 'A13/http', 'A14/http', 'A30/http', 'A32/http'];
 
-const RULES = ['A10', 'A11', 'A30', 'A32'] as const;
+const RULES = ['A09', 'A10', 'A11', 'A13', 'A14', 'A30', 'A32'] as const;
 
-const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES } : need === 'fakeDate' || (N8B_PORTS as readonly string[]).includes(need));
+const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES, ...TOKEN_ROUTES } : need === 'fakeDate' || (N8B_PORTS as readonly string[]).includes(need));
 
 const ALICE = { login: 'lane-alice@example.test', password: 'Lane-Alice-Pass-1' };
 
@@ -45,19 +46,16 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
     expect(missing).to.deep.eq([]);
   });
 
-  runAuthnBehaviour([...RULES], n8bHarness, { title: 'authn-http: N8b plan list (tasks 1-2)', claim: [...CLAIM], facets: [...CLAIM], timeoutMs: 60000 });
-
-  // A09/http on the real TOTP step, unclaimed: the kit claims whole facets and the tokenList row waits for task 3.
-  it('A09/http: only the tokenList row lacks a need here', () => {
-    const missing = planCases(['A09'], { facets: ['A09/http'] }).flatMap((p) => p.kase.needs.filter((n) => !have(n)).map((n) => `${p.kase.name}: ${n}`));
-    expect(missing).to.deep.eq(['A09 a pending session reaches no route but the MFA routes: tokenList: http.routes.tokenList']);
-  });
-
-  runAuthnBehaviour(['A09'], n8bHarness, { title: 'authn-http: N8b A09/http (claimed in task 3)', facets: ['A09/http'], timeoutMs: 60000 });
+  runAuthnBehaviour([...RULES], n8bHarness, { title: 'authn-http: N8b plan list (tasks 1-3)', claim: [...CLAIM], facets: [...CLAIM], timeoutMs: 60000 });
 
   describe('MFA enrolment routes on authn-totp (task 2)', function () {
     this.timeout(60000);
     mfaEnrolmentRoutesSuite();
+  });
+
+  describe('token routes on authn-token (task 3)', function () {
+    this.timeout(60000);
+    tokenRoutesSuite();
   });
 
   describe('lane cases on authn-local and authn-orm', function () {
