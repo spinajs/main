@@ -321,5 +321,27 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       const prefixed = unitGuard({ 'authn.session.cookie': { name: '__Host-sid' } });
       for (const cookie of ['__Host-sid=x', '__Host-__Host-sid=x']) expect(run(prefixed, 'POST', { origin: EVIL, cookie }).passed, cookie).to.eq(false);
     });
+
+    it('logs a refusal once a minute per origin pair, naming both origins and the settings, never the cookie', () => {
+      const guard = unitGuard({});
+      const warn = sinon.spy();
+      Object.defineProperty(guard, 'Log', { value: { warn } });
+      const handler = guard.before()!;
+      const hit = (headers: Record<string, string>) => handler(fakeReq('POST', { cookie: 'ssid=secret-cookie-value', host: 'app_upstream:1337', ...headers }), fakeRes() as any, sinon.spy());
+      hit({ origin: 'https://app.example.com' });
+      hit({ origin: 'https://app.example.com' });
+      expect(warn.callCount).to.eq(1);
+      const line = String(warn.firstCall.args[0]);
+      expect(line).to.contain('https://app.example.com').and.contain('http://app_upstream:1337').and.contain('trustProxy').and.contain('allowedOrigins');
+      expect(line).to.not.contain('secret-cookie-value');
+      hit({ origin: 'https://other.example.com' });
+      hit({ origin: 'not an origin\nforged log line' });
+      hit({ 'sec-fetch-site': 'cross-site' });
+      expect(warn.callCount).to.eq(4);
+      expect(String(warn.getCall(2).args[0])).to.contain('Origin malformed').and.not.contain('forged');
+      expect(String(warn.getCall(3).args[0])).to.contain('Sec-Fetch-Site cross-site');
+      hit({ origin: 'http://app_upstream:1337' });
+      expect(warn.callCount, 'a passing request logs nothing').to.eq(4);
+    });
   });
 });

@@ -5,6 +5,7 @@ import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '
 import type { ProxyTrust, Request } from '@spinajs/http';
 import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
+import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
 import { authnProxyTrust } from './client-ip.js';
@@ -45,6 +46,32 @@ function isEnabled(config: Configuration): boolean {
   return enabled !== false;
 }
 
+const WARN_INTERVAL_MS = 60_000;
+const WARN_KEYS_MAX = 256;
+
+/** At most one warning per (Origin, own origin) pair a minute, from a bounded table, so a flood cannot fill the log. */
+class RefusalWarnings {
+  private readonly last = new Map<string, number>();
+
+  constructor(private readonly log: () => Log | undefined) {}
+
+  public refused(origin: string | undefined, fetchSite: unknown, own: string | undefined): void {
+    // Request headers are client input: only a well-formed origin is logged, never cookies.
+    const site = typeof fetchSite === 'string' && /^[a-z-]{1,16}$/.test(fetchSite) ? fetchSite : 'absent';
+    const shown = origin === undefined ? `none (Sec-Fetch-Site ${site})` : (parseOrigin(origin) ?? 'malformed');
+    const key = `${shown}|${own ?? ''}`;
+    const now = Date.now();
+    const at = this.last.get(key);
+    if (at !== undefined && now - at < WARN_INTERVAL_MS) return;
+    if (at === undefined && this.last.size >= WARN_KEYS_MAX) this.last.clear();
+    this.last.set(key, now);
+    this.log()?.warn(
+      `CsrfOriginGuard refused a cookie request: Origin ${shown}, own origin ${own ?? 'unknown (no usable Host)'}. ` +
+        `Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${ALLOWED_ORIGINS_KEY}.`,
+    );
+  }
+}
+
 function carriesCookie(header: string | undefined, names: readonly string[]): boolean {
   return (header ?? '').split(';').some((pair) => names.includes(pair.split('=')[0].trim()));
 }
@@ -59,6 +86,9 @@ function carriesCookie(header: string | undefined, names: readonly string[]): bo
 export class CsrfOriginGuard extends ServerMiddleware {
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
+
+  @Logger('authn-http')
+  protected Log!: Log;
 
   constructor() {
     super();
@@ -75,14 +105,17 @@ export class CsrfOriginGuard extends ServerMiddleware {
     // __Host- prefix, so both forms count as the session cookie.
     const base = this.Configuration.get<ISessionCookieConfig>('authn.session.cookie', {})?.name ?? SESSION_COOKIE_BASE_NAME;
     const sessionCookies = [base, `__Host-${base}`];
+    const warnings = new RefusalWarnings(() => this.Log);
 
     return (req: Request, res: express.Response, next: express.NextFunction) => {
       if (SAFE_METHODS.has(req.method) || !carriesCookie(req.headers.cookie, sessionCookies)) return next();
 
       const origin = req.headers.origin;
-      const allowedRequest = origin === undefined ? req.headers['sec-fetch-site'] === 'same-origin' : allowed.has(origin) || origin === ownOrigin(req, trust);
+      const own = origin === undefined ? undefined : ownOrigin(req, trust);
+      const allowedRequest = origin === undefined ? req.headers['sec-fetch-site'] === 'same-origin' : allowed.has(origin) || origin === own;
       if (allowedRequest) return next();
 
+      warnings.refused(origin, req.headers['sec-fetch-site'], origin === undefined ? ownOrigin(req, trust) : own);
       res.status(HTTP_STATUS_CODE.FORBIDDEN).json(REFUSED);
     };
   }
