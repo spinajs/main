@@ -108,6 +108,14 @@ describe('UserAccountStatusSource: accounts in service for the admin guard', fun
       expect((await (await source()).inService([ref(uuid)])).get(key(uuid))).to.eq(false);
     });
 
+    it('an invite-pending user is not, even when an app hook set it active', async () => {
+      const u = await insertUser('invited');
+      u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = true;
+      await u.Metadata.sync();
+
+      expect((await (await source()).inService([ref(u.Uuid)])).get(key(u.Uuid))).to.eq(false);
+    });
+
     it("a user whose password holds authn-local's expiry marker is not", async () => {
       const u = await insertUser('expired', { Password: '!expired' });
       expect((await (await source()).inService([ref(u.Uuid)])).get(key(u.Uuid))).to.eq(false);

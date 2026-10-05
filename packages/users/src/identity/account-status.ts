@@ -4,16 +4,16 @@ import { EXPIRED_PASSWORD_MARKER } from '@spinajs/authn-local';
 import { AccountStatusSource } from '@spinajs/authz-rbac';
 import { Injectable } from '@spinajs/di';
 
-import { User } from '../models/User.js';
+import { USER_COMMON_METADATA, User } from '../models/User.js';
 
 const LOOKUP_CHUNK = 100;
 
 /**
  * Tells AuthzAdmin's last-holder check which users are in service: the row exists and is not soft-deleted, the
- * account is active and not banned (a timed ban counts until it ends), and its password does not hold authn-local's
- * expiry marker. Both an admin expiry and the `authn.local.expiration` job write that marker; a password past
- * `maxAgeDays` still logs in until the job marks it, so its age alone does not count. Any other principal type,
- * and a Uuid with no row, is not in service.
+ * account is active, not banned (a timed ban counts until it ends) and has no pending invite, and its password does
+ * not hold authn-local's expiry marker. Both an admin expiry and the `authn.local.expiration` job write that marker;
+ * a password past `maxAgeDays` still logs in until the job marks it, so its age alone does not count. Any other
+ * principal type, and a Uuid with no row, is not in service.
  */
 @Injectable(AccountStatusSource)
 export class UserAccountStatusSource extends AccountStatusSource {
@@ -27,7 +27,7 @@ export class UserAccountStatusSource extends AccountStatusSource {
 
     const ids = [...uuids];
     for (let i = 0; i < ids.length; i += LOOKUP_CHUNK) {
-      // The ban lives in the metadata, so a row read without it would pass as not banned.
+      // The ban and the invite marker live in the metadata; a row read without it would pass as in service.
       const rows = (await User.query()
         .withDeleted()
         .whereIn('Uuid', ids.slice(i, i + LOOKUP_CHUNK))
@@ -42,5 +42,5 @@ export class UserAccountStatusSource extends AccountStatusSource {
 }
 
 function inService(u: User): boolean {
-  return !u.DeletedAt && Boolean(u.IsActive) && !u.IsBanned && u.Password !== EXPIRED_PASSWORD_MARKER;
+  return !u.DeletedAt && Boolean(u.IsActive) && !u.IsBanned && u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] !== true && u.Password !== EXPIRED_PASSWORD_MARKER;
 }
