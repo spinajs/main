@@ -177,12 +177,13 @@ describe('DefaultEmailService attachments', () => {
   it('with email.attachments.check off leaves the attachments to the transport', async () => {
     publish(fakeFs('uploads'));
     const { service, sender } = serviceWith(false);
-    const mail = mailWith({ name: 'a.txt', path: 'docs/a.txt', provider: 'uploads' });
+    const mail = mailWith({ name: 'a.txt', path: 'docs/a.txt', provider: 'uploads', file: '/etc/passwd' });
 
     await service.send(mail);
 
     expect(events).to.deep.equal(['send']);
-    expect(sender.Captured[0].attachements).to.equal(mail.attachements);
+    expect(sender.Captured[0].attachements).to.deep.equal([{ name: 'a.txt', path: 'docs/a.txt', provider: 'uploads' }]);
+    expect(mail.attachements![0].file).to.equal('/etc/passwd');
   });
 });
 

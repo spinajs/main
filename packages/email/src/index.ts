@@ -150,12 +150,16 @@ export class DefaultEmailService extends EmailService {
 
   /**
    * A copy of `email` whose attachments carry the local `file`, each read through its filesystem in the
-   * caller's async context, so a guarded filesystem checks `fs:read` as the sending principal. `email` itself when
-   * the check is off or there is nothing to read.
+   * caller's async context, so a guarded filesystem checks `fs:read` as the sending principal. With the check off the
+   * copy only drops `file`, so a caller (or a queued payload) cannot hand the transport a local path or URL unread.
    */
   protected async readAttachments(email: IEmail): Promise<IEmail> {
-    if (!email.attachements?.length || !this.CheckAttachments) {
+    if (!email.attachements?.length) {
       return email;
+    }
+
+    if (!this.CheckAttachments) {
+      return { ...email, attachements: email.attachements.map(({ file: _caller, ...a }) => a) };
     }
 
     const attachements = [];

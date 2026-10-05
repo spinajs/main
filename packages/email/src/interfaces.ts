@@ -77,7 +77,7 @@ export interface IEmailAttachement {
 
   /**
    * The local file the email service already read through the attachment's filesystem. A transport sends it and does
-   * not read `path` again. The service sets it and ignores a value the caller passed.
+   * not read `path` again. Only the service sets it: it drops a value the caller passed, whatever `email.attachments.check` says.
    */
   file?: string;
 }
