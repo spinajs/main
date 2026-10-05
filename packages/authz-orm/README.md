@@ -9,8 +9,10 @@ ORM adapter for SpinaJS authorization.
   `joinTypes` to the boot checks.
 - Mark models with `@AccessResource(type, opts)`, `@Owner()`, `@ScopeColumn(column, scopeType)`;
   scope relations with `@OrmScope(model, relation)` on an `OrmScopePolicy`; models a package does
-  not own with `registerAccessResource`. Register them before the authz domain boots: a type
-  registered later gets its permissions only when the domain boots again.
+  not own with `registerAccessResource`. Register them before the authz domain boots (at import,
+  or in a `Bootstrapper`; a model module imported lazily after boot is late): a type registered
+  later makes every check, list, summary and covers on it throw `AuthzConfigError` until the
+  domain boots again.
 - `ownsBy(type, relation, fn)` is an in-memory relation with no SQL form, for `@AccessResource` types
   only: `fn` gets the row of the checked ref, loaded through the adapter when the subject is not
   that row.

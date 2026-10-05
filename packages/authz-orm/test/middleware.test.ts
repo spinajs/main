@@ -162,16 +162,16 @@ describe('authz-orm query middleware', function () {
         });
 
         it('runAs(SYSTEM) runs unscoped, consults no model, and the host audits the runAs', async () => {
-          const { service, audit, evaluations } = await host({});
           const Task = await defineTask();
+          const { service, audit, evaluations } = await host({});
           expect(ids(await service.runAs(SYSTEM, 'cli', async () => Task.all()))).to.deep.equal(ALL);
           expect(evaluations()).to.equal(0);
           expect(audit.of('runAs').map((e) => e.reason)).to.deep.equal(['cli']);
         });
 
         it('@Unscoped(reason) runs unscoped and audits unscoped with the reason; authz.audit.unscoped false turns the record off', async () => {
-          const { audit, evaluations } = await host({});
           const Task = await defineTask();
+          const { audit, evaluations } = await host({});
           const store = { Principal: alice, Unscoped: 'report' };
           expect(ids(await authzStorage().run(store, async () => Task.all()))).to.deep.equal(ALL);
           await tick();
@@ -185,8 +185,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('without a principal (UNATTENDED) a query throws AccessDenied with reason unattended and consults no model', async () => {
-          const { evaluations } = await host({ [P.read]: permit() });
           const Task = await defineTask();
+          const { evaluations } = await host({ [P.read]: permit() });
           const e = await Task.all().then(
             () => undefined,
             (x: unknown) => x,
@@ -197,23 +197,23 @@ describe('authz-orm query middleware', function () {
         });
 
         it('TRUE adds no WHERE', async () => {
-          await host({ [P.read]: permit() });
           const Task = await defineTask();
+          await host({ [P.read]: permit() });
           const sql = await as(alice, () => (Task.query().toDB() as { expression: string }).expression);
           expect(sql).to.not.match(/\bWHERE\b/i);
           expect(ids(await as(alice, () => Task.all()))).to.deep.equal(ALL);
         });
 
         it('a residual becomes a WHERE that keeps its OR and AND', async () => {
-          await host({ [P.read]: permit(or(and(cmp('status', 'eq', 'open'), rel('owner')), cmp('visibility', 'eq', 'public'))) });
           const Task = await defineTask();
+          await host({ [P.read]: permit(or(and(cmp('status', 'eq', 'open'), rel('owner')), cmp('visibility', 'eq', 'public'))) });
           expect(ids(await as(alice, () => Task.all()))).to.deep.equal(['t1', 't2']);
           expect(ids(await as(bob, () => Task.all()))).to.deep.equal(['t2']);
         });
 
         it("the caller's where never widens the residual: (residual) AND (where), also after orWhere and clearWhere", async () => {
-          await host({ [P.read]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.read]: permit(rel('owner')) });
           const orWhere = () => Task.where('status', 'open').orWhere('status', 'closed');
           expect(ids(await as(alice, orWhere))).to.deep.equal(['t1', 't3']);
           expect(ids(await as(bob, orWhere))).to.deep.equal(['t2']);
@@ -235,14 +235,14 @@ describe('authz-orm query middleware', function () {
         });
 
         it('a clone keeps the residual and its shield', async () => {
-          await host({ [P.read]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.read]: permit(rel('owner')) });
           expect(ids(await as(bob, () => Task.query().clone().where('status', 'open').orWhere('owner', 'alice')))).to.deep.equal(['t2']);
         });
 
         it('a residual no row meets is an empty list; FALSE (no permit at all) is AccessDenied (H16)', async () => {
-          await host({ [P.read]: permit(cmp('status', 'eq', 'archived')) });
           const Task = await defineTask();
+          await host({ [P.read]: permit(cmp('status', 'eq', 'archived')) });
           expect(ids(await as(alice, () => Task.all()))).to.deep.equal([]);
 
           await host({});
@@ -253,8 +253,8 @@ describe('authz-orm query middleware', function () {
 
         it("sync 'after-preload' without a preload and sync 'never' scope through the awaited filter", async () => {
           for (const opts of [{ sync: 'after-preload' as const }, { sync: 'never' as const, delayMs: 5 }]) {
-            await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, opts);
             const Task = await defineTask();
+            await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, opts);
             const before = await as(alice, () => ({ q: Task.query() }));
             expect(((await as(alice, () => before.q.toDB())) as { expression: string }).expression, 'unresolved: FALSE').to.include('(1 = 0)');
             expect(ids(await as(alice, () => Task.all())), JSON.stringify(opts)).to.deep.equal(['t1', 't2']);
@@ -263,16 +263,16 @@ describe('authz-orm query middleware', function () {
         });
 
         it('a deferred residual of FALSE throws AccessDenied; a deferred TRUE adds nothing', async () => {
-          await host({}, { sync: 'never' });
           const Task = await defineTask();
+          await host({}, { sync: 'never' });
           expect(await as(alice, () => Task.all()).catch((x: unknown) => x)).to.be.instanceOf(AccessDenied);
           await host({ [P.read]: permit() }, { sync: 'never' });
           expect(ids(await as(alice, () => Task.all()))).to.deep.equal(ALL);
         });
 
         it("a sub-query's deferred residual resolves when the query that compiles it executes; compiled unexecuted it stays FALSE", async () => {
-          await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, { sync: 'never' });
           const Task = await defineTask();
+          await host({ [P.read]: permit(cmp('status', 'eq', 'open')) }, { sync: 'never' });
           const query = () => Task.query().whereIn('id', Task.query().select('id').where('team', 'blue'));
           const { q } = await as(alice, () => ({ q: query() }));
           expect(((await as(alice, () => q.toDB())) as { expression: string }).expression).to.contain('(1 = 0)');
@@ -280,8 +280,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('the delegation principal under inherit is the one relations compile for; maxDelegation is the booted one', async () => {
-          const { service } = await host({ [P.read]: permit(rel('owner')) }, { engine: { maxDelegation: 1 } });
           const Task = await defineTask();
+          const { service } = await host({ [P.read]: permit(rel('owner')) }, { engine: { maxDelegation: 1 } });
           expect(ids(await as(agentFor(alice), () => Task.all()))).to.deep.equal(['t1', 't3']);
           // The engine keeps the value it booted with; so does the middleware.
           setConfig(['authz', 'domains', service.domain, 'engine', 'maxDelegation'], 0);
@@ -289,8 +289,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('authz.orm.domain naming a domain whose service is not resolved fails closed with AuthzConfigError', async () => {
-          await host({ [P.read]: permit() });
           const Task = await defineTask();
+          await host({ [P.read]: permit() });
           setConfig(['authz', 'orm', 'domain'], 'mw-missing');
           expect(await as(alice, () => ({ q: Task.query() })).catch((x: unknown) => x)).to.be.instanceOf(AuthzConfigError);
           expect(ids(await asSystem(() => Task.all()))).to.deep.equal(ALL);
@@ -299,8 +299,8 @@ describe('authz-orm query middleware', function () {
 
       describe('update and delete', () => {
         it("the residual limits the rows they change; the caller's orWhere does not widen it", async () => {
-          await host({ [P.update]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.update]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           await as(alice, () => Task.update({ title: 'x' }).where('id', 't1').orWhere('id', 't2'));
           expect((await stored(Task)).map((r) => [r.id, r.title])).to.deep.equal([
             ['t1', 'x'],
@@ -314,8 +314,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('FALSE is AccessDenied and changes nothing', async () => {
-          await host({ [P.read]: permit() });
           const Task = await defineTask();
+          await host({ [P.read]: permit() });
           expect(await as(alice, () => Task.update({ title: 'x' }).where('id', 't1')).catch((x: unknown) => x)).to.be.instanceOf(AccessDenied);
           expect(await as(alice, () => Task.destroy('t1')).catch((x: unknown) => x)).to.be.instanceOf(AccessDenied);
           expect((await stored(Task)).map((r) => [r.id, r.title])).to.deep.equal([
@@ -326,9 +326,9 @@ describe('authz-orm query middleware', function () {
         });
 
         it('under a relation, authorizeUpdate sees the values: moving a row out of scope is 403', async () => {
-          await host({ [P.update]: permit(rel('team')) });
           const Policy = teamPolicy({ guardUpdate: true });
           const Task = await defineTask((cls) => OrmScope(cls, 'team')(Policy));
+          await host({ [P.update]: permit(rel('team')) });
           const e = await as(alice, () => Task.update({ team: 'blue' }).where('id', 't1')).catch((x: unknown) => x);
           expect(e).to.be.instanceOf(Forbidden);
           await as(alice, () => Task.update({ title: 'y' }).where('id', 't1'));
@@ -351,30 +351,30 @@ describe('authz-orm query middleware', function () {
           );
 
         it('TRUE inserts as given', async () => {
-          await host({ [P.create]: permit() });
           const Task = await defineTask();
+          await host({ [P.create]: permit() });
           await insert(Task, alice, { owner: 'bob' });
           expect((await stored(Task)).find((r) => r.id === 't9')?.owner).to.equal('bob');
         });
 
         it('the owner relation stamps the @Owner column over a value the caller gave', async () => {
-          await host({ [P.create]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.create]: permit(rel('owner')) });
           await insert(Task, alice, { owner: 'bob' });
           expect((await stored(Task)).find((r) => r.id === 't9')?.owner).to.equal('alice');
         });
 
         it("under inherit the delegate's id is stamped (D-L4-7)", async () => {
-          await host({ [P.create]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.create]: permit(rel('owner')) });
           await insert(Task, agentFor(alice), {});
           expect((await stored(Task)).find((r) => r.id === 't9')?.owner).to.equal('alice');
         });
 
         it("another relation goes to its policy's authorizeCreate, which stamps or rejects", async () => {
-          await host({ [P.create]: permit(rel('team')) });
           const Stamp = teamPolicy({ onCreate: 'stamp' });
           let Task = await defineTask((cls) => OrmScope(cls, 'team')(Stamp));
+          await host({ [P.create]: permit(rel('team')) });
           await insert(Task, alice, { team: 'blue' });
           expect((await stored(Task)).find((r) => r.id === 't9')?.team).to.equal('red');
           await db.clear();
@@ -388,8 +388,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('a cmp residual checks every inserted row', async () => {
-          await host({ [P.create]: permit(cmp('status', 'eq', 'draft')) });
           const Task = await defineTask();
+          await host({ [P.create]: permit(cmp('status', 'eq', 'draft')) });
           expect(await fails(insert(Task, alice, { status: 'open' }))).to.be.instanceOf(Forbidden);
           expect(await fails(insert(Task, alice, [row({ id: 't8', status: 'draft' }), row({ status: 'open' })]))).to.be.instanceOf(Forbidden);
           expect((await stored(Task)).map((r) => r.id)).to.deep.equal(ALL);
@@ -398,8 +398,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('a residual that needs the stored row (under) or a column the insert leaves out is 403', async () => {
-          await host({ [P.create]: permit(or({ op: 'under', scopes: [{ type: 'project', id: 'p1' }] } as ResourceFilter, cmp('team', 'notnull'))) });
           const Task = await defineTask((_cls, proto) => ScopeColumn('project_id', 'project')(proto, 'project_id'), { columns: { project_id: 'TEXT' } });
+          await host({ [P.create]: permit(or({ op: 'under', scopes: [{ type: 'project', id: 'p1' }] } as ResourceFilter, cmp('team', 'notnull'))) });
           expect(await fails(insert(Task, alice, { project_id: 'p1' }))).to.be.instanceOf(Forbidden);
           expect((await stored(Task)).map((r) => r.id)).to.deep.equal(ALL);
           await insert(Task, alice, { team: 'red' });
@@ -407,8 +407,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('no permit is AccessDenied (a 403), and without a principal the reason is unattended', async () => {
-          await host({ [P.read]: permit() });
           const Task = await defineTask();
+          await host({ [P.read]: permit() });
           expect(await fails(insert(Task, alice, {})))
             .to.be.instanceOf(AccessDenied)
             .and.instanceOf(Forbidden);
@@ -418,8 +418,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('an insert that may overwrite a row needs update permission on every row', async () => {
-          await host({ [P.create]: permit(), [P.update]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.create]: permit(), [P.update]: permit(rel('owner')) });
           expect(await fails(insert(Task, alice, { id: 't2', title: 'stolen' }, InsertBehaviour.InsertOrUpdate))).to.be.instanceOf(Forbidden);
           expect((await stored(Task)).find((r) => r.id === 't2')?.title).to.equal('b');
         });
@@ -472,8 +472,8 @@ describe('authz-orm query middleware', function () {
         };
 
         it("C1: an unscoped parent's orWhere does not widen a populated belongsTo residual, deferred too", async function () {
-          await host({ [P.read]: permit(rel('owner')) });
           const { Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')) });
           const query = () => Note.where('id', 'n1').orWhere('id', 'n2').select('id', 'nid').populate('task');
           expect(await populated(bob, query)).to.deep.equal([['n2', 'b']]);
           await host({ [P.read]: permit(rel('owner')) }, { sync: 'never' });
@@ -481,8 +481,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I1: clearWhere or orWhere in a populate callback keep the residual, in WHERE and in JOIN ON', async function () {
-          await host({ [P.read]: permit(rel('owner')) });
           let { Note } = await notes('where');
+          await host({ [P.read]: permit(rel('owner')) });
           const cleared = () =>
             Note.query()
               .select('id', 'nid')
@@ -507,8 +507,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I2: truncate needs delete on every row; without a principal it is AccessDenied (unattended)', async () => {
-          await host({ [P.read]: permit(), [P.delete]: permit(rel('owner')) });
           const Task = await defineTask();
+          await host({ [P.read]: permit(), [P.delete]: permit(rel('owner')) });
           const unattended = await fails((Task as any).truncate());
           expect(unattended).to.be.instanceOf(AccessDenied);
           expect((unattended as AccessDenied).decision.reason?.code).to.equal('unattended');
@@ -520,8 +520,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I2: a builder with no model on a scoped table, an explicit join of a scoped table and a deep clone fail closed', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const { Task, Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const table = db.table(Task);
           const driver = db.driver(dialect);
           expect(await fails(as(bob, () => driver.del().from(table)))).to.be.instanceOf(Forbidden);
@@ -539,9 +539,9 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I3: a builder whose model is another class of the same name fails closed on the scoped table', async () => {
-          await host({ [P.read]: permit(rel('owner')) });
           const Dup = await db.define({ name: 'Dup', columns: { title: 'TEXT' } }, dialect);
           const Task = await defineTask();
+          await host({ [P.read]: permit(rel('owner')) });
           const name = Task.name;
           Object.defineProperty(Task, 'name', { value: Dup.name });
           try {
@@ -552,8 +552,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I4: an update that moves a row out of its owner, cmp or under residual is 403', async () => {
-          await host({ [P.update]: permit(and(rel('owner'), cmp('status', 'eq', 'open'))) });
           const Task = await defineTask();
+          await host({ [P.update]: permit(and(rel('owner'), cmp('status', 'eq', 'open'))) });
           expect(await fails(as(alice, () => Task.update({ owner: 'bob' }).where('id', 't1')))).to.be.instanceOf(Forbidden);
           expect(await fails(as(alice, () => Task.update({ status: 'closed' }).where('id', 't1')))).to.be.instanceOf(Forbidden);
           await as(alice, () => Task.update({ status: 'open', title: 'x' }).where('id', 't1'));
@@ -564,8 +564,8 @@ describe('authz-orm query middleware', function () {
           ]);
           await db.clear();
 
-          await host({ [P.update]: permit(under('project', 'p1')) });
           const Scoped = await defineTask((_cls, proto) => ScopeColumn('project_id', 'project')(proto, 'project_id'), { columns: { project_id: 'TEXT' }, rows: TASKS.map((t) => ({ ...t, project_id: 'p1' })) });
+          await host({ [P.update]: permit(under('project', 'p1')) });
           expect(await fails(as(alice, () => Scoped.update({ project_id: 'p2' }).where('id', 't1')))).to.be.instanceOf(Forbidden);
           await as(alice, () => Scoped.update({ project_id: 'p1', title: 'y' }).where('id', 't1'));
           expect((await stored(Scoped)).map((r) => [r.id, r.project_id, r.title])[0]).to.deep.equal(['t1', 'p1', 'y']);
@@ -580,14 +580,14 @@ describe('authz-orm query middleware', function () {
               },
               { columns: { deleted_at: dialect === 'postgres' ? 'TIMESTAMP' : 'DATETIME' } },
             );
-          await host({ [P.update]: permit() });
           let Task = await softTask();
+          await host({ [P.update]: permit() });
           expect(await fails(as(alice, () => Task.destroy('t1')))).to.be.instanceOf(AccessDenied);
           expect((await stored(Task)).every((r) => r.deleted_at === null)).to.equal(true);
           await db.clear();
 
-          await host({ [P.delete]: permit(rel('owner')) });
           Task = await softTask();
+          await host({ [P.delete]: permit(rel('owner')) });
           await as(alice, () => Task.destroy('t1'));
           await as(alice, () => Task.destroy('t2'));
           expect((await stored(Task)).map((r) => [r.id, r.deleted_at !== null])).to.deep.equal([
@@ -599,8 +599,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('a non-integer number for a Postgres integer column is UNKNOWN on insert (PG rounds it)', async () => {
-          await host({ [P.create]: permit(cmp('priority', 'lt', 2)) });
           const Task = await defineTask(undefined, { columns: { priority: 'INTEGER' } });
+          await host({ [P.create]: permit(cmp('priority', 'lt', 2)) });
           const insert = as(alice, () => Task.insert({ id: 't9', title: 'n', status: 'open', visibility: 'private', priority: 1.5 }));
           if (dialect === 'postgres') expect(await fails(insert)).to.be.instanceOf(Forbidden);
           else {
@@ -615,8 +615,8 @@ describe('authz-orm query middleware', function () {
         };
 
         it('C1 and I1, executed: the populated residual holds through the execution hooks', async function () {
-          await host({ [P.read]: permit(rel('owner')) });
           const { Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')) });
           expect(await executed(bob, () => Note.where('id', 'n1').orWhere('id', 'n2').select('id', 'nid').populate('task'))).to.deep.equal([['n2', 'b']]);
           expect(
             await executed(bob, () =>
@@ -630,8 +630,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-1: clearWhere after the relations compiled keeps the merged residual; a join whose residual is gone fails closed', async function () {
-          await host({ [P.read]: permit(rel('owner')) });
           let { Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')) });
           const compiled = async () => {
             const { q } = await as(bob, () => ({ q: Note.query().select('id', 'nid').populate('task') }));
             await as(bob, () => void q.toDB());
@@ -656,8 +656,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-2: table names match case-insensitively', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const { Task, Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const TABLE = db.table(Task).toUpperCase();
           const driver = db.driver(dialect);
           expect(await fails(as(bob, () => driver.select().from(TABLE)))).to.be.instanceOf(Forbidden);
@@ -667,8 +667,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-3: a table-only sub-select, driver.execute without the hooks, and an unchecked insert fail closed', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')) });
           const { Task, Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')) });
           const table = db.table(Task);
           const driver = db.driver(dialect);
           expect(await fails(as(bob, () => Note.query().whereIn('task_id', driver.select().select('id').from(table).where('title', 'a'))))).to.be.instanceOf(Forbidden);
@@ -681,8 +681,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-A: driver.execute of a scoped update skips no check: it is refused until beforeQueryExecution checked it', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.update]: permit(rel('owner')) });
           const { Task } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.update]: permit(rel('owner')) });
           const driver = db.driver(dialect);
           const move = () => createQuery(Task, UpdateQueryBuilder).query.update({ owner: 'alice' }).where('id', 't2');
           expect(await fails(as(bob, () => driver.execute(move())))).to.be.instanceOf(Forbidden);
@@ -690,8 +690,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('I-B: driver.execute of a truncate is refused unless the gate passed it; SYSTEM still truncates', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const { Task } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const driver = db.driver(dialect);
           expect(await fails(as(bob, () => driver.execute(driver.truncate(db.table(Task)))))).to.be.instanceOf(Forbidden);
           expect((await stored(Task)).map((r) => r.id)).to.deep.equal(ALL);
@@ -700,8 +700,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('values changed after the check make an insert or update unchecked again', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')), [P.update]: permit(rel('owner')) });
           const { Task } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')), [P.update]: permit(rel('owner')) });
           const driver = db.driver(dialect);
           const { insert } = await as(alice, () => ({ insert: createQuery(Task, InsertQueryBuilder).query.values({ id: 't8', title: 'x' }) }));
           await as(alice, () => insert);
@@ -720,8 +720,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('N-1: a check allows one compile: a builder sent again after its execution is refused, changed or not', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')), [P.update]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const { Task, Note } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.create]: permit(rel('owner')), [P.update]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const driver = db.driver(dialect);
           const updateOf = (id: string) => as(alice, () => ({ u: createQuery(Task, UpdateQueryBuilder).query.update({ title: 'z' }).where('id', id) }));
 
@@ -754,8 +754,8 @@ describe('authz-orm query middleware', function () {
         });
 
         it('the truncate and clone builders the driver returns compile through the authz gate, which calls the original toDB', async () => {
-          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const { Task } = await notes();
+          await host({ [P.read]: permit(rel('owner')), [P.delete]: permit(rel('owner')) });
           const driver = db.driver(dialect);
           const table = db.table(Task);
           const gated = (cls: { prototype: { toDB: unknown } }) => (cls.prototype.toDB as { authzGate?: boolean }).authzGate;
@@ -781,7 +781,6 @@ describe('authz-orm query middleware', function () {
       });
 
       it("relationScope 'join': a populated target's residual goes into its JOIN ON, and the parent rows stay", async function () {
-        await host({ [P.read]: permit(rel('owner')) });
         const Task = (await db.define(
           {
             name: 'Task',
@@ -809,6 +808,7 @@ describe('authz-orm query middleware', function () {
           },
           dialect,
         )) as Task;
+        await host({ [P.read]: permit(rel('owner')) });
         const { q } = await as(alice, () => ({ q: Post.query().select('id', 'pid').populate('task') }));
         const { expression, bindings } = (await as(alice, () => q.toDB())) as { expression: string; bindings: unknown[] };
         expect(expression).to.match(/ ON .*[`"]owner[`"]/);
@@ -821,8 +821,8 @@ describe('authz-orm query middleware', function () {
       });
 
       it('authz (order 100) scopes a builder before a middleware of order 1000 sees it', async () => {
-        await host({ [P.read]: permit(rel('owner')) });
         const Task = await defineTask();
+        await host({ [P.read]: permit(rel('owner')) });
         const seen: boolean[] = [];
         class Later extends QueryMiddleware {
           public order = 1000;
