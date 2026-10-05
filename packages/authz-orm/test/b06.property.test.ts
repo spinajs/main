@@ -167,7 +167,7 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
       { seed, numRuns: RUNS },
     );
     // The counts show the runs were not trivial (the report quotes them).
-    console.log(`      B06 ${label}: ${RUNS} runs, ${total.checks} row checks, ${total.allowed} allowed, ${total.refused} selects refused, ${total.narrower} allowed rows the selects leave out (⊆ only), ${total.intersectExact} intersect checks asserted ⇔`);
+    console.log(`      B06 ${label}: ${RUNS} runs, ${total.checks} row checks, ${total.allowed} allowed, ${total.refused} selects refused, ${total.narrower} allowed rows the selects leave out (sound only, ⊆), intersect checks asserted ⇔: ${total.intersectExact} with nothing stripped, ${total.intersectStripped} with the delegate's relation or native ops stripped`);
     expect(total.allowed, 'rows allowed').to.be.greaterThan(RUNS);
     expect(total.checks - total.allowed, 'rows denied').to.be.greaterThan(RUNS);
     return total;
@@ -196,7 +196,7 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
           assignments: fc.array(assignment, { maxLength: 6 }),
           extra: fc.option(fc.tuple(votes('m2'), pick(fixtureDsl.ALGORITHMS)), { nil: undefined }),
         });
-        await property(`${dialect} FakeRbacModel`, world, SEED, async (w) => {
+        const total = await property(`${dialect} FakeRbacModel`, world, SEED, async (w) => {
           await tables.load(w.rows);
           const models = [new FakeRbacModel({ roles: w.roles, assignments: w.assignments }), ...(w.extra ? [new StaticModel({ name: 'm2', votes: w.extra[0] })] : [])];
           const { service, dispose } = await bootDomain(models, { permissions: permissionsConfig([READ, WRITE], TYPE), combine: w.extra ? fixtureDsl.combine(w.extra[1], 'rbac', 'm2') : fixtureDsl.combine('deny-overrides', 'rbac') });
@@ -206,6 +206,8 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
             await dispose();
           }
         });
+        // The relation grants reach bot2's delegate, so the stripped case is asserted ⇔ too.
+        expect(total.intersectStripped, 'stripped intersect checks').to.be.greaterThan(0);
       });
 
       it(`StaticModel ABAC-like votes (cmp, in/nin, patterns, null, under, owner, principal refs, denies, errors) under every algorithm (seed ${SEED + 1}, ${RUNS} runs)`, async () => {
@@ -249,7 +251,7 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
         it(`native:fake.tuple compiled to a correlated recursive EXISTS over the world's tuples, inherit and intersect agents (seed ${SEED + 2}, ${RUNS} runs)`, async () => {
           const users = ['u0', 'u1', 'u2', 'u3'];
           const principals = [...users.map((u) => userPrincipal(u)), agentPrincipal('bot', userPrincipal('u1'), { delegation: 'inherit' }), agentPrincipal('bot2', userPrincipal('u2'), { delegation: 'intersect' })];
-          await property(`${dialect} FakeTupleModel`, arb.tupleGraph({ users }), SEED + 2, async (g) => {
+          const total = await property(`${dialect} FakeTupleModel`, arb.tupleGraph({ users }), SEED + 2, async (g) => {
             await docs.load(g.rows.doc.map((r) => ({ ...r, title: r.id })));
             await tuples.load(g.tuples, g.schema);
             const store = new FakeTupleStore();
@@ -262,6 +264,8 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
               await dispose();
             }
           });
+          // bot2 holds no tuples, so its own model denies every row: this world shows that the stripped checks run, not that they narrow.
+          expect(total.intersectStripped, 'stripped intersect checks').to.be.greaterThan(0);
         });
       });
     });

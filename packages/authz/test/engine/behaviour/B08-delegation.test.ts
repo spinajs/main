@@ -83,9 +83,14 @@ describe('B08: onBehalfOf with intersect delegation', () => {
     expect(d.residual).to.deep.equal(owner);
   });
 
-  it("B08: with a subject the delegate's relation is evaluated for the delegate", async () => {
+  it("B08: with a subject the delegate's relation is stripped as in the filter (B06), so the check narrows to the filter", async () => {
     const { a } = setup([byId({ t1: TRUE, bob: owner })]);
-    expect((await a.check({ principal: token(bob), permission: 'doc:read', resource: rows[0] })).allowed).to.equal(true);
+    expect((await a.check({ principal: bob, permission: 'doc:read', resource: rows[0] })).allowed).to.equal(true);
+    const stripped = await a.check({ principal: token(bob), permission: 'doc:read', resource: rows[0] });
+    expect(stripped.allowed).to.equal(false);
+    expect(stripped.reason).to.deep.equal({ code: 'delegate', priority: 200, delegate: 'user:bob' });
+    const team = setup([byId({ t1: TRUE, bob: or(owner, cmp('team', 'red')) })]).a;
+    expect((await team.check({ principal: token(bob), permission: 'doc:read', resource: rows[0] })).allowed).to.equal(true);
     const carol = await a.check({ principal: token(principal('user', 'carol')), permission: 'doc:read', resource: rows[0] });
     expect(carol.allowed).to.equal(false);
     expect(carol.reason).to.deep.equal({ code: 'delegate', priority: 200, delegate: 'user:carol' });
@@ -160,7 +165,7 @@ describe('B08: onBehalfOf with intersect delegation', () => {
       }
     }
     const adapter = new LooseAdapter(['doc'], { rows, relations: [new FakeRelation('doc', 'owner', (p, _ref, subject) => (subject as FakeRow).owner === p.id)] });
-    const a = new Authorizer({ domain: 'root', registry, models: [byId({ t1: TRUE, bob: owner })], adapters: [adapter] });
+    const a = new Authorizer({ domain: 'root', registry, models: [byId({ t1: TRUE, bob: cmp('owner', 'bob') })], adapters: [adapter] });
     const d = await a.check({ principal: token(bob), permission: 'doc:read', resource: rows[0] });
     expect(d.allowed).to.equal(true);
     expect(adapter.refOfCalls).to.deep.equal([rows[0]]);

@@ -937,18 +937,38 @@ export class Authorizer {
     const bound = yield* this.bind(allow, binder);
     let residual = bound.residual;
     const coreDenials: DenyReason[] = [...ceiling.denials];
+    // Core contexts handed to native filters during the subject steps.
+    const cores: ModelContext[] = [];
+    let subjectFault = false;
+    let typeLevel: Checked | undefined;
     if (delegate) {
+      const strips = delegation.intersectKey !== principalKey(parties.ref);
       // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
-      const theirs = !delegate.allowed ? FALSE : delegation.intersectKey === principalKey(parties.ref) ? delegate.residual : stripPrincipalOps(delegate.residual);
+      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual) : delegate.residual;
+      if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
+        // The filter strips the delegate's relation and native ops, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
+        typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
+        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual) : FALSE;
+        let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
+        let holds = strip.op === 'true';
+        if (strip.op !== 'true' && strip.op !== 'false') {
+          const settled = (yield settleWithin(evaluateResidual(strip, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
+          if (!settled.ok) {
+            subjectFault = true;
+            this.logAt('error', `${this.where}: evaluating the stripped type-level residual of the delegate ${delegation.intersectKey} of ${label} against the subject failed: ${settled.error}`);
+          }
+          holds = settled.ok && settled.value === true;
+          truth = settled.ok ? (settled.value === undefined ? 'UNKNOWN' : String(settled.value)) : settled.error;
+        }
+        core('delegation', `intersect: the delegate's type-level residual, stripped, against the subject: ${truth}`, { residual: strip });
+        if (!holds) theirs = FALSE;
+      }
       if (theirs.op === 'false') coreDenials.push(Object.freeze({ code: 'delegate', priority: DELEGATE_PRIORITY, delegate: delegation.intersectKey }));
       residual = and(residual, theirs);
     }
     core('combine', `allow ${residual.op === 'true' ? 'TRUE' : residual.op === 'false' ? 'FALSE' : 'residual'}`, { residual });
 
-    // Core contexts handed to native filters during the subject steps.
-    const cores: ModelContext[] = [];
     let subjectDenied = false;
-    let subjectFault = false;
     if (subject !== undefined && residual.op !== 'true' && residual.op !== 'false') {
       const settled = (yield settleWithin(evaluateResidual(residual, subject, this.subjectEnv(parties, ref, run, steps, cores)), this.config.modelTimeoutMs, describeError, 'subject evaluation')) as Settled;
       const truth = settled.ok ? settled.value : undefined;
@@ -1002,9 +1022,9 @@ export class Authorizer {
     };
     if (parties.actorRef) outcome.actor = parties.actorRef;
     if (reason) outcome.reason = reason;
-    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil]);
+    const validUntil = earliest([...votes.map((v) => v.validUntil), ceiling.expiresAt, delegate?.validUntil, typeLevel?.decision.validUntil]);
     if (validUntil) outcome.validUntil = validUntil;
-    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
+    const faulted = votes.some((v) => v.error !== undefined) || voteLoads.degraded || combined.failed || bound.failed || bound.degraded || subjectFault || fieldsFaulted || delegated?.faulted === true || typeLevel?.faulted === true || run.nested.faulted || this.scopeFaulted(run.scope);
     if (faulted) {
       run.nested.faulted = true;
       // A model may memoise a nested answer in ctx.cache; the marker stops later checks of the request trusting it.
@@ -1012,7 +1032,7 @@ export class Authorizer {
       // A marker here would fail every later summary/covers of the request; dropping the memos this decision wrote is enough.
       else for (const ctx of [...contexts.slice(0, votes.length), ...cores]) ctx.detachMemo();
     }
-    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
+    const uncacheable = faulted || bound.uncacheable || fieldsUncacheable || reasonsUncacheable || delegated?.uncacheable === true || typeLevel?.uncacheable === true || votes.some((v) => v.cacheable !== true) || run.nested.uncacheable;
     return this.remember({ decision: this.finish({ ...base, requester }, outcome), uncacheable, faulted, ...(firmFields ? { firmFields } : {}) }, key, run, tags);
   }
 
