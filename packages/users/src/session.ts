@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { LegacySessionProvider, ISession } from './interfaces.js';
 import { Injectable, NewInstance } from '@spinajs/di';
 import { v4 as uuidv4 } from 'uuid';
-import { registerRenamedService } from './legacy-services.js';
+import { registerConfiguredFallback } from './legacy-services.js';
 
 /**
  * Session base class
@@ -244,7 +244,7 @@ export async function regenerateSession(provider: LegacySessionProvider, session
   return regenerated;
 }
 
-registerRenamedService(LegacySessionProvider, 'MemorySessionStore', () => LegacyMemorySessionStore);
+registerConfiguredFallback(LegacySessionProvider, 'authn.session');
 
 /**
  * Simple session storage in memory, for testing or rapid prototyping.

@@ -18,14 +18,34 @@ export function legacyService<T>(path: string, type: Class<T>): T | Promise<T> {
 }
 
 /**
- * @internal Keeps a config service name that N8c renamed (`MemorySessionStore` → `LegacyMemorySessionStore`) naming
- * the renamed 2.x class under `base`, for `legacyService` and for the 2.x `@AutoinjectService` fields of
- * users-http and authn-http, which pick a registration of `base` by its `name`. A factory, not a class: DI keys
- * classes by name, and a class of that name would clash with authn-session's again. Register it before the
- * classes, so a plain resolve of `base` still gets the last registered class. R1 deletes it.
+ * @internal Keeps a config service name that N8c renamed (`SlidingExpiration` → `LegacySlidingExpiration`) naming
+ * the renamed 2.x class under `base`, for `legacyService`, which picks a registration of `base` by its `name`. A
+ * factory, not a class: DI keys classes by name, and a class of that name would clash with authn-session's again.
+ * Register it before the classes, so a plain resolve of `base` still gets the last registered class. R1 deletes it.
  */
 export function registerRenamedService(base: Class<unknown>, oldName: string, renamed: () => Class<unknown>): void {
   const factory = (container: IContainer) => container.resolve(renamed());
   Object.defineProperty(factory, 'name', { value: oldName });
+  DI.register(factory).as(base);
+}
+
+/**
+ * @internal Gives the 2.x `@AutoinjectService(path)` fields (users-http, the 2.x authn-http controllers) the same
+ * fallback as `legacyService`: those fields throw `ServiceNotFound` at controller resolution unless a registration
+ * of `base` has the configured name, and the name is usually a 3.0 store's (`MemorySessionStore`, `DbSessionStore`,
+ * ...) that only authn-session's base carries. So this factory takes the configured name whenever no real
+ * registration of `base` has it, and resolves `base` itself (its last registered class). Register it before the
+ * classes. R1 deletes it.
+ */
+export function registerConfiguredFallback(base: Class<unknown>, path: string): void {
+  const factory = (container: IContainer) => container.resolve(base);
+  Object.defineProperty(factory, 'name', {
+    get: () => {
+      const named = DI.get(Configuration)?.get<unknown>(`${path}.service`);
+      const carried = typeof named === 'string' && (DI.getRegisteredTypes(base) ?? []).some((t) => t !== factory && t.name === named);
+
+      return typeof named === 'string' && !carried ? named : '';
+    },
+  });
   DI.register(factory).as(base);
 }

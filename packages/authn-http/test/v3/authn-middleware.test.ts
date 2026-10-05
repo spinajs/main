@@ -137,7 +137,7 @@ async function buildSuite(): Promise<Suite> {
   const guard = new FakeImpersonationGuard();
   const store = sessionStore();
   const issuer = new DefaultSessionIssuer();
-  // Built by hand: in this process the configured 'MemorySessionStore' name resolves to @spinajs/users' 2.x store.
+  // Built by hand around this suite's own store (fixed 60-minute expiry), not the configured one.
   Object.defineProperty(issuer, 'Store', { value: store });
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
   const throttle = new RecordingThrottle();
