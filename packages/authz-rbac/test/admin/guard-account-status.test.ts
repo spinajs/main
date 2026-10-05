@@ -36,6 +36,21 @@ class FakeAccountStatus extends AccountStatusSource {
   }
 }
 
+/** Cannot be built, so resolving the source throws. */
+class UnresolvableAccountStatus extends AccountStatusSource {
+  constructor() {
+    super();
+    throw new Error('users module failed to start');
+  }
+
+  async inService(): Promise<ReadonlyMap<string, boolean>> {
+    return new Map();
+  }
+}
+
+/** A source that breaks its contract: the answer is cast past the type checker, as plain JS could send it. */
+const malformed = (answer: (refs: readonly PrincipalRef[]) => unknown) => new FakeAccountStatus((refs) => answer(refs) as ReadonlyMap<string, boolean>);
+
 const answering = (states: Record<string, boolean>) => new FakeAccountStatus((refs) => new Map(refs.filter((r) => principalKey(r) in states).map((r) => [principalKey(r), states[principalKey(r)]])));
 
 const warnings: string[] = [];
@@ -51,7 +66,7 @@ describe('DefaultAdminGuard: last_holder counts only accounts in service', funct
   this.timeout(20000);
   let d: RbacDomain;
 
-  async function world(opts: { rows?: readonly Assignment[]; source?: AccountStatusSource } = {}): Promise<RbacDomain> {
+  async function world(opts: { rows?: readonly Assignment[]; source?: AccountStatusSource | (new () => AccountStatusSource) } = {}): Promise<RbacDomain> {
     await resetHost();
     warnings.length = 0;
     d = await rbacDomain('test', {
@@ -63,7 +78,8 @@ describe('DefaultAdminGuard: last_holder counts only accounts in service', funct
       register: (c) => {
         c.register(instance(permissionRegistry(USER_PERMISSIONS))).as(PermissionRegistry);
         c.register(RecordingGuard).as(AdminGuard);
-        if (opts.source) c.register(instance(opts.source)).as(AccountStatusSource);
+        if (typeof opts.source === 'function') c.register(opts.source).as(AccountStatusSource);
+        else if (opts.source) c.register(instance(opts.source)).as(AccountStatusSource);
       },
     });
     return d;
@@ -114,6 +130,40 @@ describe('DefaultAdminGuard: last_holder counts only accounts in service', funct
     await world({ source });
     expect(await code([revoke('a-root')])).to.equal('last_holder');
     expect(source.calls).to.have.length(1);
+  });
+
+  it('a source failure is logged once per guard call, with the error name and message but no stack', async () => {
+    await world({
+      source: new FakeAccountStatus(() => {
+        throw new RangeError('users table down');
+      }),
+    });
+    expect(await code([revoke('a-root')])).to.equal('last_holder');
+    expect(warnings).to.have.length(1);
+    expect(warnings[0]).to.include('RangeError: users table down');
+    expect(warnings[0]).to.not.include('guard-account-status');
+    expect(await code([revoke('a-root')])).to.equal('last_holder');
+    expect(warnings).to.have.length(2);
+  });
+
+  for (const value of [1, 'yes', 'true', {}]) {
+    it(`an answer that is not exactly true (${JSON.stringify(value)}) does not count: refused`, async () => {
+      await world({ source: malformed((refs) => new Map(refs.map((r) => [principalKey(r), value]))) });
+      expect(await code([revoke('a-root')])).to.equal('last_holder');
+    });
+  }
+
+  it('an answer that is not a Map counts nobody: refused', async () => {
+    await world({ source: malformed(() => ({ 'user:root2': true })) });
+    expect(await code([revoke('a-root')])).to.equal('last_holder');
+    expect(warnings).to.have.length(1);
+  });
+
+  it('a source that cannot be resolved counts nobody: refused', async () => {
+    await world({ source: UnresolvableAccountStatus });
+    expect(await code([revoke('a-root')])).to.equal('last_holder');
+    expect(warnings).to.have.length(1);
+    expect(warnings[0]).to.include('users module failed to start');
   });
 
   it('a ref the source leaves out does not count: refused', async () => {

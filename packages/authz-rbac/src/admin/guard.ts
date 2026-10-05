@@ -409,7 +409,7 @@ export class DefaultAdminGuard extends AdminGuard {
 
   /**
    * One AccountStatusSource call with the distinct holders; a holder it throws on, leaves out or reports out of
-   * service does not count. Without a registered source every holder counts, as before the source existed.
+   * service does not count. Without a registered source every holder counts.
    */
   private async anyInService(call: Call, holders: readonly PrincipalRef[]): Promise<boolean> {
     const container = adminContainer(call.ctx);
@@ -423,7 +423,7 @@ export class DefaultAdminGuard extends AdminGuard {
       const answers = await source.inService(refs);
       return refs.some((r) => answers.get(principalKey(r)) === true);
     } catch (e) {
-      this.log.warn(`DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${e instanceof Error ? e.name : typeof e}`);
+      this.log.warn(`DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${e instanceof Error ? `${e.name}: ${e.message}` : typeof e}`);
       return false;
     }
   }
