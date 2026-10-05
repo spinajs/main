@@ -3,7 +3,7 @@
 Every `it` of the 2.x suite of this package at `3d22b6c8f`, classified per
 plan §1 rule 6 (F5). Classes: move, adapt, rewrite, drop (definitions:
 `.authz-sdd/F5-task-7-brief.md`, kept in the header below).
-Rewrite-class files go to `test/legacy-v2/` in their C/N lane; the T lane
+Rewrite-class files went to `test/legacy-v2/` in their C/N lane; the T lane
 replaces them and deletes the legacy file.
 
 - **move**: the test's code and assertions stay as they are; only the file moves to another package because the code under test moves there.
@@ -23,9 +23,9 @@ Scope: only the files below touch authorization; the other test files of
 this package are unchanged by the authz v3 plan and not ledgered.
 
 Final places (C7): adapt rows stay in the named `test/*.test.ts` file; rewrite
-rows sit in the named `test/legacy-v2/` file (excluded by `.mocharc.json`;
-the T lane replaces them and deletes the file). The Target column gives the
-file and test name, then the T4 target for rewrite rows.
+rows were replaced by T4 in the named `test/*.test.ts` file (`test/legacy-v2/` removed,
+the replacements stay in `test/`, not `test/v3/`). The Target column gives the
+file and test name.
 
 Unledgered files (`it` count from the TSV):
 
@@ -44,6 +44,7 @@ Unledgered files (`it` count from the TSV):
 Ledgered 40, unledgered 72, package total 112.
 
 Added by C7 (`it` count; the suite runs 164 specs: 72 unledgered, 27 adapt, 65 added):
+T4 added 3 specs (`test/policy-registration.test.ts`); the suite now runs 167.
 
 - `test/access-policy.test.ts`: 29
 - `test/behaviour.test.ts`: 2 (B23.configNamed, strict)
@@ -58,7 +59,7 @@ Added by C7 (`it` count; the suite runs 164 specs: 72 unledgered, 27 adapt, 65 a
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 41 | GET /metrics > denies a request with no token | rewrite | C7 -> T4 | `test/legacy-v2/controller.metrics.test.ts`: "denies a request with no token". T4 target: telemetry/test/v3/ (B23, B10): asserts the 2.x policy reason text "access token"; the 3.0 denial comes from `AccessPolicy` with `{ permission, resource, reason }` |
+| 1 | 41 | GET /metrics > denies a request with no token | rewrite | T4: closed | `test/service-token.test.ts`: "answers 401 without credentials" (every GUARDED endpoint, metrics included). The 2.x reason text "access token" becomes the body `{ error: 'unauthenticated' }` from AccessPolicy (B10, B23) |
 | 2 | 56 | GET /metrics > returns prometheus exposition text with the token | adapt | C7 | `test/controller.metrics.test.ts`: "returns prometheus exposition text with the token" |
 | 3 | 68 | GET /metrics > exposes the http request metrics recorded by the middleware | adapt | C7 | `test/controller.metrics.test.ts`: "exposes the http request metrics recorded by the middleware" |
 
@@ -68,8 +69,8 @@ Added by C7 (`it` count; the suite runs 164 specs: 72 unledgered, 27 adapt, 65 a
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 128 | telemetry json api > auth > rejects the guarded endpoints without a token | rewrite | C7 -> T4 | `test/legacy-v2/controller.telemetry.test.ts`: "auth > rejects the guarded endpoints without a token". T4 target: telemetry/test/v3/ (B23, B10): asserts the 2.x policy reason text "access token"; the 3.0 denial comes from `AccessPolicy` |
-| 2 | 143 | telemetry json api > auth > rejects the guarded endpoints with a wrong token | rewrite | C7 -> T4 | `test/legacy-v2/controller.telemetry.test.ts`: "auth > rejects the guarded endpoints with a wrong token". T4 target: telemetry/test/v3/ (B23): asserts "invalid access token" from the 2.x policy; a wrong token gives no service principal |
+| 1 | 128 | telemetry json api > auth > rejects the guarded endpoints without a token | rewrite | T4: closed | `test/service-token.test.ts`: "answers 401 without credentials". Reason text becomes `{ error: 'unauthenticated' }` (B10, B23) |
+| 2 | 143 | telemetry json api > auth > rejects the guarded endpoints with a wrong token | rewrite | T4: closed | `test/service-token.test.ts`: "answers 401 for a wrong token of the same length or another length, on either header". "invalid access token" text becomes 401 `unauthenticated`; a wrong token gives no service principal (B10, B23) |
 | 3 | 150 | telemetry json api > auth > leaves the probe endpoints open | adapt | C7 | `test/controller.telemetry.test.ts`: "leaves the probe endpoints open" |
 | 4 | 157 | telemetry json api > GET /telemetry/stats > returns lifetime stats and the timeline | adapt | C7 | `test/controller.telemetry.test.ts`: "returns lifetime stats and the timeline" |
 | 5 | 166 | telemetry json api > GET /telemetry/stats > computes the rates over the collection window | adapt | C7 | `test/controller.telemetry.test.ts`: "computes the rates over the collection window" |
@@ -109,13 +110,13 @@ Added by C7 (`it` count; the suite runs 164 specs: 72 unledgered, 27 adapt, 65 a
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 31 | TelemetryTokenPolicy > passes in development regardless of the token | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "TelemetryTokenPolicy > no longer passes in development without the explicit opt-in". T4 target: telemetry/test/v3/ (B23, C7): the development skip stays but must be explicit; C7 task 1 renamed it to "no longer passes in development without the explicit opt-in" (now asserts Forbidden), opt-in cases in `test/token-policy.test.ts` |
-| 2 | 36 | TelemetryTokenPolicy > rejects a request with no token | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "rejects a request with no token". T4 target: telemetry/test/v3/ (B23, B10): no token means an anonymous request; denial is 401 from `AccessPolicy`, not `Forbidden` thrown by the policy |
-| 3 | 47 | TelemetryTokenPolicy > rejects a request with the wrong token | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "rejects a request with the wrong token". T4 target: telemetry/test/v3/ (B23, B10): a wrong token yields no service principal (constant-time compare); denial comes from `AccessPolicy` |
-| 4 | 58 | TelemetryTokenPolicy > accepts a request with the right token on the x-metrics-token header | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "accepts a request with the right token on the x-metrics-token header". T4 target: telemetry/test/v3/ (B23, plan C7: `TelemetryAccessPolicy` reads `telemetry.auth.permissions.<endpoint>`; the token becomes `service:telemetry` via `ServicePrincipalSource`) |
-| 5 | 63 | TelemetryTokenPolicy > is always enabled | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "is always enabled". T4 target: telemetry/test/v3/ (B23): same check for `TelemetryAccessPolicy` (`isEnabled`) |
-| 6 | 69 | PublicPolicy > always resolves | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "always resolves". T4 target: telemetry/test/v3/ (B23, B10): public probe slot; becomes a config slot with no permission, or `@AllowAnonymous` |
-| 7 | 73 | PublicPolicy > is always enabled | rewrite | C7 -> T4 | `test/legacy-v2/policies.test.ts`: "is always enabled". T4 target: telemetry/test/v3/ (B23): same check for the public slot |
+| 1 | 31 | TelemetryTokenPolicy > passes in development regardless of the token | rewrite | T4: closed | `test/access-policy.test.ts`: "development skip" block ("flag on, APP_ENV=development: skipped", "flag off, development env: checked") and `test/token-policy.test.ts`: "does not skip the check in development without the opt-in flag". The skip needs the explicit `telemetry.auth.skipInDevelopment` flag (plan C7: the development skip stays explicit) |
+| 2 | 36 | TelemetryTokenPolicy > rejects a request with no token | rewrite | T4: closed | `test/access-policy.test.ts`: "an 'AccessPolicy' slot > answers an anonymous request 401" and `test/service-token.test.ts`: "answers 401 without credentials". The denial is 401 from AccessPolicy, not a Forbidden thrown by the policy (B10) |
+| 3 | 47 | TelemetryTokenPolicy > rejects a request with the wrong token | rewrite | T4: closed | `test/service-token.test.ts`: "answers 401 for a wrong token of the same length or another length, on either header" and `test/token-policy.test.ts`: "refuses a wrong token of the same length" (deprecated policy kept). Constant-time compare lives in the token source (B10) |
+| 4 | 58 | TelemetryTokenPolicy > accepts a request with the right token on the x-metrics-token header | rewrite | T4: closed | `test/service-token.test.ts`: "answers 200 for the token on x-metrics-token" (token becomes `service:telemetry`) and `test/token-policy.test.ts`: "accepts the right token on x-metrics-token" |
+| 5 | 63 | TelemetryTokenPolicy > is always enabled | rewrite | T4: closed | `test/access-policy.test.ts`: "a slot naming a BasePolicy > delegates isEnabled to it"; an 'AccessPolicy' slot is always enabled by `TelemetryAccessPolicy.isEnabled` |
+| 6 | 69 | PublicPolicy > always resolves | rewrite | T4: closed | `test/access-policy.test.ts`: "a slot naming a BasePolicy > delegates to it: PublicPolicy lets an anonymous request through"; the probes stay open in `test/service-token.test.ts`: "leaves the probes open without credentials" |
+| 7 | 73 | PublicPolicy > is always enabled | rewrite | T4: closed | `test/access-policy.test.ts`: "delegates isEnabled to it" (a named slot defers to the named policy's `isEnabled`; PublicPolicy is the always-enabled case, B23) |
 
 ## test/policy.registration.test.ts
 
@@ -123,6 +124,6 @@ Added by C7 (`it` count; the suite runs 164 specs: 72 unledgered, 27 adapt, 65 a
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 25 | telemetry policy registration > registers both policies from the controller modules alone | rewrite | C7 -> T4 | `test/legacy-v2/policy.registration.test.ts`: "registers both policies from the controller modules alone". T4 target: telemetry/test/v3/ (B23): the fail-open guard is kept: a config-named policy that is not registered must never leave a route open; the replacement checks `TelemetryAccessPolicy` and the process-isolated probe |
-| 2 | 30 | telemetry policy registration > resolves both policy names to a usable BasePolicy instance | rewrite | C7 -> T4 | `test/legacy-v2/policy.registration.test.ts`: "resolves both policy names to a usable BasePolicy instance". T4 target: telemetry/test/v3/ (B23): the fail-open guard is kept: a config-named policy that is not registered must never leave a route open; the replacement checks `TelemetryAccessPolicy` and the process-isolated probe |
-| 3 | 44 | telemetry policy registration > registers both policies in a process that never loads the package barrel | rewrite | C7 -> T4 | `test/legacy-v2/policy.registration.test.ts`: "registers both policies in a process that never loads the package barrel". T4 target: telemetry/test/v3/ (B23): the fail-open guard is kept: a config-named policy that is not registered must never leave a route open; the replacement checks `TelemetryAccessPolicy` and the process-isolated probe |
+| 1 | 25 | telemetry policy registration > registers both policies from the controller modules alone | rewrite | T4: closed | `test/policy-registration.test.ts`: "registers the named policies and the contributor from the controller modules alone". Fail-closed guard kept; `TelemetryAccessPolicy` is referenced by class on each route, not by name, so the named policies are `PublicPolicy` and the deprecated `TelemetryTokenPolicy`, plus `TelemetryAccessContributor` (C7 hand-off) |
+| 2 | 30 | telemetry policy registration > resolves both policy names to a usable BasePolicy instance | rewrite | T4: closed | `test/policy-registration.test.ts`: "resolves the named policies to a BasePolicy instance" |
+| 3 | 44 | telemetry policy registration > registers both policies in a process that never loads the package barrel | rewrite | T4: closed | `test/policy-registration.test.ts`: "registers them in a process that never loads the package barrel" (probe in `test/support/probe.policy-registration.ts`; with the controller imports removed the probe fails, checked by hand) |

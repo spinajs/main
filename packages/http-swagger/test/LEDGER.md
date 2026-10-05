@@ -3,7 +3,7 @@
 Every `it` of the 2.x suite of this package at `3d22b6c8f`, classified per
 plan §1 rule 6 (F5). Classes: move, adapt, rewrite, drop (definitions:
 `.authz-sdd/F5-task-7-brief.md`, kept in the header below).
-Rewrite-class files go to `test/legacy-v2/` in their C/N lane; the T lane
+Rewrite-class files went to `test/legacy-v2/` in their C/N lane; the T lane
 replaces them and deletes the legacy file.
 
 - **move**: the test's code and assertions stay as they are; only the file moves to another package because the code under test moves there.
@@ -20,8 +20,8 @@ replaces them and deletes the legacy file.
 | **total** | 17 |
 
 Final places (C7): `swagger-policies` rows stay in `test/swagger-policies.test.ts`; the 2 adapt rows of `swagger-rbac`
-are in `test/swagger-authz.test.ts`; the 5 rewrite rows sit in `test/legacy-v2/swagger-rbac.test.ts` (excluded by `.mocharc.json`; T4 replaces
-them and deletes the file). The Target column gives the file and test name, then the T4 target for rewrite rows.
+are in `test/swagger-authz.test.ts`; the 5 rewrite rows were replaced by T4 in the same file (`test/legacy-v2/` removed;
+the replacements stay in `test/`, not `test/v3/`). The Target column gives the file and test name.
 
 Scope: only the files below touch authorization or route metadata (`swagger-policies` covers the generic `@Policy` and is ledgered for completeness); the other test files of
 this package are unchanged by the authz v3 plan and not ledgered.
@@ -69,9 +69,9 @@ Added by C7 (`it` count; the suite runs 130 specs):
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 39 | Swagger RBAC extraction > should expose x-rbac-resource from controller @Resource decorator | adapt | C7 | `test/swagger-authz.test.ts`: "should expose x-authz-resource from the controller-level @Access" |
-| 2 | 44 | Swagger RBAC extraction > should fall back to controller-level permissions when route has none | rewrite | C7 -> T4 | `test/legacy-v2/swagger-rbac.test.ts`: "should fall back to controller-level permissions when route has none". T4 target: http-swagger/test/v3/ (B23): `x-rbac-permissions` with possession verbs (`readOwn`, `readAny`, `createOwn`) becomes `x-authz-permission` with `resource:action` strings read from `ACCESS_DESCRIPTOR` (design §20 table: `@Access('X:read')`) |
-| 3 | 49 | Swagger RBAC extraction > should override controller permissions with route-level @Permission | rewrite | C7 -> T4 | `test/legacy-v2/swagger-rbac.test.ts`: "should override controller permissions with route-level @Permission". T4 target: http-swagger/test/v3/ (B23): `x-rbac-permissions` with possession verbs (`readOwn`, `readAny`, `createOwn`) becomes `x-authz-permission` with `resource:action` strings read from `ACCESS_DESCRIPTOR` (design §20 table: `@Access('X:read')`) |
-| 4 | 54 | Swagger RBAC extraction > should preserve all permission alternatives on a single route | rewrite | C7 -> T4 | `test/legacy-v2/swagger-rbac.test.ts`: "should preserve all permission alternatives on a single route". T4 target: http-swagger/test/v3/ (B23): `x-rbac-permissions` with possession verbs (`readOwn`, `readAny`, `createOwn`) becomes `x-authz-permission` with `resource:action` strings read from `ACCESS_DESCRIPTOR` (design §20 table: `@Access('X:read')`) |
-| 5 | 59 | Swagger RBAC extraction > should append a human-readable RBAC line to the operation description | rewrite | C7 -> T4 | `test/legacy-v2/swagger-rbac.test.ts`: "should append a human-readable RBAC line to the operation description". T4 target: http-swagger/test/v3/ (B23): `x-rbac-permissions` with possession verbs (`readOwn`, `readAny`, `createOwn`) becomes `x-authz-permission` with `resource:action` strings read from `ACCESS_DESCRIPTOR` (design §20 table: `@Access('X:read')`) |
-| 6 | 66 | Swagger RBAC extraction > should join multiple permissions with "or" in the description | rewrite | C7 -> T4 | `test/legacy-v2/swagger-rbac.test.ts`: "should join multiple permissions with "or" in the description". T4 target: http-swagger/test/v3/ (B23): `x-rbac-permissions` with possession verbs (`readOwn`, `readAny`, `createOwn`) becomes `x-authz-permission` with `resource:action` strings read from `ACCESS_DESCRIPTOR` (design §20 table: `@Access('X:read')`) |
+| 2 | 44 | Swagger RBAC extraction > should fall back to controller-level permissions when route has none | rewrite | T4: closed | `test/swagger-authz.test.ts`: "should expose x-authz-resource from the controller-level @Access" (kept in test/, not test/v3/). x-rbac-permissions fallback to the class level becomes x-authz-permission with resource:action; B23 (design §11.5, §20). `test/legacy-v2/` removed |
+| 3 | 49 | Swagger RBAC extraction > should override controller permissions with route-level @Permission | rewrite | T4: closed | `test/swagger-authz.test.ts`: "should let a route @Access replace the permission and keep the class one as controller-permission" (kept in test/, not test/v3/). route-level override becomes x-authz-permission plus x-authz-controller-permission; B23. `test/legacy-v2/` removed |
+| 4 | 54 | Swagger RBAC extraction > should preserve all permission alternatives on a single route | rewrite | T4: closed | `test/swagger-authz.test.ts`: "should keep alternatives and a non-root domain" (kept in test/, not test/v3/). permission alternatives keep their order; B23. `test/legacy-v2/` removed |
+| 5 | 59 | Swagger RBAC extraction > should append a human-readable RBAC line to the operation description | rewrite | T4: closed | `test/swagger-authz.test.ts`: "should append a readable access line to the description" (kept in test/, not test/v3/). the **RBAC:** line becomes **Access:**; B23. `test/legacy-v2/` removed |
+| 6 | 66 | Swagger RBAC extraction > should join multiple permissions with "or" in the description | rewrite | T4: closed | `test/swagger-authz.test.ts`: "should keep alternatives and a non-root domain" (kept in test/, not test/v3/). the "or" join is asserted on the same description; B23. `test/legacy-v2/` removed |
 | 7 | 71 | Swagger RBAC extraction > should NOT emit x-rbac-resource on controllers without RBAC metadata | adapt | C7 | `test/swagger-authz.test.ts`: "should NOT emit x-authz-* on controllers without @Access" |
