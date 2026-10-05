@@ -145,6 +145,11 @@ describe('DefaultAdminGuard', function () {
       await passes(p('root'), [revoke('a-root')]);
     });
 
+    it('keeps a null switch on, as a configuration with coerceTypes leaves it', async () => {
+      config().set(['authz', 'admin', 'guard'], { ...GUARD, preventSelfLockout: null });
+      await refused(p('root'), [revoke('a-root')], 'self_lockout');
+    });
+
     it('a missing or malformed privilegedPermission rejects the call; with both checks that need it off it is not needed', async () => {
       const { privilegedPermission: _, ...noPrivileged } = GUARD;
       await world({ guard: noPrivileged });

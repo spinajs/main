@@ -396,7 +396,8 @@ describe('authz configuration through a child Configuration', function () {
 describe('authz.admin through a child Configuration', function () {
   this.timeout(30000);
   const children: IContainer[] = [];
-  const ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
+  const EXPECTED_ADMIN_DEFAULTS = { maxBatch: 100, backend: 'MemoryAuthzAdminBackend' };
+  const adminSchema = (AUTHZ_CONFIGURATION_SCHEMA.properties.admin as any).properties;
 
   afterEach(async () => {
     for (const c of children.splice(0)) await c.dispose();
@@ -409,12 +410,14 @@ describe('authz.admin through a child Configuration', function () {
   }
 
   it('fills maxBatch, backend and permissions from ADMIN_DEFAULTS, and no guard', async () => {
-    expect(await admin({})).to.deep.equal({ ...ADMIN_DEFAULTS, permissions: {} });
+    expect(await admin({})).to.deep.equal({ ...EXPECTED_ADMIN_DEFAULTS, permissions: {} });
+    expect(adminSchema.maxBatch.default).to.equal(EXPECTED_ADMIN_DEFAULTS.maxBatch);
+    expect(adminSchema.backend.default).to.equal(EXPECTED_ADMIN_DEFAULTS.backend);
   });
 
   it('turns every switch of a configured guard on', async () => {
     expect(await admin({ authz: { admin: { guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update' } } } })).to.deep.equal({
-      ...ADMIN_DEFAULTS,
+      ...EXPECTED_ADMIN_DEFAULTS,
       permissions: {},
       guard: { service: 'DefaultAdminGuard', privilegedPermission: 'users:update', protectSystemRole: true, preventEscalation: true, preventSelfLockout: true, preventLastPrivilegedRemoval: true },
     });
@@ -424,6 +427,11 @@ describe('authz.admin through a child Configuration', function () {
     expect(await violationsOf({ authz: { admin: { guard: { service: 'X' } } } })).to.include('authz.admin.guard.privilegedPermission');
     expect(await violationsOf({ authz: { admin: { guard: { preventSelfLockout: false } } } })).to.include('authz.admin.guard.privilegedPermission');
     expect(await admin({ authz: { admin: { guard: { service: 'X', preventSelfLockout: false, preventLastPrivilegedRemoval: false } } } })).to.have.nested.property('guard.service', 'X');
+  });
+
+  it('keeps a null guard switch null, never false, so a reader treating null as on keeps the guard on', async () => {
+    const guard = { privilegedPermission: 'users:update', protectSystemRole: null, preventEscalation: null, preventSelfLockout: null, preventLastPrivilegedRemoval: null };
+    expect(await admin({ authz: { admin: { guard } } })).to.have.property('guard').that.deep.include(guard);
   });
 
   it('refuses a bad value, naming its full path', async () => {

@@ -1,5 +1,6 @@
 import { AUTHZ_DEFAULTS } from './defaults.js';
 import { ADMIN_DEFAULTS } from '../../admin/config.js';
+import { PERMISSION_PATTERN } from '../../contracts/permission.js';
 
 const D = AUTHZ_DEFAULTS;
 
@@ -106,7 +107,7 @@ const audit = (root: boolean) => ({
 });
 
 /** A permission name as contracts/permission.ts accepts it. */
-const permissionName = { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_.-]*:[A-Za-z][A-Za-z0-9_.-]*$' };
+const permissionName = { type: 'string', pattern: PERMISSION_PATTERN.source };
 
 const className = { type: 'string', minLength: 1 };
 
@@ -128,11 +129,12 @@ const admin = {
       properties: {
         service: className,
         privilegedPermission: permissionName,
-        protectSystemRole: { type: 'boolean', default: true },
-        preventEscalation: { type: 'boolean', default: true },
-        preventSelfLockout: { type: 'boolean', default: true },
-        preventLastPrivilegedRemoval: { type: 'boolean', default: true },
+        protectSystemRole: { type: ['boolean', 'null'], default: true },
+        preventEscalation: { type: ['boolean', 'null'], default: true },
+        preventSelfLockout: { type: ['boolean', 'null'], default: true },
+        preventLastPrivilegedRemoval: { type: ['boolean', 'null'], default: true },
       },
+      // A switch may be null: coerceTypes would turn null into false, which switches the guard off, while readers treat null as on.
       // The self-lockout and last-holder checks need privilegedPermission unless both are off; an unset switch is on.
       if: { not: { properties: { preventSelfLockout: { const: false }, preventLastPrivilegedRemoval: { const: false } }, required: ['preventSelfLockout', 'preventLastPrivilegedRemoval'] } },
       then: { required: ['privilegedPermission'] },
