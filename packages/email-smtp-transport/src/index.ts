@@ -1,13 +1,12 @@
 import { IOFail, UnexpectedServerError } from '@spinajs/exceptions';
 import { Autoinject, Injectable, NewInstance } from '@spinajs/di';
 import { Log, Logger } from '@spinajs/log';
-import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement, redactError } from '@spinajs/email';
+import { IEmail, EmailSender, EmailConnectionOptions, IEmailAttachement, attachmentFile, redactError } from '@spinajs/email';
 import { Templates } from '@spinajs/templates';
 import { BackoffType, ResiliencePipeline, ResiliencePipelineBuilder } from '@spinajs/util';
 import * as nodemailer from 'nodemailer';
 import { fs, getFs } from '@spinajs/fs';
 import _ from 'lodash';
-import { Config } from '@spinajs/configuration';
 
 @Injectable(EmailSender)
 @NewInstance()
@@ -17,9 +16,6 @@ export class EmailSenderSmtp extends EmailSender {
 
   @Autoinject(Templates)
   protected Templates: Templates;
-
-  @Config('fs.defaultProvider')
-  protected DefaultFileProvider: string;
 
   protected Transporter: nodemailer.Transporter;
 
@@ -133,27 +129,12 @@ export class EmailSenderSmtp extends EmailSender {
 
     if (email.attachements) {
       options.attachments = await Promise.all(
-        email.attachements.map(async (a: IEmailAttachement) => {
-          // we allow to use multiple file sources, default is local
-
-          const provider = await getFs(a.provider || this.DefaultFileProvider);
-          if (!provider) {
-            throw new IOFail(`Filesystem provider for ${a.provider} not registered. Make sure you importer all required fs providers`);
-          }
-
-          // with local filesystem, it just return original path
-          // other implementations should dodwnload file locally,
-          // and return temporary path
-          // we provide path to file, becouse nodemailer
-          // prefer it when sending bigger files
-          const file = await provider.download(a.path);
-          return {
-            cid: a.cid,
-            filename: a.name,
-            path: file,
-            provider: provider.Name,
-          };
-        }),
+        // A local path rather than content: nodemailer streams it, which suits bigger files.
+        email.attachements.map(async (a: IEmailAttachement) => ({
+          cid: a.cid,
+          filename: a.name,
+          path: await attachmentFile(a, this.DefaultFileProvider),
+        })),
       );
     }
 
