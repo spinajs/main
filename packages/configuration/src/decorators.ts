@@ -19,11 +19,15 @@ function getOwnConfiguration(container: IContainer): Configuration | null {
   }
   owner ??= DI.RootContainer;
 
-  const types = owner.getRegisteredTypes(Configuration, false);
+  const types = owner.getRegisteredTypes(Configuration, false) ?? [];
   if (isFactory(types[types.length - 1])) {
     // A factory result is never cached, so it can only be read by resolving it.
     const resolved = owner.resolve(Configuration);
-    return isPromise(resolved) ? null : (resolved as Configuration);
+    if (isPromise(resolved)) {
+      resolved.catch(() => undefined);
+      return null;
+    }
+    return resolved as Configuration;
   }
 
   return owner.get(Configuration, false);
