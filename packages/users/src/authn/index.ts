@@ -3,3 +3,4 @@ export type { AuthzTargetGuardOptions, TargetRuleAnswer } from './target-guard.j
 export * from './impersonation-guard.js';
 export * from './access-response.js';
 export * from './rbac-role-source.js';
+export * from './access-schema.js';

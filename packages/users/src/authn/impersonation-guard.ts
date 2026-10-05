@@ -1,11 +1,13 @@
 import { GLOBAL } from '@spinajs/authz';
 import { ImpersonationGuard, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef, Principal } from '@spinajs/authn/contracts';
+import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
-import { AuthzTargetGuard, accessDomain, actingFacts, impersonationPermission, signedInInteractively } from './target-guard.js';
+import { DEFAULT_ACCESS_DOMAIN } from './access-schema.js';
+import { ACCESS_DOMAIN_KEY, AuthzTargetGuard, DEFAULT_IMPERSONATION_PERMISSION, IMPERSONATION_PERMISSION_KEY, accessDomain, actingFacts, signedInInteractively } from './target-guard.js';
 
 type Answer = Awaited<ReturnType<ImpersonationGuard['allowed']>>;
 
@@ -25,6 +27,12 @@ export interface AuthzImpersonationGuardOptions {
  */
 @Injectable(ImpersonationGuard)
 export class AuthzImpersonationGuard extends ImpersonationGuard {
+  @Config(ACCESS_DOMAIN_KEY, { defaultValue: DEFAULT_ACCESS_DOMAIN })
+  protected AccessDomain: string;
+
+  @Config(IMPERSONATION_PERMISSION_KEY, { defaultValue: DEFAULT_IMPERSONATION_PERMISSION })
+  protected Permission: string;
+
   constructor(private readonly opts: AuthzImpersonationGuardOptions = {}) {
     super();
   }
@@ -35,8 +43,8 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
       return FORBIDDEN;
     }
 
-    const authz = await (await accessDomain()).service();
-    if (!(await authz.can(actor, await impersonationPermission(), GLOBAL))) {
+    const authz = await (await accessDomain(this.AccessDomain)).service();
+    if (!(await authz.can(actor, this.Permission, GLOBAL))) {
       return FORBIDDEN;
     }
 

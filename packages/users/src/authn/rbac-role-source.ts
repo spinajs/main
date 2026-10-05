@@ -2,10 +2,11 @@ import { AuthzConfigError } from '@spinajs/authz';
 import { RoleSource } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authn/contracts';
 import { RbacService } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 
-import { accessDomain, heldRoles, registeredInDomain, signedInInteractively } from './target-guard.js';
+import { DEFAULT_ACCESS_DOMAIN } from './access-schema.js';
+import { ACCESS_DOMAIN_KEY, accessDomain, heldRoles, registeredInDomain, signedInInteractively } from './target-guard.js';
 
 /** Roles a role switch may only activate after a fresh password (A26). */
 export const ROLE_SWITCH_PASSWORD_KEY = 'authz.principals.roleSwitch.requirePassword';
@@ -30,12 +31,15 @@ type RoleOffer = Awaited<ReturnType<RoleSource['rolesOf']>>[number];
  */
 @Injectable(RoleSource)
 export class RbacRoleSource extends RoleSource {
+  @Config(ACCESS_DOMAIN_KEY, { defaultValue: DEFAULT_ACCESS_DOMAIN })
+  protected AccessDomain: string;
+
   public async rolesOf(principal: Principal): Promise<readonly RoleOffer[]> {
     if (principal.type !== 'user' || principal.onBehalfOf || (principal.authn != null && !signedInInteractively(principal.authn))) {
       return [];
     }
 
-    const domain = await accessDomain();
+    const domain = await accessDomain(this.AccessDomain);
     const rbac = await registeredInDomain(domain, RbacService);
     const requiresPassword = await passwordRule();
     const names = [...new Set(await heldRoles(rbac, domain.name, principal))].sort();

@@ -177,6 +177,15 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
         roleSwitch: { type: 'object', properties: { requirePassword: stringList } },
       },
     },
+    // Read by users, which has no AUTHZ_DEFAULTS entry, so the defaults are here; they equal the code defaults users used before.
+    impersonation: {
+      type: 'object',
+      default: {},
+      properties: {
+        permission: { type: 'string', minLength: 1, default: 'user:impersonate' },
+        protectedRoles: { type: 'array', items: { type: 'string', minLength: 1 }, default: ['admin'] },
+      },
+    },
     scopes,
     fields: fields(true),
     engine: engine(true),

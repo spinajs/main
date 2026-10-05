@@ -4,11 +4,12 @@ import { AccessControl } from 'accesscontrol';
 import { AsyncLocalStorage } from 'async_hooks';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 import { EmailPasswordMailer } from '@spinajs/email';
 import { PasswordMailer } from '@spinajs/authn-local';
 
 import type { IRbacAsyncStorage } from './interfaces.js';
+import { USERS_ACCESS_CONFIGURATION_SCHEMA } from './authn/access-schema.js';
 
 import './auth.js';
 import './password.js';
@@ -58,6 +59,8 @@ export { AccessControl, Permission };
 @Injectable(Bootstrapper)
 export class RbacBootstrapper extends Bootstrapper {
   public bootstrap(): void {
+    registerConfigurationSchema(USERS_ACCESS_CONFIGURATION_SCHEMA);
+
     /**
      * Credential-bearing metadata never leaves the server in a dehydrated user.
      * Seeded here rather than as the field initialiser so an application ( or

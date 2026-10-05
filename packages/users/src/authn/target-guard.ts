@@ -4,11 +4,12 @@ import { PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
 import { RbacService } from '@spinajs/authz-rbac';
 import type { RbacModel, RoleGraph } from '@spinajs/authz-rbac';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
 import { UserPrincipalFactory } from '../principal/user-principal-factory.js';
+import { DEFAULT_ACCESS_DOMAIN } from './access-schema.js';
 
 /** The permission an impersonator needs at GLOBAL (B26). */
 export const IMPERSONATION_PERMISSION_KEY = 'authz.impersonation.permission';
@@ -34,34 +35,13 @@ export interface AuthzTargetGuardOptions {
   readonly users?: UserPrincipalFactory;
 }
 
-export async function accessDomain(): Promise<AccessDomain> {
-  const name = (await configuration()).get<unknown>(ACCESS_DOMAIN_KEY, 'root');
-  if (typeof name !== 'string' || name === '') {
-    throw new AuthzConfigError(`${ACCESS_DOMAIN_KEY} must be a domain name, got ${JSON.stringify(name)}`);
-  }
-
+export async function accessDomain(name: string): Promise<AccessDomain> {
   if (name === 'root') {
     return { name, container: DI.RootContainer, service: async () => (await DI.resolve(AuthzService)) as AuthzService };
   }
 
   const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
   return { name, container: domains.container(name), service: () => domains.service(name) };
-}
-
-export async function impersonationPermission(): Promise<string> {
-  const value = (await configuration()).get<unknown>(IMPERSONATION_PERMISSION_KEY, DEFAULT_IMPERSONATION_PERMISSION);
-  if (typeof value !== 'string' || value === '') {
-    throw new AuthzConfigError(`${IMPERSONATION_PERMISSION_KEY} must be a permission name, got ${JSON.stringify(value)}`);
-  }
-  return value;
-}
-
-export async function protectedRoles(): Promise<readonly string[]> {
-  const value = (await configuration()).get<unknown>(PROTECTED_ROLES_KEY, DEFAULT_PROTECTED_ROLES);
-  if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r !== '')) {
-    throw new AuthzConfigError(`${PROTECTED_ROLES_KEY} must be a list of role names, got ${JSON.stringify(value)}`);
-  }
-  return value as string[];
 }
 
 /** Sign-ins with a person at a session. An allow list: a method not named here (jwt, an app's own) fails closed. */
@@ -89,18 +69,24 @@ export function actingFacts(facts: AuthnFacts): AuthnFacts {
  * role that reaches one by `extends`, a higher ladder rank or `implies`); `escalation` when the actor's combined GLOBAL
  * permission set in the access domain does not strictly contain the target's (`AuthzService.covers`, every model, ABAC
  * included).
- * @throws AuthzConfigError when the access domain has no RbacService of its own, or the config is malformed
+ * @throws AuthzConfigError when the access domain has no RbacService of its own
  */
 export class AuthzTargetGuard {
+  @Config(ACCESS_DOMAIN_KEY, { defaultValue: DEFAULT_ACCESS_DOMAIN })
+  protected AccessDomain: string;
+
+  @Config(PROTECTED_ROLES_KEY, { defaultValue: DEFAULT_PROTECTED_ROLES })
+  protected ProtectedRoles: readonly string[];
+
   constructor(private readonly opts: AuthzTargetGuardOptions = {}) {}
 
   /** `target` is the principal the actor would act as or on; build it the way the session that uses it will carry it. */
   public async check(actor: Principal, target: Principal): Promise<TargetRuleAnswer> {
-    const domain = await accessDomain();
+    const domain = await accessDomain(this.AccessDomain);
     const rbac = await registeredInDomain(domain, RbacService);
     const authz = await domain.service();
 
-    const guarded = await protectedRoles();
+    const guarded = this.ProtectedRoles;
     if (guarded.length > 0) {
       const held = await reachableRoles(rbac, domain.name, target);
       if (guarded.some((r) => held.has(r))) {
@@ -130,10 +116,6 @@ export class AuthzTargetGuard {
     const registered: unknown = await DI.resolve(PrincipalFactory);
     return registered instanceof UserPrincipalFactory ? registered : new UserPrincipalFactory();
   }
-}
-
-async function configuration(): Promise<Configuration> {
-  return (await DI.resolve(Configuration)) as Configuration;
 }
 
 // A child domain's RBAC is its own: falling back to the parent's would judge the target by another model.
