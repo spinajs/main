@@ -68,6 +68,9 @@ describe('Ownership enforcement on inserts (IDOR regression)', function () {
           (x: unknown) => x,
         );
         expect(e).to.be.instanceOf(AccessDenied).and.instanceOf(Forbidden);
+        const decision = (e as AccessDenied).decision;
+        expect(decision.permission).to.equal(w.P.create);
+        expect(decision.reason?.code).to.equal('no_access');
 
         expect(await w.stored(Res)).to.deep.equal([]);
       });

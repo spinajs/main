@@ -54,7 +54,6 @@ describe('Ownership enforcement on write queries (IDOR regression)', function ()
         // ownership middleware has to AND its owner constraint onto it.
         await as(attacker, () => Res.destroy(['attacker-row', 'victim-row']));
 
-        // The attacker's row is gone; the victim's survives.
         expect(await w.stored(Res)).to.deep.equal([[victim.id, 'victim']]);
       });
     });
