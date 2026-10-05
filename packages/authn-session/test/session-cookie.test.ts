@@ -248,6 +248,77 @@ describe('appEnvOf', () => {
 
     expect(appEnvOf(config)).to.equal(undefined);
   });
+
+  describe('with no env source (SR-16)', () => {
+    const saved: Record<string, string | undefined> = {};
+    beforeEach(() => {
+      for (const k of ['APP_ENV', 'NODE_ENV']) {
+        saved[k] = process.env[k];
+        delete process.env[k];
+      }
+    });
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    it('SR-16 an env-less deployment gets the production session cookie', async () => {
+      await withSessionConfig({});
+      const config = DI.get(Configuration)!;
+      expect(config.get('process.env.APP_ENV'), 'the configuration fell back on its own').to.equal('development');
+
+      const env = appEnvOf(config);
+      expect(env).to.equal(undefined);
+      const cookie = sessionCookie(RAW_ID, { ...(shipped.authn.session.cookie as ISessionCookieConfig), domain: 'example.com' }, in30(), env);
+      expect(cookie.Name).to.equal('__Host-ssid');
+      expect(cookie.Options.secure).to.equal(true);
+      expect(cookie.Options.path).to.equal('/');
+      expect(cookie.Options).to.not.have.property('domain');
+    });
+
+    it('stays production when NODE_ENV or APP_ENV names another env after the configuration fell back', async () => {
+      await withSessionConfig({});
+      const config = DI.get(Configuration)!;
+      for (const k of ['NODE_ENV', 'APP_ENV']) {
+        process.env[k] = 'production';
+        try {
+          expect(appEnvOf(config), k).to.equal(undefined);
+        } finally {
+          delete process.env[k];
+        }
+      }
+    });
+
+    it('an explicit development env still relaxes the cookie', async () => {
+      process.env.APP_ENV = 'development';
+      await withSessionConfig({});
+      const env = appEnvOf(DI.get(Configuration)!);
+      expect(env).to.equal('development');
+
+      const cookie = sessionCookie(RAW_ID, shipped.authn.session.cookie as ISessionCookieConfig, in30(), env);
+      expect(cookie.Name).to.equal('ssid');
+      expect(cookie.Options.secure).to.equal(false);
+    });
+
+    it('takes NODE_ENV or the APP_ENV of a DI-registered process.env as a named env', async () => {
+      process.env.NODE_ENV = 'development';
+      await withSessionConfig({});
+      expect(appEnvOf(DI.get(Configuration)!)).to.equal('development');
+      delete process.env.NODE_ENV;
+
+      const registered = DI.get<Record<string, unknown>>('process.env');
+      DI.register({ APP_ENV: 'development' }).asValue('process.env', true);
+      try {
+        await withSessionConfig({});
+        expect(appEnvOf(DI.get(Configuration)!)).to.equal('development');
+      } finally {
+        DI.uncache('process.env');
+        if (registered) DI.register(registered).asValue('process.env');
+      }
+    });
+  });
 });
 
 describe('assertSessionCookieSecret', () => {

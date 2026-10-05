@@ -81,8 +81,21 @@ const http = {
     },
     
     /**
+     * Proxies in front of the app whose X-Forwarded-For counts ( RealIp, and
+     * authn's ClientIp when authn.http.trustProxy is null ): a hop count (true is
+     * one hop), or a list (an array or a comma-separated string) of addresses,
+     * CIDRs and the names loopback, linklocal and uniquelocal. null, false or 0:
+     * no proxy, the client is the socket address.
+     * The first X-Forwarded-Proto and X-Forwarded-Host value from a trusted proxy
+     * counts too (the app's own origin), so that proxy must overwrite both headers,
+     * never pass on or append to a client's value.
+     */
+    trustProxy: null as number | boolean | string | string[] | null,
+
+    /**
      * Per-ip, per-route rate limiting ( ThrottleMiddleware ). Disabled by
-     * default - enable and add rules per app, eg. for the unauthenticated
+     * default - the authn throttle is the real per-account and per-IP login
+     * limiter. Enable and add rules per app, eg. for the unauthenticated
      * auth surface:
      *   rules: [{ path: '/auth', methods: ['POST'], limit: 10, windowSeconds: 60 }]
      */
@@ -103,7 +116,9 @@ const http = {
     },
     port: 1337,
     middlewares: [
-      helmet(),
+      // helmet's default no-referrer makes browsers send `Origin: null` on same-origin
+      // form posts, which authn-http's CSRF guard (A22) refuses.
+      helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' } }),
       express.json({
         limit: '5mb',
         // Capture the exact received bytes for the @RawBody() route arg

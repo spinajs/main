@@ -1,5 +1,6 @@
 import { DI, Injectable } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { appEnvOf } from '@spinajs/authn-session';
 
 import { isRelaxedEnv } from '../support.js';
 
@@ -30,13 +31,18 @@ export const OIDC_HTTP_MAX_BODY_BYTES = 1024 * 1024;
  */
 @Injectable(OidcHttpClient)
 export class FetchOidcHttpClient extends OidcHttpClient {
-  /** @param relaxed - allow http; default: from the app env (process.env.APP_ENV of the Configuration) */
+  /** @param relaxed - allow http; default: from the app env as authn-session reads it (none set: production) */
   constructor(protected readonly relaxed?: boolean) {
     super();
   }
 
+  protected configuration(): Configuration | undefined {
+    return DI.get(Configuration) ?? undefined;
+  }
+
   protected allowsHttp(): boolean {
-    return this.relaxed ?? isRelaxedEnv(DI.get(Configuration)?.get<string | undefined>('process.env.APP_ENV'));
+    const config = this.configuration();
+    return this.relaxed ?? (config ? isRelaxedEnv(appEnvOf(config)) : false);
   }
 
   public async getJson(url: string, headers: OidcHttpHeaders = {}): Promise<OidcHttpResponse> {

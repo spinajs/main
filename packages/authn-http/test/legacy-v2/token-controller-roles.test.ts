@@ -9,10 +9,10 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/users';
 
-import { req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from './token-common.js';
+import { APP_ORIGIN, req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from '../token-common.js';
 import { createToken, AccessToken, AccessTokenRolePolicy } from '@spinajs/authn-token';
 import '@spinajs/authn-token';
-import '../src/token/middlewares.js';
+import '../../src/token/middlewares.js';
 
 /**
  * Answers with whatever the test told it to, regardless of the caller's own
@@ -146,7 +146,7 @@ describe('AccessTokenController - scopes route', function () {
     const response = await req().get('user/tokens/profiles').set('Cookie', cookie);
 
     expect(response.status).to.equal(200);
-    // `OwnRolesTokenRolePolicy` does not override `allowedProfiles`, so an
+    // `LegacyOwnRolesTokenRolePolicy` does not override `allowedProfiles`, so an
     // application that never opted into profile tokens is offered none - and
     // the route still answers a well formed body rather than 404 / undefined.
     expect(response.body.Profiles).to.deep.equal([]);
@@ -191,7 +191,7 @@ describe('AccessTokenController - scopes route', function () {
 
     after(async () => {
       const cfg = await DI.resolve(Configuration);
-      cfg.set('rbac.token.rolePolicy.service', 'OwnRolesTokenRolePolicy');
+      cfg.set('rbac.token.rolePolicy.service', 'LegacyOwnRolesTokenRolePolicy');
     });
 
     it('reports the policy answer, not the callers own roles', async () => {
@@ -223,6 +223,7 @@ describe('AccessTokenController - scopes route', function () {
       const createResponse = await req()
         .post('user/tokens')
         .set('Cookie', cookie)
+        .set('Origin', APP_ORIGIN)
         .send({ Name: 'from roles route', Roles: rolesResponse.body.Roles });
 
       expect(createResponse.status).to.equal(200);
@@ -291,7 +292,7 @@ describe('AccessTokenController - scopes route', function () {
       const user = await activeUser('profiles.create', ['user']);
       const cookie = await sessionCookieFor(user);
 
-      const response = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'profiled', Roles: ['user'], Profile: 'admin' });
+      const response = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'profiled', Roles: ['user'], Profile: 'admin' });
 
       expect(response.status).to.equal(200);
       // the wire shape the frontend reads - `toWire` must carry `Profile`
@@ -312,7 +313,7 @@ describe('AccessTokenController - scopes route', function () {
       const user = await activeUser('profiles.bad', ['user']);
       const cookie = await sessionCookieFor(user);
 
-      const response = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'bad', Roles: ['user'], Profile: 'nope' });
+      const response = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'bad', Roles: ['user'], Profile: 'nope' });
 
       // the caller's mistake, not the server's - and the code is what the UI
       // switches on
@@ -329,10 +330,10 @@ describe('AccessTokenController - scopes route', function () {
 
       // control: unpinned, 'extra' is allowed - so the refusal below can only
       // come from `Profile` reaching the roles check
-      const wide = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'wide', Roles: ['extra'] });
+      const wide = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'wide', Roles: ['extra'] });
       expect(wide.status).to.equal(200);
 
-      const narrowed = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'narrowed', Roles: ['extra'], Profile: 'admin' });
+      const narrowed = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'narrowed', Roles: ['extra'], Profile: 'admin' });
       expect(narrowed.status).to.equal(400);
       expect(narrowed.body.error.code).to.equal('E_TOKEN_ROLE_NOT_ALLOWED');
     });
@@ -351,7 +352,7 @@ describe('AccessTokenController - scopes route', function () {
 
       const roles = await req().get(`user/tokens/roles?profile=${profile}`).set('Cookie', cookie);
 
-      const created = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'from routes', Roles: roles.body.Roles, Profile: profile });
+      const created = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'from routes', Roles: roles.body.Roles, Profile: profile });
 
       expect(created.status).to.equal(200);
       expect(created.body.Token.Profile).to.equal(profile);
@@ -362,7 +363,7 @@ describe('AccessTokenController - scopes route', function () {
       const user = await activeUser('profiles.empty', ['user']);
       const cookie = await sessionCookieFor(user);
 
-      const response = await req().post('user/tokens').set('Cookie', cookie).send({ Name: 'empty profile', Roles: ['user'], Profile: '' });
+      const response = await req().post('user/tokens').set('Cookie', cookie).set('Origin', APP_ORIGIN).send({ Name: 'empty profile', Roles: ['user'], Profile: '' });
 
       // `''` is falsy all the way down the actions layer, so a token asking for
       // it would come out UNPINNED - a silent privilege widening. `minLength: 1`

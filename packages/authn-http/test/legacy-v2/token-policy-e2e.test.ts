@@ -7,13 +7,13 @@ import { Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, create, activate, User } from '@spinajs/users';
-import '../src/index.js';
+import '../../src/index.js';
 import { DateTime } from 'luxon';
 
-import { req, restoreHttpErrorMap, useTestConfiguration } from './token-common.js';
+import { req, restoreHttpErrorMap, useTestConfiguration } from '../token-common.js';
 import { AccessToken, createToken } from '@spinajs/authn-token';
 import '@spinajs/authn-token';
-import '../src/token/middlewares.js';
+import '../../src/token/middlewares.js';
 
 /**
  * End to end proof of the advertised consumer wiring: a route carrying

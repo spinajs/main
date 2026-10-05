@@ -196,6 +196,8 @@ export function SkipModelPermission() {
 
 /**
  * Retrieves user from session if is logged in
+ *
+ * @deprecated 2.x; use the 3.0 `@Identity()`. R1 removes it.
  */
 export function User() {
   return Route(Parameter('UserArg'));
@@ -208,6 +210,9 @@ export function FromSession() {
   return Route(Parameter('SessionArg'));
 }
 
+/**
+ * @deprecated 2.x; use the 3.0 `@AuthnSession()`. R1 removes it.
+ */
 export function Session(){
   return Route(Parameter("CurrentSessionArg"));
 }

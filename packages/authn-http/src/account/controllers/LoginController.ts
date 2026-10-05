@@ -4,6 +4,7 @@ import { BaseController, BasePath, Post, Body, Ok, Get, Unauthorized, Policy } f
 import { AuthProvider, SessionProvider, login, UserSession, AccessControl, RbacException, hashSessionId } from '@spinajs/users';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { Autoinject, DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { AutoinjectService, Config, Configuration } from '@spinajs/configuration';
 import _ from 'lodash';
 import { LoggedPolicy } from '../../policies/LoggedPolicy.js';
@@ -16,6 +17,7 @@ import { LogoutHandler, ILogoutContext } from '../logout.js';
 import { SessionCookieFactory } from '../services/SessionCookies.js';
 import { buildUserWithGrants } from '../services/grants.js';
 import { TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
+import { MfaPolicy, MfaStep } from '@spinajs/authn/contracts';
 
 
 /**
@@ -95,7 +97,19 @@ export class LoginController extends BaseController {
       session.UserId = user.Id;
 
       const twoFaEnabledForUser = Boolean(user.Metadata[TWO_FA_METATADATA_KEYS.ENABLED]);
+      const v3StepRequired = await this.mfaStepsRequired(user.Uuid);
 
+      // A 3.0 step (MfaPolicy) cannot be completed on this 2.x path, so such a login stays pending, and without the
+      // TwoFactorAuth marker: the marker opens the 2.x enrol and verify routes, where a new 2.x TOTP would skip the step.
+      if (v3StepRequired && !twoFaEnabledForUser) {
+        this._log.trace('User logged in, a 3.0 MFA step is required', {
+          Uuid: user.Uuid
+        });
+
+        session.Data.set('Authorized', false);
+
+        result = { TwoFactorAuthRequired: true };
+      }
       // `forceUser` alone used to be enough to park the user in
       // TwoFactorInitRequired. But every mutating `/user/2fa*` and
       // `/auth/2fa/setup` route is now gated by `TwoFactorAuthEnabled` and
@@ -105,7 +119,7 @@ export class LoginController extends BaseController {
       // system-wide switch has to gate this branch too, or every user without
       // 2FA is locked out of the product the moment forceUser is on and the
       // switch is off.
-      if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
+      else if (this.TwoFactorAuthEnabled && this.TwoFactorAuthForceUser && !twoFaEnabledForUser) {
         this._log.trace('User logged in, 2fa init required', {
           Uuid: user.Uuid
         });
@@ -115,7 +129,8 @@ export class LoginController extends BaseController {
 
         result = { TwoFactorInitRequired: true };
       }
-      else if (this.TwoFactorAuthEnabled && twoFaEnabledForUser) {
+      // Whatever the 2.x switch says: it now ships unset, which must not let 2.x enrolments in on the password alone.
+      else if (twoFaEnabledForUser) {
 
         this._log.trace('User logged in, 2fa required', {
           Uuid: user.Uuid
@@ -181,6 +196,45 @@ export class LoginController extends BaseController {
         },
       });
     }
+  }
+
+  /**
+   * Whether the 3.0 MfaPolicy named by authn.mfa.policy.service (as DefaultAuthnService picks it) requires a step.
+   * That policy is registered only when the @spinajs/authn root entry is loaded; without it the configured steps
+   * are asked directly, as DefaultMfaPolicy would. Fails closed on any error.
+   */
+  protected async mfaStepsRequired(uuid: string): Promise<boolean> {
+    const id = { type: 'user', id: uuid };
+    try {
+      const name = this.Configuration.get<string | undefined>('authn.mfa.policy.service') ?? 'DefaultMfaPolicy';
+      const type = (DI.getRegisteredTypes(MfaPolicy as unknown as Class<MfaPolicy>) ?? []).find((t) => t.name === name);
+      if (type) {
+        const policy = (await DI.resolve(type)) as MfaPolicy;
+        return (await policy.required(id, { method: 'password', strategy: 'local' })).length > 0;
+      }
+      return await this.configuredStepRequired(id);
+    } catch (err) {
+      this._log.error(err as Error, 'MfaPolicy failed during a 2.x login; the login stays pending');
+      return true;
+    }
+  }
+
+  // DefaultMfaPolicy's rule over authn.mfa.steps only: a registered step the config does not list never counts.
+  protected async configuredStepRequired(id: { type: string; id: string }): Promise<boolean> {
+    const entries = this.Configuration.get<unknown>('authn.mfa.steps');
+    if (entries === undefined || entries === null) return false;
+    if (!Array.isArray(entries)) return true;
+    if (entries.length === 0) return false;
+    const registered = DI.getRegisteredTypes(MfaStep as unknown as Class<MfaStep>) ?? [];
+    for (const entry of entries) {
+      const service = (entry as { service?: unknown } | null)?.service;
+      const type = registered.find((t) => t.name === service);
+      if (!type) return true;
+      if (await ((await DI.resolve(type)) as MfaStep).enrolled(id)) return true;
+    }
+    const force = this.Configuration.get<unknown>('authn.mfa.policy.force') === true;
+    const forceForRoles = this.Configuration.get<unknown>('authn.mfa.policy.forceForRoles');
+    return force || (Array.isArray(forceForRoles) && forceForRoles.length > 0);
   }
 
   /**

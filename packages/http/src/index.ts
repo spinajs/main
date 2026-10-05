@@ -19,6 +19,7 @@ export * from './middlewares/ErrorHandler.js';
 export * from './middlewares/AccessLog.js';
 export * from './middlewares/Compression.js';
 export * from './middlewares/Cors.js';
+export * from './middlewares/RealIp.js';
 export * from './middlewares/SlowRequestWarning.js';
 export * from './middlewares/ServerTiming.js';
 export * from './middlewares/PerfRollup.js';

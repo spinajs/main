@@ -289,10 +289,10 @@ describe('http & controller tests', function () {
     expect(response.header['content-length']).to.be.not.null;
   });
 
-  it('@Ip returns client ip', async () => {
+  it('@Ip returns the socket address, not a client-set X-Forwarded-For', async () => {
     const response = await req().get('extra/ip').set('Accept', 'application/json').set('X-Forwarded-For', '203.0.113.7, 10.0.0.1').send();
     expect(response).to.have.status(200);
-    expect(response.body.ip).to.eq('203.0.113.7');
+    expect(response.body.ip).to.be.oneOf(['127.0.0.1', '::1']);
   });
 
   it('@RequestId returns the per-request id matching the response header', async () => {
