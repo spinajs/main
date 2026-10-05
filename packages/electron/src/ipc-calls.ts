@@ -1,15 +1,12 @@
 import { DI } from "@spinajs/di";
 import { Orm } from "@spinajs/orm";
 import { Log } from "@spinajs/log-common";
-import { AuthzConfigError, AuthzService, SYSTEM, authz } from "@spinajs/authz";
+import { AuthzConfigError, SYSTEM, authz } from "@spinajs/authz";
 
 const log = () => DI.resolve(Log, ["ipc"]);
 
-// Importing @spinajs/authz registers the service in every app, so DI.check alone cannot tell; an app that never booted authz makes authz() throw and the call runs as is.
+// An app that never booted authz makes authz() throw; the call then runs as is.
 function asSystem<T>(fn: () => Promise<T>): Promise<T> {
-  if (!DI.check(AuthzService)) {
-    return fn();
-  }
   try {
     return authz().runAs(SYSTEM, "electron-ipc", fn);
   } catch (err) {
@@ -63,7 +60,9 @@ export function callOnOrmConnection(connection: string, method: string, ...args:
 }
 
 export function callService(method: string, service: string, resolveArgs: any[], ...args: any[]): Promise<any> {
-  return asSystem(async () => {
+  // Renderer log lines read no scoped data; as SYSTEM each one would write a runAs audit entry.
+  const run = service === "Log" ? <T>(fn: () => Promise<T>) => fn() : asSystem;
+  return run(async () => {
     log().trace(`call on __spinajsIpcBridge::call(), method: ${method}, service: ${service}`);
 
     const _s = await DI.resolve<any>(service, resolveArgs ?? undefined);
@@ -96,7 +95,8 @@ export function callService(method: string, service: string, resolveArgs: any[],
   });
 }
 
-// Answers through event.returnValue, so it cannot await runAs: it runs unattended and a scoped ORM query or an authz check inside it fails closed.
+// Answers through event.returnValue, so it cannot await runAs: it runs unattended,
+// and a scoped ORM query or an authz check inside it fails closed.
 export function callServiceSync(event: { returnValue: unknown }, method: string, service: string, ...args: any[]): void {
   log().trace(`call on __spinajsIpcBridge::callSync(), method: ${method}, service: ${service}`);
 

@@ -237,7 +237,11 @@ export function socketHarness(opts: SocketHarnessOptions = {}): BehaviourHarness
     registered = undefined;
     if (!c) return;
     // DI.unregister matches by name; a decorated class can be in the list more than once.
-    for (let i = 0; i < 3 && (DI.getRegisteredTypes(BaseSocketController) ?? []).includes(c); i++) DI.unregister(c);
+    const listed = () => (DI.getRegisteredTypes(BaseSocketController) ?? []).filter((t) => t === c).length;
+    for (let n = listed(); n > 0; n = listed()) {
+      DI.unregister(c);
+      if (listed() >= n) fail(`DI.unregister left ${c.name} registered`);
+    }
     DI.uncache(c);
     await (DI.get(SocketHandlerRegistry) as SocketHandlerRegistry | undefined)?.build();
   };

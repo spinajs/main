@@ -219,6 +219,10 @@ describe("LogContext ambient async context", () => {
       expect(scalarContext({ Principal: { type: "a:b%c", id: "1" } })).to.deep.eq({ Principal: "a%3Ab%25c:1" });
     });
 
+    it("escapes control characters so an id cannot forge a log line", () => {
+      expect(scalarContext({ Principal: { type: "user", id: "1\nFAKE line\r\u0000" } })).to.deep.eq({ Principal: "user:1\\u000aFAKE line\\u000d\\u0000" });
+    });
+
     it("drops a malformed principal", () => {
       for (const bad of [{}, { type: "user" }, { id: "1" }, { type: 1, id: "1" }, { type: "user", id: NaN }, { type: "user", id: {} }, ["user", "1"], null]) {
         expect(scalarContext({ Principal: bad })).to.deep.eq({});

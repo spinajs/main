@@ -71,6 +71,7 @@ describe("electron IPC calls", () => {
     DI.uncache(Log);
     DI.uncache(FakeOrm);
     DI.uncache("Greeter");
+    DI.unregister(Greeter);
   });
 
   beforeEach(() => {
@@ -93,6 +94,11 @@ describe("electron IPC calls", () => {
       expect(runs.length).to.eq(1);
       expect(runs[0].principal).to.equal(SYSTEM);
       expect(runs[0].reason).to.eq("electron-ipc");
+    });
+
+    it("callService on Log does not call runAs (one audit entry per renderer log line otherwise)", async () => {
+      await callService("info", "Log", ["renderer"], "a line");
+      expect(runs.length).to.eq(0);
     });
 
     it("callServiceSync does not call runAs", () => {

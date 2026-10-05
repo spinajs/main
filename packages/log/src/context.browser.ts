@@ -86,7 +86,7 @@ export function scalarContext(ctx: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
-// Mirrors principalKey from @spinajs/authn; log must not depend on authn.
+// principalKey from @spinajs/authn (log must not depend on authn), with control characters escaped so an id cannot forge a log line.
 function principalLabel(v: unknown): string | undefined {
   if (v === null || typeof v !== "object" || Array.isArray(v)) {
     return undefined;
@@ -95,5 +95,9 @@ function principalLabel(v: unknown): string | undefined {
   if (typeof type !== "string" || !(typeof id === "string" || (typeof id === "number" && Number.isFinite(id)))) {
     return undefined;
   }
-  return `${type.replace(/%/g, "%25").replace(/:/g, "%3A")}:${id}`;
+  return noControl(`${type.replace(/%/g, "%25").replace(/:/g, "%3A")}:${id}`);
+}
+
+function noControl(s: string): string {
+  return s.replace(/[\u0000-\u001f\u007f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
