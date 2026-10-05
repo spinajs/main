@@ -2,10 +2,12 @@ import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy, StrategyRegistry, isCredentialSelector } from '../../src/index.js';
 import type { Credentials, StrategyOutcome, ThrottleKey } from '../../src/index.js';
+import { configuredChild, invalidOf, violationPaths } from '../behaviour/harness.js';
 
 const expect = chai.expect;
 
@@ -203,8 +205,6 @@ describe('StrategyRegistry', function () {
     });
 
     it('boots with no strategies when authn.strategies is missing or empty', async () => {
-      expect(names(await boot(undefined))).to.deep.equal([]);
-      DI.uncache(StrategyRegistry);
       expect(names(await boot([]))).to.deep.equal([]);
     });
 
@@ -216,37 +216,12 @@ describe('StrategyRegistry', function () {
       await bootFails([entry('stranger', 'NotAStrategy')], '"NotAStrategy"');
     });
 
-    it('fails on the same name listed with two services', async () => {
-      await bootFails([LOCAL, entry('local', 'PlainBearer')], 'duplicate', '"local"');
-    });
-
-    it('collapses identical entries that config files repeat (arrays merge by concat)', async () => {
-      cfg.set('authn.strategies', [LOCAL, TOKEN]);
-      cfg.merge('authn', { strategies: [LOCAL] });
-      expect(cfg.get('authn.strategies')).to.have.length(3);
-      const r = await DI.resolve(StrategyRegistry);
-      expect(names(r)).to.deep.equal(['local', 'token']);
-    });
-
     it('fails when the configured name differs from the strategy name', async () => {
       await bootFails([entry('password', 'LocalPassword')], '"password"', '"local"');
     });
 
     it('fails on one service listed under two names', async () => {
       await bootFails([LOCAL, entry('local-2', 'LocalPassword')], '"local-2"');
-    });
-
-    it('fails on malformed entries', async () => {
-      await bootFails('LocalPassword', 'authn.strategies');
-      await bootFails([{ name: 'local' }], 'authn.strategies');
-      await bootFails([{ name: '', service: 'LocalPassword' }], 'authn.strategies');
-      await bootFails([null], 'authn.strategies');
-    });
-
-    it('does not echo config values of malformed entries', async () => {
-      expect(await bootFails('hunter2-secret', 'authn.strategies')).to.not.contain('hunter2');
-      const message = await bootFails([LOCAL, { name: 'oops', options: { secret: 'hunter2-secret' } }], 'authn.strategies[1]', 'service');
-      expect(message).to.not.contain('hunter2');
     });
 
     it('fails on a strategy whose interactive is not a boolean', async () => {
@@ -340,6 +315,46 @@ describe('StrategyRegistry', function () {
       const r = new StrategyRegistry(DI.RootContainer);
       expect(() => r.strategies()).to.throw(Error);
       expect(() => r.candidates(password)).to.throw(Error);
+    });
+  });
+
+
+  describe('configuration shape', () => {
+    const kids: IContainer[] = [];
+
+    afterEach(async () => {
+      for (const c of kids.splice(0)) await c.dispose();
+    });
+
+    async function bootChild(authn: unknown): Promise<StrategyRegistry> {
+      const child = await configuredChild({ authn } as Record<string, unknown>);
+      kids.push(child);
+      return child.resolve(StrategyRegistry);
+    }
+
+    it('lists no strategy when authn.strategies is unset, through the schema default', async () => {
+      expect(names(await bootChild({}))).to.deep.equal([]);
+    });
+
+    const refused: [string, unknown, string][] = [
+      ['a string instead of a list', 'LocalPassword', 'authn.strategies'],
+      ['an entry without a service', [{ name: 'local' }], 'authn.strategies.0.service'],
+      ['an entry with an empty name', [{ name: '', service: 'LocalPassword' }], 'authn.strategies.0.name'],
+      ['a null entry', [null], 'authn.strategies.0'],
+      ['the same name with two services', [LOCAL, entry('local', 'PlainBearer')], 'authn.strategies'],
+      // Config files concatenate arrays; the schema keeps one entry per name, identical repeats included.
+      ['an identical entry listed twice', [LOCAL, { ...LOCAL }], 'authn.strategies'],
+    ];
+    for (const [what, strategies, path] of refused) {
+      it(`refuses ${what}, naming ${path}`, async () => {
+        expect(await violationPaths(configuredChild({ authn: { strategies } }))).to.include(path);
+      });
+    }
+
+    it('does not echo config values of a malformed entry', async () => {
+      const error = await invalidOf(configuredChild({ authn: { strategies: [LOCAL, { name: 'oops', options: { secret: 'hunter2-secret' } }] } }));
+      expect(error.message).to.not.contain('hunter2');
+      expect(error.violations.map((v) => v.path)).to.include('authn.strategies.1.service');
     });
   });
 

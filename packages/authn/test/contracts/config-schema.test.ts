@@ -262,7 +262,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
+      expect(check({}).config).to.deep.eq({ strategies: [], throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -280,6 +280,7 @@ describe('authn.* configuration schema', () => {
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
         audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
+        strategies: [],
         throttle: THROTTLE_DEFAULTS,
       });
     });

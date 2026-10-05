@@ -1,11 +1,11 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { AuthenticationStrategy } from '../contracts/strategy.js';
 import type { Credentials } from '../contracts/credentials.js';
-import { instantiate, kindOf, nearestRegistration, nonEmpty, q, readNamedEntries } from './named.js';
+import { instantiate, kindOf, nearestRegistration, nonEmpty, q } from './named.js';
 import type { NamedEntry } from './named.js';
 import { isCredentialSelector } from './selector.js';
 import type { CredentialSelector } from './selector.js';
@@ -51,13 +51,16 @@ function accepts(s: AuthenticationStrategy, c: Credentials): boolean {
 /**
  * The strategies of `authn.strategies`, in list order (A01). The list comes from the resolving container's Configuration, and
  * services are looked up by name among the AuthenticationStrategy types registered there or in its ancestors; registered but unlisted
- * strategies never run. Boot fails on an unknown service, a duplicate name, and an entry name that differs from the
+ * strategies never run. Boot fails on an unknown service and an entry name that differs from the
  * strategy's own `name`. Strategies may share kinds: the service falls through on `unsupported_credentials` (D1). One
  * per container, so a child boot reads its own list.
  */
 @PerChildInstance()
 @Inject(Container)
 export class StrategyRegistry extends AsyncService {
+  @Config('authn.strategies')
+  protected Entries: NamedEntry[];
+
   private listed: readonly Listed[] | undefined;
   private all: readonly AuthenticationStrategy[] | undefined;
 
@@ -66,13 +69,8 @@ export class StrategyRegistry extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('StrategyRegistry: the resolved Configuration has no get()');
-    }
-    const entries = readNamedEntries(configuration.get('authn.strategies'), 'authn.strategies', 'strategy');
     const listed: Listed[] = [];
-    for (const e of entries) {
+    for (const e of this.Entries) {
       // The whole lineage: a child may list a root strategy next to its own.
       const type = nearestRegistration(this.container, AuthenticationStrategy, e.service);
       if (!type) {

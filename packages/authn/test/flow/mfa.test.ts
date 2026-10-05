@@ -4,7 +4,7 @@ import { FakeMfaStep, fakeHash } from '@spinajs/authn-testing';
 
 import { DefaultMfaPolicy, MfaStep, MfaStepRegistry, RoleSource } from '../../src/index.js';
 import type { IdentityRef, Principal } from '../../src/index.js';
-import { KIT_MFA_STEP, bind, buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { KIT_MFA_STEP, bind, buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreOptions, CoreParts } from '../behaviour/harness.js';
 
 const ALICE: IdentityRef = { type: 'user', id: 'alice' };
@@ -78,42 +78,31 @@ describe('MFA steps and DefaultMfaPolicy', function () {
       assert.strictEqual(registry.get('nope'), undefined);
     });
 
-    it('is empty when authn.mfa.steps is unset', async () => {
+    it('is empty when authn.mfa.steps is unset, through the schema default', async () => {
       await boot({ steps: undefined });
       assert.deepStrictEqual((await parts!.child.resolve(MfaStepRegistry)).steps(), []);
     });
 
-    it('fails boot when the list repeats an entry', async () => {
-      await bootFails(
-        {
-          steps: [
-            { name: 'fake', service: KIT_MFA_STEP },
-            { name: 'fake', service: KIT_MFA_STEP },
-          ],
-        },
-        'authn.mfa.steps',
-      );
-    });
-
-    it('fails boot on an unknown service, a name mismatch, a reserved or duplicate name and a non-step', async () => {
+    it('fails boot on an unknown service, a name mismatch and a non-step', async () => {
       await bootFails({ steps: [{ name: 'totp', service: 'TotpMfaStep' }] }, 'authn.mfa.steps', 'TotpMfaStep');
       await bootFails({ steps: [{ name: 'other', service: KIT_MFA_STEP }] }, 'authn.mfa.steps', '"other"', '"fake"');
-      await bootFails({ steps: [{ name: 'recovery', service: KIT_MFA_STEP }] }, 'authn.mfa.steps.0.name');
-      const second = new FakeMfaStep({ name: 'second' });
-      await bootFails(
-        {
-          extra: [second],
-          steps: [
-            { name: 'fake', service: KIT_MFA_STEP },
-            { name: 'fake', service: 'Step_second' },
-          ],
-        },
-        'authn.mfa.steps',
-      );
       await bootFails({ steps: [{ name: 'x', service: 'NotAStep' }], register: (c) => bind(c, MfaStep, 'NotAStep', { name: 'x' }) }, 'NotAStep', 'not an MfaStep');
-      await bootFails({ steps: 'totp' }, 'authn.mfa.steps');
-      await bootFails({ steps: [{ name: '', service: KIT_MFA_STEP }] }, 'authn.mfa.steps.0.name');
     });
+
+    const refused: [string, unknown, string][] = [
+      ['the reserved name recovery', [{ name: 'recovery', service: KIT_MFA_STEP }], 'authn.mfa.steps.0.name'],
+      ['a name listed twice', [{ name: 'fake', service: KIT_MFA_STEP }, { name: 'fake', service: 'Step_second' }], 'authn.mfa.steps'],
+      ['an identical entry listed twice', [{ name: 'fake', service: KIT_MFA_STEP }, { name: 'fake', service: KIT_MFA_STEP }], 'authn.mfa.steps'],
+      ['a string instead of a list', 'totp', 'authn.mfa.steps'],
+      ['null instead of a list', null, 'authn.mfa.steps'],
+      ['an empty name', [{ name: '', service: KIT_MFA_STEP }], 'authn.mfa.steps.0.name'],
+    ];
+    for (const [what, steps, path] of refused) {
+      it(`refuses ${what}, naming ${path}`, async () => {
+        const paths = await violationPaths(boot({ steps, extra: [new FakeMfaStep({ name: 'second' })] }));
+        assert.ok(paths.includes(path), paths.join(', '));
+      });
+    }
   });
 
   describe('DefaultMfaPolicy', () => {

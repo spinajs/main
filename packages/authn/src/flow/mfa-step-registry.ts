@@ -1,10 +1,10 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { MfaStep } from '../contracts/mfa.js';
-import { instantiate, kindOf, nearestRegistration, q, readNamedEntries } from '../registry/named.js';
+import { instantiate, kindOf, nearestRegistration, q } from '../registry/named.js';
 import type { NamedEntry } from '../registry/named.js';
 
 /** completeMfa's step name for recovery codes; no configured step may take it. */
@@ -26,12 +26,15 @@ function check(e: NamedEntry, s: unknown): MfaStep {
 
 /**
  * The MFA steps of `authn.mfa.steps`, in list order, looked up by service name among the MfaStep registrations of the
- * container lineage (nearest first). Boot fails on an unknown service, a duplicate name, the reserved name
- * `recovery`, and an entry name that differs from the step's own `name`. One per container.
+ * container lineage (nearest first). Boot fails on an unknown service and an entry name that differs from the step's own `name`;
+ * the schema refuses a duplicate name and the reserved name `recovery`. One per container.
  */
 @PerChildInstance()
 @Inject(Container)
 export class MfaStepRegistry extends AsyncService {
+  @Config('authn.mfa.steps')
+  protected Entries: NamedEntry[];
+
   private listed: readonly MfaStep[] | undefined;
 
   constructor(private readonly container: IContainer) {
@@ -39,14 +42,8 @@ export class MfaStepRegistry extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('MfaStepRegistry: the resolved Configuration has no get()');
-    }
-    const entries = readNamedEntries(configuration.get('authn.mfa.steps'), 'authn.mfa.steps', 'step');
     const listed: MfaStep[] = [];
-    for (const e of entries) {
-      if (e.name === RECOVERY_STEP) throw new InvalidOption(`authn.mfa.steps: the step name ${q(RECOVERY_STEP)} is reserved for recovery codes`);
+    for (const e of this.Entries) {
       const type = nearestRegistration(this.container, MfaStep, e.service);
       if (!type) throw new InvalidOption(`authn.mfa.steps entry ${q(e.name)}: no MfaStep is registered as service ${q(e.service)}`);
       listed.push(check(e, await instantiate(this.container, type)));

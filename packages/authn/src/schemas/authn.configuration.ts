@@ -42,6 +42,7 @@ function secretRef(description: string, extra: Record<string, object> = {}) {
 
 const named = {
   type: 'array',
+  default: [],
   uniqueItemProperties: ['name'],
   items: {
     type: 'object',
