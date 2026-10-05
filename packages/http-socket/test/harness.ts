@@ -6,7 +6,7 @@ import { createServer, Server as NodeHttpServer } from 'http';
 import { AddressInfo } from 'net';
 import { io, Socket as ClientSocket } from 'socket.io-client';
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration, registerConfigurationSchema } from '@spinajs/configuration';
 import { AuthenticationFailed } from '@spinajs/exceptions';
 import type { Principal } from '@spinajs/authz';
 import '@spinajs/log';
@@ -14,6 +14,7 @@ import { CommandReply, CommandRequest, EventFrame, PROTOCOL_VERSION, SocketError
 import socketConfig from '../src/config/http-socket.js';
 import { ISocketHandshake, SocketHttpHost, SocketPrincipalSource } from '../src/interfaces.js';
 import { SocketServer } from '../src/server.js';
+import { SOCKET_CONFIGURATION_SCHEMA } from '../src/schema.js';
 
 chai.use(chaiAsPromised);
 
@@ -79,6 +80,7 @@ export async function configure(cfg: Record<string, unknown> = {}): Promise<void
   overrides = cfg;
   DI.clearCache();
   DI.register(TestConfiguration).as(Configuration);
+  registerConfigurationSchema(SOCKET_CONFIGURATION_SCHEMA);
   await DI.resolve(Configuration);
 }
 

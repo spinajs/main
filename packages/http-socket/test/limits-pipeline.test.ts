@@ -9,7 +9,7 @@ import { DI } from '@spinajs/di';
 import { WIRE_EVENTS } from '@spinajs/http-socket-common';
 import { SocketDispatcher } from '../src/dispatcher.js';
 import { SizeStage } from '../src/stages/limits.js';
-import { assertLimitsConfig } from '../src/limits.js';
+import { InvalidConfiguration } from '@spinajs/configuration';
 import { ITestServer, command, delay, errorOf, open, resultOf, startServer, waitFor } from './harness.js';
 
 let release: () => void = () => undefined;
@@ -176,18 +176,6 @@ describe('socket pipeline limits', function () {
   });
 
   describe('limit configuration', () => {
-    const cfg = (rate: { perSecond: number; burst: number }) => ({ rate, maxPayloadBytes: 1024, maxInFlightPerConnection: 32, maxInFlightEventsPerConnection: Math.max(rate.burst, 128), auth: { required: false, revalidateMs: 0 }, transports: ['websocket'] }) as Parameters<typeof assertLimitsConfig>[0];
-
-    for (const bad of [{ perSecond: 0, burst: 10 }, { perSecond: -1, burst: 10 }, { perSecond: 10, burst: 0 }, { perSecond: NaN, burst: 10 }]) {
-      it(`rejects ${JSON.stringify(bad)} with a RangeError`, () => {
-        expect(() => assertLimitsConfig(cfg(bad))).to.throw(RangeError);
-      });
-    }
-
-    it('accepts positive values', () => {
-      expect(() => assertLimitsConfig(cfg({ perSecond: 1, burst: 1 }))).not.to.throw();
-    });
-
     it('aborts server startup on a non-positive rate', async () => {
       let failure: unknown;
       try {
@@ -195,7 +183,8 @@ describe('socket pipeline limits', function () {
       } catch (e) {
         failure = e;
       }
-      expect(failure).to.be.instanceOf(RangeError);
+      expect(failure).to.be.instanceOf(InvalidConfiguration);
+      expect((failure as InvalidConfiguration).violations.map((v) => v.path)).to.include('http.socket.rate.perSecond');
     });
   });
 });

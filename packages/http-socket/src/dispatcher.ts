@@ -9,7 +9,7 @@ import { IConnectionRuntime, IRegisteredHandler, ISocketCallContext, ISocketCall
 import { SocketConnection } from './connection.js';
 import { SocketCommandContext } from './context.js';
 import { SocketErrorMapper } from './errors.js';
-import { TokenBucket, assertHooksConfig, assertLimitsConfig, assertOrderingConfig, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
+import { TokenBucket, assertPayloadSize, assertRate, untilAborted, withSlot } from './limits.js';
 import { SocketHandlerRegistry } from './registry.js';
 import { SOCKET_UNKNOWN_COMMAND, observeCommand } from './metrics.js';
 import { SocketArgumentResolver } from './args.js';
@@ -66,9 +66,6 @@ export class SocketDispatcher extends AsyncService {
 
   public async resolve(): Promise<void> {
     await super.resolve();
-    assertLimitsConfig(this.Options);
-    assertOrderingConfig(this.Options);
-    assertHooksConfig(this.Options);
     const stages = (await DI.resolve(Array.ofType(SocketCommandStage))) as SocketCommandStage[];
     this.Stages = [...stages].sort((a, b) => a.Order - b.Order);
   }
