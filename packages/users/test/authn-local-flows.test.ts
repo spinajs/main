@@ -10,6 +10,8 @@ import type { PasswordMail } from '@spinajs/authn-local';
 import { QueueAuthnEventSink, UserAccountSink, UserActivated, UserIdentityStore, UserPasswordAgeSource, UserPasswordChanged, UserPasswordStore } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
+import { User } from '../src/models/User.js';
+import { DateTime } from 'luxon';
 
 const OLD = 'Old-Password-1';
 const NEW = 'New-Password-2';
@@ -148,6 +150,8 @@ describe('authn-local password flows over the users stores', function () {
     const { ref: fresh } = await seedUser({ login: 'flow-age-fresh' });
     await x.service.set(old, OLD, ctx(T0));
     await x.service.set(fresh, OLD, ctx(later(20)));
+    // The fixture accounts may be inserted after the backfill migration; an unknown age counts as old, so date them.
+    await User.query().Driver.update().in('users').update({ PasswordSetAt: DateTime.fromJSDate(later(20)).toSQL({ includeOffset: false }) }).whereNull('PasswordSetAt');
 
     const job = new PasswordExpirationJob({ ages: new UserPasswordAgeSource(), passwords: x.passwords, service: x.service, enabled: true, maxAgeDays: 31 });
     const result = await job.run(later(40));
