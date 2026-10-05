@@ -20,6 +20,8 @@ export interface RbacAdminStores extends AdminSideStores {
 
 export interface RbacAdminHarnessOptions {
   readonly facets?: readonly Facet[];
+  /** Runs after the harness's own registrations in the test domain. */
+  register?(host: HostSetup): void;
 }
 
 const STORES = new WeakMap<object, RbacAdminStores>();
@@ -54,6 +56,7 @@ export function rbacAdminHarness(opts: RbacAdminHarnessOptions = {}): BehaviourH
       host.container.register(instance(model)).as(AuthorizationModel);
       host.container.register(instance(new RbacContributor(model))).as(AuthzContributor);
       STORES.set(host.container, { ...side, roles, configRules, model });
+      opts.register?.(host);
     },
     extend(host, session) {
       const { events, links, model } = rbacAdminStores(host);
