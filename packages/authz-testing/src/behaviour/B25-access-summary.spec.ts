@@ -46,6 +46,22 @@ const rbacWorld: World = {
   lane: { http: {} },
 };
 
+/**
+ * alice holds viewer and editor, so a switch to editor narrows her; admin holds support, which grants user:impersonate
+ * at GLOBAL and strictly more than bob's viewer; bob holds no role of the default protected list (['admin']).
+ */
+const authnWorld: World = {
+  permissions: ['file:read', 'file:write', 'file:delete', 'user:impersonate'],
+  principals: { alice, bob, admin },
+  combine: combine('deny-overrides', 'rbac'),
+  config: { principals: { anonymous: { enabled: false } } },
+  rbac: {
+    roles: [role('viewer', ['file:read']), role('editor', ['file:read', 'file:write']), role('support', ['file:read', 'file:write', 'file:delete', 'user:impersonate'])],
+    assignments: [assignment('a1', alice, 'viewer'), assignment('a2', alice, 'editor'), assignment('a3', bob, 'viewer'), assignment('a4', admin, 'support')],
+  },
+  lane: { http: {} },
+};
+
 export const B25 = fixture('B25', [
   {
     name: 'http',
@@ -104,10 +120,10 @@ export const B25 = fixture('B25', [
   },
   {
     name: 'authn',
-    facets: ['engine', 'http', 'authn'],
+    facets: ['engine', 'rbac', 'http', 'authn'],
     lanes: ['C3'],
-    note: 'Each flow answer carries Access, equal to GET /user/access for the principal the session then yields (design §11.4, §22.11).',
-    world: kitWorld(false),
+    note: "Each flow answer carries Access, equal to GET /user/access for the principal the session then yields (design §11.4, §22.11). Runs on real RBAC roles (RFC C3-2), so an app's real role source and impersonation guard (users, C3) can run it; its runner wires authz-rbac's RbacModel over world.rbac through hostHarness({ register }). The impersonation case needs no user resource type: user:impersonate is checked at GLOBAL and covers compares GLOBAL permission sets.",
+    world: authnWorld,
     cases: [
       { name: 'the login response carries Access', steps: [flow('login', { kind: 'login', as: 'alice' }), accessOfFlow('login')] },
       { name: 'the MFA completion response carries Access', steps: [flow('mfa', { kind: 'mfa', as: 'alice' }), accessOfFlow('mfa')] },
