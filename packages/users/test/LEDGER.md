@@ -245,16 +245,16 @@ Shared `SessionProvider` conformance suite, imported by `session-conformance.tes
 
 ## test/create-ownership-idor.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/create-ownership-idor.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 1: ported to `authz-orm/test/ported/create-ownership-idor.test.ts` (sqlite and postgres); the legacy file is deleted. Shared setup is `authz-orm/test/ported/harness.ts`.
 
 Insert-time ownership stamping, a 2.x IDOR regression. All rewrite (C1 → T1); none dropped, they map to the T1 IDOR suite.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 71 | Ownership enforcement on inserts (IDOR regression) > createOwn forces the owner column to the acting user | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (insert stamps the @Owner column) |
-| 2 | 85 | Ownership enforcement on inserts (IDOR regression) > createOwn overwrites a forged owner id rather than trusting the payload | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (forged owner overwritten) |
-| 3 | 102 | Ownership enforcement on inserts (IDOR regression) > createAny leaves the payload alone | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20 (TRUE passes the payload) |
-| 4 | 116 | Ownership enforcement on inserts (IDOR regression) > no create grant is refused | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B01 (no permit gives 403) |
+| 1 | 71 | Ownership enforcement on inserts (IDOR regression) > createOwn forces the owner column to the acting user | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (insert stamps the @Owner column) Ported: same test name; no changed expectation. |
+| 2 | 85 | Ownership enforcement on inserts (IDOR regression) > createOwn overwrites a forged owner id rather than trusting the payload | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (forged owner overwritten) Ported: same test name; no changed expectation. |
+| 3 | 102 | Ownership enforcement on inserts (IDOR regression) > createAny leaves the payload alone | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20 (TRUE passes the payload) Ported: same test name; no changed expectation. |
+| 4 | 116 | Ownership enforcement on inserts (IDOR regression) > no create grant is refused | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B01 (no permit gives 403) Ported: same test name; changed expectation (B01): rejects with AccessDenied (403 Forbidden) instead of the 2.x `/create permission/` message. |
 
 ## test/impersonation.test.ts
 
@@ -610,14 +610,14 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 
 ## test/write-ownership-idor.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/write-ownership-idor.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 1: ported to `authz-orm/test/ported/write-ownership-idor.test.ts` (sqlite and postgres); the legacy file is deleted. Shared setup is `authz-orm/test/ported/harness.ts`.
 
 Ownership enforcement on UPDATE and DELETE, a 2.x IDOR regression. All rewrite (C1 → T1); none dropped, they map to the T1 IDOR suite.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 82 | Ownership enforcement on write queries (IDOR regression) > UPDATE with :own scope cannot touch another user's row via an OR lookup | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
-| 2 | 99 | Ownership enforcement on write queries (IDOR regression) > DELETE with :own scope cannot delete another user's row in a multi-key destroy | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) |
+| 1 | 82 | Ownership enforcement on write queries (IDOR regression) > UPDATE with :own scope cannot touch another user's row via an OR lookup | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) Ported: same test name; no changed expectation. |
+| 2 | 99 | Ownership enforcement on write queries (IDOR regression) > DELETE with :own scope cannot delete another user's row in a multi-key destroy | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B15 (relation residual ANDed around the caller OR group) Ported: same test name; no changed expectation. |
 
 ## N2 status (session rows)
 
