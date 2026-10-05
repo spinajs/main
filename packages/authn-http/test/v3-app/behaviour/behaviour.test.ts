@@ -2,7 +2,7 @@ import 'mocha';
 import { expect } from 'chai';
 import { planCases, runAuthnBehaviour } from '@spinajs/authn-testing';
 
-import { PORTS, ROUTES, bootBehaviourApp, httpHarness, shutdownBehaviourApp } from './harness.js';
+import { PORTS, ROUTES, bootBehaviourApp, httpHarness, shutdownBehaviourApp, supports } from './harness.js';
 
 /**
  * The README's N8a facets but A09/http: two of its cases need N8b's routes (tokenList, mfaEnrol) and the kit claims
@@ -45,6 +45,10 @@ describe('N8a behaviour rules over HTTP (test/v3-app)', function () {
     const planned = planCases([...RULES], { facets: FACETS });
     const missing = planned.flatMap((p) => p.kase.needs.filter((n) => !have(n)).map((n) => `${p.kase.facet} ${n}`));
     expect([...new Set(missing)].sort()).to.deep.eq(EXPECTED_PENDING);
+    if (!missing.some((m) => m.startsWith('A09/http '))) expect(CLAIM, 'A09/http has every need now: claim it').to.include('A09/http');
+    // A config computed from the prepared state cannot be checked before the case runs.
+    const unsupported = planned.filter((p) => typeof p.kase.config === 'object' && !supports(p.kase.config)).map((p) => p.kase.name);
+    expect(unsupported, 'cases the harness config cannot apply go pending').to.deep.eq([]);
     const sr = planned.filter((p) => / SR-\d+ /.test(p.kase.name));
     expect(sr.map((p) => p.kase.name)).to.include.members(SR_CASES);
     expect(sr.filter((p) => p.kase.needs.some((n) => !have(n))).map((p) => p.kase.name)).to.deep.eq([]);

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { request } from 'node:http';
-import { DI } from '@spinajs/di';
+import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { Orm } from '@spinajs/orm';
@@ -25,7 +25,7 @@ import {
   TokenService,
 } from '@spinajs/authn/contracts';
 import type { Credentials, IdentityRef } from '@spinajs/authn/contracts';
-import { SessionExpirationProvider, SessionProvider, sessionCookieName, appEnvOf } from '@spinajs/authn-session';
+import { MemorySessionStore, PUBLIC_DEFAULT_COOKIE_SECRET, SessionExpirationProvider, SessionProvider, sessionCookieName, appEnvOf } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, KIT_ATTRIBUTES, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, HttpPort, HttpRequest, HttpResponse, HttpRoutes, PortName } from '@spinajs/authn-testing';
@@ -135,24 +135,56 @@ function checkSupported(config: ConfigOverrides, supported: readonly string[]): 
   return leaves;
 }
 
+/** False where the factory would answer UnsupportedConfig, which makes the case pending. */
+export function supports(overrides: ConfigOverrides): boolean {
+  try {
+    checkSupported(overrides, SUPPORTED_CONFIG);
+    return true;
+  } catch (e) {
+    if (e instanceof UnsupportedConfig) return false;
+    throw e;
+  }
+}
+
 const config = (): Configuration => DI.get(Configuration)!;
 
 const ENV_PATH = 'process.env.APP_ENV';
 
+/** The shallowest prefix of `path` that is not in the configuration; undefined when the whole path exists. */
+function missingPrefix(c: Configuration, path: string): string | undefined {
+  const parts = path.split('.');
+  for (let i = 1; i <= parts.length; i++) {
+    const parent = i === 1 ? undefined : c.get<unknown>(parts.slice(0, i - 1));
+    const exists = i === 1 ? c.get(parts[0]) !== undefined : isObject(parent) && Object.hasOwn(parent, parts[i - 1]);
+    if (!exists) return parts.slice(0, i).join('.');
+  }
+  return undefined;
+}
+
+function removeKey(c: Configuration, path: string): void {
+  const dot = path.lastIndexOf('.');
+  // Configuration has no unset; every top-level key a case touches is in the app config, so this branch stays unused.
+  if (dot < 0) c.set(path, undefined);
+  else delete c.get<Record<string, unknown>>(path.slice(0, dot))[path.slice(dot + 1)];
+}
+
 /**
- * Sets the case's keys (and the harness strategy list) and returns what undoes it. An env is named through APP_ENV as
- * well, because the configuration counts 'development' as a fallback unless some env source names it.
+ * Sets the case's keys (over the harness strategy list and the design §22.5 session expiry) and returns what undoes
+ * it; undo removes what did not exist before. An env is named through APP_ENV as well, because the configuration
+ * counts 'development' as a fallback unless some env source names it.
  */
 function applyConfig(leaves: readonly string[], overrides: ConfigOverrides): () => void {
   const c = config();
-  const saved: [string, unknown][] = [];
+  const saved: { path: string; value: unknown; missing: string | undefined }[] = [];
   const set = (path: string, value: unknown) => {
-    saved.push([path, c.get(path)]);
+    saved.push({ path, value: c.get(path), missing: missingPrefix(c, path) });
     c.set(path, value);
   };
   const savedAppEnv = process.env.APP_ENV;
   try {
     set('authn.strategies', STRATEGIES);
+    set('authn.session.expiration.ttl', 30);
+    set('authn.session.expiration.maxLifetime', 480);
     for (const path of leaves) {
       if (path === 'env') continue;
       set(path, leafValue(overrides, path));
@@ -166,7 +198,10 @@ function applyConfig(leaves: readonly string[], overrides: ConfigOverrides): () 
     throw e;
   }
   function undo(): void {
-    for (const [path, value] of saved.reverse()) c.set(path, value);
+    for (const { path, value, missing } of saved.reverse()) {
+      if (missing === undefined) c.set(path, value);
+      else removeKey(c, missing);
+    }
     if (savedAppEnv === undefined) delete process.env.APP_ENV;
     else process.env.APP_ENV = savedAppEnv;
   }
@@ -244,6 +279,12 @@ async function insertUserRow(uuid: string): Promise<void> {
 /** In-memory sqlite with authn-token's migrations and the columns of the users table it reads (no @spinajs/users). */
 async function bootTokenDb(): Promise<void> {
   for (const file of TOKEN_MODULES) await import(new URL(file, TOKEN_LIB).href);
+  // users' bootstrapper registers on import; the 2.x session store it brings shares no base with authn-session's.
+  const users = (DI.getRegisteredTypes(Bootstrapper) ?? []).some((t) => t.name === 'RbacBootstrapper');
+  const stores = DI.getRegisteredTypes(SessionProvider) ?? [];
+  if (users || stores.length !== 1 || stores[0] !== MemorySessionStore) {
+    throw new Error(`@spinajs/users is loaded (${users}) or another SessionProvider is registered (${stores.map((t) => t.name).join(', ')})`);
+  }
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
   const c = config();
   c.set('db', {
@@ -386,7 +427,7 @@ function bootPort(): BootPort {
       const s = spec.secrets ?? {};
       const values = deepMerge(
         {
-          http: { cookie: { secret: s.cookie === 'public' ? '1234adreewD' : s.cookie === 'missing' ? null : strong() } },
+          http: { cookie: { secret: s.cookie === 'public' ? PUBLIC_DEFAULT_COOKIE_SECRET : s.cookie === 'missing' ? null : strong() } },
           authn: { strategies: [], local: { pepper: { secret: s.pepper === 'strong' ? strong() : null, version: 1 } }, mfa: { steps: [], encryptionKey: { secret: s.mfaKey === 'missing' ? null : strong() } } },
         },
         { ...(given.http ? { http: given.http } : {}), ...(given.authn ? { authn: given.authn } : {}) } as Record<string, unknown>,
