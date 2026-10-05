@@ -68,7 +68,10 @@ describe('Swagger @Access extraction', function () {
     expect(guarded['401']).to.deep.equal({ $ref: '#/components/responses/Unauthorized' });
     expect(guarded['403']).to.deep.equal({ $ref: '#/components/responses/Forbidden' });
     const documented = spec.paths['/access/{id}'].delete.responses;
-    expect(documented['403']).to.deep.equal({ $ref: '#/components/responses/Forbidden' });
+    expect(documented['401'].$ref, '401').to.be.undefined;
+    expect(documented['401'].description).to.equal('Sign in first');
+    expect(documented['403'].$ref, '403').to.be.undefined;
+    expect(documented['403'].description).to.equal('Not yours');
   });
 
   it('should NOT emit x-authz-* on controllers without @Access', () => {

@@ -60,6 +60,18 @@ class SnapshotController extends BaseController {
   }
 }
 
+@BasePath('snap-sub')
+class InheritingController extends SnapshotController {}
+
+@BasePath('snap-own')
+class OwnAccessController extends SnapshotController {
+  @Get('own')
+  @Access('report:read', { resource: fromParam('id', 'report') })
+  public own() {
+    return new Ok({});
+  }
+}
+
 class PlainController extends BaseController {
   @Get('x')
   public x() {
@@ -68,7 +80,7 @@ class PlainController extends BaseController {
 }
 
 const builder = new OpenApiBuilder({ enabled: true, title: 'snapshot', version: '1.0.0' });
-const controllers = [SnapshotController, PlainController].map((c) => ({ name: c.name, instance: new c() }));
+const controllers = [SnapshotController, InheritingController, OwnAccessController, PlainController].map((c) => ({ name: c.name, instance: new c() }));
 for (const c of controllers) {
   builder.addController(c as any, { className: c.name, methods: {} });
 }

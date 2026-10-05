@@ -45,7 +45,8 @@ describe('Swagger @Access snapshot', function () {
 
   it('matches the committed snapshot', () => {
     const actual = routes.map(({ swaggerAccess, ...rest }) => rest);
-    if (process.env.UPDATE_SNAPSHOTS || !existsSync(SNAPSHOT)) writeFileSync(SNAPSHOT, `${JSON.stringify(actual, null, 2)}\n`);
+    if (process.env.UPDATE_SNAPSHOTS) writeFileSync(SNAPSHOT, `${JSON.stringify(actual, null, 2)}\n`);
+    expect(existsSync(SNAPSHOT), 'snapshot file is missing; run with UPDATE_SNAPSHOTS=1').to.equal(true);
     expect(actual).to.deep.equal(JSON.parse(readFileSync(SNAPSHOT, 'utf8')));
   });
 });

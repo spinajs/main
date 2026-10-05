@@ -36,7 +36,8 @@ export class AccessController extends BaseController {
 
   /**
    * Route that lets anonymous callers through the authentication step.
-   * @response 403 Not yours
+   * @response 401 {object} Sign in first
+   * @response 403 {object} Not yours
    */
   @Del(':id')
   @allowAnonymous()

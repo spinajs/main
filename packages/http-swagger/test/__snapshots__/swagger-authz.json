@@ -8,6 +8,326 @@
     ]
   },
   {
+    "route": "GET /snap-own/body",
+    "extensions": {
+      "x-authz-permission": [
+        "invoice:create"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "invoice",
+        "in": "body",
+        "name": "invoice.id"
+      }
+    },
+    "access": "**Access:** requires `invoice:create` on `invoice` (body `invoice.id`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/custom",
+    "extensions": {
+      "x-authz-permission": [
+        "file:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {}
+    },
+    "access": "**Access:** requires `file:read`, and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/inherited",
+    "extensions": {
+      "x-authz-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "project"
+      }
+    },
+    "access": "**Access:** requires `project:read` on `project`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/model/{doc}",
+    "extensions": {
+      "x-authz-permission": [
+        "doc:update"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "in": "path",
+        "name": "doc",
+        "model": "SnapshotDoc"
+      },
+      "x-authz-unscoped": "export",
+      "x-authz-unfiltered-input": "imports raw documents"
+    },
+    "access": "**Access:** requires `doc:update` on model `SnapshotDoc`, and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/open",
+    "extensions": {
+      "x-authz-permission": [
+        "file:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "file"
+      },
+      "x-authz-anonymous": true
+    },
+    "access": "**Access:** requires `file:read` on `file`, and the controller requires `project:read` (anonymous allowed)",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/own",
+    "extensions": {
+      "x-authz-permission": [
+        "report:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "report",
+        "in": "path",
+        "name": "id"
+      }
+    },
+    "access": "**Access:** requires `report:read` on `report` (path `id`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/param/{uuid}",
+    "extensions": {
+      "x-authz-permission": [
+        "user:read",
+        "user:list"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "user",
+        "in": "path",
+        "name": "uuid",
+        "by": "Uuid"
+      },
+      "x-authz-domain": "tenant"
+    },
+    "access": "**Access:** requires `user:read` or `user:list` on `user` (path `uuid`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-own/query",
+    "extensions": {
+      "x-authz-permission": [
+        "order:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "order",
+        "in": "query",
+        "name": "order"
+      }
+    },
+    "access": "**Access:** requires `order:read` on `order` (query `order`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/body",
+    "extensions": {
+      "x-authz-permission": [
+        "invoice:create"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "invoice",
+        "in": "body",
+        "name": "invoice.id"
+      }
+    },
+    "access": "**Access:** requires `invoice:create` on `invoice` (body `invoice.id`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/custom",
+    "extensions": {
+      "x-authz-permission": [
+        "file:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {}
+    },
+    "access": "**Access:** requires `file:read`, and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/inherited",
+    "extensions": {
+      "x-authz-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "project"
+      }
+    },
+    "access": "**Access:** requires `project:read` on `project`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/model/{doc}",
+    "extensions": {
+      "x-authz-permission": [
+        "doc:update"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "in": "path",
+        "name": "doc",
+        "model": "SnapshotDoc"
+      },
+      "x-authz-unscoped": "export",
+      "x-authz-unfiltered-input": "imports raw documents"
+    },
+    "access": "**Access:** requires `doc:update` on model `SnapshotDoc`, and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/open",
+    "extensions": {
+      "x-authz-permission": [
+        "file:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "file"
+      },
+      "x-authz-anonymous": true
+    },
+    "access": "**Access:** requires `file:read` on `file`, and the controller requires `project:read` (anonymous allowed)",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/param/{uuid}",
+    "extensions": {
+      "x-authz-permission": [
+        "user:read",
+        "user:list"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "user",
+        "in": "path",
+        "name": "uuid",
+        "by": "Uuid"
+      },
+      "x-authz-domain": "tenant"
+    },
+    "access": "**Access:** requires `user:read` or `user:list` on `user` (path `uuid`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
+    "route": "GET /snap-sub/query",
+    "extensions": {
+      "x-authz-permission": [
+        "order:read"
+      ],
+      "x-authz-controller-permission": [
+        "project:read"
+      ],
+      "x-authz-resource": {
+        "type": "order",
+        "in": "query",
+        "name": "order"
+      }
+    },
+    "access": "**Access:** requires `order:read` on `order` (query `order`), and the controller requires `project:read`",
+    "responses": [
+      "200",
+      "401",
+      "403"
+    ]
+  },
+  {
     "route": "GET /snap/body",
     "extensions": {
       "x-authz-permission": [
