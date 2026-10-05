@@ -7,7 +7,7 @@ import { FakeIdentityStore, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialS
 
 import { AUTHN_PUBLIC_COOKIE_SECRET, AuthenticationStrategy, MfaStep, checkAuthnConfig } from '../../src/index.js';
 import type { AuthnConfigFinding } from '../../src/index.js';
-import { bind, configurationOf } from '../behaviour/harness.js';
+import { bind, configurationOf, useAuthnSchema } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
 
 const expect = chai.expect;
@@ -79,10 +79,19 @@ describe('authn:check-config', () => {
       expect(f[0].message).to.contain('"jwt"').and.contain('"JwtBearerStrategy"');
     });
 
-    it('reports a malformed list without echoing it', async () => {
-      const f = await check(merge(sound(), { authn: { strategies: [{ name: 'local', service: 'KitPassword', secret: 'hunter2' }, { name: 'local', service: 'Other' }] } }));
-      expect(topics(f)).to.deep.eq(['strategies:error']);
-      expect(f[0].message).to.not.contain('hunter2');
+    it('does not re-check the list shape: the schema refuses a bad list before the Configuration resolves', async () => {
+      const f = await check(merge(sound(), { authn: { strategies: [{ name: 'local', service: 'KitPassword' }] } }));
+      expect(topics(f)).to.deep.eq([]);
+    });
+
+    it('reports a schema violation as an error finding without echoing the value, instead of throwing', async () => {
+      const child = DI.RootContainer.child();
+      children.push(child);
+      useAuthnSchema(child);
+      child.register(configurationOf(merge(sound(), { authn: { strategies: [{ name: 'local', service: 'KitPassword', secret: 'hunter2' }, { name: 'local', service: 'Other' }] } }), 'production', true)).as(Configuration);
+      const f = await checkAuthnConfig(child);
+      expect(topics(f)).to.include('schema:error');
+      expect(f.map((x) => x.message).join(' ')).to.contain('authn.strategies').and.not.contain('hunter2');
     });
   });
 

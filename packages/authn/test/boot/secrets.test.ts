@@ -223,9 +223,6 @@ describe('authn boot: secrets (A24, SR-16)', () => {
       expect(f[0].message).to.not.contain('hunter2');
     });
 
-    it('refuses a key that is not a string in any env', async () => {
-      expect(levels(await findings('test', values({ mfaKey: 42 }), none))).to.deep.eq(['secrets:error']);
-    });
   });
 
   describe('pepper (A03, D9)', () => {
@@ -246,27 +243,9 @@ describe('authn boot: secrets (A24, SR-16)', () => {
       expect(await findings('production', values({ pepper }))).to.deep.eq([]);
     });
 
-    it('refuses an empty previous pepper in every env, as the schema does', async () => {
-      const pepper = { secret: STRONG, version: 2, previous: [{ secret: '', version: 1 }] };
-      expect(levels(await findings('production', values({ pepper })))).to.deep.eq(['secrets:error']);
-      expect(levels(await findings('development', values({ pepper })))).to.deep.eq(['secrets:error']);
-    });
-
-    it('refuses a previous version equal to the current one or repeated, in any env', async () => {
-      const same = { secret: STRONG, version: 2, previous: [{ secret: 'b'.repeat(64), version: 2 }] };
-      const twice = { secret: STRONG, version: 3, previous: [{ secret: 'b'.repeat(64), version: 1 }, { secret: 'c'.repeat(64), version: 1 }] };
-      const implicit = { secret: STRONG, previous: [{ secret: 'b'.repeat(64), version: 1 }] };
-      for (const pepper of [same, twice, implicit]) {
-        expect(levels(await findings('test', values({ pepper }))), JSON.stringify(pepper.previous)).to.deep.eq(['secrets:error']);
-      }
-    });
-
-    it('refuses malformed pepper settings in any env', async () => {
-      for (const pepper of ['raw-pepper', { secret: 42 }, { secret: STRONG, version: 0 }, { secret: STRONG, version: 1, previous: {} }, { secret: STRONG, version: 2, previous: [{ secret: 'x'.repeat(8) }] }, { secret: STRONG, version: 2, previous: ['x'] }]) {
-        const f = await findings('test', values({ pepper }));
-        expect(levels(f), JSON.stringify(pepper)).to.include('secrets:error');
-        for (const x of f) expect(x.message).to.not.contain('raw-pepper');
-      }
+    it('leaves the shape of the pepper and the MFA key to the schema', async () => {
+      expect(await findings('production', values({ mfaKey: 42 }))).to.deep.eq([]);
+      expect(await findings('production', values({ pepper: { secret: STRONG, version: 0, previous: {} } }))).to.deep.eq([]);
     });
   });
 });

@@ -16,8 +16,6 @@ const ROWS = AUTHN_LEGACY_KEYS.filter((r) => r.family === 'authn');
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const kindOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
-
 // The config loader marks each file's root keys with __file__.
 function leaves(v: unknown, path: string, out: string[], seen: Set<object>): void {
   if (isObject(v) && Object.keys(v).length > 0) {
@@ -52,15 +50,9 @@ export function findAuthnLegacyKeys(rbac: unknown): AuthnLegacyKeyFinding[] {
   return found;
 }
 
-/** `authn.config.rejectLegacyKeys`; false when unset. */
+/** `authn.config.rejectLegacyKeys`; false unless it is true (the schema refuses any other value). */
 export function rejectsAuthnLegacyKeys(config: AuthnConfigSource): boolean {
-  const c = config.get<unknown>('authn.config');
-  if (c === undefined) return false;
-  if (!isObject(c)) throw new InvalidOption(`authn.config must be an object, got ${kindOf(c)}`);
-  const reject = c.rejectLegacyKeys;
-  if (reject === undefined) return false;
-  if (typeof reject !== 'boolean') throw new InvalidOption(`authn.config.rejectLegacyKeys must be a boolean, got ${kindOf(reject)}`);
-  return reject;
+  return config.get<boolean | undefined>('authn.config.rejectLegacyKeys') === true;
 }
 
 /** One message naming each key and where it goes; never a value. */

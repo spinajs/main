@@ -3,7 +3,7 @@ import 'mocha';
 import { InvalidOption } from '@spinajs/exceptions';
 
 import { AUTHN_LEGACY_KEYS, checkAuthnLegacyKeys, findAuthnLegacyKeys } from '../../src/index.js';
-import { buildCore } from '../behaviour/harness.js';
+import { buildCore, violationPaths } from '../behaviour/harness.js';
 import { useTestLog } from '../audit/test-log.js';
 
 const expect = chai.expect;
@@ -116,11 +116,10 @@ describe('authn legacy key detector', () => {
       expect(() => checkAuthnLegacyKeys(config({ authn: { config: { rejectLegacyKeys: true } } }), log())).to.not.throw();
     });
 
-    it('refuses a rejectLegacyKeys that is not a boolean', () => {
-      for (const v of ['true', 1, null]) {
-        expect(() => checkAuthnLegacyKeys(config({ authn: { config: { rejectLegacyKeys: v } } }), log()), String(v)).to.throw(InvalidOption, /rejectLegacyKeys/);
+    it('treats only an explicit true as rejecting; the schema refuses other values', () => {
+      for (const v of ['true', 1, null, undefined]) {
+        expect(() => checkAuthnLegacyKeys(config({ rbac: { session: { service: 'MemorySessionStore' } }, authn: { config: { rejectLegacyKeys: v } } }), log()), String(v)).to.not.throw();
       }
-      expect(() => checkAuthnLegacyKeys(config({ authn: { config: 'on' } }), log())).to.throw(InvalidOption, /authn\.config/);
     });
   });
 });
@@ -145,14 +144,8 @@ describe('DefaultAuthnService boot: legacy keys', function () {
     await p.dispose();
   });
 
-  it('fails boot on a malformed authn.config', async () => {
-    let error: unknown;
-    try {
-      const p = await buildCore({}, { raw: { authn: { config: { rejectLegacyKeys: 'yes' } } } });
-      await p.dispose();
-    } catch (e) {
-      error = e;
-    }
-    expect((error as Error | undefined)?.message).to.match(/authn\.config\.rejectLegacyKeys/);
+  it('refuses a malformed authn.config through the schema, naming the path', async () => {
+    const paths = await violationPaths(buildCore({}, { raw: { authn: { config: { rejectLegacyKeys: 'yes' } } } }));
+    expect(paths).to.include('authn.config.rejectLegacyKeys');
   });
 });

@@ -6,7 +6,7 @@ import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import shipped from '../../src/config/authn.js';
 import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_THROTTLE_MAX_ROWS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
-import { configurationOf } from '../behaviour/harness.js';
+import { configuredChild, configurationOf, violationPaths } from '../behaviour/harness.js';
 
 const expect = chai.expect;
 const require = createRequire(import.meta.url);
@@ -16,7 +16,7 @@ type Json = Record<string, any>;
 // The app validator's options (packages/configuration/src/configuration.ts initValidator).
 function appAjv(): any {
   const Ajv = require('ajv');
-  const ajv = new (Ajv.default ?? Ajv)({ logger: false, allErrors: true, removeAdditional: true, useDefaults: true, coerceTypes: true });
+  const ajv = new (Ajv.default ?? Ajv)({ logger: false, allErrors: true, removeAdditional: true, useDefaults: true, coerceTypes: true, $data: true });
   (require('ajv-merge-patch').default ?? require('ajv-merge-patch'))(ajv);
   (require('ajv-formats').default ?? require('ajv-formats'))(ajv);
   (require('ajv-keywords').default ?? require('ajv-keywords'))(ajv);
@@ -84,6 +84,24 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: '', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/secret');
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y' }] } } }).paths).to.include('/local/pepper/previous/0');
     expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 0 }] } } }).paths).to.include('/local/pepper/previous/0/version');
+  });
+
+  it('caps the pepper version and refuses a previous version equal to the current one, implicit 1 included', () => {
+    expect(check({ local: { pepper: { secret: 'x', version: 999999999 } } }).ok).to.eq(true);
+    expect(check({ local: { pepper: { secret: 'x', version: 1000000000 } } }).paths).to.include('/local/pepper/version');
+    expect(check({ local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } } }).paths).to.include('/local/pepper/previous/0/version');
+    expect(check({ local: { pepper: { secret: 'x', previous: [{ secret: 'y', version: 1 }] } } }).paths).to.include('/local/pepper/previous/0/version');
+    expect(check({ local: { pepper: { secret: 'x', version: 3, previous: [{ secret: 'y', version: 2 }, { secret: 'z', version: 1 }] } } }).ok).to.eq(true);
+  });
+
+  it('gives authn.config its default', () => {
+    expect(check({}).config.config).to.deep.eq({ rejectLegacyKeys: false });
+  });
+
+  it('names the pepper and MFA key paths in full on a boot', async () => {
+    const paths = await violationPaths(configuredChild({ authn: { local: { pepper: { secret: 'x', version: 2, previous: [{ secret: 'y', version: 2 }] } }, mfa: { encryptionKey: { secret: {} } } } }));
+    expect(paths).to.include('authn.local.pepper.previous.0.version');
+    expect(paths).to.include('authn.mfa.encryptionKey.secret');
   });
 
   it('takes maxRows per throttle flow, 4 to 16,000,000, 1,000,000 by default', () => {

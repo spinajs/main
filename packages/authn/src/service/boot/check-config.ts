@@ -1,8 +1,9 @@
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import { AuthenticationStrategy } from '../../contracts/strategy.js';
-import { nearestRegistration, q, readNamedEntries } from '../../registry/named.js';
+import { nearestRegistration, q } from '../../registry/named.js';
+import type { NamedEntry } from '../../registry/named.js';
 import { AUTHN_ENV_FALLBACK_WARNING, authnEnvFellBack } from './env.js';
 import type { AuthnConfigSource } from './env.js';
 import { authnLegacyKeysText, findAuthnLegacyKeys, rejectsAuthnLegacyKeys } from './legacy-keys.js';
@@ -12,12 +13,7 @@ import type { AuthnConfigFinding } from './secrets.js';
 const set = (v: unknown): boolean => v !== undefined && v !== null;
 
 function strategyFindings(container: IContainer, config: AuthnConfigSource): AuthnConfigFinding[] {
-  let entries;
-  try {
-    entries = readNamedEntries(config.get<unknown>('authn.strategies'), 'authn.strategies', 'strategy');
-  } catch (e) {
-    return [{ topic: 'strategies', level: 'error', message: safeMessage(e, 'reading authn.strategies') }];
-  }
+  const entries = config.get<NamedEntry[] | undefined | null>('authn.strategies') ?? [];
   if (entries.length === 0) return [{ topic: 'strategies', level: 'warning', message: 'authn.strategies lists no strategy: nothing can authenticate' }];
   const missing = entries.filter((e) => !nearestRegistration(container, AuthenticationStrategy, e.service));
   if (missing.length === 0) return [];
@@ -41,7 +37,14 @@ function legacyFindings(config: AuthnConfigSource): AuthnConfigFinding[] {
  * should fix (no strategy, no proxy setting, an empty CORS list, an env that fell back to development).
  */
 export async function checkAuthnConfig(container: IContainer): Promise<AuthnConfigFinding[]> {
-  const config = (await container.resolve(Configuration)) as Configuration;
+  let config: Configuration;
+  try {
+    config = (await container.resolve(Configuration)) as Configuration;
+  } catch (e) {
+    // A configuration the schema refuses never resolves; report each violation (path and rule, never a value).
+    if (e instanceof InvalidConfiguration) return e.violations.map((v) => ({ topic: 'schema', level: 'error', message: `${v.path} ${v.message}` }));
+    throw e;
+  }
   const out: AuthnConfigFinding[] = [];
 
   if (authnEnvFellBack(config)) out.push({ topic: 'env', level: 'warning', message: AUTHN_ENV_FALLBACK_WARNING });
