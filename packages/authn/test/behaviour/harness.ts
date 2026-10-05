@@ -5,7 +5,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, KIT_ATTRIBUTES, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, RecordingEventSink, RecordingPrincipalFactory, UnsupportedConfig, fakeSeedPort } from '@spinajs/authn-testing';
 import type { BootPort, BootSpec, ConfigOverrides, Harness, HarnessContext, MemorySessionOptions } from '@spinajs/authn-testing';
 
-import { AUTHN_PUBLIC_COOKIE_SECRET, AccountLinkService, AuthenticationStrategy, checkAuthnConfig, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AUTHN_PUBLIC_COOKIE_SECRET, AccountLinkService, AuthenticationStrategy, checkAuthnConfig, AuthnEventSink, AuthnService, AuthnThrottle, IdentityLinkStore, IdentityStore, ImpersonationGuard, AuthnImpersonationService, MemoryAuthnThrottle, MfaStep, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '../../src/index.js';
 import type { Credentials, ExternalSubject, IdentityRef } from '../../src/index.js';
 import { TestLog, useTestLog } from '../audit/test-log.js';
 
@@ -164,6 +164,10 @@ export async function buildCore(config: ConfigOverrides = {}, opts: CoreOptions 
   }
 }
 
+// The part of the authn schema whose defaults the services read. Not the whole schema yet: the other blocks are still
+// checked by hand, and their tests pass values the schema refuses. No $id, so it can sit beside the full schema.
+const AUDIT_SCHEMA = { $configurationModule: 'authn', type: 'object', properties: { audit: AUTHN_CONFIGURATION_SCHEMA.properties.audit } };
+
 /** buildCore up to, but not including, resolving the service. The app env is `config.env`, else `test`. */
 async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<Omit<CoreParts, 'service'>> {
   const jit = config.authn?.linking?.jit ?? false;
@@ -186,6 +190,7 @@ async function prepareCore(config: ConfigOverrides, opts: CoreOptions): Promise<
 
   const child = DI.RootContainer.child();
   try {
+    child.register(AUDIT_SCHEMA).asValue('__configurationSchema__');
     child.register(configurationOf(values, opts.unsetEnv ? undefined : (config.env ?? 'test'))).as(Configuration);
     const configuration = await child.resolve(Configuration);
     const throttle = (opts.throttle ?? ((c) => new MemoryAuthnThrottle(c)))(configuration);

@@ -1,10 +1,10 @@
 import { createHmac, randomBytes } from 'node:crypto';
-import { Inject, Injectable, PerChildInstance } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable, PerChildInstance } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent } from '../contracts/audit.js';
-import { readAuditConfig } from './config.js';
+import type { AuditConfig } from './config.js';
 import { auditLog } from './log.js';
 import type { AuditLog } from './log.js';
 
@@ -37,21 +37,18 @@ const iso = (d: unknown): string => {
  */
 @PerChildInstance()
 @Injectable(AuthnEventSink)
-@Inject(Configuration)
 export class LogAuthnAuditSink extends AuthnEventSink {
-  private readonly hashIdentifiers: boolean;
-  private readonly key: Buffer;
-  /** Test hook: where lines go. */
-  protected out: AuditLog;
+  @Config('authn.audit')
+  protected Config: AuditConfig;
 
-  /** DI injects the Configuration; tests pass the `authn.audit` value and a log. */
-  constructor(source: Configuration | Record<string, unknown>, out?: AuditLog) {
-    super();
-    const raw = typeof (source as Configuration).get === 'function' ? (source as Configuration).get('authn.audit') : source;
-    const config = readAuditConfig(raw);
-    this.hashIdentifiers = config.hashIdentifiers;
-    this.key = config.hashKey !== null ? Buffer.from(config.hashKey, 'utf8') : (processKey ??= randomBytes(32));
-    this.out = out ?? auditLog('authn-audit');
+  /** Test hook: where lines go. */
+  protected out: AuditLog = auditLog('authn-audit');
+
+  private keyBuffer: Buffer | undefined;
+
+  private get key(): Buffer {
+    const secret = this.Config.hashKey?.secret;
+    return (this.keyBuffer ??= secret ? Buffer.from(secret, 'utf8') : (processKey ??= randomBytes(32)));
   }
 
   async publish(e: AuthnEvent): Promise<void> {
@@ -73,7 +70,7 @@ export class LogAuthnAuditSink extends AuthnEventSink {
   }
 
   private id(domain: string, value: string, shown = value): string {
-    if (!this.hashIdentifiers && !value.includes('@')) return enc(shown);
+    if (!this.Config.hashIdentifiers && !value.includes('@')) return enc(shown);
     return createHmac('sha256', this.key).update(`${domain}|${value}`).digest('base64url');
   }
 }

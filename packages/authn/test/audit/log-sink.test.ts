@@ -2,11 +2,12 @@ import * as chai from 'chai';
 import 'mocha';
 import { createHash, createHmac } from 'node:crypto';
 import { DI } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
-import { InvalidOption } from '@spinajs/exceptions';
+import type { IContainer } from '@spinajs/di';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
-import { AuthnAudit, AuthnEventSink, LogAuthnAuditSink, auditLog } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, LogAuthnAuditSink, auditLog } from '../../src/index.js';
 import type { AuditLog, AuthnEvent } from '../../src/index.js';
+import { configurationOf } from '../behaviour/harness.js';
 import { TestLog, useTestLog } from './test-log.js';
 
 const expect = chai.expect;
@@ -47,18 +48,38 @@ const event = (over: Partial<AuthnEvent> = {}): AuthnEvent => ({
   ...over,
 });
 
-function sink(audit: Record<string, unknown> = { hashKey: { secret: KEY } }): { sink: LogAuthnAuditSink; log: CapturingLog } {
-  const log = new CapturingLog();
-  return { sink: new LogAuthnAuditSink(audit, log), log };
+const children: IContainer[] = [];
+
+// Isolated: the shipped authn config lists LogAuthnAuditSink, and config arrays concatenate.
+async function childWith(audit: unknown, parent: IContainer = DI.RootContainer): Promise<IContainer> {
+  const child = parent.child();
+  children.push(child);
+  child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+  child.register(configurationOf({ authn: { audit } }, undefined, true)).as(Configuration);
+  await child.resolve(Configuration);
+  return child;
 }
 
-describe('LogAuthnAuditSink', () => {
-  it('is an AuthnEventSink', () => {
-    expect(sink().sink).to.be.instanceOf(AuthnEventSink);
+async function sink(audit: Record<string, unknown> = { hashKey: { secret: KEY } }): Promise<{ sink: LogAuthnAuditSink; log: CapturingLog }> {
+  const s = await (await childWith(audit)).resolve(LogAuthnAuditSink);
+  const log = new CapturingLog();
+  (s as unknown as { out: AuditLog }).out = log;
+  return { sink: s, log };
+}
+
+describe('LogAuthnAuditSink', function () {
+  this.timeout(15000);
+
+  afterEach(async () => {
+    for (const c of children.splice(0).reverse()) await c.dispose();
+  });
+
+  it('is an AuthnEventSink', async () => {
+    expect((await sink()).sink).to.be.instanceOf(AuthnEventSink);
   });
 
   it('writes one line per event with type, outcome, time, strategy and reason', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish(event());
     await s.publish(event({ type: 'login', outcome: 'failure', reason: 'invalid_credentials', actor: undefined }));
     expect(log.lines).to.have.length(2);
@@ -70,14 +91,14 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('writes failures at warn and successes at info', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish(event());
     await s.publish(event({ outcome: 'failure' }));
     expect(log.levels).to.deep.equal(['info', 'warn']);
   });
 
   it('writes identity, actor, ip and session as keyed hashes', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish(event());
     const line = log.lines[0];
     for (const raw of ['u-42', 'u-7', IP, HANDLE]) expect(line).to.not.contain(raw);
@@ -88,7 +109,7 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('gives an identity and an actor with the same id the same hash', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish(event({ identity: { type: 'user', id: 'u-7' } }));
     const id = /identity=user:(\S+)/.exec(log.lines[0])![1];
     const actor = /actor=user:(\S+)/.exec(log.lines[0])![1];
@@ -96,10 +117,10 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('never writes data, the user agent, a login, an email or a password', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish(event());
     await s.publish(event({ type: 'login', outcome: 'failure', reason: 'unknown_identity' }));
-    const plain = sink({ hashIdentifiers: false });
+    const plain = await sink({ hashIdentifiers: false });
     await plain.sink.publish(event());
     for (const line of [...log.lines, ...plain.log.lines]) {
       for (const secret of [LOGIN, EMAIL, PASSWORD, 'support ticket', 'Mozilla']) expect(line).to.not.contain(secret);
@@ -108,7 +129,7 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('with hashIdentifiers false writes plain ids, but still hashes a value that looks like an email', async () => {
-    const plain = sink({ hashIdentifiers: false, hashKey: { secret: KEY } });
+    const plain = await sink({ hashIdentifiers: false, hashKey: { secret: KEY } });
     await plain.sink.publish(event());
     await plain.sink.publish(event({ identity: { type: 'user', id: EMAIL } }));
     const [first, second] = plain.log.lines;
@@ -118,8 +139,8 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('without a configured key hashes under one random per-process key', async () => {
-    const a = sink({});
-    const b = sink({});
+    const a = await sink({});
+    const b = await sink({});
     await a.sink.publish(event());
     await b.sink.publish(event());
     expect(a.log.lines[0]).to.equal(b.log.lines[0]);
@@ -130,15 +151,15 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('two keys give different hashes', async () => {
-    const a = sink({ hashKey: { secret: KEY } });
-    const b = sink({ hashKey: { secret: `${KEY}-other` } });
+    const a = await sink({ hashKey: { secret: KEY } });
+    const b = await sink({ hashKey: { secret: `${KEY}-other` } });
     await a.sink.publish(event());
     await b.sink.publish(event());
     expect(/ip=(\S+)/.exec(a.log.lines[0])![1]).to.not.equal(/ip=(\S+)/.exec(b.log.lines[0])![1]);
   });
 
   it('quotes values that are not plain tokens, so they cannot forge a field or a line', async () => {
-    const { sink: s, log } = sink({ hashIdentifiers: false });
+    const { sink: s, log } = await sink({ hashIdentifiers: false });
     await s.publish(event({ strategy: 'evil\nauthn audit login success identity=user:admin', reason: 'a b', identity: { type: 'us er', id: 'x=y z' } }));
     expect(log.lines).to.have.length(1);
     const line = log.lines[0];
@@ -149,7 +170,7 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('escapes Unicode line breaks, C1 controls and direction marks', async () => {
-    const { sink: s, log } = sink({ hashIdentifiers: false });
+    const { sink: s, log } = await sink({ hashIdentifiers: false });
     const marks = [0x2028, 0x2029, 0x85, 0x7f, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069, 0x61c, 0xfeff].map((c) => String.fromCharCode(c));
     await s.publish(event({ reason: `a${marks.join('')}b`, strategy: `x${marks[0]}authn audit login success` }));
     const line = log.lines[0];
@@ -159,107 +180,64 @@ describe('LogAuthnAuditSink', () => {
   });
 
   it('leaves out absent fields and survives malformed events', async () => {
-    const { sink: s, log } = sink();
+    const { sink: s, log } = await sink();
     await s.publish({ type: 'logout', outcome: 'success', at: new Date('2026-10-03T10:00:00.000Z') });
     expect(log.lines[0]).to.equal('authn audit logout success at=2026-10-03T10:00:00.000Z');
     await s.publish({ type: 'logout', outcome: 'success', at: new Date(Number.NaN), identity: null } as never);
     expect(log.lines[1]).to.equal('authn audit logout success at=?');
   });
 
-  it('fails on malformed configuration without echoing it', () => {
+  it('fails on malformed configuration without echoing it', async () => {
     let error: unknown;
     try {
-      new LogAuthnAuditSink({ hashKey: { secret: 'hunter2' } }, new CapturingLog());
+      await sink({ hashKey: { secret: 'hunter2' } });
     } catch (e) {
       error = e;
     }
-    expect(error).to.be.instanceOf(InvalidOption);
+    expect(error).to.be.instanceOf(InvalidConfiguration);
+    expect((error as InvalidConfiguration).violations.map((v) => v.path)).to.include('authn.audit.hashKey.secret');
     expect((error as Error).message).to.not.contain('hunter2');
   });
 
-  describe('through DI', function () {
-    this.timeout(15000);
-
-    let childAudit: unknown = {};
-
-    class SinkTestConfiguration extends FrameworkConfiguration {
-      protected onLoad(): unknown {
-        return { authn: { audit: { sinks: ['LogAuthnAuditSink'], hashKey: { secret: KEY } } } };
-      }
-    }
-
-    class ChildAuditConfiguration extends FrameworkConfiguration {
-      protected onLoad(): unknown {
-        return { authn: { audit: childAudit } };
-      }
-    }
-
-    let cfg: Configuration;
-
+  describe('through DI', () => {
     useTestLog();
-
-    before(async () => {
-      DI.register(SinkTestConfiguration).as(Configuration);
-      cfg = await DI.resolve(Configuration);
-      expect(cfg).to.be.instanceOf(SinkTestConfiguration);
-    });
-
-    beforeEach(() => {
-      DI.uncache(AuthnAudit);
-      DI.uncache(LogAuthnAuditSink);
-    });
-
-    after(() => {
-      DI.uncache(AuthnAudit);
-      DI.uncache(LogAuthnAuditSink);
-      DI.uncache(SinkTestConfiguration);
-      DI.unregister(SinkTestConfiguration);
-    });
 
     const auditLines = (): string[] => TestLog.lines.filter((l) => l.includes('authn audit '));
 
-    async function publishInChild(audit: unknown): Promise<void> {
-      childAudit = audit;
-      const child = DI.RootContainer.child();
-      child.register(ChildAuditConfiguration).as(Configuration);
-      try {
-        expect(await child.resolve(Configuration)).to.be.instanceOf(ChildAuditConfiguration);
-        await (await child.resolve(AuthnAudit)).publish(event());
-      } finally {
-        await child.dispose();
-      }
-    }
-
-    async function publishInRoot(audit: unknown): Promise<void> {
-      cfg.set('authn.audit', audit);
-      await (await DI.resolve(AuthnAudit)).publish(event());
+    async function publishIn(container: IContainer): Promise<void> {
+      await (await container.resolve(AuthnAudit)).publish(event());
     }
 
     it('is selected by name, resolved as a singleton and writes to the DI Log', async () => {
-      const audit = await DI.resolve(AuthnAudit);
+      const child = await childWith({ sinks: ['LogAuthnAuditSink'], hashKey: { secret: KEY } });
+      const audit = await child.resolve(AuthnAudit);
       const s = audit.sinks().find((x) => x instanceof LogAuthnAuditSink);
-      expect(s).to.equal(await DI.resolve(LogAuthnAuditSink));
+      expect(s).to.equal(await child.resolve(LogAuthnAuditSink));
       await audit.publish(event());
       expect(auditLines()).to.have.length(1);
       expect(auditLines()[0]).to.match(/^info authn-audit authn audit /);
       expect(auditLines()[0]).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
     });
 
-    it('reads the config of the container that resolves it: hashing on in the root, off in a child', async () => {
-      await publishInRoot({ hashKey: { secret: KEY } });
-      await publishInChild({ hashIdentifiers: false });
-      const [root, child] = auditLines();
-      expect(root).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
-      expect(child).to.contain(`ip=${IP}`).and.contain('identity=user:u-42');
+    it('reads the config of the container that resolves it: hashing on in the parent, off in a child', async () => {
+      const parent = await childWith({ hashKey: { secret: KEY } });
+      const nested = await childWith({ hashIdentifiers: false }, parent);
+      await publishIn(parent);
+      await publishIn(nested);
+      const [outer, inner] = auditLines();
+      expect(outer).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+      expect(inner).to.contain(`ip=${IP}`).and.contain('identity=user:u-42');
     });
 
-    it('reads the config of the container that resolves it: hashing off in the root, on in a child', async () => {
-      await publishInRoot({ hashIdentifiers: false });
-      await publishInChild({ hashKey: { secret: KEY } });
-      const [root, child] = auditLines();
-      expect(root).to.contain(`ip=${IP}`);
-      expect(child).to.not.contain(IP);
-      expect(child).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
+    it('reads the config of the container that resolves it: hashing off in the parent, on in a child', async () => {
+      const parent = await childWith({ hashIdentifiers: false });
+      const nested = await childWith({ hashKey: { secret: KEY } }, parent);
+      await publishIn(parent);
+      await publishIn(nested);
+      const [outer, inner] = auditLines();
+      expect(outer).to.contain(`ip=${IP}`);
+      expect(inner).to.not.contain(IP);
+      expect(inner).to.contain(`ip=${hmac(KEY, `ip|${IP}`)}`);
     });
   });
 });

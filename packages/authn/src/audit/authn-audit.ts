@@ -1,11 +1,12 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
 import { AuthnEventSink } from '../contracts/audit.js';
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
-import { DEFAULT_AUDIT_SINK_TIMEOUT_MS, readAuditConfig } from './config.js';
+import { DEFAULT_AUDIT_SINK_TIMEOUT_MS } from './config.js';
+import type { AuditConfig } from './config.js';
 import { auditLog } from './log.js';
 import type { AuditLog } from './log.js';
 
@@ -50,6 +51,9 @@ function frozenCopy(v: unknown, depth = 0): unknown {
 @PerChildInstance()
 @Inject(Container)
 export class AuthnAudit extends AsyncService {
+  @Config('authn.audit')
+  protected Config: AuditConfig;
+
   private active: readonly Active[] | undefined;
   private all: readonly AuthnEventSink[] | undefined;
   private sampleUse = 0;
@@ -65,11 +69,7 @@ export class AuthnAudit extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('AuthnAudit: the resolved Configuration has no get()');
-    }
-    const config = readAuditConfig(configuration.get('authn.audit'));
+    const config = this.Config;
     // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. Array.chainOf builds each sink
     // where it was registered (a root singleton stays the root's), per-child sinks here; both lists share one order.
     const types = this.container.getRegisteredTypes(Array.chainOf(AuthnEventSink)) ?? [];

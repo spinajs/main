@@ -197,7 +197,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq(example());
+      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -261,8 +261,8 @@ describe('authn.* configuration schema', () => {
   });
 
   describe('defaults', () => {
-    it('fills the throttle with the design §22.5 backoff when it is missing', () => {
-      expect(check({}).config).to.deep.eq({ throttle: THROTTLE_DEFAULTS });
+    it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
+      expect(check({}).config).to.deep.eq({ throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -278,7 +278,7 @@ describe('authn.* configuration schema', () => {
         session: { cookie: { sameSite: 'strict' }, hashIds: true },
         token: { maxTtlDays: 90, agentMaxTtlMinutes: 1440 },
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
-        audit: { hashIdentifiers: true },
+        audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
         throttle: THROTTLE_DEFAULTS,
       });

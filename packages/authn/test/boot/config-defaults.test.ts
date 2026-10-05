@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import shipped from '../../src/config/authn.js';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_AUDIT_SAMPLE_USE, DEFAULT_AUDIT_SINK_TIMEOUT_MS, DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 
 const expect = chai.expect;
@@ -59,7 +59,7 @@ describe('authn shipped config', () => {
 
   it('keeps the other values equal to the code defaults', () => {
     expect(authn.freshAuth).to.deep.eq({ maxAgeSeconds: DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS });
-    expect(authn.audit).to.deep.eq({ sinks: ['LogAuthnAuditSink'], sampleUse: DEFAULT_AUDIT_SAMPLE_USE, hashIdentifiers: true, sinkTimeoutMs: DEFAULT_AUDIT_SINK_TIMEOUT_MS });
+    expect(authn.audit).to.deep.eq({ sinks: ['LogAuthnAuditSink'], ...check({}).config.audit });
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });
     expect(authn.mfa.policy).to.deep.eq({ service: 'DefaultMfaPolicy', force: false, forceForRoles: [] });
@@ -99,7 +99,8 @@ describe('authn schema (task 8 edits)', () => {
     expect(check({ audit: { hashKey: { secret: 'h'.repeat(31) } } }).paths).to.include('/audit/hashKey/secret');
     for (const bad of [0, 60001, 1.5]) expect(check({ audit: { sinkTimeoutMs: bad } }).paths, String(bad)).to.include('/audit/sinkTimeoutMs');
     expect(check({ audit: { disabled: ['LogAuthnAuditSink'] } }).paths).to.include('/audit');
-    expect(check({ audit: {} }).config.audit).to.deep.eq({ hashIdentifiers: true });
+    expect(check({ audit: {} }).config.audit).to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
+    expect(check({}).config.audit, 'an unset authn.audit').to.deep.eq({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
   });
 
   it('refuses a backoff key missing a field, as the throttle reader does', () => {

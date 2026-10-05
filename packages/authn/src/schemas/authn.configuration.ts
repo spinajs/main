@@ -293,17 +293,18 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     audit: {
       type: 'object',
+      default: {},
       propertyNames: { enum: ['sinks', 'sampleUse', 'hashIdentifiers', 'hashKey', 'sinkTimeoutMs'] },
       properties: {
         sinks: stringList,
-        sampleUse: { type: 'number', minimum: 0, maximum: 1 },
+        sampleUse: { type: 'number', minimum: 0, maximum: 1, default: 0.01 },
         hashIdentifiers: { type: 'boolean', default: true },
         hashKey: {
           ...secretRef('HMAC key of LogAuthnAuditSink for hashed identifiers; null: a random key per process.'),
           propertyNames: { enum: ['secret'] },
           properties: { secret: { type: ['string', 'null'], minLength: 32 } },
         },
-        sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, description: 'How long one sink may take; 2000 when unset.' },
+        sinkTimeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 2000, description: 'How long one sink may take.' },
       },
     },
     http: {

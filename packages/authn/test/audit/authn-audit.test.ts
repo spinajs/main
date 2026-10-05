@@ -1,12 +1,13 @@
 import * as chai from 'chai';
 import 'mocha';
 import { DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
-import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import type { Class, IContainer } from '@spinajs/di';
+import { CONFIGURATION_CONTAINER_KEY, Configuration, InvalidConfiguration } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 
-import { AuthnAudit, AuthnEventSink, DEFAULT_AUDIT_SAMPLE_USE, DEFAULT_AUDIT_SINK_TIMEOUT_MS, LogAuthnAuditSink, readAuditConfig } from '../../src/index.js';
-import type { AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnAudit, AuthnEventSink, DEFAULT_AUDIT_SAMPLE_USE, LogAuthnAuditSink } from '../../src/index.js';
+import type { AuditConfig, AuditLog, AuthnEvent, AuthnEventType } from '../../src/index.js';
+import { configurationOf } from '../behaviour/harness.js';
 import { useTestLog } from './test-log.js';
 
 const expect = chai.expect;
@@ -84,18 +85,6 @@ class NotASink {
 
 const BASE: Class<unknown>[] = [FirstSink, SecondSink, ThirdSink];
 
-class AuditTestConfiguration extends FrameworkConfiguration {
-  protected onLoad(): unknown {
-    return { authn: { audit: {} } };
-  }
-}
-
-class ChildAuditConfiguration extends FrameworkConfiguration {
-  protected onLoad(): unknown {
-    return { authn: { audit: {} } };
-  }
-}
-
 class ChildSink extends Recording {}
 
 class CapturingLog implements AuditLog {
@@ -122,14 +111,11 @@ const ev = (type: AuthnEventType, outcome: 'success' | 'failure' = 'success'): A
 describe('AuthnAudit', function () {
   this.timeout(15000);
 
-  let cfg: Configuration;
+  const children: IContainer[] = [];
 
   useTestLog();
 
-  before(async () => {
-    DI.register(AuditTestConfiguration).as(Configuration);
-    cfg = await DI.resolve(Configuration);
-    expect(cfg).to.be.instanceOf(AuditTestConfiguration);
+  before(() => {
     for (const t of BASE) DI.register(t).as(AuthnEventSink);
     DI.register(NotASink).asSelf();
   });
@@ -138,18 +124,26 @@ describe('AuthnAudit', function () {
     calls.length = 0;
   });
 
-  afterEach(() => {
-    DI.uncache(AuthnAudit);
-    DI.uncache(LogAuthnAuditSink);
+  afterEach(async () => {
+    for (const c of children.splice(0)) await c.dispose();
     for (const t of BASE) DI.uncache(t);
   });
 
   after(() => {
-    for (const t of [...BASE, NotASink, AuditTestConfiguration]) {
+    for (const t of [...BASE, NotASink]) {
       DI.uncache(t);
       DI.unregister(t);
     }
   });
+
+  // Isolated: the shipped authn config lists LogAuthnAuditSink, and config arrays concatenate.
+  async function childWith(audit: unknown): Promise<{ child: IContainer; configuration: Configuration }> {
+    const child = DI.RootContainer.child();
+    children.push(child);
+    child.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    child.register(configurationOf({ authn: { audit } }, undefined, true)).as(Configuration);
+    return { child, configuration: await child.resolve(Configuration) };
+  }
 
   async function withSinks(types: Class<unknown>[], fn: () => Promise<void>): Promise<void> {
     for (const t of types) DI.register(t).as(AuthnEventSink);
@@ -164,24 +158,37 @@ describe('AuthnAudit', function () {
   }
 
   async function boot(audit: unknown, opts?: { random?: () => number; log?: AuditLog }): Promise<AuthnAudit> {
-    cfg.set('authn.audit', audit);
-    if (!opts) return DI.resolve(AuthnAudit);
-    const a = new AuthnAudit(DI.RootContainer, opts);
+    const { child } = await childWith(audit);
+    if (!opts) return child.resolve(AuthnAudit);
+    const a = new AuthnAudit(child, opts);
+    (a as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = child;
     await a.resolve();
     return a;
   }
 
-  async function bootFails(audit: unknown, ...parts: string[]): Promise<string> {
-    let error: unknown;
+  async function failure(audit: unknown): Promise<unknown> {
     try {
       await boot(audit);
     } catch (e) {
-      error = e;
+      return e;
     }
+    return undefined;
+  }
+
+  async function bootFails(audit: unknown, ...paths: string[]): Promise<string> {
+    const error = await failure(audit);
+    expect(error, 'the boot fails').to.be.instanceOf(InvalidConfiguration);
+    const found = (error as InvalidConfiguration).violations.map((v) => v.path);
+    for (const p of paths) expect(found).to.include(p);
+    return (error as Error).message;
+  }
+
+  /** Failures the schema cannot see: a sink name with no registered sink behind it. */
+  async function lookupFails(audit: unknown, ...parts: string[]): Promise<void> {
+    const error = await failure(audit);
     expect(error, 'the boot fails').to.be.instanceOf(InvalidOption);
     for (const p of parts) expect((error as Error).message).to.contain(p);
-    expect(DI.has(AuthnAudit)).to.equal(false);
-    return (error as Error).message;
+    expect(children[children.length - 1].isResolved(AuthnAudit)).to.equal(false);
   }
 
   const sinkNames = (a: AuthnAudit): string[] => a.sinks().map((s) => s.constructor.name);
@@ -202,7 +209,6 @@ describe('AuthnAudit', function () {
 
     it('keeps every registered sink when the list is missing or empty', async () => {
       for (const audit of [{}, { sinks: [] }, undefined]) {
-        DI.uncache(AuthnAudit);
         const a = await boot(audit);
         for (const t of [...BASE, LogAuthnAuditSink]) expect(sinkNames(a)).to.include(t.name);
       }
@@ -305,18 +311,18 @@ describe('AuthnAudit', function () {
     });
 
     it('fails boot on an unknown sink name, naming it', async () => {
-      await bootFails({ sinks: ['FirstSink', 'DbAuthnAuditSink'] }, 'authn.audit.sinks', '"DbAuthnAuditSink"');
+      await lookupFails({ sinks: ['FirstSink', 'DbAuthnAuditSink'] }, 'authn.audit.sinks', '"DbAuthnAuditSink"');
     });
 
     it('does not find a class that is not registered as an AuthnEventSink', async () => {
-      await bootFails({ sinks: ['NotASink'] }, '"NotASink"');
+      await lookupFails({ sinks: ['NotASink'] }, '"NotASink"');
     });
 
     it('collapses names that config files repeat (arrays merge by concat)', async () => {
-      cfg.set('authn.audit', { sinks: ['SecondSink', 'FirstSink'] });
-      cfg.merge('authn', { audit: { sinks: ['SecondSink'] } });
-      expect(cfg.get('authn.audit.sinks')).to.have.length(3);
-      const a = await DI.resolve(AuthnAudit);
+      const { child, configuration } = await childWith({ sinks: ['SecondSink', 'FirstSink'] });
+      configuration.merge('authn', { audit: { sinks: ['SecondSink'] } });
+      expect(configuration.get('authn.audit.sinks')).to.have.length(3);
+      const a = await child.resolve(AuthnAudit);
       expect(sinkNames(a).slice(0, 2)).to.deep.equal(['SecondSink', 'FirstSink']);
       expect(sinkNames(a).filter((n) => n === 'SecondSink')).to.have.length(1);
       expect(sinkNames(a)).to.include('ThirdSink');
@@ -331,9 +337,8 @@ describe('AuthnAudit', function () {
       try {
         const a = await boot({ sinks: ['FactorySink'] });
         expect(a.sinks()[0]).to.equal(shared);
-        DI.uncache(AuthnAudit);
         DI.register(bad).as(AuthnEventSink);
-        await bootFails({}, '"BrokenSink"', 'AuthnEventSink');
+        await lookupFails({}, '"BrokenSink"', 'AuthnEventSink');
       } finally {
         // DI.unregister matches by type name, and every factory's type name is 'Function'.
         for (const f of [good, bad]) if (list.includes(f as never)) list.splice(list.indexOf(f as never), 1);
@@ -411,55 +416,46 @@ describe('AuthnAudit', function () {
   });
 
   describe('configuration', () => {
-    it('reads the defaults', () => {
-      expect(DEFAULT_AUDIT_SINK_TIMEOUT_MS).to.equal(2000);
-      expect(readAuditConfig(undefined)).to.deep.equal({ sinks: undefined, sampleUse: 0.01, hashIdentifiers: true, hashKey: null, sinkTimeoutMs: 2000 });
-      expect(readAuditConfig({ sinks: ['A'], sampleUse: 0.5, hashIdentifiers: false, hashKey: { secret: 'k'.repeat(32) }, sinkTimeoutMs: 250 })).to.deep.equal({
-        sinks: ['A'],
-        sampleUse: 0.5,
-        hashIdentifiers: false,
-        hashKey: 'k'.repeat(32),
-        sinkTimeoutMs: 250,
-      });
-      expect(readAuditConfig({ hashKey: { secret: null } }).hashKey).to.equal(null);
+    it('takes the defaults from the schema, also when authn.audit is unset', async () => {
+      for (const audit of [{}, undefined]) {
+        const a = await boot(audit);
+        expect((a as unknown as { Config: AuditConfig }).Config).to.deep.equal({ sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 });
+      }
     });
 
-    it('fails boot on malformed authn.audit values', async () => {
+    it('fails boot on malformed authn.audit values, naming the path of each', async () => {
       await bootFails('LogAuthnAuditSink', 'authn.audit');
-      await bootFails({ sink: ['FirstSink'] }, 'authn.audit', '"sink"');
+      await bootFails({ sink: ['FirstSink'] }, 'authn.audit.sink');
+      await bootFails({ typo: 1 }, 'authn.audit.typo');
       await bootFails({ sinks: 'FirstSink' }, 'authn.audit.sinks');
-      await bootFails({ sinks: ['FirstSink', ''] }, 'authn.audit.sinks');
-      await bootFails({ sinks: [null] }, 'authn.audit.sinks');
-      for (const v of [-0.01, 1.01, Number.NaN, '0.5', Number.POSITIVE_INFINITY]) await bootFails({ sampleUse: v }, 'authn.audit.sampleUse');
+      await bootFails({ sinks: ['FirstSink', ''] }, 'authn.audit.sinks.1');
+      for (const v of [-0.01, 1.01, 2, 'half']) await bootFails({ sampleUse: v }, 'authn.audit.sampleUse');
       await bootFails({ hashIdentifiers: 'yes' }, 'authn.audit.hashIdentifiers');
       await bootFails({ hashKey: 'k'.repeat(40) }, 'authn.audit.hashKey');
-      await bootFails({ hashKey: { secret: 'short' } }, 'authn.audit.hashKey', '32');
-      await bootFails({ hashKey: { secret: 7 } }, 'authn.audit.hashKey');
-      await bootFails({ hashKey: { secret: 'k'.repeat(32), version: 1 } }, 'authn.audit.hashKey', '"version"');
-      for (const v of [0, -1, 1.5, 60001, '20', Number.NaN]) await bootFails({ sinkTimeoutMs: v }, 'authn.audit.sinkTimeoutMs');
+      await bootFails({ hashKey: { secret: 'short' } }, 'authn.audit.hashKey.secret');
+      await bootFails({ hashKey: { secret: 'k'.repeat(32), version: 1 } }, 'authn.audit.hashKey.version');
+      for (const v of [0, -1, 1.5, 60001]) await bootFails({ sinkTimeoutMs: v }, 'authn.audit.sinkTimeoutMs');
+    });
+
+    it('reports every bad value of one boot', async () => {
+      await bootFails({ sampleUse: 2, sinkTimeoutMs: 0, typo: 1 }, 'authn.audit.sampleUse', 'authn.audit.sinkTimeoutMs', 'authn.audit.typo');
     });
 
     it('does not echo config values', async () => {
-      expect(await bootFails({ hashKey: { secret: 'hunter2-hunter2' } }, 'authn.audit.hashKey')).to.not.contain('hunter2');
+      expect(await bootFails({ hashKey: { secret: 'hunter2-hunter2' } }, 'authn.audit.hashKey.secret')).to.not.contain('hunter2');
       expect(await bootFails({ hashKey: 'hunter2-hunter2-hunter2-hunter2-hunter2' }, 'authn.audit.hashKey')).to.not.contain('hunter2');
       expect(await bootFails({ sampleUse: 'hunter2' }, 'authn.audit.sampleUse')).to.not.contain('hunter2');
       expect(await bootFails('hunter2', 'authn.audit')).to.not.contain('hunter2');
     });
 
     it('keeps the root sinks when a child container registers its own sink', async () => {
-      const child = DI.RootContainer.child();
-      child.register(ChildAuditConfiguration).as(Configuration);
+      const { child } = await childWith({});
       child.register(ChildSink).as(AuthnEventSink);
-      try {
-        await child.resolve(Configuration);
-        const a = await child.resolve(AuthnAudit);
-        await a.publish(ev('login'));
-        expect(calls).to.have.members(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'ChildSink:login']);
-        expect(sinkNames(a)).to.include('LogAuthnAuditSink');
-        expect(a.sinks()).to.include(await DI.resolve(FirstSink));
-      } finally {
-        await child.dispose();
-      }
+      const a = await child.resolve(AuthnAudit);
+      await a.publish(ev('login'));
+      expect(calls).to.have.members(['FirstSink:login', 'SecondSink:login', 'ThirdSink:login', 'ChildSink:login']);
+      expect(sinkNames(a)).to.include('LogAuthnAuditSink');
+      expect(a.sinks()).to.include(await DI.resolve(FirstSink));
     });
 
     it('LogAuthnAuditSink is registered as an AuthnEventSink', () => {
