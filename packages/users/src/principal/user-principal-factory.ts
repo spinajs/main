@@ -15,6 +15,8 @@ type Extra = Parameters<PrincipalFactory['principalOf']>[2];
 /** What the record path takes: the principal of a user record the caller already holds. */
 export interface UserPrincipalOptions {
   readonly ceiling?: Ceiling;
+  /** Default {@link IDENTITY_PRINCIPAL_SOURCE}. */
+  readonly source?: string;
 }
 
 /** The `source` of a principal built from a user record rather than from an authentication. */
@@ -25,15 +27,21 @@ export const IDENTITY_PRINCIPAL_SOURCE = 'identity';
  * holds a user record: apps, CLI commands, jobs (`principalOf(user, opts)`). The principal carries the record
  * as `identity` and the attributes of every {@link PrincipalAttributeProvider} over the strategy's.
  *
+ * Also `agent:<id>` for authn (A15: an agent token): the agent acts for the user in `extra.onBehalfOf`, with the
+ * `delegation`, `ceiling` and `attributes` of `extra` and no record or provider attributes of its own, so authz never
+ * gives it more than that user. The owner is read again and refused as a user would be.
+ *
  * A user that is unknown, soft deleted, inactive or banned is refused: authn checks the account's status
- * before it asks for a principal, so getting here with such a user is an error, not a failed login.
+ * before it asks for a principal, so getting here with such a user is an error, not a failed login. Except
+ * {@link rightsPrincipalOf}, which accepts an inactive or banned account: it judges an account's rights and must
+ * never start a session.
  */
 @Injectable(PrincipalFactory)
 export class UserPrincipalFactory extends PrincipalFactory {
   /** authn's side: loads the user by Uuid through the application's user model. `source` is 'session' with a session handle, else 'token'. */
   public principalOf(id: IdentityRef, facts: AuthnFacts, extra: Extra): Promise<Principal>;
   /**
-   * For a user record in hand; `source` is {@link IDENTITY_PRINCIPAL_SOURCE} and there are no authn facts.
+   * For a user record in hand; `source` is `opts.source`, default {@link IDENTITY_PRINCIPAL_SOURCE}, and there are no authn facts.
    * A record without populated `Metadata` is read again (by Uuid, as SYSTEM), so its ban is never missed;
    * the principal's `identity` is then the record read, not the one passed.
    */
@@ -43,11 +51,14 @@ export class UserPrincipalFactory extends PrincipalFactory {
       const opts = (factsOrOpts ?? {}) as UserPrincipalOptions;
       // A ban lives in the metadata; a record read without it would pass as not banned.
       const user = subject.Metadata?.Populated === true || subject.DeletedAt ? subject : await this.load({ type: 'user', id: subject.Uuid });
-      return this.build(user, { source: IDENTITY_PRINCIPAL_SOURCE, ...(opts.ceiling ? { ceiling: opts.ceiling } : {}) }, undefined);
+      return this.build(user, { source: opts.source ?? IDENTITY_PRINCIPAL_SOURCE, ...(opts.ceiling ? { ceiling: opts.ceiling } : {}) }, undefined);
     }
 
     const facts = factsOrOpts as AuthnFacts;
     const e: Extra = extra ?? {};
+    if (subject?.type === 'agent') {
+      return this.agentPrincipal(subject, facts, e);
+    }
     const user = await this.load(subject);
 
     return this.build(
@@ -61,6 +72,54 @@ export class UserPrincipalFactory extends PrincipalFactory {
       },
       e.attributes,
     );
+  }
+
+  /**
+   * The principal user `id` would carry signed in with `facts` (none: as for a record in hand), whatever the state of
+   * its account: for judging the rights of an account another user acts on (A25), where an inactive or banned account
+   * still holds its roles.
+   * @throws ResourceNotFound for an unknown or soft-deleted user
+   */
+  public async rightsPrincipalOf(id: IdentityRef, facts?: AuthnFacts): Promise<Principal> {
+    const user = await this.load(id);
+    if (user.DeletedAt) {
+      throw new ResourceNotFound(`No user ${user.Uuid}`);
+    }
+
+    const base = facts ? { source: facts.sessionHandle ? 'session' : 'token', authn: facts } : { source: IDENTITY_PRINCIPAL_SOURCE };
+    return this.build(user, base, undefined, false);
+  }
+
+  /**
+   * @throws InvalidArgument for an empty id, an owner that is not a user principal or an unknown delegation mode
+   * @throws ResourceNotFound, UserNotActive or UserIsBanned for an owner that cannot act
+   */
+  protected async agentPrincipal(id: IdentityRef, facts: AuthnFacts, e: Extra): Promise<Principal> {
+    if (typeof id.id !== 'string' || id.id === '') {
+      throw new InvalidArgument('An agent identity needs an id', 'id');
+    }
+    const owner = e.onBehalfOf;
+    if (owner?.type !== 'user' || typeof owner.id !== 'string') {
+      throw new InvalidArgument(`Agent ${id.id} must act on behalf of a user principal`, 'extra.onBehalfOf');
+    }
+    if (e.delegation !== undefined && e.delegation !== 'inherit' && e.delegation !== 'intersect') {
+      throw new InvalidArgument(`Agent ${id.id}: unknown delegation ${JSON.stringify(e.delegation)}`, 'extra.delegation');
+    }
+
+    // The owner principal may predate a ban or a deactivation.
+    assertUsable(await this.load({ type: 'user', id: owner.id }));
+
+    return {
+      type: 'agent',
+      id: id.id,
+      authenticated: true,
+      source: facts.sessionHandle ? 'session' : 'token',
+      authn: facts,
+      onBehalfOf: owner,
+      ...(e.delegation ? { delegation: e.delegation } : {}),
+      ...(e.ceiling ? { ceiling: e.ceiling } : {}),
+      attributes: Object.freeze({ ...(e.attributes ?? {}) }),
+    };
   }
 
   protected async load(id: IdentityRef): Promise<User> {
@@ -79,8 +138,10 @@ export class UserPrincipalFactory extends PrincipalFactory {
     return user as User;
   }
 
-  protected async build(user: User, base: Omit<Principal, 'type' | 'id' | 'authenticated' | 'attributes' | 'identity'>, asserted: Readonly<Record<string, unknown>> | undefined): Promise<Principal> {
-    assertUsable(user);
+  protected async build(user: User, base: Omit<Principal, 'type' | 'id' | 'authenticated' | 'attributes' | 'identity'>, asserted: Readonly<Record<string, unknown>> | undefined, refuseUnusable = true): Promise<Principal> {
+    if (refuseUnusable) {
+      assertUsable(user);
+    }
 
     const attributes: Record<string, unknown> = { ...(asserted ?? {}) };
     const principal = (): Principal => ({ type: 'user', id: user.Uuid, authenticated: true, ...base, attributes: Object.freeze({ ...attributes }), identity: user });

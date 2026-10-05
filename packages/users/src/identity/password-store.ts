@@ -4,13 +4,15 @@ import { OrmDriver } from '@spinajs/orm';
 import { PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 
+import { runAsSystem } from '../system.js';
 import { USERS_TABLE, exactlyEquals, holdsNoPassword, isNoPassword, raw, rowsAffected, usersDriver } from './sql.js';
 
 const isUser = (id: IdentityRef | undefined): id is IdentityRef => id?.type === 'user' && typeof id.id === 'string';
 
 /**
  * Passwords in `users.Password`, keyed by `user:<Uuid>` (RFC N3-1). `null`, `''` and `NO_PASSWORD` read as no
- * password; any other value, authn-local's `'!expired'` included, reads back verbatim.
+ * password; any other value, authn-local's `'!expired'` included, reads back verbatim. Statements run as SYSTEM: the
+ * caller at login and reset is anonymous or UNATTENDED, and an application's user model may be an `@AccessResource`.
  */
 @Injectable(PasswordCredentialStore)
 export class UserPasswordStore extends PasswordCredentialStore {
@@ -24,7 +26,7 @@ export class UserPasswordStore extends PasswordCredentialStore {
       return null;
     }
 
-    const rows = (await this.driver().select().from(USERS_TABLE).columns(['Password']).where('Uuid', id.id)) as { Password?: unknown }[];
+    const rows = (await runAsSystem('password-store', async () => this.driver().select().from(USERS_TABLE).columns(['Password']).where('Uuid', id.id))) as { Password?: unknown }[];
     const stored = rows[0]?.Password;
     return isNoPassword(stored) ? null : String(stored);
   }
@@ -43,30 +45,40 @@ export class UserPasswordStore extends PasswordCredentialStore {
       return false;
     }
 
-    const driver = this.driver();
-    try {
-      if (expected === undefined) {
-        await this.update(driver, id, hash);
-        return true;
+    return runAsSystem('password-store', async () => {
+      try {
+        return await this.write(this.driver(), id, hash, expected);
+      } catch (err) {
+        // Driver errors carry the statement and its bindings, the hash among them.
+        throw new UnexpectedServerError(`users: could not store the password of user ${id.id} (${(err as Error)?.name ?? typeof err})`);
       }
+    });
+  }
 
-      if (expected === null) {
-        return rowsAffected(await this.update(driver, id, hash).where(raw(holdsNoPassword(driver, 'Password')))) === 1;
-      }
-
-      // Writing the stored value again changes nothing, and MySQL without CLIENT_FOUND_ROWS would report 0 rows for
-      // it: the answer is whether the stored value is `expected` now.
-      if (hash === expected) {
-        // Rows, not selectCount(): orm-mssql compiles a count into an invalid OFFSET/FETCH.
-        const matched = (await driver.select().from(USERS_TABLE).columns(['Uuid']).where('Uuid', id.id).where(raw(exactlyEquals(driver, 'Password', expected)))) as unknown[];
-        return matched.length === 1;
-      }
-
-      return rowsAffected(await this.update(driver, id, hash).where(raw(exactlyEquals(driver, 'Password', expected)))) === 1;
-    } catch (err) {
-      // Driver errors carry the statement and its bindings, the hash among them.
-      throw new UnexpectedServerError(`users: could not store the password of user ${id.id} (${(err as Error)?.name ?? typeof err})`);
+  protected async write(driver: OrmDriver, id: IdentityRef, hash: string, expected: string | null | undefined): Promise<boolean> {
+    if (expected === undefined) {
+      await this.update(driver, id, hash);
+      return true;
     }
+
+    if (expected === null) {
+      return rowsAffected(await this.update(driver, id, hash).where(raw(holdsNoPassword(driver, 'Password')))) === 1;
+    }
+
+    // Writing the stored value again changes nothing, and MySQL without CLIENT_FOUND_ROWS would report 0 rows for
+    // it: the answer is whether the stored value is `expected` now.
+    if (hash === expected) {
+      // Rows, not selectCount(): orm-mssql compiles a count into an invalid OFFSET/FETCH.
+      const matched = (await driver
+        .select()
+        .from(USERS_TABLE)
+        .columns(['Uuid'])
+        .where('Uuid', id.id)
+        .where(raw(exactlyEquals(driver, 'Password', expected)))) as unknown[];
+      return matched.length === 1;
+    }
+
+    return rowsAffected(await this.update(driver, id, hash).where(raw(exactlyEquals(driver, 'Password', expected)))) === 1;
   }
 
   protected update(driver: OrmDriver, id: IdentityRef, hash: string) {
