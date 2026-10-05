@@ -3,6 +3,8 @@ import 'mocha';
 
 import { Authorizer } from '../../src/engine/authorizer.js';
 import { sanitizeVote } from '../../src/engine/vote.js';
+import { defaultAttribute, evaluateResidual } from '../../src/engine/evaluate.js';
+import type { SubjectEnv } from '../../src/engine/evaluate.js';
 import { LruDecisionCache } from '../../src/engine/cache.js';
 import { l1Key } from '../../src/engine/context.js';
 import type { AuthorizerOptions } from '../../src/engine/authorizer.js';
@@ -1353,6 +1355,107 @@ describe('Authorizer: an intersect delegate checked with a subject narrows to th
     const d = await a.check({ principal: agent, permission: 'doc:read', resource: d1 });
     expect(d.allowed).to.equal(false);
     expect(d.reason).to.deep.equal(delegateDenial);
+  });
+
+  describe('a native filter that declares principalInArgs (RFC E2-2)', () => {
+    const ownsLeaf: ResourceFilter = { op: 'native:owns', args: { who: 'bob' } };
+    const ownsBy = (args: unknown, subject: unknown) => (subject as FakeRow).owner === (args as { who: string }).who;
+    class FieldFlagged extends FakeNativeFilter {
+      readonly principalInArgs = true;
+    }
+    class GetterFlagged extends FakeNativeFilter {
+      get principalInArgs(): boolean {
+        return true;
+      }
+    }
+    class ThrowingFlag extends FakeNativeFilter {
+      get principalInArgs(): boolean {
+        throw new Error('no flag');
+      }
+    }
+    const agree = async (a: Authorizer, grants: string[]) => {
+      for (const row of [d1, d2, d3, d4]) {
+        const d = await a.check({ principal: agent, permission: 'doc:read', resource: row });
+        expect(d.allowed, row.id).to.equal(grants.includes(row.id));
+        if (!d.allowed) expect(d.reason, row.id).to.deep.equal(delegateDenial);
+      }
+    };
+
+    for (const [label, build] of [
+      ['a field initialiser', () => new FieldFlagged('native:owns', ownsBy)],
+      ['a getter', () => new GetterFlagged('native:owns', ownsBy)],
+      ['a plain object (duck-typed)', () => ({ op: 'native:owns' as const, principalInArgs: true, matches: ownsBy })],
+    ] as const) {
+      it(`declared by ${label}: the leaf survives the strip, and filter and check agree on every row`, async () => {
+        const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [build() as FakeNativeFilter] });
+        expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(ownsLeaf);
+        await agree(a, ['d1', 'd4']);
+        const explained = await a.explain({ principal: agent, permission: 'doc:read', resource: d1 });
+        expect(explained.trace!.steps.some((s) => s.by === 'core' && s.step === 'delegation' && /type-level residual, stripped, against the subject: true/.test(s.note))).to.equal(true);
+      });
+    }
+
+    it('under a `not`, the kept leaf still denies the rows it holds for', async () => {
+      const a = setup(byId({ t1: TRUE, bob: not(ownsLeaf) }), { nativeFilters: [new FieldFlagged('native:owns', ownsBy)] });
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(not(ownsLeaf));
+      await agree(a, ['d2', 'd3']);
+    });
+
+    it('next to a relation, which is still stripped', async () => {
+      const a = setup(byId({ t1: TRUE, bob: or(ownerOp, and(team('red'), ownsLeaf)) }), { nativeFilters: [new FieldFlagged('native:owns', ownsBy)] });
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(and(team('red'), ownsLeaf));
+      await agree(a, ['d1', 'd4']);
+    });
+
+    it('a throwing getter, false or a truthy non-boolean counts as undeclared: stripped as before', async () => {
+      for (const filter of [new ThrowingFlag('native:owns', ownsBy), { op: 'native:owns' as const, principalInArgs: false, matches: ownsBy }, { op: 'native:owns' as const, principalInArgs: 1, matches: ownsBy }]) {
+        const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [filter as unknown as FakeNativeFilter] });
+        expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(FALSE);
+        await agree(a, []);
+      }
+    });
+
+    it("memos in ctx.cache keyed by the args principal: the agent's own leaf and the kept delegate leaf share one cache, each reads its own memo, and filter and check agree", async () => {
+      const HELD: Readonly<Record<string, readonly string[]>> = { t1: ['d1', 'd2', 'd4'], bob: ['d1', 'd3', 'd4'] };
+      const caches = new Set<Map<string, unknown>>();
+      const holds = new FieldFlagged('native:owns', (args, subject, _ref, ctx) => {
+        const who = (args as { who: string }).who;
+        caches.add(ctx.cache);
+        let held = ctx.cache.get(`holds:${who}`) as ReadonlySet<string> | undefined;
+        if (!held) ctx.cache.set(`holds:${who}`, (held = new Set(HELD[who])));
+        return held.has((subject as FakeRow).id);
+      });
+      const leaf = (who: string): ResourceFilter => ({ op: 'native:owns', args: { who } });
+      const a = setup(byId({ t1: leaf('t1'), bob: leaf('bob') }), { nativeFilters: [holds] });
+      const filter = await a.filter(agent, 'doc:read', 'doc');
+      expect(filter).to.deep.equal(and(leaf('t1'), leaf('bob')));
+      for (const row of [d1, d2, d3, d4]) {
+        caches.clear();
+        const d = await a.check({ principal: agent, permission: 'doc:read', resource: row });
+        const shared = [...caches].some((c) => c.has('holds:t1') && c.has('holds:bob'));
+        if (d.allowed) expect(shared, `${row.id}: both leaves ran in one cache`).to.equal(true);
+        const ref = { type: 'doc', id: row.id };
+        const env: SubjectEnv = { principal: agent, ref, attribute: defaultAttribute, relation: () => undefined, ancestors: () => Promise.resolve([]), native: (op) => (op === 'native:owns' ? holds : undefined), ctx: { cache: new Map() } as unknown as EvaluationContext };
+        const listed = (await evaluateResidual(filter, row, env)) === true;
+        expect(d.allowed, row.id).to.equal(listed);
+        expect(d.allowed, row.id).to.equal(HELD.t1.includes(row.id) && HELD.bob.includes(row.id));
+      }
+    });
+
+    it('the flag is read once, when the Authorizer is built', async () => {
+      let reads = 0;
+      class Counting extends FakeNativeFilter {
+        get principalInArgs(): boolean {
+          reads++;
+          return true;
+        }
+      }
+      const a = setup(byId({ t1: TRUE, bob: ownsLeaf }), { nativeFilters: [new Counting('native:owns', ownsBy)] });
+      expect(reads).to.equal(1);
+      await agree(a, ['d1', 'd4']);
+      expect(await a.filter(agent, 'doc:read', 'doc')).to.deep.equal(ownsLeaf);
+      expect(reads).to.equal(1);
+    });
   });
 
   it('a `not relation` (FALSE once stripped) leaves the rows where the cmp parts hold', async () => {

@@ -300,6 +300,8 @@ export class Authorizer {
   private readonly resolverByType = new Map<ResourceType, ScopeResolver>();
   private readonly relationIndex = new Map<string, RelationResolver>();
   private readonly natives = new Map<string, NativeFilter>();
+  /** Native ops whose filter declares `principalInArgs`: an intersect delegate's residual keeps them (RFC E2-2). */
+  private readonly argBoundNatives = new Set<string>();
   private readonly attributeDefaults: ReadonlyMap<ResourceType, Readonly<Record<string, unknown>>>;
   private readonly attributeStore: ScopeAttributeStore | undefined;
   private readonly conditions: ConditionCompiler;
@@ -365,6 +367,7 @@ export class Authorizer {
     for (const filter of options.nativeFilters ?? []) {
       if (this.natives.has(filter.op)) throw new AuthzConfigError(`${this.where}: two native filters for op ${quote(filter.op)}`);
       this.natives.set(filter.op, filter);
+      if (declaresPrincipalInArgs(filter)) this.argBoundNatives.add(filter.op);
     }
     const scopeAttributes: unknown = options.scopeAttributes === undefined ? {} : options.scopeAttributes;
     if (!isObject(scopeAttributes)) throw new AuthzConfigError(`${this.where}: scopeAttributes must be an object`);
@@ -947,11 +950,12 @@ export class Authorizer {
     if (delegate) {
       const strips = delegation.intersectKey !== principalKey(parties.ref);
       // The delegate's residual is already bound for the delegate; SQL and the subject evaluator would read its principal ops as ours.
-      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual) : delegate.residual;
+      // A kept principalInArgs native is evaluated below and in SQL with our principal, context and ctx.cache: right only because its args name the delegate and the filter keys its memos by them.
+      let theirs = !delegate.allowed ? FALSE : strips ? stripPrincipalOps(delegate.residual, this.argBoundNatives) : delegate.residual;
       if (strips && subject !== undefined && delegate.allowed && residual.op !== 'false') {
-        // The filter strips the delegate's relation and native ops, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
+        // The filter strips the delegate's relation ops and its natives without principalInArgs, which the subject check above evaluated exactly: the row must also pass the stripped type-level residual, or filter and check part (B06).
         typeLevel = yield* this.delegateCheck(delegation.intersect!, delegation.hopsUsed, def, { type: ref.type }, undefined, input.env, run);
-        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual) : FALSE;
+        const strip = typeLevel.decision.allowed ? stripPrincipalOps(typeLevel.decision.residual, this.argBoundNatives) : FALSE;
         let truth: string = !typeLevel.decision.allowed ? 'the delegate is denied' : strip.op === 'true' ? 'TRUE' : 'FALSE';
         let holds = strip.op === 'true';
         if (strip.op !== 'true' && strip.op !== 'false') {
@@ -1933,6 +1937,15 @@ function principalCacheId(p: Principal): string {
     principalObjects.set(p, n);
   }
   return `object:${n}`;
+}
+
+// Duck-typed and read once: a filter from a second copy of this package, or a throwing getter (undeclared, so stripped).
+function declaresPrincipalInArgs(filter: NativeFilter): boolean {
+  try {
+    return filter.principalInArgs === true;
+  } catch {
+    return false;
+  }
 }
 
 /** The subject evaluator reads a native filter's throw as UNKNOWN, not a fault, so nothing else drops what it memoised before throwing. */

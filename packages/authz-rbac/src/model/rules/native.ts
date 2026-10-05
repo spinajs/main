@@ -223,6 +223,8 @@ function listPrincipal(args: RbacListContext): Principal {
 /** In-memory evaluator of `native:rbac.threshold`. */
 export class RbacThresholdFilter extends NativeFilter {
   readonly op = RBAC_THRESHOLD_OP;
+  // RbacListEvaluator.state builds the request it judges from the args alone (listPrincipal).
+  readonly principalInArgs = true;
 
   constructor(private readonly evaluator: RbacListEvaluator) {
     super();

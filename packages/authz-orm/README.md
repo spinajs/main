@@ -181,5 +181,9 @@ scoped model's table, or its name in an `sql` fragment, sees every row of it. La
 orm's deferred `EXISTS`) are refused, because the orm moves them after the other conditions and
 would change the grouping.
 
+A compiler for an op whose `NativeFilter` declares `principalInArgs` must not read its `principal`
+argument: an intersect agent's residual keeps its delegate's terms (RFC E2-2), so `principal` is the
+agent while the args name the delegate.
+
 `@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
 it only together with L4b.
