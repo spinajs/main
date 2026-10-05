@@ -91,7 +91,7 @@ export class TestConfiguration extends FrameworkConfiguration {
           // `account/controllers` is listed too: the controller listing is memoized
           // once per process ( `ListFromFiles` in reflection ), so every http suite
           // in this package has to ask for the same directories.
-          controllers: [dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
+          controllers: [dir('./../src/v3/controllers'), dir('./../src/token/controllers'), dir('./support'), dir('./../src/account/controllers')],
         },
       },
       // `@spinajs/http` contributes the providers its own machinery needs

@@ -14,8 +14,8 @@ import {
   UserSession,
 } from '@spinajs/users';
 
-import { ActiveRoleController } from '../src/account/controllers/ActiveRoleController.js';
-import { SwitchRoleDto } from '../src/account/dto/switchRole-dto.js';
+import { ActiveRoleController } from '../../src/account/legacy/ActiveRoleController.js';
+import { SwitchRoleDto } from '../../src/account/dto/switchRole-dto.js';
 
 import { Ok, BadRequestResponse, Unauthorized } from '@spinajs/http';
 

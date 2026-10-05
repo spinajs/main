@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import type { SinonStub } from 'sinon';
 import { randomBytes, randomUUID } from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -31,6 +32,7 @@ import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../../src/t
 import { AuthnIdentityArg, AuthnSessionArg, AuthnSessionDataArg, AuthnSessionIdArg } from '../../src/args/authn.js';
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { POLICY_PROBE_PATH, usePolicyContainer } from './policy-probe.js';
+import { buildAuthnMiddlewareIn } from './authn-in-child.js';
 import { APP_ORIGIN, COOKIE_SECRET, TestConfiguration, req as http, restoreHttpErrorMap } from '../token-common.js';
 
 const { Authenticated, FreshAuth, MfaSatisfied, NoSession, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } = v3;
@@ -57,20 +59,6 @@ class PolicySuiteConfiguration extends TestConfiguration {
   }
 }
 
-// Inert outside this suite (see AuthnMiddlewareUnderTest in authn-middleware.test.ts for the same pattern).
-let suiteChild: IContainer | null = null;
-
-class PolicySuiteAuthnMiddleware extends AuthnMiddleware {
-  public async resolve(): Promise<void> {
-    if (!suiteChild) return;
-    this.Container = suiteChild;
-    await super.resolve();
-  }
-
-  public before() {
-    return suiteChild ? super.before() : null;
-  }
-}
 
 async function releaseHttpServer(): Promise<void> {
   await DI.get(HttpServer)?.stop();
@@ -132,6 +120,8 @@ async function buildSuite(): Promise<Suite> {
   bind(child, MfaPolicy, 'PolicySuiteMfaPolicy', new EnrolledMfaPolicy([step]));
   // Before anything resolves the child's AuthnAudit, which reads its sinks once.
   bind(child, AuthnEventSink, 'PolicySuiteEventSink', events);
+  // The scanned 3.0 controllers cache a root MfaSatisfied, which reads the root's MfaPolicy; the suite needs its own.
+  child.register(MfaSatisfied).asSelf();
   await registerAuthnHttpV3(child);
   return { child, identities, passwords, issuer, throttle, step, tokens, passwordStrategy, events };
 }
@@ -163,6 +153,7 @@ describe('3.0 authn policies and route args', function () {
   this.timeout(60000);
 
   let s: Suite;
+  let authnInChild: SinonStub | undefined;
   let cookieName: string;
   let alice: IdentityRef;
   let bob: IdentityRef;
@@ -198,7 +189,7 @@ describe('3.0 authn policies and route args', function () {
   const resolve = <T>(type: Class<T>, options?: unknown[]): T => s.child.resolve(type, options) as T;
 
   async function startServer(): Promise<void> {
-    DI.uncache(PolicySuiteAuthnMiddleware);
+    DI.uncache(AuthnMiddleware);
     DI.uncache(barrel.CsrfOriginGuard);
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
@@ -215,7 +206,6 @@ describe('3.0 authn policies and route args', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
-    DI.register(PolicySuiteAuthnMiddleware).as(ServerMiddleware);
 
     const bootstrappers = await DI.resolve(Array.ofType(Bootstrapper));
     for (const b of bootstrappers) await b.bootstrap();
@@ -225,7 +215,7 @@ describe('3.0 authn policies and route args', function () {
     await DI.resolve(Orm);
 
     s = await buildSuite();
-    suiteChild = s.child;
+    authnInChild = buildAuthnMiddlewareIn(s.child);
     usePolicyContainer(s.child);
     cookieName = sessionCookieName(config.get<ISessionCookieConfig>('authn.session.cookie', {}), appEnvOf(config));
     await startServer();
@@ -243,9 +233,9 @@ describe('3.0 authn policies and route args', function () {
 
   after(async () => {
     await releaseHttpServer();
-    suiteChild = null;
+    authnInChild?.restore();
     usePolicyContainer(null);
-    DI.uncache(PolicySuiteAuthnMiddleware);
+    DI.uncache(AuthnMiddleware);
     DI.uncache(barrel.CsrfOriginGuard);
     DI.uncache(barrel.ClientIp);
     DI.uncache(ServerMiddleware);
@@ -257,12 +247,9 @@ describe('3.0 authn policies and route args', function () {
   });
 
   describe('exports', () => {
-    it('the barrel shadows the api.ts names no 2.x consumer uses; the five 2.x names stay until N8c', () => {
-      for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession'] as const) {
+    it('the barrel shadows every api.ts name with the 3.0 class, the five 2.x names included (N8c)', () => {
+      for (const n of ['Authenticated', 'FreshAuth', 'MfaSatisfied', 'NoSession', 'Identity', 'AuthnSession', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
         expect(barrel[n], n).to.eq(v3[n]).and.not.eq(api[n]);
-      }
-      for (const n of ['NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy', 'FromSession', 'SessionId'] as const) {
-        expect(barrel[n], n).to.not.eq(v3[n]).and.not.eq(api[n]);
       }
     });
 

@@ -50,8 +50,8 @@ function bodyOf(req: Request): Uint8Array | undefined {
  * that is not undefined, else null, to req.storage.AuthnPrincipal (D26).
  *
  * The cookie is a browser-session cookie the issuer slides server side (N8a-D7), so it is never re-sent here. Store
- * errors go to next(err): no principal, never a silent anonymous. Registered only by registerAuthnHttpV3: beside the 2.x
- * RbacMiddleware both read the same cookie, and the issuer migrates a 2.x row away from under it.
+ * errors go to next(err): no principal, never a silent anonymous. Registered on the root container when the package loads
+ * (registerAuthnHttpV3).
  */
 export class AuthnMiddleware extends ServerMiddleware {
   // Stays an injected Configuration: appEnvOf reads its Env for the SR-16 "no env named" rule, which @Config cannot express.

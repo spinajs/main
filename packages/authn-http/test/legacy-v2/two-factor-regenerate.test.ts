@@ -8,11 +8,11 @@ import sinon from 'sinon';
 import { ISession, UserSession } from '@spinajs/users';
 import { CONTROLLED_DESCRIPTOR_SYMBOL, Ok } from '@spinajs/http';
 import type { IControllerDescriptor } from '@spinajs/http';
-import { NotAuthorizedPolicy } from '../src/policies/NotAthorizedPolicy.js';
-import { TwoFactorAuthController } from '../src/account/controllers/TwoFactorAuthController.js';
-import { TwoFacRouteEnabled } from '../src/account/policies/2FaPolicy.js';
-import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
-import { TokenDto } from '../src/account/dto/token-dto.js';
+import { NotAuthorizedPolicy } from '../../src/policies/NotAthorizedPolicy.js';
+import { TwoFactorAuthController } from '../../src/account/legacy/TwoFactorAuthController.js';
+import { TwoFacRouteEnabled } from '../../src/account/policies/2FaPolicy.js';
+import { SessionCookieFactory } from '../../src/account/services/SessionCookies.js';
+import { TokenDto } from '../../src/account/dto/token-dto.js';
 
 class FakeSessionProvider {
   public Store = new Map<string, ISession>();

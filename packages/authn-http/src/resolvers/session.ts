@@ -1,6 +1,6 @@
 import { Autoinject, Container, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import type { AuthnImpersonationService } from '@spinajs/authn';
+import { AuthnImpersonationService } from '@spinajs/authn';
 import { IdentityStore, PrincipalFactory } from '@spinajs/authn/contracts';
 import type { AuthnContext, Ceiling, Credentials, IdentityRef, IdentityStatus, Principal } from '@spinajs/authn/contracts';
 import type { Request } from '@spinajs/http';
@@ -41,8 +41,6 @@ export class SessionPrincipalResolver extends AuthnPrincipalResolver {
     if (!session) return undefined;
     if (session.handle.state !== 'active') return null;
 
-    // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
-    const { AuthnImpersonationService } = await import('@spinajs/authn');
     const impersonation = await this.Container.resolve(AuthnImpersonationService);
     const principal = await impersonation.principalOf(session.handle, ctx);
     if (!principal) {

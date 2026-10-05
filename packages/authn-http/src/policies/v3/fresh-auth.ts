@@ -3,6 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
+import { FreshAuthCheck, isFresh } from '@spinajs/authn';
 import { AuthnService, IdentityStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef } from '@spinajs/authn/contracts';
 
@@ -40,7 +41,6 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
   if (!authn || !isSessionPrincipal(principal) || session?.handle.state !== 'active') throw refused('session_required', 'fresh authentication needs a session');
   if (authn.impersonator !== undefined) throw refused('impersonating', 'no fresh authentication while impersonating another user');
 
-  const { FreshAuthCheck, isFresh } = await import('@spinajs/authn');
   const check = await container.resolve(FreshAuthCheck);
   const maxAge = maxAgeSeconds ?? check.maxAgeSeconds;
   const ctx: AuthnContext = { ip: req.storage.ClientIp, userAgent: req.headers['user-agent'], now: new Date(), purpose: 'reauth', session: session.handle };

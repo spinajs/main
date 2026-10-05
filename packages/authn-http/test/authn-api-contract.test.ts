@@ -62,8 +62,8 @@ const LANE: Record<string, unknown> = {
   SessionId: LaneSessionId,
   FromSession: LaneFromSession,
 };
-// 2.x consumers use these names through the barrel, so it keeps the 2.x code until the N8c cutover.
-const KEPT_2X = ['FromSession', 'SessionId', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy'];
+// Since the N8c cutover the barrel keeps no 2.x code under an api.ts name.
+const KEPT_2X: string[] = [];
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
@@ -172,18 +172,18 @@ describe('authn-http api stubs (api.ts)', function () {
       expect(sub.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
     });
 
-    it('the barrel exports every api name as the lane implementation; the five colliding names stay the moved 2.x ones until N8c', () => {
+    it('the barrel exports every api name as the lane implementation, the five names the 2.x code also has included (N8c)', () => {
       const b = barrel as unknown as Record<string, unknown>;
       for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
         const stub = (api as Record<string, unknown>)[n];
         if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
         else expect(b[n], n).to.eq(stub);
       }
-      expect(barrel.FromSession).to.eq(MovedFromSession).and.not.eq(FromSession);
-      expect(barrel.SessionId).to.eq(MovedSessionId).and.not.eq(SessionId);
-      expect(barrel.NotLoggedPolicy).to.eq(MovedNotLoggedPolicy).and.not.eq(NotLoggedPolicy);
-      expect(barrel.NoTokenAuthPolicy).to.eq(MovedNoTokenAuthPolicy).and.not.eq(NoTokenAuthPolicy);
-      expect(barrel.NoImpersonationPolicy).to.eq(MovedNoImpersonationPolicy).and.not.eq(NoImpersonationPolicy);
+      expect(barrel.FromSession).to.not.eq(MovedFromSession);
+      expect(barrel.SessionId).to.not.eq(MovedSessionId);
+      expect(barrel.NotLoggedPolicy).to.not.eq(MovedNotLoggedPolicy);
+      expect(barrel.NoTokenAuthPolicy).to.not.eq(MovedNoTokenAuthPolicy);
+      expect(barrel.NoImpersonationPolicy).to.not.eq(MovedNoImpersonationPolicy);
     });
 
     it('imports only @spinajs/authn/contracts, @spinajs/http and express', () => {

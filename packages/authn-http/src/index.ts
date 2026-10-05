@@ -7,7 +7,6 @@ import './dto/auth-responses.js';
 
 export * from './decorators.js';
 export * from './interfaces.js';
-export * from './middlewares.js';
 export * from './policies/RbacPolicy.js';
 export * from './transformers.js';
 export * from './route-args.js';
@@ -28,11 +27,8 @@ export * from './account/index.js';
 export * from './token/index.js';
 
 export * from './api.js';
-// api.ts declares these five names too. 2.x consumers (users-http, configuration-http, ...) still use them, so the
-// barrel keeps the 2.x code until the N8c cutover (an explicit export wins over `export *`); ./v3/index.js has the 3.0 ones.
-export { FromSession, SessionId } from './decorators.js';
-export { NotLoggedPolicy } from './policies/NotLoggedPolicy.js';
-export { NoTokenAuthPolicy, NoImpersonationPolicy } from './token/index.js';
+// api.ts and the 2.x code both declare these five names; an explicit export wins over `export *`.
+export { FromSession, SessionId, NotLoggedPolicy, NoTokenAuthPolicy, NoImpersonationPolicy } from './v3/index.js';
 // N8a lane implementations of api.ts declarations; an explicit export wins over `export * from './api.js'`.
 export { ClientIp, proxyTrustOf } from './middleware/client-ip.js';
 export { CsrfOriginGuard } from './middleware/csrf.js';
@@ -44,7 +40,9 @@ export { FreshAuth } from './policies/v3/fresh-auth.js';
 export { MfaSatisfied } from './policies/v3/mfa.js';
 export { Identity, AuthnSession } from './args/authn.js';
 export * from './extractors/index.js';
+// Loading it registers the 3.0 layer on the root container.
 export { registerAuthnHttpV3 } from './v3/register.js';
-// For authn-oidc (N10): the one 401 body of a failed authentication and the session cookie helpers. Plain values and
-// functions: loading them registers nothing of the 3.0 layer.
+// RbacMiddleware: the 2.x name, kept for code that stubs or orders against it.
+export { LegacyStorageBridge, LegacyStorageBridge as RbacMiddleware } from './middleware/legacy-bridge.js';
+// For authn-oidc (N10): the one 401 body of a failed authentication and the session cookie helpers.
 export { AUTHN_FAILURE_BODY, authnFailureResponse, authnSessionCookie, authnClearedSessionCookie } from './v3/responses.js';

@@ -2,6 +2,7 @@ import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import { BadRequestResponse, BaseController, BasePath, Del, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
+import { AuthnImpersonationService } from '@spinajs/authn';
 import { SessionIssuer } from '@spinajs/authn/contracts';
 import type { Credentials } from '@spinajs/authn/contracts';
 
@@ -74,7 +75,6 @@ export class AuthnImpersonationController extends BaseController {
       throw err;
     }
 
-    const { AuthnImpersonationService } = await import('@spinajs/authn');
     const service = await this.Container.resolve(AuthnImpersonationService);
     const ctx = contextOf(req, 'request', session.handle);
     // The service checks freshness again when authn.impersonation.requirePassword is on; a stale session passed above
@@ -100,7 +100,6 @@ export class AuthnImpersonationController extends BaseController {
     if (!req.storage.AuthnPrincipal?.authn?.impersonator || session?.handle.state !== 'active') {
       return new BadRequestResponse({ error: 'not_impersonating', message: 'no impersonation is active' });
     }
-    const { AuthnImpersonationService } = await import('@spinajs/authn');
     const service = await this.Container.resolve(AuthnImpersonationService);
     const ctx = contextOf(req, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);

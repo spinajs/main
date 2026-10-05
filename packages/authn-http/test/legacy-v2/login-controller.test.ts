@@ -11,8 +11,8 @@ import { Ok } from '@spinajs/http';
 
 import { AuthProvider, BasicPasswordProvider, MemorySessionStore, PasswordProvider, SessionProvider, SimpleDbAuthProvider, User } from '@spinajs/users';
 
-import { LoginController } from '../src/account/controllers/LoginController.js';
-import { DbTestConfiguration } from './account-db-common.js';
+import { LoginController } from '../../src/account/legacy/LoginController.js';
+import { DbTestConfiguration } from '../account-db-common.js';
 
 /**
  * `rbac.twoFactorAuth.forceUser: true` with the system-wide switch
