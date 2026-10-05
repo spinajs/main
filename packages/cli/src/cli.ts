@@ -7,12 +7,14 @@ import './args.js';
 
 async function cli() {
   DI.setESMModuleSupport();
-  await DI.resolve(Configuration);
 
+  // Bootstrappers register the configuration schemas; the Configuration applies them when it boots.
   const bootstrappers = DI.resolve(Array.ofType(Bootstrapper));
   for (const b of bootstrappers) {
     await b.bootstrap();
   }
+
+  await DI.resolve(Configuration);
 
   const log = resolveCliLog();
 
