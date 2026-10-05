@@ -5,14 +5,11 @@ import { DI, Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
-import { AuthzTargetGuard, accessDomain, actingFacts, impersonationPermission } from './target-guard.js';
+import { AuthzTargetGuard, NON_INTERACTIVE_METHODS, accessDomain, actingFacts, impersonationPermission } from './target-guard.js';
 
 type Answer = Awaited<ReturnType<ImpersonationGuard['allowed']>>;
 
 const FORBIDDEN: Answer = Object.freeze({ ok: false, code: 'forbidden' });
-
-/** Sign-ins without a person at a session; impersonation starts from an interactive one. */
-const NON_INTERACTIVE_METHODS: ReadonlySet<string> = new Set(['token', 'jws', 'http-signature']);
 
 export interface AuthzImpersonationGuardOptions {
   /** Default: the PrincipalFactory DI resolves (users' UserPrincipalFactory). */

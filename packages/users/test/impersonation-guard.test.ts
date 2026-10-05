@@ -123,6 +123,10 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
     DI.register(ProbeAttributeProvider).as(PrincipalAttributeProvider);
   });
 
+  after(() => {
+    DI.unregister(ProbeAttributeProvider);
+  });
+
   beforeEach(async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     await bootUsersDb(configure);
@@ -395,6 +399,42 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
         expect(target).to.not.have.property('ceiling');
         expect(target.authn).to.deep.eq({ method: 'password', strategy: 'local', assurance: 'aal2', mfa: ['totp'], authenticatedAt: FACTS.authenticatedAt, sessionHandle: 'h-actor' });
         expect(target.attributes).to.deep.eq({ probe: (target.identity as User).Login });
+      });
+    });
+
+    // authz.token narrows a token principal's roles; the target must be judged on all of its own.
+    describe('token sign-ins and authz.token.excludedRoles', () => {
+      const TOKEN: AuthnFacts = { method: 'token', strategy: 'token', assurance: 'aal1', mfa: [], authenticatedAt: FACTS.authenticatedAt };
+
+      async function excludeFromTokens(...roles: string[]): Promise<void> {
+        (await DI.resolve(Configuration)).set(['authz', 'token', 'excludedRoles'], roles);
+      }
+
+      it('checkIdentity: a token actor gets protected_role for a target holding an excluded protected role', async () => {
+        await excludeFromTokens('admin');
+        const rule = new AuthzTargetGuard();
+        const check = sinon.spy(rule, 'check');
+        const actor = await signedIn(await user('useradmin'), TOKEN);
+
+        expect(await rule.checkIdentity(actor, await user('admin'))).to.deep.eq({ ok: false, code: 'protected_role' });
+        const target = check.firstCall.args[1];
+        expect(target).to.not.have.property('authn');
+        expect(target.source).to.eq('identity');
+      });
+
+      it('checkIdentity: a token actor gets escalation for a target whose higher role tokens may not carry', async () => {
+        await excludeFromTokens('useradmin');
+        const actor = await signedIn(await user('helpdesk'), TOKEN);
+
+        expect(await new AuthzTargetGuard().checkIdentity(actor, await user('useradmin'))).to.deep.eq({ ok: false, code: 'escalation' });
+      });
+
+      it('check: a target signed in with a token still counts its excluded protected role', async () => {
+        await excludeFromTokens('admin');
+        const actor = await signedIn(await user('useradmin'));
+        const target = await signedIn(await user('admin'), TOKEN);
+
+        expect(await new AuthzTargetGuard().check(actor, target)).to.deep.eq({ ok: false, code: 'protected_role' });
       });
     });
   });

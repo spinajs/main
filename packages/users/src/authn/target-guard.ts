@@ -64,6 +64,9 @@ export async function protectedRoles(): Promise<readonly string[]> {
   return value as string[];
 }
 
+/** Sign-ins without a person at a session. */
+export const NON_INTERACTIVE_METHODS: ReadonlySet<string> = new Set(['token', 'jws', 'http-signature']);
+
 /** The authn facts of a principal the actor's session would carry for another account: the actor's sign-in, nothing it was granted. */
 export function actingFacts(facts: AuthnFacts): AuthnFacts {
   return {
@@ -105,13 +108,14 @@ export class AuthzTargetGuard {
   }
 
   /**
-   * For the credential admin routes (A25): the target user judged on its rights, with the actor's sign-in facts, no
+   * For the credential admin routes (A25): the target user judged on its rights, with the actor's interactive sign-in
+   * facts (none after a token or other non-interactive sign-in: the token role rules would narrow the target), no
    * ceiling and no strategy attributes. An inactive or banned account still counts by its roles.
    * @throws ResourceNotFound for an unknown or soft-deleted user
    */
   public async checkIdentity(actor: Principal, target: IdentityRef): Promise<TargetRuleAnswer> {
-    const principal = await (await this.users()).rightsPrincipalOf(target, actor.authn ? actingFacts(actor.authn) : undefined);
-    return this.check(actor, principal);
+    const facts = actor.authn && !NON_INTERACTIVE_METHODS.has(actor.authn.method) ? actingFacts(actor.authn) : undefined;
+    return this.check(actor, await (await this.users()).rightsPrincipalOf(target, facts));
   }
 
   private async users(): Promise<UserPrincipalFactory> {
@@ -138,11 +142,13 @@ async function registeredInDomain<T>(domain: AccessDomain, token: Class<T>): Pro
 
 /**
  * Every role the target holds at any scope, with every role those reach. The model's input at GLOBAL carries the stored
- * rows of all the target's subjects (the model's resolver, its subject sets included) whatever their scope.
+ * rows of all the target's subjects (the model's resolver, its subject sets included) whatever their scope. It is read
+ * without the target's sign-in and ceiling: the token role rules and a role switch would hide roles the account holds.
  */
 async function reachableRoles(rbac: RbacService, domain: string, target: Principal): Promise<Set<string>> {
+  const { authn: _authn, ceiling: _ceiling, ...account } = target;
   const now = rbac.model.currentTime();
-  const input = await rbac.model.inputAt(target, GLOBAL, scanContext(rbac.model, domain, now));
+  const input = await rbac.model.inputAt(account as Principal, GLOBAL, scanContext(rbac.model, domain, now));
   const held = input.assignments.filter((a) => a.expiresAt == null || a.expiresAt.getTime() > now.getTime()).map((a) => a.role);
   return closure(rbac.model.roleGraph(), held);
 }

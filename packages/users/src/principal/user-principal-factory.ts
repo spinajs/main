@@ -26,7 +26,9 @@ export const IDENTITY_PRINCIPAL_SOURCE = 'identity';
  * as `identity` and the attributes of every {@link PrincipalAttributeProvider} over the strategy's.
  *
  * A user that is unknown, soft deleted, inactive or banned is refused: authn checks the account's status
- * before it asks for a principal, so getting here with such a user is an error, not a failed login.
+ * before it asks for a principal, so getting here with such a user is an error, not a failed login. Except
+ * {@link rightsPrincipalOf}, which accepts an inactive or banned account: it judges an account's rights and must
+ * never start a session.
  */
 @Injectable(PrincipalFactory)
 export class UserPrincipalFactory extends PrincipalFactory {
