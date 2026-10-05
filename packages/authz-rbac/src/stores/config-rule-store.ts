@@ -102,7 +102,7 @@ export function readRuleDefs(rules: unknown, where = 'authz.rbac.rules', source 
       }
       const r = raw as RuleDef;
       // A bare type is on the path of a list only, never of a check, so lists and checks would disagree.
-      if (r.scope.id == null && r.scope.type !== '$global') throw new AuthzConfigError(`${at}: scope must be $global or a node with an id, not the bare type '${r.scope.type}'`);
+      if (r.scope.id == null && r.scope.type !== GLOBAL.type) throw new AuthzConfigError(`${at}: scope must be $global or a node with an id, not the bare type '${r.scope.type}'`);
       if (seen.has(r.id)) throw new AuthzConfigError(`${at}: the id is used by another rule`);
       if (readsResource(r.subjects?.when)) throw new AuthzConfigError(`${at}: subjects.when reads resource.*, but it selects principals before any row is read`);
       if (r.kind !== 'threshold' && readsResource(r.when)) throw new AuthzConfigError(`${at}: its when reads resource.*, which a ${r.kind} rule cannot follow per row (a threshold's resource can)`);

@@ -25,8 +25,9 @@ const RULE = 'design §6.5 rule 9';
 /**
  * @throws AuthzConfigError for a condition that does not parse, an expiry that is not a date, a
  *   ladder or role the role graph does not hold (rule 9), a condition over `resource.*` that no
- *   vote can follow per row (`subjects.when`; a restrict or cap `when`), or a restrict or cap
- *   with `resource` (as the config schema); permission names are checked by the boot refs
+ *   vote can follow per row (`subjects.when`; a restrict or cap `when`), a restrict or cap
+ *   with `resource`, a threshold without `minRole` or a cap with `maxRole` and no `ladder` (as
+ *   the config schema, for every store); permission names are checked by the boot refs
  *   (`ruleRefs`), so an unregistered one fails like any other ref (B02)
  */
 export function compileRule(def: RuleDef, graph: RoleGraph, ladders: LadderIndex | undefined, registry: PermissionRegistry, parse: ConditionParser): CompiledRule {
@@ -36,6 +37,8 @@ export function compileRule(def: RuleDef, graph: RoleGraph, ladders: LadderIndex
   if (expires !== undefined && Number.isNaN(expires)) throw new AuthzConfigError(`${where}: expiresAt is not a valid date`);
   // A store other than ConfigRuleStore is not held to the config schema.
   if (def.kind !== 'threshold' && def.resource !== undefined) throw new AuthzConfigError(`${where}: resource belongs to a threshold; a ${def.kind} rule cannot follow it per row`);
+  if (def.kind === 'threshold' && (def.minRole === undefined || def.minRole === null)) throw new AuthzConfigError(`${where}: a threshold needs minRole`);
+  if (def.kind === 'cap' && def.maxRole !== undefined && def.ladder === undefined) throw new AuthzConfigError(`${where}: a cap with maxRole needs the ladder it caps`);
   const when = def.when ? parse(def.when, `${where} when`) : undefined;
   const subjectsWhen = def.subjects?.when ? parse(def.subjects.when, `${where} subjects.when`) : undefined;
   if (subjectsWhen?.facts.roots.includes('resource')) throw new AuthzConfigError(`${where}: subjects.when reads resource.*, but it selects principals before any row is read`);

@@ -261,9 +261,9 @@ function residualWith(s: RbacState, fieldGlobs: FieldRule): void {
 
 const residual: RbacStep = (s) => residualWith(s, voteFieldGlobs);
 
-// The native term has no part for tags or provenance yet; a bare one would list rows the check refuses.
+// The v1 native term has no part for tags or provenance; a bare one would list rows the check refuses.
 function nativeCannotCarry(s: RbacState): void {
-  if (s.input.scopedResidual === 'native') throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: ${RBAC_ASSIGNMENT_OP} cannot carry the tag or provenance part of '${s.permission}' on a type-level request yet`);
+  if (s.input.scopedResidual === 'native') throw new (s.input.native ? NativeNeedsV2 : Error)(`rbac: ${RBAC_ASSIGNMENT_OP} v1 cannot carry the tag or provenance part of '${s.permission}' on a type-level request; use rbacAssignmentExtension with rules: true for this type`);
 }
 
 /** The grants of the permission that scoped assignments reach, with those assignments. */

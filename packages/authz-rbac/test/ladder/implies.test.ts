@@ -60,7 +60,7 @@ describe('authz-rbac implied roles (B32)', () => {
   describe('compile and boot rules (design §6.5 rule 9)', () => {
     it('a role implies what every role of its closure implies, in closure order', () => {
       const index = compileImplies(compileRoles(ROLES, LADDERS, { extraEdges: new LadderExtension().extraEdges }));
-      expect(index.of('org.owner').map((e) => [e.role, e.at, e.from])).to.deep.equal([['maintainer', 'self-and-descendants', 'org.admin']]);
+      expect(index.of('org.owner').map((e) => [e.role, e.at])).to.deep.equal([['maintainer', 'self-and-descendants']]);
       expect(index.of('org.admin')[0]).to.deep.include({ tags: ['code'], bypass: ['restrict', 'cap'] });
       expect(index.of('team.lead')[0]).to.deep.include({ role: 'editor', at: 'descendants', tags: [], bypass: [] });
       expect(index.of('maintainer')).to.deep.equal([]);

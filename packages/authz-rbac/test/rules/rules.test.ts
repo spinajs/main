@@ -210,12 +210,12 @@ describe('authz-rbac rules (B35)', () => {
     });
   });
 
-  describe('fix round', () => {
+  describe('UNKNOWN conditions, covers and indeterminate rules', () => {
     const capOf = (extra: Partial<RuleDef>): Omit<RuleDef, 'source'> => ({ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', ...extra });
     const notVerified = { not: { attr: 'principal.attributes.verified', eq: true } };
     const who = (attributes: Record<string, unknown>) => userPrincipal('alice', { attributes });
 
-    it('C1: a cap or restrict condition that is UNKNOWN applies the rule; only a definite false keeps it off', async () => {
+    it('a cap or restrict condition that is UNKNOWN applies the rule; only a definite false keeps it off', async () => {
       for (const extra of [{ subjects: { when: notVerified } }, { when: notVerified }]) {
         const m = await model([assignment('a1', 'editor', P1)], [capOf(extra)]);
         expect((await vote(m, 'file:edit', f1, who({}))).permitWhen, 'missing').to.deep.equal(FALSE);
@@ -227,13 +227,13 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(restrict, 'file:edit', f1, who({ verified: true }))).permitWhen).to.deep.equal(TRUE);
     });
 
-    it('C1 pin (RFC L1b-1): a cap on contractor eq true applies to a principal without the attribute', async () => {
+    it('RFC L1b-1 pin: a cap on contractor eq true applies to a principal without the attribute', async () => {
       const m = await model([assignment('a1', 'editor', P1)], [capOf({ subjects: { when: { attr: 'principal.attributes.contractor', eq: true } } })]);
       expect((await vote(m, 'file:edit', f1, who({}))).roles).to.deep.equal({ project: 'viewer' });
       expect((await vote(m, 'file:edit', f1, who({ contractor: false }))).permitWhen).to.deep.equal(TRUE);
     });
 
-    it('C1, I5: a threshold keeps an UNKNOWN subjects.when or when in its deny entry, also next to a scope attribute', async () => {
+    it('a threshold keeps an UNKNOWN subjects.when or when in its deny entry, also next to a scope attribute', async () => {
       const linkLike: Omit<RuleDef, 'source'> = {
         id: 't',
         kind: 'threshold',
@@ -260,7 +260,7 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(bySubjects, 'file:read', f1, who({ verified: true }))).denies).to.equal(undefined);
     });
 
-    it('I1: covers of a principal at a resource refuses when rules exist; coversAt sees the cap', async () => {
+    it('covers of a principal at a resource refuses when rules exist; coversAt sees the cap', async () => {
       const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1 })]);
       await m.preload(alice, ctx());
       const service = new RbacService(m);
@@ -269,7 +269,7 @@ describe('authz-rbac rules (B35)', () => {
       expect(service.covers(alice, ['editor'])).to.equal(true);
     });
 
-    it('I2: a rule store that is not in memory makes type-level requests fail closed', async () => {
+    it('a rule store that is not in memory makes type-level requests fail closed', async () => {
       const inner = new ConfigRuleStore([rule(capOf({ scope: O1 }))]);
       const remote: RuleStore = { name: 'remote', forPath: (path, at) => inner.forPath(path, at), version: () => inner.version() };
       const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore([assignment('a1', 'editor')]), rules: remote, log: { warn: () => undefined } });
@@ -279,7 +279,7 @@ describe('authz-rbac rules (B35)', () => {
       expect((await m.summarize(alice, GLOBAL, ctx())).permissions.find((p) => p.name === 'file:edit')).to.deep.equal({ name: 'file:edit', conditional: true });
     });
 
-    it('I3: a role on no ladder that extends a ladder role above the cap is dropped, as is any under maxRole null', async () => {
+    it('a role on no ladder that extends a ladder role above the cap is dropped, as is any under maxRole null', async () => {
       const roles = [...ROLES, role('boss', [], { extends: ['maintainer'] })];
       const capped = await model([assignment('a1', 'boss', P1)], [capOf({})], roles);
       expect((await vote(capped, 'file:admin', f1)).permitWhen).to.deep.equal(FALSE);
@@ -290,13 +290,13 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(dropped, 'file:read', f1)).permitWhen).to.deep.equal(FALSE);
     });
 
-    it('I4: a rule reading scope.org is indeterminate on a resource without an org above it, and skipped only on $global', async () => {
+    it('a rule reading scope.org is indeterminate on a resource without an org above it, and skipped only on $global', async () => {
       const m = await model([assignment('a1', 'editor')], [capOf({ when: { attr: 'scope.org.policies.locked', eq: true } })]);
       await rejects(vote(m, 'file:edit', f3), 'no org ancestor');
       expect((await vote(m, 'file:edit', GLOBAL)).permitWhen).to.deep.equal(TRUE);
     });
 
-    it('I6: a ref the decision cache key does not hold makes the vote uncacheable', async () => {
+    it('a ref the decision cache key does not hold makes the vote uncacheable', async () => {
       const byEnv = await model([assignment('a1', 'editor', P1)], [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: { ref: 'env.required_role' } }]);
       const v = await Promise.resolve(byEnv.evaluate({ principal: alice, permission: 'file:read', resource: f1, env: { required_role: 'maintainer' } }, ctx()));
       expect(v.cacheable).to.equal(false);
@@ -305,7 +305,7 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(byAttribute, 'file:read', f1, who({ min: 'viewer' }))).cacheable).to.equal(true);
     });
 
-    it('m5, m7, R1(f): a condition over resource.* that no vote can follow per row is refused at boot', async () => {
+    it('a condition over resource.* that no vote can follow per row is refused at boot', async () => {
       const wild = { attr: 'resource.name', wildcard: 'release/*' };
       const x = { attr: 'principal.attributes.x', eq: true };
       await rejects(model([assignment('a1', 'editor')], [capOf({ when: { attr: 'resource.name', eq: 'x' } })]), 'its when reads resource.*, which a cap rule cannot follow per row');
@@ -316,17 +316,23 @@ describe('authz-rbac rules (B35)', () => {
       await model([], [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:read'], minRole: 'maintainer', when: wild, resource: wild }]);
     });
 
-    it('r10: a stored restrict or cap with resource fails the check, as the config schema refuses it', async () => {
-      const defs: RuleDef[] = [{ ...capOf({ resource: { attr: 'resource.name', eq: 'x' } }), source: 'db' }];
-      // Not a ConfigRuleStore, which refuses the rule when it reads it.
-      const store: RuleStore = { name: 'remote', forPath: async () => defs, version: async () => '1' };
-      const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore([assignment('a1', 'editor')]), rules: store, log: { warn: () => undefined } });
-      await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
-      await rejects(vote(m, 'file:edit', f1), 'resource belongs to a threshold');
+    it('a stored rule the config schema would refuse fails the check with a named error', async () => {
+      const cases: [Omit<RuleDef, 'source'>, string][] = [
+        [capOf({ resource: { attr: 'resource.name', eq: 'x' } }), 'resource belongs to a threshold'],
+        [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:edit'] } as Omit<RuleDef, 'source'>, 'a threshold needs minRole'],
+        [{ id: 'c', kind: 'cap', scope: GLOBAL, maxRole: 'viewer' }, 'a cap with maxRole needs the ladder'],
+      ];
+      for (const [def, message] of cases) {
+        // Not a ConfigRuleStore, which refuses the rule when it reads it.
+        const store: RuleStore = { name: 'remote', forPath: async () => [{ ...def, source: 'db' }], version: async () => '1' };
+        const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore([assignment('a1', 'editor')]), rules: store, log: { warn: () => undefined } });
+        await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));
+        await rejects(vote(m, 'file:edit', f1), message);
+      }
     });
   });
 
-  describe('fix round 2', () => {
+  describe('rules where a scope node is missing, covers and caps', () => {
     const capOf = (extra: Partial<RuleDef>): Omit<RuleDef, 'source'> => ({ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', ...extra });
     const CANVAS_PERMISSIONS: PermissionInput[] = [...['file:read', 'file:edit', 'project:export', 'repo:read', 'grants:invite', 'project:delete'].map((name) => ({ name, types: ['org', 'project', 'file'] })), { name: 'user:read', types: ['user'] }, { name: 'fs:read', types: ['dir'] }];
     const CANVAS_LADDERS: LadderDef[] = [
@@ -347,14 +353,14 @@ describe('authz-rbac rules (B35)', () => {
       return m;
     }
 
-    it('I7: under the §8.5 rules, checks outside every org answer when no rule could act there', async () => {
+    it('under the §8.5 rules, checks outside every org answer when no rule could act there', async () => {
       const m = await canvas([assignment('a1', 'user')]);
       expect((await vote(m, 'user:read', U)).permitWhen).to.deep.equal(TRUE);
       expect((await vote(m, 'fs:read', D1)).permitWhen).to.deep.equal(TRUE);
       expect(await new RbacService(m).coversAt(alice, ['user'], U, ctx())).to.equal(true);
     });
 
-    it('I7: a rule that could act on a resource without its scope node still fails closed (B39)', async () => {
+    it('a rule that could act on a resource without its scope node still fails closed (B39)', async () => {
       const m = await canvas([assignment('a1', 'editor', P3)]);
       await rejects(vote(m, 'file:edit', f3), 'no org ancestor');
       const restrict = await model([assignment('a1', 'editor')], [{ id: 'r', kind: 'restrict', scope: P3, allow: [], when: { attr: 'scope.org.policies.locked', eq: true } }]);
@@ -367,7 +373,7 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(met, 'file:read', f3)).denies).to.equal(undefined);
     });
 
-    it('n2: an in-memory store without a live rule keeps the synchronous covers at a resource', async () => {
+    it('an in-memory store without a live rule keeps the synchronous covers at a resource', async () => {
       const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1, expiresAt: new Date(NOW.getTime() - 1) })]);
       await m.preload(alice, ctx());
       expect(new RbacService(m).covers(alice, ['editor'], f1)).to.equal(true);
@@ -376,7 +382,7 @@ describe('authz-rbac rules (B35)', () => {
       expect(() => new RbacService(live).covers(alice, ['editor'], { type: 'file' })).to.throw(AuthzConfigError, 'coversAt');
     });
 
-    it('F: a rule whose condition is a definite false does not read its maxRole or minRole ref', async () => {
+    it('a rule whose condition is a definite false does not read its maxRole or minRole ref', async () => {
       const notX = { attr: 'principal.attributes.x', eq: true };
       const who = (attributes: Record<string, unknown>) => userPrincipal('alice', { attributes });
       const off = who({ x: false });
@@ -388,7 +394,7 @@ describe('authz-rbac rules (B35)', () => {
       await rejects(vote(capped, 'file:edit', f1, who({ x: true })), 'has no value');
     });
 
-    it('r1: covers judges rule expiry at the request time, as the read itself does', async () => {
+    it('covers judges rule expiry at the request time, as the read itself does', async () => {
       // The model clock is the system clock, days after NOW: the rule has expired there but is live at ctx.now.
       const m = await model([assignment('a1', 'editor')], [capOf({ scope: O1, expiresAt: new Date(NOW.getTime() + HOUR) })]);
       const c = ctx();
@@ -396,7 +402,7 @@ describe('authz-rbac rules (B35)', () => {
       expect(() => new RbacService(m).covers(alice, ['editor'], f1, c)).to.throw(AuthzConfigError, 'coversAt');
     });
 
-    it('n3: a cap also drops a role of another ladder that extends above it', async () => {
+    it('a cap also drops a role of another ladder that extends above it', async () => {
       const roles = [...ROLES.filter((r) => r.name !== 'org.owner'), role('org.owner', ['org:audit'], { ladder: 'org', extends: ['maintainer'] })];
       const m = await model([assignment('a1', 'org.owner', O1)], [capOf({})], roles);
       expect((await vote(m, 'file:admin', f1)).permitWhen).to.deep.equal(FALSE);
@@ -404,7 +410,7 @@ describe('authz-rbac rules (B35)', () => {
       expect((await vote(m, 'org:audit', f1)).roles).to.deep.equal({});
     });
 
-    it('n4: a cap condition that reads the row through a function arg is refused at boot', async () => {
+    it('a cap condition that reads the row through a function arg is refused at boot', async () => {
       await rejects(model([assignment('a1', 'editor')], [capOf({ when: { fn: 'glob', args: { value: { ref: 'resource.name' }, pattern: 'x*' } } })]), 'cannot follow per row');
     });
   });

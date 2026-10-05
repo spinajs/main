@@ -21,8 +21,6 @@ export interface ImpliedEntry {
   readonly at: ImpliedRole['at'];
   readonly tags: readonly string[];
   readonly bypass: readonly ('restrict' | 'cap')[];
-  /** The role whose definition declares it (the holder itself or one in its closure). */
-  readonly from: string;
 }
 
 export interface ImpliesIndex {
@@ -35,14 +33,10 @@ const BYPASS = new Set(['restrict', 'cap']);
 const RULE = 'design §6.5 rule 9';
 const NONE: readonly never[] = Object.freeze([]);
 
-/** @throws AuthzConfigError for a malformed `implies` list or entry, or one naming an unknown role (design §6.5 rule 9) */
-export function checkImplies(defs: ReadonlyMap<string, RoleDef>): void {
-  for (const [name, def] of defs) ownImplies(name, def, defs);
-}
-
 /**
  * What each role implies through its closure.
- * @throws AuthzConfigError as checkImplies does, and for a role that is implied while it implies roles itself
+ * @throws AuthzConfigError for a malformed `implies` list or entry, one naming an unknown role, or a role
+ *   that is implied while it implies roles itself (design §6.5 rule 9)
  */
 export function compileImplies(graph: RoleGraph): ImpliesIndex {
   const defs = new Map(graph.names.map((name) => [name, graph.get(name)!.def]));
@@ -81,7 +75,6 @@ function ownImplies(name: string, def: RoleDef, defs: ReadonlyMap<string, RoleDe
         at: e.at as ImpliedRole['at'],
         tags: Object.freeze([...new Set((e.tags as string[] | undefined) ?? [])]),
         bypass: Object.freeze([...new Set((e.bypass as ('restrict' | 'cap')[] | undefined) ?? [])]),
-        from: name,
       });
     }),
   );

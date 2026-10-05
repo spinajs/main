@@ -203,7 +203,7 @@ describe('authz-rbac share links', () => {
       for (const token of ['AuthorizationModel', 'RoleStore', 'RuleStore']) expect(container.hasRegistered(token, false), token).to.equal(false);
     });
 
-    it('refuses two rule stores of one sort from their classes, before registering anything (N1)', async () => {
+    it('refuses two rule stores of one sort from their classes, before registering anything', async () => {
       container.register(OtherConfigRuleStore).asSelf();
       let thrown: unknown;
       try {
@@ -215,7 +215,7 @@ describe('authz-rbac share links', () => {
       for (const token of ['AuthorizationModel', 'RoleStore', 'RuleStore', 'AssignmentStore']) expect(container.hasRegistered(token, false), token).to.equal(false);
     });
 
-    it('a child domain under a parent that ran registerRbac reads its own rule stores only (N2)', async () => {
+    it('a child domain under a parent that ran registerRbac reads its own rule stores only', async () => {
       container.register(OtherConfigRuleStore).asSelf();
       const parentConfig = config({ roles: ['ConfigRoleStore'], assignments: ['DbAssignmentStore'], rules: ['OtherConfigRuleStore'] });
       await registerRbac(container, parentConfig);

@@ -168,7 +168,8 @@ export class RbacModel extends AuthorizationModel {
    * - At any other `at`, the permission is judged at `at`, if its `types` hold `at`'s type.
    * - `roles` lists only the assignments that hold at `at` (at `$global`: GLOBAL ones), after
    *   restrict and cap, each with its effective role; permissions from bare-type or scoped
-   *   assignments appear without their roles.
+   *   assignments appear without their roles. At a bare type (`{ type }`), rules that apply per
+   *   row are not run, so `roles` there are before those rules (permissions are still conditional).
    * - Rules that would apply per row of a type-level probe (RuleRowsError) are left out of that
    *   probe, and its permissions are listed as conditional: rules only narrow, so nothing is lost.
    */
@@ -221,9 +222,10 @@ export class RbacModel extends AuthorizationModel {
    * request snapshot in `ctx` (then at ctx.now), else from the cache across requests (at the model clock),
    * ceiling.roles applied. Without ancestors, the path is `at` and
    * GLOBAL only (and, at a type, that type).
-   * @throws AuthzConfigError when the roles are stale, the subjects or an extension's gather need IO,
-   *   the assignments are not cached, or `at` is not GLOBAL while rules may apply: a rule store
-   *   that is not in memory, or an in-memory one with a live rule (never a guess)
+   * @throws AuthzConfigError when the roles are stale, the subjects or an extension's gather need IO
+   *   (with a rule store that is not in memory, such as DbRuleStore, at every `at`, GLOBAL included),
+   *   the assignments are not cached, or `at` is not GLOBAL while an in-memory store has a live
+   *   rule (never a guess)
    */
   heldNow(principal: Principal, at: ResourceRef = GLOBAL, ctx?: EvaluationContext): readonly LiveAssignment[] {
     this.state();

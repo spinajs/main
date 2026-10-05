@@ -4,7 +4,7 @@ import { FakeScopeResolver, evaluateFilter, fakeEvaluationContext, fakeModelInit
 import * as chai from 'chai';
 import 'mocha';
 
-import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacModel, RuleRowsError, createRbacExtensions, parseRbacListArgs, ruleStoreParts, rbacAssignmentArgsV2, rbacAssignmentExtension } from '../../src/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacModel, RuleRowsError, createRbacExtensions, MAX_LIST_ARGS_LENGTH, MAX_LIST_ITEMS, parseRbacListArgs, rbacThresholdArgs, ruleStoreParts, rbacAssignmentArgsV2, rbacAssignmentExtension } from '../../src/index.js';
 import type { GrantDef, LadderDef, RbacAssignmentArgsV2, RbacThresholdArgs, RoleDef, RuleStore } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -315,11 +315,11 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
     });
   });
 
-  describe('review fixes', () => {
+  describe('binding the request into the list terms', () => {
     const editorAtP1 = [assignment('a1', 'editor', P1)];
     const at = (hhmm: string) => new Date(`2026-10-01T${hhmm}:00.000Z`);
 
-    it('C1 (A1): a time.between leaf binds per request: uncacheable, never memoised, exact at each time', async () => {
+    it('a time.between leaf binds per request: uncacheable, never memoised, exact at each time', async () => {
       const b = await build(editorAtP1, [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:edit'], minRole: 'maintainer', when: { fn: 'time.between', args: { from: '11:00', to: '13:00' } } }]);
       const late = await vote(b, 'file:edit', FILE, userPrincipal('alice'), b.ctx(at('15:00')));
       expect(late.cacheable).to.equal(false);
@@ -330,7 +330,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect(terms(noon.denyWhen, RBAC_THRESHOLD_OP)).to.have.length(1);
     });
 
-    it('C1 (A2): an ip.in leaf reading env.ip binds per request', async () => {
+    it('an ip.in leaf reading env.ip binds per request', async () => {
       const b = await build(editorAtP1, [{ id: 't', kind: 'threshold', scope: GLOBAL, permissions: ['file:edit'], minRole: 'maintainer', when: { not: { fn: 'ip.in', args: { cidrs: ['10.0.0.0/8'] } } } }]);
       expect(await agrees(b, 'file:edit', userPrincipal('alice'), { env: { ip: '10.1.2.3' } })).to.deep.equal([]);
       expect(await agrees(b, 'file:edit', userPrincipal('alice'), { env: { ip: '8.8.8.8' } })).to.deep.equal([]);
@@ -338,7 +338,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect(v.cacheable).to.equal(false);
     });
 
-    it('I1 (B): principal.id compared with a scope ref is bound with the operands swapped; checks are not affected', async () => {
+    it('principal.id compared with a scope ref is bound with the operands swapped; checks are not affected', async () => {
       const rules: Omit<RuleDef, 'source'>[] = [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: 'viewer', when: { attr: 'principal.id', eq: { ref: 'scope.org.owner' } } }];
       const b = await build([assignment('a1', 'editor')], rules);
       expect((await vote(b, 'file:edit', FILES[0].ref)).permitWhen.op).to.equal('true');
@@ -348,7 +348,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       for (const who of ['alice', 'bob']) expect(await agrees(b, 'file:edit', userPrincipal(who)), who).to.deep.equal([]);
     });
 
-    it('I1 (C): a ref the principal lacks makes the rule indeterminate: rows on its path are refused, the rest answer; checks are not affected', async () => {
+    it('a ref the principal lacks makes the rule indeterminate: rows on its path are refused, the rest answer; checks are not affected', async () => {
       const b = await build([assignment('a1', 'editor')], [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: { ref: 'principal.attributes.max' } }]);
       expect((await vote(b, 'file:edit', FILES[0].ref)).permitWhen.op).to.equal('true');
       const [args] = terms((await vote(b, 'file:edit', FILE)).permitWhen, RBAC_ASSIGNMENT_OP) as RbacAssignmentArgsV2[];
@@ -358,7 +358,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect(summary.permissions.find((p) => p.name === 'file:edit')).to.deep.equal({ name: 'file:edit', conditional: true });
     });
 
-    it('F: a rule whose condition is a definite false does not read its maxRole or minRole ref', async () => {
+    it('a rule whose condition is a definite false does not read its maxRole or minRole ref', async () => {
       const notX = { attr: 'principal.attributes.x', eq: true };
       const b = await build(editorAtP1, [
         { id: 'c', kind: 'cap', scope: O1, ladder: 'project', maxRole: { ref: 'principal.attributes.max' }, when: notX },
@@ -377,7 +377,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect(await agrees(b, 'file:edit', on)).to.deep.equal([]);
     });
 
-    it('B22 (r2): an indeterminate binding is kept per principal, so a list after preload answers synchronously', async () => {
+    it('B22: an indeterminate binding is kept per principal, so a list after preload answers synchronously', async () => {
       const b = await build(editorAtP1, [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: { ref: 'principal.attributes.max' } }]);
       const c = b.ctx();
       const alice = userPrincipal('alice');
@@ -387,7 +387,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect((terms((v as Vote).permitWhen, RBAC_ASSIGNMENT_OP)[0] as RbacAssignmentArgsV2).rules).to.deep.equal([{ id: 'c', indeterminate: true, kind: 'cap', scope: { id: 'o2', type: 'org' } }]);
     });
 
-    it('R1(c): a leaf whose request side is missing still reads its scope path: f5, in no org, is not listed where its check fails', async () => {
+    it('a leaf whose request side is missing still reads its scope path: f5, in no org, is not listed where its check fails', async () => {
       const when = [
         { attr: 'principal.attributes.lvl', lt: { ref: 'scope.org.level' } },
         { attr: 'scope.org.level', gt: { ref: 'principal.attributes.lvl' } },
@@ -407,7 +407,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       }
     });
 
-    describe('R1(d), R1(e): the binder keeps every scope read the check makes', () => {
+    describe('the binder keeps every scope read the check makes', () => {
       const x = (v: boolean | Record<string, unknown>) => userPrincipal('alice', { attributes: typeof v === 'boolean' ? { x: v, lvl: '2' } : v });
       const cases: [string, Omit<RuleDef, 'source'>, boolean | Record<string, unknown>][] = [
         [
@@ -502,7 +502,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       }
     });
 
-    it('R1(f): a stored rule over resource.* that no vote can follow: the check fails closed, the list refuses the rows', async () => {
+    it('a stored rule over resource.* that no vote can follow: the check fails closed, the list refuses the rows', async () => {
       const x = { attr: 'principal.attributes.x', eq: true };
       const defs = [rule({ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: { ref: 'scope.org.max' }, when: x, subjects: { when: { any: [x, { attr: 'resource.name', wildcard: 'release/*' }] } } })];
       // Not a ConfigRuleStore, which refuses the rule when it reads it.
@@ -520,7 +520,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       for (const row of FILES) expect(await allows(list, row, alice, c), row.ref.id).to.equal(false);
     });
 
-    describe('I2: a stored rule that reads request facts refuses every row on its path', () => {
+    describe('a stored rule that reads request facts refuses every row on its path', () => {
       const neverWider = (found: string[]) => found.filter((m) => m.includes('listed true'));
       const listed = async (b: Built, permission: string, principal: Principal) => {
         const c = b.ctx();
@@ -530,7 +530,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
         return out;
       };
 
-      it('D1: a null test on a principal attribute: no row under the rule is listed', async () => {
+      it('a null test on a principal attribute: no row under the rule is listed', async () => {
         const b = await build([assignment('a1', 'editor')], remote([{ id: 'c', kind: 'cap', scope: GLOBAL, ladder: 'project', maxRole: 'viewer', when: { not: { attr: 'principal.attributes.vip', null: true } } }]));
         const vip = userPrincipal('alice', { attributes: { vip: true } });
         expect(await agrees(b, 'file:edit', vip)).to.deep.equal([]);
@@ -538,7 +538,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
         expect(await listed(b, 'file:read', vip)).to.deep.equal([]);
       });
 
-      it('D2: a restrict on principal.authenticated refuses the rows under it; the others answer', async () => {
+      it('a restrict on principal.authenticated refuses the rows under it; the others answer', async () => {
         const anonymous = { ...userPrincipal('anon'), type: 'anonymous', authenticated: false } as Principal;
         const b = await build([assignment('a1', 'editor', GLOBAL, { subject: { type: 'anonymous', id: 'anon' } })], remote([{ id: 'r', kind: 'restrict', scope: P1, allow: [], when: { attr: 'principal.authenticated', eq: false } }]));
         expect(await agrees(b, 'file:edit', anonymous)).to.deep.equal([]);
@@ -564,7 +564,7 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       });
     });
 
-    it('I4: the evaluator requires the route fields: a holder outside route.roles does not pass', async () => {
+    it('the evaluator requires the route fields: a holder outside route.roles does not pass', async () => {
       const b = await build([assignment('a1', 'editor')], [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: 'viewer' }]);
       const c = b.ctx();
       const v = await vote(b, 'file:edit', FILE, userPrincipal('alice'), c);
@@ -590,6 +590,17 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       expect(() => parseRbacListArgs(RBAC_ASSIGNMENT_OP, { ...args, rules: [args.rules[0], args.rules[0]] })).to.throw('share an id');
       expect(() => parseRbacListArgs(RBAC_ASSIGNMENT_OP, { ...args, route: { ...args.route, grant: 0.5 } })).to.throw('route must be');
       expect(() => parseRbacListArgs(RBAC_ASSIGNMENT_OP, { ...args, rules: [{ ...args.rules[0], indeterminate: false }] })).to.throw('indeterminate');
+    });
+
+    it('the builders refuse what the parser would: lists past MAX_LIST_ITEMS, args past MAX_LIST_ARGS_LENGTH', async () => {
+      const b = await build(editorAtP1, [{ id: 'c', kind: 'cap', scope: O2, ladder: 'project', maxRole: 'viewer' }]);
+      const [args] = terms((await vote(b, 'file:edit', FILE)).permitWhen, RBAC_ASSIGNMENT_OP) as RbacAssignmentArgsV2[];
+      const many = Array.from({ length: MAX_LIST_ITEMS + 1 }, (_, i) => `r${i}`);
+      expect(() => rbacAssignmentArgsV2({ ...args, ceilingRoles: many }, args.route)).to.throw('ceilingRoles exceed');
+      expect(() => rbacAssignmentArgsV2(args, { ...args.route, roles: many })).to.throw('route roles exceed');
+      expect(() => rbacThresholdArgs({ ...args, companions: many.map((id) => ({ type: 'user', id })) }, { db: true })).to.throw('companions exceed');
+      const long = 'x'.repeat(MAX_LIST_ARGS_LENGTH);
+      expect(() => rbacThresholdArgs({ ...args, permission: long }, { db: true })).to.throw('characters exceed');
     });
 
     it('the binding memo keeps the most recently used principals; per-request bindings are never kept', async () => {
@@ -627,6 +638,35 @@ describe('authz-rbac lists under rules (args v2, native:rbac.threshold)', () => 
       // f1 under the DB restrict at p1, f3 free, f4 under the config cap at o2.
       expect([await op('file:read', 0), await op('file:edit', 2), await op('file:edit', 3), await op('file:read', 3)]).to.deep.equal(['false', 'true', 'false', 'true']);
       for (const p of ['file:read', 'file:edit']) expect(await agrees(b, p), p).to.deep.equal([]);
+    });
+
+    it('reads each path of the DB part once per request: checks and summarize share the read', async () => {
+      let reads = 0;
+      const inner = remote([{ id: 'r', kind: 'restrict', scope: P2, allow: [] }]);
+      const counting: RuleStore = {
+        name: 'remote',
+        forPath: (path, at) => {
+          reads++;
+          return inner.forPath(path, at);
+        },
+        version: () => inner.version(),
+      };
+      const b = await build([assignment('a1', 'editor')], [], { db: counting });
+      const c = b.ctx();
+      for (const p of ['file:read', 'file:edit', 'file:admin']) await vote(b, p, FILES[0].ref, userPrincipal('alice'), c);
+      await b.model.summarize(userPrincipal('alice'), FILES[0].ref, c);
+      expect(reads).to.equal(1);
+      await vote(b, 'file:read', FILES[0].ref);
+      expect(reads, 'another request reads again').to.equal(2);
+    });
+
+    it('two DB rule stores with one name do not share a request read', async () => {
+      const restricted = await build([assignment('a1', 'editor')], [], { db: remote([{ id: 'r', kind: 'restrict', scope: P1, allow: [] }]) });
+      const open = await build([assignment('a1', 'editor')], [], { db: remote([]) });
+      const c = restricted.ctx();
+      expect((await vote(restricted, 'file:read', FILES[0].ref, userPrincipal('alice'), c)).permitWhen.op).to.equal('false');
+      expect((await vote(open, 'file:read', FILES[0].ref, userPrincipal('alice'), c)).permitWhen.op).to.equal('true');
+      expect((await vote(restricted, 'file:read', FILES[0].ref, userPrincipal('alice'), c)).permitWhen.op).to.equal('false');
     });
 
     it('two stores of one sort are refused', () => {

@@ -107,12 +107,34 @@ export class RulesExtension implements RbacExtension {
     if (!config && !db) return {};
     const activate = () => {
       const own = config ? config.rulesOn(input.path, input.now) : [];
-      return db ? db.forPath(input.path, input.now).then((stored) => this.activate([...own, ...stored], request, ctx, input)) : this.activate(own, request, ctx, input);
+      return db ? this.dbRulesOn(input.path, input.now, ctx).then((stored) => this.activate([...own, ...stored], request, ctx, input)) : this.activate(own, request, ctx, input);
     };
     // Any request with a context binds the config rules for this principal, so a list after preload needs no async step (B22).
     // Best effort: whatever the binding meets, the check's own answer is the one above.
     const warm = listers.length > 0 && config && usable(ctx) ? this.boundSet(request, ctx, input) : undefined;
     return warm instanceof Promise ? warm.then(activate, activate) : activate();
+  }
+
+  /**
+   * The DB part's rules on `path` at `at`: one store read per path and time within a request
+   * (ctx.cache is per request), so a check, its list rows and summarize's probes share it.
+   */
+  dbRulesOn(path: readonly ResourceRef[], at: Date, ctx: EvaluationContext): Promise<readonly RuleDef[]> {
+    const db = this.db;
+    if (!db) return Promise.resolve([]);
+    const cache = requestCache(ctx);
+    // Keyed by store identity: two stores may share a name (a subclass keeps its parent's).
+    let byStore = cache?.get(DB_RULES_KEY) as WeakMap<RuleStore, Map<string, Promise<readonly RuleDef[]>>> | undefined;
+    if (cache && !byStore) cache.set(DB_RULES_KEY, (byStore = new WeakMap()));
+    let reads = byStore?.get(db);
+    if (byStore && !reads) byStore.set(db, (reads = new Map()));
+    const key = `${at.getTime()}:${JSON.stringify(path.map(resourceKey))}`;
+    let read = reads?.get(key);
+    if (!read) {
+      read = db.forPath(path, at);
+      reads?.set(key, read);
+    }
+    return read;
   }
 
   /** The rules part of a list vote: the config rules bound to the request, and the DB rules read per row. */
@@ -250,7 +272,18 @@ interface BoundSet {
 
 const MAX_BOUND_PRINCIPALS = 256;
 
-// A synchronous read (RbacModel.heldNow) passes a context that throws on every access: nothing to bind with.
+const DB_RULES_KEY = 'rbac:db-rules';
+
+// RbacModel.heldNow passes a context that throws on every access.
+function requestCache(ctx: EvaluationContext): Map<string, unknown> | undefined {
+  try {
+    return ctx.cache;
+  } catch {
+    return undefined;
+  }
+}
+
+// A synchronous read (RbacModel.heldNow) has nothing to bind with.
 function usable(ctx: EvaluationContext): boolean {
   try {
     return ctx.conditions !== undefined;

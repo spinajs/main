@@ -26,8 +26,9 @@ import type { RbacArgsSubject } from '../native.js';
  *   `actor.*` and `env.*` parts of conditions and refs replaced by constants. `when` holds
  *   `subjects.when` too; the model refuses at boot a `subjects.when`, or a restrict or cap `when`,
  *   that reads `resource.*`. What remains reads the row: `scope`, `rank`, `scope.<type>.*`, and
- *   `resource.*` in a threshold's `when` or `resource`. A rule whose condition is FALSE for this request is left out only when no part
- *   of it reads `scope.<type>.*`; otherwise it is listed with that condition, for its scope reads.
+ *   `resource.*` in a threshold's `when` or `resource`. A rule whose condition is FALSE for this
+ *   request is left out only when no part of it reads `scope.<type>.*`; otherwise it is listed
+ *   with that condition, for its scope reads.
  *   A rule with `indeterminate: true` is one a check could not decide (a `{ ref }` without a value,
  *   a condition the compiler refuses): every row on its path is refused, as the check fails there.
  *   The check skips such a rule on rows where its condition is FALSE; the list refuses those rows
@@ -88,9 +89,10 @@ import type { RbacArgsSubject } from '../native.js';
  * SQL must not let NULL flip `NOT EXISTS (… whenSql …)` or `NOT capped(…)` into access: compile
  * `whenSql` so NULL counts as TRUE inside restrict, cap and threshold sub-queries (COALESCE).
  *
- * Canonical (a decision cache key): object keys sorted, `subjects` by subjectKey, `config`,
- * `companions` and `rules` sorted, no duplicates. A compiler refuses another `v` or an unknown key;
- * the parsers here do.
+ * Canonical (a decision cache key): object keys sorted; `subjects`, `config` and `companions`
+ * sorted by their canonical JSON, `rules` by id, `ceilingRoles` and the route's lists by name
+ * (UTF-16 code units, as JavaScript compares strings); no duplicates. A compiler refuses another
+ * `v` or an unknown key; the parsers here do. The builders refuse what the parsers would.
  */
 
 export type BoundCondition = Condition | { readonly const: boolean | null } | { readonly all: readonly BoundCondition[] } | { readonly any: readonly BoundCondition[] } | { readonly not: BoundCondition };
@@ -156,12 +158,19 @@ export const MAX_LIST_ARGS_LENGTH = 1_000_000;
 
 /** The canonical args v2 of `native:rbac.assignment`. @throws Error past the size bounds */
 export function rbacAssignmentArgsV2(context: RbacListContext, route: RbacRoute): RbacAssignmentArgsV2 {
-  return canonical({ v: 2, ...canonicalContext(context), route: { ...route, roles: sortedUnique(route.roles), ...(route.grantedAt ? { grantedAt: sortedUnique(route.grantedAt) } : {}) } }) as RbacAssignmentArgsV2;
+  if (route.roles.length > MAX_LIST_ITEMS) throw new Error(`rbac: ${route.roles.length} route roles exceed the ${MAX_LIST_ITEMS} a list term may hold`);
+  return bounded(canonical({ v: 2, ...canonicalContext(context), route: { ...route, roles: sortedUnique(route.roles), ...(route.grantedAt ? { grantedAt: sortedUnique(route.grantedAt) } : {}) } }) as RbacAssignmentArgsV2);
 }
 
 /** The canonical args of `native:rbac.threshold`. @throws Error past the size bounds */
 export function rbacThresholdArgs(context: RbacListContext, threshold: RbacThresholdArgs['threshold']): RbacThresholdArgs {
-  return canonical({ v: 1, ...canonicalContext(context), threshold }) as RbacThresholdArgs;
+  return bounded(canonical({ v: 1, ...canonicalContext(context), threshold }) as RbacThresholdArgs);
+}
+
+function bounded<T>(args: T): T {
+  const length = JSON.stringify(args).length;
+  if (length > MAX_LIST_ARGS_LENGTH) throw new Error(`rbac: list args of ${length} characters exceed the ${MAX_LIST_ARGS_LENGTH} a list term may hold`);
+  return args;
 }
 
 function canonicalContext(c: RbacListContext): RbacListContext {
@@ -172,6 +181,13 @@ function canonicalContext(c: RbacListContext): RbacListContext {
   }
   if (subjects.size > MAX_LIST_SUBJECTS) throw new Error(`rbac: ${subjects.size} subjects exceed the ${MAX_LIST_SUBJECTS} a list term may hold`);
   if (c.rules.length > MAX_LIST_RULES) throw new Error(`rbac: ${c.rules.length} rules exceed the ${MAX_LIST_RULES} a list term may hold`);
+  for (const [what, list] of [
+    ['config', c.config],
+    ['companions', c.companions],
+    ['ceilingRoles', c.ceilingRoles ?? []],
+  ] as const) {
+    if (list.length > MAX_LIST_ITEMS) throw new Error(`rbac: ${list.length} ${what} exceed the ${MAX_LIST_ITEMS} a list term may hold`);
+  }
   const byJson = <T>(list: readonly T[]) => [...new Map(list.map((x) => [JSON.stringify(canonical(x)), x])).entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, x]) => x);
   return {
     permission: c.permission,

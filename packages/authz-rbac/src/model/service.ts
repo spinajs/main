@@ -70,9 +70,11 @@ export class RbacService {
    *   (and its bare type), after `ceiling.roles`. A wanted grant whose permission lies outside
    *   `ceiling.permissions`, or any wanted grant past `ceiling.expiresAt`, is not covered.
    *   Assignments at ancestors of `at` are not read: coversAt is the AdminGuard's primary path.
+   * Role definitions only: the holder's tags, thresholds and rule selectors are not judged, so a
+   * caller that needs them asks checks (as CheckRbacAdminFacts does).
    * @throws AuthzConfigError for an agent principal, a `ceiling.resources` that does not hold `at`
-   *   (or GLOBAL) by key, assignments not preloaded, stale roles, or an `at` other than GLOBAL while
-   *   rules may apply (a rule store not in memory, or a live in-memory rule): use coversAt
+   *   (or GLOBAL) by key, assignments not preloaded, stale roles, a rule store that is not in memory
+   *   (at every `at`), or an `at` other than GLOBAL while an in-memory rule is live: use coversAt
    */
   covers(holder: Principal | readonly string[], wanted: readonly string[], at?: ResourceRef, ctx?: EvaluationContext): boolean {
     if (isRoleList(holder)) return this.coversRoles(this.withImpliedEverywhere(holder), wanted);

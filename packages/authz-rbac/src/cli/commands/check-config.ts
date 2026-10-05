@@ -6,8 +6,8 @@ import type { OrmDriver } from '@spinajs/orm';
 
 import { RoleStore } from '../../contracts.js';
 import type { GrantDef } from '../../contracts.js';
-// Registers ConfigRoleStore by name: the CLI loads only the command modules.
 import { RBAC_SERVICE_NAME } from '../../host/register.js';
+// Registers ConfigRoleStore by name: the CLI loads only the command modules.
 import { rbacStoreNames } from '../../stores/index.js';
 import { CliUsageError } from '../args.js';
 import { AuthzCliCommand } from '../base.js';
