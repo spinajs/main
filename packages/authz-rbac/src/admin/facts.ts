@@ -1,8 +1,8 @@
-import { AuthzConfigError, SYSTEM, isPermission, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
-import type { AdminContext, Decision, Permission, Principal, ResourceRef } from '@spinajs/authz';
+import { AuthzConfigError, SYSTEM, isPermission, isPermissionGlob, subtractFieldGlobs, unionFieldGlobs } from '@spinajs/authz';
+import type { AdminContext, Decision, FieldSet, Permission, PermissionRegistry, Principal, ResourceRef } from '@spinajs/authz';
 import { Injectable, Singleton } from '@spinajs/di';
 
-import { grantClosure, ladderAppliesAt, rankOf, roleClosure, roleIndex } from './common.js';
+import { grantClosure, grantedPermissions, ladderAppliesAt, permissionRegistry, rankOf, roleClosure, roleIndex } from './common.js';
 
 /** What DefaultAdminGuard needs to know about the actor; L1's RbacService is expected to back it exactly (hand-off). */
 export abstract class RbacAdminFacts {
@@ -15,8 +15,18 @@ export abstract class RbacAdminFacts {
 const unconditional = (d: Decision | undefined): boolean => d?.allowed === true && d.residual?.op === 'true';
 
 /**
- * RbacAdminFacts from checks through ctx.authz. Fails closed where checks cannot answer without the
- * permission registry: a glob grant, an undefined role in the closure, an implied role that bypasses
+ * The permissions a grant gives, each with the field set it carries (undefined: every field), as the model
+ * compiles the grant (grantedPermissions); a matched permission without `fields: true` takes no field set.
+ */
+function given(registry: PermissionRegistry, permission: string, fields: FieldSet | undefined): { permission: Permission; fields: FieldSet | undefined }[] | undefined {
+  return grantedPermissions(registry, permission)?.map((def) => ({ permission: def.name, fields: def.fields === true ? fields : undefined }));
+}
+
+/**
+ * RbacAdminFacts from checks through ctx.authz. A grant asks for every permission it gives (`given`).
+ * Fails closed: any grant when no registry is reachable (not even a literal's implies are known then; the
+ * holder checks reject in that case), a grant whose permissions are unknown (an invalid or unregistered name,
+ * a glob that matches nothing), an undefined role in the closure, an implied role that bypasses
  * restrict or cap rules, or a check refused as a configuration error (a permission whose types exclude the
  * scope type) counts as not covered. Any other error of a check rejects. The implied roles of a ladder role
  * the actor ranks at or above are not followed (grantClosure).
@@ -39,16 +49,20 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     // Per permission: the field sets its grants give; undefined = a grant without fields. An absent read or write
     // inside a field set means every field, as the RBAC model compiles it.
     const wanted = new Map<Permission, { read: string[]; write: string[] } | undefined>();
+    const registry = await permissionRegistry(ctx);
     for (const def of defs) {
       for (const g of def.grants) {
-        if (!isPermission(g.permission)) return false;
-        const prev = wanted.has(g.permission) ? wanted.get(g.permission) : { read: [], write: [] };
-        if (prev === undefined || g.fields === undefined) {
-          wanted.set(g.permission, undefined);
-          continue;
+        const permissions = registry ? given(registry, g.permission, g.fields) : undefined;
+        if (!permissions) return false;
+        for (const { permission, fields } of permissions) {
+          const prev = wanted.has(permission) ? wanted.get(permission) : { read: [], write: [] };
+          if (prev === undefined || fields === undefined) {
+            wanted.set(permission, undefined);
+            continue;
+          }
+          const hide = fields.hide ?? [];
+          wanted.set(permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(fields.read ?? ['*'], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(fields.write ?? ['*'], hide)) });
         }
-        const hide = g.fields.hide ?? [];
-        wanted.set(g.permission, { read: unionFieldGlobs(prev.read, subtractFieldGlobs(g.fields.read ?? ['*'], hide)), write: unionFieldGlobs(prev.write, subtractFieldGlobs(g.fields.write ?? ['*'], hide)) });
       }
     }
     if (wanted.size === 0) return true;
@@ -73,14 +87,19 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     }
   }
 
-  /** Decision.roles is filled for every outcome (D-F5-8), so a check of any permission of the ladder answers. */
+  /**
+   * Decision.roles is filled for every outcome (D-F5-8), so a check of any permission of the ladder answers;
+   * a glob grant offers the registered permissions it matches.
+   */
   async effectiveRole(actor: Principal, ladder: string, scope: ResourceRef, ctx: AdminContext): Promise<string | undefined> {
     const roles = await roleIndex(ctx);
+    const registry = await permissionRegistry(ctx);
+    const probes = (grant: string): readonly Permission[] => (isPermission(grant) ? [grant] : registry && isPermissionGlob(grant) ? registry.match(grant).map((d) => d.name) : []);
     const tried = new Set<Permission>();
     for (const name of roles.ladders.get(ladder)?.roles ?? []) {
       for (const def of roleClosure(roles, name).defs) {
-        for (const { permission } of def.grants) {
-          if (!isPermission(permission) || tried.has(permission)) continue;
+        for (const permission of def.grants.flatMap((g) => probes(g.permission))) {
+          if (tried.has(permission)) continue;
           tried.add(permission);
           try {
             return (await ctx.authz.check({ principal: actor, permission, resource: scope })).roles?.[ladder];
