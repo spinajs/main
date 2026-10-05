@@ -6,8 +6,10 @@ import ajvKeywords from 'ajv-keywords';
 
 import { AUTHZ_CONFIGURATION_SCHEMA, AUTHZ_DEFAULTS, readDomainConfig, AUTHZ_LEGACY_KEYS, checkLegacyKeys, findLegacyKeys, AuthzConfigError, AuthzConfigBootstrapper } from '@spinajs/authz';
 import { DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { childWith, violationsOf } from './support.js';
 
 const expect = chai.expect;
 
@@ -375,6 +377,30 @@ describe('legacy keys', () => {
       expect(() => checkLegacyKeys(getter({ rbac: { roles: {} }, authz: { config: { rejectLegacyKeys: bad } } }), log)).to.throw(AuthzConfigError, 'rejectLegacyKeys');
       expect(warnings).to.deep.equal([]);
     }
+  });
+});
+
+describe('authz configuration through a child Configuration', function () {
+  this.timeout(30000);
+  const children: IContainer[] = [];
+
+  afterEach(async () => {
+    for (const c of children.splice(0)) await c.dispose();
+  });
+
+  async function booted(values: Record<string, unknown>) {
+    const { child, configuration } = await childWith(values);
+    children.push(child);
+    return configuration;
+  }
+
+  it('validates the values of the child with the authz schema, naming every full path', async () => {
+    expect(await violationsOf({ authz: { engine: { modelTimeoutMs: 0 }, domains: { 'a.b': { cache: { ttlSeconds: -1 } } } } })).to.include.members(['authz.engine.modelTimeoutMs', 'authz.domains.a.b.cache.ttlSeconds']);
+  });
+
+  it('boots a valid child Configuration with its values', async () => {
+    const configuration = await booted({ authz: { engine: { explain: true } } });
+    expect(configuration.get(['authz', 'engine', 'explain'])).to.equal(true);
   });
 });
 
