@@ -1,0 +1,727 @@
+{
+  "permissions": {
+    "project:read": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "project:export": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "inspect:view": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "code:view": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "history:read": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "repo:read": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "presence:join": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "comment:create": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "comment:resolve": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "mr:comment": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "mr:approve": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "file:edit": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "branch:create": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "version:save": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "version:restore": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "mr:create": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "repo:push": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "file:manage": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "library:read": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "library:use": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "library:render": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "branch:merge": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "library:publish": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "project:settings": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "grants:invite": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "grants:manage": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "project:delete": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "org:manage": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "org:billing": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    },
+    "audit:read": {
+      "types": [
+        "org",
+        "project",
+        "file",
+        "branch"
+      ]
+    }
+  },
+  "combine": {
+    "default": {
+      "algorithm": "deny-overrides",
+      "models": [
+        "rbac",
+        "abac"
+      ]
+    }
+  },
+  "rbac": {
+    "ladders": {
+      "project": {
+        "roles": [
+          "viewer",
+          "commenter",
+          "editor",
+          "maintainer"
+        ],
+        "resourceTypes": [
+          "project",
+          "file",
+          "branch"
+        ]
+      },
+      "org": {
+        "roles": [
+          "org.file_guest",
+          "org.guest",
+          "org.member",
+          "org.admin",
+          "org.owner"
+        ]
+      }
+    },
+    "roles": {
+      "viewer": {
+        "ladder": "project",
+        "grants": [
+          "project:read",
+          "project:export",
+          {
+            "permission": "inspect:view",
+            "requiresTag": "inspect"
+          },
+          {
+            "permission": "code:view",
+            "requiresTag": "code"
+          },
+          "history:read",
+          {
+            "permission": "repo:read",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          "presence:join",
+          {
+            "permission": "library:read",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          "library:render"
+        ]
+      },
+      "commenter": {
+        "ladder": "project",
+        "grants": [
+          "comment:create",
+          "comment:resolve",
+          {
+            "permission": "mr:comment",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          }
+        ]
+      },
+      "editor": {
+        "ladder": "project",
+        "grants": [
+          {
+            "permission": "mr:approve",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          "file:edit",
+          {
+            "permission": "branch:create",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          "version:save",
+          "version:restore",
+          {
+            "permission": "mr:create",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "repo:push",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "file:manage",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "library:use",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "branch:merge",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "grants:invite",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          }
+        ]
+      },
+      "maintainer": {
+        "ladder": "project",
+        "grants": [
+          {
+            "permission": "library:publish",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "project:settings",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "grants:manage",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          },
+          {
+            "permission": "project:delete",
+            "grantedAt": [
+              "project",
+              "org"
+            ]
+          }
+        ]
+      },
+      "org.file_guest": {
+        "ladder": "org",
+        "grants": []
+      },
+      "org.guest": {
+        "ladder": "org",
+        "grants": []
+      },
+      "org.member": {
+        "ladder": "org",
+        "subjectSet": true,
+        "grants": []
+      },
+      "org.admin": {
+        "ladder": "org",
+        "grants": [
+          "org:manage",
+          "audit:read"
+        ],
+        "implies": [
+          {
+            "role": "maintainer",
+            "at": "self-and-descendants",
+            "tags": [
+              "inspect",
+              "code"
+            ],
+            "bypass": [
+              "restrict",
+              "cap"
+            ]
+          }
+        ]
+      },
+      "org.owner": {
+        "ladder": "org",
+        "grants": [
+          "org:billing"
+        ]
+      },
+      "group.member": {
+        "subjectSet": true,
+        "grants": []
+      }
+    },
+    "rules": [
+      {
+        "id": "file-grant-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": "editor",
+        "assignments": {
+          "scopeTypes": [
+            "file"
+          ]
+        }
+      },
+      {
+        "id": "link-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": "commenter",
+        "assignments": {
+          "subjectTypes": [
+            "link"
+          ]
+        }
+      },
+      {
+        "id": "link-org-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": {
+          "ref": "scope.org.policies.max_link_role"
+        },
+        "assignments": {
+          "subjectTypes": [
+            "link"
+          ]
+        }
+      },
+      {
+        "id": "guest-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": "editor",
+        "subjects": {
+          "rank": {
+            "ladder": "org",
+            "at": "org",
+            "eq": "org.guest"
+          }
+        }
+      },
+      {
+        "id": "guest-org-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": {
+          "ref": "scope.org.policies.guest_max_role"
+        },
+        "subjects": {
+          "rank": {
+            "ladder": "org",
+            "at": "org",
+            "eq": "org.guest"
+          }
+        }
+      },
+      {
+        "id": "external-cap",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": {
+          "ref": "scope.org.policies.external_max_role"
+        },
+        "subjects": {
+          "principalTypes": [
+            "user"
+          ],
+          "rank": {
+            "ladder": "org",
+            "at": "org",
+            "lt": "org.guest"
+          }
+        }
+      },
+      {
+        "id": "external-sharing-off",
+        "kind": "cap",
+        "ladder": "project",
+        "maxRole": null,
+        "subjects": {
+          "principalTypes": [
+            "user"
+          ],
+          "rank": {
+            "ladder": "org",
+            "at": "org",
+            "lt": "org.guest"
+          }
+        },
+        "assignments": {
+          "subjectTypes": [
+            "user",
+            "group"
+          ]
+        },
+        "when": {
+          "attr": "scope.org.policies.external_sharing",
+          "eq": false
+        }
+      },
+      {
+        "id": "guest-addons",
+        "kind": "cap",
+        "stripTags": true,
+        "subjects": {
+          "principalTypes": [
+            "user"
+          ],
+          "rank": {
+            "ladder": "org",
+            "at": "org",
+            "lt": "org.member"
+          }
+        },
+        "when": {
+          "attr": "scope.org.policies.addons_for_guests",
+          "eq": false
+        }
+      },
+      {
+        "id": "link-addons",
+        "kind": "cap",
+        "stripTags": true,
+        "assignments": {
+          "subjectTypes": [
+            "link"
+          ]
+        },
+        "when": {
+          "attr": "scope.org.policies.addons_for_guests",
+          "eq": false
+        }
+      },
+      {
+        "id": "link-members-only",
+        "kind": "threshold",
+        "permissions": [
+          "*"
+        ],
+        "subjects": {
+          "principalTypes": [
+            "link"
+          ]
+        },
+        "when": {
+          "any": [
+            {
+              "attr": "principal.attributes.org_only",
+              "eq": true
+            },
+            {
+              "attr": "scope.org.policies.public_links",
+              "eq": false
+            }
+          ]
+        },
+        "ladder": "org",
+        "at": "org",
+        "minRole": "org.guest",
+        "reason": {
+          "code": "link_invalid",
+          "priority": 300
+        }
+      },
+      {
+        "id": "no-download",
+        "kind": "threshold",
+        "permissions": [
+          "project:export",
+          "repo:read"
+        ],
+        "minRole": "editor",
+        "when": {
+          "attr": "scope.org.policies.viewers_may_download",
+          "eq": false
+        },
+        "reason": {
+          "code": "policy",
+          "rule": "no_download"
+        }
+      },
+      {
+        "id": "editors-may-not-invite",
+        "kind": "threshold",
+        "permissions": [
+          "grants:invite"
+        ],
+        "minRole": "maintainer",
+        "when": {
+          "attr": "scope.org.policies.editors_may_invite",
+          "eq": false
+        },
+        "reason": {
+          "code": "policy",
+          "rule": "editors_may_not_invite"
+        }
+      },
+      {
+        "id": "delete-needs-org-admin",
+        "kind": "threshold",
+        "permissions": [
+          "project:delete"
+        ],
+        "ladder": "org",
+        "at": "org",
+        "minRole": "org.admin",
+        "when": {
+          "attr": "scope.org.policies.maintainers_may_delete",
+          "eq": false
+        },
+        "reason": {
+          "code": "policy",
+          "rule": "delete_needs_org_admin"
+        }
+      }
+    ],
+    "stores": {
+      "roles": [
+        "ConfigRoleStore"
+      ],
+      "assignments": [
+        "DbAssignmentStore"
+      ],
+      "rules": [
+        "ConfigRuleStore",
+        "DbRuleStore"
+      ],
+      "links": [
+        "DbLinkStore"
+      ]
+    }
+  },
+  "abac": {
+    "policies": [
+      {
+        "id": "agents-disabled",
+        "effect": "deny",
+        "actorTypes": [
+          "agent"
+        ],
+        "permissions": [
+          "*"
+        ],
+        "when": {
+          "attr": "scope.org.policies.agents_allowed",
+          "eq": false
+        },
+        "reason": "agents_disabled",
+        "priority": 100
+      }
+    ]
+  }
+}

@@ -57,5 +57,8 @@
     "@spinajs/configuration": "2.0.549",
     "@spinajs/di": "2.0.549",
     "fast-check": "^4.10.2"
+  },
+  "devDependencies": {
+    "@spinajs/authz-rbac": "3.0.0-alpha.0"
   }
 }
