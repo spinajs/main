@@ -42,14 +42,14 @@ export function bridgeTelemetryToken(cfg: Pick<Configuration, 'get' | 'set'>, lo
   cfg.set(SERVICES, [...services, ...entries]);
 }
 
-/** Runs {@link bridgeTelemetryToken} once the configuration is resolved. */
+/** Runs {@link bridgeTelemetryToken} on the Configuration, resolving it first when the bootstrappers run before it boots. */
 @Injectable(Bootstrapper)
 export class TelemetryServiceTokenBootstrapper extends Bootstrapper {
   @Logger('telemetry')
   protected Log: Log;
 
-  public bootstrap(): void {
-    const cfg = DI.get(Configuration);
-    if (cfg) bridgeTelemetryToken(cfg, this.Log);
+  public async bootstrap(): Promise<void> {
+    const cfg = await DI.resolve(Configuration);
+    bridgeTelemetryToken(cfg, this.Log);
   }
 }
