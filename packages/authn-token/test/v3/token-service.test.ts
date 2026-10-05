@@ -902,29 +902,18 @@ describe('DbTokenService', function () {
       expect(store.calls.status).to.deep.equal([a]);
     });
 
-    it('refuses to start with an empty prefix or fewer than 32 bytes', async () => {
-      for (const [key, value] of [
-        ['prefix', ''],
-        ['length', 16],
-      ] as const) {
-        setToken(key, value);
-        expect(() => new DbTokenService(new UsersTableTokenOwnerResolver(), profiles, identities), `${key} = ${value}`).to.throw(Error);
-        setToken(key, savedConfig.get(key));
-      }
-    });
-
-    it('refuses to mint when the ttl caps are not positive numbers', async () => {
+    // The schema refuses these at boot; a Configuration.set it never saw must still fail closed.
+    it('refuses every expiry while a ttl cap set at run time is not a positive number', async () => {
       const a = await owner();
       for (const [key, value] of [
         ['maxTtlDays', 0],
         ['maxTtlDays', 'ninety'],
         ['agentMaxTtlMinutes', -1],
+        ['agentMaxTtlMinutes', 'sixty'],
       ] as const) {
         setToken(key, value);
-        const before = await count();
-        const err = await create(a, { name: 'x', kind: key === 'maxTtlDays' ? 'pat' : 'agent', scope: key === 'maxTtlDays' ? undefined : { agent: true }, expiresAt: at(MINUTE) }).catch((e: unknown) => e);
-        expect(err, `${key} = ${value}`).to.be.instanceOf(Error);
-        expect(await count(), `${key} = ${value}: nothing stored`).to.equal(before);
+        const agentKind = key === 'agentMaxTtlMinutes';
+        await refused(a, { name: 'x', kind: agentKind ? 'agent' : 'pat', ...(agentKind ? { scope: { agent: true } } : {}), expiresAt: at(MINUTE) }, 'invalid_expiry', `${key} = ${value}`);
         setToken(key, savedConfig.get(key));
       }
     });

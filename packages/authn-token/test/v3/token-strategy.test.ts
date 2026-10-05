@@ -131,26 +131,6 @@ describe('TokenStrategy', function () {
       expect(strategy.interactive).to.equal(false);
     });
 
-    it('refuses to start with an empty prefix or a length of 31', async () => {
-      for (const [key, value] of [
-        ['prefix', ''],
-        ['length', 31],
-      ] as const) {
-        setToken(key, value);
-        const err = await new TokenStrategy(tokens).resolve().catch((e: unknown) => e);
-        expect(err, `${key} = ${value}`).to.be.instanceOf(Error);
-        setToken(key, savedConfig.get(key));
-      }
-    });
-
-    it('refuses to start with a lastUsedUpdateInterval that is not a non-negative number', async () => {
-      for (const value of [-1, 'sixty', Number.NaN]) {
-        setToken('lastUsedUpdateInterval', value);
-        const err = await new TokenStrategy(tokens).resolve().catch((e: unknown) => e);
-        expect(err, `interval = ${String(value)}`).to.be.instanceOf(Error);
-      }
-    });
-
     describe('through DI', () => {
       afterEach(() => {
         DI.unregister(StrategyTestIdentityStore);

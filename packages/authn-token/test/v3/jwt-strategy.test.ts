@@ -4,13 +4,15 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome } from '@spinajs/authn/contracts';
 import { FakeClock, b64url, compactJws, generateKeyPair, signCompactJws, startJwksServer } from '@spinajs/authn-testing';
 import type { JwksServer, KitKeyPair } from '@spinajs/authn-testing';
 
 import { JwtBearerStrategy } from '../../src/jwt/JwtBearerStrategy.js';
+import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
 import { bootV3Db, shutdownV3Db } from './db.js';
 
 const ISSUER = 'https://idp.unit.test';
@@ -88,9 +90,10 @@ describe('JwtBearerStrategy', function () {
   const setIssuers = (issuers: unknown) => config().set(ISSUERS_PATH, issuers);
   const remote = (over: Record<string, unknown> = {}): Record<string, unknown> => ({ issuer: ISSUER, audience: AUDIENCE, jwksUri: jwks.url, algorithms: ['EdDSA', 'ES256'], ...over });
 
+  /** Boots the issuers through the schema, as an app does, then the strategy. */
   async function make(issuers: unknown): Promise<JwtBearerStrategy> {
-    setIssuers(issuers);
-    const s = new JwtBearerStrategy();
+    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA], { authn: { jwt: { issuers } } });
+    const s = readingFrom(new JwtBearerStrategy(), child);
     await s.resolve();
     return s;
   }
@@ -119,8 +122,9 @@ describe('JwtBearerStrategy', function () {
     jwks.setKeys([kp1]);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     setIssuers(saved);
+    await disposeBooted();
   });
 
   describe('shape and boot', () => {
@@ -142,7 +146,8 @@ describe('JwtBearerStrategy', function () {
     });
 
     it('resolves through DI', async () => {
-      setIssuers([remote()]);
+      // Configuration.set bypasses the schema, so the members it would default are given here.
+      setIssuers([remote({ clockSkewSeconds: 30, subjectClaim: 'sub' })]);
       try {
         const s = await DI.resolve(JwtBearerStrategy);
         expect(s).to.be.instanceOf(JwtBearerStrategy);
@@ -179,13 +184,14 @@ describe('JwtBearerStrategy', function () {
         return { ...jwk, kid: 'p' };
       };
       const rsaPrivate = () => generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ format: 'jwk' });
-      const rows: Array<[string, () => unknown]> = [
+      // Refused by AUTHN_CONFIGURATION_SCHEMA. A scalar of another type (a numeric issuer, a string skew) is coerced
+      // by the app validator and then judged as the coerced value, so it is not listed.
+      const schemaRows: Array<[string, () => unknown]> = [
         ['issuers that are not an array', () => ({ issuer: ISSUER })],
         ['an issuer that is not an object', () => ['https://idp.unit.test']],
         ['a null issuer', () => [null]],
         ['a missing issuer', () => [without(remote(), 'issuer')]],
         ['an empty issuer', () => [remote({ issuer: '' })]],
-        ['a numeric issuer', () => [remote({ issuer: 7 })]],
         ['a duplicate issuer', () => [remote(), remote({ provider: 'jwt:other' })]],
         ['a linking that is not an object', () => [remote({ linking: true })]],
         ['a linking.jit that is not a boolean', () => [remote({ linking: { jit: 'yes' } })]],
@@ -197,17 +203,12 @@ describe('JwtBearerStrategy', function () {
         ['neither jwksUri nor keys', () => [without(remote(), 'jwksUri')]],
         ['a jwksUri that is not a URL', () => [remote({ jwksUri: 'not a url' })]],
         ['a non-string jwksUri', () => [remote({ jwksUri: 42 })]],
-        ['a jwksUri over ftp', () => [remote({ jwksUri: 'ftp://idp.example.com/jwks.json' })]],
-        ['a jwksUri over http to a public host', () => [remote({ jwksUri: 'http://idp.example.com/jwks.json' })]],
-        ['a jwksUri over http to a private address', () => [remote({ jwksUri: 'http://10.0.0.1/jwks.json' })]],
-        ['a jwksUri over http to a host named like loopback', () => [remote({ jwksUri: 'http://127.0.0.1.example.com/jwks.json' })]],
         ['empty keys', () => [without(remote({ keys: [] }), 'jwksUri')]],
         ['keys that are not an array', () => [without(remote({ keys: jwkOf(kp1) }), 'jwksUri')]],
         ['a key that is not an object', () => [without(remote({ keys: ['key'] }), 'jwksUri')]],
         ['an oct key', () => [without(remote({ keys: [{ kty: 'oct', k: b64url('shared-secret-shared-secret-1234') }] }), 'jwksUri')]],
         ['an EC private key', () => [without(remote({ keys: [ecPrivate()] }), 'jwksUri')]],
         ['an RSA private key', () => [without(remote({ keys: [rsaPrivate()], algorithms: ['RS256'] }), 'jwksUri')]],
-        ['a malformed public key', () => [without(remote({ keys: [{ kty: 'EC', crv: 'P-256', x: 'AAAA', y: 'BBBB' }] }), 'jwksUri')]],
         ['an unknown key type', () => [without(remote({ keys: [{ kty: 'XYZ' }] }), 'jwksUri')]],
         ['missing algorithms', () => [without(remote(), 'algorithms')]],
         ['empty algorithms', () => [remote({ algorithms: [] })]],
@@ -219,25 +220,30 @@ describe('JwtBearerStrategy', function () {
         ['a negative skew', () => [remote({ clockSkewSeconds: -1 })]],
         ['a skew of 61', () => [remote({ clockSkewSeconds: 61 })]],
         ['a fractional skew', () => [remote({ clockSkewSeconds: 1.5 })]],
-        ['a string skew', () => [remote({ clockSkewSeconds: '30' })]],
-        ['a NaN skew', () => [remote({ clockSkewSeconds: Number.NaN })]],
         ['an empty subject claim', () => [remote({ subjectClaim: '' })]],
-        ['a numeric subject claim', () => [remote({ subjectClaim: 5 })]],
         ['an empty provider', () => [remote({ provider: '' })]],
-        ['a numeric provider', () => [remote({ provider: 7 })]],
         ['a provider above 128 characters', () => [remote({ provider: `jwt:${'p'.repeat(125)}` })]],
-        ['a default provider above 128 characters', () => [remote({ issuer: `https://${'i'.repeat(120)}.test` })]],
-        ['two issuers with one provider', () => [remote({ provider: 'jwt:shared' }), remote({ issuer: 'https://other.unit.test', provider: 'jwt:shared' })]],
         ['an unknown member', () => [remote({ clockSkew: 10 })]],
         ['a key whose alg is not in algorithms', () => [without(remote({ keys: [jwkOf(kp2)], algorithms: ['EdDSA'] }), 'jwksUri')]],
-        ['a key whose alg does not fit its type', () => [without(remote({ keys: [{ ...jwkOf(kp1), alg: 'ES256' }] }), 'jwksUri')]],
         ['an encryption key', () => [without(remote({ keys: [{ ...jwkOf(kp1), use: 'enc' }] }), 'jwksUri')]],
         ['key_ops without verify', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['encrypt'] }] }), 'jwksUri')]],
         ['key_ops with sign and verify', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['sign', 'verify'] }] }), 'jwksUri')]],
         ['key_ops with verify and encrypt', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify', 'encrypt'] }] }), 'jwksUri')]],
         ['key_ops with a duplicate', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: ['verify', 'verify'] }] }), 'jwksUri')]],
-        ['a non-boolean ext', () => [without(remote({ keys: [{ ...jwkOf(kp1), ext: 'true' }] }), 'jwksUri')]],
+        ['a non-boolean ext', () => [without(remote({ keys: [{ ...jwkOf(kp1), ext: 'yes' }] }), 'jwksUri')]],
         ['key_ops that are not an array', () => [without(remote({ keys: [{ ...jwkOf(kp1), key_ops: 'verify' }] }), 'jwksUri')]],
+      ];
+
+      // Refused by the strategy: a derived provider, a URL scheme, a key that needs crypto to judge.
+      const codeRows: Array<[string, () => unknown]> = [
+        ['a jwksUri over ftp', () => [remote({ jwksUri: 'ftp://idp.example.com/jwks.json' })]],
+        ['a jwksUri over http to a public host', () => [remote({ jwksUri: 'http://idp.example.com/jwks.json' })]],
+        ['a jwksUri over http to a private address', () => [remote({ jwksUri: 'http://10.0.0.1/jwks.json' })]],
+        ['a jwksUri over http to a host named like loopback', () => [remote({ jwksUri: 'http://127.0.0.1.example.com/jwks.json' })]],
+        ['a malformed public key', () => [without(remote({ keys: [{ kty: 'EC', crv: 'P-256', x: 'AAAA', y: 'BBBB' }] }), 'jwksUri')]],
+        ['a default provider above 128 characters', () => [remote({ issuer: `https://${'i'.repeat(120)}.test` })]],
+        ['two issuers with one provider', () => [remote({ provider: 'jwt:shared' }), remote({ issuer: 'https://other.unit.test', provider: 'jwt:shared' })]],
+        ['a key whose alg does not fit its type', () => [without(remote({ keys: [{ ...jwkOf(kp1), alg: 'ES256' }] }), 'jwksUri')]],
         ['an X25519 key', () => [without(remote({ keys: [generateKeyPairSync('x25519').publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
         ['an Ed448 key, which jose never selects for EdDSA', () => [without(remote({ keys: [generateKeyPairSync('ed448').publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
         ['an RSA key under 2048 bits', () => [without(remote({ keys: [generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey.export({ format: 'jwk' })], algorithms: ['RS256'] }), 'jwksUri')]],
@@ -245,10 +251,19 @@ describe('JwtBearerStrategy', function () {
         ['an RSA key without an RSA algorithm', () => [without(remote({ keys: [generateKeyPairSync('rsa', { modulusLength: 2048 }).publicKey.export({ format: 'jwk' })] }), 'jwksUri')]],
       ];
 
-      for (const [label, issuers] of rows) {
+      for (const [label, issuers] of schemaRows) {
+        it(`${label} (schema)`, async () => {
+          const err = await bootError(issuers());
+          expect(err, label).to.be.instanceOf(InvalidConfiguration);
+          expect((err as InvalidConfiguration).violations.map((v) => v.path), label).to.satisfy((paths: string[]) => paths.some((path) => path.startsWith('authn.jwt.issuers')));
+        });
+      }
+
+      for (const [label, issuers] of codeRows) {
         it(label, async () => {
           const err = await bootError(issuers());
           expect(err, label).to.be.instanceOf(Error);
+          expect(err, label).to.not.be.instanceOf(InvalidConfiguration);
           expect((err as Error).message, label).to.match(/authn\.jwt\.issuers/);
         });
       }

@@ -63,7 +63,8 @@ async function jwtSubject({ clock }: { clock: FakeClock }): Promise<StrategySubj
   // Same kid as the configured key, so the strategy selects that key and only the signature is wrong.
   const wrongKey: KitKeyPair = { ...generateKeyPair('EdDSA'), kid: key.kid };
 
-  configuration.set(ISSUERS_PATH, [{ issuer: ISSUER, audience: AUDIENCE, keys: [{ ...key.publicJwk, kid: key.kid, alg: 'EdDSA', use: 'sig' }], algorithms: ['EdDSA'] }]);
+  // Configuration.set bypasses the schema, so the members it would default are given here.
+  configuration.set(ISSUERS_PATH, [{ issuer: ISSUER, audience: AUDIENCE, keys: [{ ...key.publicJwk, kid: key.kid, alg: 'EdDSA', use: 'sig' }], algorithms: ['EdDSA'], clockSkewSeconds: 30, subjectClaim: 'sub' }]);
   const strategy = new JwtBearerStrategy();
   try {
     await strategy.resolve();

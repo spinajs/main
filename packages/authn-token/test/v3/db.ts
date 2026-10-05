@@ -3,7 +3,7 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { MigrationTransactionMode, Orm, OrmDriver } from '@spinajs/orm';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 
-import { dir, dropOwnCompiledDirs } from '../db-common.js';
+import { dir, dropOwnCompiledDirs, registerAuthnSchema } from '../db-common.js';
 
 const CONNECTION = 'sqlite';
 
@@ -66,6 +66,7 @@ export async function bootV3Db(): Promise<OrmDriver> {
 
   DI.register(V3DbConfiguration).as(Configuration);
   DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
+  registerAuthnSchema();
 
   await DI.resolve(Configuration);
   await DI.resolve(Orm);

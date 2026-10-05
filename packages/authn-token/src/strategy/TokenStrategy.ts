@@ -5,7 +5,7 @@ import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, StrategyOutcome, ThrottleKey, TokenRecord } from '@spinajs/authn/contracts';
 
-import { MAX_TOKEN_LENGTH, checkTokenFormat } from '../generator.js';
+import { MAX_TOKEN_LENGTH, checkTokenSize } from '../generator.js';
 
 /** Implemented by DbTokenService; a TokenService without it gets no last-used stamps. */
 export interface TokenUseRecorder {
@@ -13,13 +13,6 @@ export interface TokenUseRecorder {
 }
 
 const recordsUse = (s: unknown): s is TokenUseRecorder => typeof (s as Partial<TokenUseRecorder> | null)?.touch === 'function';
-
-function checkInterval(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error('authn.token.lastUsedUpdateInterval must be a non-negative number of seconds');
-  }
-  return value;
-}
 
 /**
  * API tokens (`spt_…`) sent as `bearer` credentials; authn-http turns the `x-api-key` header into one too.
@@ -33,13 +26,13 @@ export class TokenStrategy extends AuthenticationStrategy {
   public readonly kinds: readonly string[] = ['bearer'];
   public readonly interactive = false;
 
-  @Config('authn.token.prefix', { defaultValue: 'spt_' })
+  @Config('authn.token.prefix')
   protected Prefix: string;
 
-  @Config('authn.token.length', { defaultValue: 32 })
+  @Config('authn.token.length')
   protected Length: number;
 
-  @Config('authn.token.lastUsedUpdateInterval', { defaultValue: 60 })
+  @Config('authn.token.lastUsedUpdateInterval')
   protected LastUsedUpdateInterval: number;
 
   @Logger('authn-token')
@@ -49,10 +42,9 @@ export class TokenStrategy extends AuthenticationStrategy {
     super();
   }
 
-  /** Fails boot on a weak token format (A14). TokenService is injected, so a missing IdentityStore already failed. */
+  /** Fails boot on a token format over the size cap. TokenService is injected, so a missing IdentityStore already failed. */
   public async resolve(): Promise<void> {
-    checkTokenFormat(this.Prefix, this.Length);
-    checkInterval(this.LastUsedUpdateInterval);
+    checkTokenSize(this.Prefix, this.Length);
   }
 
   /** N1's CredentialSelector hook: true only for a bearer value in this strategy's format. */
@@ -124,7 +116,7 @@ export class TokenStrategy extends AuthenticationStrategy {
     }
 
     try {
-      const interval = checkInterval(this.LastUsedUpdateInterval);
+      const interval = this.LastUsedUpdateInterval;
       const last = token.lastUsedAt?.getTime();
       if (last !== undefined && last >= ctx.now.getTime() - interval * 1000) {
         return;

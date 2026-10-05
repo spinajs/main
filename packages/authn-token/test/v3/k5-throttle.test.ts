@@ -71,7 +71,8 @@ describe('authn-token per-request throttling (K5, K6, DefaultAuthnService)', fun
     await bootV3Db();
     saved = config().get(ISSUERS_PATH);
     kp = generateKeyPair('EdDSA');
-    config().set(ISSUERS_PATH, [{ issuer: ISSUER, audience: AUDIENCE, keys: [{ ...kp.publicJwk, kid: kp.kid, alg: kp.alg, use: 'sig' }], algorithms: ['EdDSA'] }]);
+    // Configuration.set bypasses the schema, so the members it would default are given here.
+    config().set(ISSUERS_PATH, [{ issuer: ISSUER, audience: AUDIENCE, keys: [{ ...kp.publicJwk, kid: kp.kid, alg: kp.alg, use: 'sig' }], algorithms: ['EdDSA'], clockSkewSeconds: 30, subjectClaim: 'sub' }]);
   });
 
   after(async () => {

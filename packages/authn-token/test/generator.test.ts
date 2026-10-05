@@ -38,14 +38,11 @@ describe('SecureRandomTokenProvider', () => {
     expect(p.hash(t.Plaintext)).to.equal(p.hash(t.Plaintext));
   });
 
-  it('refuses to mint with an empty prefix or fewer than 32 bytes', async () => {
+  // An empty prefix or a length under 32 or not whole is refused by the authn schema (test/v3/config-schema.test.ts).
+  it('refuses to mint without a configured format or over 1024 characters', async () => {
     const rows: Array<[unknown, unknown]> = [
-      ['', 32],
-      ['spt_', 31],
-      ['spt_', 0],
       [undefined, 32],
       ['spt_', undefined],
-      ['spt_', 32.5],
       // 4 + 1023 characters: TokenStrategy would never accept it
       ['spt_', 767],
     ];
@@ -62,8 +59,8 @@ describe('SecureRandomTokenProvider', () => {
 
 /**
  * Configuration whose `authn.token.prefix` and `authn.token.length` differ
- * from the `@Config` defaults baked into `SecureRandomTokenProvider`, so a
- * token built with the defaults cannot pass the assertion below.
+ * from the defaults (`spt_`, 32), so a token built with the defaults cannot
+ * pass the assertion below.
  */
 class TokenConfigTestConfiguration extends FrameworkConfiguration {
   protected onLoad(): unknown {

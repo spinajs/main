@@ -7,7 +7,7 @@ import type { AuthnContext, AuthnEvent, AuthnFailure, Ceiling, IdentityRef, Prin
 import { DateTime } from 'luxon';
 
 import { AccessTokenGenerationProvider } from '../generation.js';
-import { MAX_TOKEN_LENGTH, checkTokenFormat } from '../generator.js';
+import { MAX_TOKEN_LENGTH, checkTokenSize } from '../generator.js';
 import { AccessToken, TOKEN_KINDS } from '../models/AccessToken.js';
 import { TokenOwnerResolver } from './owner-resolver.js';
 import { TokenProfilePolicy } from './profile-policy.js';
@@ -132,16 +132,16 @@ function storedScope(stored: unknown, agent: boolean): TokenScope | undefined | 
 @Injectable(TokenService)
 @Inject(TokenOwnerResolver, TokenProfilePolicy, IdentityStore)
 export class DbTokenService extends TokenService {
-  @Config('authn.token.maxTtlDays', { defaultValue: 90 })
+  @Config('authn.token.maxTtlDays')
   protected MaxTtlDays: number;
 
-  @Config('authn.token.agentMaxTtlMinutes', { defaultValue: 1440 })
+  @Config('authn.token.agentMaxTtlMinutes')
   protected AgentMaxTtlMinutes: number;
 
-  @Config('authn.token.prefix', { defaultValue: 'spt_' })
+  @Config('authn.token.prefix')
   protected Prefix: string;
 
-  @Config('authn.token.length', { defaultValue: 32 })
+  @Config('authn.token.length')
   protected Length: number;
 
   @Logger('authn-token')
@@ -159,16 +159,15 @@ export class DbTokenService extends TokenService {
     if (typeof profiles?.allowedProfiles !== 'function') {
       throw new Error('DbTokenService needs a TokenProfilePolicy');
     }
-    // TokenService is not an AsyncService, so DI never calls resolve() itself.
-    this.resolve();
   }
 
-  /** Fails boot on a weak token format (A14); the generator checks again when minting. */
+  /** The format size cap; checked at each create, because a constructor cannot read the container's Configuration. */
   public resolve(): void {
-    checkTokenFormat(this.Prefix, this.Length);
+    checkTokenSize(this.Prefix, this.Length);
   }
 
   public async create(owner: IdentityRef, opts: TokenCreateOptions, ctx: AuthnContext): Promise<TokenCreateResult> {
+    this.resolve();
     const now = this.nowOf(ctx);
 
     // Callers can bypass the types, so every field is checked as unknown.
@@ -205,9 +204,10 @@ export class DbTokenService extends TokenService {
     if (!Number.isFinite(expiresAt)) {
       return INVALID_EXPIRY;
     }
-    const patCap = now + this.positive(this.MaxTtlDays, 'maxTtlDays') * DAY_MS;
-    const cap = agent ? Math.min(patCap, now + this.positive(this.AgentMaxTtlMinutes, 'agentMaxTtlMinutes') * MINUTE_MS) : patCap;
-    if (expiresAt <= now || expiresAt > cap) {
+    const patCap = now + this.MaxTtlDays * DAY_MS;
+    const cap = agent ? Math.min(patCap, now + this.AgentMaxTtlMinutes * MINUTE_MS) : patCap;
+    // Written to fail closed: a cap that is not a number (a Configuration.set the schema never saw) refuses every expiry.
+    if (!(expiresAt > now && expiresAt <= cap)) {
       return INVALID_EXPIRY;
     }
 
@@ -558,13 +558,6 @@ export class DbTokenService extends TokenService {
     if (!BASE64URL.test(suffix) || suffix.length < Math.ceil((this.Length * 4) / 3) || (plaintext as string).length > MAX_TOKEN_LENGTH) {
       throw new Error('authn.token.generation minted a token without the configured prefix or length');
     }
-  }
-
-  private positive(value: unknown, key: string): number {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-      throw new Error(`authn.token.${key} must be a positive number`);
-    }
-    return value;
   }
 
   private affected(result: unknown): number {

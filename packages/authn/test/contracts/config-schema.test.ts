@@ -30,6 +30,7 @@ function appAjv(warnings: string[]): any {
     removeAdditional: true,
     useDefaults: true,
     coerceTypes: true,
+    $data: true,
   };
   const ajv = new (Ajv.default ?? Ajv)(options);
   (ajvMergePatch.default ?? ajvMergePatch)(ajv);
@@ -54,6 +55,8 @@ function refused(config: Json, instancePath: string): void {
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
 
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
 const THROTTLE_DEFAULTS = {
@@ -264,7 +267,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -278,7 +281,8 @@ describe('authn.* configuration schema', () => {
       expect(r.config).to.deep.eq({
         local: { hasher: { maxConcurrent: 8 }, policy: { minLength: 8, maxLength: 128 }, reset: { revokeTokens: true } },
         session: { cookie: { sameSite: 'strict' }, hashIds: true },
-        token: { maxTtlDays: 90, agentMaxTtlMinutes: 1440 },
+        token: TOKEN_DEFAULTS,
+        jwt: { issuers: [] },
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
         audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },

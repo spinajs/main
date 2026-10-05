@@ -19,9 +19,11 @@ describe('AuthnTokenScope migration', function () {
   let connection: OrmDriver;
   let owner: number;
   const migration = new AuthnTokenScope_2026_10_02_00_00_00();
+  let configuredMaxTtlDays: unknown;
 
   before(async () => {
     connection = await bootV3Db();
+    configuredMaxTtlDays = DI.get(Configuration)!.get(MAX_TTL_PATH);
     owner = await insertUserRow(uuidv4());
   });
 
@@ -45,8 +47,9 @@ describe('AuthnTokenScope migration', function () {
     return uuid;
   }
 
+  /** undefined puts the configured value back. */
   function setMaxTtlDays(value: number | undefined): void {
-    DI.get(Configuration)!.set(MAX_TTL_PATH, value);
+    DI.get(Configuration)!.set(MAX_TTL_PATH, value ?? configuredMaxTtlDays);
   }
 
   it('adds Scope, Kind, RevokedAt and LastUsedIp', async () => {
@@ -106,22 +109,6 @@ describe('AuthnTokenScope migration', function () {
         drops.some((s) => s.includes(`DROP COLUMN ${quote(column)}`)),
         column,
       ).to.equal(true);
-    }
-  });
-
-  it('refuses a maxTtlDays that is not a positive number before touching the table', async () => {
-    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 'ninety']) {
-      await migration.down(connection);
-      setMaxTtlDays(value as number);
-      try {
-        const err = await migration.up(connection).catch((e: unknown) => e);
-        expect(err, String(value)).to.be.instanceOf(Error);
-        expect((err as Error).message, String(value)).to.contain('authn.token.maxTtlDays');
-        expect(await columns(), String(value)).to.not.include.any.members(NEW_COLUMNS);
-      } finally {
-        setMaxTtlDays(undefined);
-        await migration.up(connection);
-      }
     }
   });
 

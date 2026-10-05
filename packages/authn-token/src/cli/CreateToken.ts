@@ -45,7 +45,7 @@ export class CreateToken extends TokenCliCommand {
   @Logger('authn-token')
   protected Log: Log;
 
-  @Config('authn.token.defaultTtlDays', { defaultValue: 30 })
+  @Config('authn.token.defaultTtlDays')
   protected DefaultTtlDays: number;
 
   public async execute(ownerUuid: string, options: ICreateTokenOptions): Promise<void> {

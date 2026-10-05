@@ -56,6 +56,25 @@ const named = {
 
 const stringList = { type: 'array', items: { type: 'string', minLength: 1 } };
 
+const JWT_ISSUER_MEMBERS = ['issuer', 'audience', 'jwksUri', 'keys', 'algorithms', 'clockSkewSeconds', 'subjectClaim', 'provider', 'linking'];
+// A private or symmetric member: never part of a verification key.
+const PRIVATE_JWK_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'];
+
+const PUBLIC_JWK = {
+  type: 'object',
+  required: ['kty'],
+  properties: {
+    kty: { enum: ['RSA', 'EC', 'OKP'] },
+    use: { const: 'sig' },
+    // A key that may also sign or encrypt is shared with another use (RFC 7517 section 4.3).
+    key_ops: { type: 'array', minItems: 1, maxItems: 1, items: { const: 'verify' } },
+    ext: { type: 'boolean' },
+    // From the key, up to the issuer: key -> keys -> issuer.
+    alg: { enum: { $data: '3/algorithms' } },
+  },
+  not: { anyOf: PRIVATE_JWK_MEMBERS.map((member) => ({ required: [member] })) },
+};
+
 // Defaults: the throttle is filled in whole, other objects only get their security floors, and only when present.
 export const AUTHN_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authn.configuration.schema.json',
@@ -231,9 +250,10 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     token: {
       type: 'object',
+      default: {},
       properties: {
-        prefix: { type: 'string', minLength: 1, description: 'Lets secret scanners recognise a leaked token.' },
-        length: { type: 'integer', minimum: 32, description: 'Random bytes; at least 256 bits (A14).' },
+        prefix: { type: 'string', minLength: 1, default: 'spt_', description: 'Lets secret scanners recognise a leaked token.' },
+        length: { type: 'integer', minimum: 32, default: 32, description: 'Random bytes; at least 256 bits (A14). With the prefix a token stays within 1024 characters (a boot check).' },
         generation: {
           type: 'object',
           properties: {
@@ -241,29 +261,34 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           },
         },
         maxTtlDays: { type: 'integer', minimum: 1, default: 90 },
-        defaultTtlDays: { type: 'integer', minimum: 1 },
+        defaultTtlDays: { type: 'integer', minimum: 1, default: 30 },
         agentMaxTtlMinutes: { type: 'integer', minimum: 1, default: 1440 },
-        headerName: { type: 'string', minLength: 1 },
-        lastUsedUpdateInterval: { type: 'integer', minimum: 0, description: 'Seconds.' },
+        headerName: { type: 'string', minLength: 1, default: 'x-api-key' },
+        lastUsedUpdateInterval: { type: 'number', minimum: 0, default: 60, description: 'Seconds.' },
       },
     },
     jwt: {
       type: 'object',
+      default: {},
       properties: {
         issuers: {
           type: 'array',
+          default: [],
+          // Each issuer once. A repeated provider is a code check: uniqueItemProperties counts a missing provider as a value.
+          uniqueItemProperties: ['issuer'],
           items: {
             type: 'object',
+            propertyNames: { enum: JWT_ISSUER_MEMBERS },
             properties: {
               issuer: { type: 'string', minLength: 1 },
               audience: { type: 'string', minLength: 1 },
               jwksUri: { type: 'string', format: 'uri' },
-              keys: { type: 'array', minItems: 1, items: { type: 'object' } },
+              keys: { type: 'array', minItems: 1, items: PUBLIC_JWK },
               algorithms: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: JWT_ALGORITHMS } },
-              clockSkewSeconds: { type: 'integer', minimum: 0, maximum: 60 },
-              subjectClaim: { type: 'string', minLength: 1 },
-              provider: { type: 'string', minLength: 1 },
-              linking: { type: 'object', properties: { jit: { type: 'boolean' } }, additionalProperties: false },
+              clockSkewSeconds: { type: 'integer', minimum: 0, maximum: 60, default: 30 },
+              subjectClaim: { type: 'string', minLength: 1, default: 'sub' },
+              provider: { type: 'string', minLength: 1, maxLength: 128, description: "The IdentityLink provider; default 'jwt:<issuer>'." },
+              linking: { type: 'object', propertyNames: { enum: ['jit'] }, properties: { jit: { type: 'boolean' } } },
             },
             required: ['issuer', 'audience', 'algorithms'],
             oneOf: [{ required: ['jwksUri'] }, { required: ['keys'] }],

@@ -11,14 +11,11 @@ const COLUMNS = ['Scope', 'Kind', 'RevokedAt', 'LastUsedIp'];
  */
 @Migration('default')
 export class AuthnTokenScope_2026_10_02_00_00_00 extends OrmMigration {
-  @Config('authn.token.maxTtlDays', { defaultValue: 90 })
+  @Config('authn.token.maxTtlDays')
   protected MaxTtlDays: number;
 
   public async up(connection: OrmDriver): Promise<void> {
     const maxTtlDays = this.MaxTtlDays;
-    if (typeof maxTtlDays !== 'number' || !Number.isFinite(maxTtlDays) || maxTtlDays <= 0) {
-      throw new Error(`authn.token.maxTtlDays must be a positive number to back-fill token expiry, got ${String(maxTtlDays)}`);
-    }
 
     // One ALTER per call: the builder runs the statements of a single call concurrently.
     // The builder rather than raw SQL, because DATETIME is not a postgres type.

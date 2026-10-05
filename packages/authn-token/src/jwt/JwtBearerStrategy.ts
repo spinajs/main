@@ -3,6 +3,7 @@ import type { JsonWebKey as NodeJwk } from 'node:crypto';
 import { isIPv4 } from 'node:net';
 import { Injectable } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, ExternalSubject, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
@@ -29,6 +30,9 @@ export interface JwtIssuerConfig {
   linking?: { jit?: boolean };
 }
 
+/** An issuer item after the schema: its defaults are filled in. */
+type ConfiguredIssuer = JwtIssuerConfig & Required<Pick<JwtIssuerConfig, 'clockSkewSeconds' | 'subjectClaim'>>;
+
 interface Issuer {
   readonly issuer: string;
   readonly audience: string;
@@ -42,10 +46,6 @@ interface Issuer {
 
 export const MAX_JWT_LENGTH = 8192;
 const JWT_FORMAT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
-const ALGORITHMS = new Set(['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA']);
-const MEMBERS = new Set(['issuer', 'audience', 'jwksUri', 'keys', 'algorithms', 'clockSkewSeconds', 'subjectClaim', 'provider', 'linking']);
-const PRIVATE_JWK_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'];
-const KEY_TYPES = new Set(['RSA', 'EC', 'OKP']);
 /** authn_identity column widths. */
 const MAX_PROVIDER = 128;
 const MAX_SUBJECT = 255;
@@ -63,7 +63,6 @@ const ALGORITHM_CURVES: Readonly<Record<string, string>> = { ES256: 'P-256', ES3
 const MIN_RSA_BITS = 2048;
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null)?.code;
 
 function isLoopback(hostname: string): boolean {
@@ -142,30 +141,24 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
   public readonly kinds: readonly string[] = ['bearer'];
   public readonly interactive = false;
 
-  @Config('authn.jwt.issuers', { defaultValue: [] })
-  protected Issuers: unknown;
+  @Config('authn.jwt.issuers')
+  protected Issuers: ConfiguredIssuer[];
 
   @Logger('authn-token')
   protected Log: Log;
 
   protected issuers = new Map<string, Issuer>();
 
-  /** Fails boot on any invalid issuer; builds one key resolver per issuer and keeps it, so its JWKS cache lives. */
+  /** Fails boot on an issuer the schema cannot judge; builds one key resolver per issuer and keeps it, so its JWKS cache lives. */
   public async resolve(): Promise<void> {
-    const raw = this.Issuers ?? [];
-    if (!Array.isArray(raw)) {
-      throw new Error('authn.jwt.issuers must be an array');
-    }
-
+    if (!this.Issuers) throw new InvalidOperation('authn.jwt.issuers is unset: AUTHN_CONFIGURATION_SCHEMA is not registered');
     const issuers = new Map<string, Issuer>();
     const providers = new Set<string>();
-    raw.forEach((item: unknown, i: number) => {
+    this.Issuers.forEach((item, i) => {
       const at = `authn.jwt.issuers[${i}]`;
       const issuer = this.issuerOf(item, at);
-      if (issuers.has(issuer.issuer)) {
-        throw new Error(`${at}: issuer ${issuer.issuer} is configured twice`);
-      }
-      // A shared provider would let one issuer claim the subjects, and so the links, of another.
+      // A shared provider would let one issuer claim the subjects, and so the links, of another. The schema cannot
+      // judge it: a derived provider is not in the config, and uniqueItemProperties counts a missing provider as a value.
       if (providers.has(issuer.provider)) {
         throw new Error(`${at}: provider ${issuer.provider} is used by another issuer`);
       }
@@ -175,61 +168,22 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     this.issuers = issuers;
   }
 
-  protected issuerOf(item: unknown, at: string): Issuer {
-    if (!isPlainObject(item)) {
-      throw new Error(`${at} must be an object`);
-    }
-    const set = Object.entries(item).filter(([, v]) => v !== undefined);
-    const unknown = set.map(([k]) => k).filter((k) => !MEMBERS.has(k));
-    if (unknown.length > 0) {
-      throw new Error(`${at} has unknown members: ${unknown.join(', ')}`);
-    }
-    const o: Record<string, unknown> = Object.fromEntries(set);
-
-    if (!isNonEmptyString(o.issuer)) {
-      throw new Error(`${at}.issuer must be a non-empty string`);
-    }
-    if (!isNonEmptyString(o.audience)) {
-      throw new Error(`${at}.audience must be a non-empty string`);
-    }
-    if ((o.jwksUri === undefined) === (o.keys === undefined)) {
-      throw new Error(`${at} needs exactly one of jwksUri and keys`);
-    }
-    const algorithms = o.algorithms;
-    if (!Array.isArray(algorithms) || algorithms.length === 0 || !algorithms.every((a: unknown) => typeof a === 'string' && ALGORITHMS.has(a))) {
-      throw new Error(`${at}.algorithms must be a non-empty subset of ${[...ALGORITHMS].join(' ')}`);
-    }
-    const clockSkewSeconds = o.clockSkewSeconds ?? 30;
-    if (typeof clockSkewSeconds !== 'number' || !Number.isInteger(clockSkewSeconds) || clockSkewSeconds < 0 || clockSkewSeconds > 60) {
-      throw new Error(`${at}.clockSkewSeconds must be an integer from 0 to 60`);
-    }
-    const subjectClaim = o.subjectClaim ?? 'sub';
-    if (!isNonEmptyString(subjectClaim)) {
-      throw new Error(`${at}.subjectClaim must be a non-empty string`);
-    }
+  protected issuerOf(o: ConfiguredIssuer, at: string): Issuer {
     const provider = o.provider ?? `jwt:${o.issuer}`;
-    if (!isNonEmptyString(provider) || provider.length > MAX_PROVIDER) {
-      throw new Error(`${at}.provider must be a non-empty string of at most ${MAX_PROVIDER} characters`);
+    // The schema bounds an explicit provider; a derived one is the issuer plus a prefix.
+    if (provider.length > MAX_PROVIDER) {
+      throw new Error(`${at}.provider must be at most ${MAX_PROVIDER} characters`);
     }
-    const linking = o.linking ?? {};
-    if (!isPlainObject(linking) || Object.keys(linking).some((k) => k !== 'jit' || (linking[k] !== undefined && typeof linking[k] !== 'boolean'))) {
-      throw new Error(`${at}.linking may hold only jit (a boolean)`);
-    }
-
-    const allowed = [...(algorithms as string[])];
-    const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys, allowed, at) });
-
-    return { issuer: o.issuer, audience: o.audience, algorithms: allowed, clockSkewSeconds, subjectClaim, provider, jit: linking.jit === true, keys };
+    const algorithms = [...o.algorithms];
+    const keys = o.jwksUri !== undefined ? this.remoteOf(o.jwksUri, o.issuer, at) : createLocalJWKSet({ keys: this.publicKeysOf(o.keys ?? [], algorithms, at) });
+    return { issuer: o.issuer, audience: o.audience, algorithms, clockSkewSeconds: o.clockSkewSeconds, subjectClaim: o.subjectClaim, provider, jit: o.linking?.jit === true, keys };
   }
 
-  protected remoteOf(jwksUri: unknown, issuer: string, at: string): JWTVerifyGetKey {
-    let url: URL | null = null;
+  protected remoteOf(jwksUri: string, issuer: string, at: string): JWTVerifyGetKey {
+    let url: URL;
     try {
-      url = typeof jwksUri === 'string' ? new URL(jwksUri) : null;
+      url = new URL(jwksUri);
     } catch {
-      url = null;
-    }
-    if (url === null) {
       throw new Error(`${at}.jwksUri must be a URL`);
     }
     if (!(url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback(url.hostname)))) {
@@ -238,19 +192,10 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
     return remoteKeys(url, (err) => this.Log.warn(`Could not fetch the JWKS of JWT issuer ${issuer}: ${err instanceof Error ? err.message : String(err)}`));
   }
 
-  /** Refuses any key jose would never select or verify with, so a config error does not look like an attack. */
-  protected publicKeysOf(keys: unknown, algorithms: readonly string[], at: string): JWK[] {
-    if (!Array.isArray(keys) || keys.length === 0) {
-      throw new Error(`${at}.keys must be a non-empty array of public JWKs`);
-    }
-    return keys.map((key: unknown, j: number) => {
+  /** Refuses a key jose would never select or verify with, so a config error does not look like an attack. The schema has judged the member shapes. */
+  protected publicKeysOf(keys: JWK[], algorithms: readonly string[], at: string): JWK[] {
+    return keys.map((key, j) => {
       const atKey = `${at}.keys[${j}]`;
-      if (!isPlainObject(key) || !KEY_TYPES.has(key.kty as string)) {
-        throw new Error(`${atKey} must be an RSA, EC or OKP public JWK`);
-      }
-      if (PRIVATE_JWK_MEMBERS.some((m) => m in key)) {
-        throw new Error(`${atKey} holds private key material`);
-      }
       let modulusLength: number | undefined;
       try {
         modulusLength = createPublicKey({ key: key as NodeJwk, format: 'jwk' }).asymmetricKeyDetails?.modulusLength;
@@ -260,25 +205,11 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       if (key.kty === 'RSA' && !((modulusLength ?? 0) >= MIN_RSA_BITS)) {
         throw new Error(`${atKey} is an RSA key under ${MIN_RSA_BITS} bits`);
       }
-      if (key.use !== undefined && key.use !== 'sig') {
-        throw new Error(`${atKey}.use must be sig`);
-      }
-      const ops = key.key_ops;
-      // A key that may also sign or encrypt is shared with another use (RFC 7517 §4.3 advises against mixing).
-      if (ops !== undefined && !(Array.isArray(ops) && ops.length === 1 && ops[0] === 'verify')) {
-        throw new Error(`${atKey}.key_ops must be exactly ["verify"]`);
-      }
-      if (key.ext !== undefined && typeof key.ext !== 'boolean') {
-        throw new Error(`${atKey}.ext must be a boolean`);
-      }
-      if (key.alg !== undefined && !algorithms.includes(key.alg as string)) {
-        throw new Error(`${atKey}.alg is not one of the issuer's algorithms`);
-      }
-      const candidates = key.alg !== undefined ? [key.alg as string] : algorithms;
+      const candidates = key.alg !== undefined ? [key.alg] : algorithms;
       if (!candidates.some((alg) => algorithmFits(alg, key.kty, key.crv))) {
         throw new Error(`${atKey} fits none of the issuer's algorithms`);
       }
-      return { ...key } as JWK;
+      return { ...key };
     });
   }
 
