@@ -48,6 +48,7 @@ export * from './self-relation.js';
 export * from './user-resource-adapter.js';
 export * from './default-roles-check.js';
 export * from './identity/index.js';
+export * from './authn/index.js';
 
 // fix error `The requested module 'accesscontrol' is a CommonJS module`
 const { Permission } = ac;
