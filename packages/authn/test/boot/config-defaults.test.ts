@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Configuration, InvalidConfiguration } from '@spinajs/configuration';
 
 import shipped from '../../src/config/authn.js';
-import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA, AuthnConfigBootstrapper, DEFAULT_THROTTLE_PARAMS } from '../../src/index.js';
 import { configurationOf } from '../behaviour/harness.js';
 
 const expect = chai.expect;
@@ -58,7 +58,8 @@ describe('authn shipped config', () => {
   });
 
   it('keeps the other values equal to the code defaults', () => {
-    expect(authn.freshAuth).to.deep.eq({ maxAgeSeconds: DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS });
+    expect(authn.freshAuth).to.deep.eq(check({}).config.freshAuth);
+    expect(check({}).config.freshAuth).to.deep.eq({ maxAgeSeconds: 300 });
     expect(authn.audit).to.deep.eq({ sinks: ['LogAuthnAuditSink'], ...check({}).config.audit });
     expect(authn.impersonation).to.deep.eq({ requirePassword: true, requireMfa: true, maxMinutes: 60 });
     expect(authn.linking).to.deep.eq({ jit: false, byVerifiedEmail: false });

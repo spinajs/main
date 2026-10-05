@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import 'mocha';
 import { fakeHash } from '@spinajs/authn-testing';
 
-import { DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, FreshAuthCheck, isFresh } from '../../src/index.js';
+import { FreshAuthCheck, isFresh } from '../../src/index.js';
 import type { AuthnContext, Credentials, IdentityRef, SessionHandle } from '../../src/index.js';
-import { buildCore, useHarnessLog } from '../behaviour/harness.js';
+import { buildCore, useHarnessLog, violationPaths } from '../behaviour/harness.js';
 import type { CoreParts } from '../behaviour/harness.js';
 
 const SECOND = 1000;
@@ -67,18 +67,29 @@ describe('fresh auth', function () {
       assert.ok(policy instanceof Policy);
     });
 
-    it('reads authn.freshAuth.maxAgeSeconds, 300 when unset', async () => {
-      assert.strictEqual(DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS, 300);
-      assert.strictEqual((await boot()).fresh.maxAgeSeconds, 300);
-      await parts!.dispose();
+    it('gets 300 from the schema default when authn.freshAuth is unset', async () => {
+      const { p, fresh } = await boot();
+      assert.strictEqual(p.configuration.get('authn.freshAuth.maxAgeSeconds'), 300);
+      assert.strictEqual(fresh.maxAgeSeconds, 300);
+    });
+
+    it('reads the configured authn.freshAuth.maxAgeSeconds', async () => {
       assert.strictEqual((await boot({ maxAgeSeconds: 60 })).fresh.maxAgeSeconds, 60);
     });
 
-    it('fails to resolve with a maxAgeSeconds that is not a positive integer', async () => {
-      for (const bad of [0, -5, 1.5, 'x']) {
-        await assert.rejects(boot({ maxAgeSeconds: bad }), /authn\.freshAuth\.maxAgeSeconds/, String(bad));
-        await parts?.dispose();
-        parts = undefined;
+    it('follows the Configuration after boot rather than a snapshot', async () => {
+      const { p, fresh, a } = await boot({ maxAgeSeconds: 60 });
+      p.configuration.set('authn.freshAuth.maxAgeSeconds', 90);
+      assert.strictEqual(fresh.maxAgeSeconds, 90);
+      const s = await issue(p, a);
+      assert.strictEqual(await fresh.check(s, ctx(at(90 * SECOND), s)), true);
+      assert.strictEqual(await fresh.check(s, ctx(at(90 * SECOND + 1), s)), false);
+    });
+
+    it('refuses a maxAgeSeconds that is not a positive integer, naming its path', async () => {
+      for (const bad of [0, -5, 1.5, 'abc']) {
+        const paths = await violationPaths(boot({ maxAgeSeconds: bad }));
+        assert.ok(paths.includes('authn.freshAuth.maxAgeSeconds'), `${String(bad)}: ${paths.join(', ')}`);
       }
     });
 

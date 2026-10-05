@@ -209,8 +209,9 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     freshAuth: {
       type: 'object',
+      default: {},
       properties: {
-        maxAgeSeconds: { type: 'integer', minimum: 1 },
+        maxAgeSeconds: { type: 'integer', minimum: 1, default: 300, description: 'A session authenticated this many seconds ago or less counts as fresh (A13).' },
       },
     },
     token: {

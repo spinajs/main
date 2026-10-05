@@ -1,16 +1,13 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { Config } from '@spinajs/configuration';
+import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
 
 import type { AuthnContext, Credentials } from '../contracts/credentials.js';
 import type { AuthnFacts } from '../contracts/principal.js';
 import { AuthnService } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
-
-/** Design §22.5 `authn.freshAuth.maxAgeSeconds`. */
-export const DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS = 300;
 
 /**
  * True when `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary included. A time after `now` or
@@ -27,12 +24,6 @@ export function isFresh(facts: Pick<AuthnFacts, 'authenticatedAt' | 'impersonato
   return age >= 0 && age <= maxAgeSeconds * 1000;
 }
 
-function readMaxAge(raw: unknown): number {
-  if (raw === undefined || raw === null) return DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS;
-  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1) throw new InvalidOption('authn.freshAuth.maxAgeSeconds must be a positive integer');
-  return raw;
-}
-
 /**
  * Fresh authentication for sensitive actions (A13): the active session authenticated within
  * `authn.freshAuth.maxAgeSeconds`, or an inline re-authentication of its identity, which counts for this request only.
@@ -41,7 +32,9 @@ function readMaxAge(raw: unknown): number {
 @PerChildInstance()
 @Inject(Container)
 export class FreshAuthCheck extends AsyncService {
-  private maxAge = DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS;
+  @Config('authn.freshAuth.maxAgeSeconds')
+  protected MaxAgeSeconds: number;
+
   private authn!: AuthnService;
   private sessions!: SessionIssuer;
 
@@ -50,15 +43,10 @@ export class FreshAuthCheck extends AsyncService {
   }
 
   public get maxAgeSeconds(): number {
-    return this.maxAge;
+    return this.MaxAgeSeconds;
   }
 
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('FreshAuthCheck: the resolved Configuration has no get()');
-    }
-    this.maxAge = readMaxAge(configuration.get('authn.freshAuth.maxAgeSeconds'));
     if (!this.container.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) throw new InvalidOperation('FreshAuthCheck: no SessionIssuer is registered');
     this.sessions = (await this.container.resolve(SessionIssuer as unknown as Class<SessionIssuer>)) as SessionIssuer;
     this.authn = (await this.container.resolve(AuthnService as unknown as Class<AuthnService>)) as AuthnService;
@@ -71,7 +59,7 @@ export class FreshAuthCheck extends AsyncService {
     if (typeof id !== 'string' || id === '') return false;
     const stored = await this.sessions.restore(id);
     if (!stored || stored.handle.state !== 'active' || stored.facts.impersonator !== undefined) return false;
-    if (isFresh(stored.facts, ctx.now, this.maxAge)) return true;
+    if (isFresh(stored.facts, ctx.now, this.MaxAgeSeconds)) return true;
     return reauth !== undefined && (await this.authn.reauthenticate(session, reauth, ctx));
   }
 }
