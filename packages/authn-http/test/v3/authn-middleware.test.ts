@@ -566,6 +566,17 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(s.throttle.attempts.length, 'nothing counted').to.eq(attempts);
     });
 
+    it('R1 an x-api-key value without authn.token.prefix gives no credentials; with an opaque bearer, our x-api-key authenticates (as 2.x)', async () => {
+      const attempts = s.throttle.attempts.length;
+      expect(await principalWith({ 'X-Api-Key': 'telemetry-0123456789abcdef' })).to.eq(null);
+      expect(await principalWith({ 'X-Api-Key': jwsOf('JWT') })).to.eq(null);
+      expect(s.tokenStrategy.verifyCalls).to.have.length(0);
+      expect(s.throttle.attempts.length, 'nothing counted').to.eq(attempts);
+      const token = tokenFor(alice);
+      expect((await principalWith({ Authorization: 'Bearer telemetry-0123456789abcdef', 'X-Api-Key': token }))?.id).to.eq(alice.id);
+      expect(s.tokenStrategy.verifyCalls).to.deep.eq([{ kind: 'bearer', token }]);
+    });
+
     it('an anonymous request stays cacheable', async () => {
       const res = await probe();
       expect(res.body.principal).to.eq(null);
@@ -880,6 +891,17 @@ describe('AuthnMiddleware units', () => {
       expect(e.extract(sreq({ 'x-api-key': 'spt_k' }))).to.eq(null);
       expect(e.extract(sreq({ 'x-token': 'spt_k, spt_k' }))).to.eq(null);
       expect(e.extract(sreq({ 'x-token': '' }))).to.eq(null);
+    });
+
+    it('R1 x-api-key takes only values with authn.token.prefix, as the Authorization extractor and the 2.x middleware do', () => {
+      const e = extractor(ApiKeyHeaderExtractor);
+      expect(e.extract(sreq({ 'x-api-key': 'opaque-key' }))).to.eq(null);
+      expect(e.extract(sreq({ 'x-api-key': jwsOf('JWT') }))).to.eq(null);
+      expect(e.extract(sreq({ 'x-api-key': 'SPT_wrong-case' }))).to.eq(null);
+      const custom = extractor(ApiKeyHeaderExtractor, { 'authn.token.prefix': 'tok_' });
+      expect(custom.extract(sreq({ 'x-api-key': 'tok_k' }))).to.deep.eq({ kind: 'bearer', token: 'tok_k' });
+      expect(custom.extract(sreq({ 'x-api-key': 'spt_k' }))).to.eq(null);
+      expect(extractor(ApiKeyHeaderExtractor, { 'authn.token.prefix': '' }).extract(sreq({ 'x-api-key': 'spt_k' })), 'an empty prefix takes nothing').to.eq(null);
     });
 
     it('signature: both headers, a public origin and an origin-form target are needed; the origin comes from config', () => {

@@ -19,8 +19,9 @@ export class TwoFactorAuthEnabled extends BasePolicy {
   }
 
   public async execute(_req: sRequest): Promise<void> {
-    // authn-totp no longer ships rbac.twoFactorAuth; unset counts as on, the 2.x shipped default, so users
-    // enrolled through 2.x can still finish the login step.
+    // authn-totp no longer ships rbac.twoFactorAuth; unset counts as on, the 2.x shipped default. That keeps open
+    // /auth/2fa/setup and /auth/2fa/verify for a session the 2.x login marked TwoFactorAuth (never a login only the
+    // 3.0 MfaPolicy requires), and the mutating /user/2fa/* routes, so users enrolled through 2.x can still log in.
     if (this.TwoFactorConfig?.enabled === false) {
       // Deliberately Forbidden and not InvalidOperation: the latter has no
       // @HandleException mapping in @spinajs/http and reaches the client as a

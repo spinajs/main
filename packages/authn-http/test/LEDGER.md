@@ -25,9 +25,9 @@ Token middleware adapt rows target `authn-http/test/ (src/token/)`, N8b's folder
 |---|---|
 | move | 0 |
 | adapt | 62 |
-| rewrite | 119 |
+| rewrite | 121 |
 | drop | 7 |
-| **total** | 188 |
+| **total** | 190 |
 
 Not ledgered: `authn-api-contract.test.ts` (23 its) is a 3.0 contract test that F6 added; it is not a 2.x test.
 
@@ -55,6 +55,8 @@ Status (N8a task 6): the 3.0 routes (`src/v3/controllers/AuthnActiveRoleControll
 ## test/descriptor-inheritance.test.ts
 
 2.x `@Resource`/`@Permission` controller descriptor inheritance. Dominant class: rewrite; plan T2 sends it to `authz-http/test/ported`.
+
+Status (N8a task 7): not touched by N8a; the 2.x descriptors stay live until N8c, and the ported tests are L5/T2 work.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -152,18 +154,22 @@ Password policy, reset request and reset redemption routes. Dominant class: adap
 
 Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2; lane N8a (target contradicts T2, see report).
 
+Status (N8a task 7): `AuthnMiddleware` (task 3, switched off until N8c) restores the session; each row names its case. The 2.x file stays and tests the live `RbacMiddleware`; N8c retires it (task 4 moved there) and moves the file to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 64 | RbacMiddleware sliding renewal > calls touch on an authenticated request | rewrite | N8a → T2 | authn-http/test/v3/; session restore and touch in `AuthnMiddleware` (A08); plan T2 names `authz-http/test/ported` but no authz code is involved |
-| 2 | 73 | RbacMiddleware sliding renewal > refreshes the ssid cookie when touch reports the expiry changed (sliding mode) | rewrite | N8a → T2 | authn-http/test/v3/; sliding renewal of the signed cookie (A07, A08, A24) |
-| 3 | 91 | RbacMiddleware sliding renewal > marks an authenticated response as uncacheable | rewrite | N8a → T2 | authn-http/test/v3/; `Cache-Control: no-store` on an authenticated response (A08) |
-| 4 | 101 | RbacMiddleware sliding renewal > leaves an anonymous response cacheable | rewrite | N8a → T2 | authn-http/test/v3/; anonymous response stays cacheable (A08) |
-| 5 | 110 | RbacMiddleware sliding renewal > does NOT refresh the cookie when touch reports no change (absolute mode) | rewrite | N8a → T2 | authn-http/test/v3/; absolute mode sets no cookie (A08) |
-| 6 | 130 | RbacMiddleware sliding renewal > issues a renewal cookie that survives cookie-parser and still restores the session | rewrite | N8a → T2 | authn-http/test/v3/; renewal cookie survives cookie-parser (A07) |
+| 1 | 64 | RbacMiddleware sliding renewal > calls touch on an authenticated request | rewrite | N8a → T2 | authn-http/test/v3/; session restore and touch in `AuthnMiddleware` (A08); plan T2 names `authz-http/test/ported` but no authz code is involved; N8a task 3: `test/v3/authn-middleware.test.ts` ("an active session restores into a principal with authn facts and no-store"); the idle expiry slides in `DefaultSessionIssuer.restore` (N8a-D7) |
+| 2 | 73 | RbacMiddleware sliding renewal > refreshes the ssid cookie when touch reports the expiry changed (sliding mode) | rewrite | N8a → T2 | authn-http/test/v3/; sliding renewal of the signed cookie (A07, A08, A24); N8a task 3: 3.0 expectation differs (N8a-D7): the session cookie is a browser-session cookie and AuthnMiddleware never sends it again; the issuer slides idle expiry on restore |
+| 3 | 91 | RbacMiddleware sliding renewal > marks an authenticated response as uncacheable | rewrite | N8a → T2 | authn-http/test/v3/; `Cache-Control: no-store` on an authenticated response (A08); N8a task 3: `test/v3/authn-middleware.test.ts` ("an active session restores into a principal with authn facts and no-store") |
+| 4 | 101 | RbacMiddleware sliding renewal > leaves an anonymous response cacheable | rewrite | N8a → T2 | authn-http/test/v3/; anonymous response stays cacheable (A08); N8a task 3: `test/v3/authn-middleware.test.ts` ("an anonymous request stays cacheable") |
+| 5 | 110 | RbacMiddleware sliding renewal > does NOT refresh the cookie when touch reports no change (absolute mode) | rewrite | N8a → T2 | authn-http/test/v3/; absolute mode sets no cookie (A08); N8a task 3: no cookie is sent in any mode (N8a-D7) |
+| 6 | 130 | RbacMiddleware sliding renewal > issues a renewal cookie that survives cookie-parser and still restores the session | rewrite | N8a → T2 | authn-http/test/v3/; renewal cookie survives cookie-parser (A07); N8a task 3: `test/v3/authn-middleware.test.ts` ("an express-signed cookie (s: prefix, req.signedCookies) restores too") |
 
 ## test/rbac-policy-unknown-role.test.ts
 
 `RbacPolicy` handling of roles missing from the grants. Class: rewrite; plan T2 sends it to `authz-http/test/ported`.
+
+Status (N8a task 7): not touched by N8a; the 2.x `RbacPolicy` stays live (deprecated) until N8c, and the ported tests are L5/T2 work.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -176,10 +182,12 @@ Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2;
 
 `SessionContextProvider` response schema contributions. Class: rewrite; plan T2 sends it to `authn-http/test/v3`.
 
+Status (N8a task 7): the bridge of task 4 moved to N8c; the 2.x file stays and tests the live provider until then.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22) |
-| 2 | 28 | SessionContextProvider schemas > publishes the properties of a provider registered after the schemas | rewrite | N8a → T2 | authn-http/test/v3/; response schemas include extension properties registered late (B25) |
+| 1 | 22 | SessionContextProvider schemas > contributes nothing while no provider is registered | rewrite | N8a → T2 | authn-http/test/v3/; `SessionContextProvider` becomes an `AuthnResponseExtension`; the `Grants` key is replaced by `Access` (B25, design §22); N8a task 6: the 3.0 routes run every `AuthnResponseExtension` (`test/v3-app/suites/login.ts`, "logs in: ... the login extensions; ..."); no response schema contributions are built yet (N8c/T2) |
+| 2 | 28 | SessionContextProvider schemas > publishes the properties of a provider registered after the schemas | rewrite | N8a → T2 | authn-http/test/v3/; response schemas include extension properties registered late (B25); N8a task 6: as row 1; an extension registered before the first request answers (`test/v3-app` registers its recording extension at wiring time) |
 
 ## test/sessions-controller.test.ts
 
@@ -247,24 +255,27 @@ Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder):
 
 `TokenAuthMiddleware` bearer and `x-api-key` authentication. Mixed: rewrite per plan T3 where principal shape or order changes, adapt for the extractor behaviour, three drop; lane N8a.
 
+Status (N8a task 7): the 3.0 extractors and resolvers (task 3, switched off until N8c) are tested in `test/v3/authn-middleware.test.ts`; each row names its case. Rows 16 and 17 pin 2.x rules the 3.0 extractors share (C7, R1). The 2.x file stays and tests the live 2.x middleware; N8c retires `TokenAuthMiddleware` (task 4 moved there) and moves the file to `test/legacy-v2/`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 112 | TokenAuthMiddleware > authenticates a valid Bearer token | rewrite | N8a → T3 | authn-http/test/v3/; a bearer token resolves to a `Principal` in `req.storage.AuthnPrincipal`, no `User` or `TokenAuth` (A14, A23, B24) |
-| 2 | 134 | TokenAuthMiddleware > keeps the whole effective role set authorizable, without pinning an active role | rewrite | N8a → T3 | authz-rbac/test/ported/; `ceiling.roles` = the token roles, no pinned active role (B24, B07) |
+| 1 | 112 | TokenAuthMiddleware > authenticates a valid Bearer token | rewrite | N8a → T3 | authn-http/test/v3/; a bearer token resolves to a `Principal` in `req.storage.AuthnPrincipal`, no `User` or `TokenAuth` (A14, A23, B24); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ceiling.roles and the profile attribute, no-store, ctx from ClientIp") |
+| 2 | 134 | TokenAuthMiddleware > keeps the whole effective role set authorizable, without pinning an active role | rewrite | N8a → T3 | authz-rbac/test/ported/; `ceiling.roles` = the token roles, no pinned active role (B24, B07); N8a task 3: `test/v3/authn-middleware.test.ts` (same case: `ceiling.roles` from the strategy, no active role); the authorization part stays C5/T3 |
 | 3 | 151 | TokenAuthMiddleware > clears the guest active role RbacMiddleware left behind | drop | N8a | Relies on 2.x `RbacMiddleware` stamping the guest `ActiveRole`; 3.0 writes one principal and anonymous is only the fallback when there is none (B10) |
-| 4 | 161 | TokenAuthMiddleware > authenticates via fallback header | adapt | N8a | authn-http/test/ (`src/token/`); `x-api-key` extractor (N8a task 3) |
-| 5 | 171 | TokenAuthMiddleware > leaves request untouched without token header | adapt | N8a | authn-http/test/ (`src/token/`); no credential leaves `AuthnPrincipal` unset |
-| 6 | 181 | TokenAuthMiddleware > stays guest on invalid token, does not throw | adapt | N8a | authn-http/test/ (`src/token/`); an invalid token resolves to no principal and does not throw |
-| 7 | 198 | TokenAuthMiddleware > ignores a duplicated token header instead of failing the request | adapt | N8a | authn-http/test/ (`src/token/`); a duplicated header reads as no token |
+| 4 | 161 | TokenAuthMiddleware > authenticates via fallback header | adapt | N8a | authn-http/test/ (`src/token/`); `x-api-key` extractor (N8a task 3); N8a task 3: `test/v3/authn-middleware.test.ts` ("x-api-key gives a bearer credential"); N8a task 7: only an `authn.token.prefix` value ("R1 x-api-key takes only values with authn.token.prefix, ...") |
+| 5 | 171 | TokenAuthMiddleware > leaves request untouched without token header | adapt | N8a | authn-http/test/ (`src/token/`); no credential leaves `AuthnPrincipal` unset; N8a task 3: `test/v3/authn-middleware.test.ts` ("an anonymous request stays cacheable": no principal, no session) |
+| 6 | 181 | TokenAuthMiddleware > stays guest on invalid token, does not throw | adapt | N8a | authn-http/test/ (`src/token/`); an invalid token resolves to no principal and does not throw; N8a task 3: `test/v3/authn-middleware.test.ts` ("a rejected bearer stops resolution: no other credential and no session answers") |
+| 7 | 198 | TokenAuthMiddleware > ignores a duplicated token header instead of failing the request | adapt | N8a | authn-http/test/ (`src/token/`); a duplicated header reads as no token; N8a task 3: `test/v3/authn-middleware.test.ts` ("a duplicated Authorization or api-key header reads as no credentials") |
 | 8 | 210 | TokenAuthMiddleware > does not override an existing session user | rewrite | N8a → T3 | authn-http/test/v3/authn-middleware.test.ts ("an active session ignores a bearer header"); the frozen `AuthnMiddleware` contract (api.ts, design §22.11 "as 2.x"): an active session ignores bearer credentials, so the 2.x expectation holds; key, token, session is the resolver order for a request without an active session (D26) |
-| 9 | 221 | TokenAuthMiddleware > updates LastUsedAt on successful auth | adapt | N8a | authn-http/test/ (`src/token/`); last-used stamp, throttled (N6 task 3) |
-| 10 | 234 | TokenAuthMiddleware > accepts a lowercase bearer scheme | adapt | N8a | authn-http/test/ (`src/token/`); lowercase bearer scheme |
+| 9 | 221 | TokenAuthMiddleware > updates LastUsedAt on successful auth | adapt | N8a | authn-http/test/ (`src/token/`); last-used stamp, throttled (N6 task 3); N8a task 3: no 3.0 counterpart in authn-http; `touchToken` is retired with `TokenAuthMiddleware` in N8c (N6 hand-off), the last-used stamp is `TokenStrategy`'s (N6) |
+| 10 | 234 | TokenAuthMiddleware > accepts a lowercase bearer scheme | adapt | N8a | authn-http/test/ (`src/token/`); lowercase bearer scheme; N8a task 3: `test/v3/authn-middleware.test.ts` ("a lowercase bearer scheme is accepted") |
 | 11 | 252 | TokenAuthMiddleware > narrowing Role does not persist when the controller later updates the user | drop | N8a | `User.Role` is removed (H13) and the principal is a separate object, so narrowing cannot persist through `user.update()` |
-| 12 | 274 | TokenAuthMiddleware > never logs the presented plaintext, and names the token by uuid when known | rewrite | N8a → T3 | authn-http/test/v3/; plaintext token never logged, rejections named by uuid (A14, A21) |
-| 13 | 316 | TokenAuthMiddleware > runs after RbacMiddleware | drop | N8a | Two middlewares ordered against each other no longer exist: one `AuthnMiddleware` resolves key, token, session (N8a task 4); the order is tested by the row at line 210 |
-| 14 | 325 | TokenAuthMiddleware > leaves Profile undefined on TokenAuth for a legacy token | rewrite | N8a → T3 | authn-http/test/v3/; a token without a profile leaves `attributes.profile` unset (B24, design §14) |
-| 15 | 354 | TokenAuthMiddleware > profiles > stamps the token profile on TokenAuth | rewrite | N8a → T3 | authn-http/test/v3/; the token profile becomes `attributes.profile` (B24, design §14) |
-| 16 | 193 | TokenAuthMiddleware > C7 leaves a bearer value without the token prefix alone: no lookup, no warning | rewrite | N8a | added in N8a task 3 (C7 hand-off); 3.0 intent already in authn-http/test/v3/authn-middleware.test.ts ("C7 an opaque bearer of another service gives no credentials"); goes with the file to legacy-v2 in task 4 |
+| 12 | 274 | TokenAuthMiddleware > never logs the presented plaintext, and names the token by uuid when known | rewrite | N8a → T3 | authn-http/test/v3/; plaintext token never logged, rejections named by uuid (A14, A21); N8a task 3: `test/v3/authn-middleware.test.ts` ("passes the credentials of the first extractor that answers and never stores them on the request"); AuthnMiddleware logs no credential; naming a rejection by uuid is core audit (N6/T3) |
+| 13 | 316 | TokenAuthMiddleware > runs after RbacMiddleware | drop | N8a | Two middlewares ordered against each other no longer exist: one `AuthnMiddleware` resolves key, token, session (N8a task 4, moved to N8c); the order is tested by the row at line 210 |
+| 14 | 325 | TokenAuthMiddleware > leaves Profile undefined on TokenAuth for a legacy token | rewrite | N8a → T3 | authn-http/test/v3/; a token without a profile leaves `attributes.profile` unset (B24, design §14); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ... the profile attribute"); the unset case stays T3 |
+| 15 | 354 | TokenAuthMiddleware > profiles > stamps the token profile on TokenAuth | rewrite | N8a → T3 | authn-http/test/v3/; the token profile becomes `attributes.profile` (B24, design §14); N8a task 3: `test/v3/authn-middleware.test.ts` ("a bearer token gives its principal with ceiling.roles and the profile attribute, ...") |
+| 16 | 193 | TokenAuthMiddleware > C7 leaves a bearer value without the token prefix alone: no lookup, no warning | rewrite | N8a | added in N8a task 3 (C7 hand-off); 3.0 intent already in authn-http/test/v3/authn-middleware.test.ts ("C7 an opaque bearer of another service gives no credentials"); goes with the file to legacy-v2 in N8c |
+| 17 | 212 | TokenAuthMiddleware > R1 an opaque bearer of another service does not hide our token in the fallback header | rewrite | N8a | added in N8a task 7 (task 3 review R1): one rule in both stacks, a credential header counts only with the token prefix; 3.0 intent in `test/v3/authn-middleware.test.ts` ("R1 an x-api-key value without authn.token.prefix gives no credentials; with an opaque bearer, our x-api-key authenticates (as 2.x)"); goes with the file to legacy-v2 in N8c |
 
 ## test/token-policies.test.ts
 

@@ -7,7 +7,10 @@ import type { AuthnIdentity } from '../api.js';
 // Not named like the 2.x SessionArg, SessionIdArg, ...: DI keys classes by name (N8a-D2). @spinajs/http resolves a route
 // arg by this name from the root container; registerAuthnHttpV3 registers them there.
 
-/** Resolves to the AuthnIdentity of req.storage.AuthnPrincipal, or null without a principal (a pending session gives null). */
+/**
+ * Resolves to the AuthnIdentity of req.storage.AuthnPrincipal, or null without a principal (a pending session gives null).
+ * Like Authenticated, it counts a principal only when `authenticated` is true.
+ */
 export class AuthnIdentityArg extends RouteArgs {
   public get SupportedType(): string {
     return ParameterType.Other;
@@ -15,7 +18,7 @@ export class AuthnIdentityArg extends RouteArgs {
 
   public async extract(callData: IRouteCall, _args: unknown[], _param: IRouteParameter, req: Request): Promise<IRouteArgsResult> {
     const principal = req.storage.AuthnPrincipal;
-    const identity: AuthnIdentity | null = principal?.authn ? { identity: { type: principal.type, id: principal.id }, facts: principal.authn } : null;
+    const identity: AuthnIdentity | null = principal?.authenticated === true && principal.authn ? { identity: { type: principal.type, id: principal.id }, facts: principal.authn } : null;
     return { CallData: callData, Args: identity };
   }
 }

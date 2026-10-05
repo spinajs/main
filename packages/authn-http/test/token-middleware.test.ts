@@ -209,6 +209,16 @@ describe('TokenAuthMiddleware', function () {
     }
   });
 
+  it('R1 an opaque bearer of another service does not hide our token in the fallback header', async () => {
+    const { Plaintext } = await tokenFor('m20@spinajs.com', 'm20');
+    const { req, res, next } = makeReqRes({ authorization: 'Bearer telemetry-opaque-token', 'x-api-key': Plaintext });
+
+    await middleware.before()(req, res, next);
+
+    expect(req.storage.TokenAuth).to.not.be.undefined;
+    sinon.assert.calledOnce(next);
+  });
+
   /**
    * Node hands a header sent twice over as an array. `.startsWith` / `.trim` on
    * one throws, and the outer catch would forward that to `next(err)` - turning

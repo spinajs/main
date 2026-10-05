@@ -1,4 +1,5 @@
-import { BaseController, BasePath, Get, Ok, Policy, Post } from '@spinajs/http';
+import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
+import type { Request } from '@spinajs/http';
 import type { SessionHandle } from '@spinajs/authn/contracts';
 
 import { Authenticated, AuthnSession, FromSession, Identity, NoImpersonationPolicy, NoSession, NoTokenAuthPolicy, NotLoggedPolicy, SessionId } from '../../src/v3/index.js';
@@ -17,8 +18,8 @@ export class AuthnPolicyProbeController extends BaseController {
 
   @Post('fresh')
   @Policy(SuiteFreshAuth)
-  public fresh() {
-    return new Ok({ ok: true });
+  public fresh(@Req() req: Request) {
+    return new Ok({ ok: true, bodyKeys: Object.keys((req.body as object | undefined) ?? {}) });
   }
 
   @Post('fresh-600')

@@ -45,7 +45,11 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
   }
 }
 
-/** The `authn.token.headerName` header (default `x-api-key`) ⇒ bearer; a malformed or repeated value ⇒ null. */
+/**
+ * The `authn.token.headerName` header (default `x-api-key`) ⇒ bearer, only for an `authn.token.prefix` token: the header
+ * name is common, so any other value is someone else's key and gives no credentials. A malformed or repeated value ⇒
+ * null. An opaque `Authorization` bearer gives null first, so a prefix token here still authenticates, as in 2.x.
+ */
 @PerChildInstance()
 export class ApiKeyHeaderExtractor extends CredentialExtractor {
   public readonly order: number = 30;
@@ -57,6 +61,7 @@ export class ApiKeyHeaderExtractor extends CredentialExtractor {
     const name = this.Configuration.get<string>('authn.token.headerName', 'x-api-key');
     const value = typeof name === 'string' && name !== '' ? req.headers[name.toLowerCase()] : undefined;
     const token = typeof value === 'string' ? value.trim() : '';
-    return TOKEN.test(token) ? { kind: 'bearer', token } : null;
+    const prefix = this.Configuration.get<string>('authn.token.prefix', DEFAULT_TOKEN_PREFIX);
+    return TOKEN.test(token) && typeof prefix === 'string' && prefix !== '' && token.startsWith(prefix) ? { kind: 'bearer', token } : null;
   }
 }

@@ -81,9 +81,9 @@ export class TokenAuthMiddleware extends ServerMiddleware {
           return next();
         }
 
-        const plaintext = this.extract(req);
         // A value without our prefix is another service's token (a telemetry bearer, say): not ours to reject or log.
-        if (!plaintext || (this.TokenPrefix && !plaintext.startsWith(this.TokenPrefix))) {
+        const plaintext = this.extract(req);
+        if (!plaintext) {
           return next();
         }
 
@@ -169,7 +169,10 @@ export class TokenAuthMiddleware extends ServerMiddleware {
   }
 
   /**
-   * Bearer scheme first, configured fallback header second.
+   * Bearer scheme first, configured fallback header second; a value without
+   * `authn.token.prefix` is another service's token and is skipped, so an
+   * opaque bearer does not hide our token in the fallback header (the 3.0
+   * extractors follow the same rule).
    */
   protected extract(req: sRequest): string | null {
     // A header sent twice arrives as an array. Anything that is not a single
@@ -182,10 +185,8 @@ export class TokenAuthMiddleware extends ServerMiddleware {
     };
 
     const auth = header('authorization');
-    if (auth && BEARER_SCHEME.test(auth)) {
-      return auth.replace(BEARER_SCHEME, '').trim() || null;
-    }
-
-    return header(this.HeaderName.toLowerCase())?.trim() || null;
+    const bearer = auth && BEARER_SCHEME.test(auth) ? auth.replace(BEARER_SCHEME, '').trim() || null : null;
+    const fallback = header(this.HeaderName.toLowerCase())?.trim() || null;
+    return [bearer, fallback].find((v) => v !== null && (!this.TokenPrefix || v.startsWith(this.TokenPrefix))) ?? null;
   }
 }

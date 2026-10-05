@@ -15,7 +15,9 @@ export async function mfaPolicyOf(container: IContainer, configured: unknown): P
   const types = container.getRegisteredTypesChain(MfaPolicy as unknown as Class<MfaPolicy>) ?? [];
   const type = [...types].reverse().find((t) => t.name === name);
   if (!type) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
-  return (isFactory(type) ? await (type as Factory<unknown>)(container) : await container.resolve(type as Class<unknown>)) as MfaPolicy;
+  const policy = (isFactory(type) ? await (type as Factory<unknown>)(container) : await container.resolve(type as Class<unknown>)) as MfaPolicy | null;
+  if (typeof policy?.required !== 'function') throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: the registration is not an MfaPolicy (no required())`);
+  return policy;
 }
 
 /** Passes when MfaPolicy requires no step for the principal, or its authn.assurance is aal2 (A20, D2). */

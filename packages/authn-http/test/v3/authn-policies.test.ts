@@ -15,11 +15,11 @@ import type { IController, IRoute, IRouteParameter, Request } from '@spinajs/htt
 import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
-import { AuthenticationStrategy, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
+import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IMPERSONATION_BLOCK, IdentityStore, ImpersonationGuard, MfaPolicy, PasswordCredentialStore, PrincipalFactory, SessionIssuer } from '@spinajs/authn';
 import type { AuthnFacts, IdentityRef, Principal, StrategyOutcome } from '@spinajs/authn';
 import { DefaultSessionIssuer, MemorySessionStore, appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { EnrolledMfaPolicy, FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import * as api from '../../src/api.js';
 import * as barrel from '../../src/index.js';
@@ -94,6 +94,7 @@ interface Suite {
   step: FakeMfaStep;
   tokens: Map<string, StrategyOutcome>;
   passwordStrategy: FakeStrategy;
+  events: RecordingEventSink;
 }
 
 async function buildSuite(): Promise<Suite> {
@@ -108,6 +109,7 @@ async function buildSuite(): Promise<Suite> {
   Object.defineProperty(issuer, 'Store', { value: store });
   Object.defineProperty(issuer, 'PendingTtlSeconds', { value: 300 });
   const throttle = new RecordingThrottle();
+  const events = new RecordingEventSink();
   const step = new FakeMfaStep({ name: 'totp' });
   const tokens = new Map<string, StrategyOutcome>();
   const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });
@@ -128,8 +130,10 @@ async function buildSuite(): Promise<Suite> {
   bind(child, AuthenticationStrategy, 'PolicySuitePasswordStrategy', passwordStrategy);
   bind(child, AuthenticationStrategy, 'PolicySuiteTokenStrategy', tokenStrategy);
   bind(child, MfaPolicy, 'PolicySuiteMfaPolicy', new EnrolledMfaPolicy([step]));
+  // Before anything resolves the child's AuthnAudit, which reads its sinks once.
+  bind(child, AuthnEventSink, 'PolicySuiteEventSink', events);
   await registerAuthnHttpV3(child);
-  return { child, identities, passwords, issuer, throttle, step, tokens, passwordStrategy };
+  return { child, identities, passwords, issuer, throttle, step, tokens, passwordStrategy, events };
 }
 
 const FACTS = (over: Partial<AuthnFacts> = {}): AuthnFacts => ({ method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date(), ...over });
@@ -354,6 +358,23 @@ describe('3.0 authn policies and route args', function () {
         config.set('authn.mfa.policy.service', 'PolicySuiteMfaPolicy');
       }
     });
+
+    it('a registration under the configured name that is no MfaPolicy (no required()) fails with InvalidOption', async () => {
+      // A grandchild of its own, so the suite's later MfaPolicy resolves never meet this registration.
+      const sub = s.child.child();
+      bind(sub, MfaPolicy, 'PolicySuiteMfaPolicyWithoutRequired', {});
+      const policy = new MfaSatisfied();
+      Object.defineProperty(policy, 'Container', { value: sub });
+      const config = await DI.resolve(Configuration);
+      config.set('authn.mfa.policy.service', 'PolicySuiteMfaPolicyWithoutRequired');
+      try {
+        const res = await outcome(policy.execute(await requestOf('session'), route, controller)).catch((e: Error) => `throws ${e.constructor.name}`);
+        expect(res).to.eq('throws InvalidOption');
+      } finally {
+        config.set('authn.mfa.policy.service', 'PolicySuiteMfaPolicy');
+        await sub.dispose();
+      }
+    });
   });
 
   describe('FreshAuth (A13, SR-20)', () => {
@@ -449,6 +470,25 @@ describe('3.0 authn policies and route args', function () {
         expect(await run(resolve(FreshAuth, [60]), await request({ reauthPassword: ALICE_PASSWORD }))).to.eq('pass');
         expect(reauthAttempts()).to.have.length(1);
       });
+
+      it("another account's password fails, counted once in the reauth flow", async () => {
+        expect(await run(resolve(FreshAuth, [60]), await request({ reauthPassword: BOB_PASSWORD }))).to.eq('401 E_AUTH_FAILED');
+        expect(reauthAttempts()).to.have.length(1);
+        expect(s.throttle.succeeds).to.have.length(0);
+      });
+
+      it('a throttled re-authentication fails and verifies nothing', async () => {
+        s.throttle.refuse(30);
+        expect(await run(resolve(FreshAuth, [60]), await request({ reauthPassword: ALICE_PASSWORD }))).to.eq('401 E_AUTH_FAILED');
+        expect(s.passwordStrategy.verifyCalls).to.have.length(0);
+      });
+
+      it('the right password of a banned identity fails', async () => {
+        const req = await request({ reauthPassword: ALICE_PASSWORD });
+        s.identities.setStatus(alice, { banned: true });
+        expect(await run(resolve(FreshAuth, [60]), req)).to.eq('401 E_AUTH_FAILED');
+        expect(s.throttle.succeeds).to.have.length(0);
+      });
     });
 
     it('undefined maxAgeSeconds means authn.freshAuth.maxAgeSeconds (300 here)', async () => {
@@ -464,6 +504,10 @@ describe('3.0 authn policies and route args', function () {
       const req = await requestOf('session', { facts: { authenticatedAt: secondsAgo(400) }, body: { reauthPassword: 'x'.repeat(1025) } });
       expect(await run(resolve(FreshAuth), req)).to.eq('401 E_AUTH_FAILED');
       expect(s.passwordStrategy.verifyCalls).to.have.length(0);
+      const failed = s.events.ofType('reauth').filter((e) => e.identity?.id === alice.id);
+      expect(failed.map((e) => [e.outcome, e.reason])).to.deep.eq([['failure', 'password_too_long']]);
+      expect(failed[0].session).to.eq((req.storage.AuthnSession as { facts: AuthnFacts }).facts.sessionHandle);
+      expect(JSON.stringify(failed)).to.not.contain('xxxxxxxx');
     });
 
     it('a reauthPassword that is not a non-empty string counts as none', async () => {
@@ -480,6 +524,20 @@ describe('3.0 authn policies and route args', function () {
       const restored = (await s.issuer.restore(h.id))!;
       const req = { storage: { AuthnSession: restored, AuthnPrincipal: { type: 'user', id: carol.id, authenticated: true, source: 'session', attributes: {}, authn: restored.facts } }, body: { reauthPassword: 'Carol-Pass-3456' }, headers: {} } as unknown as Request;
       expect(await run(resolve(FreshAuth), req)).to.eq('401 E_AUTH_FAILED');
+      const failed = s.events.ofType('reauth').filter((e) => e.identity?.id === carol.id);
+      expect(failed.map((e) => [e.outcome, e.reason]), 'audited, so the missing login leaves a trace').to.deep.eq([['failure', 'no_login']]);
+      expect(JSON.stringify(failed)).to.not.contain('Carol-Pass-3456');
+    });
+
+    it('takes reauthPassword out of the body, so the route never sees the password', async () => {
+      for (const age of [400, 290]) {
+        const req = await requestOf('session', { facts: { authenticatedAt: secondsAgo(age) }, body: { reauthPassword: ALICE_PASSWORD, note: 'kept' } });
+        expect(await run(resolve(FreshAuth), req)).to.eq('pass');
+        expect(req.body, `${age} s`).to.deep.eq({ note: 'kept' });
+      }
+      const wrong = await requestOf('session', { facts: { authenticatedAt: secondsAgo(400) }, body: { reauthPassword: 'wrong-password-1' } });
+      expect(await run(resolve(FreshAuth), wrong)).to.eq('401 E_AUTH_FAILED');
+      expect(wrong.body).to.deep.eq({});
     });
   });
 
@@ -495,6 +553,9 @@ describe('3.0 authn policies and route args', function () {
       expect(await extract(new AuthnIdentityArg(), await requestOf('agent')), "an agent's own id, not onBehalfOf").to.deep.include({ identity: { type: 'agent', id: 'agent-1' } });
       expect(await extract(new AuthnIdentityArg(), await requestOf('pending'))).to.eq(null);
       expect(await extract(new AuthnIdentityArg(), await requestOf('none'))).to.eq(null);
+      const unauthenticated = await requestOf('session');
+      unauthenticated.storage.AuthnPrincipal = { ...(unauthenticated.storage.AuthnPrincipal as Principal), authenticated: false } as Principal;
+      expect(await extract(new AuthnIdentityArg(), unauthenticated), 'as Authenticated: only authenticated === true counts').to.eq(null);
     });
 
     it('@AuthnSession(): the handle, pending included; null without a session', async () => {
@@ -567,6 +628,13 @@ describe('3.0 authn policies and route args', function () {
       expect(throttled.status).to.eq(401);
       expect(throttled.body.error).to.deep.eq(wrong.body.error);
       expect(throttled.headers['retry-after']).to.eq(undefined);
+    });
+
+    it('FreshAuth: the controller gets the body without reauthPassword', async () => {
+      const h = await session({ authenticatedAt: secondsAgo(400) });
+      const res = await post('fresh', { Cookie: cookieOf(h.id) }, { reauthPassword: ALICE_PASSWORD, note: 'kept' });
+      expect(res.status).to.eq(200);
+      expect(res.body.bodyKeys).to.deep.eq(['note']);
     });
 
     it('@Policy(FreshAuth, 600) reaches the policy: 400 s old passes there and not on the default route', async () => {

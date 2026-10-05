@@ -6,6 +6,7 @@ import type { IController, IRoute, Request } from '@spinajs/http';
 import { AuthnService, IdentityStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef } from '@spinajs/authn/contracts';
 
+import { publishAuthnEvent } from './audit.js';
 import { authnFailed, refused } from './errors.js';
 import { authenticatedPrincipal, isSessionPrincipal } from './principal.js';
 
@@ -15,12 +16,13 @@ export const REAUTH_PASSWORD_FIELD = 'reauthPassword';
 /** authn-local's hard cap (N3): a longer value never verifies, so no strategy has to hash it. The login routes cap their fields at it too. */
 export const PASSWORD_HARD_CAP = 1024;
 
-async function passwordCredentials(container: IContainer, identity: IdentityRef, password: string): Promise<Credentials | null> {
-  if (password.length > PASSWORD_HARD_CAP) return null;
+/** The credentials to verify, or why there are none (an audit reason). */
+async function passwordCredentials(container: IContainer, identity: IdentityRef, password: string): Promise<Credentials | 'password_too_long' | 'no_login'> {
+  if (password.length > PASSWORD_HARD_CAP) return 'password_too_long';
   // The principal carries no login. IdentityStore.findByLogin takes an email, so display's email is one; reauthenticate
   // still refuses a password whose identity is not the session's.
   const { email } = await (await container.resolve(IdentityStore)).display(identity);
-  return typeof email === 'string' && email !== '' ? { kind: 'password', login: email, password } : null;
+  return typeof email === 'string' && email !== '' ? { kind: 'password', login: email, password } : 'no_login';
 }
 
 /**
@@ -46,7 +48,12 @@ export async function assertFreshAuth(container: IContainer, req: Request, maxAg
 
   if (typeof password !== 'string' || password === '') throw refused('fresh_auth_required', 'this route needs a recent login or the password');
   const credentials = await passwordCredentials(container, session.identity, password);
-  if (!credentials) throw authnFailed();
+  if (typeof credentials === 'string') {
+    // Core never sees these attempts, so it cannot audit them; no_login is a store defect that looks like a wrong password.
+    const { sessionHandle } = session.facts;
+    await publishAuthnEvent(container, req, { type: 'reauth', outcome: 'failure', reason: credentials, identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) });
+    throw authnFailed();
+  }
   // FreshAuthCheck.check passes a session that is fresh under its own, longer maxAge without verifying the password; a
   // stricter route age therefore verifies through the core re-authentication itself.
   const ok = maxAge >= check.maxAgeSeconds ? await check.check(session.handle, ctx, credentials) : await (await container.resolve(AuthnService)).reauthenticate(session.handle, credentials, ctx);
@@ -78,7 +85,12 @@ export class FreshAuth extends BasePolicy {
 
   public async execute(req: Request, _action: IRoute, _instance: IController): Promise<void> {
     const body: unknown = req.body;
-    const password = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD] : undefined;
+    let password: unknown;
+    if (typeof body === 'object' && body !== null) {
+      password = (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
+      // The route behind the policy must not get the account password: a body-to-model copy or a request log could keep it.
+      delete (body as Record<string, unknown>)[REAUTH_PASSWORD_FIELD];
+    }
     await assertFreshAuth(this.Container, req, this.maxAgeSeconds, password);
   }
 }

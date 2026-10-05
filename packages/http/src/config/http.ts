@@ -82,13 +82,15 @@ const http = {
     
     /**
      * Proxies in front of the app whose X-Forwarded-For counts ( RealIp, and
-     * authn's ClientIp when authn.http.trustProxy is null ): a hop count, or a
-     * list of addresses and CIDRs. null: no proxy, the client is the socket address.
+     * authn's ClientIp when authn.http.trustProxy is null ): a hop count (true is
+     * one hop), or a list (an array or a comma-separated string) of addresses,
+     * CIDRs and the names loopback, linklocal and uniquelocal. null, false or 0:
+     * no proxy, the client is the socket address.
      * The first X-Forwarded-Proto and X-Forwarded-Host value from a trusted proxy
      * counts too (the app's own origin), so that proxy must overwrite both headers,
      * never pass on or append to a client's value.
      */
-    trustProxy: null as number | string | string[] | null,
+    trustProxy: null as number | boolean | string | string[] | null,
 
     /**
      * Per-ip, per-route rate limiting ( ThrottleMiddleware ). Disabled by
