@@ -93,12 +93,16 @@ describe('golden conversions', () => {
         const authnSchema = (await import(pathToFileURL(join(process.cwd(), '..', 'authn', 'lib', 'mjs', 'schemas', 'authn.configuration.js')).href)).AUTHN_CONFIGURATION_SCHEMA;
         // ajv is CommonJS; under ESM its class may sit on .default.
         const AjvClass = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as new (options: object) => { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown }; errorsText(errors?: unknown): string };
-        const ajv = new AjvClass({ allErrors: true, strict: false, useDefaults: true });
+        const ajv = new AjvClass({ allErrors: true, strict: false, useDefaults: true, $data: true });
         const validate = { authz: ajv.compile(AUTHZ_CONFIGURATION_SCHEMA), authn: ajv.compile(authnSchema) };
-        for (const f of results.get(c.name)!.files) {
+        const r = results.get(c.name)!;
+        const handDone = r.findings.some((x) => x.code === 'guard-privileged-permission');
+        for (const f of r.files) {
           const root = f.name.split('-')[0] as 'authz' | 'authn';
           if (!f.name.endsWith('.ts') || !(root in validate)) continue;
           const value = structuredClone(read(f.content)[root]);
+          // The finding leaves privilegedPermission to a person; give it one, as they would.
+          if (root === 'authz' && handDone) value.admin.guard.privilegedPermission = 'users:update';
           expect(validate[root](value), `${f.name}: ${ajv.errorsText(validate[root].errors)}`).to.equal(true);
         }
       });

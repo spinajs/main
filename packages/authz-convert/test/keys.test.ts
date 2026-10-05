@@ -100,7 +100,15 @@ describe('convertKeys', () => {
     it('writes a custom guard as found, so boot fails until it is ported, and says so', () => {
       const { out, f } = run({ admin: { roleGuard: { service: 'ScopedRoleGuard' } } });
       expect(out.authz).to.deep.equal({ authz: { admin: { guard: { service: 'ScopedRoleGuard' } } } });
-      expect(codes(f, 'manual')).to.deep.equal(['custom-service']);
+      expect(codes(f, 'manual')).to.deep.equal(['custom-service', 'guard-privileged-permission']);
+    });
+
+    it('flags a guard written without privilegedPermission, unless both lockout checks are off', () => {
+      const flagged = run({ admin: { roleGuard: { service: 'ScopedRoleGuard', preventEscalation: false } } });
+      expect(codes(flagged.f, 'manual')).to.include('guard-privileged-permission');
+      expect(flagged.out.authz).to.not.deep.include({ authz: { admin: { guard: { preventSelfLockout: false, preventLastPrivilegedRemoval: false } } } });
+      const off = run({ admin: { roleGuard: { preventSelfLockout: false, preventLastPrivilegedRemoval: false } } });
+      expect(codes(off.f, 'manual')).to.not.include('guard-privileged-permission');
     });
 
     it('splits the token keys between authz and authn', () => {

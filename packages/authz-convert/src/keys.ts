@@ -247,6 +247,10 @@ function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, 
     f.refuse(`${gat} must be an object`);
     return;
   }
+  let wroteGuard = false;
+  let hasPermission = false;
+  let unresolved = false;
+  const lockout: Record<string, boolean | undefined> = {};
   const flags = ['protectSystemRole', 'preventEscalation', 'preventSelfLockout', 'preventLastPrivilegedRemoval'];
   unknownKeys(guard, ['service', 'requireKnownRole', 'privilegedResource', 'privilegedAction', ...flags], gat, f);
   if (guard.service !== undefined) {
@@ -254,6 +258,7 @@ function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, 
     if (service !== undefined) {
       const mapped = SERVICES.guard[service];
       w.set('authz.admin.guard.service', mapped ?? service);
+      wroteGuard = true;
       if (!mapped) {
         f.manual(
           'custom-service',
@@ -267,13 +272,18 @@ function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, 
   for (const flag of flags) {
     if (guard[flag] === undefined) continue;
     const on = asBoolean(guard[flag], `${gat}.${flag}`, f);
-    if (on !== undefined) w.set(`authz.admin.guard.${flag}`, on);
+    if (on !== undefined) {
+      w.set(`authz.admin.guard.${flag}`, on);
+      wroteGuard = true;
+      lockout[flag] = on;
+    }
   }
   if (guard.privilegedResource !== undefined || guard.privilegedAction !== undefined) {
     const resource = m('admin.roleGuard.privilegedResource');
     const action = m('admin.roleGuard.privilegedAction');
     const verb = typeof action === 'string' ? /^(create|read|update|delete)(?::any)?$/.exec(action)?.[1] : undefined;
     if (typeof resource !== 'string' || resource === '' || verb === undefined) {
+      unresolved = true;
       f.manual(
         'privileged-permission',
         `privilegedResource '${String(resource)}' with privilegedAction '${String(action)}' names no single 3.0 permission (an :own action has none). Set authz.admin.guard.privilegedPermission by hand.`,
@@ -281,7 +291,15 @@ function convertAdmin(value: unknown, at: string, m: (path: string) => unknown, 
       );
     } else {
       w.set('authz.admin.guard.privilegedPermission', `${resource}:${verb}`);
+      hasPermission = true;
     }
+  }
+  if (wroteGuard && !hasPermission && !unresolved && !(lockout.preventSelfLockout === false && lockout.preventLastPrivilegedRemoval === false)) {
+    f.manual(
+      'guard-privileged-permission',
+      'Set authz.admin.guard.privilegedPermission: boot requires it while the self-lockout and last-holder checks are on, and the converter cannot pick it for a guard it did not write.',
+      gat,
+    );
   }
 }
 
