@@ -1,12 +1,12 @@
 import { AuthorizationModel, AuthzAdminBackend, AuthzContributor, AuthzEventSink, MemoryScopeAttributeStore, ScopeAttributeStore, WritableScopeAttributeStore, principalKey } from '@spinajs/authz';
 import type { Assignment, AuthzService, Permission, Principal, ResourceType } from '@spinajs/authz';
 import { evaluateFilter, hostHarness, testHost } from '@spinajs/authz-testing';
-import type { BehaviourHarness, Facet, HarnessSession, HostSetup } from '@spinajs/authz-testing';
+import type { BehaviourHarness, Facet, HarnessSession, HostSetup, WorldLink } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { Orm, QueryContext } from '@spinajs/orm';
 
 import adminConfig from '../../src/config/admin.js';
-import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RoleStore, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectToColumns } from '../../src/index.js';
+import { AUTHZ_ASSIGNMENT_TABLE, AUTHZ_LINK_TABLE, AUTHZ_RULE_SUBJECT_TABLE, AUTHZ_RULE_TABLE, AUTHZ_VERSION_TABLE, AdminAssignmentStore, AdminLinkStore, AdminRuleStore, DbAuthzAdminBackend, RbacContributor, RbacModel, RbacService, RoleStore, linkTokenHash, normaliseTags, readVersion, registerRbacStores, scopeToColumns, subjectToColumns } from '../../src/index.js';
 import type { ConfigRoleStore, DbAssignmentStore, DbLinkStore, DbRuleStore } from '../../src/index.js';
 import type { LadderDef, RbacExtension, RbacModelOptions, RoleDef } from '../../src/index.js';
 import { RecordingEventSink } from '../admin/admin-harness.js';
@@ -41,6 +41,18 @@ export async function insertAssignment(db: TestDb, a: Assignment, createdAt = ne
     .insert()
     .into(AUTHZ_ASSIGNMENT_TABLE)
     .values({ id: a.id, ...subjectToColumns(a.subject), role: a.role, ...scopeToColumns(a.scope), tags: normaliseTags(a.tags), expires_at: a.expiresAt ?? null, granted_by: a.grantedBy ? principalKey(a.grantedBy) : null, source: a.source ?? 'db', created_at: createdAt });
+}
+
+/** A world link as `authz.link` holds it (the token only hashed) and its `link:<id>` assignment, expiring with it. */
+async function insertLink(db: TestDb, l: WorldLink): Promise<void> {
+  const expiresAt = l.expiresAt ?? null;
+  const createdAt = new Date();
+  await db.driver
+    .insert()
+    .into(AUTHZ_LINK_TABLE)
+    .values({ id: l.id, token_hash: linkTokenHash(LINK_SECRET, l.token), ...scopeToColumns(l.scope), attributes: JSON.stringify(l.attributes ?? {}), expires_at: expiresAt, revoked_at: l.revoked ? createdAt : null, created_by: l.createdBy ? principalKey(l.createdBy) : null, created_at: createdAt });
+  // A revoked link keeps its assignment here: the link principal's empty ceiling must do the denying.
+  await insertAssignment(db, { id: `link-${l.id}`, subject: { type: 'link', id: l.id }, role: l.role, scope: l.scope, ...(l.tags ? { tags: l.tags } : {}), ...(expiresAt ? { expiresAt } : {}), source: 'db' }, createdAt);
 }
 
 export type HarnessModel = 'rbac' | 'test';
@@ -122,12 +134,13 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
       if ((roles as unknown as { configuration: Configuration }).configuration !== configuration) throw new Error("dbHarness: the RoleStore does not read this case's Configuration");
 
       for (const a of rbac.assignments ?? []) await insertAssignment(test, a);
+      for (const l of rbac.links ?? []) await insertLink(test, l);
 
       if (opts.model === 'test') {
         const { roles, ladders } = await stores.roles.load();
         c.register(instance(new TestRbacModel({ roles, ladders, assignments: stores.assignments }))).as(AuthorizationModel);
       } else {
-        const options: RbacModelOptions = { roles: stores.roles, assignments: stores.assignments, clock: host.kit.clock, ...(opts.log ? { log: opts.log } : {}) };
+        const options: RbacModelOptions = { roles: stores.roles, assignments: stores.assignments, links: stores.links, clock: host.kit.clock, ...(opts.log ? { log: opts.log } : {}) };
         const model = new RbacModel({ ...options, ...(opts.extensions ? { extensions: opts.extensions(host, options) } : {}) });
         models.set(host, model);
         c.register(instance(model)).as(AuthorizationModel);
@@ -171,6 +184,7 @@ export function dbHarness(db: () => TestDb | undefined, opts: DbHarnessOptions =
             linkRows: async () => (await test.driver.select().from(AUTHZ_LINK_TABLE)) as Record<string, unknown>[],
           },
           ...(events ? { adminEvents: events } : {}),
+          ...(model ? { rbacLinks: { principal: (token: string, companion?: Principal) => new RbacService(model).principalForToken(token, companion) } } : {}),
         },
       };
     },

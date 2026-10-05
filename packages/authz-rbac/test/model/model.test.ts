@@ -351,10 +351,11 @@ describe('authz-rbac model: extensions', () => {
   it('each model gets its own extensions from the default factories, then the token role rules', () => {
     const a = new RbacModel({ roles: new MemoryRoleStore(), assignments: new MemoryAssignmentStore(), log });
     const b = new RbacModel({ roles: new MemoryRoleStore(), assignments: new MemoryAssignmentStore(), log });
+    expect(DEFAULT_RBAC_EXTENSIONS).to.have.length.above(0);
     expect(a.extensions).to.have.length(DEFAULT_RBAC_EXTENSIONS.length + 1);
     expect(isTokenRoleExtension(a.extensions[a.extensions.length - 1])).to.equal(true);
-    a.extensions.forEach((e, i) => expect(e).to.not.equal(b.extensions[i]));
     expect(Object.isFrozen(a.extensions)).to.equal(true);
+    a.extensions.forEach((ext, i) => expect(ext).to.not.equal(b.extensions[i]));
   });
 });
 

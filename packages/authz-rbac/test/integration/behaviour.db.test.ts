@@ -35,8 +35,7 @@ for (const kind of DB_KINDS) {
       runBehaviour(['B26.guard', 'B27.events', 'B43.admin', 'B43.events'], () => dbHarness(() => db, { admin: true, model: 'test' }), RUN);
     });
 
-    describe('pending', () => {
-      it('B38.store: needs linkPrincipal over LinkStore (L1b), not merged');
-    });
+    // L1b's link principal over DbLinkStore.byToken.
+    runBehaviour(['B38.store'], () => dbHarness(() => db, { facets: ['links'] }), RUN);
   });
 }

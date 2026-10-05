@@ -136,10 +136,10 @@ describe('authz-rbac model: RbacService', () => {
 
     it('gives the roles live on the path of `at`, with scope and expiry', async () => {
       const { service } = await setup(held);
-      expect(await service.rolesOf(alice)).to.deep.equal([{ role: 'reader', scope: GLOBAL, assignment: 'g1', source: 'test' }]);
+      expect(await service.rolesOf(alice)).to.deep.equal([{ role: 'reader', scope: GLOBAL, assignment: 'g1', source: 'test', effectiveRole: 'reader' }]);
       const atFile = await service.rolesOf(alice, f1, { ctx: ctx() });
       expect(roleNames(atFile)).to.deep.equal(['reader', 'writer']);
-      expect(atFile.find((r) => r.role === 'writer')).to.deep.equal({ role: 'writer', scope: O1, assignment: 'o1', source: 'test', expiresAt: new Date(NOW.getTime() + HOUR) });
+      expect(atFile.find((r) => r.role === 'writer')).to.deep.equal({ role: 'writer', scope: O1, assignment: 'o1', source: 'test', expiresAt: new Date(NOW.getTime() + HOUR), effectiveRole: 'writer' });
     });
 
     it('applies the ceiling unless asked for the assigned roles (a role switch must see them)', async () => {
@@ -151,7 +151,7 @@ describe('authz-rbac model: RbacService', () => {
 
     it('includes config roles', async () => {
       const { service } = await setup([], { anonymousRoles: ['reader'] });
-      expect(await service.rolesOf(anonymousPrincipal())).to.deep.equal([{ role: 'reader', scope: GLOBAL, assignment: 'config:anonymousRoles:reader', source: 'config:anonymousRoles' }]);
+      expect(await service.rolesOf(anonymousPrincipal())).to.deep.equal([{ role: 'reader', scope: GLOBAL, assignment: 'config:anonymousRoles:reader', source: 'config:anonymousRoles', effectiveRole: 'reader' }]);
     });
 
     it('a concrete `at` without a context needs an ancestors source', async () => {

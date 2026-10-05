@@ -41,7 +41,8 @@ export function registerRbacStores(container: IContainer, configuration: Pick<Co
   for (const [type, token] of plan) container.register(type).as(token);
 }
 
-function storeClass(container: IContainer, name: string): Class<unknown> | undefined {
+/** The store class registered in DI under `name` (the last one), or undefined. */
+export function storeClass(container: IContainer, name: string): Class<unknown> | undefined {
   if (typeof name !== 'string' || name === '' || !container.hasRegistered(name)) return undefined;
   const types = (container.Registry.getTypes(name) ?? []) as unknown[];
   // The last class registered under the name; factories (no prototype) cannot be registered under a port by class.

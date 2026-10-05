@@ -6,6 +6,7 @@ import type { OrmDriver } from '@spinajs/orm';
 
 import { RoleStore } from '../../contracts.js';
 import type { GrantDef } from '../../contracts.js';
+import { RBAC_SERVICE_NAME } from '../../host/register.js';
 // Registers ConfigRoleStore by name: the CLI loads only the command modules.
 import { rbacStoreNames } from '../../stores/index.js';
 import { CliUsageError } from '../args.js';
@@ -21,7 +22,6 @@ export interface RbacGrants {
   grantsOf(role: string): readonly GrantDef[] | Promise<readonly GrantDef[]>;
 }
 
-const RBAC_SERVICE = 'RbacService';
 const AUDIT_TABLE = 'authz_audit';
 
 // resourceKey() escapes ':', '/' and '%' in the type part, so the first ':' ends the type.
@@ -94,8 +94,8 @@ export class CheckConfigCommand extends AuthzCliCommand {
   private async explainRole(role: string, known: ReadonlyArray<{ name: string }>): Promise<void> {
     if (!known.some((r) => r.name === role)) throw new CliUsageError(`unknown role ${JSON.stringify(role)}`);
     // A value registration lives in the cache, not the registry.
-    const registered = DI.RootContainer.hasRegistered(RBAC_SERVICE) || DI.RootContainer.isResolved(RBAC_SERVICE);
-    const rbac = this.Rbac ?? (registered ? await DI.resolve<RbacGrants>(RBAC_SERVICE) : undefined);
+    const registered = DI.RootContainer.hasRegistered(RBAC_SERVICE_NAME) || DI.RootContainer.isResolved(RBAC_SERVICE_NAME);
+    const rbac = this.Rbac ?? (registered ? await DI.resolve<RbacGrants>(RBAC_SERVICE_NAME) : undefined);
     if (!rbac) throw new CliUsageError('the RBAC model (@spinajs/authz-rbac model) is not registered: nothing to explain');
 
     const grants = await rbac.grantsOf(role);
