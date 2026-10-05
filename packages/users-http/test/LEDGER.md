@@ -153,7 +153,7 @@ Admin user records, roles, role guard and credential and lifecycle actions; user
 | 27 | 458 | Admin user controllers > Users.addUser > creates a user with an explicitly empty create middleware list | adapt | C2 | users-http/test/ | kept: test/users-controller.test.ts |
 | 28 | 469 | Admin user controllers > Users.addUser > runs configured beforeCreate middleware | adapt | C2 | users-http/test/ | kept: test/users-controller.test.ts |
 | 29 | 486 | Admin user controllers > Users.addUser > never returns the generated temporary password nor the hash | adapt | C2 | users-http/test/ | kept: test/users-controller.test.ts |
-| 30 | 494 | Admin user controllers > Users.addUser > stores the password hashed, never in plain text | adapt | C2 | users-http/test/ | kept: test/users-controller.test.ts |
+| 30 | 494 | Admin user controllers > Users.addUser > stores the password hashed, never in plain text | adapt | C2 | users-http/test/ | kept, rewritten: test/users-controller.test.ts ("stores no password, never one in plain text"; `create()` no longer sets one, C1) |
 | 31 | 502 | Admin user controllers > Users.addUser > attaches metadata passed in the request | adapt | C2 | users-http/test/ | kept: test/users-controller.test.ts |
 | 32 | 515 | Admin user controllers > Users.addUser > refuses metadata keys that decide account access | adapt | C2 | users-http/test/ (A12, SR-02: SEC1 reserved-prefix guard kept) | kept: test/users-controller.test.ts |
 | 33 | 530 | Admin user controllers > Users.addUser > refuses glob metadata keys | adapt | C2 | users-http/test/ (A12, SR-02: SEC1 reserved-prefix guard kept) | kept: test/users-controller.test.ts |

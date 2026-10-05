@@ -1764,7 +1764,9 @@ GLOBAL unless another active, unbanned, undeleted user still holds it
 (`preventLastPrivilegedRemoval`). A role replacement through
 `PATCH /users/:user` runs the same witness rule before its `AuthzAdmin`
 batch, because the AdminGuard's last-holder check also counts holders
-whose accounts are out of service.
+whose accounts are out of service. Open (L9/G2): a revoke sent to
+`AuthzAdmin` directly (`/authz/*` or in process) still counts those
+holders, so it can take the privilege from the last active account.
 
 #### 6.6.3 Data kinds and storage
 
