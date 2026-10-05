@@ -412,24 +412,31 @@ describe('AuthnMiddleware, extractors and principal resolvers (A09, A15, A23)', 
       expect(await s.issuer.restore(own.id)).to.not.eq(null);
     });
 
-    it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration) with its ActiveRole', async () => {
+    const plant2x = (extra: [string, unknown][]) => {
       const rawId = randomUUID();
       const rows = (s.store as unknown as { Sessions: Map<string, ISession> }).Sessions;
       rows.set(rawId, {
         SessionId: rawId,
         Creation: DateTime.now(),
         Expiration: DateTime.now().plus({ minutes: 30 }),
-        Data: new Map<string, unknown>([
-          ['User', alice.id],
-          ['Authorized', true],
-          ['Logged', true],
-          ['ActiveRole', 'user'],
-        ]),
+        Data: new Map<string, unknown>([['User', alice.id], ['Authorized', true], ['Logged', true], ...extra]),
       } as unknown as ISession);
+      return { rawId, rows };
+    };
+
+    it('A07 a 2.x session row restores through DefaultSessionIssuer (lazy migration)', async () => {
+      const { rawId, rows } = plant2x([['ActiveRole', undefined]]);
       const p = await principalWith({ Cookie: cookieOf(rawId) });
       expect(p).to.include({ type: 'user', id: alice.id });
-      expect(p.ceiling).to.deep.eq({ roles: ['user'] });
+      expect(p.ceiling).to.eq(undefined);
       expect(rows.has(rawId), 'the raw row is migrated away').to.eq(false);
+    });
+
+    it('N8c a 2.x session row carrying an ActiveRole yields no principal and is revoked', async () => {
+      const { rawId, rows } = plant2x([['ActiveRole', 'user']]);
+      expect(await principalWith({ Cookie: cookieOf(rawId) })).to.eq(null);
+      expect(rows.has(rawId), 'the raw row is deleted').to.eq(false);
+      expect(rows.has(createHash('sha256').update(rawId).digest('hex')), 'no migrated copy').to.eq(false);
     });
 
     it('a store error fails the request (500), never a silent anonymous', async () => {
