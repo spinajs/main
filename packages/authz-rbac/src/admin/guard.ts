@@ -304,7 +304,7 @@ export class DefaultAdminGuard extends AdminGuard {
    * Design §6.6.2: a row a command revokes, re-expires or edits holds no ladder role ranking above the actor's
    * own at the row scope, over the closure its grant is ranked on (grantClosure: extends, lower ladder roles,
    * implies). A removed or re-expired principal row also takes the roles of the subject sets it makes the
-   * principal a member of. Expired rows count.
+   * principal a member of; each is ranked the same way, over its closure at its own scope. Expired rows count.
    */
   private async removalRanks(call: Call, c: AuthzCommand, revoked: ReadonlySet<string>, ending: readonly Assignment[], touched: readonly Assignment[]): Promise<void> {
     if (touched.length === 0) return;
@@ -320,15 +320,26 @@ export class DefaultAdminGuard extends AdminGuard {
       const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (${row})`;
       throw refuse('escalation', `${what}: ${via} ranks above its own on ladder ${quote(ladder)}`, field(a));
     };
+    const closureOf = async (role: string, scope: ResourceRef): Promise<readonly string[]> => {
+      const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, scope);
+      // The role itself first, defined or not, so a role its ladder lists but no store defines stays ranked.
+      return [...new Set([role, ...(await grantClosure(call.roles, role, holds)).defs.map((d) => d.name)])];
+    };
+    const closures = new Map<string, Promise<readonly string[]>>();
+    const ranked = (role: string, scope: ResourceRef): Promise<readonly string[]> => {
+      const key = `${role}\u0000${resourceKey(scope)}`;
+      if (!closures.has(key)) closures.set(key, closureOf(role, scope));
+      return closures.get(key)!;
+    };
     for (const a of touched) {
-      const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, a.scope);
-      // The row's own role first, defined or not, so a role its ladder lists but no store defines stays ranked.
-      const names = new Set([a.role, ...(await grantClosure(call.roles, a.role, holds)).defs.map((d) => d.name)]);
-      for (const name of names) await check(a, name, a.scope, name === a.role ? 'the role' : `the role gives ${quote(name)}, which`);
+      for (const name of await ranked(a.role, a.scope)) await check(a, name, a.scope, name === a.role ? 'the role' : `the role gives ${quote(name)}, which`);
     }
     for (const a of ending) {
       if (isSetSubject(a.subject)) continue;
-      for (const t of await this.setRows(call, a.role, a.scope)) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
+      for (const t of await this.setRows(call, a.role, a.scope)) {
+        const held = `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`;
+        for (const name of await ranked(t.role, t.scope)) await check(a, name, t.scope, name === t.role ? held : `${held} gives ${quote(name)}, which`);
+      }
     }
   }
 

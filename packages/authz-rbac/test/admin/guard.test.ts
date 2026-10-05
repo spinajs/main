@@ -829,6 +829,25 @@ describe('DefaultAdminGuard', function () {
       await passes(p('erin'), [revoke('g-mt')]);
     });
 
+    it('subject sets: a role the set holds is ranked over the closure its grant is ranked on', async () => {
+      // The set holds lead at p1, which implies maintainer there: bob ranks editor, erin maintainer.
+      const remove: AuthzCommand = { kind: 'set.removeMember', set: { role: 'group.member', scope: GR }, member: user('dave') };
+      const shorten: AuthzCommand = { kind: 'link.update', id: 'l-gm', expiresAt: at(HOUR) };
+      const links = [{ link: { id: 'l-gm', scope: GR, attributes: {}, expiresAt: at(2 * HOUR) }, token: 'tok-gm', role: 'group.member' }];
+      for (const id of ['bob', 'erin']) table.set(id, GR, { allow: ['authz:assignments.manage', 'authz:links.manage'] });
+      await world({ rows: [...ROWS, row('m-dave', user('dave'), 'group.member', GR, tagged), row('g-lead', GROUP, 'lead', P1)], links });
+      expect(failure(await run(p('bob'), [remove]))).to.deep.equal({ at: 0, code: 'escalation' });
+      await refusedAt(p('bob'), revoke('m-dave'), 'id');
+      await refusedAt(p('bob'), setExpiry('m-dave', at(HOUR)), 'id');
+      await refusedAt(p('bob'), shorten, 'id');
+      const [r] = await run(p('bob'), [revoke('m-dave')]);
+      const message = (r as Extract<AuthzCommandResult, { ok: false }>).error.message;
+      for (const part of ['"group.member"', 'the set holds "lead"', 'gives "maintainer"', 'ladder "project"']) expect(message).to.include(part);
+      expect(await d.assignments.byId('m-dave')).to.deep.include({ tags: ['keep'], expiresAt: null });
+      await passes(p('erin'), [setExpiry('m-dave', at(HOUR)), shorten, remove]);
+      expect(await exists('m-dave')).to.equal(false);
+    });
+
     it('links: link.revoke and link.update of a link granting a higher role are refused', async () => {
       await fresh();
       await refusedAt(p('bob'), { kind: 'link.revoke', id: 'l-mt' }, 'id');
