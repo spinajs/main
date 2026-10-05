@@ -52,7 +52,10 @@ function configure(config: Configuration): void {
 async function grantTo(subject: AssignmentSubject, role: string, scope: ResourceRef = GLOBAL): Promise<void> {
   const commands: AuthzCommand[] = [{ kind: 'assignment.grant', subject, role, scope }];
   const results = await (await rootAdmin()).execute(SYSTEM, commands, { reason: 'test' });
-  expect(results.every((r) => r.ok), JSON.stringify(results)).to.eq(true);
+  expect(
+    results.every((r) => r.ok),
+    JSON.stringify(results),
+  ).to.eq(true);
 }
 
 const grantAt = (ref: IdentityRef, role: string, scope: ResourceRef = GLOBAL) => grantTo({ type: ref.type, id: ref.id }, role, scope);
@@ -150,6 +153,15 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
     expect(await guard.allowed(actor, await user())).to.deep.eq({ ok: true });
   });
 
+  it('allows the interactive sign-ins: password, oidc, ldap, saml', async () => {
+    const ref = await user('support');
+    const target = await user('member');
+
+    for (const method of ['password', 'oidc', 'ldap', 'saml']) {
+      expect(await guard.allowed(await signedIn(ref, { ...FACTS, method, strategy: method }), target), method).to.deep.eq({ ok: true });
+    }
+  });
+
   it('builds the target as the session will carry it: the actor’s authn facts and session, impersonator set, no ceiling', async () => {
     const factory = new RecordingFactory();
     const actorRef = await user('support');
@@ -200,14 +212,20 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
       expect(await guard.allowed(actor, await user('member'))).to.deep.eq({ ok: false, code: 'forbidden' });
     });
 
-    it('for an actor signed in without a person at a session: token, jws, http-signature', async () => {
+    it('for an actor not signed in interactively: token, jws, http-signature, jwt, an unknown method', async () => {
       const ref = await user('support');
       const target = await user('member');
 
-      for (const method of ['token', 'jws', 'http-signature']) {
+      for (const method of ['token', 'jws', 'http-signature', 'jwt', 'magic-link']) {
         const actor = await signedIn(ref, { ...FACTS, method, strategy: method });
         expect(await guard.allowed(actor, target), method).to.deep.eq({ ok: false, code: 'forbidden' });
       }
+    });
+
+    it('for an actor whose authn facts are not an object', async () => {
+      const actor = await signedIn(await user('support'));
+
+      expect(await guard.allowed({ ...actor, authn: 'password' as unknown as AuthnFacts }, await user('member'))).to.deep.eq({ ok: false, code: 'forbidden' });
     });
 
     it('for an actor that is not a signed-in user principal', async () => {
@@ -420,6 +438,21 @@ describe('AuthzImpersonationGuard (users DB, root authz host)', function () {
         const target = check.firstCall.args[1];
         expect(target).to.not.have.property('authn');
         expect(target.source).to.eq('identity');
+      });
+
+      it('checkIdentity: builds the target without facts after a jwt, unknown or unreadable sign-in', async () => {
+        const rule = new AuthzTargetGuard();
+        const check = sinon.spy(rule, 'check');
+        const ref = await user('useradmin');
+        const target = await user('helpdesk');
+        const signed = await signedIn(ref);
+        const actors = [await signedIn(ref, { ...FACTS, method: 'jwt', strategy: 'jwt' }), await signedIn(ref, { ...FACTS, method: 'magic-link', strategy: 'magic-link' }), { ...signed, authn: 'password' as unknown as AuthnFacts }];
+
+        for (const [i, actor] of actors.entries()) {
+          expect(await rule.checkIdentity(actor, target), String(i)).to.deep.eq({ ok: true });
+          expect(check.getCall(i).args[1], String(i)).to.not.have.property('authn');
+          expect(check.getCall(i).args[1].source, String(i)).to.eq('identity');
+        }
       });
 
       it('checkIdentity: a token actor gets escalation for a target whose higher role tokens may not carry', async () => {

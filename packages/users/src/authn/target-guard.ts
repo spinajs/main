@@ -64,8 +64,12 @@ export async function protectedRoles(): Promise<readonly string[]> {
   return value as string[];
 }
 
-/** Sign-ins without a person at a session. */
-export const NON_INTERACTIVE_METHODS: ReadonlySet<string> = new Set(['token', 'jws', 'http-signature']);
+/** Sign-ins with a person at a session. An allow list: a method not named here (jwt, an app's own) fails closed. */
+export const INTERACTIVE_METHODS: ReadonlySet<string> = new Set(['password', 'oidc', 'ldap', 'saml']);
+
+export function signedInInteractively(facts: unknown): facts is AuthnFacts {
+  return typeof facts === 'object' && facts !== null && INTERACTIVE_METHODS.has((facts as AuthnFacts).method);
+}
 
 /** The authn facts of a principal the actor's session would carry for another account: the actor's sign-in, nothing it was granted. */
 export function actingFacts(facts: AuthnFacts): AuthnFacts {
@@ -114,7 +118,7 @@ export class AuthzTargetGuard {
    * @throws ResourceNotFound for an unknown or soft-deleted user
    */
   public async checkIdentity(actor: Principal, target: IdentityRef): Promise<TargetRuleAnswer> {
-    const facts = actor.authn && !NON_INTERACTIVE_METHODS.has(actor.authn.method) ? actingFacts(actor.authn) : undefined;
+    const facts = signedInInteractively(actor.authn) ? actingFacts(actor.authn) : undefined;
     return this.check(actor, await (await this.users()).rightsPrincipalOf(target, facts));
   }
 
@@ -140,17 +144,21 @@ export async function registeredInDomain<T>(domain: AccessDomain, token: Class<T
   return (await domain.container.resolve(token)) as T;
 }
 
-/**
- * Every role the target holds at any scope, with every role those reach. The model's input at GLOBAL carries the stored
- * rows of all the target's subjects (the model's resolver, its subject sets included) whatever their scope. It is read
- * without the target's sign-in and ceiling: the token role rules and a role switch would hide roles the account holds.
- */
+/** Every role the target holds at any scope, with every role those reach by `extends`, a ladder or `implies`. */
 async function reachableRoles(rbac: RbacService, domain: string, target: Principal): Promise<Set<string>> {
-  const { authn: _authn, ceiling: _ceiling, ...account } = target;
+  return closure(rbac.model.roleGraph(), await heldRoles(rbac, domain, target));
+}
+
+/**
+ * The roles of the principal's live assignments at any scope. The model's input at GLOBAL carries the stored rows of all
+ * the principal's subjects (the model's resolver, its subject sets included) whatever their scope. It is read without
+ * the principal's sign-in and ceiling: the token role rules and a role switch would hide roles the account holds.
+ */
+export async function heldRoles(rbac: RbacService, domain: string, principal: Principal): Promise<string[]> {
+  const { authn: _authn, ceiling: _ceiling, ...account } = principal;
   const now = rbac.model.currentTime();
   const input = await rbac.model.inputAt(account as Principal, GLOBAL, scanContext(rbac.model, domain, now));
-  const held = input.assignments.filter((a) => a.expiresAt == null || a.expiresAt.getTime() > now.getTime()).map((a) => a.role);
-  return closure(rbac.model.roleGraph(), held);
+  return input.assignments.filter((a) => a.expiresAt == null || a.expiresAt.getTime() > now.getTime()).map((a) => a.role);
 }
 
 // The context RbacService.rolesOf reads with: a read at GLOBAL asks for nothing else; anything more fails, never guesses.

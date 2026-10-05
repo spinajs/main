@@ -5,7 +5,7 @@ import { DI, Injectable } from '@spinajs/di';
 import { ResourceNotFound } from '@spinajs/exceptions';
 
 import { UserIsBanned, UserNotActive } from '../exceptions.js';
-import { AuthzTargetGuard, NON_INTERACTIVE_METHODS, accessDomain, actingFacts, impersonationPermission } from './target-guard.js';
+import { AuthzTargetGuard, accessDomain, actingFacts, impersonationPermission, signedInInteractively } from './target-guard.js';
 
 type Answer = Awaited<ReturnType<ImpersonationGuard['allowed']>>;
 
@@ -31,7 +31,7 @@ export class AuthzImpersonationGuard extends ImpersonationGuard {
 
   public async allowed(actor: Principal, target: IdentityRef): Promise<Answer> {
     const facts = actor.authn;
-    if (actor.type !== 'user' || actor.authenticated !== true || !facts || facts.impersonator || NON_INTERACTIVE_METHODS.has(facts.method) || target.type !== 'user' || target.id === actor.id) {
+    if (actor.type !== 'user' || actor.authenticated !== true || !signedInInteractively(facts) || facts.impersonator || target.type !== 'user' || target.id === actor.id) {
       return FORBIDDEN;
     }
 

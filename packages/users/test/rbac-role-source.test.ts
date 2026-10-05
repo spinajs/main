@@ -103,14 +103,14 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
     expect(await DI.resolve(RoleSource)).to.be.instanceOf(RbacRoleSource);
   });
 
-  it('lists every GLOBAL role, once each and by name, despite a role switch ceiling', async () => {
+  it('lists every held role, once each and by name, despite a role switch ceiling', async () => {
     const ref = await user('support', 'member', 'auditor');
     const team = { type: 'project', id: 'team-1' };
     await grantTo({ set: { role: 'team.member', scope: team } }, 'member');
     await grantTo({ type: ref.type, id: ref.id }, 'team.member', team);
 
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support'));
-    expect(await source.rolesOf(await signedIn(ref, FACTS, { roles: ['member'] }))).to.deep.eq(roles('auditor', 'member', 'support'));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
+    expect(await source.rolesOf(await signedIn(ref, FACTS, { roles: ['member'] }))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
   });
 
   it('flags the roles of authz.principals.roleSwitch.requirePassword', async () => {
@@ -130,22 +130,40 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
     await expect(source.rolesOf(principal)).to.be.rejectedWith(AuthzConfigError, /requirePassword/);
   });
 
-  it('leaves out scoped and expired holdings', async () => {
+  it('lists roles held only at a scope, directly or through a subject set, and leaves out expired holdings', async () => {
     const ref = await user('member');
-    await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p1' });
-    await grantTo({ type: ref.type, id: ref.id }, 'auditor', GLOBAL, new Date(Date.now() + 60_000));
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member'));
+    const team = { type: 'project', id: 'team-2' };
+    await grantTo({ set: { role: 'team.member', scope: team } }, 'auditor', team);
+    await grantTo({ type: ref.type, id: ref.id }, 'team.member', team);
+    await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p1' }, new Date(Date.now() + 60_000));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'support', 'team.member'));
 
     sinon.useFakeTimers({ now: Date.now() + 120_000, toFake: ['Date'] });
 
-    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('member'));
+    expect(await source.rolesOf(await signedIn(ref))).to.deep.eq(roles('auditor', 'member', 'team.member'));
   });
 
-  it('offers nothing to a sign-in without a person at a session: token, jws, http-signature', async () => {
+  it('offers roles to the interactive sign-ins: password, oidc, ldap, saml', async () => {
     const ref = await user('support');
 
-    for (const method of ['token', 'jws', 'http-signature']) {
+    for (const method of ['password', 'oidc', 'ldap', 'saml']) {
+      expect(await source.rolesOf(await signedIn(ref, { ...FACTS, method, strategy: method })), method).to.deep.eq(roles('support'));
+    }
+  });
+
+  it('offers nothing to any other sign-in: token, jws, http-signature, jwt, an unknown method', async () => {
+    const ref = await user('support');
+
+    for (const method of ['token', 'jws', 'http-signature', 'jwt', 'magic-link']) {
       expect(await source.rolesOf(await signedIn(ref, { ...FACTS, method, strategy: method })), method).to.deep.eq([]);
+    }
+  });
+
+  it('offers nothing when the authn facts are not an object', async () => {
+    const principal = await signedIn(await user('support'));
+
+    for (const authn of ['password', 42, true]) {
+      expect(await source.rolesOf({ ...principal, authn: authn as unknown as AuthnFacts }), String(authn)).to.deep.eq([]);
     }
   });
 
@@ -156,6 +174,12 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
     expect(await source.rolesOf({ type: 'agent', id: 'agent-1', authenticated: true, source: 'token', attributes: {}, onBehalfOf: owner, delegation: 'inherit' })).to.deep.eq([]);
     expect(await source.rolesOf({ ...owner, type: 'service' })).to.deep.eq([]);
     expect(await source.rolesOf(SYSTEM)).to.deep.eq([]);
+  });
+
+  it('offers nothing to a service principal that holds a role', async () => {
+    await grantTo({ type: 'service', id: 'svc-roles' }, 'support');
+
+    expect(await source.rolesOf({ type: 'service', id: 'svc-roles', authenticated: true, source: 'token', attributes: {} })).to.deep.eq([]);
   });
 
   it('gives the bare owner principal of authn-token its full roles, past authz.token.excludedRoles', async () => {
@@ -201,6 +225,17 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
 
       expect(await policy.required(await user('support'), login)).to.deep.eq(['totp']);
       expect(await policy.required(await user('member'), login)).to.deep.eq([]);
+    });
+
+    it('requires the first step for a holder of a listed role at a scope only', async () => {
+      const config = (await DI.resolve(Configuration)) as Configuration;
+      config.set(['authn', 'mfa', 'steps'], [{ name: 'totp', service: 'NeverEnrolledStep' }]);
+      config.set(['authn', 'mfa', 'policy', 'forceForRoles'], ['support']);
+      const policy = new DefaultMfaPolicy(DI.RootContainer, config);
+      const ref = await user('member');
+      await grantTo({ type: ref.type, id: ref.id }, 'support', { type: 'project', id: 'p2' });
+
+      expect(await policy.required(ref, { method: 'password', strategy: 'local' })).to.deep.eq(['totp']);
     });
   });
 });

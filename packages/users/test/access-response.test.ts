@@ -10,9 +10,12 @@ import type { AccessSummary, AuthzCommand, AuthzService, Principal } from '@spin
 import { AuthnResponseExtension } from '@spinajs/authn/contracts';
 import type { AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
 
+import { InvalidArgument } from '@spinajs/exceptions';
+
 import { AccessResponseExtension, UserPrincipalFactory, buildUserWithAccess } from '../src/index.js';
+import { isReservedMetadataKey } from '../src/models/User.js';
 import { rootAdmin, rootAuthz } from './support/authz-host.js';
-import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
+import { bootUsersDb, registerUsersTestHost, seedUser, setIdentityFlags, storedUser } from './support/users-db.js';
 
 chai.use(chaiAsPromised);
 
@@ -124,5 +127,28 @@ describe('AccessResponseExtension and buildUserWithAccess (users DB, root authz 
     expect(Access).to.deep.eq(asJson(await (await rootAuthz()).summary(principal)));
     expect(payload).to.include({ Uuid: ref.id, Login: stored.Login });
     expect(payload).to.not.have.any.keys('Role', 'ActiveRole', 'Grants', 'Password');
+  });
+
+  it('buildUserWithAccess: leaves out reserved metadata and keeps the plain keys', async () => {
+    const ref = await user('viewer');
+    await setIdentityFlags(ref, { invitePending: true });
+    const seeded = await storedUser(ref.id);
+    seeded.Metadata['user:phone'] = '555';
+    await seeded.Metadata.update();
+    const stored = await storedUser(ref.id);
+
+    const payload = asJson(await buildUserWithAccess(stored, await signedIn(ref))) as { Metadata: { Key: string }[] };
+
+    const keys = payload.Metadata.map((m) => m.Key);
+    expect(keys).to.include('user:phone');
+    expect(keys.filter(isReservedMetadataKey)).to.deep.eq([]);
+  });
+
+  it('buildUserWithAccess: refuses a principal that is not the user', async () => {
+    const stored = await storedUser((await user('viewer')).id);
+    const other = await signedIn(await user('viewer'));
+
+    await expect(buildUserWithAccess(stored, other)).to.be.rejectedWith(InvalidArgument);
+    await expect(buildUserWithAccess(stored, { ...other, id: stored.Uuid, type: 'service' })).to.be.rejectedWith(InvalidArgument);
   });
 });

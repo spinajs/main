@@ -2,6 +2,7 @@ import type { AccessSummary } from '@spinajs/authz';
 import { AuthnResponseExtension } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authn/contracts';
 import { Injectable } from '@spinajs/di';
+import { InvalidArgument } from '@spinajs/exceptions';
 import type { ModelDataWithRelationData } from '@spinajs/orm';
 
 import type { User } from '../models/User.js';
@@ -23,8 +24,15 @@ export class AccessResponseExtension extends AuthnResponseExtension {
   }
 }
 
-/** The 2.x login payload without `Role`, `ActiveRole` and `Grants`: the dehydrated user plus `Access`. */
+/**
+ * The 2.x login payload without `Role`, `ActiveRole` and `Grants`: the dehydrated user plus `Access`.
+ * @throws InvalidArgument when `principal` is not `user:<user.Uuid>`
+ */
 export async function buildUserWithAccess(user: User, principal: Principal): Promise<UserWithAccess> {
+  if (principal.type !== 'user' || principal.id !== user.Uuid) {
+    throw new InvalidArgument(`buildUserWithAccess: the principal ${principal.type}:${principal.id} is not the user ${user.Uuid}`);
+  }
+
   const body: Record<string, unknown> = { ...user.dehydrateWithRelations({ dateTimeFormat: 'iso' }) };
   await new AccessResponseExtension().extend('whoami', principal, body);
   return body as UserWithAccess;
