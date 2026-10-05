@@ -1,4 +1,4 @@
-import { AuthzAdminFailure, AuthzConfigError, GLOBAL, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
+import { AuthzAdminFailure, AuthzConfigError, GLOBAL, PermissionRegistry, adminActor, adminContainer, compilePermissionGlob, isPermission, isPermissionGlob, principalKey, SYSTEM, UnknownPermission } from '@spinajs/authz';
 import type { AdminContext, AuthzCommand, AuthzEvent, Permission, PrincipalRef, ResourceRef, ResourceType } from '@spinajs/authz';
 import type { Class } from '@spinajs/di';
 
@@ -163,27 +163,58 @@ export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>
 }
 
 /**
- * A grant of the role's closure matches `permission` at the role's own scope: implied roles held
- * `self-and-descendants` count, `descendants` ones do not. Grants are names or globs; conditions do not matter.
+ * The permissions a grant may match to give `permission`: the permission and every one that implies it,
+ * transitively (PermissionRegistry.impliedBy), as the model's compileGrants follows PermissionDef.implies.
+ * The registry is the one a model of ctx.authz compiled its grants with (RbacModel.permissions()), else a
+ * PermissionRegistry of the admin container; AuthzService is never injected (design §6.6.2).
+ * @throws AuthzConfigError when neither is there: without the implies a holder could go unseen
  */
-export function grantsPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
-  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
+export async function grantingPermissions(ctx: AdminContext, permission: Permission): Promise<readonly Permission[]> {
+  const registry = await permissionRegistry(ctx);
+  if (!registry) throw new AuthzConfigError(`Authz domain ${q(ctx.domain)}: DefaultAdminGuard needs the permission registry to find the permissions that imply ${q(permission)}; no model of the domain exposes one through permissions() and no PermissionRegistry is registered`);
+  return [permission, ...registry.impliedBy(permission)];
+}
+
+async function permissionRegistry(ctx: AdminContext): Promise<PermissionRegistry | undefined> {
+  for (const model of ctx.authz.models()) {
+    const own: unknown = (model as { permissions?: unknown }).permissions;
+    if (typeof own !== 'function') continue;
+    const registry: unknown = own.call(model);
+    if (registry instanceof PermissionRegistry) return registry;
+  }
+  const container = adminContainer(ctx);
+  return container.hasRegistered(PermissionRegistry) ? ((await container.resolve(PermissionRegistry)) as PermissionRegistry) : undefined;
+}
+
+const matchesAny = (glob: string, permissions: readonly Permission[]): boolean => {
+  const matches = compilePermissionGlob(glob);
+  return permissions.some((p) => matches(p));
+};
+
+/**
+ * A grant of the role's closure matches one of `permissions` (grantingPermissions) at the role's own scope:
+ * implied roles held `self-and-descendants` count, `descendants` ones do not. Grants are names or globs;
+ * conditions do not matter.
+ */
+export function grantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[]): boolean {
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => matchesAny(g.permission, permissions)));
 }
 
 /**
  * As grantsPermission, counting only grants the model gives on a request at `scope` to a row of `role` made
- * there, whatever the principal's tags or the resource: no `requiresTag`, `relation` or `on`; the declaring
- * role's ladder applies at the scope type; a `grantedAt` lists the scope type and, for a ladder role's grant,
- * the row's role ranks at or above it on that ladder (the model counts only rows on that ladder). Cap rules
- * are not judged.
+ * there, whatever tags the principal's live assignment carries and whatever the resource: no `requiresTag`,
+ * `relation` or `on`; the declaring role's ladder applies at the scope type; a `grantedAt` lists the scope type
+ * and, for a ladder role's grant, the row's role ranks at or above it on that ladder (the model counts only
+ * rows on that ladder). A grant matched through an implying permission meets the same conditions, as the model
+ * compiles the implied grant from it. Cap and restrict rules are not judged.
  */
-export function surelyGrantsPermission(roles: RoleIndex, role: string, permission: Permission, scope: ResourceRef): boolean {
+export function surelyGrantsPermission(roles: RoleIndex, role: string, permissions: readonly Permission[], scope: ResourceRef): boolean {
   const rowLadder = roles.ladderOf(role);
   return roleClosure(roles, role, 'same-scope').defs.some((d) => {
     const ladder = roles.ladderOf(d.name);
     if (ladder !== undefined && !ladderAppliesAt(roles, ladder, scope)) return false;
     return d.grants.some((g) => {
-      if (g.requiresTag !== undefined || g.relation !== undefined || g.on !== undefined || !compilePermissionGlob(g.permission)(permission)) return false;
+      if (g.requiresTag !== undefined || g.relation !== undefined || g.on !== undefined || !matchesAny(g.permission, permissions)) return false;
       if (g.grantedAt === undefined) return true;
       if (!g.grantedAt.includes(scope.type)) return false;
       return ladder === undefined || (rowLadder === ladder && rankOf(roles, ladder, role) >= rankOf(roles, ladder, d.name));

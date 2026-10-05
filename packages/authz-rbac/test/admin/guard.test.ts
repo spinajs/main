@@ -2,12 +2,12 @@ import * as chai from 'chai';
 import 'mocha';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
-import { AuthzConfigError, SYSTEM, TRUE, compilePermissionGlob, resourceKey } from '@spinajs/authz';
+import { AuthzConfigError, PermissionRegistry, SYSTEM, TRUE, compilePermissionGlob, resourceKey } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, AuthzCommandResult, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 
 import { CheckRbacAdminFacts, DefaultAdminGuard, RbacAdminFacts } from '../../src/index.js';
 import type { Assignment, AssignmentSubject, LadderDef, RoleDef } from '../../src/index.js';
-import { G, GR, HOUR, O1, P1, START, StaticRoleStore, config, failure, installHost, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
+import { G, GR, HOUR, O1, P1, START, StaticRoleStore, config, failure, installHost, instance, ok, permissionRegistry, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
 import type { RbacDomain, RbacDomainOptions } from './support.js';
 
 const expect = chai.expect;
@@ -80,18 +80,24 @@ describe('DefaultAdminGuard', function () {
     readonly roles?: readonly RoleDef[];
     readonly ladders?: readonly LadderDef[];
     readonly permissions?: RbacDomainOptions['permissions'];
+    /** false: no PermissionRegistry in the container (the table model exposes none either). */
+    readonly registry?: boolean;
   }
 
   async function world(opts: WorldOptions = {}): Promise<RbacDomain> {
     await resetHost();
+    const permissions = { ...USER_PERMISSIONS, ...opts.permissions };
     d = await rbacDomain('test', {
       roleStores: [new StaticRoleStore('guard', opts.roles ?? GUARD_ROLES, opts.ladders ?? GUARD_LADDERS)],
       assignments: opts.rows ?? [...BASE, ...admins('root', 'root2')],
       links: opts.links,
       admin: { backend: 'TestBackend', guard: opts.guard ?? GUARD },
       model: table.model(),
-      permissions: { ...USER_PERMISSIONS, ...opts.permissions },
-      register: opts.register,
+      permissions,
+      register: (c) => {
+        if (opts.registry !== false) c.register(instance(permissionRegistry(permissions))).as(PermissionRegistry);
+        opts.register?.(c);
+      },
     });
     return d;
   }
@@ -588,6 +594,61 @@ describe('DefaultAdminGuard', function () {
         await world({ rows: [...BASE, row('t-root', user('root'), 'tagged'), row('h', user('erin'), 'helper')], roles: ROLES, ladders: LADDERS });
         await passes(p('ops'), [revoke('h')]);
         await refused(p('ops'), [revoke('t-root')], 'last_holder');
+      });
+    });
+
+    describe('permissions that imply privilegedPermission grant it (PermissionDef.implies)', () => {
+      // users:own implies users:manage, which implies users:update; users:update implies users:read.
+      const IMPLIES = { 'users:manage': { implies: ['users:update'] }, 'users:own': { implies: ['users:manage'] }, 'users:update': { implies: ['users:read'] } };
+      const ROLES = [...GUARD_ROLES, role('umanage', { grants: grants('users:manage') }), role('uown', { grants: grants('users:own') }), role('uglob', { grants: grants('users:man*') }), role('utagged', { grants: [{ permission: 'users:manage', requiresTag: 'mfa' }] }), role('uprov', { grants: [{ permission: 'users:manage', grantedAt: ['org'] }] })];
+      const implying = (rows: readonly Assignment[]) => world({ rows: [...BASE, ...rows], roles: ROLES, permissions: IMPLIES });
+      const IMPLYING = ['umanage', 'uown', 'uglob'];
+
+      it('last holder: a GLOBAL row granting an implying permission, directly, transitively or by a glob, is a holder', async () => {
+        for (const r of IMPLYING) {
+          await implying([row('u-root', user('root'), r)]);
+          await refused(p('ops'), [revoke('u-root')], 'last_holder');
+          expect(await exists('u-root')).to.equal(true);
+          await implying([...admins('root'), row('u-dave', user('dave'), r)]);
+          await passes(p('ops'), [revoke('a-root')]);
+        }
+      });
+
+      it('self-lockout: an own row granting an implying permission lies on a path', async () => {
+        for (const r of IMPLYING) {
+          await implying([...admins('root2'), row('u-root', user('root'), r)]);
+          await refused(p('root'), [revoke('u-root')], 'self_lockout');
+        }
+      });
+
+      it('subject sets: a set row granting an implying permission makes its members holders', async () => {
+        const rows = [row('s-u', STAFF, 'umanage'), row('m-root', user('root'), 'staff.set')];
+        await implying(rows);
+        await refused(p('ops'), [revoke('s-u')], 'last_holder');
+        await refused(p('root'), [{ kind: 'set.removeMember', set: { role: 'staff.set', scope: G }, member: user('root') }], 'self_lockout');
+        await implying([...admins('root'), ...rows]);
+        await passes(p('ops'), [revoke('a-root')]);
+      });
+
+      it('a grant matched through an implied permission is sure only on the same conditions', async () => {
+        for (const r of ['utagged', 'uprov']) {
+          await implying([...admins('root'), row('u-dave', user('dave'), r)]);
+          await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        }
+      });
+
+      it('a permission that privilegedPermission implies gives no holder', async () => {
+        await implying([...admins('root'), row('h', user('erin'), 'helper')]);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        await passes(p('ops'), [revoke('h')]);
+      });
+
+      it('with no registry to read the implies from, a removal rejects the call; a command that removes nothing passes', async () => {
+        await world({ registry: false });
+        const e = await rejection(run(p('ops'), [revoke('a-root2')]));
+        expect(e).to.be.instanceOf(AuthzConfigError);
+        expect(e.message).to.include('PermissionRegistry');
+        await passes(p('root'), [grant('viewer')]);
       });
     });
 
