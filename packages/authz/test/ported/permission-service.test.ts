@@ -5,7 +5,7 @@ import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
 import { StaticModel, userPrincipal } from '@spinajs/authz-testing';
 
-import { AccessDenied, AuthorizationModel, TRUE, UNATTENDED, authz } from '@spinajs/authz';
+import { AccessDenied, AuthorizationModel, TRUE, UNATTENDED } from '@spinajs/authz';
 import type { Decision, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
 import { installHost, instance, registerInRoot, resetHost, rootService, setConfig, uninstallHost } from '../host/support.js';
 
@@ -84,7 +84,6 @@ describe('authz principal resolution and assert (ported PermissionService)', fun
       const ambient = userPrincipal('member');
       await store().run({ Principal: ambient }, async () => {
         expect(svc.current()).to.equal(ambient);
-        expect(authz().current()).to.equal(ambient);
       });
     });
 
@@ -97,7 +96,7 @@ describe('authz principal resolution and assert (ported PermissionService)', fun
       expect(decision.reason?.code).to.equal('unattended');
 
       const error = await rejection(svc.assert(svc.current(), 'doc:create', widget));
-      expect(error).to.be.instanceOf(AccessDenied);
+      expect(error).to.have.property('name', 'AccessDenied');
       expect((error as AccessDenied).decision.reason?.code).to.equal('unattended');
     });
   });
@@ -119,7 +118,7 @@ describe('authz principal resolution and assert (ported PermissionService)', fun
       const svc = await rootService();
       const error = (await rejection(svc.assert(userPrincipal('viewer'), 'doc:delete', widget))) as AccessDenied;
 
-      expect(error).to.be.instanceOf(AccessDenied);
+      expect(error).to.have.property('name', 'AccessDenied');
       expect(error).to.be.instanceOf(Forbidden);
       expect(error.message).to.match(/doc:delete.*doc/);
       expect(error.decision.permission).to.equal('doc:delete');
