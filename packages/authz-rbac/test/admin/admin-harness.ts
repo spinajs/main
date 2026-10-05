@@ -39,14 +39,18 @@ export class HarnessRoleStore extends RoleStore {
   }
 }
 
-/** The stores one case runs on, for tests that look past AuthzAdmin. */
-export interface HarnessStores {
+/** The writable stores AuthzAdmin writes through, and the event sink, of one case. */
+export interface AdminSideStores {
   readonly assignments: MemoryAdminAssignmentStore;
   readonly links: MemoryLinkStore;
   readonly rules: MemoryRuleStore;
   readonly attributes?: MemoryScopeAttributeStore;
-  readonly model: TestRbacModel;
   readonly events: RecordingEventSink;
+}
+
+/** The stores one case runs on, for tests that look past AuthzAdmin. */
+export interface HarnessStores extends AdminSideStores {
+  readonly model: TestRbacModel;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -56,6 +60,56 @@ function deepMerge(base: unknown, over: unknown): unknown {
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(over)) out[k] = deepMerge(base[k], v);
   return out;
+}
+
+/** The roles and ladders of `world.rbac`. */
+export function worldRoles(host: HostSetup): { roles: readonly RoleDef[]; ladders: readonly LadderDef[] } {
+  const rbac = host.world.rbac ?? {};
+  return { roles: (rbac.roles ?? []) as readonly RoleDef[], ladders: (rbac.ladders ?? []) as readonly LadderDef[] };
+}
+
+/**
+ * Registers the AuthzAdmin side of authz-rbac, all but the model: memory assignment, link and rule
+ * stores seeded from `world.rbac` (each behind its read and its admin port), `roleStore` as the
+ * RoleStore, a recording AuthzEventSink, a per-domain backend, the `authz.admin` config (the
+ * authz-rbac defaults under the world's `config.admin`) and, when the world has `scopeAttributes`,
+ * a writable memory attribute store with its schemas.
+ */
+export function registerAdminSide(host: HostSetup, roleStore: RoleStore): AdminSideStores {
+  const c = host.container;
+  const rbac = host.world.rbac ?? {};
+
+  const assignments = new MemoryAdminAssignmentStore({ assignments: rbac.assignments });
+  const links = new MemoryLinkStore(assignments, {
+    links: (rbac.links ?? []).filter((l) => !l.revoked).map((l) => ({ link: { id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes ?? {}, ...(l.createdBy ? { createdBy: l.createdBy } : {}) }, token: l.token, role: l.role, tags: l.tags })),
+  });
+  const rules = new MemoryRuleStore({ rules: rbac.rules });
+  const events = new RecordingEventSink();
+
+  c.register(instance(assignments)).as(AssignmentStore);
+  c.register(instance(assignments)).as(AdminAssignmentStore);
+  c.register(instance(links)).as(LinkStore);
+  c.register(instance(links)).as(AdminLinkStore);
+  c.register(instance(rules)).as(RuleStore);
+  c.register(instance(rules)).as(AdminRuleStore);
+  c.register(instance(roleStore)).as(RoleStore);
+  c.register(instance(events)).as(AuthzEventSink);
+  c.register(AdminHarnessBackend).as(AuthzAdminBackend);
+
+  let attributes: MemoryScopeAttributeStore | undefined;
+  if (host.world.scopeAttributes) {
+    attributes = new MemoryScopeAttributeStore({ values: host.world.scopeAttributes.values ?? [] });
+    c.register(instance(attributes)).as(ScopeAttributeStore);
+    c.register(instance(attributes)).as(WritableScopeAttributeStore);
+    const schemas = host.world.scopeAttributes.schemas ?? [];
+    c.register(instance({ contribute: () => ({ scopeAttributeSchemas: schemas }) })).as(AuthzContributor);
+  }
+
+  // hostHarness puts the world's config.admin in place of the whole section; a real config merges it over
+  // the authz-rbac fragment, so the guard defaults come back here.
+  host.setConfig(['authz', 'admin'], deepMerge(deepMerge(adminConfig.authz.admin, host.world.config?.admin), { backend: 'AdminHarnessBackend' }));
+
+  return { assignments, links, rules, events, ...(attributes ? { attributes } : {}) };
 }
 
 export interface AdminHarnessOptions {
@@ -72,55 +126,21 @@ export function harnessStores(host: Pick<HostSetup, 'container'>): HarnessStores
 }
 
 /**
- * hostHarness plus the AuthzAdmin side of authz-rbac: memory assignment, link and rule stores seeded
- * from `world.rbac`, a role store from its roles and ladders, a TestRbacModel named `rbac` over the
- * assignment store, DefaultAdminGuard with the authz-rbac defaults under the world's `config.admin`,
- * a recording AuthzEventSink (lane handle `adminEvents`) and, when the world has `scopeAttributes`, a
- * writable memory attribute store with its schemas.
+ * hostHarness plus the AuthzAdmin side of authz-rbac (registerAdminSide) with a role store from
+ * `world.rbac` and a TestRbacModel named `rbac` over the assignment store. DefaultAdminGuard runs
+ * with the authz-rbac defaults under the world's `config.admin`; the recording AuthzEventSink is
+ * lane handle `adminEvents`.
  */
 export function adminHarness(opts: AdminHarnessOptions = {}): BehaviourHarness {
   return hostHarness({
     facets: ['admin', 'rbac', 'ladders', ...(opts.facets ?? [])],
     kitScopeAttributes: false,
     register(host) {
-      const c = host.container;
-      const rbac = host.world.rbac ?? {};
-      const roles = (rbac.roles ?? []) as readonly RoleDef[];
-      const ladders = (rbac.ladders ?? []) as readonly LadderDef[];
-
-      const assignments = new MemoryAdminAssignmentStore({ assignments: rbac.assignments });
-      const links = new MemoryLinkStore(assignments, {
-        links: (rbac.links ?? []).filter((l) => !l.revoked).map((l) => ({ link: { id: l.id, scope: l.scope, expiresAt: l.expiresAt ?? null, attributes: l.attributes ?? {}, ...(l.createdBy ? { createdBy: l.createdBy } : {}) }, token: l.token, role: l.role, tags: l.tags })),
-      });
-      const rules = new MemoryRuleStore({ rules: rbac.rules });
-      const model = new TestRbacModel({ roles, ladders, assignments });
-      const events = new RecordingEventSink();
-
-      c.register(instance(assignments)).as(AssignmentStore);
-      c.register(instance(assignments)).as(AdminAssignmentStore);
-      c.register(instance(links)).as(LinkStore);
-      c.register(instance(links)).as(AdminLinkStore);
-      c.register(instance(rules)).as(RuleStore);
-      c.register(instance(rules)).as(AdminRuleStore);
-      c.register(instance(new HarnessRoleStore(roles, ladders))).as(RoleStore);
-      c.register(instance(model)).as(AuthorizationModel);
-      c.register(instance(events)).as(AuthzEventSink);
-      c.register(AdminHarnessBackend).as(AuthzAdminBackend);
-
-      let attributes: MemoryScopeAttributeStore | undefined;
-      if (host.world.scopeAttributes) {
-        attributes = new MemoryScopeAttributeStore({ values: host.world.scopeAttributes.values ?? [] });
-        c.register(instance(attributes)).as(ScopeAttributeStore);
-        c.register(instance(attributes)).as(WritableScopeAttributeStore);
-        const schemas = host.world.scopeAttributes.schemas ?? [];
-        c.register(instance({ contribute: () => ({ scopeAttributeSchemas: schemas }) })).as(AuthzContributor);
-      }
-
-      // hostHarness puts the world's config.admin in place of the whole section; a real config merges it over
-      // the authz-rbac fragment, so the guard defaults come back here.
-      host.setConfig(['authz', 'admin'], deepMerge(deepMerge(adminConfig.authz.admin, host.world.config?.admin), { backend: 'AdminHarnessBackend' }));
-
-      STORES.set(c, { assignments, links, rules, model, events, ...(attributes ? { attributes } : {}) });
+      const { roles, ladders } = worldRoles(host);
+      const side = registerAdminSide(host, new HarnessRoleStore(roles, ladders));
+      const model = new TestRbacModel({ roles, ladders, assignments: side.assignments });
+      host.container.register(instance(model)).as(AuthorizationModel);
+      STORES.set(host.container, { ...side, model });
     },
     extend: (host, session) => ({
       admin: (session.authz as unknown as AuthzService).admin(),
