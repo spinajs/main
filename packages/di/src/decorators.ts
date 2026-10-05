@@ -117,7 +117,7 @@ export function Inject(...args: (Class<any> | TypedArray<any>)[]) {
               return i.Type === a;
             }
           } else {
-            return i.inject === a;
+            return !i.autoinject && i.inject === a;
           }
         })
       ) {

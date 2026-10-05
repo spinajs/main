@@ -786,7 +786,7 @@ export class Container extends EventEmitter implements IContainer {
           // we cannot override injection props in derived class
           if (x.autoinject === true) {
             descriptor.inject.push(x);
-          } else if (descriptor.inject.find((i) => injectKey(i) === xTypeName) === undefined) {
+          } else if (descriptor.inject.find((i) => !i.autoinject && injectKey(i) === xTypeName) === undefined) {
             descriptor.inject.push(x);
           }
         });
