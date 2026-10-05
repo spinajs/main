@@ -9,12 +9,17 @@ import type { IWhereBuilder, ModelBase, OrmDriver } from '@spinajs/orm';
 import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
 import { parseRbacAssignmentArgs } from '../model/native.js';
 import type { RbacArgsSubject, RbacAssignmentArgs } from '../model/native.js';
+import { parseRbacListArgs } from '../model/rules/args.js';
+import type { RbacAssignmentArgsV2 } from '../model/rules/args.js';
+import type { RoleGraph } from '../model/roles.js';
 import { rbacDialectOf } from './compile/dialect.js';
 import { RbacPathSql } from './compile/path.js';
-import { FALSE_SQL, andSql, ident, inList, orSql, rsql, whereRbacSql } from './compile/sql.js';
+import { rbacRoutePlan } from './compile/route.js';
+import type { RbacRouteNeed, RbacRoutePlan } from './compile/route.js';
+import { FALSE_SQL, TRUE_SQL, andSql, ident, inList, notSql, orSql, rsql, whereRbacSql } from './compile/sql.js';
 import type { RbacSql } from './compile/sql.js';
 import { RbacRoleGraphSource, isEmptyRoleScopes, rbacRoleScopes } from './role-graph.js';
-import type { RbacRoleScopes } from './role-graph.js';
+import type { RbacListing, RbacRoleScopes } from './role-graph.js';
 import { RbacScopePathSource } from './scope-path.js';
 import type { RbacScopePath } from './scope-path.js';
 
@@ -34,6 +39,16 @@ export interface RbacSubjectTriple {
   readonly role: string;
 }
 
+/** What `routeSql` reads beside the plan. */
+export interface RbacRouteSqlContext {
+  readonly graph: RoleGraph;
+  readonly subjects: readonly RbacSubjectTriple[];
+  readonly path: RbacPathSql;
+  readonly now: Date;
+  /** The dialect's case-sensitive substring test (`RbacSqlDialect.contains`). */
+  readonly contains: (haystack: RbacSql, needle: RbacSql) => RbacSql;
+}
+
 interface BuilderLinks {
   readonly Driver?: OrmDriver;
   readonly Parent?: BuilderLinks;
@@ -43,7 +58,8 @@ interface BuilderLinks {
  * `native:rbac.assignment` (args: model/native.ts) → the `EXISTS` over `authz_assignment` of §6.1.3:
  * `subjectIn AND roleIn AND live AND onPath`, as one `RbacSql` fragment: through authz-orm's
  * `whereSql` in a native compilation, as plain SQL on any other builder (`whereRbacSql`). The blocks
- * are separate methods so the rule compilation of §12.4 can reuse and wrap them.
+ * are separate methods so the rule compilation of §12.4 can reuse and wrap them. Args v2
+ * (model/rules/args.ts) without rules compile to the route term of §12.4 (`compileRoute`).
  */
 @Injectable(OrmNativeCompiler)
 @Inject(Container)
@@ -53,12 +69,19 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
   protected readonly table: string = AUTHZ_ASSIGNMENT_TABLE;
   // Distinct from usual table aliases: a filtered row under the same alias is refused.
   protected readonly alias: string = 'authz_a';
+  // The tag sub-query of a route, beside the holder's (design §12.4 `b`).
+  protected readonly tagAlias: string = 'authz_b';
 
   constructor(protected readonly container: IContainer) {
     super();
   }
 
+  /** Reads the principal only from the args (its subjects, config roles and ceiling), never from `_principal`. */
   compile(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>, _principal: Principal): void {
+    if ((args as { v?: unknown } | null)?.v === 2) {
+      this.compileRoute(args, builder, model);
+      return;
+    }
     const parsed = this.parseArgs(args);
     const path = this.pathSql(builder, this.pathOf(model));
     // Mapped before any SQL, so a bad subject throws from compile().
@@ -71,6 +94,52 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
 
     const roles = this.roleScopes(model, parsed.roles);
     whereRbacSql(builder, isEmptyRoleScopes(roles) ? path.whenFound(FALSE_SQL) : this.assignmentSql({ subjects, roles }, path, this.now()));
+  }
+
+  /**
+   * Args v2 without rules (model/rules/args.ts): the route term of design §12.4, `rbacRoutePlan` turned into
+   * SQL by `routeSql`. Args with rules are refused (L4b tasks 4–6).
+   */
+  protected compileRoute(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>): void {
+    const parsed = this.parseRouteArgs(args);
+    const pathOf = this.pathOf(model);
+    const path = this.pathSql(builder, pathOf);
+    const subjects = parsed.subjects.map((s) => this.subjectTriple(s));
+    const listing = this.listing(model);
+    const plan = rbacRoutePlan(listing, parsed, pathOf.type);
+    whereRbacSql(builder, this.routeSql(plan, { graph: listing.roles, subjects, path, now: this.now(), contains: (haystack, needle) => rbacDialectOf(this.driverOf(builder)).contains(haystack, needle) }));
+  }
+
+  /**
+   * A route plan as one fragment under `whenFound` (the evaluator reads the row's path before anything
+   * else): the AND of its needs, each a constant from the config roles or an `EXISTS` over the subjects'
+   * assignments on the path.
+   */
+  routeSql(plan: RbacRoutePlan, at: RbacRouteSqlContext): RbacSql {
+    if (!plan.applies) return at.path.whenFound(FALSE_SQL);
+    const parts = plan.needs.map((n) => this.routeNeedSql(n, at)).filter((p) => p !== TRUE_SQL);
+    return at.path.whenFound(parts.includes(FALSE_SQL) ? FALSE_SQL : andSql(...parts));
+  }
+
+  /** `TRUE_SQL` when a config role meets it, `FALSE_SQL` when no assignment can. */
+  routeNeedSql(need: RbacRouteNeed, at: RbacRouteSqlContext): RbacSql {
+    if (need.config) return TRUE_SQL;
+    const alias = need.what === 'tag' ? this.tagAlias : this.alias;
+    const role = (roles: readonly string[]): RbacSql | undefined => {
+      const scopes = rbacRoleScopes(at.graph, roles);
+      return isEmptyRoleScopes(scopes) ? undefined : this.roleIn(scopes, alias);
+    };
+    const kinds: RbacSql[] = [];
+    const direct = role(need.direct);
+    // Stored as ',a,b,' and a tag holds no ',': a substring test is exact, where LIKE would also match '_' and, on SQLite, other letter cases.
+    if (direct) kinds.push(need.storedTag === undefined ? direct : andSql(direct, at.contains(rsql`${ident(alias, 'tags')}`, rsql`${`,${need.storedTag},`}`)));
+    const implied = role(need.implied);
+    if (implied) kinds.push(implied);
+    const below = role(need.impliedBelow);
+    if (below) kinds.push(andSql(below, notSql(at.path.atNode(alias, 0))));
+    if (kinds.length === 0 || at.subjects.length === 0) return FALSE_SQL;
+    const where = andSql(this.subjectIn(at.subjects, alias), this.live(at.now, alias), this.onPath(at.path, alias), orSql(...kinds), ...(need.madeAt ? [inList(rsql`${ident(alias, 'scope_type')}`, need.madeAt)] : []));
+    return rsql`EXISTS (SELECT 1 FROM ${ident(this.table)} ${ident(alias)} WHERE ${where})`;
   }
 
   /** Adds the term's `EXISTS (SELECT 1 FROM authz_assignment <alias> WHERE …)` to `builder`, about the row it filters. */
@@ -135,6 +204,25 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
     } catch (e) {
       throw new AuthzConfigError(e instanceof Error ? e.message : `${this.op}: malformed args`, { cause: e });
     }
+  }
+
+  /** L1b's parser of args v2: anything but the exact canonical shape is refused. */
+  protected parseRouteArgs(args: unknown): RbacAssignmentArgsV2 {
+    try {
+      return parseRbacListArgs(RBAC_ASSIGNMENT_OP, args);
+    } catch (e) {
+      throw new AuthzConfigError(e instanceof Error ? e.message : `${this.op}: malformed args`, { cause: e });
+    }
+  }
+
+  /** The graph and tables of the model whose residuals reach SQL for `model`. */
+  protected listing(model: Class<ModelBase>): RbacListing {
+    if (!this.container.hasRegistered(RbacRoleGraphSource)) {
+      throw new AuthzConfigError(`${this.op}: no RbacRoleGraphSource is registered; the host registers one for its RbacModel`);
+    }
+    const listing = this.container.resolve(RbacRoleGraphSource).listing?.(model);
+    if (!listing) throw new AuthzConfigError(`${this.op}: args v2 need the role graph with its grant index and tables for model ${model.name}; the RbacRoleGraphSource does not give them (listing), or not yet`);
+    return listing;
   }
 
   protected roleScopes(model: Class<ModelBase>, roles: readonly string[]): RbacRoleScopes {
