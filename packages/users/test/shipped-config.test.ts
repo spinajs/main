@@ -34,6 +34,10 @@ async function shippedConfigs(): Promise<[string, Record<string, unknown>][]> {
   return Promise.all(files.map(async (f) => [f, (await import(pathToFileURL(join(configDir, f)).href)).default] as [string, Record<string, unknown>]));
 }
 
+function expectNoLegacyRoots(config: Record<string, unknown>, file: string) {
+  expect(config, file).to.not.have.any.keys('rbac', 'authn');
+}
+
 function getter(values: Record<string, unknown>) {
   return {
     get<T>(path: string | string[]): T {
@@ -50,8 +54,14 @@ describe('the configuration users ships', function () {
 
     expect(configs.map(([f]) => f)).to.include('users.ts');
     for (const [file, config] of configs) {
-      expect(Object.keys(config), file).to.not.include.members(['rbac', 'authn']);
+      expectNoLegacyRoots(config, file);
     }
+  });
+
+  it('the check above fails when either key is present', () => {
+    expect(() => expectNoLegacyRoots({ users: {}, rbac: {} }, 'rbac only')).to.throw();
+    expect(() => expectNoLegacyRoots({ users: {}, authn: {} }, 'authn only')).to.throw();
+    expect(() => expectNoLegacyRoots({ users: {} }, 'neither')).to.not.throw();
   });
 
   it('keeps identity keys under users.* and ships no defaultRoles or anonymousRoles array', () => {
