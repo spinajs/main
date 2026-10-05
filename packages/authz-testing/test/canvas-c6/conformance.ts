@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 
 import { fixtureDsl } from '../../src/index.js';
-import type { BehaviourId, Case, FixtureExtension, Step, World } from '../../src/index.js';
+import type { BehaviourId, Case, Facet, FixtureExtension, Step, World } from '../../src/index.js';
 import type { Authz, Decision } from './c6/authz.js';
 import { loadCanvasFixtures } from './fixtures.js';
 import type { AuthzCase, CanvasCase } from './fixtures.js';
@@ -105,8 +105,8 @@ export function canvasKitCases(cases: readonly CanvasCase[], world: World, known
 const NOTE = 'K1: canvas C6 conformance cases through C6Facade over the design §8.5 config, the state.json scope resolver and the state written through AuthzAdmin';
 
 /** A fixture extension whose one part holds a kit case per canvas case; it replaces the kit's empty part of that name. */
-export function canvasExtension(id: BehaviourId, part: string, cases: readonly CanvasCase[], world: World, note: string, known: Readonly<Record<string, KnownMismatch>> = KNOWN_MISMATCHES): FixtureExtension {
-  return fixtureDsl.extension(id, [{ name: part, facets: ['canvas'], lanes: ['K1'], note: `${NOTE}${note}`, cases: canvasKitCases(cases, world, known) }]);
+export function canvasExtension(id: BehaviourId, part: string, cases: readonly CanvasCase[], world: World, note: string, known: Readonly<Record<string, KnownMismatch>>, facets: readonly Facet[] = ['canvas']): FixtureExtension {
+  return fixtureDsl.extension(id, [{ name: part, facets: [...facets], lanes: ['K1'], note: `${NOTE}${note}`, cases: canvasKitCases(cases, world, known) }]);
 }
 
 function pinnedBy(cases: readonly CanvasCase[], decision: string): CanvasCase[] {
@@ -117,6 +117,8 @@ function pinnedBy(cases: readonly CanvasCase[], decision: string): CanvasCase[] 
 
 const CASES = loadCanvasFixtures().cases;
 
-export const B40Memory = canvasExtension('B40', 'memory', CASES, canvasWorld(), ', in memory: all 64 cases.');
-export const B42Canvas = canvasExtension('B42', 'canvas', pinnedBy(CASES, 'H21'), canvasWorld(), ': the pinned H21 case.');
-export const B46Canvas = canvasExtension('B46', 'canvas', pinnedBy(CASES, 'H27'), canvasWorld(), ': the pinned H27 case.');
+export const B40Memory = canvasExtension('B40', 'memory', CASES, canvasWorld('memory'), ', in memory: all 64 cases.', KNOWN_MISMATCHES.memory);
+export const B42Canvas = canvasExtension('B42', 'canvas', pinnedBy(CASES, 'H21'), canvasWorld('memory'), ': the pinned H21 case.', KNOWN_MISMATCHES.memory);
+export const B46Canvas = canvasExtension('B46', 'canvas', pinnedBy(CASES, 'H27'), canvasWorld('memory'), ': the pinned H27 case.', KNOWN_MISMATCHES.memory);
+// The stub's facets: the data goes through AuthzAdmin into the authz tables (admin, store) on SQLite (sql).
+export const B40Sqlite = canvasExtension('B40', 'sqlite', CASES, canvasWorld('sqlite'), ', on SQLite through registerRbac with the §8.5 DB stores: all 64 cases.', KNOWN_MISMATCHES.sqlite, ['canvas', 'admin', 'store', 'sql']);

@@ -20,7 +20,7 @@ describe('canvas C6 conformance (memory)', function () {
 
   before(async () => {
     await harness.beforeAll?.();
-    session = await harness.setup(canvasWorld(), { id: 'B40', part: 'memory', case: 'all cases in one system', title: 'canvas C6 conformance (memory)', facets: [...harness.facets] });
+    session = await harness.setup(canvasWorld('memory'), { id: 'B40', part: 'memory', case: 'all cases in one system', title: 'canvas C6 conformance (memory)', facets: [...harness.facets] });
   });
 
   after(async () => {
@@ -40,7 +40,7 @@ describe('canvas C6 conformance (memory)', function () {
     const canvas = session?.lane?.canvas;
     expect(canvas, 'canvas lane handle').to.not.equal(undefined);
     const result = await canvasConformance(canvas!.facade, fixtures.cases);
-    const verdict = judgeConformance(result, KNOWN_MISMATCHES);
+    const verdict = judgeConformance(result, KNOWN_MISMATCHES.memory);
     for (const line of result.failures) console.log(`  mismatch: ${line}`);
     const known = verdict.known.length > 0 ? verdict.known.join(', ') : 'none';
     console.log(`  ${verdict.conform}/${verdict.cases} conform; known mismatches: ${known}`);
