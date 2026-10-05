@@ -243,9 +243,13 @@ export class Client {
     return this.send('DELETE', path, body, headers);
   }
 
-  public async send(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
+  public patch(path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
+    return this.send('PATCH', path, body, headers);
+  }
+
+  public async send(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
     const agent = chai.request(APP_ORIGIN);
-    let call = method === 'GET' ? agent.get(path) : method === 'POST' ? agent.post(path) : agent.delete(path);
+    let call = method === 'GET' ? agent.get(path) : method === 'POST' ? agent.post(path) : method === 'PATCH' ? agent.patch(path) : agent.delete(path);
     call = call.set('Accept', 'application/json');
     if (method !== 'GET') call = call.set('Origin', APP_ORIGIN);
     if (this.cookie !== null) call = call.set('Cookie', `${cookieName()}=${encodeURIComponent(this.cookie)}`);
