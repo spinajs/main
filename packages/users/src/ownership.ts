@@ -25,6 +25,8 @@ function rbacDescriptor(model: unknown): IRbacModelDescriptor {
 
 /**
  * Alters a query so it only returns/updates/deletes rows owned by `user`.
+ *
+ * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm, scoped queries. R1 deletes it.
  */
 (ModelBase as unknown as { ensureOwnership: unknown }).ensureOwnership = function (
   this: unknown,
@@ -39,6 +41,8 @@ function rbacDescriptor(model: unknown): IRbacModelDescriptor {
  * Checks whether a model (or its primary key) is owned by `user`.
  * When passed a loaded model the owner column is compared in memory; when
  * passed a primary key the ownership is verified with a scoped DB query.
+ *
+ * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
  */
 (ModelBase as unknown as { checkOwnership: unknown }).checkOwnership = async function (
   this: unknown,

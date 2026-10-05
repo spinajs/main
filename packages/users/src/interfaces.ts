@@ -1,6 +1,6 @@
 import { User } from './models/User.js';
 import { AsyncService } from '@spinajs/di';
-import { AutoinjectService } from '@spinajs/configuration';
+import { legacyService } from './legacy-services.js';
 import { IDeleteQueryBuilder, IModelDescriptor, IQueryBuilder, ISelectQueryBuilder, IUpdateQueryBuilder, ModelBase } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
@@ -13,6 +13,8 @@ declare module '@spinajs/orm' {
      * @param query query to alter
      * @param user user to check againts ownership
      * @param modelDescriptor resource model descriptor
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm, scoped queries. R1 deletes it.
      */
     ensureOwnership(query: ISelectQueryBuilder<any> | IUpdateQueryBuilder<any> | IDeleteQueryBuilder<any>, user: User): IQueryBuilder;
 
@@ -20,6 +22,8 @@ declare module '@spinajs/orm' {
      * Checks ownership of retrieved model by user
      * @param model model
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(model: ModelBase<M>, user: User): Promise<boolean>;
 
@@ -27,6 +31,8 @@ declare module '@spinajs/orm' {
      * Checks ownership of model by its primary key
      * @param model primary key to check
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(primaryKey: string | number, user: User): Promise<boolean>;
 
@@ -34,11 +40,14 @@ declare module '@spinajs/orm' {
      * Checks ownership of retrieved model by user
      * @param model model / primary key to check
      * @param user user to check against ownership
+     *
+     * @deprecated 3.0: @Owner and the owner relation of @spinajs/authz-orm with authz().assert(...). R1 deletes it.
      */
     checkOwnership<M>(modelOrPrimaryKey: ModelBase<M> | string | number, user: User): Promise<boolean>;
   }
 }
 
+/** @deprecated 3.0: ISession of @spinajs/authn-session (Subject, State). R1 deletes it after N8a and C2. */
 export interface ISession {
   /**
    * Session identifier
@@ -73,6 +82,8 @@ export interface ISession {
  * `authn.session.expiration.service`, mirroring the `authn.local.hasher` pattern.
  *
  * Units for all shipped strategies are MINUTES.
+ *
+ * @deprecated 3.0: SessionExpirationProvider of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 export abstract class SessionExpirationProvider {
   /**
@@ -88,6 +99,8 @@ export abstract class SessionExpirationProvider {
 
 /**
  * Service used for generating random password & for hash raw string
+ *
+ * @deprecated 3.0: PasswordHasher of @spinajs/authn-local. R1 deletes it after N8a and C2.
  */
 export abstract class PasswordProvider {
   /**
@@ -119,6 +132,8 @@ export abstract class PasswordProvider {
  *
  * Unlike federated auth providers, it check local db for user,
  * or some kind of other source
+ *
+ * @deprecated 3.0: LocalPasswordStrategy (authn-local) behind AuthnService.authenticate. R1 deletes it after N8a.
  */
 export abstract class AuthProvider<U = User> {
   /**
@@ -186,47 +201,23 @@ export abstract class AuthProvider<U = User> {
   public abstract getByUUID(uuid: string): Promise<U>;
 }
 
-/**
- * Used for implementign authentication with external services
- * eg. slack or facebook that uses openid or similar auth
- *
- * NOTE: it should only authorize user, it should not register new one if
- * not exists in use DB.
- */
-export abstract class FederatedAuthProvider<C, U = User> {
-  /**
-   * Name of strategy
-   */
-  abstract get Name(): string;
-
-  /**
-   *
-   * login service provides Host header for check
-   * whitch service is trying to authenticate
-   *
-   * Base on host adress we choose auth provider
-   *
-   * @param caller - caller url
-   */
-  public abstract callerCheck(caller: string): boolean;
-
-  /**
-   *
-   * Authenticates user based on response from external auth service
-   *
-   * @param credentials - provided credentials eg. data with token
-   */
-  public abstract authenticate(credentials: C): Promise<U>;
-}
-
+/** @deprecated 3.0: SessionProvider of @spinajs/authn-session, behind SessionIssuer. R1 deletes it after N8a and C2. */
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
+  private _expiration?: SessionExpirationProvider;
+
   /**
    * Expiration strategy, resolved by config service name at
    * `authn.session.expiration`. Every store shares the same strategy so
-   * expiration semantics are uniform across providers.
+   * expiration semantics are uniform across providers. Without the key, the
+   * last registered strategy (`SlidingCappedExpiration`, the 2.x default).
    */
-  @AutoinjectService('authn.session.expiration')
-  protected Expiration!: SessionExpirationProvider;
+  protected get Expiration(): SessionExpirationProvider {
+    return (this._expiration ??= legacyService('authn.session.expiration', SessionExpirationProvider) as SessionExpirationProvider);
+  }
+
+  protected set Expiration(value: SessionExpirationProvider) {
+    this._expiration = value;
+  }
 
   /**
    * Load session from store. Returns `null` when the session is missing OR
@@ -303,8 +294,10 @@ export abstract class SessionProvider<T extends ISession = ISession> extends Asy
   }
 }
 
+/** @deprecated 3.0: permission names '<resource>:<action>' and relations of @spinajs/authz. R1 deletes it. */
 export type PermissionType = 'readAny' | 'readOwn' | 'updateAny' | 'updateOwn' | 'deleteAny' | 'deleteOwn' | 'createAny' | 'createOwn';
 
+/** @deprecated 3.0: @AccessResource and @Owner of @spinajs/authz-orm. R1 deletes it. */
 export interface IRbacModelDescriptor extends IModelDescriptor {
   RbacResource: string;
 
@@ -329,6 +322,7 @@ export interface IRbacModelDescriptor extends IModelDescriptor {
  * `new RegExp(pattern)` and refuse a password locally with the same verdict the
  * server will give.
  */
+/** @deprecated 3.0: PasswordPolicy of @spinajs/authn/contracts. R1 deletes it after N8a. */
 export interface IPasswordPolicy {
   /** Fewest characters accepted. */
   minLength?: number;
@@ -349,6 +343,8 @@ export interface IPasswordPolicy {
 
 /**
  * Interface to provide implementation of password rule validation
+ *
+ * @deprecated 3.0: LocalPasswordPolicy (authn-local), PasswordService.check and .policy. R1 deletes it after N8a.
  */
 export abstract class PasswordValidationProvider {
   public abstract check(password: string): boolean;
@@ -392,17 +388,21 @@ export interface IRbacAsyncStorage<U = User> {
   Session?: ISession;
 
   /**
- * Controller route permission context
- * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
- *
- * eg. we want to read only current user data but it has admin privlidges too....
- */
+   * Controller route permission context
+   * To check if we run from (read|update|insert|delete)Own or (read|update|insert|delete)Any scope
+   *
+   * eg. we want to read only current user data but it has admin privlidges too....
+   *
+   * @deprecated 3.0: relations of @spinajs/authz decide own versus any. R1 deletes it.
+   */
   PermissionScope?: PermissionType;
 
   /**
    * Currently selected role from User.Role list. When set, all request-bound
    * permission checks (rbac query middleware, RbacPolicy) use this single role
    * instead of the full role array. The user may switch via /auth/active-role.
+   *
+   * @deprecated 3.0: principal.ceiling?.roles (role switch, authn). R1 deletes it.
    */
   ActiveRole?: string;
 
@@ -418,6 +418,8 @@ export interface IRbacAsyncStorage<U = User> {
    * constraints into query builders for this execution context.
    * Set via @SkipModelPermission() decorator for controller actions
    * that are assumed safe to execute without rbac query filtering.
+   *
+   * @deprecated 3.0: runAs(SYSTEM, 'reason', fn) or @Unscoped('reason'). R1 deletes it.
    */
   SkipModelPermissionCheck?: boolean;
 }

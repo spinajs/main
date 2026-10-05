@@ -43,6 +43,8 @@ const _mergeResourceGrants = (base: { [key: string]: any }, add: { [key: string]
  * on a conflicting action — the same precedence accesscontrol applies when it resolves
  * `$extend` itself. The result mirrors what `ac.can(role)` answers server-side; it is what
  * gets shipped to clients that rebuild an ACL from it.
+ *
+ * @deprecated 3.0: roles and grants in authz.rbac.roles (extends), compiled by the RBAC model; RbacService for introspection. R1 deletes it.
  */
 export const _unwindGrants = (role: string, grants: { [key: string]: any }, seen: Set<string> = new Set()) => {
     // a role reachable twice contributes the same grants both times, so skipping it only
@@ -68,6 +70,8 @@ export const _unwindGrants = (role: string, grants: { [key: string]: any }, seen
  * map, merging per action for the same reason `_unwindGrants` does.
  *
  * @param grants - unwound grant maps; later entries win on a conflicting action
+ *
+ * @deprecated 3.0: roles and grants in authz.rbac.roles (extends), compiled by the RBAC model; RbacService for introspection. R1 deletes it.
  */
 export const _combineGrants = (...grants: { [key: string]: any }[]) => {
     return grants.reduce((acc, g) => _mergeResourceGrants(acc, g), {});
@@ -90,6 +94,8 @@ export const _combineGrants = (...grants: { [key: string]: any }[]) => {
  *
  * @param ac - the AccessControl instance holding the application's grants
  * @param roles - role names; unknown names contribute nothing
+ *
+ * @deprecated 3.0: roles and grants in authz.rbac.roles (extends), compiled by the RBAC model; RbacService for introspection; await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
  */
 export const _collectPermissions = (ac: AccessControl, roles: string[]): Set<string> => {
     const out = new Set<string>();

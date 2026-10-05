@@ -5,8 +5,6 @@ export * from './UserDeactivated.js';
 export * from './UserDeleted.js';
 export * from './UserPasswordChanged.js';
 export * from './UserPropertyChanged.js';
-export * from './UserRoleGranted.js';
-export * from './UserRoleRevoked.js';
 export * from './UserUnbanned.js';
 export * from './UserPasswordChangeRequest.js';
 export * from './UserLogged.js';

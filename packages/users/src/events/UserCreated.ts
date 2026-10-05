@@ -11,6 +11,7 @@ export class UserCreated extends UserEvent {
 
   public Login: string;
 
+  /** The roles create() granted at GLOBAL. */
   public Role: string[];
 
   public RegisteredAt: DateTime;
@@ -21,13 +22,13 @@ export class UserCreated extends UserEvent {
 
   public Metadata: {};
 
-  constructor(user: User) {
+  constructor(user: User, roles: readonly string[] = []) {
     super(user);
 
     this.Uuid = user.Uuid;
     this.Email = user.Email;
     this.Login = user.Login;
-    this.Role = [...(user.Role ?? [])];
+    this.Role = [...roles];
     this.RegisteredAt = user.RegisteredAt;
     this.IsBanned = user.IsBanned;
     this.IsActive = user.IsActive;

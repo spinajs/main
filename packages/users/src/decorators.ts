@@ -1,6 +1,7 @@
 import { extractDecoratorDescriptor, extractDecoratorPropertyDescriptor } from '@spinajs/orm';
 import { IRbacModelDescriptor } from './interfaces.js';
 
+/** @deprecated 3.0: @AccessResource options of @spinajs/authz-orm. R1 deletes it. */
 export interface IOrmResourceOptions {
   // where :own constraints land when model is populated as relation: 'where' ( default )
   // filters parent rows, 'join' constrains the LEFT JOIN ON clause ( parent rows are kept )
@@ -14,6 +15,8 @@ export interface IOrmResourceOptions {
  *
  * @param name - table name in database that is referred by this model
  * @param options - additional rbac options eg. relation scope for :own constraints
+ *
+ * @deprecated 3.0: @AccessResource of @spinajs/authz-orm. R1 deletes it.
  */
 export function OrmResource(resourceName?: string, options?: IOrmResourceOptions) {
   return extractDecoratorDescriptor((model: IRbacModelDescriptor) => {
@@ -29,6 +32,8 @@ export function OrmResource(resourceName?: string, options?: IOrmResourceOptions
  * 
  * If set, it will automatically try to fetch/update/delete only data that user have permission for
  * 
+ *
+ * @deprecated 3.0: @Owner of @spinajs/authz-orm. R1 deletes it.
  */
 export function ResourceOwner() { 
   return extractDecoratorPropertyDescriptor((model: IRbacModelDescriptor, _target: any, propertyKey: string) => {

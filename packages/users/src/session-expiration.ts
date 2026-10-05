@@ -9,10 +9,12 @@ import { ISession, SessionExpirationProvider } from './interfaces.js';
  * Expiration unchanged).
  *
  * Settings: `authn.session.expiration.ttl` (minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class AbsoluteExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
   public initial(session: ISession): DateTime | undefined {
@@ -30,10 +32,12 @@ export class AbsoluteExpiration extends SessionExpirationProvider {
  * no upper bound. Activity keeps the session alive indefinitely.
  *
  * Settings: `authn.session.expiration.ttl` (minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
   public initial(_session: ISession): DateTime | undefined {
@@ -52,13 +56,15 @@ export class SlidingExpiration extends SessionExpirationProvider {
  *
  * Settings: `authn.session.expiration.ttl` and
  * `authn.session.expiration.maxLifetime` (both minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingCappedExpiration extends SessionExpirationProvider {
-  @Config('authn.session.expiration.ttl', { defaultValue: 120 })
+  @Config('authn.session.expiration.ttl', { defaultValue: 30 })
   protected Ttl!: number;
 
-  @Config('authn.session.expiration.maxLifetime', { defaultValue: 1440 })
+  @Config('authn.session.expiration.maxLifetime', { defaultValue: 480 })
   protected MaxLifetime!: number;
 
   public initial(_session: ISession): DateTime | undefined {

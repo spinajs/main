@@ -5,7 +5,9 @@ import { Forbidden } from '@spinajs/exceptions';
 import type { IRbacAsyncStorage } from './interfaces.js';
 import type { User } from './models/User.js';
 
+/** @deprecated 3.0: permission names '<resource>:<action>' of @spinajs/authz. R1 deletes it. */
 export type PermissionVerb = 'create' | 'read' | 'update' | 'delete';
+/** @deprecated 3.0: relations (self, owner, …) of @spinajs/authz. R1 deletes it. */
 export type PermissionGrantScope = 'any' | 'own' | 'none';
 
 /**
@@ -18,6 +20,8 @@ export type PermissionGrantScope = 'any' | 'own' | 'none';
  * Stateless by contract: no instance fields in subclasses. Spinajs DI caches resolved
  * instances, so `@FromDI()` injection in controllers, `@Autoinject` fields and
  * `usePermission()` anywhere else share one instance safely.
+ *
+ * @deprecated 3.0: a RelationResolver (or ownsBy(type, relation, fn)) and authz().assert(...); app errors via errorFor(reason). R1 deletes it.
  */
 export abstract class PermissionService {
   /**
@@ -161,6 +165,8 @@ export abstract class PermissionService {
  * `read` deliberately has no special treatment here, but domain convention is to not gate reads
  * through `assert` at all: a refused read should answer an empty list or 404 from the scoped
  * query layer, never a 403.
+ *
+ * @deprecated 3.0: a RelationResolver (or ownsBy(type, relation, fn)) and authz().assert(...); app errors via errorFor(reason). R1 deletes it.
  */
 export abstract class ResourceRules<TModel> extends PermissionService {
   protected abstract override readonly Resource: Class<TModel>;
@@ -209,12 +215,18 @@ export abstract class ResourceRules<TModel> extends PermissionService {
  * fail-fast — the first throw rejects the chain and later steps never execute, so a cheap grant
  * check placed first still spares the DB lookups behind it. Awaiting the same chain twice runs
  * it once.
+ *
+ * @deprecated 3.0: authz().assert(...) per check. R1 deletes it.
  */
 export type RuleChain<T> = PromiseLike<void> & {
   [K in keyof T]: T[K] extends (...args: infer A) => unknown ? (...args: A) => RuleChain<T> : never;
 };
 
-/** Builds a {@link RuleChain} over any rules object — the mechanics behind `chain()`. */
+/**
+ * Builds a {@link RuleChain} over any rules object — the mechanics behind `chain()`.
+ *
+ * @deprecated 3.0: authz().assert(...) per check. R1 deletes it.
+ */
 export function ruleChain<T extends object>(target: T): RuleChain<T> {
   const steps: (() => unknown)[] = [];
   let run: Promise<void> | undefined;
@@ -267,6 +279,8 @@ export function ruleChain<T extends object>(target: T): RuleChain<T> {
  *
  * Accepts ONLY PermissionService subclasses — the generic constraint is erased at
  * runtime, so this is enforced here too instead of degrading into a bare DI.resolve.
+ *
+ * @deprecated 3.0: authz() and authz().assert(...). R1 deletes it.
  */
 export function usePermission<T extends PermissionService>(type: Class<T>): T {
   if (typeof type !== 'function' || !(type.prototype instanceof PermissionService)) {
@@ -283,6 +297,8 @@ export function usePermission<T extends PermissionService>(type: Class<T>): T {
  * unknown to accesscontrol — which throws AccessControlError for any role absent from
  * the grants map and rejects the whole role array on one unknown member. A genuine
  * programming error (bad permission name) still propagates loud.
+ *
+ * @deprecated 3.0: await authz().can(authz().current(), '<resource>:<action>'). R1 deletes it.
  */
 export function probeGrant(roles: string | string[], permission: string, resource: string): Permission | null {
   const ac = DI.get<AccessControl>('AccessControl');
@@ -308,6 +324,8 @@ export function probeGrant(roles: string | string[], permission: string, resourc
  *
  * The storage parameter is structural (not IRbacAsyncStorage) so both the rbac ALS
  * store and http's request storage (whose User is `User | null`) fit.
+ *
+ * @deprecated 3.0: principal.ceiling?.roles; RbacService.rolesOf(principal, at). R1 deletes it.
  */
 export function effectiveRoles(user: User, storage?: { User?: User | null; ActiveRole?: string }): string[] {
   if (storage?.ActiveRole && storage.User?.Id === user.Id) {

@@ -2,8 +2,10 @@ import { AccessControl } from 'accesscontrol';
 
 import { _collectPermissions } from './util.js';
 
+/** @deprecated 3.0: authn's ImpersonationGuard (users' AuthzImpersonationGuard: user:impersonate, AuthzService.covers). R1 deletes it. */
 export type ImpersonationDenialReason = 'PROTECTED_ROLE' | 'PRIVILEGE_ESCALATION' | 'SELF_TARGET';
 
+/** @deprecated 3.0: authn's ImpersonationGuard (users' AuthzImpersonationGuard: user:impersonate, AuthzService.covers). R1 deletes it. */
 export interface IImpersonationCheckOptions {
   /** Roles of the user who wants to impersonate */
   originalRoles: string[];
@@ -18,6 +20,7 @@ export interface IImpersonationCheckOptions {
   ac: AccessControl;
 }
 
+/** @deprecated 3.0: authn's ImpersonationGuard (users' AuthzImpersonationGuard: user:impersonate, AuthzService.covers). R1 deletes it. */
 export interface IImpersonationCheckResult {
   allowed: boolean;
   reason?: ImpersonationDenialReason;
@@ -36,6 +39,8 @@ export interface IImpersonationCheckResult {
  *
  * The grant comparison walks accesscontrol's resolved grants, so $extend is
  * honored transitively.
+ *
+ * @deprecated 3.0: authn's ImpersonationGuard (users' AuthzImpersonationGuard: user:impersonate, AuthzService.covers). R1 deletes it.
  */
 export function canImpersonate(opts: IImpersonationCheckOptions): IImpersonationCheckResult {
   const { originalRoles, targetRoles, protectedRoles, ac } = opts;
