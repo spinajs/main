@@ -369,6 +369,15 @@ describe('DefaultAdminGuard', function () {
         await passes(p('owner'), [promote()]);
         expect(asked.filter((a) => a.startsWith('project@'))).to.deep.equal([]);
       });
+
+      it('revoking or re-tagging org.admin skips its implied maintainer for an actor ranking org.admin or above', async () => {
+        await canvas();
+        await passes(p('owner'), [promote()]);
+        const [granted] = (await d.assignments.find({ scope: O1, subject: user('alice'), role: 'org.admin', at: START })).items;
+        await refused(p('member'), [revoke(granted.id)], 'escalation');
+        await passes(p('oadmin'), [{ kind: 'assignment.setTags', id: granted.id, tags: [] }]);
+        await passes(p('owner'), [revoke(granted.id)]);
+      });
     });
 
     it('links: adding tags to a link checks its role', async () => {
@@ -837,6 +846,29 @@ describe('DefaultAdminGuard', function () {
         { kind: 'link.update', id: 'l-mt', role: 'editor' },
         { kind: 'link.revoke', id: 'l-mt' },
       ]);
+    });
+
+    it('implied roles: a role on no ladder that implies a higher ladder role is ranked as its grant is', async () => {
+      // lead implies maintainer at p1: bob ranks editor there, erin maintainer.
+      await fresh([row('d-lead', user('dave'), 'lead', P1, tagged)]);
+      await refusedAt(p('bob'), revoke('d-lead'), 'id');
+      await refusedAt(p('bob'), setExpiry('d-lead', at(HOUR)), 'id');
+      await refusedAt(p('bob'), removeTags('d-lead'), 'id');
+      await refusedAt(p('bob'), { kind: 'assignment.setTags', id: 'd-lead', tags: [] }, 'id');
+      await refusedAt(p('bob'), { kind: 'assignment.revokeWhere', scope: P1, role: 'lead' });
+      const [r] = await run(p('bob'), [revoke('d-lead')]);
+      const message = (r as Extract<AuthzCommandResult, { ok: false }>).error.message;
+      for (const part of ['"lead"', 'gives "maintainer"', 'ladder "project"']) expect(message).to.include(part);
+      expect(await d.assignments.byId('d-lead')).to.deep.include({ tags: ['keep'], expiresAt: null });
+      await passes(p('erin'), [removeTags('d-lead'), setExpiry('d-lead', at(HOUR)), revoke('d-lead')]);
+      expect(await exists('d-lead')).to.equal(false);
+    });
+
+    it('implied roles: a role extending one that implies a higher ladder role is ranked too', async () => {
+      const roles = [...GUARD_ROLES, role('sublead', { extends: ['lead'] })];
+      await world({ rows: [...ROWS, row('d-sub', user('dave'), 'sublead', P1)], roles });
+      await refusedAt(p('bob'), revoke('d-sub'), 'id');
+      await passes(p('erin'), [revoke('d-sub')]);
     });
 
     it('an expired higher row counts (fail closed)', async () => {

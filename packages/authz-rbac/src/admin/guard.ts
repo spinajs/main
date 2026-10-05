@@ -96,6 +96,8 @@ interface Paths {
   readonly privileged: (role: string) => boolean;
 }
 
+type SetRow = Assignment & { readonly subject: Extract<AssignmentSubject, { set: unknown }> };
+
 const refuse = (code: string, message: string, field?: string): AuthzAdminFailure => new AuthzAdminFailure(code, message, field);
 const sameSubject = (s: AssignmentSubject, p: PrincipalRef): boolean => !isSetSubject(s) && principalKey(s) === principalKey(p);
 
@@ -204,19 +206,14 @@ export class DefaultAdminGuard extends AdminGuard {
 
   private async reach(call: Call, role: string, scope: ResourceRef, field: string): Promise<Target[]> {
     const rows = await this.setRows(call, role, scope);
-    return rows.map((a) => ({ role: a.role, scope: a.scope, field, ...(isSetSubject(a.subject) ? { via: { role, scope, set: a.subject.set } } : {}) }));
-  }
-
-  /** Holding `role` at a scope also gives every role assigned to the sets it makes the holder a member of. */
-  private async setRoles(call: Call, role: string, scope: ResourceRef): Promise<{ role: string; scope: ResourceRef }[]> {
-    return (await this.setRows(call, role, scope)).map((a) => ({ role: a.role, scope: a.scope }));
+    return rows.map((a) => ({ role: a.role, scope: a.scope, field, via: { role, scope, set: a.subject.set } }));
   }
 
   /** The live rows assigned to the sets a principal holding `role` at `scope` is a member of. */
-  private async setRows(call: Call, role: string, scope: ResourceRef): Promise<Assignment[]> {
+  private async setRows(call: Call, role: string, scope: ResourceRef): Promise<SetRow[]> {
     const store = await assignmentStore(call.ctx);
-    const out: Assignment[] = [];
-    for (const set of call.sets(role)) out.push(...(await store.find({ subject: { set: { role: set, scope } }, at: call.ctx.now })).items);
+    const out: SetRow[] = [];
+    for (const set of call.sets(role)) out.push(...((await store.find({ subject: { set: { role: set, scope } }, at: call.ctx.now })).items as readonly SetRow[]));
     return out;
   }
 
@@ -304,9 +301,10 @@ export class DefaultAdminGuard extends AdminGuard {
   }
 
   /**
-   * Design §6.6.2: a ladder role a command revokes, re-expires or edits ranks at or below the actor's own on
-   * that ladder at the row scope. A removed or re-expired principal row also takes the roles of the subject
-   * sets it makes the principal a member of. Expired rows count; a role on no ladder is not checked.
+   * Design §6.6.2: a row a command revokes, re-expires or edits holds no ladder role ranking above the actor's
+   * own at the row scope, over the closure its grant is ranked on (grantClosure: extends, lower ladder roles,
+   * implies). A removed or re-expired principal row also takes the roles of the subject sets it makes the
+   * principal a member of. Expired rows count.
    */
   private async removalRanks(call: Call, c: AuthzCommand, revoked: ReadonlySet<string>, ending: readonly Assignment[], touched: readonly Assignment[]): Promise<void> {
     if (touched.length === 0) return;
@@ -322,10 +320,15 @@ export class DefaultAdminGuard extends AdminGuard {
       const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (${row})`;
       throw refuse('escalation', `${what}: ${via} ranks above its own on ladder ${quote(ladder)}`, field(a));
     };
-    for (const a of touched) await check(a, a.role, a.scope, 'the role');
+    for (const a of touched) {
+      const holds = (ladder: string, name: string) => this.ranksAtLeast(call, facts, ladder, name, a.scope);
+      // The row's own role first, defined or not, so a role its ladder lists but no store defines stays ranked.
+      const names = new Set([a.role, ...(await grantClosure(call.roles, a.role, holds)).defs.map((d) => d.name)]);
+      for (const name of names) await check(a, name, a.scope, name === a.role ? 'the role' : `the role gives ${quote(name)}, which`);
+    }
     for (const a of ending) {
       if (isSetSubject(a.subject)) continue;
-      for (const t of await this.setRoles(call, a.role, a.scope)) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
+      for (const t of await this.setRows(call, a.role, a.scope)) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
     }
   }
 
