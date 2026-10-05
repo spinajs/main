@@ -2,6 +2,8 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { SYSTEM, principalKey } from '@spinajs/authz';
+import type { ResourceRef, ScopeAttributeLeaf } from '@spinajs/authz';
+import { DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { QueryContext } from '@spinajs/orm';
 import type { OrmDriver } from '@spinajs/orm';
 
@@ -91,8 +93,8 @@ describe('canvas C6 conformance (sqlite)', function () {
     for (const r of rows) expect([r.kind, r.reason_code], r.id).to.deep.equal(r.id.startsWith('branch:') ? ['threshold', 'branch_protected'] : ['restrict', null]);
   });
 
-  // The expected K1 finding (DbRuleStore drops the reason payload) does not hold: `definition` keeps it, and
-  // rowToRule spreads it back; only fromSqlForm (list compilation) reads reason_code alone.
+  // DbRuleStore keeps the whole reason in `definition`; only fromSqlForm, the list compilation path, reads
+  // `reason_code` alone.
   it('the branch rows keep their whole reason (pattern, needed) in authz_rule.definition', async () => {
     const rows = (await rawQuery(driver, "SELECT id, definition FROM authz_rule WHERE id LIKE 'branch:%'")) as { id: string; definition: string }[];
     const want = WEB.branch_rules.flatMap((r) => [
@@ -143,6 +145,41 @@ describe('canvas C6 on SQLite: the restriction comes from the authz_rule row', f
     // What AuthzAdmin publishes after a committed rule.delete; it drops the cached decision.
     await opened.session.bus!.publish({ domain: opened.session.domain, tags: [`rule:${rule}`], actor: { type: SYSTEM.type, id: SYSTEM.id }, at: new Date() });
     expect(await ask()).to.deep.equal({ allowed: true, role: 'viewer' });
+  });
+});
+
+const COLUMN_MAX = 64;
+
+/** RFC K1-2's proposed read: a node whose type or id does not fit authz_scope_attribute's columns has no rows. */
+class K1_2ScopeAttributeStore extends DbScopeAttributeStore {
+  private static fits(ref: ResourceRef): boolean {
+    return ref.type.length <= COLUMN_MAX && (ref.id ?? '').length <= COLUMN_MAX;
+  }
+
+  override async get(ref: ResourceRef): Promise<Readonly<Record<string, unknown>>> {
+    return K1_2ScopeAttributeStore.fits(ref) ? super.get(ref) : {};
+  }
+
+  override async rows(ref: ResourceRef): Promise<Readonly<Record<string, ScopeAttributeLeaf>>> {
+    return K1_2ScopeAttributeStore.fits(ref) ? super.rows(ref) : {};
+  }
+}
+
+describe('RFC K1-2 acceptance: with over-long refs read as no rows, canvas C6 conforms on SQLite', function () {
+  this.timeout(120000);
+  const harness = canvasHarness({ store: 'sqlite', dbScopeAttributeStore: K1_2ScopeAttributeStore });
+  let session: HarnessSession | undefined;
+
+  after(() => close(harness, session));
+
+  it('64/64 conform in one system with no known mismatches', async () => {
+    const opened = await openSession(harness, 'RFC K1-2 scope attribute read');
+    session = opened.session;
+    const result = await canvasConformance(opened.canvas.facade, fixtures.cases);
+    for (const line of result.failures) console.log(`  mismatch: ${line}`);
+    const verdict = judgeConformance(result, {});
+    expect(verdict.unexpected).to.deep.equal([]);
+    expect(verdict).to.deep.include({ conform: 64, cases: 64, known: [] });
   });
 });
 
