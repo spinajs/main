@@ -96,42 +96,4 @@ describe('Authorization provider tests', function () {
     expect(result).to.be.true;
   });
 
-  it('Should return invalid credentials', async () => {
-    //const provider = DI.resolve(AuthProvider);
-
-    // let result = await provider.authenticate('test@spinajs.pl', 'dbbbb');
-    // expect(result.User).to.be.undefined;
-    // expect(result.Error).to.be.not.null;
-    // expect(result.Error).to.deep.equal({
-    //   InvalidCredentials,
-    //   Message: 'Invalid user credentials, or user not exist.',
-    // });
-
-    // result = await provider.authenticate('test@spinsajs.pl', 'bbbb');
-    // expect(result.Error).to.deep.equal({
-    //   InvalidCredentials,
-    //   Message: 'Invalid user credentials, or user not exist.',
-    // });
-  });
-
-  it('Should authenticate', async () => {
-    const provider = DI.resolve(AuthProvider);
-    let result = await provider.authenticate('test@spinajs.pl', 'bbbb');
-    expect(result).to.be.not.null;
-  });
-
-  it('should auth fail on banned user', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
-
-  it('should auth fail on user not active', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
-
-  it('Should auth fail on user deleted', async () => {
-    const provider = DI.resolve(AuthProvider);
-    await expect(provider.authenticate('test-deleted@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
 });

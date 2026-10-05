@@ -1,20 +1,22 @@
-import { BasicPasswordProvider } from '../src/password.js';
+// Rewrite-class file (LEDGER: every row C1 -> T1), moved here by C1 task 13: it tests 2.x authorization that 3.0 replaces.
+// Excluded by .mocharc.json; T1 replaces and deletes it.
+import { BasicPasswordProvider } from '../../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User } from '../../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Orm } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { AsyncLocalStorage } from 'async_hooks';
 import { join, normalize, resolve } from 'path';
-import { TestConfiguration } from './common.test.js';
+import { TestConfiguration } from '../common.test.js';
 
-import './migration/rbac.migration.js';
-import { OrmPermission, clearOrmPermissionRegistry } from '../src/orm-permission.js';
-import { CloneRbacModel, CloneRbacPolicy } from './models/CloneModels.js';
+import '../migration/rbac.migration.js';
+import { OrmPermission, clearOrmPermissionRegistry } from '../../src/orm-permission.js';
+import { CloneRbacModel, CloneRbacPolicy } from '../models/CloneModels.js';
 
 chai.use(chaiAsPromised);
 

@@ -1,5 +1,6 @@
-// Rewrite-class rows (LEDGER user rows 13-15) moved here by C1 dispatch 1: they assert users.Role,
-// which authz-rbac's migrations drop (H13). Excluded by .mocharc.json; T1 replaces and deletes them.
+// Rewrite-class rows (LEDGER user rows 13 and 14) moved here by C1 dispatch 1: they assert users.Role, which
+// authz-rbac's migrations drop (H13). Rows 16-23 (User.can* on the 2.x AccessControl) moved by C1 task 13; drop
+// row 15 deleted. Excluded by .mocharc.json; T1 replaces and deletes them.
 import { BasicPasswordProvider } from '../../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import { AccessControl } from 'accesscontrol';
@@ -82,22 +83,71 @@ describe('User model tests', function () {
       expect(user2.Role.length).to.be.eq(2);
     });
 
-    it('Should convert roles to and from string to array', async () => {
-      const user = new User({
-        Email: 'roles@test.pl',
-        Login: 'roles user',
-        IsActive: true,
-        Uuid: TEST_USER_UUID_2,
-        Password: 'test',
-        Role: ['admin', 'user', 'editor'],
+  });
+
+  describe('Permission checks (can*)', () => {
+    beforeEach(() => {
+      // editor has full :any grants on Article; viewer only has read:own
+      const ac = DI.get<AccessControl>('AccessControl')!;
+      ac.setGrants({
+        editor: {
+          Article: {
+            'create:any': ['*'],
+            'read:any': ['*'],
+            'update:any': ['*'],
+            'delete:any': ['*'],
+          },
+        },
+        viewer: {
+          Article: {
+            'read:own': ['*'],
+          },
+        },
       });
+    });
 
-      await user.insert();
+    const editor = () => new User({ Role: ['editor'] });
+    const viewer = () => new User({ Role: ['viewer'] });
 
-      // Role is stored as a delimited string (@Set) and must hydrate back to an array
-      const reloaded = await User.get(user.Id);
-      expect(reloaded.Role).to.be.an('array');
-      expect(reloaded.Role).to.have.members(['admin', 'user', 'editor']);
+    it('canReadAny should work', () => {
+      expect(editor().canReadAny('Article').granted).to.be.true;
+      expect(viewer().canReadAny('Article').granted).to.be.false;
+    });
+
+    it('canUpdateAny should work', () => {
+      expect(editor().canUpdateAny('Article').granted).to.be.true;
+      expect(viewer().canUpdateAny('Article').granted).to.be.false;
+    });
+
+    it('canDeleteAny should work', () => {
+      expect(editor().canDeleteAny('Article').granted).to.be.true;
+      expect(viewer().canDeleteAny('Article').granted).to.be.false;
+    });
+
+    it('canCreateAny should work', () => {
+      expect(editor().canCreateAny('Article').granted).to.be.true;
+      expect(viewer().canCreateAny('Article').granted).to.be.false;
+    });
+
+    it('canReadOwn should work', () => {
+      // an :any grant implies :own
+      expect(editor().canReadOwn('Article').granted).to.be.true;
+      expect(viewer().canReadOwn('Article').granted).to.be.true;
+    });
+
+    it('canUpdateOwn should work', () => {
+      expect(editor().canUpdateOwn('Article').granted).to.be.true;
+      expect(viewer().canUpdateOwn('Article').granted).to.be.false;
+    });
+
+    it('canDeleteOwn should work', () => {
+      expect(editor().canDeleteOwn('Article').granted).to.be.true;
+      expect(viewer().canDeleteOwn('Article').granted).to.be.false;
+    });
+
+    it('canCreateOwn should work', () => {
+      expect(editor().canCreateOwn('Article').granted).to.be.true;
+      expect(viewer().canCreateOwn('Article').granted).to.be.false;
     });
   });
 });

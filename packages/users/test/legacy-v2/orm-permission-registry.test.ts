@@ -1,7 +1,9 @@
+// Rewrite-class file (LEDGER: every row C1 -> T1), moved here by C1 task 13: it tests 2.x authorization that 3.0 replaces.
+// Excluded by .mocharc.json; T1 replaces and deletes it.
 import { expect } from 'chai';
 import { Class, DI } from '@spinajs/di';
 import { Connection, IWhereBuilder, Model, ModelBase, Primary } from '@spinajs/orm';
-import { OrmResource } from '../src/decorators.js';
+import { OrmResource } from '../../src/decorators.js';
 import {
   OrmPermission,
   OrmPermissionPolicy,
@@ -10,8 +12,8 @@ import {
   ormPermissionModel,
   ORM_PERMISSION_POLICY_MAP,
   DEFAULT_PERMISSION_SCOPE,
-} from '../src/orm-permission.js';
-import type { User } from '../src/models/User.js';
+} from '../../src/orm-permission.js';
+import type { User } from '../../src/models/User.js';
 
 @Connection('default')
 @Model('test')

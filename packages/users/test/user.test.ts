@@ -141,34 +141,12 @@ describe('User model tests', function () {
     });
   });
 
-  describe('Permission checks (can*)', () => {
-    beforeEach(() => {
-      // editor has full :any grants on Article; viewer only has read:own
-      const ac = DI.get<AccessControl>('AccessControl')!;
-      ac.setGrants({
-        editor: {
-          Article: {
-            'create:any': ['*'],
-            'read:any': ['*'],
-            'update:any': ['*'],
-            'delete:any': ['*'],
-          },
-        },
-        viewer: {
-          Article: {
-            'read:own': ['*'],
-          },
-        },
-      });
-    });
-
-    const editor = () => new User({ Role: ['editor'] });
-    const viewer = () => new User({ Role: ['viewer'] });
-
+  describe('the deprecated 2.x AccessControl', () => {
     it('a user is built without reading the 2.x AccessControl; only the deprecated can* read it', () => {
+      DI.get<AccessControl>('AccessControl')!.setGrants({ editor: { Article: { 'read:any': ['*'] } } });
       const get = sinon.spy(DI.RootContainer, 'get');
       try {
-        const user = editor();
+        const user = new User({ Role: ['editor'] });
         expect(get.calledWith('AccessControl')).to.eq(false);
 
         expect(user.canReadAny('Article').granted).to.be.true;
@@ -176,47 +154,6 @@ describe('User model tests', function () {
       } finally {
         get.restore();
       }
-    });
-
-    it('canReadAny should work', () => {
-      expect(editor().canReadAny('Article').granted).to.be.true;
-      expect(viewer().canReadAny('Article').granted).to.be.false;
-    });
-
-    it('canUpdateAny should work', () => {
-      expect(editor().canUpdateAny('Article').granted).to.be.true;
-      expect(viewer().canUpdateAny('Article').granted).to.be.false;
-    });
-
-    it('canDeleteAny should work', () => {
-      expect(editor().canDeleteAny('Article').granted).to.be.true;
-      expect(viewer().canDeleteAny('Article').granted).to.be.false;
-    });
-
-    it('canCreateAny should work', () => {
-      expect(editor().canCreateAny('Article').granted).to.be.true;
-      expect(viewer().canCreateAny('Article').granted).to.be.false;
-    });
-
-    it('canReadOwn should work', () => {
-      // an :any grant implies :own
-      expect(editor().canReadOwn('Article').granted).to.be.true;
-      expect(viewer().canReadOwn('Article').granted).to.be.true;
-    });
-
-    it('canUpdateOwn should work', () => {
-      expect(editor().canUpdateOwn('Article').granted).to.be.true;
-      expect(viewer().canUpdateOwn('Article').granted).to.be.false;
-    });
-
-    it('canDeleteOwn should work', () => {
-      expect(editor().canDeleteOwn('Article').granted).to.be.true;
-      expect(viewer().canDeleteOwn('Article').granted).to.be.false;
-    });
-
-    it('canCreateOwn should work', () => {
-      expect(editor().canCreateOwn('Article').granted).to.be.true;
-      expect(viewer().canCreateOwn('Article').granted).to.be.false;
     });
   });
 

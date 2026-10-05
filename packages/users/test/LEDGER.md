@@ -51,8 +51,8 @@ Imperative user helpers (lookup, metadata, uniqueness, role list, ban, reset reg
 | 16 | 160 | actions fundamentals ( imperative helpers ) > setUserMeta / getUserMeta > emits UserMetadataChange carrying the resolved entries, not a function | adapt | C1 | users/test/ |
 | 17 | 172 | actions fundamentals ( imperative helpers ) > setUserMeta / getUserMeta > getUserMeta throws MetadataNotFound for a missing key | adapt | C1 | users/test/ |
 | 18 | 180 | actions fundamentals ( imperative helpers ) > updateUser > persists partial changes and emits UserChanged | adapt | C1 | users/test/ |
-| 19 | 194 | actions fundamentals ( imperative helpers ) > verifyPassword > confirms the stored password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03) `verifyPassword` leaves `users`; hasher verify on the 2.x fixture hash. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 20 | 200 | actions fundamentals ( imperative helpers ) > verifyPassword > refuses a wrong password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03) Same as above. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
+| 19 | 194 | actions fundamentals ( imperative helpers ) > verifyPassword > confirms the stored password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03) `verifyPassword` leaves `users`; hasher verify on the 2.x fixture hash. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions-fundamentals.test.ts` (C1 task 13). |
+| 20 | 200 | actions fundamentals ( imperative helpers ) > verifyPassword > refuses a wrong password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03) Same as above. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions-fundamentals.test.ts` (C1 task 13). |
 | 21 | 208 | actions fundamentals ( imperative helpers ) > getUsersByRole > finds users carrying the role | adapt | C1 | users/test/ Role seeded as an assignment, lookup via `AssignmentStore.holders` (C1 task 5, H13). |
 | 22 | 227 | actions fundamentals ( imperative helpers ) > audit finding regressions > R1: ban() accepts a user whose previous ban has expired | adapt | C1 | users/test/ Ban lifecycle stays in `users`. |
 | 23 | 245 | actions fundamentals ( imperative helpers ) > audit finding regressions > R1: confirmPasswordReset() accepts a user whose ban has expired | rewrite | C1 → N3 | `authn-local/test/ported/` (A11, A12) Reset token is a `SecretStore` entry, not metadata; ban checked at redeem (A02 answer). Moved to `test/legacy-v2/actions-fundamentals.test.ts` (C1 task 11): the reset goes through `PasswordService`. |
@@ -87,7 +87,7 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 | 18 | 314 | User model tests > Should refuse a login taken by a soft-deleted account | adapt | C1 | users/test/ |
 | 19 | 328 | User model tests > Should refuse a duplicate before running create middleware | adapt | C1 | users/test/ |
 | 20 | 345 | User model tests > Should generate a password and issue a reset link when none is given | rewrite | C1 → T1 | `users/test/v3/` (A11, A32) C1 task 3: `create` invites through `PasswordService.invite`. The test asserts what `create()` does, so it stays in `users` (plan §1 rule 10 bars authn-local from calling `create`). No token in `users_metadata`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3). |
-| 21 | 365 | User model tests > Should not issue a reset link when the caller supplied the password | rewrite | C1 → T1 | `users/test/v3/` (A11, A12) C1 task 3: no invite for a caller-supplied password; the assertion moves from metadata to `SecretStore`. |
+| 21 | 365 | User model tests > Should not issue a reset link when the caller supplied the password | rewrite | C1 → T1 | `users/test/v3/` (A11, A12) C1 task 3: no invite for a caller-supplied password; the assertion moves from metadata to `SecretStore`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
 | 22 | 379 | User model tests > Should still create the account when the reset link cannot be issued | adapt | C1 | users/test/ (A11) The account survives a failed invite. C1 task 3: `PasswordService.invite` is stubbed to fail; `create` rejects, the account stays with its roles (authn-local itself only audits a mail it cannot send). C1 dispatch 4 (review 3 M2): the rejection is `UserCreatedIncomplete`, naming the account's Uuid and that the invite was not sent. |
 | 23 | 399 | User model tests > Should mail a new account exactly one message, carrying the reset link | rewrite | C1 → N3 | `authn-local/test/ported/` (A11, SR-09) `SR-09 queued mail holds no secret`: secret rendered at send time, so the 2.x assertion `model.Token` equals stored token changes. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3). |
 | 24 | 412 | User model tests > Should issue the invite link with the invite lifetime, not the reset one | rewrite | C1 → N3 | `authn-local/test/ported/` (A11, A32) Invite lifetime kept; read from `SecretStore` expiry, purpose `invite`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3). |
@@ -105,16 +105,16 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 | 36 | 587 | User model tests > Should carry configured attachments into the queued mail | adapt | C1 | users/test/ |
 | 37 | 600 | User model tests > Should queue a mail without an attachments field when the template declares none | adapt | C1 | users/test/ |
 | 38 | 611 | User model tests > Should treat a ban as expired once its duration elapses | adapt | C1 | users/test/ |
-| 39 | 627 | User model tests > Should change password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03, A30) `PasswordService.change`: fresh auth, other sessions revoked, current rotated; hash is argon2id (A03). C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). |
-| 40 | 649 | User model tests > Should reject a password that does not meet requirements | rewrite | C1 → N3 | `authn-local/test/ported/` (A04) Policy 8-128, no trimming; error type must stay `InvalidArgument` (HTTP 400). C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). |
+| 39 | 627 | User model tests > Should change password | rewrite | C1 → N3 | `authn-local/test/ported/` (A03, A30) `PasswordService.change`: fresh auth, other sessions revoked, current rotated; hash is argon2id (A03). C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 40 | 649 | User model tests > Should reject a password that does not meet requirements | rewrite | C1 → N3 | `authn-local/test/ported/` (A04) Policy 8-128, no trimming; error type must stay `InvalidArgument` (HTTP 400). C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
 | 41 | 660 | User model tests > Should grant role | rewrite | C1 → T1 | `users/test/v3/` (B11, B12, B27, B43): `grant` becomes `AuthzAdmin.assign`; reads assignments, not `User.Role`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
 | 42 | 677 | User model tests > Should revoke role | rewrite | C1 → T1 | `users/test/v3/` (B11, B27, B43): `revoke` becomes `AuthzAdmin.revoke`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
 | 43 | 689 | User model tests > Should update user | adapt | C1 | users/test/ |
-| 44 | 699 | User model tests > Should authenticate user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 45 | 709 | User model tests > Should not auth with invalid password | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 46 | 718 | User model tests > Should not auth with invalid login | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 47 | 722 | User model tests > Should reject auth with banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 48 | 731 | User model tests > Should reject auth with not active user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
+| 44 | 699 | User model tests > Should authenticate user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 45 | 709 | User model tests > Should not auth with invalid password | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 46 | 718 | User model tests > Should not auth with invalid login | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 47 | 722 | User model tests > Should reject auth with banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 48 | 731 | User model tests > Should reject auth with not active user | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02, A21) `login()` becomes `AuthnService.authenticate`; `UserLogged`/`UserLoginFailed` come from `QueueAuthnEventSink` (C1 task 10); one failure shape (A02). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
 | 49 | 740 | User model tests > Password change request | rewrite | C1 → N3 | `authn-local/test/ported/` (A11, A12) Reset request stores a `SecretStore` entry, not metadata. Moved to `test/legacy-v2/actions.test.ts` (C1 task 11): the 2.x reset functions delegate to `PasswordService` and store no token. |
 | 50 | 761 | User model tests > issuePasswordResetToken stores the token without sending a mail | rewrite | C1 → N3 | `authn-local/test/ported/` (A11) `issuePasswordResetToken` has no counterpart name; `requestReset` without mail, hashed secret. Moved to `test/legacy-v2/actions.test.ts` (C1 task 11): the 2.x reset functions delegate to `PasswordService` and store no token. |
 | 51 | 774 | User model tests > issuePasswordResetToken honours an explicit wait time | rewrite | C1 → N3 | `authn-local/test/ported/` (A11) Explicit lifetime on the secret. Moved to `test/legacy-v2/actions.test.ts` (C1 task 11): the 2.x reset functions delegate to `PasswordService` and store no token. |
@@ -139,11 +139,11 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 | 70 | 1048 | User model tests > password reset token > refuses an invited account that was deactivated before redeeming | rewrite | C1 → N3 | `authn-local/test/ported/` (A32) `deactivate` withdraws a pending invite. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3): `create` no longer writes a reset token, so the redeem fails for want of one and the test would pass without checking the rule. |
 | 71 | 1064 | User model tests > password reset token > an admin activation clears the invite marker so a later ordinary reset does not re-activate | rewrite | C1 → T1, N3 | Split. `users/test/v3/` (A32, C1 task 3): `activate` clears the invite marker, which is users identity state. `authn-local/test/ported/` (A32, N3): a later ordinary reset does not re-activate. C1 task 3: stays; `create` still sets the marker, and the reset half uses a 2.x `passwordChangeRequest` token. Moved to `test/legacy-v2/actions.test.ts` (C1 task 11): the 2.x reset functions delegate to `PasswordService` and store no token. The users half (activate drops the marker) is in `test/lifecycle-authn.test.ts`. |
 | 72 | 1087 | User model tests > password reset token > treats the invite marker as pending only when it is stored as boolean true | rewrite | C1 → N3 | `authn-local/test/ported/` (A32) Marker counts only when strictly boolean `true`; read through `IdentityStore` status. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3): `create` no longer writes a reset token, so the redeem fails for want of one and the test would pass without checking the rule. |
-| 73 | 1109 | User model tests > login throttling > counts consecutive failures | rewrite | C1 → N1 | `authn/test/ported/` (A05, A06, H31): count before verify, no `user:login:*` metadata. |
-| 74 | 1117 | User model tests > login throttling > locks the account after the configured number of failures and refuses the CORRECT password while locked | rewrite | C1 → N1 | `authn/test/ported/` (A05, A06, H31; `SR-05 attacker cannot lock the owner out`): 3.0 never locks, so a correct password while "locked" is accepted after the backoff slot; expectation changes. |
-| 75 | 1133 | User model tests > login throttling > clears the counter and the lock on a successful login | rewrite | C1 → N1 | `authn/test/ported/` (A06, H31): success resets the account key and subtracts its `account-ip` count; no metadata counter. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 76 | 1146 | User model tests > login throttling > lets an expired lock through | rewrite | C1 → N1 | `authn/test/ported/` (A06, H31): lock replaced by `resetAfterSeconds` decay (FakeClock). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 77 | 1168 | User model tests > session revocation > destroys the sessions of a user whose password changed | rewrite | C1 → N3 | `authn-local/test/ported/` (A30, A08) The 2.x assertion holds: the test session is not the caller's current session, so A30 still revokes it. Add the A30 case where the current session is kept and rotated; a reset still revokes all. C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). |
+| 73 | 1109 | User model tests > login throttling > counts consecutive failures | rewrite | C1 → N1 | `authn/test/ported/` (A05, A06, H31): count before verify, no `user:login:*` metadata. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 74 | 1117 | User model tests > login throttling > locks the account after the configured number of failures and refuses the CORRECT password while locked | rewrite | C1 → N1 | `authn/test/ported/` (A05, A06, H31; `SR-05 attacker cannot lock the owner out`): 3.0 never locks, so a correct password while "locked" is accepted after the backoff slot; expectation changes. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 75 | 1133 | User model tests > login throttling > clears the counter and the lock on a successful login | rewrite | C1 → N1 | `authn/test/ported/` (A06, H31): success resets the account key and subtracts its `account-ip` count; no metadata counter. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 76 | 1146 | User model tests > login throttling > lets an expired lock through | rewrite | C1 → N1 | `authn/test/ported/` (A06, H31): lock replaced by `resetAfterSeconds` decay (FakeClock). Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
+| 77 | 1168 | User model tests > session revocation > destroys the sessions of a user whose password changed | rewrite | C1 → N3 | `authn-local/test/ported/` (A30, A08) The 2.x assertion holds: the test session is not the caller's current session, so A30 still revokes it. Add the A30 case where the current session is kept and rotated; a reset still revokes all. C1 task 11: stays on the deprecated `changeUserPassword` (the `changePassword` chain step is deleted); it now writes over the loaded hash (CAS). Moved to `test/legacy-v2/actions.test.ts` (C1 task 13). |
 | 78 | 1178 | User model tests > session revocation > destroys the sessions of a banned user | adapt | C1 | users/test/ Session revoked on ban through `SessionIssuer.revokeAll` (A08); session set up via the new issuer. C1 task 11: the 2.x store assertion stays; `SessionIssuer.revokeAll(user:<Uuid>, { includeImpersonations })` is tested in `test/lifecycle-authn.test.ts`. |
 | 79 | 1190 | User model tests > session revocation > destroys the sessions of a deactivated user | adapt | C1 | users/test/ Same as above for `deactivate` (A08). C1 task 11: the 2.x store assertion stays; `SessionIssuer.revokeAll(user:<Uuid>, { includeImpersonations })` is tested in `test/lifecycle-authn.test.ts`. |
 | 80 | 1206 | User model tests > Should refuse a supplied password that does not meet requirements | adapt | C1 | users/test/ Create path calls the `authn-local` policy (A04); assertion unchanged. |
@@ -152,10 +152,12 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 | 83 | 1235 | User model tests > Should refuse a role list that names no role | rewrite | C1 → T1 | `users/test/v3/` (B12, B43): roles are optional; `create` falls back to `authz.rbac.defaultRoles` (C1 task 3), so the "at least one role" refusal goes away. Moved to `test/legacy-v2/actions.test.ts` (C1 task 3). |
 | 84 | 1246 | User model tests > Should refuse a role that is not configured in grants | rewrite | C1 → T1 | `users/test/v3/` (B12, B43): unknown role on write is `InvalidArgument` from `AuthzAdmin`; message no longer names `rbac.grants`. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
 | 85 | 1254 | User model tests > Should refuse granting a role that is not configured in grants | rewrite | C1 → T1 | `users/test/v3/` (B12, B43): `AuthzAdmin.assign` refuses an unknown role. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
-| 86 | 1264 | User model tests > Should accept an undeclared role when rbac.requireKnownRole is false | drop | T1 | `rbac.requireKnownRole` is gone with the `rbac.*` keys; B12 always refuses an unknown role on write. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
-| 87 | 1284 | User model tests > Should refuse an unknown role rather than throw when rbac.roles holds a malformed entry | drop | T1 | 2.x-only: tolerates a malformed `rbac.roles` entry; 3.0 validates `authz.rbac.roles` at boot (AJV, B05/B12). Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). |
+| 86 | 1264 | User model tests > Should accept an undeclared role when rbac.requireKnownRole is false | drop | T1 | `rbac.requireKnownRole` is gone with the `rbac.*` keys; B12 always refuses an unknown role on write. Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). Deleted (C1 task 13). |
+| 87 | 1284 | User model tests > Should refuse an unknown role rather than throw when rbac.roles holds a malformed entry | drop | T1 | 2.x-only: tolerates a malformed `rbac.roles` entry; 3.0 validates `authz.rbac.roles` at boot (AJV, B05/B12). Moved to `test/legacy-v2/actions.test.ts` (C1 task 6). Deleted (C1 task 13). |
 
 ## test/active-role.test.ts
+
+C1 task 13: the whole file is in `test/legacy-v2/active-role.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
 
 ActiveRole middleware: role switching and the owner filter. All rewrite (C1 → T1). Plan §5 names B24/D14; the target is `authz-orm/test/ported/` rather than `authz-rbac` because these tests compile ORM queries.
 
@@ -178,11 +180,11 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 | 2 | 61 | Authorization provider tests > Should check for active user | adapt | C1 | users/test/ `isActive` becomes `IdentityStore` status. |
 | 3 | 83 | Authorization provider tests > Should check for deleted user | adapt | C1 | users/test/ `isDeleted` becomes `IdentityStore` status. |
 | 4 | 89 | Authorization provider tests > Should check for banned user | adapt | C1 | users/test/ `isBanned` becomes `IdentityStore` status (ban duration included). |
-| 5 | 96 | Authorization provider tests > Should return invalid credentials | drop | T1 | Empty body: every assertion is commented out; covered by A02 in `authn-testing`. |
-| 6 | 114 | Authorization provider tests > Should authenticate | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02) `SimpleDbAuthProvider.authenticate` becomes `LocalPasswordStrategy`. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 7 | 120 | Authorization provider tests > should auth fail on banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Banned: same opaque failure as every other login failure. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 8 | 125 | Authorization provider tests > should auth fail on user not active | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Inactive account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
-| 9 | 130 | Authorization provider tests > Should auth fail on user deleted | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Deleted account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. |
+| 5 | 96 | Authorization provider tests > Should return invalid credentials | drop | T1 | Empty body: every assertion is commented out; covered by A02 in `authn-testing`. Deleted (C1 task 13). |
+| 6 | 114 | Authorization provider tests > Should authenticate | rewrite | C1 → N3 | `authn-local/test/ported/` (A01, A02) `SimpleDbAuthProvider.authenticate` becomes `LocalPasswordStrategy`. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/auth.test.ts` (C1 task 13). |
+| 7 | 120 | Authorization provider tests > should auth fail on banned user | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Banned: same opaque failure as every other login failure. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/auth.test.ts` (C1 task 13). |
+| 8 | 125 | Authorization provider tests > should auth fail on user not active | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Inactive account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/auth.test.ts` (C1 task 13). |
+| 9 | 130 | Authorization provider tests > Should auth fail on user deleted | rewrite | C1 → N3 | `authn-local/test/ported/` (A02) Deleted account: A02 answer. Login fixture needs a password of 8+ characters (A04); `bbbb` fails. Moved to `test/legacy-v2/auth.test.ts` (C1 task 13). |
 
 ## test/cli.test.ts
 
@@ -195,6 +197,8 @@ CLI commands that must boot the Orm themselves (`RbacCliCommand`). Both adapt: t
 
 ## test/clone-rbac.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/clone-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 Row constraints surviving query cloning and counting. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
@@ -206,6 +210,8 @@ Row constraints surviving query cloning and counting. All rewrite (C1 → T1).
 | 5 | 158 | rbac constraints survive query cloning > a caller-supplied filter narrows both the rows and the count | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
 
 ## test/collect-permissions.test.ts
+
+C1 task 13: every row is drop, so the file is deleted.
 
 `_collectPermissions` grant helper, a 2.x internal. All drop (T1; plan §5 names it).
 
@@ -239,6 +245,8 @@ Shared `SessionProvider` conformance suite, imported by `session-conformance.tes
 
 ## test/create-ownership-idor.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/create-ownership-idor.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 Insert-time ownership stamping, a 2.x IDOR regression. All rewrite (C1 → T1); none dropped, they map to the T1 IDOR suite.
 
 | # | Line | Test | Class | Lane | Target |
@@ -249,6 +257,8 @@ Insert-time ownership stamping, a 2.x IDOR regression. All rewrite (C1 → T1); 
 | 4 | 116 | Ownership enforcement on inserts (IDOR regression) > no create grant is refused | rewrite | C1 → T1 | authz-orm/test/ported/; SR IDOR suite; B20, B01 (no permit gives 403) |
 
 ## test/impersonation.test.ts
+
+C1 task 13: the whole file is in `test/legacy-v2/impersonation.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
 
 The 2.x `canImpersonate` rule. All rewrite (C1 → T1); B26 and the `AuthzImpersonationGuard` of C3 replace it.
 
@@ -266,6 +276,8 @@ The 2.x `canImpersonate` rule. All rewrite (C1 → T1); B26 and the `AuthzImpers
 
 ## test/m2m-rbac.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/m2m-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 Row scope on a many-to-many target model. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
@@ -277,6 +289,8 @@ Row scope on a many-to-many target model. All rewrite (C1 → T1).
 | 5 | 167 | rbac on a hasManyToMany target model > still constrains the target when it is queried directly | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 |
 
 ## test/orm-permission-policy.test.ts
+
+C1 task 13: the whole file is in `test/legacy-v2/orm-permission-policy.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
 
 `OrmPermissionPolicy` where-path: operation routing, fallbacks, inserts, named scopes. All rewrite (C1 → T1); `@OrmScope` policies replace it.
 
@@ -316,6 +330,8 @@ Row scope on a many-to-many target model. All rewrite (C1 → T1).
 
 ## test/orm-permission-registry.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/orm-permission-registry.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 `OrmPermissionPolicy` registration and the DI policy map. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
@@ -333,6 +349,8 @@ Row scope on a many-to-many target model. All rewrite (C1 → T1).
 
 ## test/orm-rbac.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/orm-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 ORM query constraints and relation-join scoping. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
@@ -349,6 +367,8 @@ ORM query constraints and relation-join scoping. All rewrite (C1 → T1).
 
 ## test/ownership.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/ownership.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 2.x model ownership helpers (`checkOwnership`, `ensureOwnership`). All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
@@ -361,6 +381,8 @@ ORM query constraints and relation-join scoping. All rewrite (C1 → T1).
 | 6 | 87 | Model ownership helpers > throws when the model has no @ResourceOwner() field | rewrite | C1 → T1 | authz-orm/test/ported/; B02, B15 (model without @Owner fails loud at config) |
 
 ## test/password.test.ts
+
+C1 task 13: the move rows are N3's (authn-local ships its own hasher, policy and generator tests). The file stays here, active, with the deprecated `BasicPasswordProvider` and `BasicPasswordValidationProvider` that legacy consumers still use; R1 deletes both.
 
 Password hasher, validation provider `describe()` and password generator. Dominant class: move to `authn-local` (N3).
 
@@ -380,6 +402,8 @@ Password hasher, validation provider `describe()` and password generator. Domina
 | 12 | 194 | BasicPasswordProvider.generate > falls back to the shipped default when authn.local.generator is not declared, but still throws when it is declared with an empty pool | move | N3 | `authn-local/test/` (N3 tasks 1-2: hasher, policy, generator moved). |
 
 ## test/permission-service.test.ts
+
+C1 task 13: the file is in `test/legacy-v2/permission-service.test.ts` with its rewrite rows; the drop rows (17, 18, 27-31) are deleted.
 
 `PermissionService` acting user, roles, grant projection and class-based resources. Dominant class: rewrite (C1 → T1). Rows 1-3 and 11-16 target `authz/test/ported/`, which plan §5 does not list for T1: B09 (`runAs`, principal resolution) and `assert` are core rules, so they belong to `authz`, not `authz-rbac`.
 
@@ -401,8 +425,8 @@ Password hasher, validation provider `describe()` and password generator. Domina
 | 14 | 150 | PermissionService > withUser > a different user impersonates: User swapped, ActiveRole cleared, other store keys kept | rewrite | C1 → T1 | authz/test/ported/; B09 (`runAs` swaps the principal), B07 (the ceiling is not carried over) |
 | 15 | 161 | PermissionService > withUser > the store's own user reuses the ambient store untouched | rewrite | C1 → T1 | authz/test/ported/; B09 |
 | 16 | 172 | PermissionService > withUser > runs outside any ambient context too, and answers the callback result | rewrite | C1 → T1 | authz/test/ported/; B09 (runAs outside any ambient context) |
-| 17 | 178 | PermissionService > usePermission > answers the DI-cached instance of the requested service | drop | T1 | usePermission DI helper has no 3.0 counterpart; PermissionService is replaced by authz().assert/check (design §21 mapping) |
-| 18 | 186 | PermissionService > usePermission > refuses a class that is not a PermissionService | drop | T1 | usePermission DI helper has no 3.0 counterpart; PermissionService is replaced by authz().assert/check (design §21 mapping) |
+| 17 | 178 | PermissionService > usePermission > answers the DI-cached instance of the requested service | drop | T1 | usePermission DI helper has no 3.0 counterpart; PermissionService is replaced by authz().assert/check (design §21 mapping) Deleted (C1 task 13). |
+| 18 | 186 | PermissionService > usePermission > refuses a class that is not a PermissionService | drop | T1 | usePermission DI helper has no 3.0 counterpart; PermissionService is replaced by authz().assert/check (design §21 mapping) Deleted (C1 task 13). |
 | 19 | 193 | PermissionService > probeGrant > answers the accesscontrol Permission for a granted role and null for an unknown one | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B12 (check on a granted role vs an unknown role) |
 | 20 | 232 | PermissionService > class-based Resource > the class NAME is the grant key — no string restated, no metadata lookup | rewrite | C1 → T1 | authz-rbac/test/ported/; B02 (type name is the permission resource key) |
 | 21 | 236 | PermissionService > class-based Resource > a resource class unknown to the grants fails loud, not closed | rewrite | C1 → T1 | authz-rbac/test/ported/; B02 (unregistered permission or resource fails loud) |
@@ -411,11 +435,11 @@ Password hasher, validation provider `describe()` and password generator. Domina
 | 24 | 253 | PermissionService > class-based Resource > assert > own scope passes when owns() answers true | rewrite | C1 → T1 | authz-rbac/test/ported/; B06, B15 (own relation true for the subject) |
 | 25 | 258 | PermissionService > class-based Resource > assert > own scope refuses when owns() answers false | rewrite | C1 → T1 | authz-rbac/test/ported/; B06, B15 |
 | 26 | 262 | PermissionService > class-based Resource > assert > own scope refuses a missing subject — ownership of nothing is undecidable | rewrite | C1 → T1 | authz-rbac/test/ported/; B06, B15 (3.0 differs: without a subject a conditional permit returns allowed with a residual, it does not refuse) |
-| 27 | 286 | PermissionService > class-based Resource > chain > runs queued steps in call order on await | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) |
-| 28 | 294 | PermissionService > class-based Resource > chain > nothing runs before the chain is awaited | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) |
-| 29 | 302 | PermissionService > class-based Resource > chain > fails fast — a rejected step stops the chain and later steps never run | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) |
-| 30 | 309 | PermissionService > class-based Resource > chain > exposes only assert*/can* rule methods, and a rule-shaped typo dies at build time | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) |
-| 31 | 322 | PermissionService > class-based Resource > chain > awaiting the same chain twice runs it once | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) |
+| 27 | 286 | PermissionService > class-based Resource > chain > runs queued steps in call order on await | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) Deleted (C1 task 13). |
+| 28 | 294 | PermissionService > class-based Resource > chain > nothing runs before the chain is awaited | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) Deleted (C1 task 13). |
+| 29 | 302 | PermissionService > class-based Resource > chain > fails fast — a rejected step stops the chain and later steps never run | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) Deleted (C1 task 13). |
+| 30 | 309 | PermissionService > class-based Resource > chain > exposes only assert*/can* rule methods, and a rule-shaped typo dies at build time | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) Deleted (C1 task 13). |
+| 31 | 322 | PermissionService > class-based Resource > chain > awaiting the same chain twice runs it once | drop | T1 | ResourceRules chain builder (queued assert*/can* steps) has no 3.0 counterpart; domain rules become RelationResolver/ownsBy (design §21 mapping) Deleted (C1 task 13). |
 | 32 | 332 | PermissionService > class-based Resource > chain > composes the generic verb gate with a domain rule on a ResourceRules service | rewrite | C1 → T1 | authz-rbac/test/ported/; B15, B23 (generic verb gate plus a domain relation rule) |
 
 ## test/session-codec.test.ts
@@ -491,6 +515,8 @@ Session fixation protection through `regenerateSession`. Dominant class: adapt i
 
 ## test/system-user-factory.test.ts
 
+C1 task 13: the whole file is in `test/legacy-v2/system-user-factory.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+
 `RbacSystemUserFactory` must bypass row scope. Dominant class: rewrite (C1 → T1; `runAs(SYSTEM)`, B09).
 
 | # | Line | Test | Class | Lane | Target |
@@ -501,6 +527,8 @@ Session fixation protection through `regenerateSession`. Dominant class: adapt i
 | 4 | 136 | RbacSystemUserFactory > preserves the surrounding store rather than replacing it | rewrite | C1 → T1 | `users/test/v3/` (B09): the surrounding store (principal, active role as ceiling) stays; `SkipModelPermissionCheck` is gone. C1 task 4: the factory runs under `runAs(SYSTEM, 'system-user')` and keeps `SkipModelPermissionCheck` in a nested store while the 2.x ORM middleware exists, so the row passes unchanged; the suite now registers the test authz host. |
 
 ## test/unwind-grants.test.ts
+
+C1 task 13: every row is drop, so the file is deleted.
 
 `_unwindGrants` and `_combineGrants`, 2.x internals. All drop (T1; plan §5 names them).
 
@@ -549,15 +577,15 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 | 12 | 127 | User model tests > Scope tests > whereAnything should find a user by a login that starts with a digit | adapt | C1 | users/test/ (seed users without Role, H13) |
 | 13 | 144 | User model tests > User roles > Should check if guest role is set by default | rewrite | C1 → T1 | users/test/v3/; B11, B12 (roles as assignments; default roles through AuthzAdmin.assign, plan C1 tasks 3 and 6; H13) A raw `new User().insert()` gets no role in 3.0: only `create()` assigns default roles (C1 task 3, H13). Moved to `test/legacy-v2/user.test.ts` (C1 task 6). |
 | 14 | 162 | User model tests > User roles > Should save multiple roles | rewrite | C1 → T1 | users/test/v3/; B11, B12 (roles as assignments; default roles through AuthzAdmin.assign, plan C1 tasks 3 and 6; H13) Moved to `test/legacy-v2/user.test.ts` (C1 task 6). |
-| 15 | 178 | User model tests > User roles > Should convert roles to and from string to array | drop | T1 | users.Role column and its @Set string conversion are removed (H13); multi-role storage is covered by the B11 assignment tests. Moved to `test/legacy-v2/user.test.ts` (C1 task 6). |
-| 16 | 221 | User model tests > Permission checks (can*) > canReadAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 17 | 226 | User model tests > Permission checks (can*) > canUpdateAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 18 | 231 | User model tests > Permission checks (can*) > canDeleteAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 19 | 236 | User model tests > Permission checks (can*) > canCreateAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 20 | 241 | User model tests > Permission checks (can*) > canReadOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 21 | 247 | User model tests > Permission checks (can*) > canUpdateOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 22 | 252 | User model tests > Permission checks (can*) > canDeleteOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
-| 23 | 257 | User model tests > Permission checks (can*) > canCreateOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) |
+| 15 | 178 | User model tests > User roles > Should convert roles to and from string to array | drop | T1 | users.Role column and its @Set string conversion are removed (H13); multi-role storage is covered by the B11 assignment tests. Moved to `test/legacy-v2/user.test.ts` (C1 task 6). Deleted (C1 task 13). |
+| 16 | 221 | User model tests > Permission checks (can*) > canReadAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 17 | 226 | User model tests > Permission checks (can*) > canUpdateAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 18 | 231 | User model tests > Permission checks (can*) > canDeleteAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 19 | 236 | User model tests > Permission checks (can*) > canCreateAny should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 20 | 241 | User model tests > Permission checks (can*) > canReadOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 21 | 247 | User model tests > Permission checks (can*) > canUpdateOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 22 | 252 | User model tests > Permission checks (can*) > canDeleteOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
+| 23 | 257 | User model tests > Permission checks (can*) > canCreateOwn should work | rewrite | C1 → T1 | authz-rbac/test/ported/; B11, B15 (User.can* replaced by authz().check; an :any grant covers :own as an unconditional grant) Moved to `test/legacy-v2/user.test.ts` (C1 task 13). |
 | 24 | 264 | User model tests > User metadata > Should get metadata | adapt | C1 | users/test/ (seed users without Role, H13) |
 | 25 | 274 | User model tests > User metadata > Should add metadata by assign | adapt | C1 | users/test/ (seed users without Role, H13) |
 | 26 | 286 | User model tests > User metadata > Should remove specific metadata by assingn  | adapt | C1 | users/test/ (seed users without Role, H13) |
@@ -581,6 +609,8 @@ Mixed file: C1 splits it. Kept rows stay or move as classed; rewrite rows go to 
 | 44 | 486 | User model tests > Model tests > To json should hide password | adapt | C1 | users/test/ (seed users without Role, H13) |
 
 ## test/write-ownership-idor.test.ts
+
+C1 task 13: the whole file is in `test/legacy-v2/write-ownership-idor.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
 
 Ownership enforcement on UPDATE and DELETE, a 2.x IDOR regression. All rewrite (C1 → T1); none dropped, they map to the T1 IDOR suite.
 
@@ -610,3 +640,12 @@ users copies and these test files). Where each N2 row landed, all under
 
 C1 task 11 deleted only the codec (`session-codec.ts` and its test): legacy authn-http and users-http `src` still
 import the users session store, cookie builder and `UserSession`, so those stay `@deprecated` with their tests until R1.
+
+## C1 status (task 13)
+
+Walked row by row against the files. Every C1 adapt row passes in the active suite; every rewrite row (C1 → T1,
+N1 or N3) sits in `test/legacy-v2/<same file name>`, excluded by `.mocharc.json`; every drop row is deleted (whole
+files: `collect-permissions`, `unwind-grants`). The N2 and N3 move rows stay active with the deprecated code they
+test (see "N2 status" and `test/password.test.ts`). Some `legacy-v2` files import 2.x API that C1 deleted
+(`changePassword`, `passwordMatch`, `ChangeUserPassword`, `ICreateUserResult.Password`): they record the 2.x
+behaviour for T1 and no longer compile.

@@ -1,3 +1,5 @@
+// Rewrite-class file (LEDGER: every row C1 -> T1), moved here by C1 task 13: it tests 2.x authorization that 3.0 replaces.
+// Excluded by .mocharc.json; T1 replaces and deletes it.
 import 'mocha';
 import * as chai from 'chai';
 import { expect } from 'chai';
@@ -6,9 +8,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { AccessControl } from 'accesscontrol';
 import { DI } from '@spinajs/di';
 import { Forbidden } from '@spinajs/exceptions';
-import { User } from '../src/models/User.js';
-import type { IRbacAsyncStorage } from '../src/interfaces.js';
-import { PermissionService, ResourceRules, ruleChain, usePermission, probeGrant, type PermissionVerb } from '../src/permission-service.js';
+import { User } from '../../src/models/User.js';
+import type { IRbacAsyncStorage } from '../../src/interfaces.js';
+import { PermissionService, ResourceRules, probeGrant, type PermissionVerb } from '../../src/permission-service.js';
 
 chai.use(chaiAsPromised);
 
@@ -174,21 +176,6 @@ describe('PermissionService', () => {
     });
   });
 
-  describe('usePermission', () => {
-    it('answers the DI-cached instance of the requested service', () => {
-      const a = usePermission(TestPermission);
-      const b = usePermission(TestPermission);
-
-      expect(a).to.be.instanceOf(TestPermission);
-      expect(a).to.equal(b);
-    });
-
-    it('refuses a class that is not a PermissionService', () => {
-      class NotAPermission {}
-      expect(() => usePermission(NotAPermission as never)).to.throw(/only PermissionService/);
-    });
-  });
-
   describe('probeGrant', () => {
     it('answers the accesscontrol Permission for a granted role and null for an unknown one', () => {
       expect(probeGrant(['admin'], 'createAny', 'TestRes')?.granted).to.equal(true);
@@ -265,70 +252,6 @@ describe('PermissionService', () => {
     });
 
     describe('chain', () => {
-      class ChainedRules {
-        public calls: string[] = [];
-
-        public assertFirst(tag: string): void {
-          this.calls.push(`first:${tag}`);
-        }
-
-        public assertSecond(): Promise<void> {
-          this.calls.push('second');
-          return Promise.resolve();
-        }
-
-        public assertFailing(): Promise<void> {
-          this.calls.push('failing');
-          return Promise.reject(new Forbidden('refused mid-chain'));
-        }
-      }
-
-      it('runs queued steps in call order on await', async () => {
-        const rules = new ChainedRules();
-
-        await ruleChain(rules).assertFirst('a').assertSecond().assertFirst('b');
-
-        expect(rules.calls).to.eql(['first:a', 'second', 'first:b']);
-      });
-
-      it('nothing runs before the chain is awaited', () => {
-        const rules = new ChainedRules();
-
-        ruleChain(rules).assertFirst('never').assertSecond();
-
-        expect(rules.calls).to.be.empty;
-      });
-
-      it('fails fast — a rejected step stops the chain and later steps never run', async () => {
-        const rules = new ChainedRules();
-
-        await expect(ruleChain(rules).assertFirst('a').assertFailing().assertSecond()).to.be.rejectedWith(Forbidden, /refused mid-chain/);
-        expect(rules.calls).to.eql(['first:a', 'failing']);
-      });
-
-      it('exposes only assert*/can* rule methods, and a rule-shaped typo dies at build time', () => {
-        const rules = new ChainedRules();
-
-        // non-rule members are simply not there - thenable probes (`catch`, symbols) must not
-        // throw, or every promise-inspecting consumer would
-        expect((ruleChain(rules) as never as { calls?: unknown }).calls).to.be.undefined;
-        expect((ruleChain(rules) as never as { catch?: unknown }).catch).to.be.undefined;
-
-        // but a rule-SHAPED name with no method behind it is a typo on a permission gate
-        expect(() => (ruleChain(rules) as never as { assertFrist: () => void }).assertFrist()).to.throw(/'assertFrist' is not a rule method/);
-        expect(rules.calls).to.be.empty;
-      });
-
-      it('awaiting the same chain twice runs it once', async () => {
-        const rules = new ChainedRules();
-        const chain = ruleChain(rules).assertFirst('once');
-
-        await chain;
-        await chain;
-
-        expect(rules.calls).to.eql(['first:once']);
-      });
-
       it('composes the generic verb gate with a domain rule on a ResourceRules service', async () => {
         widgets.owned = new Set([5]);
         const seen: number[] = [];

@@ -1,21 +1,23 @@
-import { BasicPasswordProvider } from '../src/password.js';
+// LEDGER system-user-factory rows 1-4 (rewrite, T1: B09, B20), moved by C1 task 13. The factory runs under runAs(SYSTEM)
+// and keeps the 2.x skip only for the deprecated ORM middleware. Excluded by .mocharc.json; T1 replaces and deletes it.
+import { BasicPasswordProvider } from '../../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { expect } from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, RBAC_USER_MODEL } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, RBAC_USER_MODEL } from '../../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { Connection, IWhereBuilder, Model, Orm } from '@spinajs/orm';
 import { AccessControl } from 'accesscontrol';
 import { AsyncLocalStorage } from 'async_hooks';
 import { join, normalize, resolve } from 'path';
-import { TestConfiguration } from './common.test.js';
-import { registerAuthzHost } from './support/authz-host.js';
+import { TestConfiguration } from '../common.test.js';
+import { registerAuthzHost } from '../support/authz-host.js';
 
-import './migration/rbac.migration.js';
-import { OrmResource } from '../src/decorators.js';
-import { OrmPermission, OrmPermissionPolicy, clearOrmPermissionRegistry } from '../src/orm-permission.js';
+import '../migration/rbac.migration.js';
+import { OrmResource } from '../../src/decorators.js';
+import { OrmPermission, OrmPermissionPolicy, clearOrmPermissionRegistry } from '../../src/orm-permission.js';
 
 chai.use(chaiAsPromised);
 

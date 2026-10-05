@@ -1,8 +1,10 @@
+// Rewrite-class file (LEDGER: every row C1 -> T1), moved here by C1 task 13: it tests 2.x authorization that 3.0 replaces.
+// Excluded by .mocharc.json; T1 replaces and deletes it.
 import 'mocha';
 import { expect } from 'chai';
 import { AccessControl } from 'accesscontrol';
 
-import { canImpersonate } from '../src/impersonation.js';
+import { canImpersonate } from '../../src/impersonation.js';
 
 /**
  * Unit tests for the canImpersonate privilege gate. No DI/ORM needed — the

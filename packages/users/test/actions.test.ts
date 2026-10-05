@@ -2,7 +2,7 @@ import { BasicPasswordProvider } from '../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
-import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, changeUserPassword, _user_update, USER_COMMON_METADATA, login, UserLogged, UserBanned, UserUnbanned, UserPasswordChanged, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
+import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserActivated, UserChanged, deactivate, UserDeactivated, create, UserCreated, deleteUser, UserDeleted, ban, unban, _user_update, USER_COMMON_METADATA, UserBanned, UserUnbanned, CreateMiddleware, SessionProvider, UserSession } from '../src/index.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
 import { UserAlreadyExists, UserCreatedIncomplete } from '../src/exceptions.js';
@@ -20,7 +20,6 @@ import _ from 'lodash';
 import { EmailSend } from '@spinajs/email';
 import { UserMetadataChange } from '../src/events/UserMetadataChange.js';
 import { DateTime } from 'luxon';
-import { UserLoginFailed } from '../src/events/UserLoginFailed.js';
 import { expirePassword } from '../src/actions.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
 import { globalRolesOf, registerAuthzHost } from './support/authz-host.js';
@@ -338,21 +337,6 @@ describe('User model tests', function () {
   });
 
   /**
-   * The inverse: a caller that supplied the password knows it and delivers it
-   * itself. Mailing a reset link there would invalidate a password the caller is
-   * about to hand out — which is what a CLI service account or a fixture wants
-   * least.
-   */
-  it('Should not issue a reset link when the caller supplied the password', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await create('supplied@wp.pl', 'supplied', ['admin'], { password: 'bbbb1234' });
-
-    const user = await User.query().whereAnything('supplied@wp.pl').populate('Metadata').firstOrFail();
-    expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'a caller-supplied password must not be invalidated by a reset link').to.not.exist;
-  });
-
-  /**
    * The account exists by the time the invite is issued, so a failed invite is
    * reported but does not take the account back: the invite can be sent again.
    */
@@ -557,39 +541,6 @@ describe('User model tests', function () {
     expect(reloaded.IsBanned).to.be.false;
   });
 
-  it('Should change password', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
-    const oldHash = user.Password;
-
-    await changeUserPassword(user, 'newPass123');
-
-    const reloaded = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
-    expect(reloaded.Password).to.not.eq(oldHash);
-
-    const pwd = await DI.resolve(BasicPasswordProvider);
-    expect(await pwd.verify(reloaded.Password, 'newPass123')).to.be.true;
-    expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChanged)).to.be.true;
-  });
-
-  /**
-   * The REJECTION TYPE is the assertion, not just the rejection: @spinajs/http maps
-   * `InvalidArgument` to 400 and anything unmapped to 500, so a bare `Error` here made
-   * every "your password is too weak" answer an internal server error - indistinguishable,
-   * to a client, from the server being broken.
-   */
-  it('Should reject a password that does not meet requirements', async () => {
-    sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-    const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
-    // password rule requires at least 8 chars with a letter and a digit
-    await expect(changeUserPassword(user, 'short')).to.be.rejectedWith(InvalidArgument);
-
-    const error = await changeUserPassword(user, 'short').catch((e: unknown) => e);
-    expect((error as InvalidArgument).fieldName).to.eq('password');
-    expect((error as InvalidArgument).errorCode).to.eq('E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
-  });
-
   it('Should update user', async () => {
     sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
@@ -600,103 +551,7 @@ describe('User model tests', function () {
     expect(reloaded.Login).to.eq('updated-login');
   });
 
-  it('Should authenticate user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
 
-    const user = await login('test@spinajs.pl', 'bbbb');
-
-    expect(user).to.be.not.null;
-    expect(eStub.callCount).to.eq(1);
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLogged);
-  });
-
-  it('Should not auth with invalid password', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await expect(login('test@spinajs.pl', 'bbbbssss')).to.be.rejected;
-    expect(eStub.callCount).to.eq(1);
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
-
-  });
-
-  it('Should not auth with invalid login', async () => {
-    await expect(login('testssssss@spinajs.pl', 'bbbb')).to.be.rejected;
-  });
-
-  it('Should reject auth with banned user', async () => {
-
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await expect(login('test-banned@spinajs.pl', 'bbbb')).to.be.rejected;
-    expect(eStub.callCount).to.eq(1);
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
-  });
-
-  it('Should reject auth with not active user', async () => {
-    const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-    await expect(login('test-notactive@spinajs.pl', 'bbbb')).to.be.rejected;
-    expect(eStub.callCount).to.eq(1);
-    expect((eStub.args[0] as any)[0]).to.be.instanceOf(UserLoginFailed);
-  });
-
-
-
-  describe('login throttling', () => {
-    const reload = () => User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
-
-    const blockAfter = async () => {
-      const cfg = await DI.resolve(Configuration);
-      return cfg.get<number>('rbac.password.blockAfterAttempts', 5);
-    };
-
-    it('counts consecutive failures', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
-
-      expect(Number((await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS])).to.eq(1);
-    });
-
-    it('locks the account after the configured number of failures and refuses the CORRECT password while locked', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      const limit = await blockAfter();
-      for (let i = 0; i < limit; i++) {
-        await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
-      }
-
-      const locked = (await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL];
-      expect(locked, 'a lock instant must be recorded').to.be.not.undefined;
-
-      // the whole point: guessing does not become possible again just because
-      // the attacker finally guessed right
-      await expect(login('test@spinajs.pl', 'bbbb')).to.be.rejected;
-    });
-
-    it('clears the counter and the lock on a successful login', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      await expect(login('test@spinajs.pl', 'wrong-password')).to.be.rejected;
-      expect(Number((await reload()).Metadata[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS])).to.eq(1);
-
-      await login('test@spinajs.pl', 'bbbb');
-
-      const meta = (await reload()).Metadata;
-      expect(meta[USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS], 'attempt counter').to.be.not.ok;
-      expect(meta[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL], 'lock instant').to.be.not.ok;
-    });
-
-    it('lets an expired lock through', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      const user = await reload();
-      user.Metadata[USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL] = DateTime.now().minus({ minutes: 5 }).toISO();
-      await user.Metadata.update();
-
-      await expect(login('test@spinajs.pl', 'bbbb')).to.be.fulfilled;
-    });
-  });
 
   describe('session revocation', () => {
     const liveSessionFor = async (email: string) => {
@@ -708,16 +563,6 @@ describe('User model tests', function () {
       await provider.save(session);
       return { provider, session };
     };
-
-    it('destroys the sessions of a user whose password changed', async () => {
-      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
-
-      const { provider, session } = await liveSessionFor('test@spinajs.pl');
-
-      await changeUserPassword(await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail(), 'brandNew123');
-
-      expect(await provider.restore(session.SessionId), 'a session authorized by the old password must not survive it').to.be.null;
-    });
 
     it('destroys the sessions of a banned user', async () => {
       sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));

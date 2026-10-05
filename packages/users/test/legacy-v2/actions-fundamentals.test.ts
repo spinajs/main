@@ -1,5 +1,6 @@
 // LEDGER actions-fundamentals rows 23 and 24, moved by C1 task 11: confirmPasswordReset now redeems through
-// PasswordService, and passwordChangeRequest stores no token in metadata. Excluded by .mocharc.json; T1 deletes it.
+// PasswordService, and passwordChangeRequest stores no token in metadata. Rows 19 and 20 (verifyPassword, N3: A03)
+// moved by C1 task 13. Excluded by .mocharc.json; T1 deletes it.
 import { BasicPasswordProvider } from '../../src/password.js';
 import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
@@ -88,5 +89,19 @@ describe('actions fundamentals ( imperative helpers )', function () {
       expect((err as TokenInvalid).data).to.deep.eq({ user: u.Uuid });
     });
 
+  });
+
+  describe('verifyPassword', () => {
+    it('confirms the stored password', async () => {
+      const u = await getUser('test@spinajs.pl');
+
+      expect(await verifyPassword(u, 'bbbb')).to.eq(true);
+    });
+
+    it('refuses a wrong password', async () => {
+      const u = await getUser('test@spinajs.pl');
+
+      expect(await verifyPassword(u, 'not-the-password')).to.eq(false);
+    });
   });
 });

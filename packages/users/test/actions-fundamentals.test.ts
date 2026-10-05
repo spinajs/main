@@ -3,7 +3,7 @@ import { Bootstrapper, DI } from '@spinajs/di';
 import chaiAsPromised from 'chai-as-promised';
 import * as chai from 'chai';
 import { PasswordProvider, SimpleDbAuthProvider, AuthProvider, User, UserChanged, USER_COMMON_METADATA } from '../src/index.js';
-import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, verifyPassword, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban } from '../src/actions.js';
+import { getUser, getUserUnsafe, getUsersByRole, setUserMeta, getUserMeta, updateUser, roleList, assertNoProtectedMetadata, assertUserUnique, create, ban } from '../src/actions.js';
 import { MetadataNotFound, UserAlreadyExists } from '../src/exceptions.js';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidArgument } from '@spinajs/exceptions';
@@ -217,17 +217,7 @@ describe('actions fundamentals ( imperative helpers )', function () {
   });
 
   describe('verifyPassword', () => {
-    it('confirms the stored password', async () => {
-      const u = await getUser('test@spinajs.pl');
 
-      expect(await verifyPassword(u, 'bbbb')).to.eq(true);
-    });
-
-    it('refuses a wrong password', async () => {
-      const u = await getUser('test@spinajs.pl');
-
-      expect(await verifyPassword(u, 'not-the-password')).to.eq(false);
-    });
   });
 
   describe('getUsersByRole', () => {
