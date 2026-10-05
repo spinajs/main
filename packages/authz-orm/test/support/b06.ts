@@ -250,27 +250,38 @@ export interface Agreement {
   narrower: number;
   /** Row checks of intersect agents asserted ⇔ whose delegate's residual held no relation or native op. */
   intersectExact: number;
-  /** Row checks of intersect agents asserted ⇔ whose delegate's residual held a relation or native op, stripped in the filter. */
+  /** Row checks of intersect agents asserted ⇔ whose delegate's residual held a relation or native op the engine strips. */
   intersectStripped: number;
+  /** Row checks of intersect agents asserted ⇔ whose delegate's residual held a native op the engine keeps (`principalInArgs`). */
+  intersectKept: number;
+  /** Row checks of intersect agents the check allows. */
+  intersectAllowed: number;
 }
 
-export const emptyAgreement = (): Agreement => ({ checks: 0, allowed: 0, refused: 0, narrower: 0, intersectExact: 0, intersectStripped: 0 });
+export const emptyAgreement = (): Agreement => ({ checks: 0, allowed: 0, refused: 0, narrower: 0, intersectExact: 0, intersectStripped: 0, intersectKept: 0, intersectAllowed: 0 });
 
-const holdsPrincipalOps = (f: ResourceFilter): boolean => {
-  if (f.op === 'relation' || f.op.startsWith('native:')) return true;
-  if (f.op === 'and' || f.op === 'or') return f.args.some(holdsPrincipalOps);
-  return f.op === 'not' && holdsPrincipalOps(f.arg);
+interface PrincipalOps {
+  kept: boolean;
+  stripped: boolean;
+}
+
+const principalOps = (f: ResourceFilter, keep: ReadonlySet<string>, into: PrincipalOps = { kept: false, stripped: false }): PrincipalOps => {
+  if (f.op === 'relation') into.stripped = true;
+  else if (f.op.startsWith('native:')) (keep.has(f.op) ? (into.kept = true) : (into.stripped = true));
+  else if (f.op === 'and' || f.op === 'or') for (const a of f.args) principalOps(a, keep, into);
+  else if (f.op === 'not') principalOps(f.arg, keep, into);
+  return into;
 };
 
 /**
  * The engine replaces `relation` and `native:*` in an intersect delegate's type-level residual
- * fail-closed (`stripPrincipalOps`), and a check with a subject also needs the row to pass that
- * stripped residual, so the two agree either way. The stripped case is counted apart to show the
- * worlds reach it.
+ * fail-closed (`stripPrincipalOps`), except natives whose filter declares `principalInArgs` (`keep`),
+ * and a check with a subject also needs the row to pass that stripped residual, so the two agree either
+ * way. The cases are counted apart to show the worlds reach them.
  */
-async function stripsDelegate(service: AuthzService, p: Principal, permission: string, type: string): Promise<boolean> {
-  if (p.onBehalfOf === undefined || p.delegation !== 'intersect') return false;
-  return holdsPrincipalOps(await service.filter(p.onBehalfOf, permission, type));
+async function delegateOps(service: AuthzService, p: Principal, permission: string, type: string, keep: ReadonlySet<string>): Promise<PrincipalOps> {
+  if (p.onBehalfOf === undefined || p.delegation !== 'intersect') return { kept: false, stripped: false };
+  return principalOps(await service.filter(p.onBehalfOf, permission, type), keep);
 }
 
 /**
@@ -279,7 +290,7 @@ async function stripsDelegate(service: AuthzService, p: Principal, permission: s
  * `sound` (residuals with conventions §5 "sound only" leaves) the two selects are equal and hold only
  * rows the check allows.
  */
-export async function agree(service: AuthzService, tables: OrmTables, principals: readonly Principal[], opts: { readonly sound?: boolean } = {}, into: Agreement = emptyAgreement()): Promise<Agreement> {
+export async function agree(service: AuthzService, tables: OrmTables, principals: readonly Principal[], opts: { readonly sound?: boolean; readonly keep?: ReadonlySet<string> } = {}, into: Agreement = emptyAgreement()): Promise<Agreement> {
   const type = tables.spec.type;
   for (const permission of tables.spec.permissions) {
     const cls = tables.classFor(permission);
@@ -291,7 +302,7 @@ export async function agree(service: AuthzService, tables: OrmTables, principals
       const residual: ResourceFilter = await service.filter(principal, permission, type);
       const filtered = new Set(await sqlIds(cls, residual, relationPrincipalOf(principal, service)));
       const listed = new Set(scoped ?? []);
-      const stripped = await stripsDelegate(service, principal, permission, type);
+      const ops = await delegateOps(service, principal, permission, type, opts.keep ?? new Set());
       const sound = opts.sound === true;
       // As in a request: the adapter keeps a row's ancestors for the request.
       const decisions = await runWithPrincipal(principal, async () => {
@@ -310,8 +321,10 @@ export async function agree(service: AuthzService, tables: OrmTables, principals
         if (d.allowed) into.allowed++;
         if (d.allowed && !filtered.has(id)) into.narrower++;
         if (principal.delegation === 'intersect' && !sound) {
-          if (stripped) into.intersectStripped++;
-          else into.intersectExact++;
+          if (ops.kept) into.intersectKept++;
+          if (ops.stripped) into.intersectStripped++;
+          if (!ops.kept && !ops.stripped) into.intersectExact++;
+          if (d.allowed) into.intersectAllowed++;
         }
       }
     }

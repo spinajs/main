@@ -301,6 +301,8 @@ function parseTerm(term: string): Term {
 
 class FakeTupleFilter extends NativeFilter {
   readonly op = FAKE_TUPLE_OP;
+  // The walk reads the principal from args only, never the request principal or ctx.cache.
+  readonly principalInArgs = true;
 
   constructor(private readonly model: FakeTupleModel) {
     super();

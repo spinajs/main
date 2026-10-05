@@ -2,10 +2,10 @@ import * as chai from 'chai';
 import 'mocha';
 import fc from 'fast-check';
 
-import { GLOBAL, SYSTEM } from '@spinajs/authz';
-import type { Principal, ResourceFilter, ResourceRef, Value, Vote } from '@spinajs/authz';
+import { GLOBAL, SYSTEM, runWithPrincipal } from '@spinajs/authz';
+import type { Principal, PrincipalRef, ResourceFilter, ResourceRef, Value, Vote } from '@spinajs/authz';
 import { FakeRbacModel, FakeTupleModel, FakeTupleStore, StaticModel, agentPrincipal, arb, fixtureDsl, testHost, userPrincipal } from '@spinajs/authz-testing';
-import type { FakeGrant, ScriptedVote } from '@spinajs/authz-testing';
+import type { FakeGrant, ScriptedVote, Tuple } from '@spinajs/authz-testing';
 
 import { TestDb } from './support/db.js';
 import type { Dialect } from './support/db.js';
@@ -167,7 +167,7 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
       { seed, numRuns: RUNS },
     );
     // The counts show the runs were not trivial (the report quotes them).
-    console.log(`      B06 ${label}: ${RUNS} runs, ${total.checks} row checks, ${total.allowed} allowed, ${total.refused} selects refused, ${total.narrower} allowed rows the selects leave out (sound only, ⊆), intersect checks asserted ⇔: ${total.intersectExact} with nothing stripped, ${total.intersectStripped} with the delegate's relation or native ops stripped`);
+    console.log(`      B06 ${label}: ${RUNS} runs, ${total.checks} row checks, ${total.allowed} allowed, ${total.refused} selects refused, ${total.narrower} allowed rows the selects leave out (sound only, ⊆), intersect checks asserted ⇔: ${total.intersectExact} with nothing stripped, ${total.intersectStripped} with the delegate's relation or native ops stripped, ${total.intersectKept} with a native op kept, ${total.intersectAllowed} intersect rows allowed`);
     expect(total.allowed, 'rows allowed').to.be.greaterThan(RUNS);
     expect(total.checks - total.allowed, 'rows denied').to.be.greaterThan(RUNS);
     return total;
@@ -240,32 +240,63 @@ describe('authz-orm B06: check ⇔ filter through the host and the query middlew
 
       describe('FakeTupleModel', () => {
         let docs: OrmTables;
-        let tuples: TupleTables;
+        let tuplesTable: TupleTables;
 
         before(async function () {
           if (dialect === 'postgres' && !pg) return this.skip();
           docs = await OrmTables.define(db, { type: 'doc', permissions: ['doc:read', 'doc:edit'], columns: { title: 'text' } }, dialect);
-          tuples = await TupleTables.define(db, dialect);
+          tuplesTable = await TupleTables.define(db, dialect);
         });
 
         it(`native:fake.tuple compiled to a correlated recursive EXISTS over the world's tuples, inherit and intersect agents (seed ${SEED + 2}, ${RUNS} runs)`, async () => {
           const users = ['u0', 'u1', 'u2', 'u3'];
           const principals = [...users.map((u) => userPrincipal(u)), agentPrincipal('bot', userPrincipal('u1'), { delegation: 'inherit' }), agentPrincipal('bot2', userPrincipal('u2'), { delegation: 'intersect' })];
+          const relations: Record<string, string> = { 'doc:read': 'view', 'doc:edit': 'edit' };
+          const permissions = Object.keys(relations);
+          const bot2Ref: PrincipalRef = { type: 'agent', id: 'bot2' };
+          const bot2 = principals[principals.length - 1];
+          let refusedByDelegate = 0;
+          let allowedByBoth = 0;
           const total = await property(`${dialect} FakeTupleModel`, arb.tupleGraph({ users }), SEED + 2, async (g) => {
+            // bot2 owns u3's direct tuples and every other one of u0's.
+            const own: Tuple[] = [];
+            let k = 0;
+            for (const t of g.tuples) {
+              const s = t.subject as PrincipalRef;
+              if ('object' in t.subject || s.type !== 'user') continue;
+              if (s.id === 'u3' || (s.id === 'u0' && k++ % 2 === 0)) own.push({ ...t, subject: bot2Ref });
+            }
+            const tuples = [...g.tuples, ...own];
             await docs.load(g.rows.doc.map((r) => ({ ...r, title: r.id })));
-            await tuples.load(g.tuples, g.schema);
+            await tuplesTable.load(tuples, g.schema);
             const store = new FakeTupleStore();
-            await store.write(g.tuples, [], SYSTEM);
-            const model = new FakeTupleModel({ store, schema: g.schema, permissions: { 'doc:read': 'doc#view', 'doc:edit': 'doc#edit' } });
-            const { service, dispose } = await bootDomain([model], { permissions: permissionsConfig(['doc:read', 'doc:edit'], 'doc'), combine: fixtureDsl.combine('deny-overrides', 'rebac') });
+            await store.write(tuples, [], SYSTEM);
+            const model = new FakeTupleModel({ store, schema: g.schema, permissions: Object.fromEntries(permissions.map((p) => [p, `doc#${relations[p]}`])) });
+            const { service, dispose } = await bootDomain([model], { permissions: permissionsConfig(permissions, 'doc'), combine: fixtureDsl.combine('deny-overrides', 'rebac') });
             try {
-              return await agree(service, docs, principals);
+              const agreement = await agree(service, docs, principals, { keep: new Set(model.nativeFilter.principalInArgs === true ? [model.nativeFilter.op] : []) });
+              // bot2 is allowed exactly the rows both it and its delegate u2 hold.
+              for (const permission of permissions) {
+                for (const r of g.rows.doc) {
+                  const ref = { type: 'doc', id: r.id };
+                  const own = await model.holds(ref, relations[permission], bot2Ref);
+                  const delegate = await model.holds(ref, relations[permission], { type: 'user', id: 'u2' });
+                  const d = await runWithPrincipal(bot2, () => service.check({ principal: bot2, permission, resource: ref, subject: { ...r, title: r.id } }));
+                  if (d.allowed !== (own && delegate)) throw new Error(`bot2 ${permission} ${r.id}: allowed ${d.allowed}, bot2 holds ${own}, u2 holds ${delegate}`);
+                  if (d.allowed) allowedByBoth++;
+                  else if (own && !delegate) refusedByDelegate++;
+                }
+              }
+              return agreement;
             } finally {
               await dispose();
             }
           });
-          // bot2 holds no tuples, so its own model denies every row: this world shows that the stripped checks run, not that they narrow.
-          expect(total.intersectStripped, 'stripped intersect checks').to.be.greaterThan(0);
+          expect(total.intersectKept, 'kept intersect checks').to.be.greaterThan(0);
+          expect(total.intersectAllowed, 'allowed intersect checks').to.be.greaterThan(0);
+          console.log(`      B06 ${dialect} FakeTupleModel: bot2 refused ${refusedByDelegate} doc rows it holds and u2 does not, allowed ${allowedByBoth} rows both hold`);
+          expect(refusedByDelegate, 'rows bot2 holds, u2 does not and the check refuses').to.be.greaterThan(0);
+          expect(allowedByBoth, 'rows bot2 and u2 hold and the check allows').to.equal(total.intersectAllowed);
         });
       });
     });
