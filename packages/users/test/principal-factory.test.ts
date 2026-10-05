@@ -282,6 +282,8 @@ describe('UserPrincipalFactory', function () {
       ['a malformed ceiling', { type: 'user', id: TEST_USER_UUID, ceiling: { permissions: 'doc:read' } }],
       ['an empty id', { type: 'user', id: '' }],
       ['a numeric id', { type: 'user', id: 7 }],
+      ['an id that is not a uuid', { type: 'user', id: 'not-a-uuid' }],
+      ['an upper-case uuid (stored Uuids are lower case)', { type: 'user', id: TEST_USER_UUID.toUpperCase() }],
       ['no stamp at all', null],
     ] as const) {
       it(`runs a job stamped with ${title} as UNATTENDED`, async () => {

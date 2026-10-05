@@ -4,6 +4,7 @@ import { UNATTENDED } from '@spinajs/authz';
 import type { Ceiling, Principal } from '@spinajs/authz';
 import { PrincipalFactory } from '@spinajs/authn/contracts';
 import { DI, Injectable } from '@spinajs/di';
+import { _check_arg, _is_uuid, _trim } from '@spinajs/util';
 
 import { userModel } from '../model-token.js';
 import type { User } from '../models/User.js';
@@ -20,9 +21,8 @@ export const QUEUE_PRINCIPAL_SOURCE = 'queue';
  * or banned by now, or a malformed stamp, gives `UNATTENDED`; a failing store or provider throws, so the job is
  * retried.
  *
- * An agent stamp also gives `UNATTENDED`: the stamp cannot name the owner, so the owner's state could not be checked
- * and the agent would act on its own grants. authz-queue never stamps a delegated principal, so such a stamp is not
- * one of its own. Every other type is the stamped factory's.
+ * An agent stamp also gives `UNATTENDED`: the hook stamps only agents without an owner, which users never builds,
+ * and trusting one would let it act on its own grants. Every other type is the stamped factory's.
  */
 @Injectable(InitiatorPrincipalFactory)
 export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
@@ -39,7 +39,7 @@ export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
     }
 
     const { id, ceiling } = stamp;
-    if (typeof id !== 'string' || id === '') {
+    if (typeof id !== 'string' || !isUserUuid(id)) {
       return UNATTENDED;
     }
     let revived: Ceiling | undefined;
@@ -63,5 +63,15 @@ export class UserInitiatorPrincipalFactory extends InitiatorPrincipalFactory {
   protected async users(): Promise<UserPrincipalFactory> {
     const registered = await DI.resolve(PrincipalFactory);
     return registered instanceof UserPrincipalFactory ? registered : ((await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory);
+  }
+}
+
+/** Whether `whereUuid` accepts `id`; it throws otherwise, which would turn a malformed stamp into a retried job. */
+function isUserUuid(id: string): boolean {
+  try {
+    _check_arg(_trim(), _is_uuid())(id, 'uuid');
+    return true;
+  } catch {
+    return false;
   }
 }
