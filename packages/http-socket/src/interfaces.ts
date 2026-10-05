@@ -101,7 +101,7 @@ export type SocketRevalidationResult = SocketRevalidationStatus | boolean | { re
  * authn-http's middleware has already seen. Sources run in ascending `order` and the first
  * non-null principal wins. Return null when the handshake carries none of your credentials;
  * throw ( eg. `Unauthenticated` ) to refuse the connection. A system or unattended principal
- * refuses the connection as a configuration error: those come only from `runAs`.
+ * refuses the connection as a configuration error: no credential yields one ( design §14.1 ).
  */
 export abstract class SocketPrincipalSource {
   public abstract readonly name: string;

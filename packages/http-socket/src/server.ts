@@ -251,7 +251,7 @@ export class SocketServer extends AsyncService {
 
     for (const source of sources) {
       const principal = await source.authenticate(handshake);
-      // SYSTEM and UNATTENDED come only from runAs, as authz-http's PrincipalMiddleware enforces ( design §14.1 )
+      // no credential yields SYSTEM or UNATTENDED; authz-http's PrincipalMiddleware refuses them the same way ( design §14.1 )
       if (principal && (principal.type === 'system' || principal.type === 'unattended')) {
         throw new AuthzConfigError(`socket principal source ${source.name} returned a ${principal.type} principal`);
       }

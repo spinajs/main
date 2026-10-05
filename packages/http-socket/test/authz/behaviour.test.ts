@@ -92,20 +92,20 @@ const FORGED_UNATTENDED: Principal = { type: 'unattended', id: 'forged', authent
 const refused = {
   note: 'the handshake is refused (internal) and no handler runs',
   do: async (ctx: StepContext) => {
-    await assert.rejects(laneHandle(ctx, 'socket').emit('tasks'), (e: Error & { code?: string }) => e.name === 'SocketException' && e.code === 'internal');
+    await assert.rejects(laneHandle(ctx, 'socket').emit('tasks'), (e: Error & { code?: string }) => e.name === 'SocketException' && e.code === 'internal' && /principal source \S+ returned a (system|unattended) principal/.test(e.message));
   },
 };
 
-/** As authz-http's PrincipalMiddleware (design §14.1): SYSTEM and UNATTENDED come only from runAs, never from a credential. */
+/** As authz-http's PrincipalMiddleware (design §14.1): no credential yields SYSTEM or UNATTENDED. */
 const sourcePart: FixturePart = {
   name: 'socket-source',
   facets: ['engine', 'host', 'orm', 'socket'],
   lanes: ['C9'],
   world,
   cases: [
-    { name: 'a principal source that yields SYSTEM refuses the connection', steps: [{ runAs: { as: SYSTEM, reason: 'client' }, steps: [refused] }] },
-    { name: 'so does one that yields a system-typed principal', steps: [{ runAs: { as: FORGED_SYSTEM, reason: 'client' }, steps: [refused] }] },
-    { name: 'and one that yields an unattended-typed principal', steps: [{ runAs: { as: FORGED_UNATTENDED, reason: 'client' }, steps: [refused] }] },
+    { name: 'a principal source that yields SYSTEM refuses the connection', steps: [{ runAs: { as: SYSTEM, reason: 'client' }, steps: [refused] }, { calls: { model: 'm1', count: 0 } }] },
+    { name: 'so does one that yields a system-typed principal', steps: [{ runAs: { as: FORGED_SYSTEM, reason: 'client' }, steps: [refused] }, { calls: { model: 'm1', count: 0 } }] },
+    { name: 'and one that yields an unattended-typed principal', steps: [{ runAs: { as: FORGED_UNATTENDED, reason: 'client' }, steps: [refused] }, { calls: { model: 'm1', count: 0 } }] },
   ],
 };
 
