@@ -54,7 +54,7 @@ const SCHEMAS = DI.get<Map<string, object>>('__schemas__');
  * while `packages/http-swagger/src/openapi-builder.ts` ( `buildPath` ) builds
  * the document key as `/${basePath}/`. Every controller in the monorepo with a
  * root route is documented that way — http-swagger's own tests assert `/pets/`
- * and `/rbac/` — so it is the builder's established output, not something this
+ * and `/access/` — so it is the builder's established output, not something this
  * controller can influence.
  *
  * It is cosmetic rather than broken: express is not in strict-routing mode, so

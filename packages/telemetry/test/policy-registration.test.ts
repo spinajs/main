@@ -11,8 +11,8 @@ import { DI } from '@spinajs/di';
 import { AuthzContributor } from '@spinajs/authz';
 import { BasePolicy } from '@spinajs/http';
 
-// Slots name TelemetryTokenPolicy and PublicPolicy as strings. A name http cannot resolve is
-// dropped and leaves the route open, so the controller modules must register them alone.
+// Slots name TelemetryTokenPolicy and PublicPolicy as strings. In 3.0 a name that does not resolve
+// fails route registration, but only if the module registering it is loaded: the controllers must do that alone.
 describe('telemetry policy registration', function () {
   this.timeout(120000);
 
