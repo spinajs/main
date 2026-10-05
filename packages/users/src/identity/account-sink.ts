@@ -4,10 +4,10 @@ import { ev } from '@spinajs/queue';
 import { AuthnEventSink } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 
-import { updateUser } from '../actions.js';
 import { UserActivated } from '../events/UserActivated.js';
+import { UserChanged } from '../events/UserPropertyChanged.js';
 import { USER_COMMON_METADATA, User } from '../models/User.js';
-import { USERS_TABLE, sqlDateTime, usersDriver } from './sql.js';
+import { USERS_TABLE, invitePending, quoted, raw, rowsAffected, sqlDateTime, usersDriver } from './sql.js';
 
 /**
  * Keeps the users row in step with authn-local's password flows:
@@ -41,19 +41,37 @@ export class UserAccountSink extends AuthnEventSink {
     }
   }
 
+  /** Monotonic: two events published out of order never move the time back. */
   protected async recordPasswordSet(id: IdentityRef, at: Date): Promise<void> {
-    await usersDriver().update().in(USERS_TABLE).update({ PasswordSetAt: sqlDateTime(at) }).where('Uuid', id.id);
+    const driver = usersDriver();
+    const setAt = quoted(driver, 'PasswordSetAt');
+    const when = sqlDateTime(at);
+    await driver
+      .update()
+      .in(USERS_TABLE)
+      .update({ PasswordSetAt: when })
+      .where('Uuid', id.id)
+      .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [when] }));
   }
 
-  /** Idempotent: an identity without the marker is left alone. */
+  /**
+   * One conditional statement activates the row only while its marker is a stored boolean true, so a `deactivate`
+   * (which drops the marker first) cannot be undone by a redeem read a moment earlier. Idempotent.
+   */
   protected async activateInvited(id: IdentityRef): Promise<void> {
-    const u = await User.query().where('Uuid', id.id).populate('Metadata').first();
-    if (!u || u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] !== true) {
+    const driver = usersDriver();
+    const updated = await driver.update().in(USERS_TABLE).update({ IsActive: true }).where('Uuid', id.id).where(raw(invitePending(driver)));
+    if (rowsAffected(updated) !== 1) {
       return;
     }
 
-    await updateUser(u, { IsActive: true });
+    const u = await User.query().where('Uuid', id.id).populate('Metadata').first();
+    if (!u) {
+      return;
+    }
+
     await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
+    await ev(new UserChanged(u));
     await ev(new UserActivated(u));
   }
 

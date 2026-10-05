@@ -83,7 +83,7 @@ describe('password age (PasswordSetAt, UserPasswordAgeSource)', function () {
       expect(await DI.resolve(PasswordAgeSource)).to.be.instanceOf(UserPasswordAgeSource);
     });
 
-    it('lists users holding a password set before the cutoff, not deleted, as user refs', async () => {
+    it('lists users holding a password set before the cutoff or at an unknown time, not deleted, as user refs', async () => {
       const cutoff = new Date('2026-09-01T00:00:00.000Z');
       const old = await seedUser({ login: 'age-old', password: HASH });
       const fresh = await seedUser({ login: 'age-fresh', password: HASH });
@@ -92,6 +92,7 @@ describe('password age (PasswordSetAt, UserPasswordAgeSource)', function () {
       const invited = await seedUser({ login: 'age-invited' });
       const expired = await seedUser({ login: 'age-expired', password: '!expired' });
       const never = await seedUser({ login: 'age-never', password: HASH });
+      const invitedNever = await seedUser({ login: 'age-invited-never' });
 
       await setPasswordSetAt(old.ref.id, new Date(cutoff.getTime() - 86_400_000));
       await setPasswordSetAt(fresh.ref.id, new Date(cutoff.getTime() + 1000));
@@ -101,10 +102,14 @@ describe('password age (PasswordSetAt, UserPasswordAgeSource)', function () {
       await setPasswordSetAt(invited.ref.id, new Date(cutoff.getTime() - 86_400_000));
       await setPasswordSetAt(expired.ref.id, new Date(cutoff.getTime() - 86_400_000));
       await setPasswordSetAt(never.ref.id, null);
+      await setPasswordSetAt(invitedNever.ref.id, null);
 
       const listed = await new UserPasswordAgeSource().passwordsSetBefore(cutoff);
+      const seeded = listed.filter((r) => [old, fresh, atCutoff, deleted, invited, expired, never, invitedNever].some((s) => s.ref.id === r.id));
 
-      expect(listed.filter((r) => r.id.length === 36 && [old, fresh, atCutoff, deleted, invited, expired, never].some((s) => s.ref.id === r.id))).to.deep.eq([{ type: 'user', id: old.ref.id }]);
+      // A lost PasswordSetAt write leaves NULL beside a real password: unknown age counts as old.
+      expect(seeded.map((r) => r.id).sort()).to.deep.eq([old.ref.id, never.ref.id].sort());
+      expect(seeded.every((r) => r.type === 'user')).to.eq(true);
     });
   });
 });

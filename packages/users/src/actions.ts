@@ -25,7 +25,7 @@ import { PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
-import { usersMatchingLogin } from './identity/sql.js';
+import { USERS_TABLE, usersDriver, usersMatchingLogin } from './identity/sql.js';
 
 /**
  * ===============================================
@@ -341,12 +341,17 @@ export async function activate(identifier: number | string | User): Promise<User
 export async function deactivate(identifier: number | string | User): Promise<User> {
   const u = await getUser(identifier);
 
-  await updateUser(u, { IsActive: false });
-
   // An account being switched off has no pending invite by definition - otherwise
   // the mailed link still redeems and activates an account an administrator
-  // deliberately turned off.
+  // deliberately turned off. Dropped before IsActive is written: the redeem
+  // activates only while the marker exists, so it cannot undo this write.
   await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
+
+  // Written even when the loaded row already reads false (the ORM skips a clean field): a redeem may have
+  // activated the row since it was loaded.
+  await usersDriver().update().in(USERS_TABLE).update({ IsActive: false }).where('Uuid', u.Uuid);
+  u.IsActive = false;
+  await ev(new UserChanged(u));
 
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.

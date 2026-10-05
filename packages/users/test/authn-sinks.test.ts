@@ -7,6 +7,8 @@ import type { AuthnEvent, AuthnEventType, IdentityRef } from '@spinajs/authn/con
 
 import { QueueAuthnEventSink, USER_COMMON_METADATA, User, UserAccountSink, UserActivated, UserChanged, UserImpersonationEnded, UserImpersonationStarted, UserLogged, UserLoginFailed, UserPasswordChangeRequest, UserPasswordChanged } from '../src/index.js';
 import { UserPasswordExpired } from '../src/events/UserPasswordExpired.js';
+import { MetadataRelation } from '@spinajs/orm';
+import { deactivate } from '../src/actions.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 
 const HASH = '$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$c2VjcmV0aGFzaA';
@@ -81,6 +83,18 @@ describe('users authn event sinks', function () {
         expect(await recorded(ref)).to.eq(null);
       });
     }
+
+    it('never moves it back: an event older than the recorded time leaves it', async () => {
+      const { ref } = await seedUser({ login: 'age-late', password: HASH });
+      const sink = await DI.resolve(UserAccountSink);
+
+      await sink.publish(event('password.reset', ref));
+      await sink.publish(event('password.change', ref, { at: new Date(AT.getTime() - 3_600_000) }));
+      expect(await recorded(ref)).to.eq(AT.getTime());
+
+      await sink.publish(event('password.change', ref, { at: new Date(AT.getTime() + 1000) }));
+      expect(await recorded(ref)).to.eq(AT.getTime() + 1000);
+    });
   });
 
   describe('UserAccountSink: invite activation', () => {
@@ -96,6 +110,37 @@ describe('users authn event sinks', function () {
       expect(await markerRows(u.Id)).to.eq(0);
       expect(emitted().filter((x) => x instanceof UserActivated).map((x) => (x as UserActivated).UserUUID)).to.deep.eq([ref.id]);
       expect(emitted().some((x) => x instanceof UserChanged)).to.eq(true);
+    });
+
+    it('loses to a deactivation racing the redeem: deactivate drops the marker before it writes IsActive', async () => {
+      const { ref } = await seedUser({ login: 'invite-race', active: false, invitePending: true });
+      const sink = await DI.resolve(UserAccountSink);
+      const drop = MetadataRelation.prototype.delete;
+      let raced = false;
+      sinon.stub(MetadataRelation.prototype, 'delete').callsFake(async function (this: MetadataRelation<any, any>, key: string) {
+        if (key === USER_COMMON_METADATA.USER_INVITE_PENDING && !raced) {
+          raced = true;
+          await sink.publish(event('invite.redeem', ref));
+        }
+        return drop.call(this, key);
+      });
+
+      await deactivate(await storedUser(ref.id));
+
+      expect(raced).to.eq(true);
+      expect(Boolean((await storedUser(ref.id)).IsActive)).to.eq(false);
+    });
+
+    it('activates only over a marker stored as boolean true, in one statement', async () => {
+      const { user, ref } = await seedUser({ login: 'invite-text', active: false });
+      user.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] = 'true';
+      await user.Metadata.update();
+      const sink = await DI.resolve(UserAccountSink);
+
+      await sink.publish(event('invite.redeem', ref));
+
+      expect(Boolean((await storedUser(ref.id)).IsActive)).to.eq(false);
+      expect(emitted().some((x) => x instanceof UserActivated)).to.eq(false);
     });
 
     it('leaves an identity without the marker alone', async () => {

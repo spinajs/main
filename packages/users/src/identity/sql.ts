@@ -1,7 +1,7 @@
 import { IdentifierQuoter, OrmDriver, RawQuery } from '@spinajs/orm';
 import { DateTime } from 'luxon';
 
-import { NO_PASSWORD, User } from '../models/User.js';
+import { NO_PASSWORD, USER_COMMON_METADATA, User } from '../models/User.js';
 
 /** @internal */
 export const USERS_TABLE = 'users';
@@ -95,6 +95,15 @@ export function holdsNoPassword(driver: OrmDriver, column: string): Condition {
 export function holdsPassword(driver: OrmDriver, column: string): Condition {
   const c = quoted(driver, column);
   return { sql: `(${c} IS NOT NULL AND ${c} <> ? AND ${c} NOT LIKE ?)`, bindings: ['', '!%'] };
+}
+
+/** @internal The `users` row carries `user:invite:pending` as a stored boolean true (the model reads only that as pending). */
+export function invitePending(driver: OrmDriver): Condition {
+  const q = (c: string) => quoted(driver, c);
+  return {
+    sql: `EXISTS (SELECT 1 FROM ${q('users_metadata')} WHERE ${q('user_id')} = ${q(USERS_TABLE)}.${q('Id')} AND ${q('Key')} = ? AND ${q('Type')} = ? AND ${q('Value')} = ?)`,
+    bindings: [USER_COMMON_METADATA.USER_INVITE_PENDING, 'boolean', 'true'],
+  };
 }
 
 /** @internal */
