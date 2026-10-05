@@ -153,6 +153,15 @@ export function setRolesOf(roles: RoleIndex, role: string): string[] {
 }
 
 /**
+ * The model counts the row: its role is defined, assignable, and may be held at the row's scope type
+ * (`assignmentProblem` of the model finds nothing). A row it ignores gives nothing and makes no set member.
+ */
+export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>): boolean {
+  const def = roles.roles.get(a.role);
+  return def !== undefined && def.assignable !== false && (def.scopeTypes === undefined || def.scopeTypes.includes(a.scope.type));
+}
+
+/**
  * A grant of the role's closure matches `permission` at the role's own scope: implied roles held
  * `self-and-descendants` count, `descendants` ones do not. Grants are names or globs; conditions do not matter.
  */

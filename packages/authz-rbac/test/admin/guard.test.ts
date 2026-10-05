@@ -525,10 +525,21 @@ describe('DefaultAdminGuard', function () {
       await passes(p('root'), [{ kind: 'assignment.addTags', id: 's1', tags: ['x'] }, revoke('s1')]);
     });
 
-    it('a system role that grants privilegedPermission at GLOBAL makes its subject a holder', async () => {
+    it('a system role row is no holder and no other path, as the model ignores it; revoking it stays protected', async () => {
       await world({ rows: [...BASE, ...admins('root'), row('s-dave', user('dave'), 'sys')] });
-      await passes(p('ops'), [revoke('a-root')]);
+      await refused(p('ops'), [revoke('a-root')], 'last_holder');
       await refused(p('ops'), [revoke('s-dave')], 'protected_role');
+      await world({ rows: [...BASE, ...admins('root', 'root2'), row('s-root', user('root'), 'sys')] });
+      await refused(p('root'), [revoke('a-root')], 'self_lockout');
+    });
+
+    it('a row at a scope type its role may not be held at, or of an unknown role, is no holder and no other path', async () => {
+      const roles = [...GUARD_ROLES, role('org.boss', { scopeTypes: ['org'], grants: grants('users:update') })];
+      const ignored = [row('ob-dave', user('dave'), 'org.boss'), row('u-dave', user('dave'), 'no.such.role'), row('s-boss', STAFF, 'org.boss'), row('m-dave', user('dave'), 'staff.set')];
+      await world({ rows: [...BASE, ...admins('root'), ...ignored], roles });
+      await refused(p('ops'), [revoke('a-root')], 'last_holder');
+      await world({ rows: [...BASE, ...admins('root', 'root2'), row('ob-root', user('root'), 'org.boss')], roles });
+      await refused(p('root'), [revoke('a-root')], 'self_lockout');
     });
 
     it('SYSTEM skips the guard (AuthzAdmin does not call it)', async () => {
@@ -712,7 +723,7 @@ describe('DefaultAdminGuard', function () {
 
   describe('subject sets through role closures', () => {
     // org.admin ranks above the subject set role org.member; org.lead (a set) and org.helper extend it.
-    const ROLES = [...GUARD_ROLES, role('org.member', { ladder: 'org', subjectSet: true, grants: grants('authz:assignments.read') }), role('org.admin', { ladder: 'org' }), role('org.lead', { subjectSet: true, extends: ['org.member'] }), role('org.helper', { extends: ['org.member'] })];
+    const ROLES = [...GUARD_ROLES, role('org.member', { ladder: 'org', subjectSet: true, grants: grants('authz:assignments.read') }), role('org.admin', { ladder: 'org' }), role('org.lead', { subjectSet: true, extends: ['org.member'] }), role('org.helper', { extends: ['org.member'] }), role('team.helper', { extends: ['org.member'], scopeTypes: ['group'] }), role('locked.helper', { extends: ['org.member'], assignable: false })];
     const LADDERS = [...GUARD_LADDERS, { name: 'org', roles: ['org.member', 'org.admin'] }];
     const ORG: AssignmentSubject = { set: { role: 'org.member', scope: O1 } };
     const LEAD: AssignmentSubject = { set: { role: 'org.lead', scope: O1 } };
@@ -830,6 +841,17 @@ describe('DefaultAdminGuard', function () {
         await passes(p('root'), [revoke('a-root')]);
         await closure(mixed);
         await refused(p('root'), [revoke('a-root'), revoke('oa-root')], 'self_lockout', 1);
+      });
+
+      it('rows the model ignores make no member: no holder and no other path', async () => {
+        // team.helper may not be held at an org; locked.helper is assignable: false.
+        const ignored = [S_ORG, row('th-root', user('root'), 'team.helper', O1), row('lh-root', user('root'), 'locked.helper', O1)];
+        await closure([...ignored, ...admins('root2')]);
+        await refusedAt(p('ops'), revoke('a-root2'), 'last_holder', 'id');
+        await closure([...ignored, ...admins('root', 'root2')]);
+        await refusedAt(p('root'), revoke('a-root'), 'self_lockout', 'id');
+        await closure([...ignored, row('om-root', user('root'), 'org.member', O1), ...admins('root2')]);
+        await passes(p('ops'), [revoke('a-root2')]);
       });
 
       it('self-lockout: a privileged row at another scope is no other path', async () => {

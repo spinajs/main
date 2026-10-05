@@ -4,7 +4,7 @@ import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantClosure, grantsPermission, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex, setRolesOf } from './common.js';
+import { assignmentStore, grantClosure, grantsPermission, honoured, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex, setRolesOf } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
@@ -211,14 +211,14 @@ export class DefaultAdminGuard extends AdminGuard {
     return out;
   }
 
-  /** The live principal rows at the set's scope that make their subject a member of it. */
+  /** The live principal rows at the set's scope that make their subject a member of it, as the model counts them. */
   private async setMembers(call: Call, set: { readonly role: string; readonly scope: ResourceRef }): Promise<Assignment[]> {
     const store = await assignmentStore(call.ctx);
     const out: Assignment[] = [];
     for (const role of call.roles.roles.keys()) {
       if (!call.sets(role).includes(set.role)) continue;
       const { items } = await store.find({ scope: set.scope, role, at: call.ctx.now });
-      out.push(...items.filter((a) => !isSetSubject(a.subject)));
+      out.push(...items.filter((a) => !isSetSubject(a.subject) && honoured(call.roles, a)));
     }
     return out;
   }
@@ -316,7 +316,7 @@ export class DefaultAdminGuard extends AdminGuard {
   /**
    * At a scope where a removed row is on one of the actor's paths to privilegedPermission, no path that
    * avoids the removed rows is left. A path at a scope is an own privileged row there, or a privileged row
-   * there assigned to a set the actor is a member of (by closure).
+   * there assigned to a set the actor is a member of (by closure); rows the model ignores make no path.
    */
   private async locksOut(call: Call, removed: readonly Assignment[]): Promise<boolean> {
     const gone = new Set(removed.map((a) => a.id));
@@ -340,7 +340,7 @@ export class DefaultAdminGuard extends AdminGuard {
     for (const role of call.roles.roles.keys()) {
       if (!call.privileged(role)) continue;
       for (const a of (await store.find({ scope, role, at: call.ctx.now })).items) {
-        if (gone.has(a.id)) continue;
+        if (gone.has(a.id) || !honoured(call.roles, a)) continue;
         if (!isSetSubject(a.subject)) {
           if (sameSubject(a.subject, call.actor)) return true;
           continue;
@@ -353,7 +353,8 @@ export class DefaultAdminGuard extends AdminGuard {
 
   /**
    * Every principal holding privilegedPermission at GLOBAL (a GLOBAL row of a role that grants it, directly
-   * or through a set it is a member of) would lose it. Nobody holding it before is no reason to refuse.
+   * or through a set it is a member of; rows the model ignores do not count) would lose it. Nobody holding
+   * it before is no reason to refuse.
    */
   private async lastHolder(call: Call, removed: readonly Assignment[]): Promise<boolean> {
     const store = await assignmentStore(call.ctx);
@@ -368,7 +369,7 @@ export class DefaultAdminGuard extends AdminGuard {
     };
     for (const role of call.roles.roles.keys()) {
       if (!call.privileged(role)) continue;
-      for (const a of (await store.find({ scope: GLOBAL, role, at: call.ctx.now })).items) {
+      for (const a of (await store.find({ scope: GLOBAL, role, at: call.ctx.now })).items.filter((r) => honoured(call.roles, r))) {
         if (!isSetSubject(a.subject)) {
           path(a.subject, [a.id]);
           continue;
