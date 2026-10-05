@@ -104,9 +104,14 @@ export class AuthnImpersonationController extends BaseController {
     const service = await this.Container.resolve(AuthnImpersonationService);
     const ctx = contextOf(req, 'request', session.handle);
     const back = await service.stop(session.handle, ctx);
+    const sessions = await this.Container.resolve(SessionIssuer);
     const own = back ? await service.principalOf(back, ctx) : null;
-    if (!back || !own) return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
-    await stampClient(await this.Container.resolve(SessionIssuer), back, req);
+    if (!back || !own) {
+      // principalOf revokes only past the lifetime; a status refused since stop would leave this session live.
+      if (back) await sessions.revoke(back);
+      return new Ok({ Active: false }, { Coockies: [authnClearedSessionCookie(this._cfg)], Headers: [NO_STORE] });
+    }
+    await stampClient(sessions, back, req);
     return new Ok(await answerFor(this.Container, 'impersonation', own), { Coockies: [authnSessionCookie(this._cfg, back)], Headers: [NO_STORE] });
   }
 }

@@ -7,7 +7,7 @@ import { AuthnService, SessionIssuer } from '@spinajs/authn/contracts';
 import { unauthenticated } from '../../policies/v3/errors.js';
 import { PASSWORD_HARD_CAP } from '../../policies/v3/fresh-auth.js';
 import { NO_STORE, authnClearedSessionCookie, authnFailureResponse, authnSessionCookie } from '../responses.js';
-import { answerFor, bodyField, boundedString, contextOf, pendingSteps, stampClient } from '../routes.js';
+import { answerFor, auditEnded, bodyField, boundedString, contextOf, pendingSteps, stampClient } from '../routes.js';
 
 // The 3.0 controllers are scanned only when an app lists src/v3/controllers (N8c); this file must not load the
 // @spinajs/authn root at module load either.
@@ -34,7 +34,10 @@ export class AuthnLoginController extends BaseController {
   public async login(@Req() req: Request) {
     const sessions = await this.Container.resolve(SessionIssuer);
     const held = req.storage.AuthnSession;
-    if (held) await sessions.revoke(held.handle);
+    if (held) {
+      await sessions.revoke(held.handle);
+      await auditEnded(this.Container, req, held, 'session.revoke', 'login');
+    }
     const cleared: ICookie[] = held ? [authnClearedSessionCookie(this._cfg)] : [];
 
     // Over-long values never verify (N3), so they reach no strategy, no throttle and no log.
@@ -59,7 +62,8 @@ export class AuthnLoginController extends BaseController {
   /**
    * Logout
    * Ends the session of the cookie, pending ones included (an impersonation ends with it), and clears the cookie and
-   * the site data. POST, so no cross-site link can log anyone out.
+   * the site data. Audited as `logout`, and as `impersonation.end` (reason `logout`) for an impersonation (A20, A21).
+   * POST, so no cross-site link can log anyone out.
    * @security cookieAuth
    * @response 401 No session
    */
@@ -68,6 +72,7 @@ export class AuthnLoginController extends BaseController {
     const session = req.storage.AuthnSession;
     if (!session) throw unauthenticated('there is no session to end');
     await (await this.Container.resolve(SessionIssuer)).revoke(session.handle);
+    await auditEnded(this.Container, req, session, 'logout', 'logout');
     return new Ok(null, {
       Coockies: [authnClearedSessionCookie(this._cfg)],
       Headers: [{ Name: 'Clear-Site-Data', Value: '"cache", "cookies", "storage"' }, NO_STORE],

@@ -32,6 +32,12 @@ async function later<T>(seconds: number, fn: () => Promise<T>): Promise<T> {
 
 const reauthAttempts = () => throttle.attempts.filter((a) => a.flow === 'reauth');
 
+/** A refused switch leaves the cookie and the principal as they were. */
+async function unchanged(c: Client, cookie: string | null): Promise<void> {
+  expect(c.cookie, 'the cookie is unchanged').to.eq(cookie);
+  expect((await probe(c)).principal.ceiling, 'no ceiling was set').to.eq(undefined);
+}
+
 export function activeRoleSuite(): void {
   beforeEach(resetRecorders);
 
@@ -138,29 +144,48 @@ export function activeRoleSuite(): void {
 
     it('a wrong password answers the login failure body, no Retry-After, counted in the reauth flow', async () => {
       const { c } = await withRoles();
+      const before = c.cookie;
       const res = await later(301, () => c.post('/auth/active-role', { role: 'root', password: 'Wrong-Pass-9876' }));
       expect(res.status).to.eq(401);
       expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
       expect(res.headers['retry-after']).to.eq(undefined);
       expect(reauthAttempts()).to.have.length(1);
       expect(throttle.succeeds.filter((x) => x.flow === 'reauth')).to.have.length(0);
+      await unchanged(c, before);
     });
 
     it('a throttled re-authentication answers the same 401 and no Retry-After', async () => {
       const { u, c } = await withRoles();
+      const before = c.cookie;
       throttle.refuse(30);
       const res = await later(301, () => c.post('/auth/active-role', { role: 'root', password: u.password }));
       expect(res.status).to.eq(401);
       expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
       expect(res.headers['retry-after']).to.eq(undefined);
+      await unchanged(c, before);
     });
 
     it("another account's password never counts as fresh auth", async () => {
       const { c } = await withRoles();
+      const before = c.cookie;
       const other = await seedUser();
       const res = await later(301, () => c.post('/auth/active-role', { role: 'root', password: other.password }));
       expect(res.status).to.eq(401);
       expect(res.body).to.deep.eq(AUTHN_FAILURE_BODY);
+      await unchanged(c, before);
+    });
+
+    it('A02 the failure body is byte-identical across login, MFA completion and re-authentication', async () => {
+      const { u, c } = await withRoles();
+      const login = await new Client().post('/auth/login', { login: u.login, password: 'Wrong-Pass-9876' });
+      const p = await seedUser();
+      step.enrol(p.ref);
+      const pending = new Client();
+      await pending.post('/auth/login', { login: p.login, password: p.password });
+      const mfa = await pending.post('/auth/mfa/verify', { code: 'nope' });
+      const reauth = await later(301, () => c.post('/auth/active-role', { role: 'root', password: 'Wrong-Pass-9876' }));
+      expect(login.text).to.eq(JSON.stringify(AUTHN_FAILURE_BODY));
+      expect([mfa.text, reauth.text]).to.deep.eq([login.text, login.text]);
     });
 
     it('a RoleSource answer without a boolean requirePassword counts as true (fail safe, N8a-D9)', async () => {

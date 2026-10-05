@@ -10,11 +10,11 @@ import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { BaseController, Controllers, HttpServer } from '@spinajs/http';
 import { fsService } from '@spinajs/fs';
 import { MemoryTarget } from '@spinajs/log';
-import { AuthenticationStrategy, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
+import { AuthenticationStrategy, AuthnEventSink, AuthnResponseExtension, AuthnThrottle, IdentityStore, ImpersonationGuard, PasswordCredentialStore, PrincipalFactory, RoleSource } from '@spinajs/authn/contracts';
 import type { IdentityRef, Principal } from '@spinajs/authn/contracts';
 import { appEnvOf, sessionCookieName } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
-import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
+import { FakeIdentityStore, FakeImpersonationGuard, FakeMfaStep, FakeRoleSource, FakeStrategy, MemoryPasswordCredentialStore, RecordingEventSink, RecordingPrincipalFactory, RecordingThrottle, fakeHash } from '@spinajs/authn-testing';
 
 import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { dropOwnCompiledDirs } from '../token-db-common.js';
@@ -90,6 +90,7 @@ export const principals = new RecordingPrincipalFactory();
 export const passwordStrategy = FakeStrategy.password({ identities, passwords, name: 'local' });
 export const tokens = new Map<string, IdentityRef>();
 export const tokenStrategy = FakeStrategy.bearer({ tokens, name: 'token' });
+export const events = new RecordingEventSink();
 
 function bind(base: Class<unknown> | (abstract new (...args: never[]) => unknown), name: string, value: unknown): void {
   const factory = { [name]: () => value }[name];
@@ -110,6 +111,8 @@ async function wire(): Promise<void> {
   bind(PasswordCredentialStore, 'V3AppPasswordStore', passwords);
   bind(PrincipalFactory, 'V3AppPrincipalFactory', principals);
   bind(AuthnThrottle, 'V3AppThrottle', throttle);
+  // Before anything resolves AuthnAudit, which reads its sinks once.
+  bind(AuthnEventSink, 'V3AppEventSink', events);
   bind(AuthenticationStrategy, 'V3AppPasswordStrategy', passwordStrategy);
   bind(AuthenticationStrategy, 'V3AppTokenStrategy', tokenStrategy);
   const { MfaStep } = await import('@spinajs/authn/contracts');
@@ -180,6 +183,7 @@ export function clearLog(): void {
 export interface Res {
   status: number;
   body: any;
+  text: string;
   headers: Record<string, string | string[] | undefined>;
   setCookie: string[];
 }
@@ -218,7 +222,7 @@ export class Client {
       const value = decodeURIComponent(mine.split(';')[0].slice(cookieName().length + 1));
       this.cookie = value === '' ? null : value;
     }
-    return { status: res.status, body: res.body, headers: res.header, setCookie };
+    return { status: res.status, body: res.body, text: res.text, headers: res.header, setCookie };
   }
 
   /** The raw session id behind the signed cookie value. */
@@ -271,6 +275,7 @@ export function resetRecorders(): void {
   throttle.succeeds.length = 0;
   passwordStrategy.verifyCalls.length = 0;
   V3AppResponseExtension.calls.length = 0;
+  events.clear();
 }
 
 /** Parsed Set-Cookie of the session cookie: the value and the lower-cased attribute names and values. */

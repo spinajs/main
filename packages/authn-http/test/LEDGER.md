@@ -185,7 +185,7 @@ Sliding session renewal in the 2.x `RbacMiddleware`. Class: rewrite per plan T2;
 
 Sessions list and revoke routes. Dominant class: adapt; lane N8a.
 
-Status (N8a task 6): re-pointed to the 3.0 routes (`src/v3/controllers/AuthnSessionsController.ts`) in `test/v3-app/suites/sessions.ts`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
+Status (N8a task 6): re-pointed to the 3.0 routes (`src/v3/controllers/AuthnSessionsController.ts`) in `test/v3-app/suites/sessions.ts`; decided (task 6 review I2): the routes are refused while impersonating (403 `impersonating`), so an impersonator neither sees the target's devices nor ends its sessions, while the target sees the impersonation session in its own list (N2); revocations are audited as `session.revoke`; the 2.x file stays and tests the live 2.x stack; N8c moves it to `test/legacy-v2/`.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|

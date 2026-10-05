@@ -3,7 +3,7 @@ import { DI } from '@spinajs/di';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, V3AppResponseExtension, config, loggedIn, resetRecorders, seedUser, step, throttle } from '../app.js';
+import { Client, V3AppResponseExtension, config, loggedIn, loggedInAal2, resetRecorders, seedUser, step, throttle } from '../app.js';
 import type { KitUser } from '../app.js';
 
 const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
@@ -168,8 +168,10 @@ export function mfaSuite(): void {
       expect((await c.post('/v3-app-enrol-stub')).status).to.be.oneOf([401, 403]);
     });
 
-    it('a logged-in caller reaches the enrolment stub through Authenticated; nobody else does', async () => {
+    it('an active session reaches the enrolment stub through Authenticated; an anonymous caller does not', async () => {
       expect((await new Client().post('/v3-app-enrol-stub')).status).to.eq(401);
+      const active = await loggedInAal2(await seedUser());
+      expect((await active.post('/v3-app-enrol-stub')).status).to.eq(200);
     });
   });
 

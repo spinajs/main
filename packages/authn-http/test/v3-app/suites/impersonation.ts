@@ -2,10 +2,12 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
+import { SessionIssuer } from '@spinajs/authn/contracts';
+import type { SessionHandle } from '@spinajs/authn/contracts';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, V3AppResponseExtension, config, guard, identities, loggedIn, loggedInAal2, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
+import { Client, V3AppResponseExtension, config, events, guard, identities, loggedIn, loggedInAal2, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
 
 const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
 
@@ -44,9 +46,9 @@ export function impersonationSuite(): void {
     const p = (await probe(c)).principal;
     expect(p.id).to.eq(target.ref.id);
     expect(p.authn.impersonator).to.deep.eq({ type: 'user', id: admin.ref.id });
-    const own = (await c.get('/user/sessions')).body.find((s: { Current: boolean }) => s.Current);
-    expect(own).to.include({ UserAgent: 'v3-app-admin' });
-    expect(own.Ip).to.be.a('string');
+    const row = (await (await loggedIn(target)).get('/user/sessions')).body.find((s: { Current: boolean }) => !s.Current);
+    expect(row, 'the target sees the impersonation session with the stamped client').to.include({ UserAgent: 'v3-app-admin' });
+    expect(row.Ip).to.be.a('string');
   });
 
   it('GET /auth/impersonate: the state from authn.impersonator', async () => {
@@ -182,6 +184,7 @@ export function impersonationSuite(): void {
       const admin = await seedUser();
       const target = await seedUser();
       const c = await loggedInAal2(admin);
+      const before = c.cookie;
       resetRecorders();
       const res = await later(301, () => c.post('/auth/impersonate', { target: target.ref.id, password: 'Wrong-Pass-9876' }));
       expect(res.status).to.eq(401);
@@ -189,6 +192,8 @@ export function impersonationSuite(): void {
       expect(res.headers['retry-after']).to.eq(undefined);
       expect(reauthAttempts()).to.have.length(1);
       expect(guard.calls.filter((x) => x.target.id === target.ref.id)).to.have.length(0);
+      expect(c.cookie, 'the session is unchanged').to.eq(before);
+      expect((await probe(c)).principal.id).to.eq(admin.ref.id);
     });
 
     describe('with authn.impersonation.requirePassword false', () => {
@@ -253,8 +258,42 @@ export function impersonationSuite(): void {
     const c = await loggedInAal2(admin);
     await c.post('/auth/impersonate', { target: target.ref.id });
     const impersonating = c.cookie!;
+    resetRecorders();
     expect((await c.post('/auth/logout')).status).to.eq(200);
     expect((await probe(new Client(impersonating))).principal).to.eq(null);
+    const actor = { type: 'user', id: admin.ref.id };
+    const [logout] = events.ofType('logout');
+    expect(logout).to.include({ outcome: 'success', reason: 'logout' });
+    expect(logout.identity).to.deep.eq(target.ref);
+    expect(logout.actor).to.deep.eq(actor);
+    const [end, ...more] = events.ofType('impersonation.end');
+    expect(more).to.deep.eq([]);
+    expect(end).to.include({ outcome: 'success', reason: 'logout', session: logout.session });
+    expect(end.identity).to.deep.eq(target.ref);
+    expect(end.actor).to.deep.eq(actor);
+  });
+
+  it('a stop whose new session yields no principal ends that session too', async () => {
+    const admin = await seedUser();
+    const target = await seedUser();
+    const c = await loggedInAal2(admin);
+    await c.post('/auth/impersonate', { target: target.ref.id });
+    const { AuthnImpersonationService } = await import('@spinajs/authn');
+    const service = await DI.resolve(AuthnImpersonationService);
+    let back: SessionHandle | null = null;
+    const stop = sinon.stub(service, 'stop').callsFake(async (h, ctx) => (back = await stop.wrappedMethod.call(service, h, ctx)));
+    const principalOf = sinon.stub(service, 'principalOf').callsFake(async (h, ctx) => (back && h.id === back.id ? null : principalOf.wrappedMethod.call(service, h, ctx)));
+    try {
+      const res = await c.del('/auth/impersonate');
+      expect(res.status).to.eq(200);
+      expect(res.body).to.deep.eq({ Active: false });
+      expect(sessionSetCookie(res)?.value).to.eq('');
+    } finally {
+      stop.restore();
+      principalOf.restore();
+    }
+    expect(back, 'stop issued a session').to.not.eq(null);
+    expect(await ((await DI.resolve(SessionIssuer)) as SessionIssuer).restore(back!.id), 'no live orphan').to.eq(null);
   });
 
   it('a nested start while impersonating is refused', async () => {

@@ -3,7 +3,7 @@ import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation } from '@spinajs/exceptions';
 import type { Request } from '@spinajs/http';
 import { AuthnResponseExtension, SessionIssuer } from '@spinajs/authn/contracts';
-import type { AuthnContext, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
+import type { AuthnContext, AuthnEvent, IdentityRef, Principal, SessionHandle } from '@spinajs/authn/contracts';
 import { SESSION_IP_KEY, SESSION_PENDING_STEPS_KEY, SESSION_USER_AGENT_KEY } from '@spinajs/authn-session';
 
 import { unauthenticated } from '../policies/v3/errors.js';
@@ -45,6 +45,29 @@ export async function stampClient(sessions: SessionIssuer, handle: SessionHandle
   const userAgent = req.headers['user-agent'];
   if (typeof ip === 'string' && ip !== '') await onLiveSession(() => sessions.set(handle, SESSION_IP_KEY, ip));
   if (typeof userAgent === 'string' && userAgent !== '') await onLiveSession(() => sessions.set(handle, SESSION_USER_AGENT_KEY, userAgent.slice(0, USER_AGENT_CAP)));
+}
+
+/**
+ * Publishes an event of a route that ends sessions itself (no N1 service does it for these) through the core
+ * AuthnAudit, with the request's time, ip and user agent. Never a raw session id (A21).
+ */
+export async function publishAuthnEvent(container: IContainer, req: Request, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {
+  // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
+  const { AuthnAudit } = await import('@spinajs/authn');
+  const ctx = contextOf(req, 'request');
+  await (await container.resolve(AuthnAudit)).publish({ ...e, at: ctx.now, ...(ctx.ip ? { ip: ctx.ip } : {}), ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}) });
+}
+
+/**
+ * Audits the end of `session` by this request: `type` for the session, plus `impersonation.end` with `reason` when it
+ * was an impersonation, which AuthnImpersonationService audits only for its own stop and expiry (A20).
+ */
+export async function auditEnded(container: IContainer, req: Request, session: Restored, type: 'logout' | 'session.revoke', reason: string): Promise<void> {
+  const { sessionHandle, impersonator } = session.facts;
+  const about = { identity: { type: session.identity.type, id: session.identity.id }, ...(sessionHandle ? { session: sessionHandle } : {}) };
+  const actor = impersonator ? { actor: { type: impersonator.type, id: impersonator.id } } : {};
+  await publishAuthnEvent(container, req, { type, outcome: 'success', reason, ...about, ...actor });
+  if (impersonator) await publishAuthnEvent(container, req, { type: 'impersonation.end', outcome: 'success', reason, ...about, ...actor });
 }
 
 /**

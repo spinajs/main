@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
 
-import { Client, loggedIn, resetRecorders, seedUser, sessionSetCookie, step, tokens } from '../app.js';
+import { Client, events, loggedIn, loggedInAal2, resetRecorders, seedUser, sessionSetCookie, step, tokens } from '../app.js';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -47,6 +47,10 @@ export function sessionsSuite(): void {
     expect(res.body.error).to.eq('session_not_found');
     expect((await stranger.get('/auth')).status, 'the stranger session lives').to.eq(200);
     expect((await b.del(`/user/sessions/${'0'.repeat(64)}`)).status).to.eq(404);
+    const revoked = events.ofType('session.revoke');
+    expect(revoked, 'only the revocation that happened is audited').to.have.length(1);
+    expect(revoked[0]).to.include({ outcome: 'success', reason: 'owner', session: other.Handle });
+    expect(revoked[0].identity).to.deep.eq(u.ref);
   });
 
   it('DELETE /user/sessions/:handle of the current session logs the caller out and clears the cookie', async () => {
@@ -67,6 +71,9 @@ export function sessionsSuite(): void {
     const res = await c.del('/user/sessions');
     expect(res.status).to.eq(200);
     expect(res.body).to.deep.eq({ Revoked: 2 });
+    const [e] = events.ofType('session.revoke');
+    expect(e).to.include({ reason: 'owner_others' });
+    expect(e.data).to.deep.eq({ count: 2 });
     expect((await a.get('/auth')).status).to.eq(401);
     expect((await b.get('/auth')).status).to.eq(401);
     expect((await c.get('/auth')).status).to.eq(200);
@@ -86,5 +93,21 @@ export function sessionsSuite(): void {
     const res = await new Client().get('/user/sessions', { Authorization: `Bearer ${token}` });
     expect(res.status).to.eq(403);
     expect(res.body.error).to.eq('session_required');
+  });
+
+  it('N8a decision: refused while impersonating, so the impersonator neither sees the target devices nor ends its sessions; the target sees the impersonation session', async () => {
+    const admin = await seedUser();
+    const target = await seedUser();
+    const own = await loggedIn(target);
+    const c = await loggedInAal2(admin);
+    expect((await c.post('/auth/impersonate', { target: target.ref.id }, { 'User-Agent': 'v3-app-admin' })).status).to.eq(200);
+    for (const res of [await c.get('/user/sessions'), await c.del('/user/sessions'), await c.del(`/user/sessions/${'0'.repeat(64)}`)]) {
+      expect(res.status).to.eq(403);
+      expect(res.body.error).to.eq('impersonating');
+    }
+    expect((await own.get('/auth')).status, 'the target stays logged in').to.eq(200);
+    const rows = (await own.get('/user/sessions')).body;
+    expect(rows).to.have.length(2);
+    expect(rows.find((r: { Current: boolean }) => !r.Current)).to.include({ UserAgent: 'v3-app-admin' });
   });
 }

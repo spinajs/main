@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { AUTHN_FAILURE_BODY } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, V3AppResponseExtension, clearLog, config, cookieName, logLines, loggedIn, passwordStrategy, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
+import { Client, V3AppResponseExtension, clearLog, config, cookieName, events, logLines, loggedIn, passwordStrategy, resetRecorders, seedUser, sessionSetCookie, step, throttle, tokens } from '../app.js';
 import type { Res } from '../app.js';
 
 const probe = async (c: Client) => (await c.get(`/${AUTHN_PROBE_PATH}`)).body;
@@ -88,6 +88,10 @@ export function loginSuite(): void {
       expect((await c.post('/auth/login', { login: u.login, password: u.password })).status).to.eq(200);
       expect(c.cookie).to.not.eq(first);
       expect((await new Client(first!).get('/auth')).status).to.eq(401);
+      const revoked = events.ofType('session.revoke');
+      expect(revoked, 'audited').to.have.length(1);
+      expect(revoked[0]).to.include({ outcome: 'success', reason: 'login' });
+      expect(revoked[0].identity).to.deep.eq(u.ref);
     });
 
     describe('A02 one failure answer', () => {
@@ -209,6 +213,22 @@ export function loginSuite(): void {
       expect(res.headers['clear-site-data']).to.include('"cookies"');
       expect(res.headers['cache-control']).to.eq('no-store');
       expect((await new Client(held).get('/auth')).status).to.eq(401);
+    });
+
+    it('A21 the logout is audited: identity, hashed session handle, ip, user agent, never the raw id', async () => {
+      const u = await seedUser();
+      const c = await loggedIn(u);
+      const raw = c.sessionId!;
+      resetRecorders();
+      await c.post('/auth/logout', undefined, { 'User-Agent': 'v3-app-logout' });
+      const [e, ...more] = events.ofType('logout');
+      expect(more).to.deep.eq([]);
+      expect(e).to.include({ outcome: 'success', reason: 'logout', userAgent: 'v3-app-logout' });
+      expect(e.identity).to.deep.eq(u.ref);
+      expect(e.session).to.match(/^[0-9a-f]{64}$/);
+      expect(e.ip).to.be.a('string');
+      expect(events.ofType('impersonation.end'), 'no impersonation ended').to.deep.eq([]);
+      expect(JSON.stringify(events.all())).to.not.include(raw);
     });
 
     it('a pending session may log out too', async () => {
