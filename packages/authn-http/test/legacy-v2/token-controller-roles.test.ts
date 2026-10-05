@@ -9,10 +9,10 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, activate, create } from '@spinajs/users';
 
-import { APP_ORIGIN, req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from './token-common.js';
+import { APP_ORIGIN, req, restoreHttpErrorMap, sessionCookieFor, useTestConfiguration } from '../token-common.js';
 import { createToken, AccessToken, AccessTokenRolePolicy } from '@spinajs/authn-token';
 import '@spinajs/authn-token';
-import '../src/token/middlewares.js';
+import '../../src/token/middlewares.js';
 
 /**
  * Answers with whatever the test told it to, regardless of the caller's own

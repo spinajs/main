@@ -9,9 +9,9 @@ import { fsService } from '@spinajs/fs';
 import { SqliteOrmDriver } from '@spinajs/orm-sqlite';
 import { appEnvOf } from '@spinajs/authn-session';
 // The 2.x login reads users rows; the 3.0 login task swaps how the account is made.
-import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, activate, create } from '@spinajs/users';
+import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider } from '@spinajs/users';
 
-import { TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
+import { TestConfiguration, req, restoreHttpErrorMap, seedUser } from '../token-common.js';
 
 const STRONG_COOKIE_SECRET = 'sr16-pin-' + 'q7Vb2xK9'.repeat(8);
 
@@ -85,8 +85,7 @@ describe('session cookie without any app env (SR-16)', function () {
     expect(config.get('process.env.APP_ENV'), 'the configuration must have fallen back on its own').to.eq('development');
     expect(appEnvOf(config), 'a fallback env is no env').to.eq(undefined);
 
-    const { User: user } = await create('sr16-pin@spinajs.com', 'sr16-pin', ['user'], { password: 'password123' });
-    await activate(user.Id);
+    await seedUser('sr16-pin@spinajs.com', 'sr16-pin', 'password123');
 
     const res = await req().post('auth/login').send({ Email: 'sr16-pin@spinajs.com', Password: 'password123' });
     expect(res.status, JSON.stringify(res.body)).to.eq(200);
