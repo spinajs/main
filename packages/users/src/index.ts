@@ -5,6 +5,8 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 import { Injectable, Bootstrapper, DI, IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { EmailPasswordMailer } from '@spinajs/email';
+import { PasswordMailer } from '@spinajs/authn-local';
 
 import type { IRbacAsyncStorage } from './interfaces.js';
 
@@ -12,7 +14,6 @@ import './auth.js';
 import './password.js';
 import './session.js';
 import './session-expiration.js';
-import './session-codec.js';
 import './ownership.js';
 import { SYSTEM_LOGIN, User, USER_SECURITY_METADATA_KEYS } from './models/User.js';
 import { runAsSystem } from './system.js';
@@ -25,7 +26,6 @@ export * from './auth.js';
 export * from './password.js';
 export * from './session.js';
 export * from './session-expiration.js';
-export * from './session-codec.js';
 export * from './models/User.js';
 export * from './models/UserMetadata.js';
 export * from './migrations/RBACInitial_2022_06_28_01_13_00.js';
@@ -69,6 +69,12 @@ export class RbacBootstrapper extends Bootstrapper {
     // registration order — the app always uses asValue(RBAC_USER_MODEL, true).
     if (!DI.RootContainer.Cache.has(RBAC_USER_MODEL)) {
       DI.register(User).asValue(RBAC_USER_MODEL);
+    }
+
+    // authn-local mails reset and invite secrets through a PasswordMailer and registers none (email does not depend
+    // on it). Bootstrappers run after the application's imports, so a mailer it registered is seen here and kept.
+    if (!DI.RootContainer.hasRegistered(PasswordMailer)) {
+      DI.register(EmailPasswordMailer).as(PasswordMailer);
     }
 
     /** @deprecated 3.0: roles and grants live in `authz.rbac`; users no longer reads it. R1 deletes it. */

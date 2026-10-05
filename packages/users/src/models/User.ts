@@ -387,11 +387,10 @@ export class UserBase extends ModelBase<UserBase> {
   public dehydrateWithRelations(options?: IDehydrateOptions): ModelDataWithRelationData<this> {
     const base = super.dehydrateWithRelations(options) as any as ModelDataWithRelationData<UserBase>;
 
-    /**
-     * Hide meta keys we dont want to show publicly
-     */
+    // Every reserved prefix, fail safe, plus what an application adds to _hiddenKeys. This hides 2fa:enabled too:
+    // MFA status comes from authn's MFA routes.
     if (base.Metadata) {
-      base.Metadata = base.Metadata.filter((m) => !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
+      base.Metadata = base.Metadata.filter((m) => !isReservedMetadataKey(m.Key) && !UserMetadataBase._hiddenKeys.includes(m.Key)) as any;
     }
 
     return base as any;

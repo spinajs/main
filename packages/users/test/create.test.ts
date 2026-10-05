@@ -15,7 +15,7 @@ import type { Principal } from '@spinajs/authz';
 import { PasswordService } from '@spinajs/authn/contracts';
 import { join, normalize, resolve } from 'path';
 
-import { AuthProvider, InvalidCredentials, PasswordProvider, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA, passwordMatch } from '../src/index.js';
+import { AuthProvider, InvalidCredentials, PasswordProvider, SimpleDbAuthProvider, User, UserCreated, UserCreatedIncomplete, USER_COMMON_METADATA, verifyPassword } from '../src/index.js';
 import { create } from '../src/actions.js';
 import { TestConfiguration } from './common.test.js';
 import { globalRolesOf, registerAuthzHost, rootAuthz } from './support/authz-host.js';
@@ -130,7 +130,7 @@ describe('create(user, roles?)', function () {
 
       expect(passwordCalls).to.have.lengthOf(1);
       expect(passwordCalls[0]).to.deep.include({ method: 'set', id: { type: 'user', id: u.Uuid }, password: 'passw0rd123', actor: { type: SYSTEM.type, id: SYSTEM.id } });
-      expect(await passwordMatch('passw0rd123')(await User.query().whereLogin('pw').firstOrFail())).to.eq(true);
+      expect(await verifyPassword(await User.query().whereLogin('pw').firstOrFail(), 'passw0rd123')).to.eq(true);
     });
 
     it('that breaks the policy refuses the create with the 2.x error, before anything is written', async () => {

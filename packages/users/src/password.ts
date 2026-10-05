@@ -38,6 +38,8 @@ const DEFAULT_GENERATOR = { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz
 
 /**
  * Simple password service that use argon2 hash alghoritm
+ *
+ * @deprecated 3.0: Argon2PasswordHasher (authn-local). R1 deletes it after N8a, C5, N5 and C2.
  */
 @Injectable(PasswordProvider)
 export class BasicPasswordProvider implements PasswordProvider {
@@ -108,6 +110,8 @@ export class BasicPasswordProvider implements PasswordProvider {
 
 /**
  * Simple password validation service based on JSON schema validation
+ *
+ * @deprecated 3.0: LocalPasswordPolicy (authn-local). R1 deletes it after N8a and C2.
  */
 @Injectable(PasswordValidationProvider)
 export class BasicPasswordValidationProvider extends PasswordValidationProvider {

@@ -1,4 +1,4 @@
-import { PasswordService } from '@spinajs/authn/contracts';
+import { AuthnEventSink, PasswordService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PasswordChangeResult, PasswordExpiry, PasswordPolicy, PasswordResetRequestResult, PasswordResetResult, PasswordSetResult, PasswordViolation, PrincipalRef } from '@spinajs/authn/contracts';
 import { DI } from '@spinajs/di';
 
@@ -6,14 +6,17 @@ import { PasswordProvider } from '../../src/interfaces.js';
 import { User } from '../../src/models/User.js';
 
 export interface PasswordCall {
-  readonly method: 'set' | 'invite';
-  readonly id: IdentityRef;
+  readonly method: 'set' | 'invite' | 'requestReset' | 'redeemReset' | 'expire';
+  readonly id?: IdentityRef;
+  readonly login?: string;
+  readonly secret?: string;
   readonly password?: string;
+  readonly expiry?: PasswordExpiry;
   readonly ctx: AuthnContext;
   readonly actor?: PrincipalRef;
 }
 
-/** Every set/invite since the last {@link resetPasswordCalls}. */
+/** Every call since the last {@link resetPasswordCalls}. */
 export const passwordCalls: PasswordCall[] = [];
 
 export function resetPasswordCalls(): void {
@@ -21,9 +24,10 @@ export function resetPasswordCalls(): void {
 }
 
 /**
- * The PasswordService users' create() calls, until users ships its PasswordCredentialStore and the
- * suites can run authn-local's: the test config's rule (8+ characters with a digit), and `set` hashes
- * with the legacy provider into users.Password so the 2.x login tests still find the password.
+ * The PasswordService users calls in the suites: the test config's rule (8+ characters with a digit); `set` hashes
+ * with the legacy provider into users.Password so the 2.x login tests still find the password; `expire` writes
+ * authn-local's marker and publishes its event to the registered sinks, as authn-local does. The reset calls only
+ * record (tests stub their answers).
  */
 export class TestPasswordService extends PasswordService {
   public async check(password: string): Promise<readonly PasswordViolation[]> {
@@ -54,15 +58,23 @@ export class TestPasswordService extends PasswordService {
     throw new Error('TestPasswordService.change is not used by users');
   }
 
-  public requestReset(): Promise<PasswordResetRequestResult> {
-    throw new Error('TestPasswordService.requestReset is not used by users');
+  public async requestReset(login: string, ctx: AuthnContext): Promise<PasswordResetRequestResult> {
+    passwordCalls.push({ method: 'requestReset', login, ctx });
+    return { status: 'accepted' };
   }
 
-  public redeemReset(): Promise<PasswordResetResult> {
-    throw new Error('TestPasswordService.redeemReset is not used by users');
+  public async redeemReset(login: string, secret: string, newPassword: string, ctx: AuthnContext): Promise<PasswordResetResult> {
+    passwordCalls.push({ method: 'redeemReset', login, secret, password: newPassword, ctx });
+    return { status: 'invalid' };
   }
 
-  public expire(_id: IdentityRef, _opts: PasswordExpiry): Promise<void> {
-    throw new Error('TestPasswordService.expire is not used by users');
+  public async expire(id: IdentityRef, expiry: PasswordExpiry, ctx: AuthnContext): Promise<void> {
+    passwordCalls.push({ method: 'expire', id, expiry, ctx });
+    await User.query().Driver.update().in(User.getModelDescriptor().TableName).update({ Password: '!expired' }).where('Uuid', id.id);
+
+    const actor = expiry.cause === 'admin' ? { actor: expiry.actor } : {};
+    for (const sink of await DI.resolve(Array.ofType(AuthnEventSink))) {
+      await sink.publish({ type: 'password.change', outcome: 'success', at: ctx.now, identity: id, ...actor, data: { cause: expiry.cause, expired: true } });
+    }
   }
 }

@@ -333,4 +333,263 @@ describe('User model tests', function () {
       await expect(confirmPasswordReset('stringmark@wp.pl', 'brandNew123', token)).to.be.rejected;
     });
   });
+
+  // C1 task 11: the 2.x reset token flow (rows 49-63, 66, 71) and passwordMatch (rows 58-59). users now delegates
+  // the reset to PasswordService and stores no token, and passwordMatch is deleted.
+  describe('2.x reset token and passwordMatch', () => {
+    it('Password change request ', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+      // a reset token, start date and wait time must be stored
+      expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]).to.be.a('string');
+      expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE]).to.be.not.null;
+      // wait time must come from config (authn.local.reset.ttlSeconds), not be undefined
+      expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(60 * 60);
+
+      expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest)).to.be.true;
+    });
+
+    /**
+     * The issuing half has to be usable without the reset mail: `create()` puts the very
+     * same link into the account-created mail instead, and two mails carrying two tokens
+     * would invalidate whichever the user did not open first.
+     */
+    it('issuePasswordResetToken stores the token without sending a mail', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      const { token, waitTime } = await issuePasswordResetToken('test@spinajs.pl');
+
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN]).to.eq(token);
+      expect(waitTime).to.eq(60 * 60);
+
+      expect(eStub.args.some((a) => (a as any)[0] instanceof UserPasswordChangeRequest), 'the event still fires').to.be.true;
+      expect(eStub.args.some((a) => (a as any)[0] instanceof EmailSend), 'no mail may be queued by the issuing half').to.be.false;
+    });
+
+    it('issuePasswordResetToken honours an explicit wait time', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await issuePasswordResetToken('test@spinajs.pl', 900);
+
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      expect(user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME]).to.eq(900);
+    });
+
+    /**
+     * The token is written into metadata and never returned over HTTP —
+     * possession of the mailbox is what authorizes the reset — so an installation
+     * that does not deliver it has a reset flow nobody can complete. It used to be
+     * the application's job through the event, and an application that had not
+     * written that subscriber issued tokens into the void.
+     */
+    it('Password change request mails the token', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+      expect(mail, 'the reset mail must be queued').to.exist;
+
+      // The very token that was stored — a mail carrying a different one, or none,
+      // sends the user to a page that cannot complete the reset.
+      expect((mail as any).model.Token).to.eq(token);
+      expect((mail as any).to).to.deep.eq(['test@spinajs.pl']);
+    });
+
+    // `authn.local.reset.url` is empty by default: only the application knows its
+    // own address, and a template must render without a link rather than with one
+    // pointing nowhere.
+    it('Password change request leaves ResetUrl empty when none is configured', async () => {
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+
+      const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+      expect((mail as any).model.ResetUrl).to.eq('');
+    });
+
+    it('Password change request builds the reset link from the configured page', async () => {
+      const cfg = DI.get(Configuration)!;
+      cfg.set('authn.local.reset.url', 'https://app.example.com/password-reset');
+
+      const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      try {
+        await passwordChangeRequest('test@spinajs.pl');
+
+        const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+        const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        const mail = eStub.args.map((a) => (a as any)[0]).find((e) => e instanceof EmailSend);
+        const url = new URL((mail as any).model.ResetUrl);
+
+        // The redemption page needs BOTH: `POST /auth/password/reset` identifies
+        // the account by e-mail and authorizes by token.
+        expect(url.origin + url.pathname).to.eq('https://app.example.com/password-reset');
+        expect(url.searchParams.get('token')).to.eq(token);
+        expect(url.searchParams.get('email')).to.eq('test@spinajs.pl');
+      } finally {
+        cfg.set('authn.local.reset.url', '');
+      }
+    });
+
+    it('Password change after request', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      let user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+      user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+      const pwd = await DI.resolve(BasicPasswordProvider);
+      expect(await pwd.verify(user.Password, 'brandNew123')).to.be.true;
+    });
+
+    it('Password change after request with wrong token', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+
+      await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', 'not-the-token')).to.be.rejected;
+    });
+
+    it('Password change after request with expired token', async () => {
+      sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+      await passwordChangeRequest('test@spinajs.pl');
+      const user = await User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+      const token = user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+      // force the reset request to be older than the configured wait time
+      user.Metadata[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE] = DateTime.now().minus({ seconds: 2 * 60 * 60 });
+      await user.Metadata.update();
+
+      await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+    });
+
+    // Regression: `passwordMatch` used to read the user from the second argument
+    // of a `_chain` step, but _chain forwards a single value — so the check threw
+    // "Cannot read properties of undefined (reading 'Password')" for EVERY
+    // password, and PATCH /user/password could never succeed.
+    it('Should confirm a matching password', async () => {
+      const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+      expect(await passwordMatch('bbbb')(user)).to.eq(true);
+    });
+
+    it('Should not confirm a wrong password', async () => {
+      const user = await User.query().whereAnything('test@spinajs.pl').firstOrFail();
+
+      expect(await passwordMatch('not-the-password')(user)).to.eq(false);
+    });
+
+    describe('password reset token', () => {
+      const reload = () => User.query().whereAnything('test@spinajs.pl').populate('Metadata').firstOrFail();
+
+      it('is single use — a redeemed token cannot be redeemed again', async () => {
+        sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await passwordChangeRequest('test@spinajs.pl');
+        const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+        // Whoever saw the reset mail must not be able to keep re-taking the
+        // account for the rest of the wait-time window.
+        await expect(confirmPasswordReset('test@spinajs.pl', 'attacker123', token)).to.be.rejected;
+
+        const pwd = await DI.resolve(BasicPasswordProvider);
+        expect(await pwd.verify((await reload()).Password, 'brandNew123'), 'the first reset must stand').to.be.true;
+      });
+
+      it('is erased from the user metadata once redeemed', async () => {
+        sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await passwordChangeRequest('test@spinajs.pl');
+        const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        await confirmPasswordReset('test@spinajs.pl', 'brandNew123', token);
+
+        const meta = (await reload()).Metadata;
+        expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN], 'token').to.be.not.ok;
+        expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_START_DATE], 'start date').to.be.not.ok;
+        expect(meta[USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME], 'wait time').to.be.not.ok;
+      });
+
+      it('is refused for a banned account', async () => {
+        sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await passwordChangeRequest('test@spinajs.pl');
+        const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        await ban('test@spinajs.pl', 'testing', 3600);
+
+        // a reset must not be a way around a ban
+        await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+      });
+
+      it('is refused for a deactivated account', async () => {
+        sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await passwordChangeRequest('test@spinajs.pl');
+        const token = (await reload()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        await deactivate('test@spinajs.pl');
+
+        await expect(confirmPasswordReset('test@spinajs.pl', 'brandNew123', token)).to.be.rejected;
+      });
+
+      /**
+       * The marker is the whole of the exception. An account an administrator deactivated
+       * carries none, so the reset stays refused for it — otherwise the flow would be a way
+       * back into an account that was deliberately switched off.
+       */
+      it('still refuses an inactive account that was never invited', async () => {
+        sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await create('deact@wp.pl', 'deact', ['admin'], { password: 'bbbb1234' });
+        await activate('deact@wp.pl');
+        await passwordChangeRequest('deact@wp.pl');
+
+        const token = (await User.query().whereAnything('deact@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        await deactivate('deact@wp.pl');
+
+        await expect(confirmPasswordReset('deact@wp.pl', 'brandNew123', token)).to.be.rejected;
+      });
+
+      /**
+       * An account an administrator activates directly is already active; leaving the
+       * marker behind makes the user's next ORDINARY reset take the invite branch and
+       * emit a spurious UserActivated for an account that never stopped being active.
+       */
+      it('an admin activation clears the invite marker so a later ordinary reset does not re-activate', async () => {
+        const eStub = sinon.stub(DefaultQueueService.prototype, 'emit').returns(Promise.resolve(undefined));
+
+        await create('directact@wp.pl', 'directact', ['admin']);
+        await activate('directact@wp.pl');
+
+        const activated = await User.query().whereAnything('directact@wp.pl').populate('Metadata').firstOrFail();
+        expect(activated.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING], 'an account activated directly is no longer a pending invite').to.not.be.ok;
+
+        await passwordChangeRequest('directact@wp.pl');
+        const token = (await User.query().whereAnything('directact@wp.pl').populate('Metadata').firstOrFail()).Metadata[USER_COMMON_METADATA.USER_PWD_RESET_TOKEN];
+
+        eStub.resetHistory();
+        await confirmPasswordReset('directact@wp.pl', 'brandNew123', token);
+
+        expect(eStub.args.some((a) => (a as any)[0] instanceof UserActivated), 'an already-active account must not re-emit UserActivated on an ordinary reset').to.be.false;
+      });
+    });
+  });
 });

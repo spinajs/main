@@ -6,6 +6,7 @@ import { InvalidCredentials, UserIsBanned, UserNotActive } from './exceptions.js
 import { userModel } from './model-token.js';
 import { legacyService } from './legacy-services.js';
 
+/** @deprecated 3.0: LocalPasswordStrategy (authn-local) and UserIdentityStore. R1 deletes it after N8a, C5, N5 and C2. */
 @Injectable(AuthProvider)
 export class SimpleDbAuthProvider implements AuthProvider<User> {
   @Autoinject(Container)

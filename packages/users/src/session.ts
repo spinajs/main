@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Session base class
+ *
+ * @deprecated 3.0: SessionIssuer.issue (authn-session). R1 deletes it after N8a and C2.
  */
 @NewInstance()
 export class UserSession implements ISession {
@@ -40,6 +42,8 @@ export class UserSession implements ISession {
  * never-expiring session (a session cookie), and never a negative value.
  *
  * @param session - the session whose expiry drives the cookie lifetime
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export function sessionCookieMaxAge(session: ISession): number | undefined {
   if (!session.Expiration) {
@@ -50,6 +54,8 @@ export function sessionCookieMaxAge(session: ISession): number | undefined {
 
 /**
  * Base name of the session cookie, before any `__Host-` / `__Secure-` prefix.
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export const SESSION_COOKIE_BASE_NAME = 'ssid';
 
@@ -61,6 +67,8 @@ export const SESSION_COOKIE_BASE_NAME = 'ssid';
  * `httpOnly` and `signed` are deliberately NOT tunable: a session cookie that
  * javascript can read, or that carries no signature, is not a session cookie
  * this package is willing to issue.
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a and N10.
  */
 export interface ISessionCookieConfig {
   /** Base cookie name. Default `ssid`. */
@@ -89,6 +97,8 @@ const COOKIE_CONTROL_KEYS = ['name', 'hostPrefix'];
  * Name the session cookie is issued and read under.
  *
  * @param config - the `authn.session.cookie` configuration block
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export function sessionCookieName(config: ISessionCookieConfig = {}): string {
   const base = (config.name as string) ?? SESSION_COOKIE_BASE_NAME;
@@ -107,6 +117,8 @@ export function sessionCookieName(config: ISessionCookieConfig = {}): string {
  *
  * @param config - the `authn.session.cookie` configuration block
  * @param maxAge - cookie lifetime in ms; `undefined` = browser-session cookie
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?: number): Record<string, unknown> {
   const passthrough: Record<string, unknown> = {};
@@ -138,6 +150,8 @@ export function sessionCookieOptions(config: ISessionCookieConfig = {}, maxAge?:
 
 /**
  * Session cookie in the shape the http `Coockies` response option accepts.
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export interface ISessionCookieDescriptor {
   Name: string;
@@ -151,6 +165,8 @@ export interface ISessionCookieDescriptor {
  *
  * @param session - session whose id and expiration the cookie carries
  * @param config - the `authn.session.cookie` configuration block
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a and N10.
  */
 export function sessionCookie(session: ISession, config: ISessionCookieConfig = {}): ISessionCookieDescriptor {
   return {
@@ -168,6 +184,8 @@ export function sessionCookie(session: ISession, config: ISessionCookieConfig = 
  * side on logout.
  *
  * @param config - the `authn.session.cookie` configuration block
+ *
+ * @deprecated 3.0: the cookie builder of @spinajs/authn-session. R1 deletes it after N8a.
  */
 export function clearSessionCookie(config: ISessionCookieConfig = {}): ISessionCookieDescriptor {
   return {
@@ -189,6 +207,8 @@ export function clearSessionCookie(config: ISessionCookieConfig = {}): ISessionC
  * caller a usable credential for it.
  *
  * @param sessionId - raw session id
+ *
+ * @deprecated 3.0: the session handle of SessionIssuer.list (authn-session). R1 deletes it after N8a and C2.
  */
 export function hashSessionId(sessionId: string): string {
   return createHash('sha256').update(`spinajs:session:${sessionId}`).digest('hex').substring(0, 32);
@@ -207,6 +227,8 @@ export function hashSessionId(sessionId: string): string {
  *
  * @param provider - the active session store
  * @param session - the session to regenerate
+ *
+ * @deprecated 3.0: SessionIssuer.rotate (authn-session). R1 deletes it after N8a.
  */
 export async function regenerateSession(provider: SessionProvider, session: ISession): Promise<ISession> {
   const regenerated = new UserSession({
@@ -224,6 +246,8 @@ export async function regenerateSession(provider: SessionProvider, session: ISes
 /**
  * Simple session storage in memory, for testing or rapid prototyping.
  * Keeps live session objects (no serialization).
+ *
+ * @deprecated 3.0: MemorySessionStore of @spinajs/authn-session. R1 deletes it after N8a and C2.
  */
 @Injectable(SessionProvider)
 export class MemorySessionStore extends SessionProvider<ISession> {

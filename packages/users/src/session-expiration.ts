@@ -9,6 +9,8 @@ import { ISession, SessionExpirationProvider } from './interfaces.js';
  * Expiration unchanged).
  *
  * Settings: `authn.session.expiration.ttl` (minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class AbsoluteExpiration extends SessionExpirationProvider {
@@ -30,6 +32,8 @@ export class AbsoluteExpiration extends SessionExpirationProvider {
  * no upper bound. Activity keeps the session alive indefinitely.
  *
  * Settings: `authn.session.expiration.ttl` (minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingExpiration extends SessionExpirationProvider {
@@ -52,6 +56,8 @@ export class SlidingExpiration extends SessionExpirationProvider {
  *
  * Settings: `authn.session.expiration.ttl` and
  * `authn.session.expiration.maxLifetime` (both minutes).
+ *
+ * @deprecated 3.0: the same class of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 @Injectable(SessionExpirationProvider)
 export class SlidingCappedExpiration extends SessionExpirationProvider {

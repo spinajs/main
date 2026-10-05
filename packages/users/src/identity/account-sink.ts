@@ -7,7 +7,7 @@ import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { UserActivated } from '../events/UserActivated.js';
 import { UserChanged } from '../events/UserPropertyChanged.js';
 import { USER_COMMON_METADATA, User } from '../models/User.js';
-import { USERS_TABLE, invitePending, quoted, raw, rowsAffected, sqlDateTime, usersDriver } from './sql.js';
+import { USERS_TABLE, invitePending, raw, recordPasswordSetAt, rowsAffected, usersDriver } from './sql.js';
 
 /**
  * Keeps the users row in step with authn-local's password flows:
@@ -41,17 +41,8 @@ export class UserAccountSink extends AuthnEventSink {
     }
   }
 
-  /** Monotonic: two events published out of order never move the time back. */
   protected async recordPasswordSet(id: IdentityRef, at: Date): Promise<void> {
-    const driver = usersDriver();
-    const setAt = quoted(driver, 'PasswordSetAt');
-    const when = sqlDateTime(at);
-    await driver
-      .update()
-      .in(USERS_TABLE)
-      .update({ PasswordSetAt: when })
-      .where('Uuid', id.id)
-      .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [when] }));
+    await recordPasswordSetAt(id.id, at);
   }
 
   /**

@@ -6,27 +6,26 @@ import { ev } from '@spinajs/queue';
 import { NO_PASSWORD, USER_COMMON_METADATA, User, UserBase, isReservedLogin, isReservedMetadataKey } from './models/User.js';
 import { cfg } from '@spinajs/configuration';
 import { legacyService } from './legacy-services.js';
-import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChangeRequest, UserPasswordChanged, UserUnbanned } from './events/index.js';
+import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, UserDeleted, UserLogged, UserPasswordChanged, UserUnbanned } from './events/index.js';
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
 import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
-import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, TokenExpired, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned, UserNotActive } from './exceptions.js';
-import { createHash, timingSafeEqual } from 'crypto';
+import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, PasswordChangeConflict, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned } from './exceptions.js';
 import { v4 as uuidv4 } from 'uuid';
 import { UserLoginFailed } from './events/UserLoginFailed.js';
 import { UserMetadataChange } from './events/UserMetadataChange.js';
-import { UserPasswordExpired } from './events/UserPasswordExpired.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { DEFAULT_ROLES_KEY, assignGlobalRoles, defaultRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
-import { PasswordService } from '@spinajs/authn/contracts';
+import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
-import { USERS_TABLE, usersDriver, usersMatchingLogin } from './identity/sql.js';
+import { USERS_TABLE, isNoPassword, recordPasswordSetAt, usersDriver, usersMatchingLogin } from './identity/sql.js';
+import { UserPasswordStore } from './identity/password-store.js';
 
 /**
  * ===============================================
@@ -90,27 +89,31 @@ export async function getUsersByRole(role: string[]): Promise<User[]> {
  * Accepts either an array of `{ key, value }` objects or a single metadata key string with a separate value.
  * Emits a {@link UserMetadataChange} event after the metadata is persisted.
  *
+ * Refuses reserved keys and globs ({@link assertNoProtectedMetadata}, A12): account security state has its own
+ * actions (ban, invite), and authentication state lives in authn, never in metadata.
+ *
  * @param u - user to modify
  * @param meta - metadata key (string) or array of `{ key, value }` entries to set
  * @param value - value to assign when `meta` is a single key string (default: `null`)
  */
 export async function setUserMeta(u: User, meta: string | { key: string; value: any }[], value: any = null): Promise<User> {
-  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), toArray)(meta, 'Metadata');
+  const entries = metadataEntries(u, meta, value);
+  assertNoProtectedMetadata(Object.fromEntries(entries.map((m) => [m.key, m.value])));
 
-  mArgs.forEach((m: string | { key: string; value: any }) => {
-    _.isString(m) ? (u.Metadata[m] = value) : (u.Metadata[m.key] = m.value);
-  });
+  return writeUserMeta(u, entries);
+}
+
+function metadataEntries(u: User, meta: string | { key: string; value: any }[], value: any): { key: string; value: any }[] {
+  const mArgs = _check_arg(_non_nil(new MetadataNotPopulated('User metadata not loaded', { user: u.Uuid })), toArray)(meta, 'Metadata');
+  return mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m));
+}
+
+/** users' own lifecycle writes (ban state), which may touch reserved keys; never exported. */
+async function writeUserMeta(u: User, entries: { key: string; value: any }[]): Promise<User> {
+  entries.forEach((m) => (u.Metadata[m.key] = m.value));
 
   await u.Metadata.update();
-
-  // the event carries the resolved entries, not the raw input - a single
-  // string key is normalised to a { key, value } pair
-  await ev(
-    new UserMetadataChange(
-      u,
-      mArgs.map((m: string | { key: string; value: any }) => (_.isString(m) ? { key: m, value } : m)),
-    ),
-  );
+  await ev(new UserMetadataChange(u, entries));
 
   return u;
 }
@@ -150,13 +153,12 @@ interface IEmailTemplateCfg {
  *
  * @param u - recipient
  * @param cfgTemplate - which `users.email.*` entry describes the message
- * @param model - extra template variables merged over the user's own fields.
- *   Given as a FUNCTION of the user so a caller can compute them from the row it
- *   has just written ( the password-reset token is the case that needs it ).
- *   Nothing here is persisted and nothing is logged: whatever it carries goes
- *   straight into the rendered message.
+ * @param model - extra template variables merged over the user's own fields,
+ *   given as a function of the user. The mail is queued (`emailDeferred`), so the
+ *   model must never carry a secret: reset and invite links are authn-local's
+ *   `PasswordMailer`'s, which sends at once (SR-09).
  */
-export async function sendUserEmail(u: User, cfgTemplate: 'changePassword' | 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired', model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown }): Promise<User> {
+export async function sendUserEmail(u: User, cfgTemplate: 'created' | 'confirm' | 'deactivated' | 'activated' | 'deleted' | 'unbanned' | 'banned' | 'passwordWillExpire' | 'passwordExpired', model?: (u: User) => Promise<{ [key: string]: unknown }> | { [key: string]: unknown }): Promise<User> {
   const extra = model ? await model(u) : undefined;
   const connection = cfg<string>('users.email.connection', 'default');
 
@@ -212,17 +214,33 @@ export async function updateUser(u: User, data?: Partial<User>): Promise<User> {
  * revocation did not happen, and the caller must learn that rather than be told
  * the account is secure.
  *
+ * Ends the authn sessions of `user:<Uuid>` through `SessionIssuer.revokeAll`, also
+ * those where the user is the impersonator (N2, SR-06), when an issuer is
+ * registered (none: no 3.0 sessions exist). 3.0 session rows carry no numeric
+ * `UserId`, so deleting a user needs this too. Then the deprecated 2.x store,
+ * which legacy authn-http still fills.
+ *
  * @param user - the user whose sessions are destroyed, or their numeric id
  */
 export async function revokeUserSessions(user: User | number): Promise<void> {
-  const userId = _.isNumber(user) ? user : user?.Id;
+  const u = _.isNumber(user) ? await User.query().withDeleted().where('Id', user).first() : user;
 
-  if (!userId) {
+  if (!u?.Id) {
     return;
   }
 
+  if (DI.RootContainer.hasRegistered(SessionIssuer)) {
+    const issuer = (await DI.resolve(SessionIssuer)) as SessionIssuer;
+    await issuer.revokeAll(userRef(u.Uuid), { includeImpersonations: true });
+  }
+
+  await revokeLegacySessions(u);
+}
+
+// R1 deletes it with the 2.x session store.
+async function revokeLegacySessions(u: User): Promise<void> {
   const provider = await legacyService('authn.session', SessionProvider);
-  await provider.deleteByUser(userId);
+  await provider.deleteByUser(u.Id);
 }
 
 /**
@@ -694,7 +712,7 @@ async function createUser(data: ICreateUserData, roles: string[] | undefined, ac
 }
 
 /**
- * Permanently deletes a user from the database.
+ * Soft-deletes a user and ends its sessions ({@link revokeUserSessions}).
  * Emits a {@link UserDeleted} event and sends the "deleted" email.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -782,7 +800,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
     throw new UserIsBanned(`User is already banned`, { user: u.Uuid });
   }
 
-  await setUserMeta(u, [
+  await writeUserMeta(u, [
     { key: USER_COMMON_METADATA.USER_BAN_DURATION, value: duration },
     { key: USER_COMMON_METADATA.USER_BAN_REASON, value: reason },
     { key: USER_COMMON_METADATA.USER_BAN_IS_BANNED, value: true },
@@ -825,193 +843,89 @@ export async function unban(identifier: number | string | User): Promise<User> {
   return u;
 }
 
-/**
- * Builds the link a reset mail sends the user to.
- *
- * `authn.local.reset.url` is the application's own redemption page. The token
- * and the address are appended as query parameters because that page has to send
- * both back to `POST /auth/password/reset`, and it has no other way of knowing
- * them. Returns an empty string when no url is configured — the template then
- * renders whatever it does without one, rather than a link to nowhere.
- */
-function passwordResetUrl(email: string, token: string): string {
-  const base = cfg<string>('authn.local.reset.url', '');
+/** The context users passes to authn for an action it runs itself (no request, no client ip). */
+const actionContext = (): AuthnContext => ({ now: new Date(), purpose: 'request' });
 
-  if (!base) {
-    return '';
+/** The email a 2.x identifier names; a string is taken as the login authn looks up. */
+async function resetLogin(identifier: number | string | User): Promise<string> {
+  if (typeof identifier === 'string') {
+    return identifier;
   }
 
-  const url = new URL(base);
-  url.searchParams.set('token', token);
-  url.searchParams.set('email', email);
-
-  return url.toString();
+  return (await getUser(identifier)).Email;
 }
 
 /**
- * Issues a password-reset token into the user's metadata and emits
- * {@link UserPasswordChangeRequest}. Sends nothing.
+ * Asks authn for a reset mail: `PasswordService.requestReset(<email>)`. No token is issued, stored or returned here;
+ * authn-local issues the secret and its `PasswordMailer` sends it at once (SR-09).
  *
- * Separate from {@link passwordChangeRequest} because `create()` delivers the very same
- * link inside the account-created mail: two mails carrying two tokens would leave
- * whichever the user opened second pointing at an already-overwritten token.
- *
+ * @deprecated 3.0: PasswordService.requestReset(login, ctx). It returns no token any more (`token` is ''), and
+ * `waitTime` is `authn.local.reset.ttlSeconds`. R1 deletes it after C2.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param waitTime - token lifetime in seconds; defaults to `authn.local.reset.ttlSeconds`
+ * @param _waitTime - ignored; authn.local.reset.ttlSeconds rules
  */
-export async function issuePasswordResetToken(identifier: number | string | User, waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
-  const ttl = waitTime ?? cfg<number>('authn.local.reset.ttlSeconds');
-  const token = uuidv4();
-
-  const u = await getUser(identifier);
-
-  await setUserMeta(u, [
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_START_DATE, value: DateTime.now() },
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_TOKEN, value: token },
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME, value: ttl },
-  ]);
-
-  await ev(new UserPasswordChangeRequest(u));
-
-  return { user: u, token, waitTime: ttl };
+export async function issuePasswordResetToken(identifier: number | string | User, _waitTime?: number): Promise<{ user: User; token: string; waitTime: number }> {
+  const user = await passwordChangeRequest(identifier);
+  return { user, token: '', waitTime: cfg<number>('authn.local.reset.ttlSeconds', 3600) };
 }
 
 /**
- * Initiates a password-change request for a user: issues the token and mails it.
+ * Asks authn for a reset mail for the user: `PasswordService.requestReset(<email>)`, which counts the request in the
+ * reset throttle and mails the link through its `PasswordMailer` (authn-local). users sends no mail and stores nothing.
  *
- * THE MAIL IS THE POINT. The token is issued into metadata and never returned over HTTP —
- * possession of the mailbox is what authorizes the reset — so an installation that does not
- * deliver it has a reset flow nobody can complete. `users.email.changePassword.enabled: false`
- * still turns it off for an application that really does deliver it some other way.
- *
- * The token reaches the template through the model and is NOT logged: it is a bearer
- * credential for `POST /auth/password/reset`.
- *
+ * @deprecated 3.0: PasswordService.requestReset(login, ctx). R1 deletes it after N8a and C2.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
- * @param waitTime - token lifetime in seconds; defaults to `authn.local.reset.ttlSeconds`
+ * @param _waitTime - ignored; authn.local.reset.ttlSeconds rules
+ * @throws LoginAttemptsExceeded when the reset throttle refuses the request
  */
-export async function passwordChangeRequest(identifier: number | string | User, waitTime?: number): Promise<User> {
-  const { user, token, waitTime: ttl } = await issuePasswordResetToken(identifier, waitTime);
+export async function passwordChangeRequest(identifier: number | string | User, _waitTime?: number): Promise<User> {
+  const user = await getUser(identifier);
 
-  await sendUserEmail(user, 'changePassword', (usr: User) => ({
-    Token: token,
-    ResetUrl: passwordResetUrl(usr.Email, token),
-    // Minutes rather than the raw seconds: a template writes "the link is
-    // valid for X minutes", and doing the arithmetic in a handlebars
-    // expression is not something every template engine can do.
-    ExpiresInMinutes: Math.round(ttl / 60),
-  }));
+  const result = await (await passwordService()).requestReset(user.Email, actionContext());
+  if (result.status === 'throttled') {
+    throw new LoginAttemptsExceeded('Password reset request throttled', { user: user.Uuid, retryAfterSeconds: result.retryAfterSeconds });
+  }
 
   return user;
 }
 
 /**
- * Confirms a password reset by validating the token and expiration, then changing the password.
- * Throws if the token has expired or does not match the stored value.
+ * Redeems a reset (or invite) secret through `PasswordService.redeemReset(<email>, token, newPassword)`, which checks
+ * the account's status and the secret, sets the password and ends every session. authn's refusals become the 2.x
+ * exceptions: `invalid` → {@link TokenInvalid}, `throttled` → {@link LoginAttemptsExceeded}, a policy violation →
+ * `InvalidArgument` (field `password`). An invited account is activated by `UserAccountSink` on `invite.redeem`.
  *
+ * @deprecated 3.0: PasswordService.redeemReset(login, secret, newPassword, ctx). R1 deletes it after N8a.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param newPassword - the new plain-text password to set
- * @param token - the reset token that was issued by {@link passwordChangeRequest}
+ * @param token - the secret of the reset or invite mail
  */
 export async function confirmPasswordReset(identifier: number | string | User, newPassword: string, token: string): Promise<User> {
-  const u = await getUser(identifier);
+  const login = await resetLogin(identifier);
 
-  // A reset must not resurrect an account that is banned, deactivated or
-  // deleted — otherwise the reset flow is a way around every one of those
-  // states. Same exception family the caller already collapses into one
-  // opaque failure, so this does not become an account-state oracle.
-  // duration-aware: a user whose ban has expired can log in again, so they
-  // must be able to reset their password too
-  if (u.IsBanned) {
-    throw new UserIsBanned(`Password reset refused: user is banned`, { user: u.Uuid });
+  const result = await (await passwordService()).redeemReset(login, String(token ?? ''), String(newPassword ?? ''), actionContext());
+  switch (result.status) {
+    case 'reset':
+      return getUser(login);
+    case 'rejected':
+      throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
+    case 'throttled':
+      throw new LoginAttemptsExceeded('Password reset throttled', { retryAfterSeconds: result.retryAfterSeconds });
+    default:
+      throw new TokenInvalid('Password change token invalid, operation not permitted');
   }
-
-  // An account created by an administrator is inactive until its owner redeems the link
-  // that was mailed to it, so the ONLY inactive user a reset may touch is one still
-  // carrying that marker. A deactivated or deleted account carries none, and the
-  // resurrection the guard exists to prevent stays prevented.
-  // Strict, not truthy: the sole writer stores a real boolean `true`, and a value ever
-  // stored as the STRING 'false' would otherwise silently reopen this guard.
-  const invitePending = u.Metadata[USER_COMMON_METADATA.USER_INVITE_PENDING] === true;
-
-  if ((!u.IsActive && !invitePending) || u.DeletedAt) {
-    throw new UserNotActive(`Password reset refused: user is not active`, { user: u.Uuid });
-  }
-
-  const dueDate: DateTime = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
-  const waitTime: number = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
-
-  if (dueDate.plus({ seconds: waitTime }) < DateTime.now()) {
-    throw new TokenExpired(`Password change token expired, token expiration date is: ${dueDate.toISO()}`, {
-      dueDate,
-      waitTime,
-      time: DateTime.now(),
-      user: u.Uuid,
-    });
-  }
-
-  const resetToken = await getUserMeta(u, USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
-
-  if (!secureCompare(String(resetToken), token)) {
-    // the STORED token is a live bearer credential and the submitted one may
-    // be a near miss of it - neither belongs in a payload that gets logged
-    throw new TokenInvalid(`Password change token invalid, operation not permitted`, {
-      user: u.Uuid,
-    });
-  }
-
-  await changeUserPassword(u, newPassword);
-
-  // Redeeming the invite is the activation: the owner has now proved they hold the
-  // mailbox and has chosen a password nobody else knows. No 'activated' mail — the
-  // person doing this is looking at the page that did it.
-  if (invitePending) {
-    await updateUser(u, { IsActive: true });
-    await ev(new UserActivated(u));
-  }
-
-  // Burn the token. Validating it and leaving it in place made it a
-  // multi-use credential for the whole `passwordResetWaitTime` window:
-  // anyone who saw the reset mail once could keep re-taking the account.
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_TOKEN);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_START_DATE);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET_WAIT_TIME);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_PWD_RESET);
-  await u.Metadata.delete(USER_COMMON_METADATA.USER_INVITE_PENDING);
-
-  return u;
 }
 
 /**
- * Length-independent, constant-time string comparison for secrets.
+ * Changes a user's password over the hash the caller loaded (`u.Password`, the one it verified): the 2.x provider
+ * hashes it and `UserPasswordStore.set(id, hash, expected)` writes it only while that hash is still stored, so a reset,
+ * an expiry or another change that landed meanwhile wins and this throws {@link PasswordChangeConflict}. Then every
+ * session ends ({@link revokeUserSessions}) and {@link UserPasswordChanged} is emitted. No metadata is written (A12);
+ * the 2.x login lockout of the account is cleared.
  *
- * `!==` on a token leaks how many leading characters matched through timing.
- * The margin is small over a network and the tokens are uuid-shaped, but a
- * comparison of a secret is the wrong place to rely on that.
- *
- * @param a - value read from storage
- * @param b - value supplied by the caller
- */
-function secureCompare(a: string, b: string): boolean {
-  const ha = createHash('sha256')
-    .update(a ?? '')
-    .digest();
-  const hb = createHash('sha256')
-    .update(b ?? '')
-    .digest();
-
-  // hashing first makes both operands the same length, which timingSafeEqual
-  // requires and which also stops the length itself from leaking
-  return timingSafeEqual(ha, hb);
-}
-
-/**
- * Changes a user's password.
- * The new password is validated against the configured {@link PasswordValidationProvider},
- * hashed via the configured {@link PasswordProvider}, persisted, and a
- * {@link UserPasswordChanged} event is emitted.
- *
- * @param u - user to change the password for
+ * @deprecated 3.0: PasswordService.change (the user's own change) or PasswordService.set (an admin). R1 deletes it
+ * after C2.
+ * @param u - user to change the password for, as loaded (with its Password)
  * @param password - new plain-text password
  */
 export async function changeUserPassword(u: User, password: string): Promise<User> {
@@ -1021,33 +935,25 @@ export async function changeUserPassword(u: User, password: string): Promise<Use
   const validator = await legacyService('authn.local.policy', PasswordValidationProvider);
 
   if (!validator.check(password)) {
-    // `InvalidArgument`, not a bare `Error`: a password the caller typed is
-    // invalid INPUT, and @spinajs/http maps this class to 400 ( BadRequestResponse
-    // via `@HandleException` ) while an unmapped error becomes a 500. Every route
-    // that lets a user pick a password - `PATCH /user/password`, the reset flow -
-    // answered "internal server error" for a password that was merely too weak,
-    // which reads to the user as a broken screen rather than as a rule they can
-    // satisfy. The field name and error code travel in the response body ( the
-    // error handler spreads the exception's own enumerable props ), so a client
-    // can point at the field and branch on the code instead of matching English.
+    // `InvalidArgument`, not a bare `Error`: @spinajs/http maps it to 400, with the field and code in the body.
     throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   }
 
-  const hPassword = await pwd.hash(password);
-  await updateModel(u, { Password: hPassword });
+  const hash = await pwd.hash(password);
+  // Without the loaded hash there is nothing to compare: `null` matches only an account with no password.
+  const expected = typeof u.Password === 'string' && !isNoPassword(u.Password) ? u.Password : null;
+  const ref = userRef(u.Uuid);
+  if (!(await new UserPasswordStore().set(ref, hash, expected))) {
+    throw new PasswordChangeConflict(`The password of user ${u.Uuid} changed meanwhile; load the user and try again`, { user: u.Uuid });
+  }
+  u.Password = hash;
+  // This path publishes no authn event, so UserAccountSink does not see it.
+  await recordPasswordSetAt(u.Uuid, new Date());
 
-  await setUserMeta(u, [
-    { key: USER_COMMON_METADATA.USER_PWD_RESET_LAST_ATTEMPT, value: DateTime.now().toISO() },
+  await u.Metadata?.delete(USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS);
+  await u.Metadata?.delete(USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL);
 
-    // a successful password change clears the login throttle: the
-    // credential the failures were counted against no longer exists
-    { key: USER_COMMON_METADATA.USER_LOGIN_ATTEMPTS, value: 0 },
-    { key: USER_COMMON_METADATA.USER_LOGIN_LOCKED_UNTIL, value: null },
-  ]);
-
-  // Every session was authorized by the OLD password. Whoever holds one
-  // — including whoever the user is changing the password because of —
-  // loses it here. Callers that want the acting user to stay logged in
+  // Every session was authorized by the OLD password. Callers that want the acting user to stay logged in
   // ( eg. PATCH /user/password ) mint a fresh session afterwards.
   await revokeUserSessions(u);
 
@@ -1057,33 +963,23 @@ export async function changeUserPassword(u: User, password: string): Promise<Use
 }
 
 /**
- * Chain step form of {@link changeUserPassword}.
+ * Makes the user's password unusable: `PasswordService.expire(user:<Uuid>, { cause: 'admin', actor })`, which stores
+ * authn-local's `'!expired'` marker, ends every authn session and, under `authn.local.reset.revokeTokens`, every API
+ * token. users then ends the 2.x sessions too and sends the 'passwordExpired' mail. {@link UserPasswordExpired} comes
+ * from authn's event through `QueueAuthnEventSink`.
  *
- * @param password - new plain-text password
- */
-export function changePassword(password: string): (u: User) => Promise<User> {
-  return (u: User) => changeUserPassword(u, password);
-}
-
-/**
- * Expire password for user.
- *
- * The stored credential is replaced with a freshly generated random one, so the
- * expired password stops working even if the account is re-activated without a
- * reset. The account is deactivated, {@link UserPasswordExpired} is emitted and
- * the 'passwordExpired' mail is sent.
+ * Unlike 2.x the account stays active: authn lets only an active (or invited) account redeem a reset, and the mail asks
+ * the owner to set a new password.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
+ * @param actor - who expires it, for authn's audit; default SYSTEM
  */
-export async function expirePassword(identifier: number | string | User): Promise<void> {
+export async function expirePassword(identifier: number | string | User, actor: Principal = SYSTEM): Promise<void> {
   const u = await getUser(identifier);
 
-  const sPassword = await legacyService('authn.local.hasher', PasswordProvider);
-  const hPassword = await sPassword.hash(sPassword.generate());
-  await updateModel(u, { Password: hPassword });
+  await (await passwordService()).expire(userRef(u.Uuid), { cause: 'admin', actor: { type: actor.type, id: actor.id } }, actionContext());
+  await revokeLegacySessions(u);
 
-  await deactivate(u);
-  await ev(new UserPasswordExpired(u));
   await sendUserEmail(u, 'passwordExpired');
 }
 
@@ -1106,6 +1002,7 @@ export async function notifyPasswordWillExpire(identifier: number | string | Use
 /**
  * Checks if password matches the user's password stored in db.
  *
+ * @deprecated 3.0: PasswordService.change verifies the old password itself (inline fresh auth). R1 deletes it after C2.
  * @param u - user to check against
  * @param password - plain-text password to verify
  */
@@ -1117,21 +1014,12 @@ export async function verifyPassword(u: User, password: string): Promise<boolean
 }
 
 /**
- * Chain step form of {@link verifyPassword}. The user is taken from the step
- * argument - a regression once read it from a never-passed second parameter.
- *
- * @param password - plain-text password to verify
- */
-export function passwordMatch(password: string) {
-  return (u: User): Promise<boolean> => verifyPassword(u, password);
-}
-
-/**
  * Authenticates a user with the given password.
  * Delegates to the configured {@link AuthProvider}, updates `LastLoginAt`, and emits a
  * {@link UserLogged} event on success. On failure a {@link UserLoginFailed} event is emitted
- * and the original error is re-thrown.
+ * and the original error is re-thrown. Failures count in the 2.x metadata lockout.
  *
+ * @deprecated 3.0: AuthnService.authenticate({ kind: 'password', login, password }, ctx). R1 deletes it after N8a.
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  * @param password - plain-text password to verify
  * @returns the authenticated {@link User}
@@ -1198,6 +1086,7 @@ async function loginLookup(identifier: number | string | User): Promise<User> {
  * Throws when the account is inside a lockout window opened by
  * {@link registerFailedLogin}.
  *
+ * @deprecated 3.0: authn's throttle (authn.throttle.*), which backs off and never locks. R1 deletes it after N8a, N5 and C2.
  * @param u - user attempting to authenticate
  */
 export function assertNotLocked(u: User): void {
@@ -1219,6 +1108,8 @@ export function assertNotLocked(u: User): void {
 
 /**
  * Clears the failure counter and any expired lock after a successful login.
+ *
+ * @deprecated 3.0: authn's throttle (authn.throttle.*). R1 deletes it after N5.
  */
 export async function clearLoginThrottle(u: User): Promise<void> {
   const meta = u?.Metadata;
@@ -1241,7 +1132,10 @@ export async function clearLoginThrottle(u: User): Promise<void> {
 /**
  * Records one failed authentication and, at `rbac.password.blockAfterAttempts`
  * consecutive failures, locks the account for `rbac.password.lockoutTime`
- * seconds.
+ * seconds. The counter lives in metadata, which 3.0 forbids (A12); only the
+ * deprecated 2.x login paths call it.
+ *
+ * @deprecated 3.0: authn's throttle (authn.throttle.*), which backs off and never locks. R1 deletes it after N8a, N5 and C2.
  *
  * `blockAfterAttempts <= 0` disables throttling entirely. A rejection that was
  * itself the lockout is not counted — otherwise hammering a locked account

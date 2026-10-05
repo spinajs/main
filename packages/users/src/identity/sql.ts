@@ -116,6 +116,19 @@ export function sqlDateTime(at: Date): string {
   return DateTime.fromJSDate(at).toSQL({ includeOffset: false })!;
 }
 
+/** @internal Stamps `users.PasswordSetAt` forward only, so writes that arrive out of order never move it back. */
+export async function recordPasswordSetAt(uuid: string, at: Date): Promise<void> {
+  const driver = usersDriver();
+  const setAt = quoted(driver, 'PasswordSetAt');
+  const when = sqlDateTime(at);
+  await driver
+    .update()
+    .in(USERS_TABLE)
+    .update({ PasswordSetAt: when })
+    .where('Uuid', uuid)
+    .where(raw({ sql: `(${setAt} IS NULL OR ${setAt} < ?)`, bindings: [when] }));
+}
+
 /** @internal The number of rows an update or delete reports. */
 export function rowsAffected(result: unknown): number {
   return Number((result as { RowsAffected?: unknown } | undefined)?.RowsAffected ?? 0);

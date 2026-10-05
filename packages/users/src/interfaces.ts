@@ -39,6 +39,7 @@ declare module '@spinajs/orm' {
   }
 }
 
+/** @deprecated 3.0: ISession of @spinajs/authn-session (Subject, State). R1 deletes it after N8a and C2. */
 export interface ISession {
   /**
    * Session identifier
@@ -73,6 +74,8 @@ export interface ISession {
  * `authn.session.expiration.service`, mirroring the `authn.local.hasher` pattern.
  *
  * Units for all shipped strategies are MINUTES.
+ *
+ * @deprecated 3.0: SessionExpirationProvider of @spinajs/authn-session. R1 deletes it with the 2.x session store.
  */
 export abstract class SessionExpirationProvider {
   /**
@@ -88,6 +91,8 @@ export abstract class SessionExpirationProvider {
 
 /**
  * Service used for generating random password & for hash raw string
+ *
+ * @deprecated 3.0: PasswordHasher of @spinajs/authn-local. R1 deletes it after N8a and C2.
  */
 export abstract class PasswordProvider {
   /**
@@ -119,6 +124,8 @@ export abstract class PasswordProvider {
  *
  * Unlike federated auth providers, it check local db for user,
  * or some kind of other source
+ *
+ * @deprecated 3.0: LocalPasswordStrategy (authn-local) behind AuthnService.authenticate. R1 deletes it after N8a.
  */
 export abstract class AuthProvider<U = User> {
   /**
@@ -186,39 +193,7 @@ export abstract class AuthProvider<U = User> {
   public abstract getByUUID(uuid: string): Promise<U>;
 }
 
-/**
- * Used for implementign authentication with external services
- * eg. slack or facebook that uses openid or similar auth
- *
- * NOTE: it should only authorize user, it should not register new one if
- * not exists in use DB.
- */
-export abstract class FederatedAuthProvider<C, U = User> {
-  /**
-   * Name of strategy
-   */
-  abstract get Name(): string;
-
-  /**
-   *
-   * login service provides Host header for check
-   * whitch service is trying to authenticate
-   *
-   * Base on host adress we choose auth provider
-   *
-   * @param caller - caller url
-   */
-  public abstract callerCheck(caller: string): boolean;
-
-  /**
-   *
-   * Authenticates user based on response from external auth service
-   *
-   * @param credentials - provided credentials eg. data with token
-   */
-  public abstract authenticate(credentials: C): Promise<U>;
-}
-
+/** @deprecated 3.0: SessionProvider of @spinajs/authn-session, behind SessionIssuer. R1 deletes it after N8a and C2. */
 export abstract class SessionProvider<T extends ISession = ISession> extends AsyncService {
   private _expiration?: SessionExpirationProvider;
 
@@ -337,6 +312,7 @@ export interface IRbacModelDescriptor extends IModelDescriptor {
  * `new RegExp(pattern)` and refuse a password locally with the same verdict the
  * server will give.
  */
+/** @deprecated 3.0: PasswordPolicy of @spinajs/authn/contracts. R1 deletes it after N8a. */
 export interface IPasswordPolicy {
   /** Fewest characters accepted. */
   minLength?: number;
@@ -357,6 +333,8 @@ export interface IPasswordPolicy {
 
 /**
  * Interface to provide implementation of password rule validation
+ *
+ * @deprecated 3.0: LocalPasswordPolicy (authn-local), PasswordService.check and .policy. R1 deletes it after N8a.
  */
 export abstract class PasswordValidationProvider {
   public abstract check(password: string): boolean;

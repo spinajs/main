@@ -71,7 +71,16 @@ export class MetadataNotFound extends RbacException {}
 export class EmailTemplateNotConfigured extends RbacException {}
 
 /**
+ * Thrown by the deprecated `changeUserPassword` when the stored password is no longer the one the caller loaded (a
+ * reset, an expiry or another change landed meanwhile): nothing was written. `data.user` is the Uuid.
+ */
+export class PasswordChangeConflict extends RbacException {}
+
+/**
  * Thrown when a password change / reset token has expired.
+ *
+ * @deprecated 3.0: nothing in users throws it; authn answers an expired secret like any invalid one (A11). R1 deletes
+ * it after N8a.
  */
 export class TokenExpired extends RbacException {}
 
