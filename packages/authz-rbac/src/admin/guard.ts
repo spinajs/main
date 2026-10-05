@@ -4,8 +4,8 @@ import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
-import { assignmentStore, grantClosure, grantsPermission, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
-import type { PlannedRemovals, RoleIndex } from './common.js';
+import { assignmentStore, grantClosure, grantsPermission, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
+import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
 
@@ -187,11 +187,15 @@ export class DefaultAdminGuard extends AdminGuard {
     }
   }
 
-  /** Holding a subject set role at a scope also gives every role assigned to that set. */
   private async reach(call: Call, role: string, scope: ResourceRef, field: string): Promise<Target[]> {
+    return (await this.setRoles(call, role, scope)).map((r) => ({ ...r, field }));
+  }
+
+  /** Holding a subject set role at a scope also gives every role assigned to that set. */
+  private async setRoles(call: Call, role: string, scope: ResourceRef): Promise<{ role: string; scope: ResourceRef }[]> {
     if (call.roles.roles.get(role)?.subjectSet !== true) return [];
     const { items } = await (await assignmentStore(call.ctx)).find({ subject: { set: { role, scope } }, at: call.ctx.now });
-    return items.map((a) => ({ role: a.role, scope: a.scope, field }));
+    return items.map((a) => ({ role: a.role, scope: a.scope }));
   }
 
   /** A role a rule names (minRole, a string maxRole) must not rank above the actor's own at the rule scope. */
@@ -233,14 +237,19 @@ export class DefaultAdminGuard extends AdminGuard {
       const row = await (await assignmentStore(ctx)).byId(readId(c.id));
       if (row) touched.push(row);
     }
-    if (c.kind === 'link.update' && (c.tags !== undefined || c.expiresAt !== undefined) && planned.revoke.length === 0) touched.push(...((await linkGrants(readId(c.id), ctx, true)) ?? []));
+    const linkRows = c.kind === 'link.update' && (c.tags !== undefined || c.expiresAt !== undefined) && planned.revoke.length === 0 ? (await linkGrants(readId(c.id), ctx, true)) ?? [] : [];
+    touched.push(...linkRows);
 
     if (cfg.protectSystemRole) {
       const system = touched.find((a) => roles.roles.get(a.role)?.assignable === false);
       if (system) throw refuse('protected_role', `assignment ${quote(system.id)} holds the system role ${quote(system.role)}; only SYSTEM changes it`, idField(c));
     }
 
-    if (cfg.preventEscalation) await this.removalRanks(call, c, planned, touched);
+    if (cfg.preventEscalation) {
+      // A new link expiry ends its grant rows; an extension among them was already ranked as a grant.
+      const ending = [...planned.revoke, ...planned.expire, ...(c.kind === 'link.update' && c.expiresAt !== undefined ? linkRows : [])];
+      await this.removalRanks(call, c, new Set(planned.revoke.map((a) => a.id)), ending, touched);
+    }
 
     const until = 'expiresAt' in c ? readExpiry(c.expiresAt) : undefined;
     const removed = [
@@ -258,10 +267,9 @@ export class DefaultAdminGuard extends AdminGuard {
    * that ladder at the row scope. A removed or re-expired principal row also takes the roles of the subject
    * sets it makes the principal a member of. Expired rows count; a role on no ladder is not checked.
    */
-  private async removalRanks(call: Call, c: AuthzCommand, planned: PlannedRemovals, touched: readonly Assignment[]): Promise<void> {
+  private async removalRanks(call: Call, c: AuthzCommand, revoked: ReadonlySet<string>, ending: readonly Assignment[], touched: readonly Assignment[]): Promise<void> {
     if (touched.length === 0) return;
     const facts = await this.facts(call.ctx);
-    const revoked = new Set(planned.revoke.map((a) => a.id));
     const field = (a: Assignment): string | undefined => {
       if (c.kind !== 'assignment.grant' && c.kind !== 'set.addMember') return idField(c);
       return revoked.has(a.id) ? 'replaceLadder' : 'expiresAt';
@@ -269,13 +277,14 @@ export class DefaultAdminGuard extends AdminGuard {
     const check = async (a: Assignment, role: string, scope: ResourceRef, via: string): Promise<void> => {
       const ladder = call.roles.ladderOf(role);
       if (ladder === undefined || (await this.ranksAtLeast(call, facts, ladder, role, scope))) return;
-      const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (assignment ${quote(a.id)})`;
+      const row = isLinkSubject(a.subject) ? `link ${quote((a.subject as PrincipalRef).id)}` : `assignment ${quote(a.id)}`;
+      const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (${row})`;
       throw refuse('escalation', `${what}: ${via} ranks above its own on ladder ${quote(ladder)}`, field(a));
     };
     for (const a of touched) await check(a, a.role, a.scope, 'the role');
-    for (const a of [...planned.revoke, ...planned.expire]) {
+    for (const a of ending) {
       if (isSetSubject(a.subject)) continue;
-      for (const t of await this.reach(call, a.role, a.scope, '')) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
+      for (const t of await this.setRoles(call, a.role, a.scope)) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
     }
   }
 
