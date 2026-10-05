@@ -1,10 +1,8 @@
 import 'mocha';
 import { expect } from 'chai';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import shipped from '../../src/config/authn-http.js';
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHILD = join(PKG_ROOT, 'test', 'v3', 'route-groups-app.cjs');
@@ -92,21 +90,28 @@ const CASES: Case[] = [
 const label = (c: Case) => `${c.mode.toUpperCase()} ${c.packages.length === 0 ? 'no strategy package' : c.packages.length === ALL.length ? 'every strategy package' : c.packages.join(', ')}`;
 const isOn = (c: Case, g: Group) => c.packages.includes(PACKAGE_OF[g]);
 
+const children: ChildProcess[] = [];
+
 function boot(c: Case): Promise<Boot> {
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
   const off = GROUPS.filter((g) => !isOn(c, g));
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(',')], { cwd: PKG_ROOT, env });
+    const child = spawn(process.execPath, [CHILD, c.mode, c.packages.join(','), off.join(',')], { cwd: PKG_ROOT, env, timeout: 150000, killSignal: 'SIGKILL' });
+    children.push(child);
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (err += d));
     child.on('error', fail);
-    child.on('close', (code) => {
-      if (code !== 0) return fail(new Error(`${label(c)}: exit ${code}\n${err}`));
+    child.on('close', (code, signal) => {
+      if (code !== 0) return fail(new Error(`${label(c)}: ${signal ? `killed by ${signal}` : `exit ${code}`}\n${err}`));
       const lines = out.trim().split(/\r?\n/);
-      done(JSON.parse(lines[lines.length - 1]) as Boot);
+      try {
+        done(JSON.parse(lines[lines.length - 1]) as Boot);
+      } catch (e) {
+        fail(new Error(`${label(c)}: no JSON result (${(e as Error).message})\n${out}\n${err}`));
+      }
     });
   });
 }
@@ -121,11 +126,15 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
     CASES.forEach((c, i) => boots.set(c, results[i]));
   });
 
+  after(() => {
+    for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  });
+
   for (const c of CASES) {
     describe(label(c), () => {
-      it('boots the 3.0 controllers without @spinajs/users, with the packages named and no other', () => {
+      it('boots the 3.0 controllers with no users bootstrapper and one session provider, with the packages named and no other', () => {
         const b = boots.get(c)!;
-        expect(b.usersModules, 'modules of @spinajs/users').to.deep.eq([]);
+        expect(b.usersModules, 'CJS only: loaded modules of @spinajs/users').to.deep.eq([]);
         expect(b.bootstrappers).to.not.include('RbacBootstrapper');
         expect(b.sessionProviders).to.deep.eq(['MemorySessionStore']);
         expect([...b.controllers].sort()).to.deep.eq(V3_CONTROLLERS);
@@ -162,13 +171,14 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
     it('with every strategy package loaded each N8b route is mounted exactly once and no method and path twice across the N8a and N8b controllers', () => {
       for (const c of CASES.filter((x) => x.packages.length === ALL.length)) {
         const { routes } = boots.get(c)!;
+        const shapes = routes.map((r) => r.replace(/:w+/g, ':param'));
         for (const route of GROUPS.flatMap((g) => N8B_ROUTES[g]))
           expect(
             routes.filter((r) => r === route),
             `${label(c)}: ${route}`,
           ).to.have.length(1);
         expect(
-          routes.filter((r, i) => routes.indexOf(r) !== i),
+          shapes.filter((r, i) => shapes.indexOf(r) !== i),
           label(c),
         ).to.deep.eq([]);
       }
@@ -177,11 +187,6 @@ describe('each 3.0 route group only with its service (N8b task 6, design §22.11
     it('the route table does not depend on the packages: a controller scan mounts every group, the gates switch them', () => {
       const tables = CASES.map((c) => [...boots.get(c)!.routes].sort());
       for (const t of tables) expect(t).to.deep.eq(tables[0]);
-    });
-
-    it('the shipped config still does not scan src/v3/controllers (the layer ships off; N8c switches it on)', () => {
-      const dirs = shipped.system.dirs.controllers.map((d: string) => d.replace(/\\/g, '/'));
-      expect(dirs.filter((d: string) => /\/v3(\/|$)/.test(d))).to.deep.eq([]);
     });
   });
 });

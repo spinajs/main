@@ -76,6 +76,7 @@ function send(port, method, path, body, cookie) {
         done({ status: res.statusCode, body: parsed, setCookie: [].concat(res.headers['set-cookie'] ?? []) });
       });
     });
+    req.setTimeout(30000, () => req.destroy(new Error(`${method} ${path}: no answer in 30 s`)));
     req.on('error', fail);
     if (payload !== undefined) req.write(payload);
     req.end();
