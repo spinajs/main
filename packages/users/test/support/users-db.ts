@@ -20,11 +20,96 @@ export function registerUsersTestHost(): void {
   registerAuthzHost();
 }
 
+// What `bootUsersDb` and the authz host leave in the root cache, uncached by name instead of `DI.clearCache()`: a suite
+// drops what it owns, and a singleton an earlier suite left behind cannot hide this suite's fresh database.
+const USERS_HOST_KEYS = [
+  'Bootstrapper',
+  'InternalLogger',
+  'FsBootsrapper',
+  'LogBotstrapper',
+  'AuthzConfigBootstrapper',
+  'RbacConfigBootstrapper',
+  'RbacBootstrapper',
+  '__configurationSchema__',
+  'RbacUserModel',
+  'AccessControl',
+  'ConfigurationSource',
+  'JsFileSource',
+  'JsonFileSource',
+  'Configuration',
+  'TestConfiguration',
+  'BlackHoleTarget',
+  'ConfigVariable',
+  'MigrationSource',
+  'FilesystemMigrationSource',
+  'DiRegistryMigrationSource',
+  '__orm_db_value_converters__',
+  'QueryMiddleware',
+  'AuthzQueryMiddleware',
+  'RbacModelPermissionMiddleware',
+  'ScopeUserModelToNothing',
+  'PerfSink',
+  'LogMetricSink',
+  'SchemaSource',
+  'FileSystemSource',
+  'DataValidator',
+  'BasicPasswordValidationProvider',
+  'BasicPasswordProvider',
+  'ModelHydrator',
+  'DbPropertyHydrator',
+  'NonDbPropertyHydrator',
+  'OneToManyRelationHydrator',
+  'OneToOneRelationHydrator',
+  'JunctionModelPropertyHydrator',
+  'Orm',
+  'DefaultAuthzDomains',
+  'LogDecisionAudit',
+  'InProcessChangeBus',
+  'ConfigRoleStore',
+  'DbAssignmentStore',
+  'UsersTestRbac',
+  'OrmResourceAdapter',
+  'UserResourceAdapter',
+  'UserSelfRelation',
+  'UsersSelfRelation',
+  'ConfigScopeAttributeSchemas',
+  'OrmAuthzContributor',
+  'DefaultRolesBootCheck',
+  'OwnRolesTokenRolePolicy',
+  'OrmNativeCompiler',
+  'RbacOrmCompiler',
+  'TimeBetween',
+  'IpIn',
+  'GlobMatch',
+  'WildcardMatch',
+  'DefaultAuthzAdmin',
+  'SystemClock',
+  'DefaultAuthzService',
+  'TestPasswordService',
+  'DefaultAdminGuard',
+  'DbAuthzAdminBackend',
+  'ScopeAttributeHandler',
+  'ScopeForgetHandler',
+  'RbacAssignmentHandler',
+  'RbacLinkHandler',
+  'RbacRuleHandler',
+  'LogAuthzEventSink',
+  'DefaultQueueService',
+  'DefaultEmailService',
+];
+
+export function releaseUsersHost(): void {
+  for (const key of USERS_HOST_KEYS) {
+    DI.RootContainer.uncache(key);
+  }
+}
+
 /**
- * Bootstraps and boots the Orm (migrations and seeds of the test database); the suites clear the DI cache after.
+ * Bootstraps and boots the Orm (migrations and seeds of the test database); the suites call `releaseUsersHost()` after.
  * `configure` edits the resolved configuration before the Orm reads it.
  */
 export async function bootUsersDb(configure?: (config: Configuration) => void): Promise<void> {
+  releaseUsersHost();
   for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
     await b.bootstrap();
   }
