@@ -8,6 +8,7 @@ import type { IWhereBuilder } from '@spinajs/orm';
 import type { ModelBase } from '@spinajs/orm';
 
 import { authzFor } from '../hook/service.js';
+import './job-grant.js';
 
 /** The rows a principal emitted: relation `initiator` of the `job` type. */
 @OrmScope(JobModel, 'initiator')

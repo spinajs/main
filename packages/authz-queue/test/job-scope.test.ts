@@ -1,6 +1,11 @@
 import 'mocha';
 
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect } from 'chai';
+import { DI } from '@spinajs/di';
+import { ConfigurationSource, JsFileSource } from '@spinajs/configuration';
 import { fixtureDsl, userPrincipal } from '@spinajs/authz-testing';
 import type { HarnessSession, SetupContext, World } from '@spinajs/authz-testing';
 import { AccessDenied, SYSTEM, UNATTENDED } from '@spinajs/authz';
@@ -66,9 +71,21 @@ describe('JobModel as an access resource', () => {
   });
 });
 
-describe('queue config fragment', () => {
-  it('grants job:read with relation initiator to the user role', async () => {
-    const fragment = (await import('../src/config/queue.js')).default;
-    expect(fragment.authz.rbac.roles.user.grants).to.deep.equal([{ permission: 'job:read', relation: 'initiator' }]);
+describe('job:read grant', () => {
+  it('is not in a config fragment that loads on install', () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'config');
+    expect(existsSync(dir), 'every installed package config dir is read, imported or not').to.equal(false);
+  });
+
+  it('comes with the import as a configuration source', async () => {
+    const { JobGrantSource } = await import('../src/job/job-grant.js');
+    expect(DI.RootContainer.getRegisteredTypes(ConfigurationSource)).to.include(JobGrantSource);
+    const cfg = await new JobGrantSource().Load();
+    expect(cfg).to.deep.equal({ authz: { rbac: { roles: { user: { grants: [{ permission: 'job:read', relation: 'initiator' }] } } } } });
+  });
+
+  it('loads before the file sources, so the application can still override scalars', async () => {
+    const { JobGrantSource } = await import('../src/job/job-grant.js');
+    expect(new JobGrantSource().Order).to.be.lessThan(new JsFileSource().Order);
   });
 });
