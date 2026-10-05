@@ -215,9 +215,46 @@ describe('DefaultAdminGuard', function () {
       await refused(p('carol'), [grant('viewer')], 'escalation');
     });
 
-    it('a glob grant counts as not covered (fail closed)', async () => {
-      await refused(p('erin'), [grant('globber')], 'escalation');
-      await passes(p('erin'), [grant('viewer')]);
+    describe('glob grants are covered against the permission registry', () => {
+      // note:own implies project:settings; nora holds note:* but not project:settings.
+      const GLOB_ROLES = [...GUARD_ROLES, role('pglob', { grants: grants('project:*') }), role('nomatch', { grants: grants('nothing:*') }), role('badglob', { grants: grants('file:**') }), role('nglob', { grants: grants('note:*') }), role('nown', { grants: grants('note:own') })];
+      const globs = (opts: WorldOptions = {}) => world({ roles: GLOB_ROLES, permissions: { 'note:own': { types: ['project'], implies: ['project:settings'] }, 'note:read': { types: ['project'] } }, ...opts });
+
+      beforeEach(() => {
+        table.set('nora', P1, { allow: ['note:*', 'authz:assignments.manage'] });
+      });
+
+      it('a glob matching registered permissions the actor holds is covered', async () => {
+        await globs();
+        await passes(p('erin'), [grant('globber')]);
+        await passes(p('erin'), [grant('viewer')]);
+      });
+
+      it('a glob matching a permission the actor lacks is refused', async () => {
+        await globs();
+        await refused(p('erin'), [grant('pglob')], 'escalation');
+        await passes(p('root'), [grant('pglob')]);
+      });
+
+      it('a glob matching no registered permission, or an invalid glob, is refused', async () => {
+        await globs();
+        await refused(p('root'), [grant('nomatch')], 'escalation');
+        await refused(p('root'), [grant('badglob')], 'escalation');
+      });
+
+      it('the permissions a grant matches bring in what they imply, glob or literal', async () => {
+        await globs();
+        await refused(p('nora'), [grant('nglob')], 'escalation');
+        await refused(p('nora'), [grant('nown')], 'escalation');
+        await passes(p('root'), [grant('nglob')]);
+        await passes(p('root'), [grant('nown')]);
+      });
+
+      it('with no registry a glob grant is refused (fail closed); a literal one is judged as before', async () => {
+        await globs({ registry: false });
+        await refused(p('erin'), [grant('globber')], 'escalation');
+        await passes(p('erin'), [grant('viewer')]);
+      });
     });
 
     it('a permission checked outside its types counts as not covered', async () => {
@@ -807,7 +844,7 @@ describe('DefaultAdminGuard', function () {
       await fresh([row('d-glob', user('dave'), 'globber', P1)]);
       await refusedAt(p('clerk'), revoke('a-root'), 'id');
       await refusedAt(p('clerk'), revoke('f-vw'), 'id');
-      // bob does not cover globber; revoking asks for no covers either.
+      // globber is on no ladder, and revoking asks for no covers.
       await passes(p('bob'), [revoke('d-glob')]);
     });
 

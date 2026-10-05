@@ -110,8 +110,10 @@ describe('plan C1 acceptance', function () {
 
   describe('B10, B27: the parts that name lane C1, through a real host with users roles', () => {
     runBehaviour(['B10.rbac'], () => usersRbacHarness(false), { strict: true });
-    // B12.write stops here until RFC C1-1 is decided: with users' admin.users glob grants merged in, the guard refuses
-    // the world's superuser the grant of admin.
+    // B12.write stays off after RFC C1-1 (applied in G2): the guard now covers glob grants against the registry, but a
+    // glob that matches no registered permission refuses. admin.users' 'user.metadata:*' matches none in this world
+    // (no package registers a user.metadata permission yet), so the world's superuser may not grant admin. Run
+    // B12.write here once C2 registers the user.metadata permissions and the world's superuser holds them.
     runBehaviour(['B27.events'], () => usersRbacHarness(true), { strict: true });
   });
 
