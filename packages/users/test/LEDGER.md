@@ -157,16 +157,16 @@ User lifecycle actions (create, activate, ban, delete), the login, reset and inv
 
 ## test/active-role.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/active-role.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 3: ported to `authz-orm/test/ported/active-role.test.ts` (sqlite and postgres); the legacy file is deleted. The role switch is `ceiling.roles` on the principal (D14, B24); the suite votes through a small role model that drops roles outside the ceiling (B07), so it pins what the ORM does with the decision. One test added: a switch to a role the user does not hold never widens access (B07).
 
 ActiveRole middleware: role switching and the owner filter. All rewrite (C1 → T1). Plan §5 names B24/D14; the target is `authz-orm/test/ported/` rather than `authz-rbac` because these tests compile ORM queries.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 78 | Rbac ActiveRole middleware > ActiveRole=admin lets read:any through with no owner filter | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B11, B20 (TRUE gives no WHERE) |
-| 2 | 97 | Rbac ActiveRole middleware > ActiveRole=normal forces read:own owner filter even though user has admin role too | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B07, D14, B15, B20 (role switch is now ceiling.roles) |
-| 3 | 121 | Rbac ActiveRole middleware > ActiveRole pointing to a role without any permission throws Forbidden | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B07, D14, B20 (FALSE gives AccessDenied 403, was Forbidden) |
-| 4 | 140 | Rbac ActiveRole middleware > Without ActiveRole the full role list is used (admin role wins) | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B11, B20 |
+| 1 | 78 | Rbac ActiveRole middleware > ActiveRole=admin lets read:any through with no owner filter | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B11, B20 (TRUE gives no WHERE) Ported: same test name; also asserts both rows come back; no changed expectation beyond the ceiling carrier (D14). |
+| 2 | 97 | Rbac ActiveRole middleware > ActiveRole=normal forces read:own owner filter even though user has admin role too | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B07, D14, B15, B20 (role switch is now ceiling.roles) Ported: same test name; also asserts the owner id is bound and only the own row comes back; no changed expectation beyond the ceiling carrier (D14). |
+| 3 | 121 | Rbac ActiveRole middleware > ActiveRole pointing to a role without any permission throws Forbidden | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B07, D14, B20 (FALSE gives AccessDenied 403, was Forbidden) Ported: same test name; changed expectation (B01, B20): rejects with AccessDenied (403 Forbidden) from the awaited query; 2.x threw Forbidden while the builder was created. |
+| 4 | 140 | Rbac ActiveRole middleware > Without ActiveRole the full role list is used (admin role wins) | rewrite | C1 → T1 | authz-orm/test/ported/; B24, B11, B20 Ported: same test name; also asserts both rows come back; no changed expectation. |
 
 ## test/auth.test.ts
 
@@ -197,17 +197,17 @@ CLI commands that must boot the Orm themselves (`RbacCliCommand`). Both adapt: t
 
 ## test/clone-rbac.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/clone-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 3: ported to `authz-orm/test/ported/clone-rbac.test.ts` (sqlite and postgres); the legacy file is deleted. Every case runs twice: against the 2.x correlated `whereExist` constraint (an `@OrmScope` policy over relation `viaOwner`) and against the plain `@Owner` column residual. The owner column is `user_id`, not `UserId`: the ORM joins a populated relation with unquoted column names, which Postgres folds to lower case. Postgres `selectCount` returns a string, so the count is compared as a number. The four `whereExist` cases that read through the policy are `it.skip` on Postgres, BUG(T1) in `.authz-sdd/T1-handoffs.md` (the ORM quotes the exists correlation with backticks).
 
 Row constraints surviving query cloning and counting. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 110 | rbac constraints survive query cloning > a readOwn caller gets a count that matches the rows it is allowed to see | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
-| 2 | 120 | rbac constraints survive query cloning > a readAny caller still counts everything | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
-| 3 | 130 | rbac constraints survive query cloning > the clone is constrained even when it is compiled before the original | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
-| 4 | 149 | rbac constraints survive query cloning > a clone of a clone stays constrained | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
-| 5 | 158 | rbac constraints survive query cloning > a caller-supplied filter narrows both the rows and the count | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) |
+| 1 | 110 | rbac constraints survive query cloning > a readOwn caller gets a count that matches the rows it is allowed to see | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) Ported: same test name; no changed expectation. Pending on Postgres for the whereExist shape (BUG(T1)). |
+| 2 | 120 | rbac constraints survive query cloning > a readAny caller still counts everything | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) Ported: same test name; no changed expectation. |
+| 3 | 130 | rbac constraints survive query cloning > the clone is constrained even when it is compiled before the original | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) Ported: same test name; no changed expectation. Pending on Postgres for the whereExist shape (BUG(T1)). |
+| 4 | 149 | rbac constraints survive query cloning > a clone of a clone stays constrained | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) Ported: same test name; no changed expectation. Pending on Postgres for the whereExist shape (BUG(T1)). |
+| 5 | 158 | rbac constraints survive query cloning > a caller-supplied filter narrows both the rows and the count | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (cloned builders get the residual) Ported: same test name; no changed expectation. Pending on Postgres for the whereExist shape (BUG(T1)). |
 
 ## test/collect-permissions.test.ts
 
@@ -276,17 +276,17 @@ The 2.x `canImpersonate` rule. All rewrite (C1 → T1); B26 and the `AuthzImpers
 
 ## test/m2m-rbac.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/m2m-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 3: ported to `authz-orm/test/ported/m2m-rbac.test.ts` (sqlite and postgres); the legacy file is deleted. The 2.x hook is an `@OrmScope` policy over relation `segment`; the 2.x `read:own` grant is a permit under that relation.
 
 Row scope on a many-to-many target model. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 120 | rbac on a hasManyToMany target model > applies the hook to the relation, narrowing it to the rows the rule allows | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 |
-| 2 | 132 | rbac on a hasManyToMany target model > invokes the hook once, not once per builder the relation is made of | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (junction builders get the residual once) |
-| 3 | 141 | rbac on a hasManyToMany target model > leaves the relation untouched for an :any grant | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B15 (TRUE leaves the relation untouched) |
-| 4 | 156 | rbac on a hasManyToMany target model > keeps a Lazy-deferred, table-guarded hook working | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (IO-needing builder is marked and compiled in beforeQueryExecution) |
-| 5 | 167 | rbac on a hasManyToMany target model > still constrains the target when it is queried directly | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 |
+| 1 | 120 | rbac on a hasManyToMany target model > applies the hook to the relation, narrowing it to the rows the rule allows | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 Ported: same test name; no changed expectation. |
+| 2 | 132 | rbac on a hasManyToMany target model > invokes the hook once, not once per builder the relation is made of | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 (junction builders get the residual once) Ported: same test name; also asserts the scope value is bound once in the executed SQL; no changed expectation. |
+| 3 | 141 | rbac on a hasManyToMany target model > leaves the relation untouched for an :any grant | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B15 (TRUE leaves the relation untouched) Ported: same test name; no changed expectation (`permit()` is TRUE, the policy is never called). |
+| 4 | 156 | rbac on a hasManyToMany target model > keeps a Lazy-deferred, table-guarded hook working | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (IO-needing builder is marked and compiled in beforeQueryExecution) Ported: same test name; changed expectation (B20): the 2.x `Lazy` table guard has no 3.0 form; the deferred case is a model with sync 'never', whose residual is resolved before the query runs. |
+| 5 | 167 | rbac on a hasManyToMany target model > still constrains the target when it is queried directly | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 Ported: same test name; no changed expectation. |
 
 ## test/orm-permission-policy.test.ts
 
@@ -349,36 +349,36 @@ C1 task 13: the whole file is in `test/legacy-v2/orm-permission-registry.test.ts
 
 ## test/orm-rbac.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/orm-rbac.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 3: ported to `authz-orm/test/ported/orm-rbac.test.ts` (sqlite and postgres); the legacy file is deleted. The 2.x `TestClientPolicy.scope` is an `@OrmScope` policy over relation `pool`, with `relationScope: 'join'` on the model; ids and the type column are INTEGER as in 2.x.
 
 ORM query constraints and relation-join scoping. All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 57 | Orm rbac test > Rbac > should add statement on read:own permission | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B15 (read:own gives a relation residual) |
-| 2 | 74 | Orm rbac test > Rbac > should throw forbidden when user has no permission | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B01 (FALSE gives AccessDenied, was Forbidden) |
-| 3 | 91 | Orm rbac test > Rbac > should skip rbac check when SkipModelPermissionCheck is set | rewrite | C1 → T1 | authz-orm/test/ported/; B09, B21 (@Unscoped or runAs(SYSTEM) replaces SkipModelPermissionCheck) |
-| 4 | 111 | Orm rbac test > Rbac relationScope join > should emit rbac constraint in relation JOIN ON clause, not in parent WHERE | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (JOIN ON with relationScope join) |
-| 5 | 133 | Orm rbac test > Rbac relationScope join > should still filter in WHERE on a root query | rewrite | C1 → T1 | authz-orm/test/ported/; B20 |
-| 6 | 151 | Orm rbac test > Rbac relationScope join > should combine rbac constraint with user whereOnJoin OR group in JOIN ON clause | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (OR/AND preserved) |
-| 7 | 182 | Orm rbac test > Rbac relationScope join > should give each join a distinct alias when one model is joined twice | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 |
-| 8 | 205 | Orm rbac test > Rbac relationScope join > should not drop a parent whose relation is filtered by a joined table | rewrite | C1 → T1 | authz-orm/test/ported/; B20 |
-| 9 | 225 | Orm rbac test > Rbac relationScope join > should not drop campaigns whose client type is filtered out | rewrite | C1 → T1 | authz-orm/test/ported/; B20 |
+| 1 | 57 | Orm rbac test > Rbac > should add statement on read:own permission | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B15 (read:own gives a relation residual) Ported: same test name; also asserts the foreign row is not returned and the owner id is bound; no changed expectation. |
+| 2 | 74 | Orm rbac test > Rbac > should throw forbidden when user has no permission | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B01 (FALSE gives AccessDenied, was Forbidden) Ported: same test name; changed expectation (B01): rejects with AccessDenied (403 Forbidden), permission `resource:read`, reason `no_access`, instead of the 2.x message. |
+| 3 | 91 | Orm rbac test > Rbac > should skip rbac check when SkipModelPermissionCheck is set | rewrite | C1 → T1 | authz-orm/test/ported/; B09, B21 (@Unscoped or runAs(SYSTEM) replaces SkipModelPermissionCheck) Ported: same test name; changed expectation (B09, B21): `runAs(SYSTEM)` and `@Unscoped(reason)` replace `SkipModelPermissionCheck`; both return the row with no grant. |
+| 4 | 111 | Orm rbac test > Rbac relationScope join > should emit rbac constraint in relation JOIN ON clause, not in parent WHERE | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (JOIN ON with relationScope join) Ported: same test name; changed expectation (B15, B20): the policy compiles to an EXISTS keyed on the primary key, so the `type IN (?,?)` predicate sits inside that EXISTS in the JOIN ON; still absent from the parent WHERE. |
+| 5 | 133 | Orm rbac test > Rbac relationScope join > should still filter in WHERE on a root query | rewrite | C1 → T1 | authz-orm/test/ported/; B20 Ported: same test name; changed expectation (B15, B20): the `type IN (?,?)` predicate sits in an EXISTS keyed on the primary key; no JOIN. |
+| 6 | 151 | Orm rbac test > Rbac relationScope join > should combine rbac constraint with user whereOnJoin OR group in JOIN ON clause | rewrite | C1 → T1 | authz-orm/test/ported/; B20 (OR/AND preserved) Ported: same test name; changed expectation (B15, B20): as row 4; the user OR group stays whole in the JOIN ON. |
+| 7 | 182 | Orm rbac test > Rbac relationScope join > should give each join a distinct alias when one model is joined twice | rewrite | C1 → T1 | authz-orm/test/ported/; B20, B21 Ported: same test name; no changed expectation; runs as a user principal because no principal is UNATTENDED (B09). |
+| 8 | 205 | Orm rbac test > Rbac relationScope join > should not drop a parent whose relation is filtered by a joined table | rewrite | C1 → T1 | authz-orm/test/ported/; B20 Ported: same test name; no changed expectation; runs as a user principal (B09). |
+| 9 | 225 | Orm rbac test > Rbac relationScope join > should not drop campaigns whose client type is filtered out | rewrite | C1 → T1 | authz-orm/test/ported/; B20 Ported: same test name; no changed expectation. |
 
 ## test/ownership.test.ts
 
-C1 task 13: the whole file is in `test/legacy-v2/ownership.test.ts` (every row is rewrite), excluded from the active suite until T1 replaces and deletes it.
+T1 task 3: ported to `authz-orm/test/ported/ownership.test.ts` (sqlite and postgres); the legacy file is deleted. `checkOwnership` is the `owner` relation resolver (`holds`, with a primary key or the row) and `ownsRow`; `ensureOwnership` is the owner residual of a `read:own` permit.
 
 2.x model ownership helpers (`checkOwnership`, `ensureOwnership`). All rewrite (C1 → T1).
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
-| 1 | 58 | Model ownership helpers > checkOwnership(primaryKey) returns true for an owned resource | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 (owner relation resolver) |
-| 2 | 63 | Model ownership helpers > checkOwnership(primaryKey) returns false for a resource owned by someone else | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 |
-| 3 | 68 | Model ownership helpers > checkOwnership(model) returns true when the model instance is owned | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 |
-| 4 | 73 | Model ownership helpers > checkOwnership(model) returns false when the model instance is not owned | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 |
-| 5 | 78 | Model ownership helpers > ensureOwnership restricts a query to rows owned by the user | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 (relation residual on the query) |
-| 6 | 87 | Model ownership helpers > throws when the model has no @ResourceOwner() field | rewrite | C1 → T1 | authz-orm/test/ported/; B02, B15 (model without @Owner fails loud at config) |
+| 1 | 58 | Model ownership helpers > checkOwnership(primaryKey) returns true for an owned resource | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 (owner relation resolver) Ported: same test name; no changed expectation. |
+| 2 | 63 | Model ownership helpers > checkOwnership(primaryKey) returns false for a resource owned by someone else | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 Ported: same test name; no changed expectation. |
+| 3 | 68 | Model ownership helpers > checkOwnership(model) returns true when the model instance is owned | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 Ported: same test name; also asserts `ownsRow`; no changed expectation. |
+| 4 | 73 | Model ownership helpers > checkOwnership(model) returns false when the model instance is not owned | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 Ported: same test name; also asserts `ownsRow`; no changed expectation. |
+| 5 | 78 | Model ownership helpers > ensureOwnership restricts a query to rows owned by the user | rewrite | C1 → T1 | authz-orm/test/ported/; B15, B20 (relation residual on the query) Ported: same test name; no changed expectation (a middleware query under a `read:own` permit). |
+| 6 | 87 | Model ownership helpers > throws when the model has no @ResourceOwner() field | rewrite | C1 → T1 | authz-orm/test/ported/; B02, B15 (model without @Owner fails loud at config) Ported: same test name; changed expectation (B02, B15): a query under an owner permit on a model with no `@Owner` rejects with AuthzConfigError ("needs @Owner() or an @OrmScope ... policy"), not a thrown helper call. |
 
 ## test/password.test.ts
 
