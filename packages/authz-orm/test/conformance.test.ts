@@ -15,11 +15,9 @@ import { allRows, sqlIds } from './support/residual.js';
 
 // Plan L4 task 11: the kit's adapter conformance for OrmResourceAdapter, its `compiles` judged by
 // the kit oracle against the residual compiled to SQL. Two inputs stay out because the SQL is
-// "sound only" there (conventions §5), and one because the oracle still reads it otherwise than
-// the engine: a canonical number string in a text cell (compared with a number, SQL answers
-// UNKNOWN where the engine decides), a glob with a single '*' that is not trailing (UNKNOWN on
-// SQLite), and a like pattern ending in a lone '\' (the engine: UNKNOWN; the oracle: a literal '\';
-// RFC L4-2).
+// "sound only" there (conventions §5): a canonical number string in a text cell (compared with a
+// number, SQL answers UNKNOWN where the engine decides) and a glob with a single '*' that is not
+// trailing (UNKNOWN on SQLite).
 const SEED = 20261104;
 const RUNS = 100;
 const TYPE = 'cftask';
@@ -45,7 +43,7 @@ const COLUMNS: Record<Dialect, Record<string, string>> = {
   sqlite: { title: 'TEXT', owner: 'TEXT', team: 'TEXT', project_id: 'TEXT', n: 'REAL', k: 'INTEGER', flag: 'BOOLEAN' },
   postgres: { title: 'TEXT', owner: 'TEXT', team: 'TEXT', project_id: 'TEXT', n: 'DOUBLE PRECISION', k: 'INTEGER', flag: 'BOOLEAN' },
 };
-const VALUES: readonly (string | number)[] = ['a', 'b', 'ab', 'a%', '%', '_', 'a_b', 'a\\%', 'a\\\\', '\\_', 'a*', '**', 'x/*', 'x/**', 'x/y', 'red', 'alice', '01', '1', '2.5', 0, 1, 2, 2.5, -4, 10];
+const VALUES: readonly (string | number)[] = ['a', 'b', 'ab', 'a%', '%', '_', 'a_b', 'a\\%', 'a\\\\', 'a\\', '\\_', 'a*', '**', 'x/*', 'x/**', 'x/y', 'red', 'alice', '01', '1', '2.5', 0, 1, 2, 2.5, -4, 10];
 
 let seq = 0;
 
