@@ -5,7 +5,7 @@ import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
 import { assignmentStore, grantClosure, grantsPermission, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex } from './common.js';
-import type { RoleIndex } from './common.js';
+import type { PlannedRemovals, RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
 import { isLive, isSetSubject } from './rows.js';
 
@@ -227,7 +227,7 @@ export class DefaultAdminGuard extends AdminGuard {
   private async removals(call: Call, c: AuthzCommand): Promise<void> {
     const { ctx, cfg, roles } = call;
     const planned = await plannedRemovals(c, ctx);
-    // Rows whose tags or expiry change count for protectSystemRole, besides the removed ones.
+    // Rows whose tags or expiry change count for protectSystemRole and the rank check, besides the removed ones.
     const touched: Assignment[] = [...planned.revoke, ...planned.expire];
     if (c.kind === 'assignment.setTags' || c.kind === 'assignment.addTags' || c.kind === 'assignment.removeTags' || c.kind === 'assignment.setExpiry') {
       const row = await (await assignmentStore(ctx)).byId(readId(c.id));
@@ -240,6 +240,8 @@ export class DefaultAdminGuard extends AdminGuard {
       if (system) throw refuse('protected_role', `assignment ${quote(system.id)} holds the system role ${quote(system.role)}; only SYSTEM changes it`, idField(c));
     }
 
+    if (cfg.preventEscalation) await this.removalRanks(call, c, planned, touched);
+
     const until = 'expiresAt' in c ? readExpiry(c.expiresAt) : undefined;
     const removed = [
       ...planned.revoke.filter((a) => isLive(a.expiresAt, ctx.now)),
@@ -249,6 +251,32 @@ export class DefaultAdminGuard extends AdminGuard {
     if (removed.length === 0 || cfg.privilegedPermission === undefined) return;
     if (cfg.preventSelfLockout && (await this.locksOut(call, removed))) throw refuse('self_lockout', `${principalKey(call.actor)} would lose ${quote(cfg.privilegedPermission)}`, idField(c));
     if (cfg.preventLastPrivilegedRemoval && (await this.lastHolder(call, removed))) throw refuse('last_holder', `no principal would keep ${quote(cfg.privilegedPermission)} at GLOBAL`, idField(c));
+  }
+
+  /**
+   * Design §6.6.2: a ladder role a command revokes, re-expires or edits ranks at or below the actor's own on
+   * that ladder at the row scope. A removed or re-expired principal row also takes the roles of the subject
+   * sets it makes the principal a member of. Expired rows count; a role on no ladder is not checked.
+   */
+  private async removalRanks(call: Call, c: AuthzCommand, planned: PlannedRemovals, touched: readonly Assignment[]): Promise<void> {
+    if (touched.length === 0) return;
+    const facts = await this.facts(call.ctx);
+    const revoked = new Set(planned.revoke.map((a) => a.id));
+    const field = (a: Assignment): string | undefined => {
+      if (c.kind !== 'assignment.grant' && c.kind !== 'set.addMember') return idField(c);
+      return revoked.has(a.id) ? 'replaceLadder' : 'expiresAt';
+    };
+    const check = async (a: Assignment, role: string, scope: ResourceRef, via: string): Promise<void> => {
+      const ladder = call.roles.ladderOf(role);
+      if (ladder === undefined || (await this.ranksAtLeast(call, facts, ladder, role, scope))) return;
+      const what = `${principalKey(call.actor)} may not ${revoked.has(a.id) ? 'revoke' : 'change'} ${quote(a.role)} at ${quote(a.scope)} (assignment ${quote(a.id)})`;
+      throw refuse('escalation', `${what}: ${via} ranks above its own on ladder ${quote(ladder)}`, field(a));
+    };
+    for (const a of touched) await check(a, a.role, a.scope, 'the role');
+    for (const a of [...planned.revoke, ...planned.expire]) {
+      if (isSetSubject(a.subject)) continue;
+      for (const t of await this.reach(call, a.role, a.scope, '')) await check(a, t.role, t.scope, `the set holds ${quote(t.role)} at ${quote(t.scope)}, which`);
+    }
   }
 
   /** The actor reaches privilegedPermission through a removed row: its own, its set's, or a set membership. */

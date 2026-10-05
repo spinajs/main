@@ -116,7 +116,8 @@ describe('DefaultAdminGuard', function () {
     table = new Table();
     const top = { allow: ['*'], roles: { project: 'maintainer', staff: 'admin' } };
     for (const id of ['root', 'root2', 'super']) table.set(id, '*', top);
-    table.set('ops', '*', { allow: ['authz:assignments.manage'] });
+    // The staff rank lets ops remove admin rows, so the removal cases reach self_lockout and last_holder.
+    table.set('ops', '*', { allow: ['authz:assignments.manage'], roles: { staff: 'admin' } });
     table.set('bob', P1, { allow: ['file:read', 'file:edit', 'authz:*.manage'], roles: { project: 'editor' } });
     table.set('bob', GR, { allow: ['authz:assignments.manage'] });
     table.set('carol', P1, { allow: ['authz:assignments.manage'], conditional: ['file:read', 'file:edit'], roles: { project: 'editor' } });
@@ -319,20 +320,28 @@ describe('DefaultAdminGuard', function () {
     });
 
     it('links: adding tags to a link checks its role', async () => {
-      await world({ links: [{ link: { id: 'l-mt', scope: P1, attributes: {} }, token: 'tok', role: 'maintainer' }] });
-      await refused(p('bob'), [{ kind: 'link.update', id: 'l-mt', tags: ['x'] }], 'escalation');
+      await world({
+        links: [
+          { link: { id: 'l-mt', scope: P1, attributes: {} }, token: 'tok', role: 'maintainer' },
+          { link: { id: 'l-ed', scope: P1, attributes: {} }, token: 'tok-ed', role: 'editor', tags: ['keep'] },
+        ],
+      });
+      expect(failure(await run(p('bob'), [{ kind: 'link.update', id: 'l-mt', tags: ['x'] }]))).to.deep.equal({ at: 0, code: 'escalation', field: 'tags' });
       await passes(p('bob'), [{ kind: 'link.update', id: 'l-mt', attributes: { org_only: true } }]);
-      await passes(p('bob'), [{ kind: 'link.update', id: 'l-mt', tags: [] }]);
+      await refused(p('bob'), [{ kind: 'link.update', id: 'l-mt', tags: [] }], 'escalation');
+      await passes(p('bob'), [{ kind: 'link.update', id: 'l-ed', tags: [] }]);
     });
 
-    it('tags: adding a tag checks the row role; removing does not', async () => {
-      await world({ rows: [...BASE, ...admins('root'), row('d-mt', user('dave'), 'maintainer', P1, { tags: ['keep'] })] });
-      await refused(p('bob'), [{ kind: 'assignment.addTags', id: 'd-mt', tags: ['x'] }], 'escalation');
-      await refused(p('bob'), [{ kind: 'assignment.setTags', id: 'd-mt', tags: ['keep', 'x'] }], 'escalation');
-      await passes(p('bob'), [{ kind: 'assignment.addTags', id: 'd-mt', tags: ['keep'] }]);
-      await passes(p('bob'), [{ kind: 'assignment.setTags', id: 'd-mt', tags: [] }]);
-      await passes(p('bob'), [{ kind: 'assignment.removeTags', id: 'd-mt', tags: ['keep'] }]);
+    it('tags: adding a tag checks the row role; removing one checks only its rank', async () => {
+      await world({ rows: [...BASE, ...admins('root'), row('d-mt', user('dave'), 'maintainer', P1, { tags: ['keep'] }), row('d-ed', user('dave'), 'editor', P1, { tags: ['keep'] })] });
+      expect(failure(await run(p('bob'), [{ kind: 'assignment.addTags', id: 'd-mt', tags: ['x'] }]))).to.deep.equal({ at: 0, code: 'escalation', field: 'tags' });
+      expect(failure(await run(p('bob'), [{ kind: 'assignment.setTags', id: 'd-mt', tags: ['keep', 'x'] }]))).to.deep.equal({ at: 0, code: 'escalation', field: 'tags' });
+      expect(failure(await run(p('bob'), [{ kind: 'assignment.removeTags', id: 'd-mt', tags: ['keep'] }]))).to.deep.equal({ at: 0, code: 'escalation', field: 'id' });
+      await passes(p('bob'), [{ kind: 'assignment.addTags', id: 'd-ed', tags: ['keep'] }]);
+      await passes(p('bob'), [{ kind: 'assignment.setTags', id: 'd-ed', tags: [] }]);
       await passes(p('bob'), [{ kind: 'assignment.addTags', id: 'b1', tags: ['x'] }]);
+      await passes(p('bob'), [{ kind: 'assignment.removeTags', id: 'b1', tags: ['x'] }]);
+      await refused(p('dan2'), [{ kind: 'assignment.addTags', id: 'd-ed', tags: ['x'] }], 'escalation');
     });
 
     it("rules: a role a rule names must not rank above the actor's own at the rule scope", async () => {
@@ -375,11 +384,13 @@ describe('DefaultAdminGuard', function () {
 
       it('link.update renewing a lapsed link or moving its expiry later needs its role covered', async () => {
         const link = (id: string, r: string, expiresAt: Date) => ({ link: { id, scope: P1, attributes: {}, expiresAt }, token: `tok-${id}`, role: r });
-        await world({ links: [link('l-old', 'maintainer', at(-HOUR)), link('l-exp', 'maintainer', at(HOUR)), link('l-view', 'viewer', at(-HOUR))] });
+        await world({ links: [link('l-old', 'maintainer', at(-HOUR)), link('l-exp', 'maintainer', at(HOUR)), link('l-view', 'viewer', at(-HOUR)), link('l-ed', 'editor', at(HOUR))] });
         const update = (id: string, expiresAt: Date | null): AuthzCommand => ({ kind: 'link.update', id, expiresAt });
-        await refused(p('bob'), [update('l-old', null)], 'escalation');
-        await refused(p('bob'), [update('l-exp', at(2 * HOUR))], 'escalation');
-        await passes(p('bob'), [update('l-exp', at(HOUR / 2))]);
+        expect(failure(await run(p('bob'), [update('l-old', null)]))).to.deep.equal({ at: 0, code: 'escalation', field: 'expiresAt' });
+        expect(failure(await run(p('bob'), [update('l-exp', at(2 * HOUR))]))).to.deep.equal({ at: 0, code: 'escalation', field: 'expiresAt' });
+        // Moving it earlier is no grant; only the rank check on edits applies ('rank on removals and edits').
+        expect(failure(await run(p('bob'), [update('l-exp', at(HOUR / 2))]))).to.deep.equal({ at: 0, code: 'escalation', field: 'id' });
+        await passes(p('bob'), [update('l-ed', at(HOUR / 2))]);
         await passes(p('bob'), [update('l-view', null)]);
         await passes(p('root'), [update('l-old', at(HOUR))]);
       });
@@ -530,6 +541,134 @@ describe('DefaultAdminGuard', function () {
     it('a dry run runs the guard too', async () => {
       const f = failure(await d.admin.execute(p('root'), [revoke('a-root')], { dryRun: true }));
       expect(f.code).to.equal('self_lockout');
+    });
+  });
+
+  describe('rank on removals and edits', () => {
+    // bob ranks editor at p1, erin maintainer; root ranks maintainer everywhere.
+    const tagged = { tags: ['keep'] };
+    const ROWS: Assignment[] = [...BASE, ...admins('root'), row('d-mt', user('dave'), 'maintainer', P1, tagged), row('e-ed', user('eve'), 'editor', P1, tagged), row('f-vw', user('fay'), 'viewer', P1, tagged)];
+    const LINKS = [
+      { link: { id: 'l-mt', scope: P1, attributes: {} }, token: 'tok-mt', role: 'maintainer', tags: ['keep'] },
+      { link: { id: 'l-ed', scope: P1, attributes: {} }, token: 'tok-ed', role: 'editor', tags: ['keep'] },
+    ];
+    const fresh = (extra: readonly Assignment[] = [], guard?: Record<string, unknown>) => world({ rows: [...ROWS, ...extra], links: LINKS, guard });
+    const refusedAt = async (actor: Principal, c: AuthzCommand, field?: string): Promise<void> => {
+      expect(failure(await run(actor, [c]))).to.deep.equal({ at: 0, code: 'escalation', ...(field !== undefined ? { field } : {}) });
+    };
+    const removeTags = (id: string): AuthzCommand => ({ kind: 'assignment.removeTags', id, tags: ['keep'] });
+    const setExpiry = (id: string, expiresAt: Date | null): AuthzCommand => ({ kind: 'assignment.setExpiry', id, expiresAt });
+
+    it('revoke: the row role must rank at or below the actor on its ladder at the row scope', async () => {
+      await fresh();
+      await refusedAt(p('bob'), revoke('d-mt'), 'id');
+      expect(await exists('d-mt')).to.equal(true);
+      await passes(p('bob'), [revoke('e-ed'), revoke('f-vw')]);
+      await passes(p('erin'), [revoke('d-mt')]);
+      await fresh();
+      await passes(p('root'), [revoke('d-mt')]);
+    });
+
+    it('the message names the actor, the role, the scope and the ladder', async () => {
+      await fresh();
+      const [r] = await run(p('bob'), [revoke('d-mt')]);
+      const message = (r as Extract<AuthzCommandResult, { ok: false }>).error.message;
+      for (const part of ['user:bob', '"maintainer"', '"p1"', 'ladder "project"']) expect(message).to.include(part);
+    });
+
+    it('revokeWhere: one higher row refuses the whole command', async () => {
+      await fresh();
+      expect(failure(await run(p('bob'), [{ kind: 'assignment.revokeWhere', scope: P1 }]))).to.deep.equal({ at: 0, code: 'escalation' });
+      expect(await exists('e-ed')).to.equal(true);
+      await passes(p('bob'), [{ kind: 'assignment.revokeWhere', scope: P1, role: 'editor' }]);
+      expect(await exists('e-ed')).to.equal(false);
+      await passes(p('erin'), [{ kind: 'assignment.revokeWhere', scope: P1, subject: user('dave') }]);
+    });
+
+    it('replaceLadder: a grant that revokes a higher row of the ladder is refused', async () => {
+      await fresh();
+      await refusedAt(p('bob'), grant('viewer', P1, user('dave'), { replaceLadder: true }), 'replaceLadder');
+      expect(await exists('d-mt')).to.equal(true);
+      await passes(p('bob'), [grant('viewer', P1, user('eve'), { replaceLadder: true })]);
+      expect(await exists('e-ed')).to.equal(false);
+      await passes(p('erin'), [grant('viewer', P1, user('dave'), { replaceLadder: true })]);
+    });
+
+    it('setExpiry: moving the expiry of a higher row earlier is refused', async () => {
+      await fresh();
+      await refusedAt(p('bob'), setExpiry('d-mt', at(HOUR)), 'id');
+      await passes(p('bob'), [setExpiry('e-ed', at(HOUR)), setExpiry('f-vw', at(HOUR))]);
+      await passes(p('erin'), [setExpiry('d-mt', at(HOUR))]);
+    });
+
+    it('tags: setTags or removeTags on a higher row is refused, even when it adds nothing', async () => {
+      await fresh();
+      await refusedAt(p('bob'), removeTags('d-mt'), 'id');
+      await refusedAt(p('bob'), { kind: 'assignment.setTags', id: 'd-mt', tags: [] }, 'id');
+      await refusedAt(p('bob'), { kind: 'assignment.addTags', id: 'd-mt', tags: ['keep'] }, 'id');
+      expect((await d.assignments.byId('d-mt'))!.tags).to.deep.equal(['keep']);
+      await passes(p('bob'), [removeTags('e-ed'), { kind: 'assignment.setTags', id: 'f-vw', tags: [] }]);
+      await passes(p('erin'), [removeTags('d-mt')]);
+      await passes(p('root'), [{ kind: 'assignment.setTags', id: 'd-mt', tags: [] }]);
+    });
+
+    it('subject sets: removing a member takes the roles the set holds, each checked at its own scope', async () => {
+      const remove: AuthzCommand = { kind: 'set.removeMember', set: { role: 'group.member', scope: GR }, member: user('dave') };
+      const member = row('m-dave', user('dave'), 'group.member', GR);
+      await fresh([member, row('g-mt', GROUP, 'maintainer', P1)]);
+      expect(failure(await run(p('bob'), [remove]))).to.deep.equal({ at: 0, code: 'escalation' });
+      await refusedAt(p('bob'), revoke('m-dave'), 'id');
+      await refusedAt(p('bob'), setExpiry('m-dave', at(HOUR)), 'id');
+      await passes(p('root'), [remove]);
+      await fresh([member, row('g-ed', GROUP, 'editor', P1)]);
+      await passes(p('bob'), [setExpiry('m-dave', at(HOUR)), remove]);
+    });
+
+    it('subject sets: revoking a set row checks the role it holds', async () => {
+      await fresh([row('g-mt', GROUP, 'maintainer', P1), row('g-ed', GROUP, 'editor', P1)]);
+      await refusedAt(p('bob'), revoke('g-mt'), 'id');
+      await passes(p('bob'), [revoke('g-ed')]);
+      await passes(p('erin'), [revoke('g-mt')]);
+    });
+
+    it('links: link.revoke and link.update of a link granting a higher role are refused', async () => {
+      await fresh();
+      await refusedAt(p('bob'), { kind: 'link.revoke', id: 'l-mt' }, 'id');
+      await refusedAt(p('bob'), { kind: 'link.update', id: 'l-mt', role: 'viewer' }, 'id');
+      await refusedAt(p('bob'), { kind: 'link.update', id: 'l-mt', tags: [] }, 'id');
+      await refusedAt(p('bob'), { kind: 'link.update', id: 'l-mt', expiresAt: at(HOUR) }, 'id');
+      await passes(p('bob'), [
+        { kind: 'link.update', id: 'l-ed', tags: [] },
+        { kind: 'link.update', id: 'l-ed', expiresAt: at(HOUR) },
+        { kind: 'link.update', id: 'l-ed', role: 'viewer' },
+        { kind: 'link.revoke', id: 'l-ed' },
+      ]);
+      await passes(p('root'), [
+        { kind: 'link.update', id: 'l-mt', tags: [] },
+        { kind: 'link.update', id: 'l-mt', role: 'editor' },
+        { kind: 'link.revoke', id: 'l-mt' },
+      ]);
+    });
+
+    it('an expired higher row counts (fail closed)', async () => {
+      await fresh([row('d-old', user('dave'), 'maintainer', P1, { expiresAt: at(-HOUR) })]);
+      await refusedAt(p('bob'), revoke('d-old'), 'id');
+      await refusedAt(p('bob'), removeTags('d-old'), 'id');
+      await passes(p('erin'), [revoke('d-old')]);
+    });
+
+    it('an actor without a rank on the ladder may not remove its roles; a role on no ladder is not ranked', async () => {
+      table.set('clerk', '*', { allow: ['authz:assignments.manage'] });
+      await fresh([row('d-glob', user('dave'), 'globber', P1)]);
+      await refusedAt(p('clerk'), revoke('a-root'), 'id');
+      await refusedAt(p('clerk'), revoke('f-vw'), 'id');
+      // bob does not cover globber; revoking asks for no covers either.
+      await passes(p('bob'), [revoke('d-glob')]);
+    });
+
+    it('preventEscalation: false turns the rank check on removals off', async () => {
+      await fresh([], { ...GUARD, preventEscalation: false });
+      await passes(p('bob'), [removeTags('d-mt'), revoke('d-mt'), { kind: 'link.revoke', id: 'l-mt' }, grant('viewer', P1, user('eve'), { replaceLadder: true })]);
     });
   });
 
