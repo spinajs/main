@@ -542,6 +542,55 @@ describe('DefaultAdminGuard', function () {
       await refused(p('root'), [revoke('a-root')], 'self_lockout');
     });
 
+    describe('last holder: only holders the model surely honours at GLOBAL count', () => {
+      const cond = (name: string, grant: Record<string, unknown>, extra: Partial<RoleDef> = {}): RoleDef => role(name, { grants: [{ permission: 'users:update', ...grant }], ...extra });
+      const ROLES = [...GUARD_ROLES, cond('tagged', { requiresTag: 'mfa' }), cond('related', { relation: 'owner' }), cond('patterned', { on: [{ type: 'users', id: '{principal.id}' }] }), cond('prov', { grantedAt: ['org'] }), cond('wide', { grantedAt: ['$global'] }), cond('tier.low', { grantedAt: ['$global'] }, { ladder: 'tier' }), role('tier.high', { ladder: 'tier' }), role('tier.ext', { extends: ['tier.low'] }), role('org.boss', { ladder: 'orgs', grants: grants('users:update') }), role('org.member', { ladder: 'org', subjectSet: true }), role('org.admin', { ladder: 'org' })];
+      const LADDERS = [...GUARD_LADDERS, { name: 'tier', roles: ['tier.low', 'tier.high'] }, { name: 'orgs', roles: ['org.boss'], resourceTypes: ['org'] }, { name: 'org', roles: ['org.member', 'org.admin'] }];
+      const S_ORG = row('s-org', { set: { role: 'org.member', scope: O1 } }, 'admin');
+      const only = (rows: readonly Assignment[], links?: RbacDomainOptions['links'], root = row('a-root', user('root'), 'admin')) => world({ rows: [...BASE, root, ...rows], roles: ROLES, ladders: LADDERS, links });
+
+      it('a grant with a tag, relation, on, or a grantedAt or ladder the GLOBAL row does not meet gives no holder', async () => {
+        // tier.ext reaches tier.low's grant through extends, but provenance counts only rows on tier.low's ladder.
+        for (const r of ['tagged', 'related', 'patterned', 'prov', 'org.boss', 'tier.ext']) {
+          await only([row('x-dave', user('dave'), r)]);
+          await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        }
+        for (const r of ['wide', 'tier.low', 'tier.high', 'admin', 'boss']) {
+          await only([row('x-dave', user('dave'), r)]);
+          await passes(p('ops'), [revoke('a-root')]);
+        }
+      });
+
+      it('a share link is no holder through a set, whether its role is the set role or above it', async () => {
+        await only([S_ORG], [{ link: { id: 'l-oa', scope: O1, attributes: {} }, token: 'tok-oa', role: 'org.admin' }]);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        await only([S_ORG], [{ link: { id: 'l-om', scope: O1, attributes: {} }, token: 'tok-om', role: 'org.member' }]);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        await only([S_ORG, row('oa-dave', user('dave'), 'org.admin', O1)]);
+        await passes(p('ops'), [revoke('a-root')]);
+      });
+
+      it('every row of a remaining path must last as long as the removed rows would', async () => {
+        await only([row('a-dave', user('dave'), 'admin', G, { expiresAt: at(HOUR) })]);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        await only([S_ORG, row('oa-dave', user('dave'), 'org.admin', O1, { expiresAt: at(HOUR) })]);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        const expiring = row('a-root', user('root'), 'admin', G, { expiresAt: at(HOUR) });
+        await only([row('a-dave', user('dave'), 'admin', G, { expiresAt: at(HOUR) })], undefined, expiring);
+        await passes(p('ops'), [revoke('a-root')]);
+        await only([row('a-dave', user('dave'), 'admin', G, { expiresAt: at(HOUR / 2) })], undefined, expiring);
+        await refused(p('ops'), [revoke('a-root')], 'last_holder');
+        await only([S_ORG, row('oa-dave', user('dave'), 'org.admin', O1, { expiresAt: at(2 * HOUR) })], undefined, expiring);
+        await passes(p('ops'), [revoke('a-root')]);
+      });
+
+      it('a removal on no path passes even when no holder is sure', async () => {
+        await world({ rows: [...BASE, row('t-root', user('root'), 'tagged'), row('h', user('erin'), 'helper')], roles: ROLES, ladders: LADDERS });
+        await passes(p('ops'), [revoke('h')]);
+        await refused(p('ops'), [revoke('t-root')], 'last_holder');
+      });
+    });
+
     it('SYSTEM skips the guard (AuthzAdmin does not call it)', async () => {
       await world({ rows: [...BASE, ...admins('root')] });
       await passes(SYSTEM, [revoke('a-root')]);
@@ -752,7 +801,7 @@ describe('DefaultAdminGuard', function () {
         const [r] = await run(p('olga'), [grant('org.admin', O1, user('dave'))]);
         expect(failure([r])).to.deep.equal({ at: 0, code: 'escalation', field: 'role' });
         const message = (r as Extract<AuthzCommandResult, { ok: false }>).error.message;
-        for (const part of ['"maintainer"', '"p1"', 'ladder "project"']) expect(message).to.include(part);
+        for (const part of ['"maintainer"', '"p1"', 'ladder "project"', 'may not grant "org.admin" at {"type":"org","id":"o1"}: it makes the subject a member of "org.member" at {"type":"org","id":"o1"}, which holds "maintainer" at {"type":"project","id":"p1"}']) expect(message).to.include(part);
         await refusedAt(p('olga'), grant('org.member', O1, user('dave')), 'escalation', 'role');
         await passes(p('omar'), [grant('org.admin', O1, user('dave'))]);
         await closure([row('o-ed', ORG, 'editor', P1)]);
@@ -824,23 +873,17 @@ describe('DefaultAdminGuard', function () {
         await refusedAt(p('root'), revoke('s-org'), 'self_lockout', 'id');
       });
 
-      it('self-lockout: another path to the privilege at the same scope keeps the actor in', async () => {
+      it('self-lockout: another path does not save a removal on a path (the guard cannot judge the other path)', async () => {
         const both = [S_ORG, row('om-root', user('root'), 'org.member', O1), row('oa-root', user('root'), 'org.admin', O1), ...admins('root2')];
         await closure(both);
-        await passes(p('root'), [revoke('om-root')]);
-        await closure(both);
-        await passes(p('root'), [revoke('oa-root')]);
-        await closure(both);
+        await refusedAt(p('root'), revoke('om-root'), 'self_lockout', 'id');
+        await refusedAt(p('root'), revoke('oa-root'), 'self_lockout', 'id');
         await refusedAt(p('root'), { kind: 'assignment.revokeWhere', scope: O1, subject: user('root') }, 'self_lockout');
-        await refused(p('root'), [revoke('om-root'), revoke('oa-root')], 'self_lockout', 1);
-        // An own privileged row and a set path at the same scope stand in for each other.
         const mixed = [S_ORG, row('oa-root', user('root'), 'org.admin', O1), ...admins('root', 'root2')];
         await closure(mixed);
-        await passes(p('root'), [revoke('oa-root')]);
-        await closure(mixed);
-        await passes(p('root'), [revoke('a-root')]);
-        await closure(mixed);
-        await refused(p('root'), [revoke('a-root'), revoke('oa-root')], 'self_lockout', 1);
+        await refusedAt(p('root'), revoke('oa-root'), 'self_lockout', 'id');
+        await refusedAt(p('root'), revoke('a-root'), 'self_lockout', 'id');
+        expect([await exists('oa-root'), await exists('a-root')]).to.deep.equal([true, true]);
       });
 
       it('rows the model ignores make no member: no holder and no other path', async () => {

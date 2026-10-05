@@ -153,8 +153,9 @@ export function setRolesOf(roles: RoleIndex, role: string): string[] {
 }
 
 /**
- * The model counts the row: its role is defined, assignable, and may be held at the row's scope type
- * (`assignmentProblem` of the model finds nothing). A row it ignores gives nothing and makes no set member.
+ * The model counts the row: its role is defined, assignable, and may be held at the row's scope type. A row
+ * it ignores gives nothing and makes no set member. Mirrors `assignmentProblem` in `model/roles.ts`, which
+ * needs a compiled RoleGraph the admin side does not have.
  */
 export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>): boolean {
   const def = roles.roles.get(a.role);
@@ -167,6 +168,27 @@ export function honoured(roles: RoleIndex, a: Pick<Assignment, 'role' | 'scope'>
  */
 export function grantsPermission(roles: RoleIndex, role: string, permission: Permission): boolean {
   return roleClosure(roles, role, 'same-scope').defs.some((d) => d.grants.some((g) => compilePermissionGlob(g.permission)(permission)));
+}
+
+/**
+ * As grantsPermission, counting only grants the model gives on a request at `scope` to a row of `role` made
+ * there, whatever the principal's tags or the resource: no `requiresTag`, `relation` or `on`; the declaring
+ * role's ladder applies at the scope type; a `grantedAt` lists the scope type and, for a ladder role's grant,
+ * the row's role ranks at or above it on that ladder (the model counts only rows on that ladder). Cap rules
+ * are not judged.
+ */
+export function surelyGrantsPermission(roles: RoleIndex, role: string, permission: Permission, scope: ResourceRef): boolean {
+  const rowLadder = roles.ladderOf(role);
+  return roleClosure(roles, role, 'same-scope').defs.some((d) => {
+    const ladder = roles.ladderOf(d.name);
+    if (ladder !== undefined && !ladderAppliesAt(roles, ladder, scope)) return false;
+    return d.grants.some((g) => {
+      if (g.requiresTag !== undefined || g.relation !== undefined || g.on !== undefined || !compilePermissionGlob(g.permission)(permission)) return false;
+      if (g.grantedAt === undefined) return true;
+      if (!g.grantedAt.includes(scope.type)) return false;
+      return ladder === undefined || (rowLadder === ladder && rankOf(roles, ladder, role) >= rankOf(roles, ladder, d.name));
+    });
+  });
 }
 
 // ---- command fields ----
