@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
-import { Controllers } from '@spinajs/http';
+import { CONTROLLED_DESCRIPTOR_SYMBOL, Controllers } from '@spinajs/http';
+import type { IControllerDescriptor } from '@spinajs/http';
 import { OpenApiBuilder, SwaggerDocCache } from '@spinajs/http-swagger';
 import type { IOpenApiDocument } from '@spinajs/http-swagger';
 
@@ -115,6 +116,53 @@ describe('authz-http-admin swagger', function () {
     expect(query('/authz/assignments', 'get').subject.description).to.match(/set:<role>@<type>:<id>/);
     expect(Object.keys(query('/authz/rules/{id}', 'put'))).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
     expect(query('/authz/rules/{id}', 'put').dryRun.schema.type).to.eq('boolean');
+  });
+
+  it('lists every route of the controller in AUTHZ_ADMIN_ROUTES', () => {
+    const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
+    const routes = [...descriptor.Routes.values()].map((r) => `${r.Type} /authz/${(r.Path ?? '').replace(/:(\w+)/g, '{$1}')}`);
+    expect(routes).to.have.members(AUTHZ_ADMIN_ROUTES.map((r) => `${r.method} ${r.path}`));
+    expect(routes).to.have.length(AUTHZ_ADMIN_ROUTES.length);
+  });
+
+  it('documents the link routes: bodies, query, and the token shown once with no-store', () => {
+    const bodyOf = (path: string, method: string) => doc.paths[path][method].requestBody?.content['application/json'].schema.$ref;
+    const query = (path: string, method: string) => doc.paths[path][method].parameters.filter((p: any) => p.in === 'query').map((p: any) => p.name);
+    expect(bodyOf('/authz/links', 'post')).to.eq('#/components/schemas/AuthzLinkCreate');
+    expect(bodyOf('/authz/links/{id}', 'patch')).to.eq('#/components/schemas/AuthzLinkPatch');
+    expect(bodyOf('/authz/links/{id}', 'delete')).to.eq(undefined);
+    expect(query('/authz/links', 'get')).to.have.members(['scope', 'limit', 'offset']);
+    for (const [path, method] of [['/authz/links', 'post'], ['/authz/links/{id}', 'patch'], ['/authz/links/{id}', 'delete']]) expect(query(path, method), `${method} ${path}`).to.have.members(['reason', 'idempotencyKey', 'dryRun']);
+    expect(doc.paths['/authz/links'].get.responses['200'].content['application/json'].schema.$ref).to.eq('#/components/schemas/AuthzAdminPage');
+    expect(doc.components.schemas.AuthzLinkCreate.required).to.deep.eq(['scope', 'role']);
+    expect(Object.keys(doc.components.schemas.AuthzLinkPatch.properties)).to.have.members(['id', 'expiresAt', 'attributes', 'role', 'tags']);
+
+    for (const [path, method] of [['/authz/links', 'post'], ['/authz/commands', 'post']]) {
+      const op = doc.paths[path][method];
+      const text = `${op.summary} ${op.description}`;
+      expect(text, `${method} ${path}`).to.match(/no-store/);
+      expect(text, `${method} ${path}`).to.match(/shown once/);
+    }
+    expect(doc.paths['/authz/links'].get.description).to.match(/never (carries|holds) (a|the) token/);
+  });
+
+  it('names the 400 codes each route can answer', () => {
+    const bad = (path: string, method: string): string => doc.paths[path][method].responses['400'].description;
+    for (const r of AUTHZ_ADMIN_ROUTES) {
+      const text = bad(r.path, r.method);
+      if (r.method === 'get') {
+        expect(text, `${r.method} ${r.path}`).to.match(/invalid_query/);
+        expect(text, `${r.method} ${r.path}`).to.not.match(/invalid_request/);
+      } else if (r.path === '/authz/commands') {
+        expect(text).to.match(/invalid_request/).and.to.match(/invalid_batch/);
+        expect(text).to.not.match(/invalid_query/);
+      } else {
+        expect(text, `${r.method} ${r.path}`).to.match(/invalid_query/);
+        expect(text, `${r.method} ${r.path}`).to.match(/invalid_batch/);
+      }
+    }
+    const codes = doc.components.schemas.AuthzAdminError.description;
+    for (const code of ['invalid_batch', 'invalid_command', 'invalid_query', 'invalid_request']) expect(codes).to.include(code);
   });
 
   it('describes the path parameters', () => {

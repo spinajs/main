@@ -51,6 +51,23 @@ function withPathId(body: unknown, id: string, what: string): Record<string, unk
   return { ...o, id };
 }
 
+const LINK_PATCH_KEYS = ['expiresAt', 'attributes', 'role', 'tags'] as const;
+
+/** PATCH /authz/links/:id as one link.update; like the assignment patch, a key it does not serve is refused, not ignored. */
+function linkUpdate(body: unknown, id: string): AuthzCommand {
+  const patch = withPathId(body, id, 'an object { expiresAt?, attributes?, role?, tags? }');
+  const unknown = Object.keys(patch).find((k) => k !== 'id' && !(LINK_PATCH_KEYS as readonly string[]).includes(k));
+  if (unknown !== undefined) badRequest(`a link patch takes ${LINK_PATCH_KEYS.join(', ')}, not ${JSON.stringify(unknown)}`, unknown);
+  if (!LINK_PATCH_KEYS.some((k) => k in patch)) badRequest(`a link patch needs one of ${LINK_PATCH_KEYS.join(', ')}`);
+  return decodeCommand({ ...patch, kind: 'link.update' }) as AuthzCommand;
+}
+
+/** For answers that may hold a link token: no proxy or browser cache may keep one. Set first, so it goes out with any answer the route gives. */
+function noStore(req: Request): void {
+  req.res?.setHeader('Cache-Control', 'no-store');
+  req.res?.setHeader('Pragma', 'no-cache');
+}
+
 const query = (req: Request): QueryInput => (req.query ?? {}) as QueryInput;
 const param = (req: Request, name: string): string => req.params[name] as string;
 const actorOf = (req: Request): Principal => req.storage.Principal!;
@@ -66,12 +83,14 @@ const scopeOf = (req: Request): ResourceRef => ({ type: param(req, 'type'), id: 
  *
  * @tags Authz admin
  */
+@Policy(IsAuthenticated)
 @BasePath('authz')
 export class AuthzAdminController extends BaseController {
   /**
    * Run a batch of commands
    * Runs the commands in order in one transaction on the configured domain; the first failure rolls the batch back and its status is the answer.
    * Body: { commands, reason?, idempotencyKey?, dryRun? } (schema AuthzAdminBatch); `commands` lists the command kinds of AuthzCommand, with dates as ISO 8601 strings. The options go in the body, not the query string.
+   * The result of a link.create carries the link token, shown once: every answer of this route is sent with `Cache-Control: no-store`, and a retried or dry-run batch answers without the token.
    * @response 200 {AuthzAdminResults} Every command succeeded
    * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
@@ -80,8 +99,8 @@ export class AuthzAdminController extends BaseController {
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Post('commands')
-  @Policy(IsAuthenticated)
   public async commands(@Req() req: Request) {
+    noStore(req);
     return guarded(async (admin) => {
       const body = objectBody(req.body, 'an object { commands, reason?, idempotencyKey?, dryRun? }');
       const opts: Record<string, unknown> = {};
@@ -95,12 +114,11 @@ export class AuthzAdminController extends BaseController {
    * Lists assignments, filtered by the query.
    * Query: `scope` (`<type>` or `<type>:<id>`), `subject` (`<type>:<id>` or `set:<role>@<type>:<id>`), `role`, `includeExpired` (`true` or `false`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
+   * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('assignments')
-  @Policy(IsAuthenticated)
   public async listAssignments(@Req() req: Request) {
     return list(req, () => readAssignmentsQuery(query(req)));
   }
@@ -111,14 +129,13 @@ export class AuthzAdminController extends BaseController {
    * Body: the fields of assignment.grant without `kind` (schema AuthzAssignmentGrant).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Post('assignments')
-  @Policy(IsAuthenticated)
   public async grant(@Req() req: Request) {
     return single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of assignment.grant'), kind: 'assignment.grant' }) as AuthzCommand]);
   }
@@ -129,14 +146,13 @@ export class AuthzAdminController extends BaseController {
    * Body: { tags?, addTags?, removeTags?, expiresAt? } with at least one key (schema AuthzAssignmentPatch); the keys run as one batch.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Patch('assignments/:id')
-  @Policy(IsAuthenticated)
   public async patchAssignment(@Req() req: Request) {
     return single(req, () => {
       const body = objectBody(req.body, 'an object { tags?, addTags?, removeTags?, expiresAt? }');
@@ -156,16 +172,80 @@ export class AuthzAdminController extends BaseController {
    * Revokes the assignment with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('assignments/:id')
-  @Policy(IsAuthenticated)
   public async revoke(@Req() req: Request) {
     return single(req, () => [{ kind: 'assignment.revoke', id: param(req, 'id') }]);
+  }
+
+  /**
+   * List share links
+   * Lists the share links, filtered by the query. A listing never carries a token or its hash: the token is shown once, when the link is created.
+   * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
+   * @response 200 {AuthzAdminPage} One page of rows
+   * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
+   */
+  @Get('links')
+  public async listLinks(@Req() req: Request) {
+    return list(req, () => readPageQuery('links', query(req)));
+  }
+
+  /**
+   * Create a share link
+   * Creates a share link that grants a role at a scope (link.create). The result carries the link id and its token: the token is shown once, here, and every answer of this route is sent with `Cache-Control: no-store`. A dry run or a retried request (same idempotency key) answers without the token.
+   * Body: the fields of link.create without `kind` (schema AuthzLinkCreate).
+   * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
+   * @response 200 {AuthzAdminResults} The link was created; results[0] holds its id and token
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
+   * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   */
+  @Post('links')
+  public async createLink(@Req() req: Request) {
+    noStore(req);
+    return single(req, () => [decodeCommand({ ...objectBody(req.body, 'the fields of link.create'), kind: 'link.create' }) as AuthzCommand]);
+  }
+
+  /**
+   * Change a share link
+   * Changes the expiry, attributes, role or tags of the link with the path id (link.update). The answer never carries the token.
+   * Body: { expiresAt?, attributes?, role?, tags? } with at least one key (schema AuthzLinkPatch); an `id` in the body must equal the path id.
+   * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
+   * @response 200 {AuthzAdminResults} Every command succeeded
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
+   * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   */
+  @Patch('links/:id')
+  public async patchLink(@Req() req: Request) {
+    return single(req, () => [linkUpdate(req.body, param(req, 'id'))]);
+  }
+
+  /**
+   * Revoke a share link
+   * Revokes the link with the path id and the role it grants (link.revoke); its token opens nothing from then on.
+   * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
+   * @response 200 {AuthzAdminResults} Every command succeeded
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
+   * @response 401 Unauthorized: a valid session or token is required
+   * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
+   * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
+   * @response 409 {AuthzAdminError} conflict: the row changed or exists already
+   */
+  @Del('links/:id')
+  public async revokeLink(@Req() req: Request) {
+    return single(req, () => [{ kind: 'link.revoke', id: param(req, 'id') }]);
   }
 
   /**
@@ -173,12 +253,11 @@ export class AuthzAdminController extends BaseController {
    * Lists the RBAC rules held as rows.
    * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
+   * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('rules')
-  @Policy(IsAuthenticated)
   public async listRules(@Req() req: Request) {
     return list(req, () => readPageQuery('rules', query(req)));
   }
@@ -189,14 +268,13 @@ export class AuthzAdminController extends BaseController {
    * Body: a rule (schema AuthzRuleBody); an `id` in the body must equal the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('rules/:id')
-  @Policy(IsAuthenticated)
   public async putRule(@Req() req: Request) {
     return single(req, () => [decodeCommand({ kind: 'rule.put', rule: withPathId(req.body, param(req, 'id'), 'a rule') }) as AuthzCommand]);
   }
@@ -206,14 +284,13 @@ export class AuthzAdminController extends BaseController {
    * Deletes the RBAC rule with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('rules/:id')
-  @Policy(IsAuthenticated)
   public async deleteRule(@Req() req: Request) {
     return single(req, () => [{ kind: 'rule.delete', id: param(req, 'id') }]);
   }
@@ -223,12 +300,11 @@ export class AuthzAdminController extends BaseController {
    * Lists the ABAC policies held as rows.
    * Query: `scope` (`<type>` or `<type>:<id>`), `limit`, `offset`.
    * @response 200 {AuthzAdminPage} One page of rows
-   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
+   * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('policies')
-  @Policy(IsAuthenticated)
   public async listPolicies(@Req() req: Request) {
     return list(req, () => readPageQuery('policies', query(req)));
   }
@@ -239,14 +315,13 @@ export class AuthzAdminController extends BaseController {
    * Body: a policy (schema AuthzPolicyBody); an `id` in the body must equal the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('policies/:id')
-  @Policy(IsAuthenticated)
   public async putPolicy(@Req() req: Request) {
     return single(req, () => [decodeCommand({ kind: 'policy.put', policy: withPathId(req.body, param(req, 'id'), 'a policy') }) as AuthzCommand]);
   }
@@ -256,14 +331,13 @@ export class AuthzAdminController extends BaseController {
    * Deletes the ABAC policy with the path id.
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Del('policies/:id')
-  @Policy(IsAuthenticated)
   public async deletePolicy(@Req() req: Request) {
     return single(req, () => [{ kind: 'policy.delete', id: param(req, 'id') }]);
   }
@@ -272,12 +346,11 @@ export class AuthzAdminController extends BaseController {
    * Read scope attributes
    * Returns the attributes of the scope node `<type>:<id>`.
    * @response 200 {AuthzAdminPage} items holds one entry, the attributes object of the scope; total is 1
-   * @response 400 {AuthzAdminError} invalid_request or invalid_query: a malformed query parameter
+   * @response 400 {AuthzAdminError} invalid_query: a malformed query parameter
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden: the caller lacks the read permission at the scope
    */
   @Get('scopes/:type/:id/attributes')
-  @Policy(IsAuthenticated)
   public async attributes(@Req() req: Request) {
     return list(req, () => ({ kind: 'attributes', scope: scopeOf(req) }));
   }
@@ -288,14 +361,13 @@ export class AuthzAdminController extends BaseController {
    * Body: an object (schema AuthzAttributesPatch).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Patch('scopes/:type/:id/attributes')
-  @Policy(IsAuthenticated)
   public async patchAttributes(@Req() req: Request) {
     return single(req, () => [{ kind: 'scope.setAttributes', scope: scopeOf(req), patch: req.body }]);
   }
@@ -306,14 +378,13 @@ export class AuthzAdminController extends BaseController {
    * Body: an object (schema AuthzAttributesBody).
    * Query: `reason` (audit text), `idempotencyKey`, `dryRun` (`true` validates and guards, then rolls back).
    * @response 200 {AuthzAdminResults} Every command succeeded
-   * @response 400 {AuthzAdminError} invalid_request, invalid_batch or a validation code of the command
+   * @response 400 {AuthzAdminError} invalid_request, invalid_query (an option of the query string), invalid_batch or a validation code of the command
    * @response 401 Unauthorized: a valid session or token is required
    * @response 403 {AuthzAdminError} forbidden, escalation, last_holder, self_lockout or protected_role
    * @response 404 {AuthzAdminError} not_found: a row the command names does not exist
    * @response 409 {AuthzAdminError} conflict: the row changed or exists already
    */
   @Put('scopes/:type/:id/attributes')
-  @Policy(IsAuthenticated)
   public async replaceAttributes(@Req() req: Request) {
     return single(req, () => [{ kind: 'scope.replaceAttributes', scope: scopeOf(req), attributes: req.body }]);
   }

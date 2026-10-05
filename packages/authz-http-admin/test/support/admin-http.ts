@@ -5,11 +5,12 @@ import type { Class } from '@spinajs/di';
 import type { AssignmentSubject, AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { PrincipalSource } from '@spinajs/authz-http';
-import type { AdminHttpHandle, BehaviourHarness, Facet, HarnessSession } from '@spinajs/authz-testing';
+import { linkPrincipal, testHost } from '@spinajs/authz-testing';
+import type { AdminHttpHandle, BehaviourHarness, Facet, HarnessSession, RbacLinksHandle } from '@spinajs/authz-testing';
 
 // Tests reach authz-rbac only through L9's harness: it loads authz-rbac's src, and its lib as well
 // would register the write handlers twice.
-import { adminHarness } from '../../../authz-rbac/test/admin/admin-harness.js';
+import { adminHarness, harnessStores } from '../../../authz-rbac/test/admin/admin-harness.js';
 import { AuthzAdminController } from '../../src/controllers/index.js';
 import { startApp, stopApp } from './app.js';
 import type { TestApp } from './app.js';
@@ -39,6 +40,7 @@ export interface RawRequest {
 export interface RawResponse {
   readonly status: number;
   readonly body: any;
+  readonly headers: Readonly<Record<string, string | undefined>>;
 }
 
 let app: TestApp | undefined;
@@ -53,7 +55,7 @@ export async function send(req: RawRequest): Promise<RawResponse> {
     r = r.set(PRINCIPAL_HEADER, key);
   }
   const res = req.body !== undefined ? await r.send(req.body as object) : await r;
-  return { status: res.status, body: res.body };
+  return { status: res.status, body: res.body, headers: res.headers as Record<string, string | undefined> };
 }
 
 const refText = (r: ResourceRef): string => (r.id === undefined ? r.type : `${r.type}:${r.id}`);
@@ -91,12 +93,28 @@ export const adminHttp: AdminHttpHandle = {
 };
 
 /**
+ * The links facet without L1b's LinkResolver: the token opens the case's MemoryLinkStore row as
+ * RbacService.linkPrincipal would (authz-http's WorldLinkResolver is the model); an unknown or
+ * revoked token opens a dead link.
+ */
+async function rbacLinks(): Promise<RbacLinksHandle> {
+  const { links } = harnessStores({ container: (await testHost.domains()).container(DOMAIN) });
+  return {
+    async principal(token, companion) {
+      const link = await links.byToken(token);
+      const p = link ? linkPrincipal(link.id, { scope: [link.scope], attributes: link.attributes ?? {}, ...(link.expiresAt ? { expiresAt: link.expiresAt } : {}) }) : linkPrincipal('unknown', { scope: [] });
+      return companion ? { ...p, companions: [{ type: companion.type, id: companion.id }] } : p;
+    },
+  };
+}
+
+/**
  * L9's adminHarness (memory RBAC admin stores, TestRbacModel, DefaultAdminGuard, recording event
  * sink; domain `test`) behind an http server running AuthzAdminController, with
- * `authz.http.admin.domain` set to the harness domain. Lane handle `adminHttp`.
+ * `authz.http.admin.domain` set to the harness domain. Lane handles `adminHttp` and `rbacLinks`.
  */
 export function adminHttpHarness(opts: { readonly facets?: readonly Facet[] } = {}): BehaviourHarness {
-  const base = adminHarness({ facets: ['http', ...(opts.facets ?? [])] });
+  const base = adminHarness({ facets: ['http', 'links', ...(opts.facets ?? [])] });
   return {
     ...base,
     async beforeAll() {
@@ -118,7 +136,7 @@ export function adminHttpHarness(opts: { readonly facets?: readonly Facet[] } = 
     },
     async setup(world, ctx) {
       const session = await base.setup(world, ctx);
-      return { ...session, lane: { ...session.lane, adminHttp } } as HarnessSession;
+      return { ...session, lane: { ...session.lane, adminHttp, rbacLinks: await rbacLinks() } } as HarnessSession;
     },
   };
 }

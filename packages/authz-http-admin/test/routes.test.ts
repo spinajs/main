@@ -6,8 +6,12 @@ import { AuthzAdminFailure, AuthzAdminReader, AuthzConfigError, AuthzDomains, Au
 import type { AuthzAdminQuery, AuthzCommand, Principal } from '@spinajs/authz';
 import { anonymousPrincipal, fixtureDsl, testHost, userPrincipal } from '@spinajs/authz-testing';
 import type { BehaviourHarness, BehaviourId, HarnessSession, World } from '@spinajs/authz-testing';
+import { IsAuthenticated } from '@spinajs/authz-http';
+import { CONTROLLED_DESCRIPTOR_SYMBOL } from '@spinajs/http';
+import type { IControllerDescriptor } from '@spinajs/http';
+import { FrameworkLogger } from '@spinajs/log';
 
-import { adminDomain, domainAdmin } from '../src/controllers/index.js';
+import { AuthzAdminController, adminDomain, domainAdmin } from '../src/controllers/index.js';
 import { DOMAIN, adminHttpHarness, send } from './support/admin-http.js';
 import type { RawRequest, RawResponse } from './support/admin-http.js';
 
@@ -73,6 +77,37 @@ const grant = (who: string, roleName = 'viewer', scope = P1): AuthzCommand => ({
 
 const commands = (as: Principal | undefined, body: unknown): Promise<RawResponse> => send({ method: 'POST', path: '/authz/commands', body, ...(as ? { as } : {}) });
 const call = (method: RawRequest['method'], path: string, as: Principal | undefined = root, body?: unknown): Promise<RawResponse> => send({ method, path, ...(as ? { as } : {}), ...(body === undefined ? {} : { body }) });
+
+const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'security'] as const;
+
+const logText = (a: unknown): string => {
+  if (a instanceof Error) return `${a.message} ${a.stack ?? ''}`;
+  try {
+    return typeof a === 'string' ? a : JSON.stringify(a);
+  } catch {
+    return String(a);
+  }
+};
+
+/** Every log call made through FrameworkLogger until `restore()`, as text. */
+function captureLogs(): { readonly lines: string[]; restore(): void } {
+  const lines: string[] = [];
+  const proto = FrameworkLogger.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const originals = LOG_LEVELS.map((level) => [level, proto[level]] as const).filter(([, fn]) => typeof fn === 'function');
+  for (const [level, fn] of originals) {
+    proto[level] = function (this: unknown, ...args: unknown[]) {
+      lines.push(args.map(logText).join(' '));
+      return fn.apply(this, args);
+    };
+  }
+  expect(originals, 'FrameworkLogger has log methods to capture').to.not.be.empty;
+  return {
+    lines,
+    restore() {
+      for (const [level, fn] of originals) proto[level] = fn;
+    },
+  };
+}
 
 const policyCommands: AuthzCommand[] = [];
 const policyQueries: AuthzAdminQuery[] = [];
@@ -150,23 +185,16 @@ describe('authz-http-admin routes', function () {
   };
 
   describe('authentication', () => {
+    // Built from the controller's own route table, so a route added later is covered without a list to update.
+    const descriptor = Reflect.getMetadata(CONTROLLED_DESCRIPTOR_SYMBOL, AuthzAdminController.prototype) as IControllerDescriptor;
+    const routes = [...descriptor.Routes.values()].map((r) => [r.Type.toUpperCase() as RawRequest['method'], `/authz/${(r.Path ?? '').replace(':type', 'org').replace(':id', 'u1')}`] as const);
+
+    it('applies IsAuthenticated to the whole controller', () => {
+      expect(descriptor.Policies.flat().map((p) => p.Type)).to.deep.equal([IsAuthenticated]);
+      expect(routes).to.have.length(18);
+    });
+
     it('refuses a request without a principal with 401 on every route', async () => {
-      const routes: [RawRequest['method'], string][] = [
-        ['POST', '/authz/commands'],
-        ['GET', '/authz/assignments'],
-        ['POST', '/authz/assignments'],
-        ['PATCH', '/authz/assignments/u1'],
-        ['DELETE', '/authz/assignments/u1'],
-        ['GET', '/authz/rules'],
-        ['PUT', '/authz/rules/r'],
-        ['DELETE', '/authz/rules/r'],
-        ['GET', '/authz/policies'],
-        ['PUT', '/authz/policies/p'],
-        ['DELETE', '/authz/policies/p'],
-        ['GET', '/authz/scopes/org/o1/attributes'],
-        ['PATCH', '/authz/scopes/org/o1/attributes'],
-        ['PUT', '/authz/scopes/org/o1/attributes'],
-      ];
       for (const [method, path] of routes) {
         const res = await send({ method, path, body: {} });
         expect(res.status, `${method} ${path}`).to.equal(401);
@@ -174,10 +202,13 @@ describe('authz-http-admin routes', function () {
       expect(await assignments('?subject=user:alice')).to.have.length(1);
     });
 
-    it('refuses an anonymous principal with 401', async () => {
-      expect((await commands(anonymousPrincipal(), { commands: [grant('carol')] })).status).to.equal(401);
-      expect((await call('GET', '/authz/assignments', anonymousPrincipal())).status).to.equal(401);
+    it('refuses an anonymous principal with 401 on every route', async () => {
+      for (const [method, path] of routes) {
+        const res = await send({ method, path, as: anonymousPrincipal(), body: { commands: [grant('carol')], ...grantBody('viewer') } });
+        expect(res.status, `${method} ${path}`).to.equal(401);
+      }
       expect(await assignments('?subject=user:carol')).to.deep.equal([]);
+      expect((await call('GET', '/authz/links')).body.items).to.deep.equal([]);
     });
   });
 
@@ -479,6 +510,178 @@ describe('authz-http-admin routes', function () {
       expect(bad.status).to.equal(400);
       expect(bad.body.results[0].error.code).to.equal('invalid_attributes');
       expect((await call('PATCH', '/authz/scopes/org/o1/attributes', carol, { policies: { public_links: false } })).status).to.equal(403);
+    });
+  });
+
+  describe('links', () => {
+    const linkBody = { scope: P1, role: 'viewer', expiresAt: LATER };
+    const create = async (as: Principal = root, query = ''): Promise<RawResponse> => call('POST', `/authz/links${query}`, as, linkBody);
+    const created = async (): Promise<{ id: string; token: string }> => {
+      const res = await create();
+      expect(res.status, JSON.stringify(res.body)).to.equal(200);
+      return res.body.results[0];
+    };
+    const links = async (query = ''): Promise<any[]> => {
+      const res = await call('GET', `/authz/links${query}`);
+      expect(res.status, JSON.stringify(res.body)).to.equal(200);
+      return res.body.items;
+    };
+    const noStore = (res: RawResponse, what: string) => {
+      expect(res.headers['cache-control'], what).to.equal('no-store');
+      expect(res.headers.pragma, what).to.equal('no-cache');
+    };
+
+    it('POST creates a link and answers its token once, with Cache-Control: no-store', async () => {
+      const logs = captureLogs();
+      let res: RawResponse;
+      try {
+        res = await create(root, '?reason=share');
+      } finally {
+        logs.restore();
+      }
+      expect(res.status, JSON.stringify(res.body)).to.equal(200);
+      noStore(res, 'POST /authz/links');
+      expect(res.body.results).to.have.length(1);
+      const [r] = res.body.results;
+      expect(r).to.include({ ok: true, kind: 'link.create', affected: 1 });
+      expect(r.id).to.be.a('string');
+      expect(r.token).to.be.a('string').that.is.not.empty;
+
+      const listed = await links();
+      expect(listed.map((l) => l.id)).to.deep.equal([r.id]);
+      expect(listed[0]).to.deep.include({ scope: P1, expiresAt: LATER });
+      const absent = (where: string, value: unknown) => expect(JSON.stringify(value ?? null), where).to.not.include(r.token);
+      absent('GET /authz/links', listed);
+      absent('the log lines', logs.lines);
+      absent('the audit entries', session?.audit?.entries);
+      absent('the published changes', session?.bus?.published);
+      absent('the AuthzEvents', session?.lane?.adminEvents?.events);
+      expect(session?.lane?.adminEvents?.events.map((e) => e.type)).to.include('LinkCreated');
+    });
+
+    it('POST /authz/commands answers with Cache-Control: no-store, the link token in its results', async () => {
+      const res = await commands(root, { commands: [{ kind: 'link.create', ...linkBody }] });
+      expect(res.status).to.equal(200);
+      noStore(res, 'a link.create batch');
+      expect(res.body.results[0].token).to.be.a('string').that.is.not.empty;
+      expect(JSON.stringify(await links())).to.not.include(res.body.results[0].token);
+      noStore(await commands(root, { commands: [grant('carol')] }), 'a batch without links');
+      noStore(await commands(carol, { commands: [grant('carol')] }), 'a refused batch');
+      noStore(await commands(root, [grant('carol')]), 'a body that is not an object');
+    });
+
+    it('answers every refused POST /authz/links with Cache-Control: no-store', async () => {
+      const refused = await create(carol);
+      expect(refused.status).to.equal(403);
+      expect(refused.body.results[0].error.code).to.equal('forbidden');
+      noStore(refused, '403');
+      const badQuery = await create(root, '?dryRun=maybe');
+      expect(badQuery.status).to.equal(400);
+      expect(badQuery.body.error).to.deep.include({ code: 'invalid_query', field: 'dryRun' });
+      noStore(badQuery, '400 invalid_query');
+      const notObject = await call('POST', '/authz/links', root, [linkBody]);
+      expect(notObject.status).to.equal(400);
+      expect(notObject.body.error.code).to.equal('invalid_request');
+      noStore(notObject, '400 invalid_request');
+      expect(await links()).to.deep.equal([]);
+    });
+
+    it('a dry run answers what AuthzAdmin answers, without a token, and creates nothing', async () => {
+      const res = await create(root, '?dryRun=true');
+      expect(res.status, JSON.stringify(res.body)).to.equal(200);
+      const inProcess = await session!.admin!.execute(root, [{ kind: 'link.create', ...linkBody, expiresAt: new Date(LATER) }], { dryRun: true });
+      expect(Object.keys(res.body.results[0]).sort()).to.deep.equal(Object.keys(inProcess[0]).sort());
+      expect(res.body.results[0]).to.not.have.property('token');
+      expect(await links()).to.deep.equal([]);
+    });
+
+    it('a retried POST with the same idempotency key answers the first result without its token', async () => {
+      const first = await create(root, '?idempotencyKey=k1');
+      const again = await create(root, '?idempotencyKey=k1');
+      expect(again.status).to.equal(200);
+      expect(again.body.results[0].id).to.equal(first.body.results[0].id);
+      expect(again.body.results[0]).to.not.have.property('token');
+      expect(await links()).to.have.length(1);
+    });
+
+    it('GET lists with scope and a page; a malformed query is 400 invalid_query; no read permission is 403', async () => {
+      await created();
+      await call('POST', '/authz/links', root, { scope: P2, role: 'viewer' });
+      expect((await links('?scope=project:p2')).map((l) => l.scope)).to.deep.equal([P2]);
+      const page = await call('GET', '/authz/links?limit=1&offset=1');
+      expect(page.body.items).to.have.length(1);
+      expect(page.body.total).to.equal(2);
+      const bad = await call('GET', '/authz/links?scope=project:');
+      expect(bad.status).to.equal(400);
+      expect(bad.body.error).to.deep.include({ code: 'invalid_query', field: 'scope' });
+      const refused = await call('GET', '/authz/links', carol);
+      expect(refused.status).to.equal(403);
+      expect(refused.body.error.code).to.equal('forbidden');
+    });
+
+    it('PATCH updates the expiry, attributes, role and tags through AuthzAdmin', async () => {
+      const { id } = await created();
+      const res = await call('PATCH', `/authz/links/${id}?reason=extend`, root, { id, expiresAt: '2028-01-01T00:00:00Z', attributes: { note: 'n' }, role: 'editor', tags: ['t'] });
+      expect(res.status, JSON.stringify(res.body)).to.equal(200);
+      expect(res.body.results).to.have.length(1);
+      expect(res.body.results[0]).to.include({ ok: true, kind: 'link.update', id, affected: 1 });
+      expect(res.body.results[0]).to.not.have.property('token');
+      const [link] = await links();
+      expect(link).to.deep.include({ id, expiresAt: '2028-01-01T00:00:00.000Z', attributes: { note: 'n' } });
+      const [grantRow] = await assignments(`?subject=link:${id}`);
+      expect(grantRow).to.deep.include({ role: 'editor', tags: ['t'] });
+      expect(session?.lane?.adminEvents?.events.map((e) => e.type)).to.include('LinkUpdated');
+    });
+
+    it('PATCH refuses unknown keys, a body id that is not the path id and an empty patch with 400 invalid_request', async () => {
+      const { id } = await created();
+      for (const [body, field] of [
+        [{ token: 'x' }, 'token'],
+        [{ scope: P2 }, 'scope'],
+        [{ id: 'other', role: 'editor' }, 'id'],
+      ] as const) {
+        const res = await call('PATCH', `/authz/links/${id}`, root, body);
+        expect(res.status, JSON.stringify(body)).to.equal(400);
+        expect(res.body.error, JSON.stringify(body)).to.deep.include({ code: 'invalid_request', field });
+      }
+      for (const body of [{}, { id }, [{ role: 'editor' }]]) {
+        const res = await call('PATCH', `/authz/links/${id}`, root, body);
+        expect(res.status, JSON.stringify(body)).to.equal(400);
+        expect(res.body.error.code, JSON.stringify(body)).to.equal('invalid_request');
+      }
+      expect((await assignments(`?subject=link:${id}`))[0].role).to.equal('viewer');
+    });
+
+    it('PATCH answers the status of a failed command: a bad date 400, no permission 403, an unknown id 404', async () => {
+      const { id } = await created();
+      const bad = await call('PATCH', `/authz/links/${id}`, root, { expiresAt: 'soon' });
+      expect(bad.status).to.equal(400);
+      expect(bad.body.results[0].error).to.deep.include({ code: 'invalid_command', field: 'expiresAt' });
+      const refused = await call('PATCH', `/authz/links/${id}`, carol, { expiresAt: LATER });
+      expect(refused.status).to.equal(403);
+      expect(refused.body.results[0].error.code).to.equal('forbidden');
+      const missing = await call('PATCH', '/authz/links/nope', root, { expiresAt: LATER });
+      expect(missing.status).to.equal(404);
+      expect(missing.body.results[0].error).to.deep.include({ code: 'not_found', field: 'id' });
+      const dry = await call('PATCH', `/authz/links/${id}?dryRun=true`, root, { role: 'editor' });
+      expect(dry.status).to.equal(200);
+      expect((await assignments(`?subject=link:${id}`))[0].role).to.equal('viewer');
+    });
+
+    it('DELETE revokes the link through AuthzAdmin: 403 without the permission, 404 for an unknown id', async () => {
+      const { id } = await created();
+      const refused = await call('DELETE', `/authz/links/${id}`, carol);
+      expect(refused.status).to.equal(403);
+      expect(refused.body.results[0].error.code).to.equal('forbidden');
+      expect((await call('DELETE', `/authz/links/${id}?dryRun=maybe`, root)).status).to.equal(400);
+      const missing = await call('DELETE', '/authz/links/nope', root);
+      expect(missing.status).to.equal(404);
+      expect(missing.body.results[0].error.code).to.equal('not_found');
+      const del = await call('DELETE', `/authz/links/${id}?reason=done`, root);
+      expect(del.status, JSON.stringify(del.body)).to.equal(200);
+      expect(del.body.results[0]).to.include({ ok: true, kind: 'link.revoke', id });
+      expect(await links()).to.deep.equal([]);
+      expect(await assignments(`?subject=link:${id}`)).to.deep.equal([]);
     });
   });
 

@@ -29,6 +29,18 @@ export const AuthzAssignmentPatch: JsonSchema = obj(
   'PATCH /authz/assignments/{id}: at least one key; the keys run as assignment.setTags, addTags, removeTags and setExpiry in one batch',
 );
 
+export const AuthzLinkCreate: JsonSchema = obj(
+  ['scope', 'role'],
+  { scope: resourceRef, role: text, tags, expiresAt: nullableDateTime, attributes: anyObject },
+  'POST /authz/links: the fields of link.create; the answer carries the token, shown once and sent with Cache-Control: no-store (reason, idempotencyKey and dryRun go in the query string)',
+);
+
+export const AuthzLinkPatch: JsonSchema = obj(
+  [],
+  { id: { ...text, description: 'optional; must equal the path id' }, expiresAt: nullableDateTime, attributes: anyObject, role: text, tags: { ...tags, description: 'replaces the tags of the role the link grants' } },
+  'PATCH /authz/links/{id}: at least one of expiresAt, attributes, role, tags; runs as one link.update',
+);
+
 export const AuthzRuleBody: JsonSchema = obj(['kind', 'scope'], ruleFields, 'PUT /authz/rules/{id}: a rule; an `id` in the body must equal the path id');
 export const AuthzPolicyBody: JsonSchema = obj(['effect', 'permissions'], policyFields, 'PUT /authz/policies/{id}: a policy; an `id` in the body must equal the path id');
 export const AuthzAttributesPatch: JsonSchema = { ...anyObject, description: 'PATCH /authz/scopes/{type}/{id}/attributes: deep merge; null deletes a path' };
@@ -39,7 +51,7 @@ const errorShape = obj(['code', 'message'], { code: text, message: text, field: 
 export const AuthzAdminError: JsonSchema = obj(
   ['error'],
   { error: errorShape },
-  'The body of a refused request. Codes: invalid_request, invalid_query, unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable, invalid_attributes (400); forbidden, escalation, last_holder, self_lockout, protected_role (403); not_found (404); conflict (409)',
+  'The body of a refused request. Codes: invalid_request, invalid_query, invalid_batch, invalid_command, unknown_role, not_assignable, wrong_scope_type, unknown_ladder, unknown_permission, rule_not_compilable, invalid_attributes (400); forbidden, escalation, last_holder, self_lockout, protected_role (403); not_found (404); conflict (409)',
 );
 
 const commandResult: JsonSchema = {

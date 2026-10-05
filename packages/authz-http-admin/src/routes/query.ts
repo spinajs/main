@@ -87,8 +87,8 @@ export function readAssignmentsQuery(q: QueryInput): AuthzAdminQuery {
   } as AuthzAdminQuery;
 }
 
-/** GET /authz/rules and /authz/policies: `scope`, `limit`, `offset`. */
-export function readPageQuery(kind: 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
+/** GET /authz/links, /authz/rules and /authz/policies: `scope`, `limit`, `offset`. */
+export function readPageQuery(kind: 'links' | 'rules' | 'policies', q: QueryInput): AuthzAdminQuery {
   return { kind, ...scope(q), ...page(q) } as AuthzAdminQuery;
 }
 

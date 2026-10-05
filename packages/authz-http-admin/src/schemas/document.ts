@@ -24,7 +24,7 @@ const QUERY: Readonly<Record<string, Json>> = {
 };
 
 const PATH_PARAMS: Readonly<Record<string, string>> = {
-  id: 'the id of the row (assignment, rule, policy) or of the scope node',
+  id: 'the id of the row (assignment, link, rule, policy) or of the scope node',
   type: 'the resource type of the scope node',
 };
 
@@ -35,6 +35,10 @@ export const AUTHZ_ADMIN_ROUTES: readonly RouteDoc[] = [
   { method: 'post', path: '/authz/assignments', body: 'AuthzAssignmentGrant', query: WRITE_OPTIONS },
   { method: 'patch', path: '/authz/assignments/{id}', body: 'AuthzAssignmentPatch', query: WRITE_OPTIONS },
   { method: 'delete', path: '/authz/assignments/{id}', query: WRITE_OPTIONS },
+  { method: 'get', path: '/authz/links', query: ['scope', 'limit', 'offset'] },
+  { method: 'post', path: '/authz/links', body: 'AuthzLinkCreate', query: WRITE_OPTIONS },
+  { method: 'patch', path: '/authz/links/{id}', body: 'AuthzLinkPatch', query: WRITE_OPTIONS },
+  { method: 'delete', path: '/authz/links/{id}', query: WRITE_OPTIONS },
   { method: 'get', path: '/authz/rules', query: ['scope', 'limit', 'offset'] },
   { method: 'put', path: '/authz/rules/{id}', body: 'AuthzRuleBody', query: WRITE_OPTIONS },
   { method: 'delete', path: '/authz/rules/{id}', query: WRITE_OPTIONS },
