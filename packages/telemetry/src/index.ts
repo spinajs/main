@@ -1,5 +1,6 @@
 export * from './metrics.js';
 export * from './bootstrap.js';
+export * from './schema.js';
 export * from './InMemoryPerfSink.js';
 export * from './requestStats.js';
 export * from './timeline.js';

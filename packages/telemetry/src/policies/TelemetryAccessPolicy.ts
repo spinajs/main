@@ -1,6 +1,6 @@
-import { DI, Injectable, NewInstance, isFactory } from '@spinajs/di';
+import { DI, Injectable, NewInstance, PerChildInstance, isFactory } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { AuthzContributor, isPermission, parsePermission } from '@spinajs/authz';
 import type { AuthzContribution, Permission, PermissionRefDecl } from '@spinajs/authz';
 import { ACCESS_DESCRIPTOR, AccessPolicy } from '@spinajs/authz-http';
@@ -46,6 +46,15 @@ export class TelemetryAccessPolicy extends BasePolicy {
   @Logger('Security')
   protected Log: Log;
 
+  @Config('telemetry.auth.policies', { defaultValue: {} })
+  protected Policies: Record<string, string>;
+
+  @Config('telemetry.auth.permissions', { defaultValue: {} })
+  protected Permissions: Record<string, string | string[]>;
+
+  @Config('telemetry.auth.domain', { defaultValue: 'root' })
+  protected Domain: string;
+
   protected readonly guard: Guard;
 
   constructor(public readonly endpoint: string) {
@@ -74,28 +83,20 @@ export class TelemetryAccessPolicy extends BasePolicy {
     const fail = (why: string) => new RouteRegistrationException(`telemetry endpoint ${String(endpoint)}: ${why}`);
 
     if (typeof endpoint !== 'string' || endpoint.length === 0) throw fail('the endpoint name must be a non-empty string');
-    const cfg = DI.get(Configuration);
-    if (!cfg) throw fail('no Configuration is registered');
-
-    const slot = cfg.get<unknown>(['telemetry', 'auth', 'policies', endpoint]);
-    if (typeof slot !== 'string' || slot.length === 0) throw fail(`${slotKey} must name a policy, got ${JSON.stringify(slot)}`);
+    const slot = this.Policies[endpoint];
+    if (slot === undefined) throw fail(`${slotKey} must name a policy, but it is not set`);
 
     if (slot === TELEMETRY_ACCESS_SLOT) {
       const permissionsKey = `telemetry.auth.permissions.${endpoint}`;
-      const raw = cfg.get<unknown>(['telemetry', 'auth', 'permissions', endpoint]);
-      const permissions = typeof raw === 'string' ? [raw] : raw;
-      if (!Array.isArray(permissions) || permissions.length === 0 || !permissions.every(isPermission)) {
-        throw fail(`${permissionsKey} must be a permission name or a non-empty list of them, got ${JSON.stringify(raw)}`);
-      }
-
-      const domain = cfg.get<unknown>(['telemetry', 'auth', 'domain']) ?? 'root';
-      if (typeof domain !== 'string' || domain.length === 0) throw fail(`telemetry.auth.domain must be a non-empty string, got ${JSON.stringify(domain)}`);
+      const raw = this.Permissions[endpoint];
+      if (raw === undefined) throw fail(`${permissionsKey} must be a permission name or a non-empty list of them, but it is not set`);
+      const permissions = (typeof raw === 'string' ? [raw] : raw) as Permission[];
 
       if (telemetrySkipsAuth()) {
         this.Log.warn(`telemetry endpoint ${endpoint}: authorization skipped (telemetry.auth.skipInDevelopment in a development env)`);
         return { kind: 'skip' };
       }
-      return { kind: 'access', policy: new AccessPolicy('route'), holder: ruleHolder(permissions, domain) };
+      return { kind: 'access', policy: new AccessPolicy('route'), holder: ruleHolder(permissions, this.Domain) };
     }
 
     if (slot === TelemetryAccessPolicy.name) throw fail(`${slotKey} must not name TelemetryAccessPolicy itself`);
@@ -113,28 +114,31 @@ export function TelemetryAccess(endpoint: string) {
   return Policy(TelemetryAccessPolicy, endpoint);
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 /**
  * Feeds the permissions of every `'AccessPolicy'` slot to boot rule 7 of `telemetry.auth.domain`
  * (default root), so an unregistered one fails that domain's boot (B02) instead of the first request.
- * Malformed values emit nothing: TelemetryAccessPolicy refuses them when the route registers.
  */
 @Injectable(AuthzContributor)
+@PerChildInstance()
 export class TelemetryAccessContributor extends AuthzContributor {
+  @Config('telemetry.auth.domain', { defaultValue: 'root' })
+  protected Domain: string;
+
+  @Config('telemetry.auth.policies', { defaultValue: {} })
+  protected Policies: Record<string, string>;
+
+  @Config('telemetry.auth.permissions', { defaultValue: {} })
+  protected Permissions: Record<string, string | string[]>;
+
   public contribute(domain: string): AuthzContribution {
     const permissionRefs: PermissionRefDecl[] = [];
-    const cfg = DI.get(Configuration);
-    if (!cfg || (cfg.get<unknown>(['telemetry', 'auth', 'domain']) ?? 'root') !== domain) return { permissionRefs };
+    if (this.Domain !== domain) return { permissionRefs };
 
-    const slots = cfg.get<unknown>(['telemetry', 'auth', 'policies']);
-    if (!isRecord(slots)) return { permissionRefs };
-
-    for (const [endpoint, slot] of Object.entries(slots)) {
+    for (const [endpoint, slot] of Object.entries(this.Policies)) {
       if (slot !== TELEMETRY_ACCESS_SLOT) continue;
-      const raw = cfg.get<unknown>(['telemetry', 'auth', 'permissions', endpoint]);
+      const raw = this.Permissions[endpoint];
       const source = `telemetry.auth.permissions.${endpoint}`;
-      for (const permission of typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : []) {
+      for (const permission of typeof raw === 'string' ? [raw] : (raw ?? [])) {
         if (isPermission(permission)) permissionRefs.push({ permission, type: parsePermission(permission).resource, source });
       }
     }

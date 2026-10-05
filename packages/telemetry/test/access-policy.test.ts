@@ -174,18 +174,6 @@ describe('TelemetryAccessPolicy', function () {
       refuses('nothing', /telemetry\.auth\.policies\.nothing/);
     });
 
-    it('when the slot is empty', () => {
-      set('telemetry.auth.policies.broken', '');
-      refuses('broken', /telemetry\.auth\.policies\.broken/);
-    });
-
-    it('when the slot is not a string', () => {
-      set('telemetry.auth.policies.broken', ['AccessPolicy']);
-      refuses('broken', /telemetry\.auth\.policies\.broken/);
-      set('telemetry.auth.policies.broken', 42);
-      refuses('broken', /telemetry\.auth\.policies\.broken/);
-    });
-
     it('when the slot names no registered BasePolicy', () => {
       set('telemetry.auth.policies.broken', 'NoSuchPolicy');
       refuses('broken', /NoSuchPolicy/);
@@ -199,29 +187,6 @@ describe('TelemetryAccessPolicy', function () {
     it("when an 'AccessPolicy' slot has no permission entry", () => {
       set('telemetry.auth.policies.broken', 'AccessPolicy');
       refuses('broken', /telemetry\.auth\.permissions\.broken/);
-    });
-
-    it("when an 'AccessPolicy' slot has an empty permission entry", () => {
-      set('telemetry.auth.policies.broken', 'AccessPolicy');
-      for (const empty of ['', []]) {
-        set('telemetry.auth.permissions.broken', empty);
-        refuses('broken', /telemetry\.auth\.permissions\.broken/);
-      }
-    });
-
-    it("when an 'AccessPolicy' slot names an invalid permission", () => {
-      set('telemetry.auth.policies.broken', 'AccessPolicy');
-      for (const invalid of ['telemetry', ['telemetry:read', 'read'], ['telemetry:read', 42], 7]) {
-        set('telemetry.auth.permissions.broken', invalid);
-        refuses('broken', /telemetry\.auth\.permissions\.broken/);
-      }
-    });
-
-    it('when telemetry.auth.domain is set but not a non-empty string', () => {
-      set('telemetry.auth.policies.broken', 'AccessPolicy');
-      set('telemetry.auth.permissions.broken', 'telemetry:read');
-      set('telemetry.auth.domain', '');
-      refuses('broken', /telemetry\.auth\.domain/);
     });
 
     it("even under the development skip, when an 'AccessPolicy' slot has no permission entry", async () => {

@@ -5,7 +5,7 @@ import { Configuration } from '@spinajs/configuration';
 import type { IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 
-import { Metrics, TelemetryBootstrapper, TelemetryServiceTokenBootstrapper } from '../src/index.js';
+import { Metrics, TELEMETRY_CONFIGURATION_SCHEMA, TelemetryBootstrapper, TelemetryServiceTokenBootstrapper } from '../src/index.js';
 
 /** Fills its data in `resolve()` only, like the real Configuration, which boots after the bootstrappers ran. */
 class LateConfiguration extends Configuration {
@@ -48,6 +48,11 @@ describe('telemetry bootstrappers with a Configuration that is not resolved yet'
     await new TelemetryBootstrapper().bootstrap();
     const text = await DI.get(Metrics)!.render();
     expect(text).to.contain('process_cpu_user_seconds_total');
+  });
+
+  it('TelemetryBootstrapper registers the telemetry configuration schema', async () => {
+    await new TelemetryBootstrapper().bootstrap();
+    expect(DI.RootContainer.Cache.get('__configurationSchema__', false) ?? []).to.include(TELEMETRY_CONFIGURATION_SCHEMA);
   });
 
   it('TelemetryServiceTokenBootstrapper bridges the token into authz.http.services', async () => {

@@ -58,19 +58,6 @@ describe('TelemetryAccessContributor', function () {
     expect(contribute('root')).to.deep.eq([{ permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.a' }]);
   });
 
-  it('leaves malformed values to the route registration check', () => {
-    set('telemetry.auth.policies', SLOTS);
-    set('telemetry.auth.permissions', { a: 7, c: ['telemetry:read', 'read', 42] });
-    expect(contribute('root')).to.deep.eq([{ permission: 'telemetry:read', type: 'telemetry', source: 'telemetry.auth.permissions.c' }]);
-
-    set('telemetry.auth.policies', 'AccessPolicy');
-    expect(contribute('root')).to.deep.eq([]);
-
-    set('telemetry.auth.policies', SLOTS);
-    set('telemetry.auth.domain', 42);
-    expect(contribute('root')).to.deep.eq([]);
-  });
-
   it('is registered as an AuthzContributor by loading the policy module', () => {
     expect(DI.getRegisteredTypes(AuthzContributor) ?? []).to.include(TelemetryAccessContributor);
   });

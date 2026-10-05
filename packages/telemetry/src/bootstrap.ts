@@ -1,8 +1,9 @@
 import { Injectable, Bootstrapper, DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
 import { Perf, PerfSink } from '@spinajs/log';
 
 import { Metrics } from './metrics.js';
+import { TELEMETRY_CONFIGURATION_SCHEMA } from './schema.js';
 
 /**
  * Wires the telemetry collection layer at startup:
@@ -15,6 +16,7 @@ import { Metrics } from './metrics.js';
 @Injectable(Bootstrapper)
 export class TelemetryBootstrapper extends Bootstrapper {
   public async bootstrap(): Promise<void> {
+    registerConfigurationSchema(TELEMETRY_CONFIGURATION_SCHEMA);
     const cfg = await DI.resolve(Configuration);
     const metrics = DI.get(Metrics) ?? DI.resolve(Metrics);
 
