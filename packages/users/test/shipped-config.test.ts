@@ -224,13 +224,11 @@ describe('the configuration users ships', function () {
       expect(fields.summary).to.have.members(['Email', 'Login']);
     });
 
-    // Flip both to ['Email', 'Login'] when RFC C3-1 lands: the two grants share their condition (`self`). The summary
-    // entry takes the fields of a type-level check, so it intersects too.
-    it('RFC C3-1: an account holding guest and user reads its own row with Login only (intersection, fail closed)', async () => {
+    it('RFC C3-1: an account holding guest and user reads its own row with Email and Login (union: both grants are on self)', async () => {
       const fields = await ownRead(['guest', 'user'], 'guest-and-user');
 
-      expect(fields.check).to.have.members(['Login']);
-      expect(fields.summary).to.have.members(['Login']);
+      expect(fields.check).to.have.members(['Email', 'Login']);
+      expect(fields.summary).to.have.members(['Email', 'Login']);
     });
 
     it("gives the anonymous principal (anonymousRoles guest) no other user's Email", async () => {
