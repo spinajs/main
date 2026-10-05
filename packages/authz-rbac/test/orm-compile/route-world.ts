@@ -1,24 +1,28 @@
-import { AccessDenied, AuthorizationModel, AuthzConfigError, AuthzContributor, SYSTEM, runWithPrincipal } from '@spinajs/authz';
-import type { Assignment, AssignmentSubject, AuthzService, Principal, ResourceFilter, ResourceRef } from '@spinajs/authz';
-import { OrmNativeCompiler } from '@spinajs/authz-orm';
+import { AccessDenied, AuthorizationModel, AuthzContributor, BUILTIN_CONDITION_FUNCTIONS, DefaultConditionCompiler, SYSTEM, ScopeAttributeStore, flattenAttributes, runWithPrincipal } from '@spinajs/authz';
+import type { Assignment, AssignmentSubject, AuthzContribution, AuthzService, Principal, ResourceFilter, ResourceRef, RuleDef, ScopeAttributeSchema } from '@spinajs/authz';
+import { AuthzScopeAttribute_2026_10_02_00_00_00, DbScopeAttributeStore } from '@spinajs/authz-orm';
 import { accessResourceTypeOf } from '@spinajs/authz-orm/native';
 import { evaluateFilter, fakeEvaluationContext, testHost } from '@spinajs/authz-testing';
-import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import type { OrmDriver } from '@spinajs/orm';
 
+// The engine merges attribute layers with these but does not export them; read its build directly.
+import { mergeAttributes, schemaIndex } from '../../../authz/lib/mjs/engine/attributes.js';
 // Not a root export of authz-orm; the build the package resolves to, so one copy of the module.
 import { OrmResourceAdapter } from '../../../authz-orm/lib/mjs/adapter.js';
 import { compileResidual } from '../../../authz-orm/lib/mjs/compile/compiler.js';
-import { MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacContributor, RbacModel, createRbacExtensions, rbacAssignmentExtension, rbacTables } from '../../src/index.js';
+import { ConfigRuleStore, MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP, RbacContributor, RbacModel, createRbacExtensions, rbacAssignmentExtension, rbacTables } from '../../src/index.js';
 import type { LadderDef, RbacModelOptions, RoleDef, RoleGraph } from '../../src/index.js';
-import { RbacRoleGraphSource } from '../../src/orm/index.js';
+import { RbacRoleGraphSource, RbacScopeAttributeSource, RbacScopeDefaults, ormRbacScopeLayers } from '../../src/orm/index.js';
 import type { RbacListing } from '../../src/orm/index.js';
 import { createAssignmentTable, defineDocModels, idsOf, insertAssignments } from '../orm/orm-world.js';
 import type { DocModels } from '../orm/orm-world.js';
-import type { Kind, RootOrm } from '../orm/root-orm.js';
+import { RootOrm } from '../orm/root-orm.js';
+import type { Kind } from '../orm/root-orm.js';
 
 /*
- * A world for args v2 routes without rules: ladders, an off-ladder role extending into one, implied roles
+ * A world for args v2 routes and rules (`configure`: config rules, scope attribute schemas and rows): ladders,
+ * an off-ladder role extending into one, implied roles
  * ('self-and-descendants' and 'descendants', tags, bypass), a subject set, scope types, an unassignable
  * role, config roles of a service principal, grants with requiresTag and grantedAt on and off a ladder.
  * Doc rows and their org/project models come from the task "orm" harness (orm-world.ts).
@@ -48,6 +52,8 @@ export const ROLES: readonly RoleDef[] = [
   role('team.lead', [], { implies: [{ role: 'editor', at: 'descendants', tags: ['review'] }] }),
   role('lead.plus', [{ permission: 'doc:export', grantedAt: ['project'] }], { extends: ['team.lead'] }),
   role('support', [], { implies: [{ role: 'viewer', at: 'self-and-descendants', bypass: ['restrict', 'cap'] }] }),
+  // Bypasses restrict, not cap: it outlives a source the restrict drops, and caps still act on it.
+  role('skipper', [], { implies: [{ role: 'commenter', at: 'self-and-descendants', bypass: ['restrict'] }] }),
   role('robot', [], { implies: [{ role: 'commenter', at: 'descendants', tags: ['inspect'] }] }),
   role('projectOnly', [{ permission: 'doc:edit' }], { scopeTypes: ['project'] }),
   role('ghost', [{ permission: 'doc:read' }], { assignable: false }),
@@ -70,7 +76,7 @@ export const user = (id: string, ceiling?: readonly string[]): Principal => ({ t
 export const service = (id: string = SERVICE, ceiling?: readonly string[]): Principal => ({ type: 'service', id, authenticated: true, source: 'token', attributes: {}, ...(ceiling ? { ceiling: { roles: [...ceiling] } } : {}) } as Principal);
 
 /** The model whose graph and tables the compiler reads; the test registers this source in the root container. */
-export const routeCurrent: { model?: RbacModel } = {};
+export const routeCurrent: { model?: RbacModel; schemas?: readonly ScopeAttributeSchema[] } = {};
 
 export class RouteGraphSource extends RbacRoleGraphSource {
   graph(model: unknown): RoleGraph | undefined {
@@ -90,26 +96,53 @@ export class RouteGraphSource extends RbacRoleGraphSource {
   }
 }
 
-/**
- * rbacAssignmentExtension with rules: true declares `native:rbac.threshold`, which boot rule 4 wants compiled
- * for every list type; its compiler is a later L4b task. These worlds have no rules, so no threshold term.
- */
-class ThresholdStub extends OrmNativeCompiler {
-  readonly op = RBAC_THRESHOLD_OP;
-
-  compile(): void {
-    throw new AuthzConfigError('route-world: no native:rbac.threshold term was expected (no rules)');
+/** The schema defaults and layers the compiler reads scope attributes with, for the current world's docs. */
+export class RouteAttributeSource extends RbacScopeAttributeSource {
+  defaults(model: unknown, driver: OrmDriver): RbacScopeDefaults | undefined {
+    if (routeCurrent.model === undefined || accessResourceTypeOf(model as never) !== 'doc') return undefined;
+    return RbacScopeDefaults.of(routeCurrent.schemas ?? [], ormRbacScopeLayers(driver));
   }
 }
 
-/** Registers the stub in the root container; returns its undo. */
-export function registerThresholdStub(): () => void {
-  DI.uncache(OrmNativeCompiler);
-  const undo = testHost.registerInRoot(OrmNativeCompiler, ThresholdStub);
+/** Registers the role graph and scope attribute sources in the root container; returns their undo. */
+export function registerRouteSources(): () => void {
+  const undo = [testHost.registerInRoot(RbacRoleGraphSource, testHost.instance(new RouteGraphSource())), testHost.registerInRoot(RbacScopeAttributeSource, testHost.instance(new RouteAttributeSource()))];
   return () => {
-    undo();
-    DI.uncache(OrmNativeCompiler);
+    for (const u of undo) u();
   };
+}
+
+/** Docs with a string `name` column, for thresholds over `resource.name`. */
+export const DOC_NAMES: Readonly<Record<string, string | null>> = { '1': 'release/1', '2': 'notes', '3': 'release/2/fix', '4': 'Release/3', '5': 'release/', '6': 'releasе/1', '7': 'release_1', '8': null };
+
+/** Scope attribute schemas through a contributor, as a host's models give them. */
+class SchemaContributor extends AuthzContributor {
+  constructor(private readonly schemas: readonly ScopeAttributeSchema[]) {
+    super();
+  }
+
+  contribute(): AuthzContribution {
+    return { scopeAttributeSchemas: [...this.schemas] };
+  }
+}
+
+export interface RouteWorldOptions {
+  /** Config rules of the model (ConfigRuleStore); the list extension binds them into args v2. */
+  readonly rules?: readonly Omit<RuleDef, 'source'>[];
+  readonly schemas?: readonly ScopeAttributeSchema[];
+  /** Scope attributes written to authz_scope_attribute (DbScopeAttributeStore, the domain's store). */
+  readonly attributes?: ReadonlyArray<readonly [ResourceRef, Readonly<Record<string, unknown>>]>;
+}
+
+/**
+ * Postgres JIT-compiles a query whose estimated cost passes jit_above_cost, and the rule terms of a dozen rules
+ * take it seconds per query (L4b task "rules" report): these suites measure the SQL, not the JIT. New sessions of
+ * the database start without it; the open ones are ended, and the pool replaces them.
+ */
+async function withoutJit(db: RootOrm): Promise<void> {
+  await db.raw('postgres', `DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET jit = off', current_database()); END $$`);
+  await db.raw('postgres', 'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()');
+  await db.raw('postgres', 'SET jit = off');
 }
 
 let seq = 0;
@@ -121,15 +154,35 @@ export function assignment(subject: AssignmentSubject, assigned: string, scope: 
   return { id: `r${++ids}`, subject, role: assigned, scope, source: 'db', expiresAt: null, ...extra };
 }
 
-/** A domain over `kind` with this world's model (rbacAssignmentExtension with rules: true), `authz.orm.domain` naming it. */
+/**
+ * A domain over `kind` with this world's model (rbacAssignmentExtension with rules: true), `authz.orm.domain`
+ * naming it; `configure` replaces the domain and model (rules, scope attributes) over the same tables.
+ */
 export class RouteWorld {
   readonly adapter = new OrmResourceAdapter();
+  model!: RbacModel;
+  store!: MemoryAssignmentStore;
+  service!: AuthzService;
+  private undo?: () => Promise<void>;
+  private readonly attributes: DbScopeAttributeStore;
 
-  private constructor(readonly db: RootOrm, readonly kind: Kind, readonly models: DocModels, readonly model: RbacModel, readonly store: MemoryAssignmentStore, readonly service: AuthzService, private readonly undo: () => Promise<void>) {}
+  private constructor(readonly db: RootOrm, readonly kind: Kind, readonly models: DocModels) {
+    this.attributes = new DbScopeAttributeStore({ connection: RootOrm.connectionOf(kind) });
+  }
 
-  static async open(db: RootOrm, kind: Kind): Promise<RouteWorld> {
+  static async open(db: RootOrm, kind: Kind, opts: RouteWorldOptions = {}): Promise<RouteWorld> {
     await createAssignmentTable(db.driver(kind), kind);
-    const models = await defineDocModels(db, kind);
+    await new AuthzScopeAttribute_2026_10_02_00_00_00().up(db.driver(kind));
+    if (kind === 'postgres') await withoutJit(db);
+    const world = new RouteWorld(db, kind, await defineDocModels(db, kind, [], DOC_NAMES));
+    await world.configure(opts);
+    return world;
+  }
+
+  /** A new domain and model with these rules, schemas and scope attributes; the assignments stay. */
+  async configure(opts: RouteWorldOptions = {}): Promise<void> {
+    await this.undo?.();
+    this.undo = undefined;
     const ds = await testHost.domains();
     const cfg = testHost.config();
     const name = `l4broute${++seq}`;
@@ -138,14 +191,17 @@ export class RouteWorld {
     const before = { domain: cfg.get<unknown>(['authz', 'orm', 'domain']), rbac: cfg.get<unknown>(['authz', 'rbac']) };
     cfg.set(['authz', 'orm', 'domain'], name);
     cfg.set(['authz', 'rbac'], { serviceRoles: SERVICE_ROLES, cache: { assignmentsTtlSeconds: 0 } });
-    const store = new MemoryAssignmentStore();
-    const options: RbacModelOptions = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, log: { warn: () => undefined } };
+    const store = new MemoryAssignmentStore(this.store?.all() ?? []);
+    const options: RbacModelOptions = { roles: new MemoryRoleStore(ROLES, LADDERS), assignments: store, log: { warn: () => undefined }, ...(opts.rules ? { rules: new ConfigRuleStore(opts.rules as RuleDef[]) } : {}) };
     const model = new RbacModel({ ...options, extensions: [...createRbacExtensions(options), rbacAssignmentExtension(options, { rules: true })] });
     const container: IContainer = ds.create(name, 'root');
     container.register(testHost.instance(model)).as(AuthorizationModel);
     container.register(testHost.instance(new RbacContributor(model))).as(AuthzContributor);
+    container.register(testHost.instance(new SchemaContributor(opts.schemas ?? []))).as(AuthzContributor);
+    container.register(testHost.instance(this.attributes)).as(ScopeAttributeStore);
     const restore = async () => {
       routeCurrent.model = undefined;
+      routeCurrent.schemas = undefined;
       if (ds.names().includes(name)) await container.dispose();
       cfg.unset(['authz', 'domains', name]);
       for (const [key, value] of [
@@ -157,9 +213,13 @@ export class RouteWorld {
       }
     };
     try {
-      const svc = await ds.service(name);
+      await this.writeAttributes(opts.attributes ?? []);
+      this.service = await ds.service(name);
+      this.model = model;
+      this.store = store;
       routeCurrent.model = model;
-      return new RouteWorld(db, kind, models, model, store, svc, restore);
+      routeCurrent.schemas = opts.schemas ?? [];
+      this.undo = restore;
     } catch (e) {
       await restore();
       throw e;
@@ -168,11 +228,22 @@ export class RouteWorld {
 
   async close(): Promise<void> {
     try {
-      await this.undo();
+      await this.undo?.();
     } finally {
       await this.db.clear();
       await this.db.raw(this.kind, 'DROP TABLE IF EXISTS "authz_assignment"');
+      await new AuthzScopeAttribute_2026_10_02_00_00_00().down(this.db.driver(this.kind));
     }
+  }
+
+  /** As AuthzAdmin writes them: every earlier row removed, then flattenAttributes in one transaction. */
+  private async writeAttributes(nodes: NonNullable<RouteWorldOptions['attributes']>): Promise<void> {
+    const driver = this.db.driver(this.kind);
+    await this.db.raw(this.kind, 'DELETE FROM "authz_scope_attribute"');
+    if (nodes.length === 0) return;
+    await driver.transaction(async (tx: OrmDriver) => {
+      for (const [ref, attributes] of nodes) await this.attributes.write(ref, { set: flattenAttributes(attributes).set, remove: [] }, { type: 'user', id: 'root' }, { driver: tx });
+    });
   }
 
   /** Replaces every assignment, in the model's store and in `authz_assignment`. */
@@ -216,26 +287,50 @@ export class RouteWorld {
     });
   }
 
-  /** B06: the docs check() allows, one check per row, by the ref the adapter gives the row. */
+  /** The row the adapter loads for a doc id (the check's subject). */
+  row(id: string): Promise<unknown> {
+    return runWithPrincipal(SYSTEM, async () => this.adapter.load({ type: 'doc', id }));
+  }
+
+  /** B06: the docs check() allows, one check per row, by the ref the adapter gives the row and with the row as subject. */
   async allowed(p: Principal, permission: string): Promise<string[]> {
     const out: string[] = [];
     for (const id of await this.docIds()) {
-      const decision = await this.service.check({ principal: p, permission, resource: { type: 'doc', id } });
+      const decision = await this.service.check({ principal: p, permission, resource: { type: 'doc', id }, subject: await this.row(id) });
       if (decision.allowed) out.push(id);
     }
     return out.sort();
   }
 
-  /** The residual evaluated per row in memory with the model's native filters (the list evaluator of args v2). */
+  /**
+   * The residual evaluated per row in memory with the model's native filters (the list evaluator of args v2),
+   * the row as subject, conditions through the core compiler, scope attributes layered as the engine layers them.
+   */
   async inMemory(residual: ResourceFilter, p: Principal): Promise<string[]> {
     const nativeFilters = this.model.extensions.flatMap((e) => e.nativeFilters?.() ?? []);
-    const context = fakeEvaluationContext({ now: new Date(), adapters: [this.adapter], nativeFilters });
+    const base = fakeEvaluationContext({ now: new Date(), adapters: [this.adapter], nativeFilters, conditions: new DefaultConditionCompiler(BUILTIN_CONDITION_FUNCTIONS) });
+    const context = { ...base, attributes: (ref: ResourceRef) => this.layered(ref) } as typeof base;
     const out: string[] = [];
     for (const id of await this.docIds()) {
-      if ((await evaluateFilter(residual, { id }, { principal: p, ref: { type: 'doc', id }, context, nativeFilters })) === true) out.push(id);
+      if ((await evaluateFilter(residual, await this.row(id), { principal: p, ref: { type: 'doc', id }, context, nativeFilters })) === true) out.push(id);
     }
     return out.sort();
   }
+
+  /** Schema defaults ⊕ the adapter's attributes ⊕ the store's (the engine's `loadAttributes`); null for a node the adapter does not find. */
+  private async layered(ref: ResourceRef): Promise<Readonly<Record<string, unknown>> | null> {
+    const own = this.adapter.types.includes(ref.type) ? await runWithPrincipal(SYSTEM, async () => this.adapter.scopeAttributes(ref)) : {};
+    if (own === null) return null;
+    return mergeAttributes([schemaIndex(routeCurrent.schemas ?? []).get(ref.type) ?? {}, own, await this.attributes.get(ref)]) as Readonly<Record<string, unknown>>;
+  }
+}
+
+/** The args of every threshold term in `f`. */
+export function thresholdArgs(f: ResourceFilter): Record<string, unknown>[] {
+  if (f.op === RBAC_THRESHOLD_OP) return [(f as { args: Record<string, unknown> }).args];
+  if (f.op === 'and' || f.op === 'or') return f.args.flatMap(thresholdArgs);
+  if (f.op === 'not') return thresholdArgs(f.arg);
+  return [];
 }
 
 /** The v2 args of every route term in `f`. */

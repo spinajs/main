@@ -1,23 +1,27 @@
 import { AuthzClock, AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
 import { OrmNativeCompiler } from '@spinajs/authz-orm';
+import { Configuration } from '@spinajs/configuration';
 import { Container, Inject, Injectable } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { IdentifierQuoter } from '@spinajs/orm';
 import type { IWhereBuilder, ModelBase, OrmDriver } from '@spinajs/orm';
 
-import { RBAC_ASSIGNMENT_OP } from '../contracts.js';
+import { RBAC_ASSIGNMENT_OP, RBAC_THRESHOLD_OP } from '../contracts.js';
 import { parseRbacAssignmentArgs } from '../model/native.js';
 import type { RbacArgsSubject, RbacAssignmentArgs } from '../model/native.js';
 import { parseRbacListArgs } from '../model/rules/args.js';
-import type { RbacAssignmentArgsV2 } from '../model/rules/args.js';
+import type { RbacAssignmentArgsV2, RbacListContext, RbacThresholdArgs } from '../model/rules/args.js';
 import type { RoleGraph } from '../model/roles.js';
+import { RbacScopeAttributeSource, RbacScopeDefaults } from './compile/attributes.js';
 import { rbacDialectOf } from './compile/dialect.js';
 import { RbacPathSql } from './compile/path.js';
 import { rbacRoutePlan } from './compile/route.js';
 import type { RbacRouteNeed, RbacRoutePlan } from './compile/route.js';
+import { RbacRulesSql, rbacResourceFields } from './compile/rules.js';
 import { FALSE_SQL, TRUE_SQL, andSql, ident, inList, notSql, orSql, rsql, whereRbacSql } from './compile/sql.js';
 import type { RbacSql } from './compile/sql.js';
+import { ormRbacScopeLayers } from './orm-sources.js';
 import { RbacRoleGraphSource, isEmptyRoleScopes, rbacRoleScopes } from './role-graph.js';
 import type { RbacListing, RbacRoleScopes } from './role-graph.js';
 import { RbacScopePathSource } from './scope-path.js';
@@ -55,6 +59,120 @@ interface BuilderLinks {
 }
 
 /**
+ * What the native compilers of authz-rbac share: the model's scope path, role graph and listing (host sources),
+ * the authz clock, and the SQL of list terms with bound rules (`RbacRulesSql`). Each compiler reads the
+ * principal only from its args, never from the request principal it is handed (RFC E2-2).
+ *
+ * Postgres: the rule terms have a high estimated cost and with the default `jit_above_cost` the server
+ * JIT-compiles every list query for seconds (25-30 s measured for 3.4 ms of work). Hosts set `jit = off`, or a
+ * `jit_above_cost` above these plans' cost, for the role or database of the authz connection.
+ */
+export abstract class RbacListCompiler extends OrmNativeCompiler {
+  protected readonly table: string = AUTHZ_ASSIGNMENT_TABLE;
+
+  constructor(protected readonly container: IContainer) {
+    super();
+  }
+
+  /** As the assignment store writes subjects: a principal `(type, id, '')`, a set `(scope.type, scope.id ?? '', role)`. */
+  protected subjectTriple(s: RbacArgsSubject): RbacSubjectTriple {
+    if (!('set' in s)) return { type: s.type, id: s.id, role: '' };
+    const { role, scope } = s.set;
+    if (role === '') throw new AuthzConfigError(`${this.op}: a subject set at ${scope.type}:${scope.id ?? ''} has an empty role; it would match the principal`);
+    return { type: scope.type, id: scope.type === GLOBAL.type ? '' : scope.id ?? '', role };
+  }
+
+  /** The path's SQL on `builder`'s connection; id modes need its dialect (SQLite or Postgres). */
+  protected pathSql(builder: IWhereBuilder<unknown>, path: RbacScopePath): RbacPathSql {
+    const driver = this.driverOf(builder);
+    const modes = path.idMode !== undefined || path.scopes.some((s) => s.idMode !== undefined);
+    return new RbacPathSql(path, driver.Container.resolve(IdentifierQuoter), modes ? rbacDialectOf(driver) : undefined);
+  }
+
+  /** The graph and tables of the model whose residuals reach SQL for `model`. */
+  protected listing(model: Class<ModelBase>): RbacListing {
+    if (!this.container.hasRegistered(RbacRoleGraphSource)) {
+      throw new AuthzConfigError(`${this.op}: no RbacRoleGraphSource is registered; the host registers one for its RbacModel`);
+    }
+    const listing = this.container.resolve(RbacRoleGraphSource).listing?.(model);
+    if (!listing) throw new AuthzConfigError(`${this.op}: args v2 need the role graph with its grant index and tables for model ${model.name}; the RbacRoleGraphSource does not give them (listing), or not yet`);
+    return listing;
+  }
+
+  protected roleScopes(model: Class<ModelBase>, roles: readonly string[]): RbacRoleScopes {
+    if (!this.container.hasRegistered(RbacRoleGraphSource)) {
+      throw new AuthzConfigError(`${this.op}: no RbacRoleGraphSource is registered; the host registers one for its RbacModel`);
+    }
+
+    const graph = this.container.resolve(RbacRoleGraphSource).graph(model);
+    if (!graph) throw new AuthzConfigError(`${this.op}: no role definitions for model ${model.name}: not compiled yet, or the RbacRoleGraphSource does not serve it`);
+    return rbacRoleScopes(graph, roles);
+  }
+
+  protected now(): Date {
+    return this.container.resolve(AuthzClock).now();
+  }
+
+  protected pathOf(model: Class<ModelBase>): RbacScopePath {
+    if (!this.container.hasRegistered(RbacScopePathSource)) {
+      throw new AuthzConfigError(`${this.op}: no RbacScopePathSource is registered`);
+    }
+
+    const path = this.container.resolve(RbacScopePathSource).path(model);
+    if (!path) {
+      throw new AuthzConfigError(`${this.op}: model ${model.name} has no RBAC scope path (is it an @AccessResource?)`);
+    }
+
+    return path;
+  }
+
+  /** The connection of the query a (possibly nested) where builder belongs to. */
+  protected driverOf(builder: IWhereBuilder<unknown>): OrmDriver {
+    for (let b: BuilderLinks | undefined = builder as BuilderLinks; b; b = b.Parent) {
+      if (b.Driver) return b.Driver;
+    }
+    throw new AuthzConfigError(`${this.op}: the where builder is not attached to a query`);
+  }
+
+  /** The list terms of `args` (bound config rules) on rows of `model`, on `builder`'s connection. */
+  protected rulesSql(builder: IWhereBuilder<unknown>, model: Class<ModelBase>, args: RbacListContext): RbacRulesSql {
+    const pathOf = this.pathOf(model);
+    const driver = this.driverOf(builder);
+    const dialect = rbacDialectOf(driver);
+    return new RbacRulesSql({
+      listing: this.listing(model),
+      args,
+      rowType: pathOf.type,
+      path: new RbacPathSql(pathOf, driver.Container.resolve(IdentifierQuoter), dialect),
+      dialect,
+      defaults: this.scopeDefaults(model, driver),
+      fields: rbacResourceFields(model, dialect.name),
+      now: this.now(),
+      subjects: args.subjects.map((s) => this.subjectTriple(s)),
+      table: this.table,
+      where: this.where(pathOf.type),
+    });
+  }
+
+  /** The host's `RbacScopeAttributeSource`, else no schema defaults and the layers authz-orm serves (GLOBAL is `store`). */
+  protected scopeDefaults(model: Class<ModelBase>, driver: OrmDriver): RbacScopeDefaults {
+    const source = this.container.hasRegistered(RbacScopeAttributeSource) ? this.container.resolve(RbacScopeAttributeSource).defaults(model, driver) : undefined;
+    return source ?? RbacScopeDefaults.of(undefined, ormRbacScopeLayers(driver));
+  }
+
+  /** The op, the domain authz-orm scopes queries for, and the row type, for refusals. */
+  protected where(type: string): string {
+    let domain: unknown;
+    try {
+      domain = (this.container.get(Configuration) as Configuration | null)?.get(['authz', 'orm', 'domain']);
+    } catch {
+      domain = undefined;
+    }
+    return `${this.op} (domain ${JSON.stringify(typeof domain === 'string' ? domain : 'root')}, type '${type}')`;
+  }
+}
+
+/**
  * `native:rbac.assignment` (args: model/native.ts) → the `EXISTS` over `authz_assignment` of §6.1.3:
  * `subjectIn AND roleIn AND live AND onPath`, as one `RbacSql` fragment: through authz-orm's
  * `whereSql` in a native compilation, as plain SQL on any other builder (`whereRbacSql`). The blocks
@@ -63,17 +181,16 @@ interface BuilderLinks {
  */
 @Injectable(OrmNativeCompiler)
 @Inject(Container)
-export class RbacOrmCompiler extends OrmNativeCompiler {
+export class RbacOrmCompiler extends RbacListCompiler {
   readonly op = RBAC_ASSIGNMENT_OP;
 
-  protected readonly table: string = AUTHZ_ASSIGNMENT_TABLE;
   // Distinct from usual table aliases: a filtered row under the same alias is refused.
   protected readonly alias: string = 'authz_a';
   // The tag sub-query of a route, beside the holder's (design §12.4 `b`).
   protected readonly tagAlias: string = 'authz_b';
 
-  constructor(protected readonly container: IContainer) {
-    super();
+  constructor(container: IContainer) {
+    super(container);
   }
 
   /** Reads the principal only from the args (its subjects, config roles and ceiling), never from `_principal`. */
@@ -97,11 +214,15 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
   }
 
   /**
-   * Args v2 without rules (model/rules/args.ts): the route term of design §12.4, `rbacRoutePlan` turned into
-   * SQL by `routeSql`. Args with rules are refused (L4b tasks 4–6).
+   * Args v2 (model/rules/args.ts): the route term of design §12.4. Without rules `rbacRoutePlan` turned into SQL by
+   * `routeSql`; with bound config rules `RbacRulesSql`. Stored rules (`dbRules`) are refused (the next L4b task).
    */
   protected compileRoute(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>): void {
     const parsed = this.parseRouteArgs(args);
+    if (parsed.rules.length > 0 || parsed.dbRules) {
+      whereRbacSql(builder, this.rulesSql(builder, model, parsed).route(parsed.route));
+      return;
+    }
     const pathOf = this.pathOf(model);
     const path = this.pathSql(builder, pathOf);
     const subjects = parsed.subjects.map((s) => this.subjectTriple(s));
@@ -182,21 +303,6 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
     return path.onPath(alias);
   }
 
-  /** As the assignment store writes subjects: a principal `(type, id, '')`, a set `(scope.type, scope.id ?? '', role)`. */
-  protected subjectTriple(s: RbacArgsSubject): RbacSubjectTriple {
-    if (!('set' in s)) return { type: s.type, id: s.id, role: '' };
-    const { role, scope } = s.set;
-    if (role === '') throw new AuthzConfigError(`${this.op}: a subject set at ${scope.type}:${scope.id ?? ''} has an empty role; it would match the principal`);
-    return { type: scope.type, id: scope.type === GLOBAL.type ? '' : scope.id ?? '', role };
-  }
-
-  /** The path's SQL on `builder`'s connection; id modes need its dialect (SQLite or Postgres). */
-  protected pathSql(builder: IWhereBuilder<unknown>, path: RbacScopePath): RbacPathSql {
-    const driver = this.driverOf(builder);
-    const modes = path.idMode !== undefined || path.scopes.some((s) => s.idMode !== undefined);
-    return new RbacPathSql(path, driver.Container.resolve(IdentifierQuoter), modes ? rbacDialectOf(driver) : undefined);
-  }
-
   /** L1's parser: anything but the exact v1 shape (another `v`, unknown keys, non-canonical order) is refused. */
   protected parseArgs(args: unknown): RbacAssignmentArgs {
     try {
@@ -214,49 +320,37 @@ export class RbacOrmCompiler extends OrmNativeCompiler {
       throw new AuthzConfigError(e instanceof Error ? e.message : `${this.op}: malformed args`, { cause: e });
     }
   }
+}
 
-  /** The graph and tables of the model whose residuals reach SQL for `model`. */
-  protected listing(model: Class<ModelBase>): RbacListing {
-    if (!this.container.hasRegistered(RbacRoleGraphSource)) {
-      throw new AuthzConfigError(`${this.op}: no RbacRoleGraphSource is registered; the host registers one for its RbacModel`);
-    }
-    const listing = this.container.resolve(RbacRoleGraphSource).listing?.(model);
-    if (!listing) throw new AuthzConfigError(`${this.op}: args v2 need the role graph with its grant index and tables for model ${model.name}; the RbacRoleGraphSource does not give them (listing), or not yet`);
-    return listing;
+/**
+ * `native:rbac.threshold` v1 (model/rules/args.ts) → the rows where the named bound threshold rule denies the
+ * permission, after restrict and cap with every rule of the args (design §6.1.2 step 8, §12.4): `RbacRulesSql`.
+ * `{ db: true }` and `dbRules` are refused until the next L4b task. Postgres needs JIT off for these terms
+ * (`RbacListCompiler`).
+ */
+@Injectable(OrmNativeCompiler)
+@Inject(Container)
+export class RbacThresholdOrmCompiler extends RbacListCompiler {
+  readonly op = RBAC_THRESHOLD_OP;
+
+  constructor(container: IContainer) {
+    super(container);
   }
 
-  protected roleScopes(model: Class<ModelBase>, roles: readonly string[]): RbacRoleScopes {
-    if (!this.container.hasRegistered(RbacRoleGraphSource)) {
-      throw new AuthzConfigError(`${this.op}: no RbacRoleGraphSource is registered; the host registers one for its RbacModel`);
-    }
-
-    const graph = this.container.resolve(RbacRoleGraphSource).graph(model);
-    if (!graph) throw new AuthzConfigError(`${this.op}: no role definitions for model ${model.name}: not compiled yet, or the RbacRoleGraphSource does not serve it`);
-    return rbacRoleScopes(graph, roles);
+  /** Reads the principal only from the args, never from `_principal`. */
+  compile(args: unknown, builder: IWhereBuilder<unknown>, model: Class<ModelBase>, _principal: Principal): void {
+    const parsed = this.parseThresholdArgs(args);
+    const target = parsed.threshold;
+    if (!('rule' in target)) throw new AuthzConfigError(`${this.where(this.pathOf(model).type)}: the DB threshold rules ({ db: true }) are not compiled to SQL yet (the next L4b task); refused rather than listing rows they deny`);
+    whereRbacSql(builder, this.rulesSql(builder, model, parsed).threshold(target.rule));
   }
 
-  protected now(): Date {
-    return this.container.resolve(AuthzClock).now();
-  }
-
-  protected pathOf(model: Class<ModelBase>): RbacScopePath {
-    if (!this.container.hasRegistered(RbacScopePathSource)) {
-      throw new AuthzConfigError(`${this.op}: no RbacScopePathSource is registered`);
+  /** L1b's parser: anything but the exact canonical shape is refused. */
+  protected parseThresholdArgs(args: unknown): RbacThresholdArgs {
+    try {
+      return parseRbacListArgs(RBAC_THRESHOLD_OP, args);
+    } catch (e) {
+      throw new AuthzConfigError(e instanceof Error ? e.message : `${this.op}: malformed args`, { cause: e });
     }
-
-    const path = this.container.resolve(RbacScopePathSource).path(model);
-    if (!path) {
-      throw new AuthzConfigError(`${this.op}: model ${model.name} has no RBAC scope path (is it an @AccessResource?)`);
-    }
-
-    return path;
-  }
-
-  /** The connection of the query a (possibly nested) where builder belongs to. */
-  protected driverOf(builder: IWhereBuilder<unknown>): OrmDriver {
-    for (let b: BuilderLinks | undefined = builder as BuilderLinks; b; b = b.Parent) {
-      if (b.Driver) return b.Driver;
-    }
-    throw new AuthzConfigError(`${this.op}: the where builder is not attached to a query`);
   }
 }

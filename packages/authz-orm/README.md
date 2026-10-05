@@ -204,5 +204,11 @@ A compiler for an op whose `NativeFilter` declares `principalInArgs` must not re
 argument: an intersect agent's residual keeps its delegate's terms (RFC E2-2), so `principal` is the
 agent while the args name the delegate.
 
+On PostgreSQL 12 and later, a large native term (authz-rbac's rule terms: many correlated sub-plans,
+a high estimated cost, a few rows) passes the default `jit_above_cost`, and the server JIT-compiles
+every list query: measured 25-30 s per query, 13 s of it JIT, for 3.4 ms of work. Hosts turn JIT off
+for the connection authz lists through (`ALTER ROLE <role> SET jit = off`, or the same per
+database), or raise `jit_above_cost` above the plans' cost.
+
 `@spinajs/authz-orm/native` is a contract between lanes L4 and L4b, outside the API snapshot: change
 it only together with L4b.

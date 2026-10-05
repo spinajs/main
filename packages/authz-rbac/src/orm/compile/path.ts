@@ -4,7 +4,7 @@ import type { IdentifierQuoter } from '@spinajs/orm';
 
 import type { RbacIdMode, RbacScopePath } from '../scope-path.js';
 import type { RbacSqlDialect } from './dialect.js';
-import { FALSE_SQL, andSql, ident, intSql, joinSql, notSql, orSql, outer, rsql, textOf } from './sql.js';
+import { FALSE_SQL, TRUE_SQL, andSql, ident, intSql, joinSql, notSql, orSql, outer, rsql, textOf } from './sql.js';
 import type { RbacIdentifier, RbacSql } from './sql.js';
 
 /** A node of a row's path: the row itself, an ancestor read from a scope column, or GLOBAL (no column). */
@@ -95,6 +95,60 @@ export class RbacPathSql {
     return this.indexOr(x);
   }
 
+  /** As `pathIndex`, with `fallback` where `x` names no node: two-valued as a comparison operand. */
+  pathIndexOr(x: string, fallback: number): RbacSql {
+    if (!Number.isSafeInteger(fallback)) throw refuse(`a fallback index must be an integer, got ${fallback}`);
+    return this.indexOr(x, fallback);
+  }
+
+  /**
+   * Where a constant scope (a rule's) sits on the path, as the evaluator keys it (`resourceKey`):
+   * `on` (two-valued) whether it is a node, `index` its nearest static index (-1 when it is none).
+   * GLOBAL is `{ type: '$global' }` without an id; a ref without an id, or GLOBAL with one, is no
+   * node. An id of '' names a node whose column holds '': a constant, unlike a stored `scope_id`, is
+   * never the type-only scope.
+   */
+  scopeAt(scope: { readonly type: string; readonly id?: string | null }): { readonly on: RbacSql; readonly index: RbacSql } {
+    const none = { on: FALSE_SQL, index: intSql(-1) };
+    if (scope.type === GLOBAL.type) return scope.id == null ? { on: TRUE_SQL, index: intSql(this.nodes.length - 1) } : none;
+    if (scope.id == null) return none;
+    const id = scope.id;
+    const whens = this.nodes.flatMap((n, i) => (n.type === scope.type && n.column !== undefined ? [{ i, is: this.nodeIs(i, id) }] : [])).filter((w) => w.is !== FALSE_SQL);
+    if (whens.length === 0) return none;
+    return {
+      on: orSql(...whens.map((w) => w.is)),
+      index: rsql`CASE ${joinSql(
+        whens.map((w) => rsql`WHEN ${w.is} THEN ${intSql(w.i)}`),
+        ' ',
+      )} ELSE ${intSql(-1)} END`,
+    };
+  }
+
+  /**
+   * Integer: the static index of the nearest node of `type` the adapter lists (`nodeOfType` of the
+   * rule steps: an id, '' included); NULL when the row has none. Undefined when no column node of
+   * the path has that type (GLOBAL, which has no id, included).
+   */
+  nearestIndex(type: ResourceType): RbacSql | undefined {
+    const whens = this.nodes.flatMap((n, i) => {
+      if (n.type !== type || n.column === undefined || n.idMode === 'none') return [];
+      const column = rsql`${outer(n.column)}`;
+      const holds = n.idMode === undefined ? rsql`${column} IS NOT NULL` : this.dialect!.idOf(column, n.idMode).holds;
+      return [rsql`WHEN ${holds} THEN ${intSql(i)}`];
+    });
+    return whens.length === 0 ? undefined : rsql`CASE ${joinSql(whens, ' ')} END`;
+  }
+
+  /** Two-valued: column node `i` is the node of id `id`, compared as `atNode` compares a stored id. */
+  private nodeIs(i: number, id: string): RbacSql {
+    const node = this.nodes[this.index(i)];
+    if (node.column === undefined || node.idMode === 'none') return FALSE_SQL;
+    const column = rsql`${outer(node.column)}`;
+    if (node.idMode === undefined) return rsql`(${column} IS NOT NULL AND ${textOf(column, this.quoter)} = ${id})`;
+    const read = this.dialect!.idOf(column, node.idMode);
+    return rsql`(${read.exact} AND ${this.dialect!.sameText(rsql`${id}`, read.text)})`;
+  }
+
   /** `x` names a node of the path. */
   onPathNode(x: string): RbacSql {
     return orSql(...this.nodes.map((_, i) => this.atNode(x, i)));
@@ -105,8 +159,13 @@ export class RbacPathSql {
    * the adapter cannot find (see `whenFound`) the evaluator has no path at all.
    */
   onPath(x: string): RbacSql {
+    return orSql(...this.onPathTerms(x));
+  }
+
+  /** The operands of `onPath`'s OR, each two-valued and bracketed: one per node, then the row type's type-only scope. */
+  onPathTerms(x: string): RbacSql[] {
     const { type, id } = this.scope(x);
-    return orSql(this.onPathNode(x), rsql`${type} IS NOT NULL AND ${id} IS NOT NULL AND ${type} = ${this.path.type} AND ${id} = ${''}`);
+    return [...this.nodes.map((_, i) => this.atNode(x, i)), rsql`(${type} IS NOT NULL AND ${id} IS NOT NULL AND ${type} = ${this.path.type} AND ${id} = ${''})`];
   }
 
   /**
@@ -122,6 +181,16 @@ export class RbacPathSql {
     const mode = this.path.idMode;
     if (mode === undefined) return cond;
     return rsql`(CASE WHEN ${this.found(mode)} THEN (CASE WHEN ${cond} THEN 1 ELSE 0 END) END = 1)`;
+  }
+
+  /**
+   * `whenFound` of `flag = 1`, for an integer expression of 1 or 0: the CASE that makes it UNKNOWN sits beside
+   * `flag`, not around it, so a deep `flag` (a sub-select) is not nested in it.
+   */
+  whenFoundFlag(flag: RbacSql): RbacSql {
+    const mode = this.path.idMode;
+    if (mode === undefined) return rsql`(${flag} = 1)`;
+    return rsql`(${flag} = CASE WHEN ${this.found(mode)} THEN 1 END)`;
   }
 
   private found(mode: RbacIdMode): RbacSql {

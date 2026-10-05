@@ -7,11 +7,11 @@ import 'mocha';
 
 import { MemoryAssignmentStore, MemoryRoleStore, RBAC_ASSIGNMENT_OP, RbacModel, createRbacExtensions, parseRbacListArgs, rbacAssignmentArgsV2, rbacAssignmentExtension, rbacTables } from '../../src/index.js';
 import type { RbacAssignmentArgsV2, RbacRoute } from '../../src/index.js';
-import { RbacRoleGraphSource, rbacRoutePlan } from '../../src/orm/index.js';
+import { RbacRoleGraphSource, RbacScopeAttributeSource, rbacRoutePlan } from '../../src/orm/index.js';
 import type { RbacListing } from '../../src/orm/index.js';
 import { SQLITE_ODD_DOCS } from '../orm/orm-world.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
-import { DAY, LADDERS, PERMISSIONS, ROLES, RouteGraphSource, RouteWorld, SERVICE_ROLES, assignment, at, registerThresholdStub, routeArgs, service, team, u, user } from './route-world.js';
+import { DAY, LADDERS, PERMISSIONS, ROLES, RouteWorld, SERVICE_ROLES, assignment, at, registerRouteSources, routeArgs, service, team, u, user } from './route-world.js';
 
 const ALL = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
@@ -101,10 +101,10 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
       ]);
     });
 
-    it('refuses args with rules or dbRules, naming the task that adds them', () => {
+    it('has no plan for args with rules (RbacRulesSql compiles them) or dbRules (the next task)', () => {
       const rule = { id: 'r', kind: 'restrict' as const, scope: { type: 'org', id: 'o1' } };
-      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { rules: [rule] }), 'doc')).to.throw(AuthzConfigError, /task 4/);
-      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { dbRules: true }), 'doc')).to.throw(AuthzConfigError, /dbRules.*task 4/);
+      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { rules: [rule] }), 'doc')).to.throw(AuthzConfigError, /RbacRulesSql/);
+      expect(() => rbacRoutePlan(listing, args('doc:edit', ROUTES.edit, { dbRules: true }), 'doc')).to.throw(AuthzConfigError, /dbRules.*next L4b task/);
     });
 
     it('refuses a route the current roles do not give as stated', () => {
@@ -126,19 +126,17 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
   describe('SQL through authz-orm', () => {
     let db: RootOrm;
     let undoSource: (() => void) | undefined;
-    let undoStub: (() => void) | undefined;
 
     before(async function () {
       db = await RootOrm.open(this, 'l4b_route');
       await (await testHost.domains()).service('root');
-      undoSource = testHost.registerInRoot(RbacRoleGraphSource, testHost.instance(new RouteGraphSource()));
-      undoStub = registerThresholdStub();
+      undoSource = registerRouteSources();
     });
 
     after(async () => {
-      undoStub?.();
       undoSource?.();
       DI.uncache(RbacRoleGraphSource);
+      DI.uncache(RbacScopeAttributeSource);
       await db?.close();
     });
 
@@ -295,7 +293,7 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
           });
         }
 
-        it('refuses args v2 with rules, a stale route, and a source without the listing', async () => {
+        it('refuses args v2 with dbRules, a stale route, and a source without the listing', async () => {
           await world1([assignment(u('ann'), 'team.lead', at('project', '10'))]);
           const [real] = routeArgs(await world.residual(user('ann'), 'doc:edit')) as unknown as RbacAssignmentArgsV2[];
           const { v: _v, route, ...ctx } = parseRbacListArgs(RBAC_ASSIGNMENT_OP, real);
@@ -308,8 +306,7 @@ describe('authz-rbac orm-compile: grant routes (args v2 without rules)', functio
             expect(e, String(why)).to.be.instanceOf(AuthzConfigError);
             expect((e as Error).message).to.match(why);
           };
-          await refused(rbacAssignmentArgsV2({ ...ctx, rules: [{ id: 'r', kind: 'cap', scope: { type: 'org', id: 'o1' }, ladder: 'project', maxRole: 'viewer' }] }, route), /task 4/);
-          await refused(rbacAssignmentArgsV2({ ...ctx, dbRules: true }, route), /dbRules/);
+          await refused(rbacAssignmentArgsV2({ ...ctx, dbRules: true }, route), /dbRules.*next L4b task/);
           await refused(rbacAssignmentArgsV2(ctx, { ...route, grant: 3 }), /roles changed/);
           await refused({ ...real, extra: 1 }, /unknown args key/);
           const undo = testHost.registerInRoot(

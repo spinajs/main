@@ -6,9 +6,9 @@ import { expect } from 'chai';
 import * as fc from 'fast-check';
 import 'mocha';
 
-import { RbacRoleGraphSource } from '../../src/orm/index.js';
+import { RbacRoleGraphSource, RbacScopeAttributeSource } from '../../src/orm/index.js';
 import { KINDS, RootOrm } from '../orm/root-orm.js';
-import { DAY, PERMISSIONS, ROLES, RouteGraphSource, RouteWorld, at, registerThresholdStub, routeArgs, service, team, u, user } from './route-world.js';
+import { DAY, PERMISSIONS, ROLES, RouteWorld, at, registerRouteSources, routeArgs, service, team, u, user } from './route-world.js';
 
 const SEED = 20261005;
 const RUNS = Number(process.env.L4B_ROUTE_RUNS ?? 300);
@@ -53,19 +53,17 @@ describe('authz-rbac orm-compile: grant routes, check ⇔ listed (property)', fu
 
   let db: RootOrm;
   let undoSource: (() => void) | undefined;
-  let undoStub: (() => void) | undefined;
 
   before(async function () {
     db = await RootOrm.open(this, 'l4b_route_prop');
     await (await testHost.domains()).service('root');
-    undoSource = testHost.registerInRoot(RbacRoleGraphSource, testHost.instance(new RouteGraphSource()));
-    undoStub = registerThresholdStub();
+    undoSource = registerRouteSources();
   });
 
   after(async () => {
-    undoStub?.();
     undoSource?.();
     DI.uncache(RbacRoleGraphSource);
+    DI.uncache(RbacScopeAttributeSource);
     await db?.close();
   });
 

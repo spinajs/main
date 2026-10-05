@@ -15,7 +15,7 @@ import { OrmRbacScopePathSource, RbacRoleGraphSource, RbacScopePathSource, TRUE_
 import { bootPostgres, bootSqlite, createSchema, executionCases, parityCases, seed } from './fixture.js';
 import type { BootedDb } from './fixture.js';
 import { intersectCases } from './intersect.js';
-import { CurrentRoleGraphSource, DOCS, PRINCIPALS, SQLITE_ODD_DOCS, as, assignments, createAssignmentTable, defineDocModels, idsOf, insertAssignments, rbacDomain, user } from './orm-world.js';
+import { CurrentRoleGraphSource, ORM_DOCS, PRINCIPALS, SQLITE_ODD_DOCS, as, assignments, createAssignmentTable, defineDocModels, idsOf, insertAssignments, rbacDomain, user } from './orm-world.js';
 import type { DocModels } from './orm-world.js';
 import { KINDS, RootOrm } from './root-orm.js';
 import type { ModelClass } from './root-orm.js';
@@ -161,7 +161,7 @@ describe('authz-rbac orm: native:rbac.assignment through authz-orm', function ()
           if (residual.op === 'true') {
             // Engine side, not this SQL: a TRUE residual lists every row, while check() refuses a row the adapter cannot find ('x9').
             const every = idsOf(await as(p, () => query()));
-            expect(every, `${kind} ${p.id}: TRUE lists every row`).to.have.length(DOCS.length + (kind === 'sqlite' ? SQLITE_ODD_DOCS.length : 0));
+            expect(every, `${kind} ${p.id}: TRUE lists every row`).to.have.length(ORM_DOCS.length + (kind === 'sqlite' ? SQLITE_ODD_DOCS.length : 0));
             expect(all, `${kind} ${p.id}`).to.deep.equal(every.filter((id) => id !== 'x9'));
             continue;
           }

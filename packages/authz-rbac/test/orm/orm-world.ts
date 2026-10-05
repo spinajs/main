@@ -26,7 +26,7 @@ const u = (id: string): AssignmentSubject => ({ type: 'user', id });
 const T1_MEMBERS: AssignmentSubject = { set: { role: 'team.member', scope: at('team', 't1') } };
 
 /** Doc rows: integer ids and project ids, string org ids, NULL and '' ancestors, an org id differing only by case. */
-export const DOCS: readonly Readonly<Record<string, unknown>>[] = [
+export const ORM_DOCS: readonly Readonly<Record<string, unknown>>[] = [
   { id: 1, project_id: 10, org_id: 'o1' },
   { id: 2, project_id: 10, org_id: 'o2' },
   { id: 3, project_id: 11, org_id: 'o1' },
@@ -125,8 +125,8 @@ export interface DocModels {
   readonly Doc: ModelClass;
 }
 
-/** org ← project ← doc as authz-orm models; Doc's ancestors: its project, then its org. */
-export async function defineDocModels(db: RootOrm, kind: Kind, extraDocs: readonly Readonly<Record<string, unknown>>[] = []): Promise<DocModels> {
+/** org ← project ← doc as authz-orm models; Doc's ancestors: its project, then its org. With `names`, docs have a `name` text column. */
+export async function defineDocModels(db: RootOrm, kind: Kind, extraDocs: readonly Readonly<Record<string, unknown>>[] = [], names?: Readonly<Record<string, string | null>>): Promise<DocModels> {
   const Org = await db.define({ name: 'Org', columns: { id: 'TEXT' }, rows: [{ id: 'o1' }, { id: 'o2' }], decorate: (cls) => AccessResource('org')(cls) }, kind);
   const Project = await db.define(
     {
@@ -143,8 +143,8 @@ export async function defineDocModels(db: RootOrm, kind: Kind, extraDocs: readon
   const Doc = await db.define(
     {
       name: 'Doc',
-      columns: { id: 'INT', project_id: 'INT', org_id: 'TEXT' },
-      rows: [...DOCS, ...extraDocs],
+      columns: { id: 'INT', project_id: 'INT', org_id: 'TEXT', ...(names ? { name: 'TEXT' } : {}) },
+      rows: [...ORM_DOCS, ...extraDocs].map((d) => (names ? { ...d, name: names[String(d.id)] ?? null } : d)),
       decorate: (cls, proto) => {
         AccessResource('doc')(cls);
         ScopeColumn('project_id', 'project')(proto, 'project_id');

@@ -2,7 +2,9 @@ import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { ResourceType } from '@spinajs/authz';
 
 import { RBAC_ASSIGNMENT_OP } from '../../contracts.js';
+import type { CompiledGrant } from '../../model/grants.js';
 import type { ImpliedEntry } from '../../model/ladder/implies.js';
+import type { CompiledLadder } from '../../model/ladder/ladders.js';
 import { assignmentProblem } from '../../model/roles.js';
 import type { RbacAssignmentArgsV2 } from '../../model/rules/args.js';
 import type { RbacListing } from '../role-graph.js';
@@ -57,30 +59,49 @@ const byCodeUnits = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 
 
 const sameNames = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean => JSON.stringify(a === undefined ? a : [...new Set(a)].sort(byCodeUnits)) === JSON.stringify(b === undefined ? b : [...new Set(b)].sort(byCodeUnits));
 
+/** The grant a route names, checked against the current roles. */
+export interface RbacRouteGrant {
+  readonly grant: CompiledGrant;
+  readonly ladder?: CompiledLadder;
+  /** The stored roles that can reach the grant (`route.roles`). */
+  readonly roles: readonly string[];
+}
+
 /**
- * The plan of a route term on rows of `rowType`, from the tables the model evaluates with.
- * @throws AuthzConfigError for args with rules (restrict, cap and threshold come with L4b tasks 4–6), and for a
- *   route the current roles do not give as the args state it
+ * The grant `args.route` names, from the tables the model evaluates with.
+ * @throws AuthzConfigError for a route the current roles do not give as the args state it
  */
-export function rbacRoutePlan(listing: RbacListing, args: RbacAssignmentArgsV2, rowType: ResourceType): RbacRoutePlan {
-  if (args.rules.length > 0 || args.dbRules) {
-    throw refuse(`args v2 with ${args.dbRules ? 'stored rules (dbRules)' : `${args.rules.length} rule(s)`} are not compiled to SQL yet: restrict, cap and threshold rules come with L4b tasks 4–6 (next: task 4, restrict); refused rather than listing rows the rules hide`);
-  }
+export function rbacRouteGrant(listing: RbacListing, args: Pick<RbacAssignmentArgsV2, 'permission' | 'route'>): RbacRouteGrant {
   const { roles: graph, grants, ladders, implies } = listing;
   const route = args.route;
   const def = graph.get(route.role)?.def.grants[route.grant];
   if (!def) throw stale(`route ${route.role}#${route.grant} names no grant of the current roles`);
   const grant = grants.grants(route.role, args.permission).find((g) => g.role === route.role && g.def === def);
   if (!grant) throw stale(`grant ${route.role}#${route.grant} does not give '${args.permission}'`);
-
   const reaches = (role: string): boolean => graph.get(role)?.closure.includes(grant.role) === true;
-  const impliedBy = (role: string): readonly ImpliedEntry[] => implies?.of(role) ?? [];
   const ladder = ladders?.ladderOf(grant.role);
   // routeOf (model/rules/native.ts) states these; the in-memory evaluator reads them from the args.
-  const roles = graph.names.filter((r) => reaches(r) || impliedBy(r).some((e) => reaches(e.role)));
+  const roles = graph.names.filter((r) => reaches(r) || (implies?.of(r) ?? []).some((e) => reaches(e.role)));
   if (ladder?.name !== route.ladder) throw stale(`route ${route.role}#${route.grant} names ladder ${JSON.stringify(route.ladder)}, the role's is ${JSON.stringify(ladder?.name)}`);
   if (grant.requiresTag !== route.requiresTag || !sameNames(grant.grantedAt, route.grantedAt)) throw stale(`route ${route.role}#${route.grant} states requiresTag or grantedAt unlike the grant`);
   if (!sameNames(roles, route.roles)) throw stale(`route ${route.role}#${route.grant} lists roles ${JSON.stringify(route.roles)}, the current roles reach it from ${JSON.stringify([...roles].sort(byCodeUnits))}`);
+  return { grant, ...(ladder ? { ladder } : {}), roles };
+}
+
+/**
+ * The plan of a route term on rows of `rowType`, from the tables the model evaluates with.
+ * @throws AuthzConfigError for args with rules (they compile through `RbacRulesSql`), and for a route the current
+ *   roles do not give as the args state it
+ */
+export function rbacRoutePlan(listing: RbacListing, args: RbacAssignmentArgsV2, rowType: ResourceType): RbacRoutePlan {
+  if (args.rules.length > 0 || args.dbRules) {
+    throw refuse(`args v2 with ${args.dbRules ? 'stored rules (dbRules)' : `${args.rules.length} rule(s)`} have no plan without rules; RbacRulesSql compiles bound rules, and stored rules come with the next L4b task`);
+  }
+  const { roles: graph, ladders, implies } = listing;
+  const route = args.route;
+  const { grant, ladder } = rbacRouteGrant(listing, args);
+  const reaches = (role: string): boolean => graph.get(role)?.closure.includes(grant.role) === true;
+  const impliedBy = (role: string): readonly ImpliedEntry[] => implies?.of(role) ?? [];
 
   const ceiling = args.ceilingRoles ? new Set(args.ceilingRoles) : undefined;
   const within = (role: string): boolean => ceiling === undefined || ceiling.has(role);

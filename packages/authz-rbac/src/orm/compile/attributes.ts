@@ -1,5 +1,7 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { ResourceType, ScopeAttributeSchema } from '@spinajs/authz';
+import type { Class } from '@spinajs/di';
+import type { ModelBase, OrmDriver } from '@spinajs/orm';
 
 import type { RbacSqlDialect } from './dialect.js';
 import type { RbacPathSql } from './path.js';
@@ -86,6 +88,18 @@ export class RbacScopeDefaults {
   lookup(type: ResourceType, path: string): RbacDefaultEntry | undefined {
     return this.byType.get(type)?.get(path);
   }
+}
+
+/**
+ * The schema defaults and attribute layers the SQL of a rule reads scope attributes with, for rows of `model`
+ * on `driver`'s connection. The host registers one beside its RbacModel: the schemas the domain's
+ * contributors give (`scopeAttributeSchemas`) and a layer for every scope type its rules read
+ * (`ormRbacScopeLayers` for the types authz-orm serves). Without one, the compiler reads with no defaults and
+ * the layers of `ormRbacScopeLayers`: an attribute only a default holds is then a fault (narrower).
+ */
+export abstract class RbacScopeAttributeSource {
+  /** undefined: the compiler's fallback. */
+  abstract defaults(model: Class<ModelBase>, driver: OrmDriver): RbacScopeDefaults | undefined;
 }
 
 interface Walk {
@@ -203,6 +217,52 @@ export function attr(path: RbacPathSql, type: ResourceType, attributePath: strin
   if (typeof type !== 'string' || type === '' || type.includes('.')) throw new AuthzConfigError(`authz-rbac attr: no scope reference names the type ${JSON.stringify(type)}`);
   const id = type === GLOBAL.type ? rsql`${''}` : path.nearestId(type);
   return attributeOf([{ type, applies: TRUE_SQL, id, path: rsql`${attributePath}`, constPath: attributePath }], defaults, dialect);
+}
+
+/** `attr` as one flat derived table and expressions over it (`attrLookup`). */
+export interface RbacAttrLookup {
+  /** A one-row derived table with the columns `node`, `above`, `below` (1 or 0) and `v` (the store's row). */
+  readonly table: RbacSql;
+  /** As `RbacAttrSql.present`, over the table under `alias`. */
+  present(alias: string): RbacSql;
+  /** As `RbacAttrSql.json`, over the table under `alias`. */
+  json(alias: string): RbacSql;
+  /** As `RbacAttrSql.num`, over the table under `alias`. */
+  num(alias: string): RbacSql;
+}
+
+/**
+ * `attr` of a constant reference, the same values with fewer nested selects (SQLite's parser stack allows few):
+ * the node, the type and the path go into the one derived table's sub-queries as constants, and the layering
+ * into expressions over its columns.
+ */
+export function attrLookup(path: RbacPathSql, type: ResourceType, attributePath: string, defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacAttrLookup {
+  if (typeof type !== 'string' || type === '' || type.includes('.')) throw new AuthzConfigError(`authz-rbac attr: no scope reference names the type ${JSON.stringify(type)}`);
+  // Typed: Postgres cannot type a bare parameter under IS NOT NULL.
+  const id = type === GLOBAL.type ? rsql`CAST(${''} AS TEXT)` : path.nearestId(type);
+  const pathText = rsql`CAST(${attributePath} AS TEXT)`;
+  const target: Target = { type, applies: TRUE_SQL, id, path: pathText, constPath: attributePath };
+  const sa = (column: string): RbacSql => rsql`${ident(SA, column)}`;
+  const node = rsql`${ident(SCOPE_ATTRIBUTE_TABLE)} ${ident(SA)} WHERE ${sa('scope_type')} = CAST(${type} AS TEXT) AND ${sa('scope_id')} = ${id}`;
+  // GLOBAL's key is ('$global', ''); any other node needs an id, and '' is the type-only scope's key.
+  const nodeOk = andSql(layerReads(target, defaults.layer(type)), rsql`${id} IS NOT NULL`, type === GLOBAL.type ? TRUE_SQL : rsql`${id} <> ${''}`);
+  const value = rsql`(SELECT ${sa('value_json')} FROM ${node} AND ${sa('path')} = ${pathText})`;
+  const n = codePoints(attributePath);
+  const above = rsql`EXISTS (SELECT 1 FROM ${node} AND LENGTH(${sa('path')}) < ${intSql(n)} AND SUBSTR(${pathText}, 1, LENGTH(${sa('path')}) + 1) = ${sa('path')} || ${'.'})`;
+  const below = rsql`EXISTS (SELECT 1 FROM ${node} AND SUBSTR(${sa('path')}, 1, ${intSql(n + 1)}) = ${`${attributePath}.`})`;
+  const table = rsql`SELECT ${joinSql([as(flag(nodeOk), 'node'), as(value, 'v'), as(flag(above), 'above'), as(flag(below), 'below')], ', ')}${dialect.fence}`;
+  const entry = defaults.lookup(type, attributePath);
+  const dcode = entry === undefined || entry.kind === 'null' ? rsql`CAST(NULL AS INTEGER)` : intSql(entry.kind === 'scalar' ? 1 : 2);
+  const djson = entry?.kind === 'scalar' ? rsql`CAST(${entry.json} AS TEXT)` : rsql`CAST(NULL AS TEXT)`;
+  const y = (alias: string, column: string): RbacSql => rsql`${ident(alias, column)}`;
+  const code = (a: string): RbacSql => rsql`CASE WHEN ${y(a, 'node')} = 0 THEN NULL WHEN ${y(a, 'v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y(a, 'v'))} THEN 1 END) WHEN ${y(a, 'above')} = 1 THEN NULL WHEN ${y(a, 'below')} = 1 THEN 2 ELSE ${dcode} END`;
+  const json = (a: string): RbacSql => rsql`CASE WHEN ${y(a, 'node')} = 0 THEN NULL WHEN ${y(a, 'v')} IS NOT NULL THEN (CASE WHEN ${scalarJson(y(a, 'v'))} THEN ${y(a, 'v')} END) WHEN ${y(a, 'above')} = 1 OR ${y(a, 'below')} = 1 THEN NULL ELSE ${djson} END`;
+  return {
+    table,
+    present: (a) => rsql`(${code(a)} IS NOT NULL)`,
+    json: (a) => rsql`(${json(a)})`,
+    num: (a) => rsql`(CASE WHEN ${numberJson(json(a))} THEN ${dialect.number(json(a))} END)`,
+  };
 }
 
 /**
