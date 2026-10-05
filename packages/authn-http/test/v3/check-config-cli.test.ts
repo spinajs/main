@@ -135,7 +135,7 @@ describe('authn:check-config (CLI)', function () {
   });
 
   it('never prints a configured secret, whatever the findings', async () => {
-    const values = sound({ http: { cookie: { secret: STRONG }, trustProxy: null, cors: { origins: 'https://app.example.com' } } });
+    const values = sound({ http: { cookie: { secret: STRONG }, trustProxy: null, cors: { origins: ['https://app.example.com'] } } });
     (values.authn as Values).local = { pepper: { secret: '', version: 1, previous: [{ secret: STRONG, version: 1 }] } };
     const r = await run(values, 'production');
     expect(r.lines.length).to.be.greaterThan(2);

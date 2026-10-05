@@ -1,6 +1,7 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI } from '@spinajs/di';
+import Ajv from 'ajv';
 
 import { HttpConfigBootstrapper } from '../src/bootstrap.js';
 import { HTTP_CONFIGURATION_SCHEMA } from '../src/schemas/http.configuration.js';
@@ -39,6 +40,11 @@ describe('http configuration schema', () => {
       expect(configuration.get('http.trustProxy')).to.eq(1);
     });
 
+    it('accepts a string that only looks like a number but is not one', async () => {
+      const { configuration } = await boot(SCHEMAS, { http: { trustProxy: '1x5' } });
+      expect(configuration.get('http.trustProxy')).to.eq('1x5');
+    });
+
     it('names http.trustProxy for a negative count, a fraction and an object', async () => {
       for (const value of [-1, 1.5, {}]) expect(await bad({ trustProxy: value }), JSON.stringify(value)).to.include('http.trustProxy');
     });
@@ -63,9 +69,27 @@ describe('http configuration schema', () => {
     });
 
     it('names the bad origin entry', async () => {
-      const entries = ['partner.example.org', 'https://partner.example.org/app', 'https://*.example.org', 'https://user@partner.example.org', 'null', ''];
+      const entries = ['partner.example.org', 'https://partner.example.org/app', 'https://*.example.org', 'https://user@partner.example.org', 'https://a\\b.com', 'null', ''];
       for (const entry of entries) expect(await bad({ cors: { origins: ['https://ok.example.com', entry] } }), JSON.stringify(entry)).to.include('http.cors.origins.1');
       expect(await bad({ cors: { origins: 'https://ok.example.com' } })).to.include('http.cors.origins');
+    });
+  });
+
+  describe('ajv strict mode', () => {
+    it('compiles without a strict-mode warning', () => {
+      const warnings: string[] = [];
+      const logger = { log: () => undefined, error: () => undefined, warn: (m: string) => warnings.push(m) };
+      const Ctor = ((Ajv as unknown as { default?: unknown }).default ?? Ajv) as unknown as new (o: object) => { addKeyword(k: string): void; compile(s: object): unknown };
+      const ajv = new Ctor({ logger, allErrors: true, removeAdditional: true, useDefaults: true, coerceTypes: true, $data: true, strict: true });
+      ajv.addKeyword('$configurationModule');
+      ajv.compile(HTTP_CONFIGURATION_SCHEMA);
+      expect(warnings).to.deep.eq([]);
+    });
+
+    it('keeps a null header list and a string one apart from coercion', async () => {
+      const { configuration } = await boot(SCHEMAS, { http: { cors: { exposedHeaders: null, allowedHeaders: 'x-a' } } });
+      expect(configuration.get('http.cors.exposedHeaders')).to.eq(null);
+      expect(configuration.get('http.cors.allowedHeaders')).to.eq('x-a');
     });
   });
 
