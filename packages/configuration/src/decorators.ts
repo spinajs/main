@@ -7,8 +7,9 @@ import { InternalLogger } from '@spinajs/internal-logger';
 /**
  * Injects configuration value into a class property.
  *
- * The decorated property is replaced with a lazy getter. Every read resolves the
- * {@link Configuration} service and calls `config.get(path, options.defaultValue)`,
+ * The decorated property is replaced with a lazy getter. Every read asks the
+ * {@link Configuration} of the container that built the instance (the root one for an
+ * instance built with `new`) and calls `config.get(path, options.defaultValue)`,
  * so the property always reflects the current (possibly reloaded / watched) value
  * instead of a snapshot taken at construction time.
  *
@@ -85,18 +86,25 @@ import { InternalLogger } from '@spinajs/internal-logger';
  * @param options - entry options, see {@link IConfigEntryOptions}
  * @returns property decorator
  */
+export const CONFIGURATION_INJECTION_KEY = '__configuration__';
+
 export function Config(path: string, options?: IConfigEntryOptions) {
   return (target: any, key: string): any => {
     // register conf, so we can expose eg. in db if config is set
     DI.register({ path, options }).asValue('__configuration_property__');
 
-    const getter = () => {
-      const config = DI.get(Configuration)!;
-      return config.get(path, options ? options.defaultValue ?? undefined : undefined);
-    };
+    // Injected rather than read from the root: a child container may register its own Configuration.
+    AddDependencyForProperty((descriptor: IInjectDescriptor<unknown>) => {
+      if (!descriptor.inject.some((i) => i.autoinjectKey === CONFIGURATION_INJECTION_KEY)) {
+        descriptor.inject.push({ autoinject: true, autoinjectKey: CONFIGURATION_INJECTION_KEY, inject: Configuration, mapFunc: undefined });
+      }
+    })(target, key);
 
     Object.defineProperty(target, key, {
-      get: getter,
+      get(this: Record<string, Configuration | undefined>) {
+        const config = this[CONFIGURATION_INJECTION_KEY] ?? DI.get(Configuration)!;
+        return config.get(path, options ? options.defaultValue ?? undefined : undefined);
+      },
       enumerable: false,
       configurable: false,
     });
