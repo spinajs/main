@@ -258,7 +258,7 @@ Status (C5): not moved yet, for the same reason (live 2.x routes, N8b's folder):
 
 `TokenPolicy`, `NoTokenAuthPolicy` and `NoImpersonationPolicy`. `TokenPolicy` rows rewrite or drop, the two kept policies adapt (C5 task 3); lane C5.
 
-Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is now `@deprecated` (R1 deletes it; its rewrite rows go to T3 and its drop rows go with R1); `NoTokenAuthPolicy` and `NoImpersonationPolicy` stay and their adapt rows pass unchanged. The file stays until R1.
+Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is now `@deprecated` (R1 deletes it; its rewrite rows go to T3 and its drop rows go with R1); `NoTokenAuthPolicy` and `NoImpersonationPolicy` stay and their adapt rows pass unchanged. The file stays until R1. N8a task 5: the rows still test the 2.x classes, which the barrel exports until the N8c cutover; the 3.0 classes of the same names (`src/v3/index.ts`) have the counterparts named in rows 5-10.
 
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
@@ -266,12 +266,12 @@ Status (C5): task 3 done in code: no 3.0 controller uses `TokenPolicy`, which is
 | 2 | 48 | token policies > TokenPolicy accepts token-authenticated request with matching grant | rewrite | C5 → T3 | authz-rbac/test/ported/; a token with a matching grant passes (B24) |
 | 3 | 54 | token policies > TokenPolicy rejects token-authenticated request without grant | rewrite | C5 → T3 | authz-rbac/test/ported/; a token without the grant gets 403 (B24, B07) |
 | 4 | 61 | token policies > TokenPolicy errors on route without rbac descriptor | drop | C5 | `TokenPolicy` and the route descriptor it reads are removed; the missing-metadata case has no 3.0 policy |
-| 5 | 83 | token policies > NoTokenAuthPolicy rejects token-authenticated request | adapt | C5 | authn-http/test/; `NoTokenAuthPolicy` kept (C5 task 3) |
-| 6 | 89 | token policies > NoTokenAuthPolicy passes session request | adapt | C5 | authn-http/test/; fixture sets a session principal |
-| 7 | 100 | token policies > NoTokenAuthPolicy passes guest request | adapt | C5 | authn-http/test/ |
-| 8 | 106 | token policies > NoImpersonationPolicy rejects an impersonated session | adapt | C5 | authn-http/test/; `NoImpersonationPolicy` kept, reads `authn.impersonator` instead of `storage.Impersonator` (A20) |
-| 9 | 114 | token policies > NoImpersonationPolicy passes an ordinary session | adapt | C5 | authn-http/test/ |
-| 10 | 125 | token policies > NoImpersonationPolicy passes guest request | adapt | C5 | authn-http/test/ |
+| 5 | 83 | token policies > NoTokenAuthPolicy rejects token-authenticated request | adapt | C5 | authn-http/test/; `NoTokenAuthPolicy` kept (C5 task 3); 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (token, agent and key 403) and the HTTP case |
+| 6 | 89 | token policies > NoTokenAuthPolicy passes session request | adapt | C5 | authn-http/test/; fixture sets a session principal; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (session, impersonation pass) |
+| 7 | 100 | token policies > NoTokenAuthPolicy passes guest request | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoTokenAuthPolicy" (none, pending pass) |
+| 8 | 106 | token policies > NoImpersonationPolicy rejects an impersonated session | adapt | C5 | authn-http/test/; `NoImpersonationPolicy` kept, reads `authn.impersonator` instead of `storage.Impersonator` (A20); 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (impersonation 403) and the HTTP case |
+| 9 | 114 | token policies > NoImpersonationPolicy passes an ordinary session | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (session pass) |
+| 10 | 125 | token policies > NoImpersonationPolicy passes guest request | adapt | C5 | authn-http/test/; 3.0 policy (N8a task 5): `test/v3/authn-policies.test.ts`, matrix row "NoImpersonationPolicy" (none, pending pass) |
 
 ## test/token-policy-e2e.test.ts
 

@@ -28,8 +28,8 @@ export * from './account/index.js';
 export * from './token/index.js';
 
 export * from './api.js';
-// api.ts declares these five names too. Until N8a replaces the moved 2.x code, the explicit exports keep the working 2.x
-// implementations in the barrel (an explicit export wins over `export *`); api.ts keeps the frozen 3.0 signatures.
+// api.ts declares these five names too. 2.x consumers (users-http, configuration-http, ...) still use them, so the
+// barrel keeps the 2.x code until the N8c cutover (an explicit export wins over `export *`); ./v3/index.js has the 3.0 ones.
 export { FromSession, SessionId } from './decorators.js';
 export { NotLoggedPolicy } from './policies/NotLoggedPolicy.js';
 export { NoTokenAuthPolicy, NoImpersonationPolicy } from './token/index.js';
@@ -39,5 +39,9 @@ export { CsrfOriginGuard } from './middleware/csrf.js';
 export { AuthnMiddleware } from './middleware/authn.js';
 export { KeyPrincipalResolver, TokenPrincipalResolver } from './resolvers/credential.js';
 export { SessionPrincipalResolver } from './resolvers/session.js';
+export { Authenticated, NoSession } from './policies/v3/principal.js';
+export { FreshAuth } from './policies/v3/fresh-auth.js';
+export { MfaSatisfied } from './policies/v3/mfa.js';
+export { Identity, AuthnSession } from './args/authn.js';
 export * from './extractors/index.js';
-export { registerAuthnHttpV3 } from './v3.js';
+export { registerAuthnHttpV3 } from './v3/register.js';

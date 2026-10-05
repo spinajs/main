@@ -24,6 +24,11 @@ import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.j
 import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
 import { KeyPrincipalResolver as LaneKeyPrincipalResolver, TokenPrincipalResolver as LaneTokenPrincipalResolver } from '../src/resolvers/credential.js';
 import { SessionPrincipalResolver as LaneSessionPrincipalResolver } from '../src/resolvers/session.js';
+import { Authenticated as LaneAuthenticated, NoImpersonationPolicy as LaneNoImpersonationPolicy, NoSession as LaneNoSession, NoTokenAuthPolicy as LaneNoTokenAuthPolicy, NotLoggedPolicy as LaneNotLoggedPolicy } from '../src/policies/v3/principal.js';
+import { FreshAuth as LaneFreshAuth } from '../src/policies/v3/fresh-auth.js';
+import { MfaSatisfied as LaneMfaSatisfied } from '../src/policies/v3/mfa.js';
+import { AuthnSession as LaneAuthnSession, FromSession as LaneFromSession, Identity as LaneIdentity, SessionId as LaneSessionId } from '../src/args/authn.js';
+import * as v3 from '../src/v3/index.js';
 
 const expect = chai.expect;
 
@@ -45,7 +50,20 @@ const LANE: Record<string, unknown> = {
   KeyPrincipalResolver: LaneKeyPrincipalResolver,
   TokenPrincipalResolver: LaneTokenPrincipalResolver,
   SessionPrincipalResolver: LaneSessionPrincipalResolver,
+  Authenticated: LaneAuthenticated,
+  FreshAuth: LaneFreshAuth,
+  MfaSatisfied: LaneMfaSatisfied,
+  NoSession: LaneNoSession,
+  NotLoggedPolicy: LaneNotLoggedPolicy,
+  NoTokenAuthPolicy: LaneNoTokenAuthPolicy,
+  NoImpersonationPolicy: LaneNoImpersonationPolicy,
+  Identity: LaneIdentity,
+  AuthnSession: LaneAuthnSession,
+  SessionId: LaneSessionId,
+  FromSession: LaneFromSession,
 };
+// 2.x consumers use these names through the barrel, so it keeps the 2.x code until the N8c cutover.
+const KEPT_2X = ['FromSession', 'SessionId', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy'];
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
@@ -147,10 +165,16 @@ describe('authn-http api stubs (api.ts)', function () {
       for (const f of Object.values(ROUTE_ARGS)) expect(f).to.be.a('function');
     });
 
-    it('the barrel exports every api name, as the lane implementation where N8a has one; the five colliding names stay the moved 2.x ones until N8a', () => {
+    it('every api name has a lane implementation, and the v3 sub-entry exports each one, the five colliding names included', () => {
+      expect(Object.keys(LANE).sort()).to.deep.eq(RUNTIME_EXPORTS.filter((n) => n !== 'AuthnPrincipalResolver'));
+      const sub = v3 as unknown as Record<string, unknown>;
+      for (const n of Object.keys(LANE)) expect(sub[n], n).to.eq(LANE[n]).and.not.eq((api as Record<string, unknown>)[n]);
+      expect(sub.AuthnPrincipalResolver).to.eq(AuthnPrincipalResolver);
+    });
+
+    it('the barrel exports every api name as the lane implementation; the five colliding names stay the moved 2.x ones until N8c', () => {
       const b = barrel as unknown as Record<string, unknown>;
-      const own = RUNTIME_EXPORTS.filter((n) => !['FromSession', 'SessionId', 'NotLoggedPolicy', 'NoTokenAuthPolicy', 'NoImpersonationPolicy'].includes(n));
-      for (const n of own) {
+      for (const n of RUNTIME_EXPORTS.filter((x) => !KEPT_2X.includes(x))) {
         const stub = (api as Record<string, unknown>)[n];
         if (n in LANE) expect(b[n], n).to.eq(LANE[n]).and.not.eq(stub);
         else expect(b[n], n).to.eq(stub);
@@ -210,6 +234,9 @@ describe('authn-http api stubs (api.ts)', function () {
       const p = new Container().resolve(FreshAuth, [600]) as FreshAuth;
       expect(p).to.be.instanceOf(FreshAuth);
       expect(p.maxAgeSeconds).to.eq(600);
+      const lane = new Container().resolve(LaneFreshAuth, [600]) as LaneFreshAuth;
+      expect(lane).to.be.instanceOf(LaneFreshAuth);
+      expect(lane.maxAgeSeconds).to.eq(600);
     });
 
     it('middlewares run ClientIp, then CsrfOriginGuard, then AuthnMiddleware, after the http built-ins (<= 3)', () => {

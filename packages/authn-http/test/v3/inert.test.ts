@@ -13,10 +13,14 @@ interface Snapshot {
   CredentialExtractor: string[];
   AuthnPrincipalResolver: string[];
   ServerMiddleware: string[];
+  RouteArgs: string[];
 }
 
 // Plain JS for the ESM and the CJS child: the built package, loaded as an app loads it.
+const ROUTE_ARG_NAMES = ['AuthnIdentityArg', 'AuthnSessionArg', 'AuthnSessionIdArg', 'AuthnSessionDataArg'];
+
 const BODY = `
+  const ROUTE_ARGS = ${JSON.stringify(ROUTE_ARG_NAMES)};
   const names = (di, t) => (di.DI.getRegisteredTypes(t) ?? []).map((x) => x.name);
   const snap = (di, http, contracts, pkg) => ({
     AuthnService: names(di, contracts.AuthnService),
@@ -25,6 +29,7 @@ const BODY = `
     CredentialExtractor: names(di, contracts.CredentialExtractor),
     AuthnPrincipalResolver: names(di, pkg.AuthnPrincipalResolver),
     ServerMiddleware: names(di, http.ServerMiddleware),
+    RouteArgs: ROUTE_ARGS.filter((n) => di.DI.RootContainer.hasRegistered(n)),
   });
   const before = snap(di, http, contracts, pkg);
   await pkg.registerAuthnHttpV3();
@@ -65,7 +70,7 @@ describe('the 3.0 authn layer ships switched off (N8c)', function () {
     ['ESM', 'module', ESM],
     ['CJS', 'commonjs', CJS],
   ] as const) {
-    it(`${label}: importing the package registers no authn service, extractor, resolver or AuthnMiddleware; registerAuthnHttpV3 does`, () => {
+    it(`${label}: importing the package registers no authn service, extractor, resolver, route arg or AuthnMiddleware; registerAuthnHttpV3 does`, () => {
       const { before, after } = run(inputType, body);
       expect(before.AuthnService, 'AuthnService').to.deep.eq([]);
       expect(before.MfaPolicy, 'MfaPolicy').to.deep.eq([]);
@@ -73,6 +78,7 @@ describe('the 3.0 authn layer ships switched off (N8c)', function () {
       expect(before.CredentialExtractor, 'CredentialExtractor').to.deep.eq([]);
       expect(before.AuthnPrincipalResolver, 'AuthnPrincipalResolver').to.deep.eq([]);
       expect(before.ServerMiddleware).to.not.include('AuthnMiddleware');
+      expect(before.RouteArgs, 'RouteArgs').to.deep.eq([]);
 
       expect(after.AuthnService).to.include('DefaultAuthnService');
       expect(after.MfaPolicy).to.include('DefaultMfaPolicy');
@@ -80,6 +86,7 @@ describe('the 3.0 authn layer ships switched off (N8c)', function () {
       expect(after.CredentialExtractor).to.have.members(['HttpSignatureExtractor', 'AuthorizationBearerExtractor', 'ApiKeyHeaderExtractor']);
       expect(after.AuthnPrincipalResolver).to.have.members(['KeyPrincipalResolver', 'TokenPrincipalResolver', 'SessionPrincipalResolver']);
       expect(after.ServerMiddleware).to.include('AuthnMiddleware');
+      expect(after.RouteArgs).to.deep.eq(ROUTE_ARG_NAMES);
     });
   }
 });

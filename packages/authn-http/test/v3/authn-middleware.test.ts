@@ -30,7 +30,7 @@ import { AuthnMiddleware } from '../../src/middleware/authn.js';
 import { KeyPrincipalResolver, TokenPrincipalResolver } from '../../src/resolvers/credential.js';
 import { SessionPrincipalResolver } from '../../src/resolvers/session.js';
 import { ApiKeyHeaderExtractor, AuthorizationBearerExtractor, HttpSignatureExtractor } from '../../src/extractors/index.js';
-import { registerAuthnHttpV3 } from '../../src/v3.js';
+import { registerAuthnHttpV3 } from '../../src/v3/register.js';
 import { AUTHN_PROBE_PATH, authnProbeHits } from './probe.js';
 import { COOKIE_SECRET, TestConfiguration, req, restoreHttpErrorMap } from '../token-common.js';
 
