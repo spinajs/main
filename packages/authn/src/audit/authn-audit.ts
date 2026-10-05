@@ -1,5 +1,5 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
-import type { Class, IContainer } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
 import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
 
@@ -71,10 +71,10 @@ export class AuthnAudit extends AsyncService {
       throw new InvalidOperation('AuthnAudit: the resolved Configuration has no get()');
     }
     const config = readAuditConfig(configuration.get('authn.audit'));
-    // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. resolveChain builds each sink
+    // The whole lineage: a child that registers its own sink keeps its ancestors' sinks. Array.chainOf builds each sink
     // where it was registered (a root singleton stays the root's), per-child sinks here; both lists share one order.
-    const types = this.container.getRegisteredTypesChain(AuthnEventSink) ?? [];
-    const built = (await this.container.resolveChain(AuthnEventSink as unknown as Class<AuthnEventSink>)) as unknown[];
+    const types = this.container.getRegisteredTypes(Array.chainOf(AuthnEventSink)) ?? [];
+    const built = (await this.container.resolve(Array.chainOf(AuthnEventSink))) as unknown[];
     const registered = types.map((type, i) => ({ type, sink: built[i] }));
 
     const order: { name: string; sink: unknown }[] = [];

@@ -36,7 +36,7 @@ describe('LogAuthzEventSink', () => {
   }
 
   it('is registered as an AuthzEventSink', () => {
-    expect(DI.RootContainer.getRegisteredTypesChain(AuthzEventSink)).to.include(LogAuthzEventSink);
+    expect(DI.RootContainer.getRegisteredTypes(Array.chainOf(AuthzEventSink))).to.include(LogAuthzEventSink);
   });
 
   it('logs each event at info', async () => {

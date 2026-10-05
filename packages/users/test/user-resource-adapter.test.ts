@@ -26,7 +26,7 @@ function dir(path: string) {
 const UNKNOWN_UUID = '0d7f3b8e-5a4e-4c1e-8f61-3b7a2c9d1e44';
 
 async function adapter(): Promise<UserResourceAdapter> {
-  const chain = (await DI.RootContainer.resolveChain(ResourceAdapter)) as ResourceAdapter[];
+  const chain = (await DI.RootContainer.resolve(Array.chainOf(ResourceAdapter))) as ResourceAdapter[];
   return chain.find((a) => a instanceof UserResourceAdapter) as UserResourceAdapter;
 }
 
@@ -58,7 +58,7 @@ describe('UserResourceAdapter', function () {
   });
 
   it("is the one ResourceAdapter of type 'user' in the host chain, and leaves 'users' alone", async () => {
-    const chain = (await DI.RootContainer.resolveChain(ResourceAdapter)) as ResourceAdapter[];
+    const chain = (await DI.RootContainer.resolve(Array.chainOf(ResourceAdapter))) as ResourceAdapter[];
 
     expect(chain.filter((a) => a.types.includes('user'))).to.have.lengthOf(1);
     expect((await adapter()).types).to.deep.eq(['user']);

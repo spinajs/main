@@ -123,7 +123,7 @@ export class AccessPolicy extends BasePolicy {
    */
   protected async refOf(domain: string, instance: object): Promise<ResourceRef> {
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-    const adapters = [...(await domains.container(domain).resolveChain(ResourceAdapter))] as ResourceAdapter[];
+    const adapters = [...(await domains.container(domain).resolve(Array.chainOf(ResourceAdapter)))] as ResourceAdapter[];
     const adapter = adapters.find((a) => a.accepts(instance));
     if (!adapter) throw new AuthzConfigError(`no ResourceAdapter of domain ${domain} accepts ${instance.constructor.name}`);
     return adapter.refOf(instance);
@@ -133,7 +133,7 @@ export class AccessPolicy extends BasePolicy {
   protected async load(domain: string, ref: ResourceRef): Promise<unknown> {
     if (!isRef(ref) || ref.id === undefined) return null;
     const domains = (await DI.resolve(AuthzDomains)) as AuthzDomains;
-    const adapters = [...(await domains.container(domain).resolveChain(ResourceAdapter))] as ResourceAdapter[];
+    const adapters = [...(await domains.container(domain).resolve(Array.chainOf(ResourceAdapter)))] as ResourceAdapter[];
     const adapter = adapters.find((a) => typeof a.load === 'function' && a.types.includes(ref.type));
     return adapter ? ((await adapter.load!(ref)) ?? null) : null;
   }

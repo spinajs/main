@@ -59,7 +59,7 @@ export class ConfigScopeAttributeSchemas extends AuthzContributor {
 export async function contributedSchemas(container: IContainer, domain: string, where: string): Promise<ReadonlyMap<ResourceType, ScopeAttributeSchema>> {
   const out = new Map<ResourceType, ScopeAttributeSchema>();
   if (!container.hasRegistered(AuthzContributor)) return out;
-  for (const contributor of await container.resolveChain(AuthzContributor)) {
+  for (const contributor of await container.resolve(Array.chainOf(AuthzContributor))) {
     const name = (isObject(contributor) && typeof contributor.constructor === 'function' && contributor.constructor.name) || 'AuthzContributor';
     let contribution: unknown;
     try {

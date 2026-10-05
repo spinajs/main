@@ -12,7 +12,7 @@ import { authenticatedPrincipal } from './principal.js';
 /** The policy DefaultAuthnService asks at login: the registration named authn.mfa.policy.service (default DefaultMfaPolicy) nearest to `container`. */
 export async function mfaPolicyOf(container: IContainer, configured: unknown): Promise<MfaPolicy> {
   const name = configured ?? 'DefaultMfaPolicy';
-  const types = container.getRegisteredTypesChain(MfaPolicy as unknown as Class<MfaPolicy>) ?? [];
+  const types = container.getRegisteredTypes(Array.chainOf(MfaPolicy)) ?? [];
   const type = [...types].reverse().find((t) => t.name === name);
   if (!type) throw new InvalidOption(`authn.mfa.policy.service ${JSON.stringify(name)}: no MfaPolicy is registered under that name`);
   const policy = (isFactory(type) ? await (type as Factory<unknown>)(container) : await container.resolve(type as Class<unknown>)) as MfaPolicy | null;

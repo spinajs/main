@@ -229,7 +229,7 @@ export class DbRuleStore extends AdminRuleStore {
   protected async ladders(): Promise<readonly LadderDef[]> {
     if (!this.container.hasRegistered(RoleStore)) throw new AuthzConfigError(`${this.name}.put: no RoleStore is registered; rule ranks are indexes in its ladders`);
     const out = new Map<string, LadderDef>();
-    for (const s of await this.container.resolveChain(RoleStore)) {
+    for (const s of await this.container.resolve(Array.chainOf(RoleStore))) {
       for (const l of (await (s as RoleStore).load()).ladders) {
         if (out.has(l.name)) throw new AuthzConfigError(`${this.name}.put: ladder ${JSON.stringify(l.name)} is defined twice`);
         out.set(l.name, l);

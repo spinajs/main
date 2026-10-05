@@ -278,7 +278,7 @@ describe('ABAC policy commands through AuthzAdmin', function () {
   describe('store and model lookup', () => {
     it('is registered as the AuthzWriteHandler of policy.put and policy.delete', async () => {
       d = await abacDomain();
-      const handlers = (await d.container.resolveChain(AuthzWriteHandler)) as AuthzWriteHandler[];
+      const handlers = (await d.container.resolve(Array.chainOf(AuthzWriteHandler))) as AuthzWriteHandler[];
       expect(handlers.filter((h) => h instanceof AbacPolicyHandler).map((h) => [...h.kinds])).to.deep.equal([['policy.put', 'policy.delete']]);
     });
 

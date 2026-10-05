@@ -379,7 +379,7 @@ describe('owner-container singletons (DI-2)', () => {
       const child = DI.child();
       child.register(Rbac).as(Model);
 
-      const chained = (child.resolveChain(Model) as Model[])[0];
+      const chained = (child.resolve(Array.chainOf(Model)) as Model[])[0];
       const listed = child.resolve(Array.ofType(Model))[0];
 
       expect(chained).to.be.instanceOf(Rbac);
@@ -395,14 +395,14 @@ describe('owner-container singletons (DI-2)', () => {
       const child = DI.child();
       child.register(ChildRbac).as(Model);
 
-      const chained = (child.resolveChain(Model) as Model[])[0];
+      const chained = (child.resolve(Array.chainOf(Model)) as Model[])[0];
 
       expect(chained).to.be.instanceOf(ChildRbac);
       expect(chained).to.not.equal(fromRoot);
     });
   });
 
-  describe('resolveChain picks the class the owner registry leads to', () => {
+  describe('Array.chainOf picks the class the owner registry leads to', () => {
     it('ignores a concrete override in the calling container for every entry', () => {
       DI.register(Rbac).as(Model);
       DI.register(PerChildModel).as(Model);
@@ -410,12 +410,12 @@ describe('owner-container singletons (DI-2)', () => {
       child.register(RbacChild).as(Rbac);
       child.register(PerChildOverride).as(PerChildModel);
 
-      const models = child.resolveChain(Model) as Model[];
+      const models = child.resolve(Array.chainOf(Model)) as Model[];
 
       expect(models.map((m) => m.constructor)).to.deep.equal([Rbac, PerChildModel]);
       expect(child.Cache.has(PerChildModel)).to.equal(true);
       expect(child.Cache.has(Rbac)).to.equal(false);
-      expect(models[1]).to.not.equal((DI.resolveChain(Model) as Model[])[1]);
+      expect(models[1]).to.not.equal((DI.resolve(Array.chainOf(Model)) as Model[])[1]);
     });
   });
 
@@ -431,7 +431,7 @@ describe('owner-container singletons (DI-2)', () => {
         DI.register(SlowFailing).as('failing-list');
         DI.register(Throwing).as('failing-list');
 
-        expect(() => DI.resolveChain(Model)).to.throw('Throwing failed');
+        expect(() => DI.resolve(Array.chainOf(Model))).to.throw('Throwing failed');
         DI.clearCache();
         expect(() => DI.resolve(Array.ofType('failing-list'))).to.throw('Throwing failed');
 
@@ -445,17 +445,17 @@ describe('owner-container singletons (DI-2)', () => {
   });
 
   describe('self records left by resolving an unregistered key', () => {
-    it('resolveChain lists the self record only while nobody registers the key', () => {
+    it('Array.chainOf lists the self record only while nobody registers the key', () => {
       const child = DI.child();
       const early = child.resolve(Late);
 
-      expect(child.getRegisteredTypesChain(Late)).to.deep.equal([Late]);
-      expect((child.resolveChain(Late) as Late[])[0]).to.equal(early);
+      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([Late]);
+      expect((child.resolve(Array.chainOf(Late)) as Late[])[0]).to.equal(early);
 
       DI.register(LateA).as(Late);
 
-      expect(child.getRegisteredTypesChain(Late)).to.deep.equal([LateA]);
-      expect((child.resolveChain(Late) as Late[]).map((m) => m.constructor)).to.deep.equal([LateA]);
+      expect(child.getRegisteredTypes(Array.chainOf(Late))).to.deep.equal([LateA]);
+      expect((child.resolve(Array.chainOf(Late)) as Late[]).map((m) => m.constructor)).to.deep.equal([LateA]);
     });
 
     it('Array.ofType and a single resolve in the child follow the later root registration', () => {

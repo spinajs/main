@@ -67,7 +67,7 @@ describe('DI helpers (real @spinajs/di)', () => {
     const marker = root.resolve(Marker);
     const scope = await scopedContainer({
       register: [[ChildModel, AuthorizationModel], ChildService],
-      resolve: async (c) => ({ models: await c.resolveChain(AuthorizationModel), single: c.resolve(RootSingleton), service: await c.resolve(ChildService) }),
+      resolve: async (c) => ({ models: await c.resolve(Array.chainOf(AuthorizationModel)), single: c.resolve(RootSingleton), service: await c.resolve(ChildService) }),
       uncache: [RootSingleton],
     });
 
@@ -95,7 +95,7 @@ describe('DI helpers (real @spinajs/di)', () => {
       const scope = await scopedContainer({
         parent,
         register: (c) => c.register(ChildModel).as(AuthorizationModel),
-        resolve: (c) => c.resolveChain(AuthorizationModel),
+        resolve: (c) => c.resolve(Array.chainOf(AuthorizationModel)),
       });
       expect(scope.container.Parent).to.eq(parent);
       expect(((await scope.resolved) as AuthorizationModel[]).map((m) => m.name)).to.include('child');

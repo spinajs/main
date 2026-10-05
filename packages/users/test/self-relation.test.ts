@@ -121,7 +121,7 @@ describe('self relation', function () {
     });
 
     it('registers one resolver per type in the RelationResolver chain', async () => {
-      const chain = (await DI.RootContainer.resolveChain(RelationResolver)) as RelationResolver[];
+      const chain = (await DI.RootContainer.resolve(Array.chainOf(RelationResolver))) as RelationResolver[];
       const self = chain.filter((r) => r.relation === 'self').map((r) => r.type);
 
       expect(self).to.have.members(['user', 'users']);

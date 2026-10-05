@@ -342,9 +342,9 @@ export class DefaultAuthzService extends AuthzService {
       this.log.warn(`${where}: no ChangeBus is registered; published changes will not reach this domain`);
     }
 
-    // Entry i of getTypesChain is the registration of element i of resolveChain.
+    // Entry i of getTypesChain is the registration of element i of the Array.chainOf resolve.
     const owners = <T>(token: Class<T>) => container.Registry.getTypesChain(token).map((e) => e.container);
-    const chain = async <T>(token: Class<T>): Promise<T[]> => [...(await container.resolveChain(token))];
+    const chain = async <T>(token: Class<T>): Promise<T[]> => [...(await container.resolve(Array.chainOf(token)))];
     const modelOwners = owners(AuthorizationModel);
     const chainModels = await chain(AuthorizationModel);
     const adapterOwners = owners(ResourceAdapter);
@@ -585,7 +585,7 @@ export class DefaultAuthzService extends AuthzService {
       .pop();
     if (!entry) throw new AuthzConfigError(`${where}: ${key} names ${q(service)}, but no ${token.name} class of that name is registered`);
     const type = entry.type as Class<T>;
-    // Resolved where resolveChain would: per-child classes here, the rest in the registering container.
+    // Resolved where Array.chainOf would: per-child classes here, the rest in the registering container.
     const at = container.extractDescriptor(type).resolver === ResolveType.PerChildContainer ? container : entry.container;
     return (await at.resolve(type)) as T;
   }

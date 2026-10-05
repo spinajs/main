@@ -2,7 +2,7 @@
 import { ResolveType } from './enums.js';
 import { Class, Factory, InferClassOrFactory, InferTypedArray, ResolveResult, ResolveArrayResult } from './types.js';
 import { EventEmitter } from './events.js';
-import { TypedArray } from './array.js';
+import { ChainArray, TypedArray } from './array.js';
 import { Registry } from './registry.js';
 import { ContainerCache } from './container-cache.js';
 
@@ -110,14 +110,11 @@ export interface IContainer extends EventEmitter {
   get<T>(service: TypedArray<T>, parent?: boolean): T[] | null;
   get<T>(service: string | Class<T>, parent?: boolean): T | null;
   get<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): T | T[] | null;
-  getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
-
   /**
-   * Registrations of `service` merged across this container and all its ancestors:
-   * ancestors first, a class registered under the same name lower in the chain
-   * replaces the ancestor's one in place, factories are always kept.
+   * For `Array.chainOf(T)`: the registrations merged across this container and all its ancestors,
+   * in the order `resolve(Array.chainOf(T))` returns their instances; `parent` is ignored.
    */
-  getRegisteredTypesChain<T>(service: string | Class<T> | TypedArray<T>): Array<Class<unknown> | Factory<unknown>>;
+  getRegisteredTypes<T>(service: string | Class<T> | TypedArray<T>, parent?: boolean): Array<Class<unknown> | Factory<unknown>>;
 
   isResolved<T>(service: string | Class<T>, parent?: boolean): boolean;
   hasRegistered<T>(service: Class<T> | string | TypedArray<T>, parent?: boolean): boolean;
@@ -127,6 +124,8 @@ export interface IContainer extends EventEmitter {
   resolve<T>(type: string, check?: boolean): T;
   resolve<T>(type: Class<T> | Factory<T>, check?: boolean): ResolveResult<T>;
   resolve<T>(type: Class<T> | Factory<T>, options?: unknown[] | boolean, check?: boolean): ResolveResult<T>;
+  resolve<T>(type: ChainArray<T>, check?: boolean): ResolveChainResult<T>;
+  resolve<T>(type: ChainArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveChainResult<T>;
   resolve<T>(type: TypedArray<T>, check?: boolean): ResolveArrayResult<T>;
   resolve<T>(type: TypedArray<T>, options?: unknown[] | boolean, check?: boolean): ResolveArrayResult<T>;
   resolve<T extends Class<any> | Factory<any>>(type: T, options?: unknown[] | boolean, check?: boolean): ResolveResult<InferClassOrFactory<T>>;
@@ -134,15 +133,6 @@ export interface IContainer extends EventEmitter {
   resolve<T extends Class<any> | Factory<any>>(type: T, check?: boolean): ResolveResult<InferClassOrFactory<T>>;
   resolve<T extends TypedArray<any>>(type: T, check?: boolean): ResolveArrayResult<InferTypedArray<T>>;
   resolve(type: Class<any> | TypedArray<any> | string, options?: unknown[] | boolean, check?: boolean): unknown;
-
-  /**
-   * Resolves every registration of `getRegisteredTypesChain(type)`, each in the container
-   * that registered it, except `PerChildContainer` types, which are resolved in this
-   * container ( one instance per container ). Unlike `resolve(Array.ofType(type))`, a child
-   * registration does not hide the parent's ones. Returns a promise when the base type or
-   * any element is an AsyncService, or when a resolution is pending; otherwise an array.
-   */
-  resolveChain<T>(type: Class<T>): ResolveChainResult<T>;
 
   dispose(): Promise<void>;
 

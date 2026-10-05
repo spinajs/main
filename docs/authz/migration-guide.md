@@ -869,7 +869,8 @@ These change how containers behave. They matter if your app uses child container
 - `get(Array.ofType(X))` now honours `parent` and walks parents by default (a public API change).
 - `di.resolved.*` events for such singletons fire on the root container.
 - `child.uncache(Svc)` does nothing for such a singleton.
-- `resolveChain` is new. It merges registrations across parent and child containers. Unlike
+- `Array.chainOf(X)` is new. `resolve(Array.chainOf(X))` merges registrations across parent and child
+  containers, and `getRegisteredTypes(Array.chainOf(X))` lists them in the same order. Unlike
   `Array.ofType` it returns factory and `NewInstance` results, and it may return a promise.
 - A model registered only in a child domain must not use `@Injectable(AuthorizationModel)`. Register
   it on the child container. A root model may use the decorator.

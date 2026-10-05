@@ -192,7 +192,7 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     const compiler = hasCompiler ? ((await container.resolve(ConditionCompiler)) as ConditionCompiler) : undefined;
     // The core's DefaultConditionCompiler parses with its own functions; then it alone judges fn names. Any other compiler keeps the name check.
     const parses = compiler instanceof DefaultConditionCompiler;
-    const registered = !parses && container.hasRegistered(ConditionFunction) ? ([...(await container.resolveChain(ConditionFunction))] as ConditionFunction[]) : [];
+    const registered = !parses && container.hasRegistered(ConditionFunction) ? ([...(await container.resolve(Array.chainOf(ConditionFunction)))] as ConditionFunction[]) : [];
     const functions = registered.map((f) => f.name);
     // No function registered: every fn is unknown, which matters only where conditions compile at all.
     const fnKnown = (name: string) => parses || (functions.length > 0 ? functions.includes(name) : !hasCompiler);

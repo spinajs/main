@@ -44,7 +44,7 @@ export class ScopeForgetHandler extends AuthzWriteHandler {
     const tags = new Set<string>();
     const events: AuthzEvent[] = [];
 
-    const forgetters = container.hasRegistered(ScopeForgetter) ? [...(await container.resolveChain(ScopeForgetter))] : [];
+    const forgetters = container.hasRegistered(ScopeForgetter) ? [...(await container.resolve(Array.chainOf(ScopeForgetter)))] : [];
     for (const f of forgetters) {
       if (!isObject(f) || typeof f.forget !== 'function') throw new AuthzConfigError(`${where}: ${name(f)} is not a ScopeForgetter`);
       const out: unknown = await f.forget(scope, ctx, tx);

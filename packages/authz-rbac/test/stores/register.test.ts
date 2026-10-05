@@ -62,7 +62,7 @@ describe('registerRbacStores', () => {
 
     registerRbacStores(container, cfg);
 
-    const chain = (await container.resolveChain(RoleStore)) as RoleStore[];
+    const chain = (await container.resolve(Array.chainOf(RoleStore))) as RoleStore[];
     expect(chain.map((s) => s.name)).to.deep.eq(['ConfigRoleStore', 'ExtraRoleStore']);
   });
 
