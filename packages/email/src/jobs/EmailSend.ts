@@ -4,9 +4,10 @@ import { EmailSendFailed } from '../events/EmailSendFailed.js';
 import { emailSend } from '../helpers.js';
 
 /**
- * Job for sending emails in background
+ * Job for sending emails in background, as the principal that queued it. A mail queued without a principal, or by a
+ * delegated or impersonating one (authz-queue does not stamp those), runs unattended: a guarded attachment is refused.
  */
-@Job()
+@Job({ runAs: 'initiator' })
 export class EmailSend extends QueueJob implements IEmail {
   public to: string[];
   public cc?: string[];

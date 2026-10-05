@@ -35,6 +35,14 @@ const email = {
     },
 
     /**
+     * true: send() reads attachments through their filesystems as the sending principal, before the transport.
+     * false: the transport reads them (2.x).
+     */
+    attachments: {
+      check: true,
+    },
+
+    /**
      * Reset and invite mails ( EmailPasswordMailer ). `connection` defaults to `email.defaultConnection`;
      * without a `template` the mail is plain text.
      */

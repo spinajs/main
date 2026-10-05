@@ -8,8 +8,10 @@ import { EmailSent } from './events/EmailSent.js';
 import { EmailSend } from './jobs/EmailSend.js';
 import { redirectRecipients } from './redirect.js';
 import { hasSecrets, redactError } from './redact.js';
+import { downloadAttachment } from './attachments.js';
 
 export * from './interfaces.js';
+export * from './attachments.js';
 export * from './transports.js';
 export * from './jobs/EmailSend.js';
 export * from './events/EmailSent.js';
@@ -46,6 +48,12 @@ export class DefaultEmailService extends EmailService {
   @Config('configuration.isProduction', { defaultValue: false })
   protected IsProduction: boolean;
 
+  @Config('email.attachments.check', { defaultValue: true })
+  protected CheckAttachments: boolean;
+
+  @Config('fs.defaultProvider')
+  protected DefaultFileProvider: string;
+
   public async resolve(): Promise<void> {
     await super.resolve();
 
@@ -79,12 +87,23 @@ export class DefaultEmailService extends EmailService {
       throw new InvalidOperation(`Email sender ${connection} not exists. Please check your configuration files.`);
     }
 
+    // Outside the redaction below: a read error names the attachment's path, not the mail's secrets, and
+    // an AccessDenied must keep its class and decision.
+    let withFiles: IEmail;
+    try {
+      withFiles = await this.readAttachments(email);
+    } catch (err) {
+      this.Log.error(err, `Cannot read attachments of email on connection ${connection}, subject: ${email.subject}, recipients: ${email.to?.length ?? 0}`);
+      Perf.count('email.send.failed', 1, { connection });
+      throw err;
+    }
+
     // Production never redirects, whatever the connection configures. Enforced here rather
     // than by editing the options at startup so the guarantee does not depend on injection
     // order. No error log on this path: prod mail volume would flood it, and resolve()
     // already reported the misconfiguration once.
     const target = this.IsProduction ? undefined : this.Senders.get(connection)!.Options.redirectTo;
-    const redirected = redirectRecipients(email, target);
+    const redirected = redirectRecipients(withFiles, target);
 
     if (redirected) {
       this.Log.warn(`Email on connection ${connection} redirected to ${target!.length} configured address(es), ${email.to?.length ?? 0} original recipient(s) replaced`);
@@ -94,7 +113,7 @@ export class DefaultEmailService extends EmailService {
     // Only the transport sees the redirected copy. Every log line below, and the EmailSent
     // event, keep referencing the caller's original `email` - the redirected subject embeds
     // the real recipients by construction, and those log lines print the subject at INFO/ERROR.
-    const outgoing = redirected ?? email;
+    const outgoing = redirected ?? withFiles;
 
     // Redacted inside the span: Perf hands a failed span's error to every sink, and the log sink prints it.
     const transport = async () => {
@@ -127,6 +146,24 @@ export class DefaultEmailService extends EmailService {
     } catch (err) {
       this.Log.error(err, `Failed to emit EmailSent event on connection ${connection}, subject: ${email.subject}`);
     }
+  }
+
+  /**
+   * A copy of `email` whose attachments carry the local `file`, each read through its filesystem in the
+   * caller's async context, so a guarded filesystem checks `fs:read` as the sending principal. `email` itself when
+   * the check is off or there is nothing to read.
+   */
+  protected async readAttachments(email: IEmail): Promise<IEmail> {
+    if (!email.attachements?.length || !this.CheckAttachments) {
+      return email;
+    }
+
+    const attachements = [];
+    for (const a of email.attachements) {
+      attachements.push({ ...a, file: await downloadAttachment(a, this.DefaultFileProvider) });
+    }
+
+    return { ...email, attachements };
   }
 
   public async sendDeferred(email: IEmail): Promise<EmailSend> {

@@ -4,6 +4,8 @@ import { AutoinjectService, Config } from '@spinajs/configuration';
 import { QueueService } from '@spinajs/queue';
 import { EmailSend } from './jobs/EmailSend.js';
 import { fs, getFs } from '@spinajs/fs';
+import { attachmentFile } from './attachments.js';
+
 export abstract class EmailSender extends AsyncService implements IMappableService {
   public Options: EmailConnectionOptions;
 
@@ -11,6 +13,9 @@ export abstract class EmailSender extends AsyncService implements IMappableServi
   protected defaultTemplateFsName: string;
 
   protected defaultTemplateFs: fs;
+
+  @Config('fs.defaultProvider')
+  protected DefaultFileProvider: string;
 
   public get ServiceName() {
     return this.Options.name;
@@ -39,9 +44,13 @@ export class BlackHoleEmailSender extends EmailSender {
     super();
   }
 
-  public async send(_email: IEmail): Promise<void> {
-    this.Log.info(`Email ${_email.subject} sent to black hole`);
-    return;
+  /** Reads the attachments as a real transport would, so a refused read fails here as it would in production. */
+  public async send(email: IEmail): Promise<void> {
+    for (const a of email.attachements ?? []) {
+      await attachmentFile(a, this.DefaultFileProvider);
+    }
+
+    this.Log.info(`Email ${email.subject} sent to black hole`);
   }
 }
 
@@ -65,6 +74,12 @@ export interface IEmailAttachement {
    * Content-id if provided to embedd image in message
    */
   cid?: string;
+
+  /**
+   * The local file the email service already read through the attachment's filesystem. A transport sends it and does
+   * not read `path` again. The service sets it and ignores a value the caller passed.
+   */
+  file?: string;
 }
 
 /**
@@ -195,6 +210,14 @@ export interface EmailConfiguration {
    * Reset and invite mails sent by `EmailPasswordMailer`.
    */
   password?: PasswordMailConfiguration;
+
+  attachments?: {
+    /**
+     * Default true: `send` reads every attachment through its filesystem as the sending principal, before the
+     * transport. False leaves the reading to the transport (2.x), which reads as whoever runs it.
+     */
+    check?: boolean;
+  };
 }
 
 export interface PasswordMailPurposeConfiguration {
