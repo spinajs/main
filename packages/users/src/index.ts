@@ -82,10 +82,10 @@ export class RbacBootstrapper extends Bootstrapper {
     const ac = new AccessControl();
     DI.register(ac).asValue('AccessControl');
     // users ships no rbac.grants any more: only an application still on the 2.x checks sets them.
-    DI.once('di.resolved.Configuration', (container: IContainer, configuration: Configuration) => {
+    DI.once('di.resolved.Configuration', (_: IContainer, configuration: Configuration) => {
       const grants = configuration.get('rbac.grants');
       if (grants) {
-        container.get<AccessControl>('AccessControl')!.setGrants(grants);
+        ac.setGrants(grants);
       }
     });
 
