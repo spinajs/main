@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import { AuthnEventSink, KeyRegistry, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
@@ -426,10 +426,69 @@ export const tokenPart: LanePart = {
     if (name !== 'DbTokenService') throw new Error(`TokenService resolves to ${name}, not authn-token's DbTokenService`);
     return {};
   },
+  async close() {
+    tokenProfiles = [];
+  },
+};
+
+export const KEY_ROUTES: Partial<HttpRoutes> = {
+  keyChallenge: (req) => ({ method: 'POST', path: '/auth/keys/challenge', body: req.purpose === 'login' ? { purpose: 'login', kid: req.kid } : { purpose: 'register' } }),
+  keyLogin: (c) => ({ method: 'POST', path: '/auth/keys/login', body: { keyId: c.keyId, challengeId: c.challengeId, signature: c.signature } }),
+};
+
+/** The audience clients put in challenge signatures and assertions (authn.keys.assertion.audience). */
+export const KEYS_AUDIENCE = 'https://n8b-lane.example.test';
+
+let keysModule: typeof import('@spinajs/authn-keys') | undefined;
+let keysUndo: (() => void) | undefined;
+
+export const laneKeys = (): typeof import('@spinajs/authn-keys') => loaded(keysModule, 'authn-keys');
+
+/**
+ * authn-keys: DefaultKeyRegistry over authn_key (OrmKeyStore) behind the key routes, KeyChallengeStrategy for key
+ * logins and JwsAssertionStrategy for key principals, challenges in the password part's DbSecretStore, assertion jtis
+ * in authn_nonce (authn-orm's AuthnInitial). Its root loads no @spinajs/users.
+ */
+export const keysPart: LanePart = {
+  name: 'keys',
+  async beforeDb() {
+    keysModule = await import('@spinajs/authn-keys');
+  },
+  strategies: [
+    { name: 'keys-challenge', service: 'KeyChallengeStrategy' },
+    { name: 'keys-jws', service: 'JwsAssertionStrategy' },
+  ],
+  routes: KEY_ROUTES,
+  ports: ['keys', 'keyProofs', 'assertion'],
+  async open() {
+    const k = laneKeys();
+    // The registry holds the case's SecretStore and throttle; the strategies are uncached with the case services.
+    for (const base of [KeyRegistry, k.KeyNonceStore] as Class<unknown>[]) {
+      for (const type of DI.getRegisteredTypes(base) ?? []) DI.uncache(type as Class<unknown>);
+      DI.uncache(base);
+    }
+    const db = tokenDb();
+    for (const table of ['authn_key', 'authn_nonce']) await db.del().from(table);
+    keysUndo = setConfig('authn.keys', { assertion: { audience: KEYS_AUDIENCE } });
+  },
+  async addPorts() {
+    const k = laneKeys();
+    const keys = await DI.resolve(KeyRegistry);
+    if (!(keys instanceof k.DefaultKeyRegistry)) throw new Error(`KeyRegistry resolves to ${(keys as object | null)?.constructor?.name}, not authn-keys' DefaultKeyRegistry`);
+    return {
+      keys,
+      keyProofs: { sign: async (challenge, purpose, key) => k.signChallenge(challenge, purpose, KEYS_AUDIENCE, key.privateKey, key.alg) },
+      assertion: { audience: KEYS_AUDIENCE, issuerOf: k.assertionIssuer },
+    };
+  },
+  async close() {
+    keysUndo?.();
+    keysUndo = undefined;
+  },
 };
 
 /** The lane's parts; later tasks append theirs. */
-export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart];
+export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart, keysPart];
 
 function strategiesOf(parts: readonly LanePart[]): StrategyEntry[] {
   const out = [...STRATEGIES];

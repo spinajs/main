@@ -7,16 +7,17 @@ import type { Facet, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-t
 
 import { clearLog, logLines } from '../app.js';
 import { mfaEnrolmentRoutesSuite } from '../suites/mfa-enrolment.js';
+import { keyRoutesSuite } from '../suites/keys.js';
 import { tokenRoutesSuite } from '../suites/tokens.js';
 import { ROUTES } from './harness.js';
-import { MFA_ROUTES, N8B_PORTS, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
+import { KEY_ROUTES, MFA_ROUTES, N8B_PORTS, PASSWORD_ROUTES, TOKEN_ROUTES, bootN8bApp, laneEvents, n8bHarness, shutdownN8bApp } from './n8b-harness.js';
 
-/** The http facets N8b owns so far; each task adds its own. */
-const CLAIM: readonly Facet[] = ['A09/http', 'A10/http', 'A11/http', 'A13/http', 'A14/http', 'A30/http', 'A32/http'];
+/** The facets N8b claims so far (A17/core: on the real AuthnService); each task adds its own. */
+const CLAIM: readonly Facet[] = ['A09/http', 'A10/http', 'A11/http', 'A13/http', 'A14/http', 'A17/http', 'A17/core', 'A30/http', 'A32/http'];
 
-const RULES = ['A09', 'A10', 'A11', 'A13', 'A14', 'A30', 'A32'] as const;
+const RULES = ['A09', 'A10', 'A11', 'A13', 'A14', 'A17', 'A30', 'A32'] as const;
 
-const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES, ...TOKEN_ROUTES } : need === 'fakeDate' || (N8B_PORTS as readonly string[]).includes(need));
+const have = (need: string): boolean => (need.startsWith('http.routes.') ? need.slice('http.routes.'.length) in { ...ROUTES, ...PASSWORD_ROUTES, ...MFA_ROUTES, ...TOKEN_ROUTES, ...KEY_ROUTES } : need === 'fakeDate' || (N8B_PORTS as readonly string[]).includes(need));
 
 const ALICE = { login: 'lane-alice@example.test', password: 'Lane-Alice-Pass-1' };
 
@@ -46,7 +47,7 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
     expect(missing).to.deep.eq([]);
   });
 
-  runAuthnBehaviour([...RULES], n8bHarness, { title: 'authn-http: N8b plan list (tasks 1-3)', claim: [...CLAIM], facets: [...CLAIM], timeoutMs: 60000 });
+  runAuthnBehaviour([...RULES], n8bHarness, { title: 'authn-http: N8b plan list (tasks 1-4)', claim: [...CLAIM], facets: [...CLAIM], timeoutMs: 60000 });
 
   describe('MFA enrolment routes on authn-totp (task 2)', function () {
     this.timeout(60000);
@@ -56,6 +57,11 @@ describe('N8b behaviour rules over HTTP on the real strategy packages (test/v3-a
   describe('token routes on authn-token (task 3)', function () {
     this.timeout(60000);
     tokenRoutesSuite();
+  });
+
+  describe('key routes on authn-keys (task 4)', function () {
+    this.timeout(60000);
+    keyRoutesSuite();
   });
 
   describe('lane cases on authn-local and authn-orm', function () {

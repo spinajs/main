@@ -48,7 +48,7 @@ export function takeReauthPassword(req: Request): unknown {
   return password;
 }
 
-function expiryOf(value: unknown): Date | null {
+export function expiryOf(value: unknown): Date | null {
   if (typeof value !== 'string' || value.length > EXPIRY_CAP || !ISO_INSTANT.test(value)) return null;
   const at = Date.parse(value);
   return Number.isNaN(at) ? null : new Date(at);
