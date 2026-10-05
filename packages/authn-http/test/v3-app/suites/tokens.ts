@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import { createHash, randomUUID } from 'node:crypto';
-import { Container, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
+import { Container } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
@@ -11,7 +10,7 @@ import type { ConfigOverrides, Harness, HttpResponse } from '@spinajs/authn-test
 import { TokenServiceRegistered } from '../../../src/token/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, clearLog, events, logLines, loggedIn, seedUser } from '../app.js';
+import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { laneEvents, laneTokenProfiles, n8bHarness } from '../behaviour/n8b-harness.js';
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
@@ -31,29 +30,8 @@ const body = <T = Record<string, unknown>>(res: HttpResponse): T => res.body as 
 
 type Entry = Record<string, unknown> & { Uuid: string; Expired: boolean };
 
-/** The three routes against the shared fakes, before anything has loaded authn-token. */
+/** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-token. */
 export function tokenGateSuite(): void {
-  it('without a TokenService every token route answers 404 not_found, also to a session', async () => {
-    expect(DI.RootContainer.hasRegistered(TokenService as unknown as Class<TokenService>), 'nothing has loaded authn-token yet').to.eq(false);
-    const anonymous = new Client();
-    const session = await loggedIn(await seedUser());
-    for (const c of [anonymous, session]) {
-      for (const res of [await c.get('/user/tokens'), await c.post('/user/tokens', { name: 'x', expiresAt: isoIn(DAY) }), await c.del(`/user/tokens/${randomUUID()}`)]) {
-        expect(res.status).to.eq(404);
-        expect(res.body.error).to.eq('not_found');
-      }
-    }
-  });
-
-  it('while the routes are off a stale session sending reauthPassword is not re-authenticated', async () => {
-    const u = await seedUser();
-    const c = await loggedIn(u);
-    events.clear();
-    const res = await later(301, () => c.post('/user/tokens', { name: 'x', expiresAt: isoIn(DAY), reauthPassword: u.password }));
-    expect(res.status).to.eq(404);
-    expect(events.all().filter((e) => e.type === 'reauth')).to.deep.eq([]);
-  });
-
   it('the gate asks the container it resolves from', async () => {
     const empty = new Container();
     const route = {} as IRoute;

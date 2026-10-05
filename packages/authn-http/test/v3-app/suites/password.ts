@@ -97,24 +97,8 @@ function expectFailureBody(res: Res, retryAfter?: string): void {
   expect(res.headers['retry-after']).to.eq(retryAfter);
 }
 
-/** The four routes against the shared fakes, with no PasswordService registered yet. */
+/** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-local. */
 export function passwordGateSuite(): void {
-  it('without a PasswordService every password route answers 404 not_found, also to a session', async () => {
-    const anonymous = new Client();
-    const session = await loggedIn(await seedUser());
-    for (const c of [anonymous, session]) {
-      for (const res of [
-        await c.get('/auth/password/policy'),
-        await c.post('/auth/password/reset-request', { login: 'someone@example.test' }),
-        await c.post('/auth/password/reset', { login: 'someone@example.test', secret: 'x', password: 'Brand-New-Pass-1' }),
-        await c.patch('/user/password', { oldPassword: 'Old-Pass-1234', password: 'Brand-New-Pass-1' }),
-      ]) {
-        expect(res.status).to.eq(404);
-        expect(res.body.error).to.eq('not_found');
-      }
-    }
-  });
-
   it('the gate asks the container it resolves from', async () => {
     const empty = new Container();
     const route = {} as IRoute;

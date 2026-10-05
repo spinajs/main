@@ -10,7 +10,7 @@ import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spina
 import { TOTP_SERVICE, TotpEnrolmentOn } from '../../../src/mfa/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, clearLog, config, logLines, loggedIn, seedUser } from '../app.js';
+import { clearLog, config, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { failMfaStore, laneEvents, laneMfaConfig, laneTotpServiceClass, n8bHarness } from '../behaviour/n8b-harness.js';
 import { mountedRoutes } from './route-table.js';
@@ -26,22 +26,10 @@ const everyRoute = (code = '123456'): [string, string, unknown?][] => [
   ['POST', '/user/mfa/recovery-codes', {}],
 ];
 
-/** The five routes against the shared fakes, before anything has loaded authn-totp. */
+/** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-totp. */
 export function mfaEnrolmentGateSuite(): void {
-  it('without a TotpService every MFA enrolment route answers 404 not_found, also to a session (LEDGER two-factor-self-service 23-26, two-factor-wire-format 1-2)', async () => {
-    expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'nothing has loaded authn-totp yet').to.eq(false);
-    const anonymous = new Client();
-    const session = await loggedIn(await seedUser());
-    for (const c of [anonymous, session]) {
-      for (const [method, path, body] of everyRoute()) {
-        const res = await c.send(method as 'GET' | 'POST', path, body);
-        expect(res.status, `${method} ${path}`).to.eq(404);
-        expect(res.body.error).to.eq('not_found');
-      }
-    }
-  });
-
   it('the gate asks the container it resolves from: a class named TotpService and a step named totp do not open it', async () => {
+    const loaded = DI.RootContainer.hasRegistered(TOTP_SERVICE);
     const child = DI.RootContainer.child();
     child.register({ TotpService: class {} }.TotpService).asSelf();
     // The app lists the kit's fake step under the name totp; with a key set only the step check is left to refuse.
@@ -51,7 +39,7 @@ export function mfaEnrolmentGateSuite(): void {
     } finally {
       delete config().get<Record<string, unknown>>('authn.mfa').encryptionKey;
     }
-    expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'the gate loaded no authn-totp').to.eq(false);
+    expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'the gate loaded no authn-totp').to.eq(loaded);
   });
 }
 

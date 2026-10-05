@@ -1,7 +1,6 @@
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
-import { Container, DI } from '@spinajs/di';
-import type { Class } from '@spinajs/di';
+import { Container } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { IdentityRef, KeyChallenge } from '@spinajs/authn/contracts';
@@ -11,7 +10,7 @@ import type { Harness, HttpResponse, KitKeyPair } from '@spinajs/authn-testing';
 import { KeyRegistryRegistered } from '../../../src/keys/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, clearLog, events, logLines, loggedIn, seedUser } from '../app.js';
+import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
 import { KEYS_AUDIENCE, laneEvents, n8bHarness } from '../behaviour/n8b-harness.js';
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
@@ -37,30 +36,8 @@ const asChallenge = (w: WireChallenge): KeyChallenge => ({ id: w.id, nonce: w.no
 /** A proof that is well formed but names no challenge. */
 const FAKE_PROOF = { challengeId: 'x', signature: 'y' };
 
-/** The five routes against the shared fakes, before anything has loaded authn-keys. */
+/** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-keys. */
 export function keyGateSuite(): void {
-  it('without a KeyRegistry every key route answers 404 not_found, also to a session', async () => {
-    expect(DI.RootContainer.hasRegistered(KeyRegistry as unknown as Class<KeyRegistry>), 'nothing has loaded authn-keys yet').to.eq(false);
-    const anonymous = new Client();
-    const session = await loggedIn(await seedUser());
-    for (const c of [anonymous, session]) {
-      const answers = [await c.get('/user/keys'), await c.post('/user/keys', { jwk: generateKeyPair('EdDSA').publicJwk, proof: FAKE_PROOF }), await c.del('/user/keys/some-kid'), await c.post('/auth/keys/challenge', { purpose: 'login', kid: 'some-kid' }), await c.post('/auth/keys/challenge', { purpose: 'register' }), await c.post('/auth/keys/login', { keyId: 'some-kid', challengeId: 'x', signature: 'y' })];
-      for (const res of answers) {
-        expect(res.status).to.eq(404);
-        expect(res.body.error).to.eq('not_found');
-      }
-    }
-  });
-
-  it('while the routes are off a stale session sending reauthPassword is not re-authenticated', async () => {
-    const u = await seedUser();
-    const c = await loggedIn(u);
-    events.clear();
-    const res = await later(301, () => c.post('/user/keys', { jwk: generateKeyPair('EdDSA').publicJwk, proof: FAKE_PROOF, reauthPassword: u.password }));
-    expect(res.status).to.eq(404);
-    expect(events.all().filter((e) => e.type === 'reauth')).to.deep.eq([]);
-  });
-
   it('the gate asks the container it resolves from', async () => {
     const empty = new Container();
     const route = {} as IRoute;

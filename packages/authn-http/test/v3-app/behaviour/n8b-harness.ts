@@ -23,8 +23,8 @@ import type { HarnessLane, StrategyEntry } from './harness.js';
  * Each strategy package is one LanePart. A later task adds its part to PARTS: `beforeDb` imports the package
  * (migrations included, so they run when the database boots), `strategies` lists its strategy, `open` uncaches its
  * services and clears its tables per case, `ports` names and `addPorts` builds its kit ports, `close` waits for its
- * deferred work. Modules are imported dynamically: until a part loads it, no strategy service is registered, which
- * the gate suites rely on (test/v3-app/auth-*.test.ts sort before behaviour/).
+ * deferred work. Modules are imported dynamically, so the suites that run before this one see no strategy service;
+ * the route groups with and without each package boot in their own processes (test/v3/route-groups-boot.test.ts).
  *
  * Boot the lane once per process: registrations outlive shutdownN8bApp, among them the A32 upgrade migration, which a
  * second boot would run on a database without users_metadata. Suites after auth-password.test.ts also keep its
