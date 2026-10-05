@@ -49,3 +49,12 @@ export abstract class AdminRuleStore extends RuleStore {
   abstract find(q: { readonly scope?: ResourceRef }, page?: Page): Promise<{ items: readonly RuleDef[]; total: number }>;
   abstract forgetScope(scope: ResourceRef, tx: AuthzTx): Promise<readonly RuleDef[]>;
 }
+
+/**
+ * Optional: tells DefaultAdminGuard's last-holder check which principals are in service (an account that is
+ * active, not banned, not deleted, with a usable credential). The app's identity package implements it;
+ * authz-rbac knows no accounts. Keys are `principalKey(ref)`; a ref the answer leaves out is not in service.
+ */
+export abstract class AccountStatusSource {
+  abstract inService(refs: readonly PrincipalRef[]): Promise<ReadonlyMap<string, boolean>>;
+}

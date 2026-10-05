@@ -1,9 +1,10 @@
-import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, isPermission, principalKey, resourceKey } from '@spinajs/authz';
-import type { AdminContext, AuthzCommand, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
+import { AdminGuard, AuthzAdminFailure, AuthzConfigError, GLOBAL, adminContainer, engineLog, isPermission, principalKey, resourceKey } from '@spinajs/authz';
+import type { AdminContext, AuthzCommand, HostLog, Permission, Principal, PrincipalRef, ResourceRef } from '@spinajs/authz';
 import { Configuration } from '@spinajs/configuration';
 import { Injectable, Singleton } from '@spinajs/di';
 
 import type { Assignment, AssignmentSubject } from '../contracts.js';
+import { AccountStatusSource } from './ports.js';
 import { assignmentStore, grantClosure, grantingPermissions, grantsPermission, honoured, isLinkSubject, isPlainObject, ladderAppliesAt, linkGrants, linkStore, plannedRemovals, quote, rankOf, readExpiry, readId, readScope, roleIndex, setRolesOf, surelyGrantsPermission } from './common.js';
 import type { RoleIndex } from './common.js';
 import { RbacAdminFacts } from './facts.js';
@@ -110,6 +111,9 @@ const sameSubject = (s: AssignmentSubject, p: PrincipalRef): boolean => !isSetSu
 @Singleton()
 @Injectable(AdminGuard)
 export class DefaultAdminGuard extends AdminGuard {
+  protected log: HostLog = engineLog('authz-rbac');
+  private warnedNoAccountStatus = false;
+
   async check(actor: Principal, c: AuthzCommand, ctx: AdminContext): Promise<void> {
     const kind: unknown = isPlainObject(c) ? c.kind : undefined;
     // Unknown kinds reach no handler (not_found); the handler owns validation.
@@ -367,7 +371,7 @@ export class DefaultAdminGuard extends AdminGuard {
    * permission implying it, to a principal or to a set the principal is a member of; rows the model ignores
    * make no path), and no principal keeps a path the model surely honours: rows that avoid the removed ones, a
    * grant without conditions (surelyGrantsPermission), no share link (it acts only inside its scope), and rows
-   * that last at least as long as the removed rows on a path would.
+   * that last at least as long as the removed rows on a path would; and its account in service (anyInService).
    */
   private async lastHolder(call: Call, paths: Paths, removed: readonly Assignment[]): Promise<boolean> {
     const store = await assignmentStore(call.ctx);
@@ -399,7 +403,35 @@ export class DefaultAdminGuard extends AdminGuard {
       return sure.get(role)!;
     };
     // A set member's live row carries the GLOBAL set row's role, so that role decides for both kinds of path.
-    return !kept.some(({ holder, global, rows }) => !isLinkSubject(holder) && surely(global.role) && rows.every(lasts));
+    const holders = kept.filter(({ holder, global, rows }) => !isLinkSubject(holder) && surely(global.role) && rows.every(lasts)).map(({ holder }) => holder);
+    return holders.length === 0 || !(await this.anyInService(call, holders));
+  }
+
+  /**
+   * One AccountStatusSource call with the distinct holders; a holder it throws on, leaves out or reports out of
+   * service does not count. Without a registered source every holder counts, as before the source existed.
+   */
+  private async anyInService(call: Call, holders: readonly PrincipalRef[]): Promise<boolean> {
+    const container = adminContainer(call.ctx);
+    if (!container.hasRegistered(AccountStatusSource)) {
+      this.warnNoAccountStatus();
+      return true;
+    }
+    const refs = [...new Map(holders.map((h) => [principalKey(h), { type: h.type, id: h.id }])).values()];
+    try {
+      const source = (await container.resolve(AccountStatusSource)) as AccountStatusSource;
+      const answers = await source.inService(refs);
+      return refs.some((r) => answers.get(principalKey(r)) === true);
+    } catch (e) {
+      this.log.warn(`DefaultAdminGuard: the AccountStatusSource failed, so no remaining holder of the privileged permission counts: ${e instanceof Error ? e.name : typeof e}`);
+      return false;
+    }
+  }
+
+  private warnNoAccountStatus(): void {
+    if (this.warnedNoAccountStatus) return;
+    this.warnedNoAccountStatus = true;
+    this.log.warn('DefaultAdminGuard: no AccountStatusSource is registered, so last_holder counts holders whose accounts are out of service (deactivated, banned, deleted)');
   }
 
   private async facts(ctx: AdminContext): Promise<RbacAdminFacts> {
