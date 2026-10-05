@@ -117,7 +117,12 @@ export async function planMetadata(method: string, at: (arg: number) => Metadata
     // A copy or upload can create a directory where `exists` was false; no directory there either means its subtree
     // rows are stale. Key stores (S3) report every directory as existing, so they only lose the row.
     await clearStale(store, p, effect.probe === 'dirExists' || !(await probe(p, 'dirExists')));
-    if (next) task = () => stampIfAbsent(store, p, next);
+    if ((store as { objectBound?: unknown }).objectBound === true) {
+      // A row found there after the IO came with the object (a same-bucket copy), not from another writer.
+      task = () => put(store, p, next);
+    } else if (next) {
+      task = () => stampIfAbsent(store, p, next);
+    }
   }
   if (!task) return undefined;
   const stamp = task;

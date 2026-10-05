@@ -34,6 +34,12 @@ export interface S3ObjectMetadataStoreOptions {
  */
 @Injectable(FileMetadataStore)
 export class S3ObjectMetadataStore extends FileMetadataStore {
+  /**
+   * The metadata is part of the object: a provider's copy within a bucket brings the source's along, so the guard
+   * writes a key it created to exactly the creator's metadata instead of keeping an owner it finds there.
+   */
+  readonly objectBound = true;
+
   constructor(private readonly opts: S3ObjectMetadataStoreOptions = {}) {
     super();
   }

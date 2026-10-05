@@ -9,6 +9,9 @@ wraps the providers (`AuthzFsDecorator`), the resource adapter for the `fs:*` pe
 (`FsResourceAdapter`), the contributor that declares the permissions each filesystem checks
 (`FsAuthzContributor`) and the upload middleware (`AuthzUploadMiddleware`).
 
+Take providers after `fsService` resolved: until the decorators ran, `fsService` publishes the raw providers, and a
+service that keeps `getFs(name)` in a field during that window keeps an unguarded one.
+
 ```ts
 authz: {
   fs: {
@@ -112,8 +115,9 @@ the sources and refuses a named destination (`dstFile`, `dest`) without `dstFs`.
 The guard protects filesystems from principals, not from application code:
 
 - properties pass through (`fsTemp.Provider`, `fsS3.S3`, `fsS3.TempFs` are raw), and app objects handed to an
-  operation (a custom stream, a custom `dstFs`) run inside it, where nested guarded calls are not checked; an
-  operation that never settles keeps that window open;
+  operation (a custom stream, a custom `dstFs`) run inside it, where nested guarded calls are not checked; so do
+  listeners an emitter fires synchronously during the operation; an operation that never settles keeps that window
+  open;
 - internal temp filesystems (`fs-temp` behind fsNative zips, fsS3's temp filesystem) are reached unchecked
   inside an operation and checked as the principal outside one when they are guarded;
 - an fsTemp with mode `off` over a guarded backend exposes the backend's storage, since fsTemp holds the raw
@@ -220,11 +224,15 @@ is an `InvalidArgument` (400).
 
 ```ts
 @Get('files/*path')
-@Access('fs:read', { resource: fromFsPath('uploads', 'path'), domain: 'fs' })
+@Access('fs:read', { resource: fromFsPath('uploads', 'path'), domain: 'fs', subject: 'load' })
 public async download(@Param() path: string[]) {
   return getFs('uploads').read(path.join('/'));   // the path checked is the path read
 }
 ```
+
+`subject: 'load'` makes the route check definite: the owner grant and fs-abac `resource.*` policies answer with a
+residual, which authz-http settles only against a loaded subject (`FsResourceAdapter.load` gives the path's row);
+without it such a permit passes the route for every path, and only the guarded call in the handler still checks.
 
 The extractor carries no domain: for a filesystem whose `authz.fs.<name>.domain` is not `root`, set the same
 `domain` in `@Access`, or the route is checked in root.
@@ -288,20 +296,21 @@ the subject, and does not hold for the filesystem root or a filesystem without a
 Stores:
 
 - `OrmFileMetadataStore`: table `fs_object` (migration `AuthzFsObject_2026_10_01_00_00_00`), one row per
-  filesystem and normalised path, on the connection `authz.fsMetadata.connection`. `delete` removes one row; `deleteTree` and `move` take
-  the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~` and `[` escaped). Paths are
-  matched exactly in code and rows changed by their stored key. The migration gives the key columns a binary
-  collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key (MSSQL, or a table created
-  otherwise) a case variant of an existing path cannot be stored, and its update fails instead of sharing the
-  row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the `(fs, path)` key can exceed the
-  900-byte index key limit, and an insert of a very long path then fails.
+  filesystem and normalised path, on the connection `authz.fsMetadata.connection`. `delete` removes one row;
+  `deleteTree` and `move` take the rows under a directory path along (`LIKE ... ESCAPE '~'` with `%`, `_`, `~`
+  and `[` escaped). Paths are matched exactly in code and rows changed by their stored key. The migration gives
+  the key columns a binary collation on MySQL (`utf8mb4_bin`) and PostgreSQL (`"C"`); on a case-insensitive key
+  (MSSQL, or a table created otherwise) a case variant of an existing path cannot be stored, and its update fails
+  instead of sharing the row. Paths are limited to 512 characters; on MSSQL with nvarchar columns the `(fs, path)`
+  key can exceed the 900-byte index key limit, and an insert of a very long path then fails.
 - `S3ObjectMetadataStore`: the metadata lives on the object as the user metadata `x-amz-meta-authz-meta`
   (URI-encoded JSON, within S3's 2 KB). It needs `getMetadata` and `setMetadata` (fsS3) on the provider and calls
   the raw provider behind the guard. `fsS3.setMetadata` copies the object onto itself: objects over 5 GB cannot be
   stamped, the copy drops the object's ACL and does not carry its storage class or SSE settings (an SSE-C object
   cannot be stamped), and a write between its HEAD and its copy can be lost. Whoever can PUT objects into the
   bucket directly (bucket credentials, a presigned PUT) can set any owner. A move between two S3 filesystems that
-  share one store loses the owner, since the provider re-uploads the object.
+  share one store loses the owner, since the provider re-uploads the object. A same-bucket copy brings the source's
+  metadata to the new key; the guard then writes the key it created to exactly the copier's (`objectBound`).
 
 ## Domain and fs-inherit
 
