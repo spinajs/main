@@ -343,5 +343,17 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       hit({ origin: 'http://app_upstream:1337' });
       expect(warn.callCount, 'a passing request logs nothing').to.eq(4);
     });
+
+    it('writes at most 20 refusal lines a minute however the origins vary, and clips long values', () => {
+      const guard = unitGuard({});
+      const warn = sinon.spy();
+      Object.defineProperty(guard, 'Log', { value: { warn } });
+      const handler = guard.before()!;
+      for (let i = 0; i < 100; i++) {
+        handler(fakeReq('POST', { cookie: 'ssid=x', host: 'app_upstream:1337', origin: `https://e${i}.${'a'.repeat(200)}.example` }), fakeRes() as any, sinon.spy());
+      }
+      expect(warn.callCount).to.eq(20);
+      expect(String(warn.firstCall.args[0]).length).to.be.below(500);
+    });
   });
 });

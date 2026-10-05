@@ -48,10 +48,19 @@ function isEnabled(config: Configuration): boolean {
 
 const WARN_INTERVAL_MS = 60_000;
 const WARN_KEYS_MAX = 256;
+const WARN_LINES_PER_INTERVAL = 20;
+const SHOWN_MAX = 120;
 
-/** At most one warning per (Origin, own origin) pair a minute, from a bounded table, so a flood cannot fill the log. */
+const clip = (v: string): string => (v.length > SHOWN_MAX ? `${v.slice(0, SHOWN_MAX)}…` : v);
+
+/**
+ * At most one warning per (Origin, own origin) pair a minute and at most WARN_LINES_PER_INTERVAL lines a minute in
+ * all, so requests that vary the headers cannot turn refusals into one log line each.
+ */
 class RefusalWarnings {
   private readonly last = new Map<string, number>();
+  private windowStart = 0;
+  private written = 0;
 
   constructor(private readonly log: () => Log | undefined) {}
 
@@ -63,10 +72,16 @@ class RefusalWarnings {
     const now = Date.now();
     const at = this.last.get(key);
     if (at !== undefined && now - at < WARN_INTERVAL_MS) return;
+    if (now - this.windowStart >= WARN_INTERVAL_MS) {
+      this.windowStart = now;
+      this.written = 0;
+    }
+    if (this.written >= WARN_LINES_PER_INTERVAL) return;
+    this.written++;
     if (at === undefined && this.last.size >= WARN_KEYS_MAX) this.last.clear();
     this.last.set(key, now);
     this.log()?.warn(
-      `CsrfOriginGuard refused a cookie request: Origin ${shown}, own origin ${own ?? 'unknown (no usable Host)'}. ` +
+      `CsrfOriginGuard refused a cookie request: Origin ${clip(shown)}, own origin ${own === undefined ? 'unknown (no usable Host)' : clip(own)}. ` +
         `Behind a proxy set authn.http.trustProxy (or http.trustProxy) so the own origin comes from X-Forwarded-Proto/-Host, or list the origin in ${ALLOWED_ORIGINS_KEY}.`,
     );
   }
