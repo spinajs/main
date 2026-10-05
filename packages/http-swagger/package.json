@@ -68,6 +68,8 @@
     "swagger-ui-dist": "^5.0.0"
   },
   "devDependencies": {
+    "@spinajs/authz-http": "3.0.0-alpha.0",
+    "@spinajs/orm": "2.0.549",
     "cpx": "1.5.0"
   }
 }

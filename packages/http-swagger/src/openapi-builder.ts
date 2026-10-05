@@ -16,6 +16,7 @@ import {
   ISwaggerConfig,
   IMethodDocumentation,
 } from './interfaces.js';
+import { accessLine, swaggerAccess } from './access.js';
 
 /**
  * Set of ParameterType values that map to internal framework params (not API params).
@@ -253,11 +254,6 @@ export class OpenApiBuilder {
       });
     }
 
-    // RBAC metadata (from authn-http @Resource / @Permission) — accessed via the
-    // global Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL') so http-swagger
-    // doesn't depend on authn-http.
-    const rbac = this.readRbacDescriptor(controller.instance);
-
     for (const [methodName, route] of descriptor.Routes) {
       const methodNameStr = methodName as string;
       const methodDoc = docCache.methods[methodNameStr];
@@ -275,7 +271,7 @@ export class OpenApiBuilder {
         fullPath,
       );
 
-      this.applyRbac(operation, rbac, methodNameStr);
+      if (controller.instance) this.applyAccess(operation, controller.instance, methodNameStr);
       this.applyPolicies(operation, docCache, methodNameStr);
 
       if (!this.document.paths[fullPath]) {
@@ -349,64 +345,25 @@ export class OpenApiBuilder {
   }
 
   /**
-   * Read authn-http's controller descriptor via the global metadata symbol.
-   * Returns undefined when the controller isn't RBAC-decorated.
+   * Attach what `@Access` declares to an operation: the `x-authz-*` vendor extensions, a readable
+   * description line, and 401/403 responses unless the JSDoc documents them.
    */
-  private readRbacDescriptor(
-    instance: unknown,
-  ): { resource: string; defaultPermission: string[]; routes: Map<string, string[]> } | undefined {
-    if (!instance) return undefined;
+  private applyAccess(operation: IOpenApiOperation, controller: object, methodName: string): void {
+    const access = swaggerAccess(controller, methodName);
+    if (!access) return;
 
-    const ACL_SYMBOL = Symbol.for('ACL_CONTROLLER_DESCRIPTOR_SYMBOL');
-    const meta = Reflect.getMetadata(ACL_SYMBOL, instance as object) as
-      | {
-          Resource?: string;
-          Permission?: string[];
-          Routes?: Map<string, { Permission?: string[] }>;
-        }
-      | undefined;
+    Object.assign(operation, access);
 
-    if (!meta) return undefined;
+    const line = accessLine(access);
+    operation.description = operation.description ? `${operation.description}
 
-    const routes = new Map<string, string[]>();
-    if (meta.Routes && typeof meta.Routes.forEach === 'function') {
-      meta.Routes.forEach((v, k) => {
-        if (Array.isArray(v?.Permission)) routes.set(k, v.Permission);
-      });
+${line}` : line;
+
+    for (const code of ['401', '403']) {
+      if (operation.responses[code]) continue;
+      const refName = this.registerStandardResponse(code);
+      if (refName) operation.responses[code] = { $ref: `#/components/responses/${refName}` };
     }
-
-    return {
-      resource: meta.Resource ?? '',
-      defaultPermission: Array.isArray(meta.Permission) ? meta.Permission : [],
-      routes,
-    };
-  }
-
-  /**
-   * Attach RBAC info to an operation:
-   *   - vendor extensions `x-rbac-resource` and `x-rbac-permissions` for
-   *     tooling / code-gen consumers
-   *   - a human-readable line appended to the description for Swagger UI
-   */
-  private applyRbac(
-    operation: IOpenApiOperation,
-    rbac: ReturnType<OpenApiBuilder['readRbacDescriptor']>,
-    methodName: string,
-  ): void {
-    if (!rbac) return;
-
-    const perRoute = rbac.routes.get(methodName);
-    const permissions = perRoute && perRoute.length > 0 ? perRoute : rbac.defaultPermission;
-    if (!rbac.resource && permissions.length === 0) return;
-
-    if (rbac.resource) operation['x-rbac-resource'] = rbac.resource;
-    if (permissions.length > 0) operation['x-rbac-permissions'] = permissions;
-
-    const permList = permissions.length > 0 ? permissions.map((p) => `\`${p}\``).join(' or ') : '_any role with resource access_';
-    const resourceText = rbac.resource ? `\`${rbac.resource}\`` : '_unspecified_';
-    const line = `**RBAC:** requires ${permList} on resource ${resourceText}`;
-
-    operation.description = operation.description ? `${operation.description}\n\n${line}` : line;
   }
 
   /**
