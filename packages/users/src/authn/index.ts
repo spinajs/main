@@ -2,3 +2,4 @@ export { ACCESS_DOMAIN_KEY, AuthzTargetGuard, DEFAULT_IMPERSONATION_PERMISSION, 
 export type { AuthzTargetGuardOptions, TargetRuleAnswer } from './target-guard.js';
 export * from './impersonation-guard.js';
 export * from './access-response.js';
+export * from './rbac-role-source.js';

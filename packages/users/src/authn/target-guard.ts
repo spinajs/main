@@ -133,9 +133,9 @@ async function configuration(): Promise<Configuration> {
 }
 
 // A child domain's RBAC is its own: falling back to the parent's would judge the target by another model.
-async function registeredInDomain<T>(domain: AccessDomain, token: Class<T>): Promise<T> {
+export async function registeredInDomain<T>(domain: AccessDomain, token: Class<T>): Promise<T> {
   if (!domain.container.hasRegistered(token, false)) {
-    throw new AuthzConfigError(`users: the authz domain ${JSON.stringify(domain.name)} (${ACCESS_DOMAIN_KEY}) has no ${token.name}; register RBAC there (registerRbac) before checking a target`);
+    throw new AuthzConfigError(`users: the authz domain ${JSON.stringify(domain.name)} (${ACCESS_DOMAIN_KEY}) has no ${token.name}; register RBAC there (registerRbac)`);
   }
   return (await domain.container.resolve(token)) as T;
 }
