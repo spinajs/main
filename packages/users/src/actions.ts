@@ -10,7 +10,7 @@ import { UserActivated, UserBanned, UserChanged, UserCreated, UserDeactivated, U
 import { Constructor, DI } from '@spinajs/di';
 import { Log } from '@spinajs/log';
 import { UserEvent } from './events/UserEvent.js';
-import { AuthProvider, PasswordProvider, PasswordValidationProvider, SessionProvider } from './interfaces.js';
+import { AuthProvider, PasswordProvider, SessionProvider } from './interfaces.js';
 import { DateTime } from 'luxon';
 import { InvalidArgument, InvalidOption } from '@spinajs/exceptions';
 import { EmailTemplateNotConfigured, InvalidCredentials, LoginAttemptsExceeded, MetadataNotFound, MetadataNotPopulated, PasswordChangeConflict, TokenInvalid, UserAlreadyExists, UserCreatedIncomplete, UserIsBanned } from './exceptions.js';
@@ -925,7 +925,8 @@ export async function confirmPasswordReset(identifier: number | string | User, n
  * hashes it and `UserPasswordStore.set(id, hash, expected)` writes it only while that hash is still stored, so a reset,
  * an expiry or another change that landed meanwhile wins and this throws {@link PasswordChangeConflict}. Then every
  * session ends ({@link revokeUserSessions}) and {@link UserPasswordChanged} is emitted. No metadata is written (A12);
- * the 2.x login lockout of the account is cleared.
+ * the 2.x login lockout of the account is cleared. The new password is checked by `PasswordService.check` and stored as
+ * given, spaces included.
  *
  * @deprecated 3.0: PasswordService.change (the user's own change) or PasswordService.set (an admin). R1 deletes it
  * after C2.
@@ -933,12 +934,12 @@ export async function confirmPasswordReset(identifier: number | string | User, n
  * @param password - new plain-text password
  */
 export async function changeUserPassword(u: User, password: string): Promise<User> {
-  password = _check_arg(_trim(), _non_empty())(password, 'password');
+  // Not trimmed and checked by authn's policy: 3.0's login takes the password as typed (A04).
+  password = _check_arg(_non_empty())(password, 'password');
 
   const pwd = await legacyService('authn.local.hasher', PasswordProvider);
-  const validator = await legacyService('authn.local.policy', PasswordValidationProvider);
 
-  if (!validator.check(password)) {
+  if ((await (await passwordService()).check(password)).length > 0) {
     // `InvalidArgument`, not a bare `Error`: @spinajs/http maps it to 400, with the field and code in the body.
     throw new InvalidArgument('Password does not meet requirements', 'password', 'E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
   }

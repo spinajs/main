@@ -152,6 +152,28 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
       expect((await metadataKeys(user.Id)).filter((k) => AUTH_STATE.test(k))).to.deep.eq([]);
     });
 
+    it("keeps leading and trailing spaces, as authn's login does not trim (A04)", async () => {
+      const { user } = await seedUser({ login: 'change-spaces' });
+
+      await changeUserPassword(await storedUser(user.Uuid), ' n3wpassword ');
+
+      const provider = (await DI.resolve(PasswordProvider)) as PasswordProvider;
+      const stored = (await storedUser(user.Uuid)).Password;
+      expect(await provider.verify(stored, ' n3wpassword ')).to.eq(true);
+      expect(await provider.verify(stored, 'n3wpassword')).to.eq(false);
+    });
+
+    it("checks the new password with PasswordService.check, authn's policy", async () => {
+      const check = sinon.stub(TestPasswordService.prototype, 'check').resolves(['too_long']);
+      const { user } = await seedUser({ login: 'change-policy' });
+
+      const err = await changeUserPassword(await storedUser(user.Uuid), 'n3wpassword').catch((e) => e);
+
+      expect(err).to.be.instanceOf(InvalidArgument);
+      expect(err.errorCode).to.eq('E_PASSWORD_DOES_NOT_MEET_REQUIREMENTS');
+      expect(check.args).to.deep.eq([['n3wpassword']]);
+    });
+
     it('sets a first password over no password', async () => {
       const { user } = await seedUser({ login: 'change-first' });
 
