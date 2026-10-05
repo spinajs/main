@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@spinajs/authz-testing": "3.0.0-alpha.0",
-    "@spinajs/fs": "2.0.549"
+    "@spinajs/fs": "2.0.549",
+    "@spinajs/http-swagger": "2.0.549"
   }
 }
