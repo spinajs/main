@@ -48,7 +48,9 @@ SpinaJS apps in one process — and repeated init in tests — stay independent.
 ## Quick start
 
 Install the package. The controllers, middleware, perf bridge and default
-process metrics are wired automatically; set the scrape token and you are done.
+process metrics are wired automatically. Set the scrape token, load the package
+barrel, and give `service:telemetry` the `telemetry:read` permission (with
+`@spinajs/authz-rbac` the package config does that; see Roles).
 
 ```ts
 // configuration
@@ -87,6 +89,9 @@ Authorization is the SpinaJS 3.0 authz layer (`@spinajs/authz`, `@spinajs/authz-
 Every guarded endpoint requires the permission `telemetry:read`. A caller without
 credentials gets 401. A caller who is known but lacks the permission gets 403.
 
+Loading this package loads `@spinajs/authz-http`, whose `PrincipalMiddleware` stops the
+http server when the root authz domain fails to boot.
+
 Each endpoint has a slot in configuration:
 
 ```ts
@@ -106,8 +111,8 @@ telemetry: {
 
 - `telemetry.auth.policies.<endpoint>`: `'AccessPolicy'` checks
   `telemetry.auth.permissions.<endpoint>` through authz. Any other value names a
-  registered `BasePolicy`, such as `'PublicPolicy'`. An unknown name makes the route
-  fail to register; it never leaves the route open.
+  registered `BasePolicy`, such as `'PublicPolicy'`. A bad slot fails the whole
+  controller, probes included, so the app does not start; it never leaves a route open.
 - `telemetry.auth.permissions.<endpoint>`: the permission, or a list of
   permissions of which any one admits. A permission nobody registered fails the boot.
 - `telemetry.auth.domain`: the domain the `'AccessPolicy'` slots check in. Default `'root'`.
@@ -125,15 +130,17 @@ gets 401.
   needs a restart.
 - The bridge runs only when the app loads the package barrel (`import '@spinajs/telemetry'`).
   Without it the token grants nothing.
+- The token authenticates `service:telemetry` on every route, not only the telemetry
+  ones. A route that only asks for a signed-in principal (e.g. `GET /user/access`) lets it
+  through.
 - With the token middleware of `@spinajs/authn-http` loaded, a Bearer scrape also costs an
   access-token lookup and a rejected-token warning. Prefer `x-metrics-token` there.
 
 #### Roles
 
-The principal needs `telemetry:read` from an authz model. With `@spinajs/authz-rbac`, the
-config fragment of this package adds:
+The principal needs `telemetry:read` from an authz model. The config fragment of this
+package registers the permission `telemetry:read`. For `@spinajs/authz-rbac` it also adds:
 
-- the permission `telemetry:read`,
 - the role `telemetry`, which grants it,
 - `authz.rbac.serviceRoles['service:telemetry'] = ['telemetry']`.
 
@@ -150,13 +157,16 @@ For a local run without credentials, set both:
 - an explicit development env: `--env`, else `APP_ENV`, else `NODE_ENV`. A missing env
   counts as production.
 
-The skip applies to `'AccessPolicy'` slots only, is off when `configuration.isProduction`
-is `true`, and logs a warning. The old `configuration.isDevelopment` bypass is gone.
+The skip applies to `'AccessPolicy'` slots, decided once when the route registers, is off
+when `configuration.isProduction` is `true`, and logs a warning. The deprecated
+`TelemetryTokenPolicy` follows the same rule, checked on each request. The old
+`configuration.isDevelopment` bypass is gone.
 
 #### Deprecated
 
 `TelemetryTokenPolicy` still exists but is deprecated. It compares the token itself and
-knows nothing about authz. Use the `'AccessPolicy'` slots and the service principal instead.
+knows nothing about authz, and answers 403 (not 401) for a missing token. Use the
+`'AccessPolicy'` slots and the service principal instead.
 
 ### Readiness checks
 
