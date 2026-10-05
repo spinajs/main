@@ -617,18 +617,35 @@ describe('AuthnImpersonationService', function () {
   });
 
   describe('boot', () => {
-    it('reads authn.impersonation and fails on malformed values', async () => {
-      for (const bad of [{ maxMinutes: 0 }, { maxMinutes: 1.5 }, { requireMfa: 'yes' }, 'on']) {
-        const paths = await violationPaths(buildCore({}, { raw: { authn: { impersonation: bad } } }));
-        assert.ok(
-          paths.some((x) => x.startsWith('authn.impersonation')),
-          `${JSON.stringify(bad)}: ${paths.join(', ')}`,
-        );
+    it('takes the impersonation defaults from the schema when authn.impersonation is unset', async () => {
+      const { p } = await boot();
+      assert.deepStrictEqual(p.configuration.get('authn.impersonation'), { requirePassword: true, requireMfa: true, maxMinutes: 60 });
+    });
+
+    it('refuses malformed settings, naming the path of each', async () => {
+      const cases: [unknown, string][] = [
+        [{ maxMinutes: 0 }, 'authn.impersonation.maxMinutes'],
+        [{ maxMinutes: 1.5 }, 'authn.impersonation.maxMinutes'],
+        [{ requireMfa: 'yes' }, 'authn.impersonation.requireMfa'],
+        ['on', 'authn.impersonation'],
+      ];
+      for (const [bad, path] of cases) {
+        const paths = await violationPaths(boot(bad as Record<string, unknown>));
+        assert.ok(paths.includes(path), `${JSON.stringify(bad)}: ${paths.join(', ')}`);
       }
-      for (const bad of [0, -5]) {
-        const paths = await violationPaths(buildCore({}, { raw: { authn: { session: { expiration: { maxLifetime: bad } } } } }));
-        assert.ok(paths.includes('authn.session.expiration.maxLifetime'), `${bad}: ${paths.join(', ')}`);
+      for (const bad of [0, -5, 1.5, 'abc']) {
+        const paths = await violationPaths(boot(undefined, {}, { session: { expiration: { maxLifetime: bad } } }));
+        assert.ok(paths.includes('authn.session.expiration.maxLifetime'), `${String(bad)}: ${paths.join(', ')}`);
       }
+    });
+
+    it('reads maxMinutes when it uses it, not at boot', async () => {
+      const booted = await boot({ maxMinutes: 60 });
+      const { p, svc } = booted;
+      const { imp } = await started(booted);
+      p.configuration.set('authn.impersonation.maxMinutes', 10);
+      assert.strictEqual(await svc.principalOf(imp, ctx(at(10 * MINUTE))), null);
+      assert.strictEqual(events(p, 'impersonation.expire').length, 1);
     });
 
     it('is one per container and does not collide with the 2.x ImpersonationService of authn-http', async () => {

@@ -302,6 +302,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       type: 'object',
       properties: {
         requirePassword: { type: 'boolean', default: true },
+      default: {},
         requireMfa: { type: 'boolean', default: true },
         maxMinutes: { type: 'integer', minimum: 1, default: 60 },
       },

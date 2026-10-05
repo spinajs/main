@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
-import { InvalidOperation, InvalidOption } from '@spinajs/exceptions';
+import { Config } from '@spinajs/configuration';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { AuthnEvent, AuthnEventType } from '../contracts/audit.js';
 import type { AuthnContext, Credentials, IdentityRef } from '../contracts/credentials.js';
@@ -21,11 +21,10 @@ export const IMPERSONATION_BLOCK = 'Impersonation';
 
 export type ImpersonationStart = { readonly ok: true; readonly session: SessionHandle } | { readonly ok: false };
 
-interface Settings {
+export interface ImpersonationConfig {
   readonly requirePassword: boolean;
   readonly requireMfa: boolean;
   readonly maxMinutes: number;
-  readonly maxLifetimeMinutes: number;
 }
 
 type Stored = NonNullable<Awaited<ReturnType<SessionIssuer['restore']>>>;
@@ -71,28 +70,6 @@ function refusal(st: IdentityStatus): string | null {
   return null;
 }
 
-function readSettings(raw: unknown, lifetime: unknown): Settings {
-  const out = { requirePassword: true, requireMfa: true, maxMinutes: 60, maxLifetimeMinutes: DEFAULT_MAX_LIFETIME_MINUTES };
-  if (lifetime !== undefined && lifetime !== null) {
-    if (typeof lifetime !== 'number' || !Number.isFinite(lifetime) || lifetime <= 0) throw new InvalidOption('authn.session.expiration.maxLifetime must be a positive number of minutes');
-    out.maxLifetimeMinutes = lifetime;
-  }
-  if (raw === undefined || raw === null) return out;
-  if (!isObject(raw)) throw new InvalidOption('authn.impersonation must be an object');
-  for (const k of ['requirePassword', 'requireMfa'] as const) {
-    const v = raw[k];
-    if (v === undefined || v === null) continue;
-    if (typeof v !== 'boolean') throw new InvalidOption(`authn.impersonation.${k} must be a boolean`);
-    out[k] = v;
-  }
-  const max = raw.maxMinutes;
-  if (max !== undefined && max !== null) {
-    if (typeof max !== 'number' || !Number.isInteger(max) || max < 1) throw new InvalidOption('authn.impersonation.maxMinutes must be a positive integer');
-    out.maxMinutes = max;
-  }
-  return out;
-}
-
 /** The facts of the impersonator's own session, rebuilt from those of an impersonation session. */
 function ownFacts(f: AuthnFacts): AuthnFacts {
   return { method: f.method, strategy: f.strategy, assurance: f.assurance, mfa: [...f.mfa], authenticatedAt: f.authenticatedAt };
@@ -122,24 +99,25 @@ async function oneAtATime<T>(session: SessionHandle, run: () => Promise<T>): Pro
 @PerChildInstance()
 @Inject(Container)
 export class AuthnImpersonationService extends AsyncService {
+  @Config('authn.impersonation')
+  protected Settings: ImpersonationConfig;
+
+  // authn-session ships and reads the same default for the same key; authn core cannot import it.
+  @Config('authn.session.expiration.maxLifetime', { defaultValue: DEFAULT_MAX_LIFETIME_MINUTES })
+  protected MaxLifetimeMinutes: number;
+
   private sessions!: SessionIssuer;
   private identities!: IdentityStore;
   private principals!: PrincipalFactory;
   private guard: ImpersonationGuard | undefined;
   private fresh!: FreshAuthCheck;
   private auditor!: AuthnAudit;
-  private settings!: Settings;
 
   constructor(private readonly container: IContainer) {
     super();
   }
 
   public async resolve(): Promise<void> {
-    const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
-    if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
-      throw new InvalidOperation('AuthnImpersonationService: the resolved Configuration has no get()');
-    }
-    this.settings = readSettings(configuration.get('authn.impersonation'), configuration.get('authn.session.expiration.maxLifetime'));
     this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
     this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
     this.principals = (await this.neighbour(PrincipalFactory, 'PrincipalFactory', true))!;
@@ -258,10 +236,10 @@ export class AuthnImpersonationService extends AsyncService {
     if (sameRef(stored.identity, target)) return { reason: 'self' };
     // Sessions are for users only (D12).
     if (target.type !== 'user') return { reason: 'non_user_target' };
-    if (this.settings.requireMfa && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
+    if (this.Settings.requireMfa && stored.facts.assurance !== 'aal2') return { reason: 'mfa_required' };
     const actorRefused = await this.statusRefusal(stored.identity);
     if (actorRefused) return { reason: actorRefused };
-    if (this.settings.requirePassword && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
+    if (this.Settings.requirePassword && !(await this.fresh.check(stored.handle, { ...ctx, session: stored.handle, purpose: 'reauth' }, reauth))) {
       return { reason: 'not_fresh' };
     }
     const targetRefused = await this.statusRefusal(target);
@@ -279,7 +257,7 @@ export class AuthnImpersonationService extends AsyncService {
   private ending(stored: Stored, ctx: AuthnContext): Ending | null {
     const started = this.startedAt(stored, ctx);
     if (started === null) return { type: 'impersonation.end', reason: 'invalid_block' };
-    if (ctx.now.getTime() - started.getTime() >= this.settings.maxMinutes * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
+    if (ctx.now.getTime() - started.getTime() >= this.Settings.maxMinutes * MINUTE_MS) return { type: 'impersonation.expire', reason: 'max_minutes' };
     if (this.beyondLifetime(stored.facts, ctx)) return { type: 'impersonation.end', reason: 'session_lifetime' };
     return null;
   }
@@ -305,7 +283,7 @@ export class AuthnImpersonationService extends AsyncService {
   /** Start and stop issue new sessions, so the store's absolute lifetime would start again without this bound (I1). */
   private beyondLifetime(facts: AuthnFacts, ctx: AuthnContext): boolean {
     const at = facts.authenticatedAt;
-    return !validDate(at) || ctx.now.getTime() - at.getTime() >= this.settings.maxLifetimeMinutes * MINUTE_MS;
+    return !validDate(at) || ctx.now.getTime() - at.getTime() >= this.MaxLifetimeMinutes * MINUTE_MS;
   }
 
   /** Why the guard, or its absence, refuses `actor` impersonating `target` now; null when it consents. */
