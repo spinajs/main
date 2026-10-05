@@ -26,6 +26,7 @@ const EXOTIC: ReadonlyArray<(v: object) => boolean> = [types.isMap, types.isSet,
  * time, and arrays and plain objects by their own enumerable data properties, with equal key sets
  * (`{ x: undefined }` is not `{}`). Anything else (proxies, Map, Set, boxed primitives, typed arrays,
  * functions, class instances, symbol keys, accessors, holes) is the same only as the same reference.
+ * An object whose prototype was reset to `Object.prototype` counts as plain data.
  * Over the work budget, or on a throw, it answers false.
  */
 export function sameFilter(a: ResourceFilter, b: ResourceFilter): boolean {
@@ -75,7 +76,7 @@ function sameArray(x: unknown[], y: unknown[], b: Budget, depth: number): boolea
   return true;
 }
 
-// Each value is read once from its descriptor, so a getter cannot answer differently later in the walk.
+// Descriptors, not `x[key]`, so no getter runs.
 function sameProperty(x: object, y: object, key: string, b: Budget, depth: number): boolean {
   const dx = Object.getOwnPropertyDescriptor(x, key);
   const dy = Object.getOwnPropertyDescriptor(y, key);
