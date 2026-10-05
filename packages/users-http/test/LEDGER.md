@@ -120,6 +120,8 @@ Own and admin metadata routes with owner scoping and the protected-key guard; al
 
 Admin user records, roles, role guard and credential and lifecycle actions; user-record and lifecycle tests adapt in C2, role and guard tests rewrite (C4 or C2), credential tests rewrite (N8b).
 
+C2 task 0 state (task 4 rewrites this table): rows 56–64, 67–69 and 71 are deleted here (C4 covers them in `authz-http-admin/test/`); rows 73 and 80 are deleted (drop); rows 72, 74, 81–88, 90 and 91 are in `test/legacy-v2/users-controller.test.ts` (excluded); the `C2 → C2` rows 14, 24, 25, 40, 41, 50, 65 and 70 have their 3.0 replacements in `test/v3/admin-roles.test.ts` and `test/v3/account-guard.test.ts`; row 30 now asserts that no password is stored (`NO_PASSWORD`), since `create()` no longer generates one. In `user-controller-db.test.ts`, rows 4–12 are in `test/legacy-v2/user-controller-db.test.ts`.
+
 | # | Line | Test | Class | Lane | Target |
 |---|---|---|---|---|---|
 | 1 | 175 | Admin user controllers > Users.list > returns all users with the total count header | adapt | C2 | users-http/test/ |

@@ -1,4 +1,5 @@
 import { AutoinjectService } from '@spinajs/configuration';
+import { Autoinject } from '@spinajs/di';
 import { BaseController, BasePath, Body, Del, Get, NotFound, Ok, Param, Patch, Policy, Post } from '@spinajs/http';
 import { activate, ban, changeUserPassword, deactivate, expirePassword, hashSessionId, passwordChangeRequest, SessionProvider, unban, User, USER_COMMON_METADATA, userModel } from '@spinajs/users';
 import type { ISession } from '@spinajs/users';
@@ -8,10 +9,8 @@ import { Schema } from '@spinajs/validation';
 import { disableUser2Fa, enableUser2Fa, resetUser2Fa } from '@spinajs/authn-totp';
 import { Log, Logger } from '@spinajs/log';
 
-import { RoleGuard } from '@spinajs/authz-http-admin';
-
-// Side effect only — see the note in Users.ts.
-import '@spinajs/authz-http-admin';
+import { AccountGuard } from '../../../services/AccountGuard.js';
+import { actorPrincipal } from '../../../services/actor.js';
 
 @Schema({
   type: 'object',
@@ -84,8 +83,8 @@ export interface IAdminSessionEntry {
  * Administrative controls for user account security: passwords, 2FA, account
  * activation, bans, login lockouts and live sessions.
  *
- * Every route that takes an account out of service goes through the configured
- * {@link RoleGuard} first — an administrator must not be able to lock themselves,
+ * Every route that takes an account out of service goes through the
+ * {@link AccountGuard} first — an administrator must not be able to lock themselves,
  * or the installation, out through this API.
  * @tags Admin Users
  */
@@ -99,8 +98,8 @@ export class Security extends BaseController {
   @AutoinjectService('authn.session')
   protected SessionProvider: SessionProvider;
 
-  @AutoinjectService('rbac.admin.roleGuard')
-  protected RoleGuard: RoleGuard;
+  @Autoinject(AccountGuard)
+  protected AccountGuard: AccountGuard;
 
   /**
    * Change user password (admin)
@@ -144,21 +143,23 @@ export class Security extends BaseController {
 
   /**
    * Expire a user password (admin)
-   * Marks the password as expired, which deactivates the account until a new one is set.
+   * Makes the password unusable and ends the account's sessions; the account stays active so its
+   * owner can redeem a password reset.
    * @security cookieAuth
    * @param user User UUID path parameter
    * @response 200 Password expired
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, or refused by the role guard
+   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Post('expire-password/:user')
   @Permission(['deleteAny', 'deleteOwn'])
   public async expireUserPassword(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    // Expiry deactivates the account, so it is guarded like every other way
-    // of taking an account out of service.
-    await this.RoleGuard.assertCanDisableAccount(actor, user, 'deactivate');
-    await expirePassword(user);
+    const by = await actorPrincipal(actor);
+
+    // Nobody can log in until the reset, so it is guarded like every other way of taking an account out of service.
+    await this.AccountGuard.assertCanDisable(by, user, 'expire-password');
+    await expirePassword(user, by);
 
     return new Ok();
   }
@@ -224,13 +225,13 @@ export class Security extends BaseController {
    * @param user User UUID path parameter
    * @response 200 Account deactivated successfully
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, or refused by the role guard
+   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Post('deactivate/:user')
   @Permission(['deleteAny', 'deleteOwn'])
   public async deactivateUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User) {
-    await this.RoleGuard.assertCanDisableAccount(actor, user, 'deactivate');
+    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'deactivate');
     await deactivate(user);
 
     return new Ok();
@@ -262,13 +263,13 @@ export class Security extends BaseController {
    * @response 200 Account banned
    * @response 400 Account is already banned
    * @response 401 Unauthorized — valid session required
-   * @response 403 Forbidden — deleteAny permission required, or refused by the role guard
+   * @response 403 Forbidden — deleteAny permission required, no caller, or refused by the account guard (own account, last privileged account)
    * @response 404 User not found
    */
   @Post('ban/:user')
   @Permission(['deleteAny', 'deleteOwn'])
   public async banUser(@CurrentUser() actor: User, @FromModel({ queryField: 'Uuid', include: ['Metadata'], model: () => userModel() }) user: User, @Body() dto: BanUserDto) {
-    await this.RoleGuard.assertCanDisableAccount(actor, user, 'ban');
+    await this.AccountGuard.assertCanDisable(await actorPrincipal(actor), user, 'ban');
     await ban(user, dto?.reason, dto?.duration);
 
     return new Ok();

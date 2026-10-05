@@ -9,7 +9,6 @@ import type { IRbacDescriptor } from '@spinajs/authn-http';
 import { DataValidator } from '@spinajs/validation';
 
 import { CreateUserDto, UpdateUserDto, Users } from '../src/admin/controllers/Users/Users.js';
-import { Roles } from '@spinajs/authz-http-admin';
 import { Security } from '../src/admin/controllers/Users/Security.js';
 import { Profile } from '../src/admin/controllers/Users/Profile.js';
 
@@ -50,7 +49,6 @@ describe('Admin route contract', function () {
 
     controllers = [
       { name: 'Users', instance: await DI.resolve(Users) },
-      { name: 'Roles', instance: await DI.resolve(Roles) },
       { name: 'Security', instance: await DI.resolve(Security) },
       { name: 'Profile', instance: await DI.resolve(Profile) },
     ];

@@ -12,8 +12,10 @@ import { PaginationDTO } from '@spinajs/orm-http';
 import { InvalidArgument, ResourceNotFound } from '@spinajs/exceptions';
 import { AuthProvider, BasicPasswordProvider, PasswordProvider, SimpleDbAuthProvider, User, UserMetadata, issuePasswordResetToken } from '@spinajs/users';
 import { Default2FaToken, TWO_FA_METATADATA_KEYS } from '@spinajs/authn-totp';
-import { runAuthnBehaviour } from '@spinajs/authn-testing';
+import { MemorySessionIssuer, runAuthnBehaviour } from '@spinajs/authn-testing';
 import type { Harness, MetadataActor, MetadataPort, SeedPort } from '@spinajs/authn-testing';
+import { MemoryAuthnThrottle } from '@spinajs/authn';
+import { AuthnThrottle, SessionIssuer } from '@spinajs/authn/contracts';
 
 import { UserMetadataController } from '../src/controllers/UserMetadataController.js';
 import { UserMetadataService } from '../src/services/UserMetadataService.js';
@@ -65,6 +67,10 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
     DI.register(SqliteOrmDriver).as('orm-driver-sqlite');
     DI.register(BasicPasswordProvider).as(PasswordProvider);
     DI.register(SimpleDbAuthProvider).as(AuthProvider);
+    // The reset request runs authn-local's LocalPasswordService, which counts it in the throttle and needs a
+    // session issuer; nothing in this package's imports registers either.
+    DI.register(MemoryAuthnThrottle).as(AuthnThrottle);
+    DI.register(MemorySessionIssuer).as(SessionIssuer);
 
     for (const b of await DI.resolve(Array.ofType(Bootstrapper))) {
       await b.bootstrap();
@@ -117,9 +123,12 @@ describe('SR-01 and SR-02: users-http metadata routes', function () {
   describe('replays of the 2.x attacks', () => {
     it("SR-01 admin reads another user's reset token", async () => {
       const victim = await newUser();
-      // the public POST /auth/password/reset-request writes the token through this action
-      const { token } = await issuePasswordResetToken(victim.Uuid);
-      expect((await rowOf(victim, 'user:pwd_reset:token'))!.Value, 'precondition: the token is stored').to.eq(token);
+      // The public POST /auth/password/reset-request runs this action. authn-local keeps the secret in its own
+      // store, so a reset token row is one a 2.x writer left behind.
+      await issuePasswordResetToken(victim.Uuid);
+      expect(await rowOf(victim, 'user:pwd_reset:token'), 'the reset request writes no secret to the metadata').to.not.exist;
+      const token = 'a-2x-reset-token-worth-stealing';
+      await plant(victim, 'user:pwd_reset:token', token);
 
       await expect(controller.getUserMeta(victim, 'user:pwd_reset:token')).to.be.rejectedWith(ResourceNotFound);
 

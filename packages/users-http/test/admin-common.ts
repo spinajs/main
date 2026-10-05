@@ -13,6 +13,22 @@ export function dir(path: string) {
 }
 
 /**
+ * The role world of the admin suites: the 2.x fixture as authz-rbac roles. `admin` may manage
+ * assignments and holds every `users:*` permission, so it may grant any role but `superadmin` (escalation)
+ * and `system` (not assignable).
+ */
+export const TEST_ROLES = {
+  guest: {},
+  user: {},
+  'scoped-admin': {},
+  // users:update on one's own record only: a conditional grant.
+  'self-editor': { grants: [{ permission: 'users:update', relation: 'self' }] },
+  admin: { grants: ['users:read', 'users:create', 'users:update', 'users:delete', 'authz:assignments.manage'] },
+  superadmin: { extends: ['admin'], grants: ['secrets:read'] },
+  system: { assignable: false, extends: ['admin'] },
+};
+
+/**
  * Configuration for the admin controller suites.
  *
  * NOTE: `users.actions` is deliberately absent. Applications usually do not
@@ -20,6 +36,15 @@ export function dir(path: string) {
  * `beforeCreate` regression test in `users-controller.test.ts`.
  */
 export class TestConfiguration extends FrameworkConfiguration {
+  public async load() {
+    await super.load();
+
+    // In ESM mode every built @spinajs package config fragment merges in, and their `authz.rbac` roles
+    // (users' `admin` with glob grants, configuration-http's `admin.configuration`, ...) would merge
+    // into this fixture's. The suites test this package against a world they define.
+    this.set(['authz', 'rbac'], { roles: TEST_ROLES });
+  }
+
   protected onLoad(): unknown {
     return {
       logger: {
@@ -86,52 +111,6 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
       },
       rbac: {
-        roles: [
-          { Name: 'admin', Description: 'Administrator' },
-          { Name: 'superadmin', Description: 'Administrator that can also read secrets' },
-          { Name: 'user', Description: 'Simple account' },
-          { Name: 'guest', Description: 'Guest account' },
-          { Name: 'scoped-admin', Description: 'Admin restricted to their own visible scope (test fixture)' },
-        ],
-        grants: {
-          system: {
-            $extend: ['admin'],
-          },
-          superadmin: {
-            $extend: ['admin'],
-            secrets: { 'read:any': ['*'] },
-          },
-          admin: {
-            users: { 'create:any': ['*'], 'read:any': ['*'], 'update:any': ['*'], 'delete:any': ['*'] },
-          },
-          user: {
-            users: { 'read:own': ['*'], 'update:own': ['*'] },
-          },
-          // Fixture role for the own-permission route-gate tests: read:own/update:own
-          // only, so it can prove the Own twin opens the route without also holding
-          // the Any grant that would make the assertion trivially true.
-          'scoped-admin': {
-            users: { 'read:own': ['*'], 'update:own': ['*'] },
-          },
-        },
-        defaultRole: 'guest',
-        systemRole: 'system',
-
-        // Guard defaults are normally supplied by the authz-http-admin config file,
-        // which the test configuration does not load — declared here so the
-        // suites exercise the shipped values rather than an empty object.
-        admin: {
-          roleGuard: {
-            service: 'DefaultRoleGuard',
-            requireKnownRole: true,
-            protectSystemRole: true,
-            preventEscalation: true,
-            preventSelfLockout: true,
-            preventLastPrivilegedRemoval: true,
-            privilegedResource: 'users',
-            privilegedAction: 'update:any',
-          },
-        },
         auth: {
           service: 'SimpleDbAuthProvider',
         },
@@ -142,6 +121,30 @@ export class TestConfiguration extends FrameworkConfiguration {
         },
         password: {
           passwordExpirationTime: 0,
+        },
+      },
+
+      // A real root authz host (test/support/authz-host.ts): roles are GLOBAL assignments written through
+      // AuthzAdmin (DbAuthzAdminBackend) into the test database.
+      authz: {
+        permissions: {
+          'users:read': { fields: true },
+          'users:create': {},
+          'users:update': { fields: true },
+          'users:delete': {},
+          'authz:assignments.manage': {},
+          'secrets:read': {},
+        },
+        admin: {
+          backend: 'DbAuthzAdminBackend',
+          guard: {
+            service: 'DefaultAdminGuard',
+            privilegedPermission: 'users:update',
+            protectSystemRole: true,
+            preventEscalation: true,
+            preventSelfLockout: true,
+            preventLastPrivilegedRemoval: true,
+          },
         },
       },
 

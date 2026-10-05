@@ -22,16 +22,14 @@ grants: {
 | `GET`    | `/users/roles`                                | `readAny`   | Roles the caller is allowed to assign                     |
 | `GET`    | `/users/:uuid`                                | `readAny`   | One account                                               |
 | `GET`    | `/users/byLogin/:login`                       | `readAny`   | One account, addressed by login                           |
-| `POST`   | `/users`                                      | `createAny` | Create an account ( inactive, temporary password discarded ) |
+| `POST`   | `/users`                                      | `createAny` | Create an account ( inactive, no password, invite sent )  |
 | `PATCH`  | `/users/:uuid`                                | `updateAny` | Partial update of login / email / role                    |
 | `DELETE` | `/users/:uuid`                                | `deleteAny` | Soft delete + session revocation                          |
 | `PATCH`  | `/users/:uuid/restore`                        | `deleteAny` | Clear `DeletedAt`                                         |
-| `PATCH`  | `/users/role/add/:login`                      | `updateAny` | Grant a role                                              |
-| `PATCH`  | `/users/role/revoke/:login`                   | `updateAny` | Revoke a role                                             |
 | `GET`    | `/users/profile/:login`                       | `readAny`   | Profile through the configured `UserProfileProvider`      |
 | `PATCH`  | `/users/security/changePassword/:uuid`        | `updateAny` | Set a password. Revokes every session of that user        |
 | `POST`   | `/users/security/password-reset-request/:uuid`| `updateAny` | Issue a reset token and emit `UserPasswordChangeRequest`  |
-| `POST`   | `/users/security/expire-password/:uuid`       | `deleteAny` | Expire the password ( deactivates the account )           |
+| `POST`   | `/users/security/expire-password/:uuid`       | `deleteAny` | Expire the password ( the account stays active )          |
 | `PATCH`  | `/users/security/reset2fa/:uuid`              | `updateAny` | Clear the TOTP secret                                     |
 | `POST`   | `/users/security/2fa/enable/:uuid`            | `updateAny` | Enrol 2FA, returns the enrolment url                      |
 | `POST`   | `/users/security/2fa/disable/:uuid`           | `updateAny` | Turn 2FA off                                              |
@@ -49,52 +47,47 @@ which validates one entry at a time.
 
 ## Handing a new account to its owner
 
-`POST /users` creates the account **inactive** and throws the generated temporary password away, so a
-created account cannot be logged into yet. The intended flow is:
+`POST /users` creates the account **inactive** and without a password: `create()` sends the owner an
+invite through authn's `PasswordService`. The owner sets a password by redeeming it, which activates
+the account. When a step after the role grants fails, the account exists anyway: the answer is still
+`200` with the account and `Incomplete: { resendInvite }`, telling whether to send the invite again.
 
-1. `POST /users`
-2. `POST /users/security/password-reset-request/:uuid` — the application delivers the token by
-   hooking `UserPasswordChangeRequest`
-3. the user sets their own password through `POST /auth/password/reset`
-4. `POST /users/security/activate/:uuid`
+## Role changes and the account guard
 
-## Role guard
+Roles are GLOBAL assignments of `user:<Uuid>`. `POST /users`, `PATCH /users/:uuid` (whose `Role` replaces
+the account's GLOBAL roles) and `GET /users/roles` go through `AuthzAdmin` with the caller as actor, so
+authz-rbac's `AdminGuard` (`authz.admin.guard`) refuses escalation, non-assignable roles, self lockout
+and removing the last holder of `privilegedPermission`. A refusal answers `403` (`escalation`,
+`protected_role`, `forbidden`, `self_lockout`, `last_holder`) or `400` (`unknown_role`,
+`not_assignable`, `wrong_scope_type`). A request without a caller is refused, never run as SYSTEM.
+The `Role` list filter matches the GLOBAL holders of the named roles; `Role` is not sortable.
 
-Role changes are the one operation in this API that can grant MORE than the caller holds, so they run
-through a `RoleGuard` service first, provided by `@spinajs/authz-http-admin`. Configure it under `rbac.admin.roleGuard`:
+Delete, deactivate, ban and password expiry are not AuthzAdmin commands. They go through the
+`AccountGuard` service (`DefaultAccountGuard`), which reads the same `authz.admin.guard` switches:
 
 ```js
-rbac: {
+authz: {
   admin: {
-    roleGuard: {
-      service: 'DefaultRoleGuard',
-
-      // reject role names not declared in rbac.grants / rbac.roles
-      requireKnownRole: true,
-      // rbac.systemRole is never assignable or revocable over HTTP
-      protectSystemRole: true,
-      // a role whose grants exceed the caller's cannot be handed out
-      preventEscalation: true,
-      // no self-deactivation, self-deletion, self-ban, self-demotion
+    guard: {
+      // no self-deactivation, self-deletion, self-ban, own password expiry
       preventSelfLockout: true,
-      // never empty a privileged role of its last active holder
+      // never take the last active account holding privilegedPermission out of service
       preventLastPrivilegedRemoval: true,
-
-      // what counts as "privileged" for the two checks above
-      privilegedResource: 'users',
-      privilegedAction: 'update:any',
+      privilegedPermission: 'users:update',
     },
   },
 }
 ```
 
-Replace the whole policy by registering your own class under the `RoleGuard` base and naming it in
-`service`:
+An absent switch is on. Replace the policy by registering your own class under the `AccountGuard` base:
 
 ```ts
-@Injectable(RoleGuard)
-export class MyRoleGuard extends RoleGuard { /* ... */ }
+@Injectable(AccountGuard)
+export class MyAccountGuard extends AccountGuard { /* ... */ }
 ```
+
+This package's config fragment declares the `users:read`, `users:create`, `users:update` and
+`users:delete` permissions.
 
 ## Breaking changes in this release
 

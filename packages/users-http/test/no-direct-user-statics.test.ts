@@ -2,8 +2,7 @@ import { expect } from 'chai';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
-// Roles.ts lives in authz-http-admin but is still an admin controller.
-const CONTROLLER_DIRS = [join(process.cwd(), 'src', 'admin', 'controllers', 'Users'), join(process.cwd(), '..', 'authz-http-admin', 'src', 'legacy', 'controllers', 'Users')];
+const CONTROLLER_DIRS = [join(process.cwd(), 'src', 'admin', 'controllers', 'Users')];
 // Direct static query calls on the imported User bypass the RbacUserModel
 // token and with it any application row scoping. The two whitelisted names are
 // deliberately global (see comments at their call sites).
