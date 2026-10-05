@@ -184,8 +184,8 @@ strategy repeats the core's decision with the provider's switch, so neither path
 ## `ExternalLoginHook`
 
 Authn imports no authz. To act on a login, such as syncing group claims into authorization data,
-register an `ExternalLoginHook` (`Array.ofType`). It runs in the callback route after a successful
-external login:
+register an `ExternalLoginHook`. The hooks of every container in the lineage (`Array.chainOf`) run
+in the callback route after a successful external login:
 
 ```ts
 import { ExternalLoginHook, IdentityRef, ExternalSubject } from '@spinajs/authn/contracts';
