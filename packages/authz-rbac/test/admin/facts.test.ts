@@ -53,9 +53,14 @@ describe('CheckRbacAdminFacts', function () {
     await uninstallHost();
   });
 
-  beforeEach(async () => {
+  const open = async (registry: boolean) => {
     await resetHost();
-    d = await rbacDomain('test', { roleStores: [new StaticRoleStore('facts', ROLES, LADDERS)], model: model(), permissions: { 'users:update': {} } });
+    const permissions = { 'users:update': {} };
+    d = await rbacDomain('test', { roleStores: [new StaticRoleStore('facts', ROLES, LADDERS)], model: model(), permissions, ...(registry ? { register: (c: IContainer) => c.register(instance(permissionRegistry(permissions))).as(PermissionRegistry) } : {}) });
+  };
+
+  beforeEach(async () => {
+    await open(true);
   });
 
   const ctx = (actor: Principal = alice): AdminCallContext => ({ domain: 'test', now: START, authz: d.service, actor, container: d.container, dryRun: false });
@@ -76,8 +81,7 @@ describe('CheckRbacAdminFacts', function () {
     expect(await covers('empty', P1, bob)).to.equal(true);
   });
 
-  it('fails closed: a glob grant with no registry, an undefined role in the closure, a check that throws', async () => {
-    expect(await covers('globber')).to.equal(false);
+  it('fails closed: an undefined role in the closure, a check that throws', async () => {
     expect(await covers('broken')).to.equal(false);
     expect(await covers('ghost')).to.equal(false);
     // users:update is not checkable on a project.
@@ -123,9 +127,21 @@ describe('CheckRbacAdminFacts', function () {
     expect(await facts.effectiveRole(bob, 'project', P1, ctx(bob))).to.equal(undefined);
   });
 
-  it('effectiveRole is undefined for an unknown ladder, a ladder without a permission, and a glob with no registry', async () => {
+  it('effectiveRole is undefined for an unknown ladder and a ladder without a permission', async () => {
     expect(await facts.effectiveRole(alice, 'ghost', P1, ctx())).to.equal(undefined);
     expect(await facts.effectiveRole(alice, 'bare', P1, ctx())).to.equal(undefined);
+  });
+
+  it('with no registry every role with grants is not covered, literal or glob; one without grants is', async () => {
+    await open(false);
+    for (const r of ['viewer', 'reader', 'editor', 'globber']) expect(await covers(r), r).to.equal(false);
+    expect(await covers('userAdmin', G)).to.equal(false);
+    expect(await covers('empty', P1, bob)).to.equal(true);
+  });
+
+  it('with no registry effectiveRole still reads a literal ladder, and a glob ladder has no rank', async () => {
+    await open(false);
+    expect(await facts.effectiveRole(alice, 'project', P1, ctx())).to.equal('editor');
     expect(await facts.effectiveRole(alice, 'glob', P1, ctx())).to.equal(undefined);
   });
 });

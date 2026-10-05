@@ -12,14 +12,14 @@ const expect = chai.expect;
 const { role, assignment } = fixtureDsl;
 
 // Shaped like users' shipped roles: admin extends the non-assignable admin.users, which grants a glob.
-const ROLES = [role('admin.users', ['users:*'], { assignable: false }), role('admin', ['user:impersonate'], { extends: ['admin.users'] }), role('superuser', ['users:read', 'users:list', 'user:impersonate', 'authz:assignments.manage']), role('reader', ['users:read', 'user:impersonate', 'authz:assignments.manage']), role('ghosts', ['nothing:*'])];
+const ROLES = [role('admin.users', ['users:*'], { assignable: false }), role('admin', ['user:impersonate'], { extends: ['admin.users'] }), role('superuser', ['users:read', 'users:list', 'user:impersonate', 'authz:assignments.manage', 'reports:export']), role('reader', ['users:read', 'user:impersonate', 'authz:assignments.manage']), role('ghosts', ['nothing:*']), role('reporter', ['reports:*'])];
 
 const people = Object.fromEntries(['root', 'rita', 'alice'].map((id) => [id, userPrincipal(id)]));
 const { root, rita, alice } = people;
 
 const WORLD: World = {
   now: new Date('2026-10-03T00:00:00.000Z'),
-  permissions: [{ name: 'users:read' }, { name: 'users:list' }, { name: 'user:impersonate' }, { name: 'authz:assignments.manage' }],
+  permissions: [{ name: 'users:read' }, { name: 'users:list' }, { name: 'user:impersonate' }, { name: 'authz:assignments.manage' }, { name: 'reports:export', implies: ['audit:read'] }, { name: 'audit:read' }],
   principals: people,
   combine: fixtureDsl.combine('deny-overrides', 'rbac'),
   rbac: { roles: ROLES, assignments: [assignment('r-root', root, 'superuser', GLOBAL), assignment('r-rita', rita, 'reader', GLOBAL)] },
@@ -63,6 +63,13 @@ describe('DefaultAdminGuard on the RbacModel: glob grants against the permission
   it('an actor lacking one permission the glob matches may not', async () => {
     expect(code(await admin.execute(rita, [grant('admin')]))).to.equal('escalation');
     expect(await lists(alice)).to.equal(false);
+  });
+
+  it('a glob brings in what its matches imply: the actor holding both may grant it, and the model gives both', async () => {
+    const audits = async (p: Principal) => (await authz.check({ principal: p, permission: 'audit:read', resource: GLOBAL })).allowed;
+    expect(code(await admin.execute(rita, [grant('reporter')]))).to.equal('escalation');
+    expect(code(await admin.execute(root, [grant('reporter')]))).to.equal('ok');
+    expect(await audits(alice)).to.equal(true);
   });
 
   it('a glob that matches no registered permission is refused', async () => {

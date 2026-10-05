@@ -217,7 +217,7 @@ describe('DefaultAdminGuard', function () {
 
     describe('glob grants are covered against the permission registry', () => {
       // note:own implies project:settings; nora holds note:* but not project:settings.
-      const GLOB_ROLES = [...GUARD_ROLES, role('pglob', { grants: grants('project:*') }), role('nomatch', { grants: grants('nothing:*') }), role('badglob', { grants: grants('file:**') }), role('nglob', { grants: grants('note:*') }), role('nown', { grants: grants('note:own') })];
+      const GLOB_ROLES = [...GUARD_ROLES, role('pglob', { grants: grants('project:*') }), role('nomatch', { grants: grants('nothing:*') }), role('badglob', { grants: grants('file:**') }), role('nglob', { grants: grants('note:*') }), role('nown', { grants: grants('note:own') }), role('nghost', { grants: grants('note:ghost') })];
       const globs = (opts: WorldOptions = {}) => world({ roles: GLOB_ROLES, permissions: { 'note:own': { types: ['project'], implies: ['project:settings'] }, 'note:read': { types: ['project'] } }, ...opts });
 
       beforeEach(() => {
@@ -250,10 +250,16 @@ describe('DefaultAdminGuard', function () {
         await passes(p('root'), [grant('nown')]);
       });
 
-      it('with no registry a glob grant is refused (fail closed); a literal one is judged as before', async () => {
+      it('a literal grant of a permission the registry does not hold is refused', async () => {
+        await globs();
+        await refused(p('root'), [grant('nghost')], 'escalation');
+      });
+
+      it('with no registry every grant is refused, glob or literal, as the holder checks reject', async () => {
         await globs({ registry: false });
         await refused(p('erin'), [grant('globber')], 'escalation');
-        await passes(p('erin'), [grant('viewer')]);
+        await refused(p('erin'), [grant('viewer')], 'escalation');
+        await refused(p('root'), [grant('viewer')], 'escalation');
       });
     });
 
@@ -680,12 +686,13 @@ describe('DefaultAdminGuard', function () {
         await passes(p('ops'), [revoke('h')]);
       });
 
-      it('with no registry to read the implies from, a removal rejects the call; a command that removes nothing passes', async () => {
+      it('with no registry to read the implies from, a removal rejects the call and a grant is not covered', async () => {
         await world({ registry: false });
         const e = await rejection(run(p('ops'), [revoke('a-root2')]));
         expect(e).to.be.instanceOf(AuthzConfigError);
         expect(e.message).to.include('PermissionRegistry');
-        await passes(p('root'), [grant('viewer')]);
+        await refused(p('root'), [grant('viewer')], 'escalation');
+        await passes(p('root'), [grant('staff.set')]);
       });
     });
 

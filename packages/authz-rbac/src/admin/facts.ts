@@ -15,19 +15,18 @@ export abstract class RbacAdminFacts {
 const unconditional = (d: Decision | undefined): boolean => d?.allowed === true && d.residual?.op === 'true';
 
 /**
- * The permissions a grant gives, each with the field set it carries (undefined: every field). With the
- * registry, as the model compiles the grant (grantedPermissions); a matched permission without `fields: true`
- * takes no field set. Without it only a literal grant is known, as itself.
+ * The permissions a grant gives, each with the field set it carries (undefined: every field), as the model
+ * compiles the grant (grantedPermissions); a matched permission without `fields: true` takes no field set.
  */
-function given(registry: PermissionRegistry | undefined, permission: string, fields: FieldSet | undefined): { permission: Permission; fields: FieldSet | undefined }[] | undefined {
-  if (!registry) return isPermission(permission) ? [{ permission, fields }] : undefined;
+function given(registry: PermissionRegistry, permission: string, fields: FieldSet | undefined): { permission: Permission; fields: FieldSet | undefined }[] | undefined {
   return grantedPermissions(registry, permission)?.map((def) => ({ permission: def.name, fields: def.fields === true ? fields : undefined }));
 }
 
 /**
  * RbacAdminFacts from checks through ctx.authz. A grant asks for every permission it gives (`given`).
- * Fails closed: a grant whose permissions are unknown (a glob with no registry, an invalid or unregistered
- * name, a glob that matches nothing), an undefined role in the closure, an implied role that bypasses
+ * Fails closed: any grant when no registry is reachable (not even a literal's implies are known then; the
+ * holder checks reject in that case), a grant whose permissions are unknown (an invalid or unregistered name,
+ * a glob that matches nothing), an undefined role in the closure, an implied role that bypasses
  * restrict or cap rules, or a check refused as a configuration error (a permission whose types exclude the
  * scope type) counts as not covered. Any other error of a check rejects. The implied roles of a ladder role
  * the actor ranks at or above are not followed (grantClosure).
@@ -53,7 +52,7 @@ export class CheckRbacAdminFacts extends RbacAdminFacts {
     const registry = await permissionRegistry(ctx);
     for (const def of defs) {
       for (const g of def.grants) {
-        const permissions = given(registry, g.permission, g.fields);
+        const permissions = registry ? given(registry, g.permission, g.fields) : undefined;
         if (!permissions) return false;
         for (const { permission, fields } of permissions) {
           const prev = wanted.has(permission) ? wanted.get(permission) : { read: [], write: [] };
