@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DefaultQueueService } from '@spinajs/queue';
 import { InvalidArgument } from '@spinajs/exceptions';
-import { SessionIssuer } from '@spinajs/authn/contracts';
+import { SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { SYSTEM } from '@spinajs/authz';
 import type { Principal } from '@spinajs/authz';
@@ -14,6 +14,7 @@ import { _set_user_meta, activate, ban, changeUserPassword, confirmPasswordReset
 import { TEST_USER_UUID } from './migration/rbac.migration.js';
 import { TestPasswordService, passwordCalls, resetPasswordCalls } from './support/password-service.js';
 import { RecordingSessionIssuer, registerRecordingSessionIssuer } from './support/session-issuer.js';
+import { RecordingTokenService, registerRecordingTokenService } from './support/token-service.js';
 import { bootUsersDb, registerUsersTestHost, seedUser, storedUser } from './support/users-db.js';
 
 const FACTS = { method: 'password', strategy: 'local', assurance: 'aal1', mfa: [], authenticatedAt: new Date() } as const;
@@ -35,12 +36,14 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
   before(() => {
     registerUsersTestHost();
     registerRecordingSessionIssuer();
+    registerRecordingTokenService();
   });
 
   beforeEach(async () => {
     await bootUsersDb();
     emit = sinon.stub(DefaultQueueService.prototype, 'emit').resolves(undefined);
     RecordingSessionIssuer.calls.length = 0;
+    RecordingTokenService.calls.length = 0;
     resetPasswordCalls();
   });
 
@@ -90,6 +93,54 @@ describe('users lifecycle over authn (plan C1 task 11)', function () {
       const { user } = await seedUser({ login: 'revoke-fails' });
 
       await expect(ban(await storedUser(user.Uuid))).to.be.rejectedWith('session store down');
+    });
+  });
+
+  describe('token revocation (N8a hand-off)', () => {
+    const userRef = (u: { Uuid: string }): IdentityRef => ({ type: 'user', id: u.Uuid });
+
+    for (const [title, act] of [
+      ['ban', (u: User) => ban(u)],
+      ['deactivate', (u: User) => deactivate(u)],
+      ['deleteUser', (u: User) => deleteUser(u)],
+    ] as const) {
+      it(`${title} revokes every API and agent token of user:<Uuid> through TokenService.revokeAllFor`, async () => {
+        const { user } = await seedUser({ login: `tokens-${title}` });
+
+        await act(await storedUser(user.Uuid));
+
+        expect(RecordingTokenService.calls.map((c) => c.owner)).to.deep.eq([userRef(user)]);
+        const [{ ctx, opts }] = RecordingTokenService.calls;
+        expect(ctx.purpose).to.eq('request');
+        expect(ctx.now).to.be.instanceOf(Date);
+        expect(opts, 'the action names no actor').to.eq(undefined);
+      });
+
+      it(`${title} propagates a token revocation failure`, async () => {
+        sinon.stub(RecordingTokenService.prototype, 'revokeAllFor').rejects(new Error('token store down'));
+        const { user } = await seedUser({ login: `tokens-fail-${title}` });
+
+        await expect(act(await storedUser(user.Uuid))).to.be.rejectedWith('token store down');
+      });
+    }
+
+    it('changeUserPassword keeps the tokens (H32)', async () => {
+      const { user } = await seedUser({ login: 'tokens-change', password: await ((await DI.resolve(PasswordProvider)) as PasswordProvider).hash('0ldpassword') });
+
+      await changeUserPassword(await storedUser(user.Uuid), 'n3wpassword');
+
+      expect(RecordingTokenService.calls).to.deep.eq([]);
+    });
+
+    it('without a registered TokenService revokes no token and still bans', async () => {
+      const hasRegistered = DI.RootContainer.hasRegistered.bind(DI.RootContainer);
+      sinon.stub(DI.RootContainer, 'hasRegistered').callsFake((token: unknown, parent?: boolean) => (token === TokenService ? false : hasRegistered(token as never, parent)));
+      const { user } = await seedUser({ login: 'tokens-no-service' });
+
+      await ban(await storedUser(user.Uuid));
+
+      expect(RecordingTokenService.calls).to.deep.eq([]);
+      expect((await storedUser(user.Uuid)).IsBanned).to.eq(true);
     });
   });
 

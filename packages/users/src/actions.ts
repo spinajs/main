@@ -20,7 +20,7 @@ import { UserMetadataChange } from './events/UserMetadataChange.js';
 import { userModel } from './model-token.js';
 import { UserMetadataBase } from './models/UserMetadata.js';
 import { DEFAULT_ROLES_KEY, assignGlobalRoles, defaultRoles, globalRoleHolders, holdsGlobalRole, revokeGlobalRole, userRef } from './role-assignments.js';
-import { PasswordService, SessionIssuer } from '@spinajs/authn/contracts';
+import { PasswordService, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, PrincipalRef } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authz';
 import { SYSTEM } from '@spinajs/authz';
@@ -238,6 +238,20 @@ export async function revokeUserSessions(user: User | number): Promise<void> {
   await revokeLegacySessions(u);
 }
 
+/**
+ * Ends every API and agent token of `user:<Uuid>` through `TokenService.revokeAllFor` when one is registered (none: no
+ * tokens exist). Validation already refuses a token of a banned, inactive or deleted owner; revoking keeps an unban,
+ * a reactivation or a restored row from bringing the tokens back. Errors propagate, as in {@link revokeUserSessions}.
+ */
+async function revokeUserTokens(u: User): Promise<void> {
+  if (!DI.RootContainer.hasRegistered(TokenService)) {
+    return;
+  }
+
+  const tokens = (await DI.resolve(TokenService)) as TokenService;
+  await tokens.revokeAllFor(userRef(u.Uuid), actionContext());
+}
+
 // R1 deletes it with the 2.x session store.
 async function revokeLegacySessions(u: User): Promise<void> {
   const provider = await legacyService('authn.session', SessionProvider);
@@ -354,7 +368,8 @@ export async function activate(identifier: number | string | User): Promise<User
 
 /**
  * Deactivates a user account.
- * Sets `IsActive` to `false`, emits a {@link UserDeactivated} event, and sends the deactivation email.
+ * Sets `IsActive` to `false`, ends its sessions and API and agent tokens, emits a {@link UserDeactivated} event, and
+ * sends the deactivation email.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
  */
@@ -376,6 +391,7 @@ export async function deactivate(identifier: number | string | User): Promise<Us
   // Sessions go with the account: a deactivated user must stop acting NOW, not
   // whenever their session happens to expire.
   await revokeUserSessions(u);
+  await revokeUserTokens(u);
 
   await ev(new UserDeactivated(u));
   await sendUserEmail(u, 'deactivated');
@@ -713,7 +729,7 @@ async function createUser(data: ICreateUserData, roles: string[] | undefined, ac
 }
 
 /**
- * Soft-deletes a user and ends its sessions ({@link revokeUserSessions}).
+ * Soft-deletes a user and ends its sessions ({@link revokeUserSessions}) and API and agent tokens.
  * Emits a {@link UserDeleted} event and sends the "deleted" email.
  *
  * @param identifier - numeric id, uuid / email / login string, or an existing {@link User} instance
@@ -729,6 +745,7 @@ export async function deleteUser(identifier: number | string | User): Promise<vo
   // matches a soft-deleted row, so every request from that session dies in
   // the middleware instead of being cleanly logged out.
   await revokeUserSessions(u);
+  await revokeUserTokens(u);
 
   await ev(new UserDeleted(u));
   await sendUserEmail(u, 'deleted');
@@ -783,7 +800,8 @@ export async function revoke(identifier: number | string | User, role: string, a
 }
 
 /**
- * Bans user for specified time. If duration is not given user is banned for 24h
+ * Bans user for specified time. If duration is not given user is banned for 24h. Ends its sessions and API and agent
+ * tokens.
  *
  * @param identifier user identifier one of : id, uuid, email, login
  * @param reason reason for ban
@@ -812,6 +830,7 @@ export async function ban(identifier: number | string | User, reason?: string, d
   // session expires — `isActiveUser` does not filter on the ban flag, so the
   // session would keep resolving happily.
   await revokeUserSessions(u);
+  await revokeUserTokens(u);
 
   await ev(new UserBanned(u));
   await sendUserEmail(u, 'banned');

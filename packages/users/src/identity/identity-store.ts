@@ -50,9 +50,17 @@ export class UserIdentityStore extends IdentityStore {
     };
   }
 
+  /**
+   * The stored Email as is, so `findByLogin(display(id).email)` finds this identity again (an exact Email outranks any
+   * other match): authn's inline re-authentication logs in with it. No email for an account without one, which then
+   * cannot re-authenticate inline.
+   */
   public async display(id: IdentityRef): Promise<{ email?: string; name?: string }> {
     const u = await this.find(id, false);
-    return u ? { email: u.Email, name: u.Login } : {};
+    if (!u) {
+      return {};
+    }
+    return { ...(typeof u.Email === 'string' && u.Email.trim() !== '' ? { email: u.Email } : {}), name: u.Login };
   }
 
   protected async find(id: IdentityRef, withMetadata: boolean): Promise<User | undefined> {

@@ -25,6 +25,10 @@ export const IDENTITY_PRINCIPAL_SOURCE = 'identity';
  * holds a user record: apps, CLI commands, jobs (`principalOf(user, opts)`). The principal carries the record
  * as `identity` and the attributes of every {@link PrincipalAttributeProvider} over the strategy's.
  *
+ * Also `agent:<id>` for authn (A15: an agent token): the agent acts for the user in `extra.onBehalfOf`, with the
+ * `delegation`, `ceiling` and `attributes` of `extra` and no record or provider attributes of its own, so authz never
+ * gives it more than that user. The owner is read again and refused as a user would be.
+ *
  * A user that is unknown, soft deleted, inactive or banned is refused: authn checks the account's status
  * before it asks for a principal, so getting here with such a user is an error, not a failed login. Except
  * {@link rightsPrincipalOf}, which accepts an inactive or banned account: it judges an account's rights and must
@@ -50,6 +54,9 @@ export class UserPrincipalFactory extends PrincipalFactory {
 
     const facts = factsOrOpts as AuthnFacts;
     const e: Extra = extra ?? {};
+    if (subject?.type === 'agent') {
+      return this.agentPrincipal(subject, facts, e);
+    }
     const user = await this.load(subject);
 
     return this.build(
@@ -79,6 +86,38 @@ export class UserPrincipalFactory extends PrincipalFactory {
 
     const base = facts ? { source: facts.sessionHandle ? 'session' : 'token', authn: facts } : { source: IDENTITY_PRINCIPAL_SOURCE };
     return this.build(user, base, undefined, false);
+  }
+
+  /**
+   * @throws InvalidArgument for an empty id, an owner that is not a user principal or an unknown delegation mode
+   * @throws ResourceNotFound, UserNotActive or UserIsBanned for an owner that cannot act
+   */
+  protected async agentPrincipal(id: IdentityRef, facts: AuthnFacts, e: Extra): Promise<Principal> {
+    if (typeof id.id !== 'string' || id.id === '') {
+      throw new InvalidArgument('An agent identity needs an id', 'id');
+    }
+    const owner = e.onBehalfOf;
+    if (owner?.type !== 'user' || typeof owner.id !== 'string') {
+      throw new InvalidArgument(`Agent ${id.id} must act on behalf of a user principal`, 'extra.onBehalfOf');
+    }
+    if (e.delegation !== undefined && e.delegation !== 'inherit' && e.delegation !== 'intersect') {
+      throw new InvalidArgument(`Agent ${id.id}: unknown delegation ${JSON.stringify(e.delegation)}`, 'extra.delegation');
+    }
+
+    // The owner principal may predate a ban or a deactivation.
+    assertUsable(await this.load({ type: 'user', id: owner.id }));
+
+    return {
+      type: 'agent',
+      id: id.id,
+      authenticated: true,
+      source: facts.sessionHandle ? 'session' : 'token',
+      authn: facts,
+      onBehalfOf: owner,
+      ...(e.delegation ? { delegation: e.delegation } : {}),
+      ...(e.ceiling ? { ceiling: e.ceiling } : {}),
+      attributes: Object.freeze({ ...(e.attributes ?? {}) }),
+    };
   }
 
   protected async load(id: IdentityRef): Promise<User> {

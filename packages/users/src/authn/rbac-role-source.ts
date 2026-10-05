@@ -10,11 +10,16 @@ import { accessDomain, heldRoles, registeredInDomain, signedInInteractively } fr
 /** Roles a role switch may only activate after a fresh password (A26). */
 export const ROLE_SWITCH_PASSWORD_KEY = 'authz.principals.roleSwitch.requirePassword';
 
+// R1 deletes it with the other 2.x keys.
+const LEGACY_ROLE_SWITCH_PASSWORD_KEY = 'rbac.roleSwitch.requirePassword';
+
 type RoleOffer = Awaited<ReturnType<RoleSource['rolesOf']>>[number];
 
 /**
  * authn's RoleSource (A26, B24): the roles a user holds at any scope in the access domain (`authz.http.access.domain`),
- * by name, sorted, each flagged with `requirePassword`. Read from the stored assignments, not the summary the plan
+ * by name, sorted, each flagged with `requirePassword`: listed in `authz.principals.roleSwitch.requirePassword`, or
+ * in the 2.x `rbac.roleSwitch.requirePassword` while the 3.0 key is unset (null counts as unset); with neither set every
+ * role asks for the password (N8a-D9). Read from the stored assignments, not the summary the plan
  * names: the summary applies the role switch ceiling and would hide the roles to switch back to.
  * Scoped holdings count: the list also feeds MFA `forceForRoles` and authn-token's owner check, where a role held at a
  * scope is held; offering it to a role switch is harmless, as `ceiling.roles` only narrows.
@@ -32,16 +37,25 @@ export class RbacRoleSource extends RoleSource {
 
     const domain = await accessDomain();
     const rbac = await registeredInDomain(domain, RbacService);
-    const withPassword = new Set(await passwordRoles());
+    const requiresPassword = await passwordRule();
     const names = [...new Set(await heldRoles(rbac, domain.name, principal))].sort();
-    return names.map((role) => ({ role, requirePassword: withPassword.has(role) }));
+    return names.map((role) => ({ role, requirePassword: requiresPassword(role) }));
   }
 }
 
-async function passwordRoles(): Promise<readonly string[]> {
-  const value = ((await DI.resolve(Configuration)) as Configuration).get<unknown>(ROLE_SWITCH_PASSWORD_KEY, []);
-  if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r !== '')) {
-    throw new AuthzConfigError(`${ROLE_SWITCH_PASSWORD_KEY} must be a list of role names, got ${JSON.stringify(value)}`);
+async function passwordRule(): Promise<(role: string) => boolean> {
+  const config = (await DI.resolve(Configuration)) as Configuration;
+  for (const key of [ROLE_SWITCH_PASSWORD_KEY, LEGACY_ROLE_SWITCH_PASSWORD_KEY]) {
+    const value = config.get<unknown>(key);
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r !== '')) {
+      throw new AuthzConfigError(`${key} must be a list of role names, got ${JSON.stringify(value)}`);
+    }
+    const listed = new Set<string>(value);
+    return (role) => listed.has(role);
   }
-  return value as string[];
+  // Fail safe, as the 2.x switch: no list configured means every switch re-verifies the password.
+  return () => true;
 }

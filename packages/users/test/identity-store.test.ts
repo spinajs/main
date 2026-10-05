@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { DateTime } from 'luxon';
 import { IdentityStore } from '@spinajs/authn/contracts';
+import type { IdentityRef } from '@spinajs/authn/contracts';
 
 import { USER_COMMON_METADATA, User, UserIdentityStore } from '../src/index.js';
 import { TEST_USER_UUID, TEST_USER_UUID_3 } from './migration/rbac.migration.js';
@@ -139,6 +140,48 @@ describe('UserIdentityStore', function () {
 
     it('gives nothing for an unknown identity', async () => {
       expect(await store.display({ type: 'user', id: '00000000-0000-4000-8000-000000000000' })).to.deep.eq({});
+    });
+
+    it('gives no email for an account without one, so inline re-authentication has no login to take', async () => {
+      const { ref } = await seedUser({ login: 'no-email' });
+      // The model refuses an empty Email; the column only holds one written past it.
+      await User.query().Driver.update().in('users').update({ Email: '' }).where('Uuid', ref.id);
+
+      expect(await store.display(ref)).to.deep.eq({ name: 'no-email' });
+    });
+  });
+
+  // Inline re-authentication (role switch, impersonation, FreshAuth) logs in with display(id).email.
+  describe('findByLogin(display(id).email)', () => {
+    const roundTrip = async (ref: IdentityRef) => store.findByLogin((await store.display(ref)).email!);
+
+    it('resolves every account to itself, among emails and logins that differ only in case', async () => {
+      const refs = [
+        (await seedUser({ login: 'case-a', email: 'Pat@Case.test' })).ref,
+        (await seedUser({ login: 'case-b', email: 'pat@case.test' })).ref,
+        (await seedUser({ login: 'case-c', email: 'PAT@CASE.TEST' })).ref,
+        (await seedUser({ login: 'pat@Case.test', email: 'case-d@case.test' })).ref,
+        (await seedUser({ login: 'Case-E@case.test', email: 'case-e@case.test' })).ref,
+        { type: 'user', id: TEST_USER_UUID },
+      ];
+
+      for (const ref of refs) {
+        expect(await roundTrip(ref), JSON.stringify(await store.display(ref))).to.deep.eq(ref);
+      }
+    });
+
+    it("resolves an account whose email is another account's login to itself", async () => {
+      const { ref: owner } = await seedUser({ login: 'kim', email: 'Kim@Login.test' });
+      await seedUser({ login: 'Kim@Login.test', email: 'other-kim@login.test' });
+      await seedUser({ login: 'kim@login.test', email: 'third-kim@login.test' });
+
+      expect(await roundTrip(owner)).to.deep.eq(owner);
+    });
+
+    it('resolves a soft-deleted account to itself, so status can refuse it', async () => {
+      const ref = await store.findByLogin('test-deleted');
+
+      expect(await roundTrip(ref!)).to.deep.eq(ref);
     });
   });
 });
