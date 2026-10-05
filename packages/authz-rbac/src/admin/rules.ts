@@ -91,8 +91,9 @@ export class RbacRuleHandler extends AuthzWriteHandler {
     }
     if (rule.at !== undefined) readId(rule.at, 'rule.at');
     if (rule.kind === 'threshold' && rule.minRole === undefined) throw invalid('rule.minRole', 'a threshold rule needs minRole');
-    if (rule.kind === 'threshold' && rule.ladder !== undefined && rule.at === undefined) throw invalid('rule.at', 'a threshold rule names a ladder only with at');
+    if (rule.kind === 'threshold' && rule.at !== undefined && rule.ladder === undefined) throw invalid('rule.ladder', 'a threshold rule names at only with a ladder');
     if (rule.kind === 'cap' && rule.maxRole === undefined && rule.stripTags !== true) throw invalid('rule.maxRole', 'a cap rule needs maxRole (null drops the assignment) or stripTags');
+    if (rule.kind === 'cap' && rule.maxRole !== undefined && rule.ladder === undefined) throw new AuthzAdminFailure('rule_not_compilable', 'a cap with maxRole needs the ladder it caps', 'rule.ladder');
     stringList(rule.resourceTypes, 'rule.resourceTypes');
     if (rule.permissions !== undefined) {
       if (!Array.isArray(rule.permissions)) throw invalid('rule.permissions', 'rule.permissions must be a list');

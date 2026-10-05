@@ -5,9 +5,9 @@ import { userPrincipal } from '@spinajs/authz-testing';
 import { AuthzAdminFailure, ConditionCompiler, ConditionFunction, SYSTEM, TRUE } from '@spinajs/authz';
 import type { AdminCallContext, AuthzCommand, Condition, EvaluationContext, PrincipalRef, ResourceFilter } from '@spinajs/authz';
 
-import { AdminRuleStore, MemoryRuleStore, RbacRuleHandler, RuleStore } from '../../src/index.js';
+import { AdminAssignmentStore, AdminRuleStore, AssignmentStore, MemoryAdminAssignmentStore, MemoryRoleStore, MemoryRuleStore, RbacModel, RbacRuleHandler, RuleStore } from '../../src/index.js';
 import type { RuleDef } from '../../src/index.js';
-import { G, HOUR, O1, P1, P2, START, TestBackend, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
+import { G, HOUR, LADDERS, O1, P1, P2, ROLES, START, TestBackend, failure, installHost, instance, ok, rbacDomain, rejection, resetHost, uninstallHost } from './support.js';
 import type { RbacDomain } from './support.js';
 
 const expect = chai.expect;
@@ -19,6 +19,12 @@ const DAVE: PrincipalRef = { type: 'user', id: 'dave' };
 type Rule = Omit<RuleDef, 'source'>;
 const threshold = (r: Partial<Rule> = {}): Rule => ({ id: 'r1', kind: 'threshold', scope: P1, permissions: ['file:edit'], minRole: 'editor', ...r });
 const put = (r: Rule): AuthzCommand => ({ kind: 'rule.put', rule: r });
+// The model does not compile a cap with maxRole and no ladder (nor does the config schema accept it).
+const LADDERLESS_CAPS: Rule[] = [
+  { id: 'c', kind: 'cap', scope: P1, maxRole: 'editor' },
+  { id: 'c', kind: 'cap', scope: P1, maxRole: null },
+  { id: 'c', kind: 'cap', scope: P1, maxRole: { ref: 'scope.project.cap' } },
+];
 
 /** Compiles anything but { attr: 'principal.bad' }; { attr: 'scope.x' } reads the scope attributes first. */
 class FakeCompiler extends ConditionCompiler {
@@ -207,7 +213,8 @@ describe('RBAC link, rule, reader and forget commands', function () {
       ['no scope', threshold({ scope: undefined as never }), { code: 'invalid_command', field: 'rule.scope' }],
       ['a type-level scope', threshold({ scope: { type: 'project' } }), { code: 'invalid_command', field: 'rule.scope' }],
       ['a threshold without minRole', threshold({ minRole: undefined }), { code: 'invalid_command', field: 'rule.minRole' }],
-      ['a threshold naming a ladder without at', threshold({ ladder: 'project' }), { code: 'invalid_command', field: 'rule.at' }],
+      ['a threshold naming at without a ladder', threshold({ at: 'project' }), { code: 'invalid_command', field: 'rule.ladder' }],
+      ...LADDERLESS_CAPS.map((cap): [string, Rule, { code: string; field: string }] => [`a cap with maxRole ${JSON.stringify(cap.maxRole)} and no ladder`, cap, { code: 'rule_not_compilable', field: 'rule.ladder' }]),
       ['a cap that neither clamps nor strips', { id: 'c', kind: 'cap', scope: P1, ladder: 'project' }, { code: 'invalid_command', field: 'rule.maxRole' }],
       ['a condition with an unknown operator', threshold({ when: { attr: 'scope.org.policies.x', equals: false } }), { code: 'rule_not_compilable', field: 'rule.when' }],
     ];
@@ -217,6 +224,45 @@ describe('RBAC link, rule, reader and forget commands', function () {
         expect((await d.rules.find({})).total).to.equal(0);
       });
     }
+
+    it('a cap with maxRole and no ladder is refused for an actor that manages rules too', async () => {
+      for (const cap of LADDERLESS_CAPS) expect(failure(await d.admin.execute(alice, [put(cap)]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.ladder' });
+      expect((await d.rules.find({})).total).to.equal(0);
+    });
+
+    it('accepts a cap with maxRole and its ladder, a cap that only strips tags and a threshold with a ladder and no at', async () => {
+      ok(await d.admin.execute(alice, [...LADDERLESS_CAPS.map((cap, i) => put({ ...cap, id: `c${i}`, ladder: 'project' })), put({ id: 'strip', kind: 'cap', scope: P1, stripTags: true }), put(threshold({ ladder: 'project' }))]));
+      expect((await d.rules.find({})).total).to.equal(5);
+      expect(await d.rules.byId('r1')).to.deep.equal({ ...threshold({ ladder: 'project' }), source: 'memory' });
+    });
+
+    it('a refused ladderless cap leaves the checks on its path working (real RbacModel)', async () => {
+      await resetHost();
+      const assignments = new MemoryAdminAssignmentStore();
+      const rules = new MemoryRuleStore();
+      // The model wants every ladder role to name its ladder; the admin fixture leaves the org ones out.
+      const roles = ROLES.map((r) => {
+        const ladder = r.ladder ?? LADDERS.find((l) => l.roles.includes(r.name))?.name;
+        return ladder === undefined ? r : { ...r, ladder };
+      });
+      const model = new RbacModel({ roles: new MemoryRoleStore(roles, LADDERS), assignments, rules, log: { warn: () => undefined } });
+      d = await rbacDomain('test', {
+        model,
+        without: ['assignments', 'rules'],
+        register: (c) => {
+          c.register(instance(assignments)).as(AssignmentStore);
+          c.register(instance(assignments)).as(AdminAssignmentStore);
+          c.register(instance(rules)).as(RuleStore);
+          c.register(instance(rules)).as(AdminRuleStore);
+        },
+      });
+      const dave = userPrincipal('dave');
+      ok(await d.admin.execute(SYSTEM, [{ kind: 'assignment.grant', subject: DAVE, role: 'viewer', scope: P1 }]));
+      expect(await d.service.can(dave, 'file:read', P1)).to.equal(true);
+      for (const cap of LADDERLESS_CAPS) expect(failure(await d.admin.execute(SYSTEM, [put(cap)]))).to.deep.equal({ at: 0, code: 'rule_not_compilable', field: 'rule.ladder' });
+      expect((await rules.find({})).total).to.equal(0);
+      expect(await d.service.can(dave, 'file:read', P1)).to.equal(true);
+    });
 
     it('conditions compile through the domain ConditionCompiler; a probe read is no refusal', async () => {
       await resetHost();
