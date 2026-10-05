@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { AuthnEventSink, KeyRegistry, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
-import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
+import { AuthnEventSink, KeyRegistry, MfaPolicy, MfaStep, PasswordService, SecretStore } from '@spinajs/authn/contracts';
+import type { AuthnEvent, AuthnFacts, IdentityRef } from '@spinajs/authn/contracts';
 import { totpFromProvisioning } from '@spinajs/authn-testing';
 import type { FakeIdentityStore, Harness, HarnessContext, HarnessFactory, HttpRoutes, LegacyUser, PortName, SecretRowView } from '@spinajs/authn-testing';
 import type { LocalPasswordService, PasswordMail } from '@spinajs/authn-local';
@@ -444,6 +444,27 @@ let keysUndo: (() => void) | undefined;
 
 export const laneKeys = (): typeof import('@spinajs/authn-keys') => loaded(keysModule, 'authn-keys');
 
+/** Replaces authn.keys until the case ends. */
+export function laneKeysConfig(value: unknown): void {
+  const undo = setConfig('authn.keys', value);
+  const earlier = keysUndo;
+  keysUndo = () => {
+    undo();
+    earlier?.();
+  };
+}
+
+/** The authn.mfa.policy.service of a case whose key logins must pass TOTP; no other login asks for a step. */
+export const KEY_LOGIN_MFA_POLICY = 'N8bKeyLoginMfaPolicy';
+
+class N8bKeyLoginMfaPolicy extends MfaPolicy {
+  public async required(_id: IdentityRef, facts: Pick<AuthnFacts, 'method' | 'strategy'>): Promise<readonly string[]> {
+    return facts.method === 'key-challenge' ? ['totp'] : [];
+  }
+}
+
+let keyPolicyBound = false;
+
 /**
  * authn-keys: DefaultKeyRegistry over authn_key (OrmKeyStore) behind the key routes, KeyChallengeStrategy for key
  * logins and JwsAssertionStrategy for key principals, challenges in the password part's DbSecretStore, assertion jtis
@@ -453,11 +474,16 @@ export const keysPart: LanePart = {
   name: 'keys',
   async beforeDb() {
     keysModule = await import('@spinajs/authn-keys');
+    if (!keyPolicyBound) {
+      keyPolicyBound = true;
+      DI.register(N8bKeyLoginMfaPolicy).as(MfaPolicy);
+    }
   },
   strategies: [
     { name: 'keys-challenge', service: 'KeyChallengeStrategy' },
     { name: 'keys-jws', service: 'JwsAssertionStrategy' },
   ],
+  supportedConfig: ['authn.mfa.policy.service'],
   routes: KEY_ROUTES,
   ports: ['keys', 'keyProofs', 'assertion'],
   async open() {
@@ -489,6 +515,9 @@ export const keysPart: LanePart = {
 
 /** The lane's parts; later tasks append theirs. */
 export const PARTS: readonly LanePart[] = [passwordPart, totpPart, tokenPart, keysPart];
+
+/** The config keys the parts apply over N8a's. */
+export const N8B_SUPPORTED_CONFIG: readonly string[] = PARTS.flatMap((p) => p.supportedConfig ?? []);
 
 function strategiesOf(parts: readonly LanePart[]): StrategyEntry[] {
   const out = [...STRATEGIES];

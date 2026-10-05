@@ -6,7 +6,7 @@ import { AuthnService, KeyRegistry, SessionIssuer } from '@spinajs/authn/contrac
 import type { KeyChallengeResult } from '@spinajs/authn/contracts';
 
 import { challengeAnswer, challengeRequestOf, challengeThrottled, keyEntry, keyLoginCredentialsOf, keyManager, keyNotFound, keyRequestOf, kidOf, registerRefusal } from '../../keys/fields.js';
-import { KeyRegistryRegistered } from '../../keys/gate.js';
+import { KeyRoutesOn } from '../../keys/gate.js';
 import { isAuthnFailed } from '../../policies/v3/errors.js';
 import { takeReauthPassword } from '../../token/fields.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, assertFreshAuth } from '../index.js';
@@ -15,9 +15,9 @@ import { answerFor, auditEnded, contextOf, stampClient } from '../routes.js';
 
 /**
  * Public keys over the KeyRegistry contract (design §22.10, §22.11; A02, A13, A17). Off (404) while no KeyRegistry is
- * registered. The `/user/keys` routes act on the keys of the caller's own session: a token or key caller gets 403
- * `session_required` (no credential manages keys), an impersonation 403 `impersonating`, an anonymous caller or a pending
- * session 401. Every answer carries no-store.
+ * registered or authn.keys names no audience (`KeyRoutesOn`). The `/user/keys` routes act on the keys of the caller's
+ * own session: a token or key caller gets 403 `session_required` (no credential manages keys), an impersonation 403
+ * `impersonating`, an anonymous caller or a pending session 401. Every answer carries no-store.
  *
  * Clients sign challenges as authn-keys documents: the UTF-8 bytes of `spinajs-key-<purpose>:<nonce>:<audience>`, the
  * raw signature as base64url, the challenge named by its `id` unchanged. One key on the wire: `{ kid, name, alg, jwk,
@@ -26,7 +26,7 @@ import { answerFor, auditEnded, contextOf, stampClient } from '../routes.js';
  * @tags Keys
  */
 @BasePath('/')
-@Policy(KeyRegistryRegistered)
+@Policy(KeyRoutesOn)
 export class AuthnKeysController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
@@ -100,7 +100,9 @@ export class AuthnKeysController extends BaseController {
    * Body `{ purpose: 'login', kid }` (anonymous) or `{ purpose: 'register' }` (the caller's own full session, the
    * challenge bound to its user). Answers `{ id, nonce, expiresAt }`. A login challenge for an unknown kid looks the
    * same as one for a known kid (A02); login challenges count against the client ip, and a throttled one answers 429
-   * with Retry-After. 400 `invalid_purpose`, `invalid_kid`.
+   * with Retry-After. Register challenges count against nothing here: each throttle flow (login, mfa, reset, reauth)
+   * is a budget of the owner's own, which a burst of challenges would spend; http.throttle caps the route per ip.
+   * 400 `invalid_purpose`, `invalid_kid`.
    * @security []
    */
   @Post('auth/keys/challenge')

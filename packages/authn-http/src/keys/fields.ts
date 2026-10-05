@@ -1,7 +1,9 @@
-import { BadRequestResponse, Conflict, HTTP_STATUS_CODE, NotFound, Ok } from '@spinajs/http';
+import { BadRequestResponse, Conflict, NotFound, Ok } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import type { Credentials, KeyChallenge, KeyProof, KeyRecord, KeyRegisterResult, NewKey, PublicJwk } from '@spinajs/authn/contracts';
 
+import { tooManyRequests } from '../password/fields.js';
+import type { TooManyRequestsResponse } from '../password/fields.js';
 import { refused } from '../policies/v3/errors.js';
 import { authenticatedPrincipal, isSessionPrincipal } from '../policies/v3/principal.js';
 import { badRequest, expiryOf } from '../token/fields.js';
@@ -91,9 +93,7 @@ export function challengeRequestOf(req: Request): { purpose: 'login'; kid: strin
 export const challengeAnswer = (c: KeyChallenge): Ok => new Ok({ id: c.id, nonce: c.nonce, expiresAt: c.expiresAt.toISOString() }, { Headers: [NO_STORE] });
 
 /** 429 for a throttled login challenge. Its key is the client ip alone, so a known and an unknown kid throttle alike. */
-export function challengeThrottled(retryAfterSeconds: number): Ok {
-  return new Ok({ error: 'throttled', message: 'too many key challenges, try again later' }, { StatusCode: HTTP_STATUS_CODE.TOO_MANY_REQUESTS, Headers: [NO_STORE, { Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) }] });
-}
+export const challengeThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many key challenges, try again later', retryAfterSeconds);
 
 /** The key-challenge credentials of a POST /auth/keys/login body `{ keyId, challengeId, signature }`, or null when one is missing or over its cap. */
 export function keyLoginCredentialsOf(req: Request): Credentials | null {

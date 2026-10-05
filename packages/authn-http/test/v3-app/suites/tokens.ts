@@ -7,6 +7,7 @@ import type { IdentityRef } from '@spinajs/authn/contracts';
 import { FakeClock } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HttpResponse } from '@spinajs/authn-testing';
 
+import { expiryOf } from '../../../src/token/fields.js';
 import { TokenServiceRegistered } from '../../../src/token/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
@@ -25,6 +26,9 @@ const MINUTE = 60_000;
 const DAY = 86_400_000;
 
 const isoIn = (ms: number): string => new Date(Date.now() + ms).toISOString();
+
+/** Tomorrow's date at 24:00, which V8's Date.parse reads as the start of the day after. */
+export const endOfTomorrow = (): string => `${isoIn(DAY).slice(0, 10)}T24:00:00Z`;
 
 const body = <T = Record<string, unknown>>(res: HttpResponse): T => res.body as T;
 
@@ -195,9 +199,16 @@ export function tokenRoutesSuite(): void {
       const c = await login(u);
       const withoutExpiry = { name: 'lane token' };
       expectBadRequest(await create(c, withoutExpiry), 'invalid_expiry');
-      for (const expiresAt of [null, '', 'next week', Date.now() + DAY, '2026-13-01T00:00:00Z', isoIn(-MINUTE), 'x'.repeat(65)]) expectBadRequest(await create(c, valid({ expiresAt })), 'invalid_expiry');
+      for (const expiresAt of [null, '', 'next week', Date.now() + DAY, '2026-13-01T00:00:00Z', endOfTomorrow(), isoIn(-MINUTE), 'x'.repeat(65)]) expectBadRequest(await create(c, valid({ expiresAt })), 'invalid_expiry');
       expect(await stored(u.ref)).to.eq(0);
       expect(tokenEvents('token.create')).to.deep.eq([]);
+    });
+
+    it('an expiry is an instant the calendar has: no rollover into the next day or month', () => {
+      for (const value of ['2026-02-30T00:00:00Z', '2027-02-29T00:00:00Z', '2026-11-31T00:00:00Z', '2026-10-05T24:00:00Z', '2026-10-05T23:60:00Z', '2026-10-05T23:59:60Z', '2026-10-05T10:00:00+24:00', '2026-10-05T10:00:00+05:60']) expect(expiryOf(value), value).to.eq(null);
+      expect(expiryOf('2028-02-29T23:59:59.5+02:00')?.toISOString()).to.eq('2028-02-29T21:59:59.500Z');
+      expect(expiryOf('2026-10-05T10:00Z')?.toISOString()).to.eq('2026-10-05T10:00:00.000Z');
+      expect(expiryOf('2026-10-05T10:00:00-03:30')?.toISOString()).to.eq('2026-10-05T13:30:00.000Z');
     });
 
     it('a malformed or over-long field answers 400 with a stable code and mints nothing', async () => {

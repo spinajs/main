@@ -1,19 +1,22 @@
 import { expect } from 'chai';
 import { randomUUID } from 'node:crypto';
+import { Configuration } from '@spinajs/configuration';
 import { Container } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { KeyRegistry } from '@spinajs/authn/contracts';
 import type { IdentityRef, KeyChallenge } from '@spinajs/authn/contracts';
 import { FakeClock, generateKeyPair, signCompactJws } from '@spinajs/authn-testing';
-import type { Harness, HttpResponse, KitKeyPair } from '@spinajs/authn-testing';
+import type { ConfigOverrides, Harness, HttpResponse, KitKeyPair } from '@spinajs/authn-testing';
 
-import { KeyRegistryRegistered } from '../../../src/keys/gate.js';
+import { KeyRoutesOn } from '../../../src/keys/gate.js';
 import { PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
 import { clearLog, logLines } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
-import { KEYS_AUDIENCE, laneEvents, n8bHarness } from '../behaviour/n8b-harness.js';
+import { KEYS_AUDIENCE, KEY_LOGIN_MFA_POLICY, laneEvents, laneKeysConfig, n8bHarness } from '../behaviour/n8b-harness.js';
 import { LaneClient, expectFailureBody, expectRefused, later } from './mfa-enrolment.js';
+import { endOfTomorrow } from './tokens.js';
 import { mountedRoutes } from './route-table.js';
 
 export const KEY_ROUTES_V3 = ['GET /user/keys', 'POST /user/keys', 'DELETE /user/keys/:kid', 'POST /auth/keys/challenge', 'POST /auth/keys/login'];
@@ -38,25 +41,37 @@ const FAKE_PROOF = { challengeId: 'x', signature: 'y' };
 
 /** The gate on containers of its own; test/v3/route-groups-boot.test.ts boots apps with and without authn-keys. */
 export function keyGateSuite(): void {
-  it('the gate asks the container it resolves from', async () => {
-    const empty = new Container();
+  it('the gate asks the container it resolves from: a KeyRegistry and an audience in its configuration open it', async () => {
     const route = {} as IRoute;
     const ctrl = {} as IController;
     const req = { storage: {} } as unknown as Request;
-    const gate = new KeyRegistryRegistered();
-    (gate as unknown as { Container: unknown }).Container = empty;
+    const gate = new KeyRoutesOn();
     expect(gate.isEnabled(route, ctrl)).to.eq(true);
-    await gate.execute(req, route, ctrl).then(
-      () => expect.fail('the gate passed without a KeyRegistry'),
-      (e: { constructor: { name: string }; error?: unknown }) => {
-        expect(e.constructor.name).to.eq('ResourceNotFound');
-        expect(e.error).to.eq('not_found');
-      },
-    );
-    const child = empty.child();
-    child.register({ StubKeyRegistry: () => ({}) }.StubKeyRegistry).as(KeyRegistry as never);
-    (gate as unknown as { Container: unknown }).Container = child;
-    await gate.execute(req, route, ctrl);
+    const answer = async (container: IContainer): Promise<'open' | 'not_found'> => {
+      (gate as unknown as { Container: unknown }).Container = container;
+      try {
+        await gate.execute(req, route, ctrl);
+        return 'open';
+      } catch (e) {
+        expect((e as object).constructor.name).to.eq('ResourceNotFound');
+        expect((e as { error?: unknown }).error).to.eq('not_found');
+        return 'not_found';
+      }
+    };
+    /** A container with a KeyRegistry and a configuration that holds `values` (config path → value) only. */
+    const withConfig = (values: Record<string, unknown>): IContainer => {
+      const c = new Container().child();
+      c.register({ StubKeyRegistry: () => ({}) }.StubKeyRegistry).as(KeyRegistry as never);
+      c.register({ StubConfiguration: () => ({ get: (path: string) => values[path] }) }.StubConfiguration).as(Configuration as never);
+      return c;
+    };
+    const CHALLENGE = 'authn.keys.challenge.audience';
+    const ASSERTION = 'authn.keys.assertion.audience';
+    expect(await answer(new Container()), 'no KeyRegistry').to.eq('not_found');
+    expect(await answer(withConfig({})), 'no audience').to.eq('not_found');
+    expect(await answer(withConfig({ [CHALLENGE]: '', [ASSERTION]: '' })), 'empty audiences').to.eq('not_found');
+    expect(await answer(withConfig({ [ASSERTION]: KEYS_AUDIENCE })), 'assertion.audience').to.eq('open');
+    expect(await answer(withConfig({ [CHALLENGE]: KEYS_AUDIENCE })), 'challenge.audience').to.eq('open');
   });
 }
 
@@ -260,6 +275,7 @@ export function keyRoutesSuite(): void {
         ['invalid_name', valid({ name: 'bell\u0007' })],
         ['invalid_name', valid({ name: 42 })],
         ['invalid_expiry', valid({ expiresAt: 'tomorrow' })],
+        ['invalid_expiry', valid({ expiresAt: endOfTomorrow() })],
         ['invalid_expiry', valid({ expiresAt: Date.now() + 86_400_000 })],
         ['invalid_expiry', valid({ expiresAt: new Date(Date.now() - 60_000).toISOString() })],
         ['invalid_proof', valid({ proof: undefined })],
@@ -555,6 +571,44 @@ export function keyRoutesSuite(): void {
       expect(body(res).MfaRequired).to.eq(undefined);
       expect(body(res).Authn).to.deep.include({ assurance: 'aal1', mfa: [] });
       expect((await probe(c))?.id).to.eq(u.ref.id);
+    });
+
+    it('under an MFA policy that asks key logins for TOTP: 200 MfaRequired with a pending session, which the TOTP code completes', async () => {
+      await h.dispose?.();
+      h = await n8bHarness({ rule: 'A17', facet: 'A17/http', caseName: 'lane', clock: new FakeClock(), config: { authn: { mfa: { policy: { service: KEY_LOGIN_MFA_POLICY } } } } as unknown as ConfigOverrides });
+      const u = await user();
+      await h.mfa!.enrol(u.ref);
+      const { kp, kid } = await mintKey(u.ref);
+      const { c, res } = await loginWithKey(kid, kp);
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
+      expect(res.body).to.deep.eq({ MfaRequired: ['totp'] });
+      expect(res.headers['cache-control']).to.eq('no-store');
+      expect(c.cookie, 'the pending session cookie').to.be.a('string');
+      expect(await probe(c), 'a pending session is no principal').to.eq(null);
+      const done = await c.send(ROUTES.mfaVerify!(await h.mfa!.code(u.ref)));
+      expect(done.status, JSON.stringify(done.body)).to.eq(200);
+      expect(body(done).Authn).to.deep.include({ assurance: 'aal2', mfa: ['totp'] });
+      expect((await probe(c))?.id).to.eq(u.ref.id);
+    });
+  });
+
+  describe('without an audience in authn.keys', () => {
+    const all = async (c: LaneClient, kid: string) => [await list(c), await register(c, { jwk: generateKeyPair('EdDSA').publicJwk, proof: FAKE_PROOF }), await revoke(c, kid), await challenge(c, { purpose: 'register' }), await challenge(c, { purpose: 'login', kid }), await keyLogin(c, { keyId: kid, ...FAKE_PROOF })];
+
+    it('the key routes are off: 404 not_found on every route, to a session and to anyone', async () => {
+      const u = await user();
+      const { kid } = await mintKey(u.ref);
+      laneKeysConfig({ challenge: { ttlSeconds: 120 } });
+      const session = await login(u);
+      for (const c of [session, new LaneClient(h)]) for (const res of await all(c, kid)) expectRefused(res, 404, 'not_found');
+      expect((await stored(u.ref))[0].revokedAt).to.eq(undefined);
+    });
+
+    it('authn.keys.challenge.audience alone turns them on', async () => {
+      const u = await user();
+      laneKeysConfig({ challenge: { audience: KEYS_AUDIENCE } });
+      const res = await list(await login(u));
+      expect(res.status, JSON.stringify(res.body)).to.eq(200);
     });
   });
 

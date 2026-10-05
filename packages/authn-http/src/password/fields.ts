@@ -42,10 +42,14 @@ export function newPasswordField(req: Request): { password: string } | { answer:
   return { password };
 }
 
-/** 429 for a throttled reset request. Its keys are the normalised login and the client ip, whether or not the account exists. */
-export function resetRequestThrottled(retryAfterSeconds: number): Ok {
-  return new Ok(
-    { error: 'throttled', message: 'too many reset requests, try again later' },
-    { StatusCode: HTTP_STATUS_CODE.TOO_MANY_REQUESTS, Headers: [NO_STORE, { Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) }] },
-  );
+/** @spinajs/http has no 429 response; like its ForbiddenResponse, a client error over the badRequest template. */
+export class TooManyRequestsResponse<T = unknown> extends BadRequestResponse<T> {
+  protected _errorCode = HTTP_STATUS_CODE.TOO_MANY_REQUESTS;
 }
+
+/** 429 `{ error: 'throttled', message }` with Retry-After and no-store. */
+export const tooManyRequests = (message: string, retryAfterSeconds: number): TooManyRequestsResponse =>
+  new TooManyRequestsResponse({ error: 'throttled', message }, { Headers: [NO_STORE, { Name: 'Retry-After', Value: String(Math.max(0, Math.ceil(retryAfterSeconds))) }] });
+
+/** 429 for a throttled reset request. Its keys are the normalised login and the client ip, whether or not the account exists. */
+export const resetRequestThrottled = (retryAfterSeconds: number): TooManyRequestsResponse => tooManyRequests('too many reset requests, try again later', retryAfterSeconds);

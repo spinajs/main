@@ -122,6 +122,8 @@ async function main() {
           throttle: { service: 'RouteGroupsThrottle' },
           freshAuth: { maxAgeSeconds: 1 },
           ...(PACKAGES.includes('totp') ? { mfa: { steps: [{ name: 'totp', service: 'TotpMfaStep' }], encryptionKey: { secret: 'ab'.repeat(32) } } } : {}),
+          // Without an audience the key routes stay off (KeyRoutesOn).
+          ...(PACKAGES.includes('keys') ? { keys: { assertion: { audience: 'https://route-groups.example.test' } } } : {}),
         },
       };
     }

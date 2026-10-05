@@ -12,8 +12,9 @@ import type { Restored } from '../routes.js';
 
 /**
  * The owner's TOTP enrolment over authn-totp's TotpService (design §22.8, §22.11; A09, A10, A13). Off (404) unless
- * login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep, authn.mfa.encryptionKey is set and the
- * TotpService of authn-totp is registered (`totpServiceOf`; the DI name `TotpService` is taken). Every route acts on the identity of the caller's own session: a token or key caller gets
+ * login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep (that class, not a subclass),
+ * authn.mfa.encryptionKey is set and the TotpService of authn-totp is registered (`totpServiceOf`; the DI name
+ * `TotpService` is taken). Every route acts on the identity of the caller's own session: a token or key caller gets
  * 403 `session_required`, an impersonation 403 `impersonating` (a factor enrolled there would lock the owner out).
  * Begin and confirm also take a pending session that the MFA policy forces to enrol, while its identity is enrolled in
  * no step; every other route needs a full login.

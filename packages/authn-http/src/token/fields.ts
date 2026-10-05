@@ -25,8 +25,9 @@ const KINDS: readonly string[] = ['pat', 'service', 'agent'];
 const SCOPE_KEYS: readonly string[] = ['permissions', 'resources', 'agent'];
 const RESOURCE_KEYS: readonly string[] = ['type', 'id'];
 
-// Date.parse alone also takes RFC 2822 and engine-specific forms; the route takes ISO 8601 instants with a zone only.
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
+// Date.parse takes RFC 2822 and engine-specific forms, and rolls 2026-02-30 or 24:00 over into the next month or day;
+// the route takes ISO 8601 instants with a zone whose every field is in range.
+const ISO_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const onlyKeys = (v: Record<string, unknown>, allowed: readonly string[]): boolean => Object.keys(v).every((k) => allowed.includes(k));
@@ -49,9 +50,20 @@ export function takeReauthPassword(req: Request): unknown {
 }
 
 export function expiryOf(value: unknown): Date | null {
-  if (typeof value !== 'string' || value.length > EXPIRY_CAP || !ISO_INSTANT.test(value)) return null;
-  const at = Date.parse(value);
-  return Number.isNaN(at) ? null : new Date(at);
+  if (typeof value !== 'string' || value.length > EXPIRY_CAP) return null;
+  const m = ISO_INSTANT.exec(value);
+  if (!m) return null;
+  const [year, month, day, hour, minute] = m.slice(1, 6).map(Number);
+  const second = Number(m[6] ?? 0);
+  const offsetHours = Number(m[9] ?? 0);
+  const offsetMinutes = Number(m[10] ?? 0);
+  if (hour > 23 || minute > 59 || second > 59 || offsetHours > 23 || offsetMinutes > 59) return null;
+  const at = new Date(0);
+  // setUTCFullYear, not Date.UTC: Date.UTC maps years 0-99 to 1900-1999.
+  at.setUTCFullYear(year, month - 1, day);
+  if (at.getUTCFullYear() !== year || at.getUTCMonth() !== month - 1 || at.getUTCDate() !== day) return null;
+  const offset = (m[8] === '-' ? -1 : 1) * (offsetHours * 60 + offsetMinutes);
+  return new Date(at.getTime() + ((hour * 60 + minute - offset) * 60 + second) * 1000 + Math.round(Number(m[7] ?? 0) * 1000));
 }
 
 /** undefined: absent; null: malformed. */
