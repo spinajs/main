@@ -1,7 +1,7 @@
 import { AuthorizationModel, DecisionAudit, runWithPrincipal } from '@spinajs/authz';
-import type { Principal, ResourceFilter } from '@spinajs/authz';
+import type { ModelCapabilities, Principal, ResourceFilter } from '@spinajs/authz';
 import { RecordingAudit, StaticModel, testHost } from '@spinajs/authz-testing';
-import type { VoteTable } from '@spinajs/authz-testing';
+import type { VoteFn, VoteTable } from '@spinajs/authz-testing';
 import type { IContainer } from '@spinajs/di';
 import type { ModelBase } from '@spinajs/orm';
 
@@ -58,12 +58,12 @@ export class PortedWorld {
     ) as Promise<Resource>;
   }
 
-  /** A test domain voting `votes` on the resource permissions; `authz.orm.domain` names it. */
-  async grant(votes: VoteTable): Promise<void> {
+  /** A test domain voting `votes` on the permissions of the resource type and `extraTypes`; `authz.orm.domain` names it. */
+  async grant(votes: VoteTable | VoteFn, extraTypes: readonly string[] = [], opts: { sync?: ModelCapabilities['sync'] } = {}): Promise<void> {
     const ds = await testHost.domains();
     const name = `ported${++this.seq}`;
     const config = testHost.config();
-    const permissions = Object.fromEntries(Object.values(this.P).map((p) => [p, { types: [this.TYPE] }]));
+    const permissions = Object.fromEntries([this.TYPE, ...extraTypes].flatMap((t) => ['read', 'create', 'update', 'delete'].map((a) => [`${t}:${a}`, { types: [t] }])));
     const set = (path: string[], value: unknown) => {
       const before = config.get<unknown>(path);
       config.set(path, value);
@@ -73,7 +73,7 @@ export class PortedWorld {
     set(['authz', 'orm', 'domain'], name);
     const container: IContainer = ds.create(name, 'root');
     this.undo.push(() => (ds.names().includes(name) ? container.dispose() : undefined));
-    container.register(testHost.instance(new StaticModel({ name: 'm1', votes }))).as(AuthorizationModel);
+    container.register(testHost.instance(new StaticModel({ name: 'm1', votes, ...(opts.sync ? { capabilities: { sync: opts.sync } } : {}) }))).as(AuthorizationModel);
     container.register(testHost.instance(new RecordingAudit())).as(DecisionAudit);
     await ds.service(name);
   }
