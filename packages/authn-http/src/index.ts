@@ -36,3 +36,7 @@ export { NoTokenAuthPolicy, NoImpersonationPolicy } from './token/index.js';
 // N8a lane implementations of api.ts declarations; an explicit export wins over `export * from './api.js'`.
 export { ClientIp } from './middleware/client-ip.js';
 export { CsrfOriginGuard } from './middleware/csrf.js';
+export { AuthnMiddleware } from './middleware/authn.js';
+export { KeyPrincipalResolver, TokenPrincipalResolver } from './resolvers/credential.js';
+export { SessionPrincipalResolver } from './resolvers/session.js';
+export * from './extractors/index.js';

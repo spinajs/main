@@ -21,6 +21,9 @@ import { NoTokenAuthPolicy as MovedNoTokenAuthPolicy } from '../src/token/polici
 import { NoImpersonationPolicy as MovedNoImpersonationPolicy } from '../src/token/policies/NoImpersonationPolicy.js';
 import { ClientIp as LaneClientIp } from '../src/middleware/client-ip.js';
 import { CsrfOriginGuard as LaneCsrfOriginGuard } from '../src/middleware/csrf.js';
+import { AuthnMiddleware as LaneAuthnMiddleware } from '../src/middleware/authn.js';
+import { KeyPrincipalResolver as LaneKeyPrincipalResolver, TokenPrincipalResolver as LaneTokenPrincipalResolver } from '../src/resolvers/credential.js';
+import { SessionPrincipalResolver as LaneSessionPrincipalResolver } from '../src/resolvers/session.js';
 
 const expect = chai.expect;
 
@@ -35,7 +38,14 @@ const ROUTE_ARGS = { Identity, AuthnSession, SessionId, FromSession };
 const MIDDLEWARES = { ClientIp, CsrfOriginGuard, AuthnMiddleware };
 const RESOLVERS = { KeyPrincipalResolver, TokenPrincipalResolver, SessionPrincipalResolver };
 // api.ts names N8a has implemented: the barrel must give these, not the stubs.
-const LANE: Record<string, unknown> = { ClientIp: LaneClientIp, CsrfOriginGuard: LaneCsrfOriginGuard };
+const LANE: Record<string, unknown> = {
+  ClientIp: LaneClientIp,
+  CsrfOriginGuard: LaneCsrfOriginGuard,
+  AuthnMiddleware: LaneAuthnMiddleware,
+  KeyPrincipalResolver: LaneKeyPrincipalResolver,
+  TokenPrincipalResolver: LaneTokenPrincipalResolver,
+  SessionPrincipalResolver: LaneSessionPrincipalResolver,
+};
 const RUNTIME_EXPORTS = [...Object.keys(POLICIES), ...Object.keys(ROUTE_ARGS), ...Object.keys(MIDDLEWARES), 'AuthnPrincipalResolver', ...Object.keys(RESOLVERS)].sort();
 
 type RestoredSession = { handle: SessionHandle; identity: IdentityRef; facts: AuthnFacts; data: ReadonlyMap<string, unknown> };
