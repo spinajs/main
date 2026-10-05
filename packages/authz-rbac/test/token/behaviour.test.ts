@@ -13,7 +13,7 @@ import type { TokenPrincipalRequest } from './token-handle.js';
 const expect = chai.expect;
 const { assignment, combine, ref, role } = fixtureDsl;
 
-const PARTS = ['B07.token', 'B24.token', 'B37.token'] as const;
+const PARTS = ['B07.token', 'B08.token', 'B24.token', 'B37.token'] as const;
 
 interface TokenHarnessOptions {
   /** The cross-request decision cache at the host defaults; the kit turns it off without the `cache` facet. */
