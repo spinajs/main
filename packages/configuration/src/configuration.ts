@@ -6,7 +6,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { join, normalize, resolve } from 'path';
-import Ajv from 'ajv';
+import Ajv, { ErrorObject } from 'ajv';
 import _ from 'lodash';
 import { InternalLogger } from '@spinajs/internal-logger';
 import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
@@ -20,7 +20,7 @@ import {
   ConfigVarProtocol,
   ConfigVar,
 } from '@spinajs/configuration-common';
-import { Autoinject, Class, Container, Injectable, DI } from '@spinajs/di';
+import { Autoinject, Class, Container, IContainer, Injectable, DI } from '@spinajs/di';
 
 import { InvalidConfiguration } from './exception.js';
 import { mapObject, mergeArrays, parseArgv, pickObjects, pickString } from './util.js';
@@ -361,36 +361,35 @@ export class FrameworkConfiguration extends Configuration {
   }
 
   protected validate() {
-    this.ValidationSchemas.forEach((s) => {
-      const config = this.get(s.$configurationModule);
+    this.ValidationSchemas.forEach((s) => this.validateModule(s));
+  }
 
-      if (!config) {
-        InternalLogger.warn(
-          `Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`,
-          'Configuration',
-        );
+  protected validateModule(s: IConfigurationSchema) {
+    const config = this.get(s.$configurationModule);
 
-        return;
+    if (!config) {
+      // An unconfigured module still gets its schema defaults, unless the schema needs values from the app.
+      const empty = {};
+      if (this.Validator.validate(s, empty)) {
+        this.set(s.$configurationModule, empty);
+      } else {
+        InternalLogger.warn(`Cannot validate configuration for module ${s.$configurationModule}, configuration is not set`, 'Configuration');
       }
+      return;
+    }
 
-      const result = this.Validator.validate(s, config);
-      if (!result) {
-        // @ts-ignore
-        this.Validator.errors.forEach((ve) => {
-          InternalLogger.error(
-            'Invalid configuration ! Message: %s, path: %s, keyword: %s, schemaPath: %s, configuration module: %s',
-            'Configuration',
-            ve.message,
-            ve.instancePath,
-            ve.keyword,
-            ve.schemaPath,
-            s.$configurationModule,
-          );
-        });
+    if (!this.Validator.validate(s, config)) {
+      const errors: ErrorObject[] = this.Validator.errors ?? [];
+      const schema = (s as { $id?: string }).$id ?? s.$configurationModule;
+      const violations = errors.map((ve) => ({
+        path: [s.$configurationModule, ...ve.instancePath.split('/').filter((p) => p !== '')].join('.'),
+        schema,
+        message: ve.message ?? ve.keyword,
+      }));
+      violations.forEach((v) => InternalLogger.error('Invalid configuration at %s ( schema %s ): %s', 'Configuration', v.path, v.schema, v.message));
 
-        throw new InvalidConfiguration('Validation error', this.Validator.errors);
-      }
-    });
+      throw new InvalidConfiguration(`Invalid configuration: ${violations.map((v) => `${v.path} ${v.message} ( schema ${v.schema} )`).join('; ')}`, errors, violations);
+    }
   }
 
   protected initValidator() {
@@ -412,6 +411,9 @@ export class FrameworkConfiguration extends Configuration {
 
       // The option coerceTypes allows you to have your data types coerced to the types specified in your schema type keywords
       coerceTypes: true,
+
+      // allow rules across fields, eg. minimum: { $data: '1/min' }
+      $data: true,
     };
 
     // @ts-ignore
@@ -443,7 +445,18 @@ export class FrameworkConfiguration extends Configuration {
      * load all registered configuration json schemas
      * for config value validation
      */
-    this.ValidationSchemas = this.Container.get<IConfigurationSchema>(Array.ofType('__configurationSchema__'), true);
+    this.ValidationSchemas = this.schemasOfLineage();
+  }
+
+  // A child that registers a schema of its own must not hide the schemas of its ancestors.
+  private schemasOfLineage(): IConfigurationSchema[] {
+    const found: IConfigurationSchema[] = [];
+    for (let c: IContainer | undefined = this.Container; c; c = c.Parent) {
+      for (const s of (c.Cache.get('__configurationSchema__', false) ?? []) as IConfigurationSchema[]) {
+        if (!found.includes(s)) found.push(s);
+      }
+    }
+    return found;
   }
 
   protected dir(toJoin: string) {
