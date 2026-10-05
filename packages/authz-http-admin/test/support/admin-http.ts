@@ -5,12 +5,13 @@ import type { Class } from '@spinajs/di';
 import type { AssignmentSubject, AuthzAdminQuery, AuthzCommandResult, Principal, ResourceRef } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { PrincipalSource } from '@spinajs/authz-http';
-import { linkPrincipal, testHost } from '@spinajs/authz-testing';
+import { testHost } from '@spinajs/authz-testing';
 import type { AdminHttpHandle, BehaviourHarness, Facet, HarnessSession, RbacLinksHandle } from '@spinajs/authz-testing';
 
-// Tests reach authz-rbac only through L9's harness: it loads authz-rbac's src, and its lib as well
-// would register the write handlers twice.
+// Tests reach authz-rbac only through its src, which L9's harness loads; its lib as well would
+// register the write handlers twice.
 import { adminHarness, harnessStores } from '../../../authz-rbac/test/admin/admin-harness.js';
+import { UNRESOLVED_LINK_ID, linkPrincipalOf } from '../../../authz-rbac/src/index.js';
 import { AuthzAdminController } from '../../src/controllers/index.js';
 import { startApp, stopApp } from './app.js';
 import type { TestApp } from './app.js';
@@ -93,17 +94,14 @@ export const adminHttp: AdminHttpHandle = {
 };
 
 /**
- * The links facet without L1b's LinkResolver: the token opens the case's MemoryLinkStore row as
- * RbacService.linkPrincipal would (authz-http's WorldLinkResolver is the model); an unknown or
- * revoked token opens a dead link.
+ * The links facet: the token opens the case's MemoryLinkStore row through L1b's linkPrincipalOf, as
+ * RbacService.principalForToken does (the harness model is not an RbacModel, so no RbacService).
  */
 async function rbacLinks(): Promise<RbacLinksHandle> {
   const { links } = harnessStores({ container: (await testHost.domains()).container(DOMAIN) });
   return {
     async principal(token, companion) {
-      const link = await links.byToken(token);
-      const p = link ? linkPrincipal(link.id, { scope: [link.scope], attributes: link.attributes ?? {}, ...(link.expiresAt ? { expiresAt: link.expiresAt } : {}) }) : linkPrincipal('unknown', { scope: [] });
-      return companion ? { ...p, companions: [{ type: companion.type, id: companion.id }] } : p;
+      return linkPrincipalOf(await links.byToken(token), UNRESOLVED_LINK_ID, companion);
     },
   };
 }
