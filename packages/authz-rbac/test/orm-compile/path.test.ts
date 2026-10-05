@@ -7,8 +7,8 @@ import 'mocha';
 
 import { scopeMatcher } from '../../src/model/native.js';
 import { RbacPathSql, ident, outer, rsql } from '../../src/orm/index.js';
-import type { RbacScopePath, RbacSqlContext } from '../../src/orm/index.js';
-import { DOC_PATH, NOW, compilerContainer, createSchema as createL2Schema, seed as seedL2 } from '../orm/fixture.js';
+import type { RbacScopePath } from '../../src/orm/index.js';
+import { DOC_PATH, createSchema as createL2Schema, seed as seedL2 } from '../orm/fixture.js';
 import type { BootedDb } from '../orm/fixture.js';
 import { CHECK_AT_NODE, CHECK_BELOW, CHECK_NOT_ABOVE, CHECK_ON_PATH, CHECK_ON_PATH_NODE, CHECK_PATH_INDEX, DIALECTS, bootDialect, checkNearestId, evaluatorPath, load, scopeOf, select } from './fixture.js';
 import type { BlockCheck, Row, ScopeRow, World } from './fixture.js';
@@ -267,7 +267,7 @@ for (const dialect of DIALECTS) {
       for (const [name, n] of held) expect(n, `tuples ${name} held for`).to.be.greaterThan(RUNS);
     });
 
-    it("onPath lists the same (doc, assignment) pairs as L2's RbacOrmCompiler.onPath on L2's fixture", async () => {
+    it("onPath lists the (doc, assignment) pairs the evaluator's scopeMatcher accepts on L2's fixture", async () => {
       const driver = db.driver;
       const quoter = driver.Container.resolve(IdentifierQuoter);
       const p = new RbacPathSql(DOC_PATH, quoter);
@@ -275,19 +275,6 @@ for (const dialect of DIALECTS) {
       const assignments = (await select(driver, rsql`SELECT ${ident('a', 'id')} AS id, ${ident('a', 'scope_type')} AS scope_type, ${ident('a', 'scope_id')} AS scope_id FROM ${ident('authz_assignment')} ${ident('a')}`)) as Array<{ id: string; scope_type: string; scope_id: string }>;
 
       const ours = new Set((await select(driver, rsql`SELECT ${outer('id')} AS rid, ${ident('a', 'id')} AS aid FROM ${ident('doc')} r, ${ident('authz_assignment')} ${ident('a')} WHERE ${p.onPath('a')}`)).map((r) => `${Number(r.rid)}/${String(r.aid)}`));
-
-      const { compiler } = compilerContainer();
-      const l2 = new Set<string>();
-      for (const a of assignments) {
-        const q = driver.select<Array<{ id: number }>>().from('doc', 'd').columns(['id']);
-        const ctx: RbacSqlContext = { quoter, path: DOC_PATH, alias: 'authz_a', outer: quoter.quote('d'), now: NOW };
-        const sub = driver.select().from('authz_assignment', 'authz_a').correlateWith(q);
-        sub.where('id', a.id).where(function () {
-          compiler.onPath(this, ctx);
-        });
-        q.whereExist(sub);
-        for (const d of (await q) as unknown as Array<{ id: number | string }>) l2.add(`${Number(d.id)}/${a.id}`);
-      }
 
       const reference = new Set<string>();
       for (const d of docs) {
@@ -299,7 +286,6 @@ for (const dialect of DIALECTS) {
         }
       }
 
-      expect([...ours].sort()).to.deep.equal([...l2].sort());
       expect([...ours].sort()).to.deep.equal([...reference].sort());
       expect(ours.size).to.be.greaterThan(docs.length);
     });

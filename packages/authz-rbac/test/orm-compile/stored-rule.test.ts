@@ -431,17 +431,18 @@ for (const kind of DB_KINDS) {
     });
 
     describe('attribute layers', () => {
-      const ORG_SCHEMAS: ScopeAttributeSchema[] = [{ scopeType: 'org', schema: {}, defaults: { locked: false, tier: 'free' } }];
+      // meta: an adapter attribute whose default is an object; metaX and lockedX: names an adapter name only starts.
+      const ORG_SCHEMAS: ScopeAttributeSchema[] = [{ scopeType: 'org', schema: {}, defaults: { locked: false, tier: 'free', meta: { a: 1 }, metaX: 'mx', lockedX: 'lx' } }];
       const ORG_ROWS = [
-        { id: 'o1', locked: true },
-        { id: 'o2', locked: false },
+        { id: 'o1', locked: true, meta: { a: 2 } },
+        { id: 'o2', locked: false, meta: null },
       ];
       const exists = (id: RbacSql): RbacSql => rsql`EXISTS (SELECT 1 FROM ${ident('org_row')} ${ident('authz_o')} WHERE ${ident('authz_o', 'id')} = ${id})`;
-      const LAYERS: Readonly<Record<string, RbacScopeLayer>> = { org: { kind: 'adapter', attributes: ['locked'], exists }, file: { kind: 'store' } };
-      const paths = ['scope.org.locked', 'scope.org.tier', 'scope.org.policies.locked', 'scope.org.policies.tier', 'scope.project.level', 'scope.$global.mode', 'scope.file.hidden'];
+      const LAYERS: Readonly<Record<string, RbacScopeLayer>> = { org: { kind: 'adapter', attributes: ['locked', 'meta'], exists }, file: { kind: 'store' } };
+      const paths = ['scope.org.locked', 'scope.org.tier', 'scope.org.meta', 'scope.org.meta.a', 'scope.org.metaX', 'scope.org.lockedX', 'scope.org.policies.locked', 'scope.org.policies.tier', 'scope.project.level', 'scope.$global.mode', 'scope.file.hidden'];
 
-      /** The reads the SQL refuses by its layers: an adapter attribute, or a type with no declared layer. */
-      const layerFault = (when: string) => when.startsWith('scope.org.locked') || when.startsWith('scope.project.');
+      /** The reads the SQL refuses by its layers: an adapter attribute or a path below one, or a type with no declared layer. */
+      const layerFault = (when: string) => ['scope.org.locked', 'scope.org.meta'].some((name) => when === name || when.startsWith(`${name}.`)) || when.startsWith('scope.project.');
 
       it('fault where the adapter layer or an undeclared type would be read, read defaults ⊕ store elsewhere, fault for a missing node row', async () => {
         await db.driver.schema().createTable('org_row', (t) => {
@@ -451,8 +452,8 @@ for (const kind of DB_KINDS) {
         await db.driver
           .insert()
           .into('org_row')
-          .values(ORG_ROWS.map((r) => ({ ...r })));
-        const rules = whenRules(paths, [true, false, 1, 'free', 'gold', 'strict'], 'lay');
+          .values(ORG_ROWS.map(({ id, locked }) => ({ id, locked })));
+        const rules = whenRules(paths, [true, false, 1, 2, 'free', 'gold', 'strict', 'mx', 'lx'], 'lay');
         await writeRules(db.driver, rules, KIT_LADDERS);
         const dialect = rbacDialectOf(db.driver);
         const layered = RbacScopeDefaults.of(ORG_SCHEMAS, LAYERS);
@@ -461,7 +462,7 @@ for (const kind of DB_KINDS) {
         const adapterOracle = oracle(db, ORG_SCHEMAS, {
           org: async (node) => {
             const row = ORG_ROWS.find((r) => r.id === node.id);
-            return row ? { locked: row.locked } : null;
+            return row ? { locked: row.locked, meta: row.meta } : null;
           },
         });
         const stored = await storedRules(db.driver);
@@ -493,6 +494,22 @@ for (const kind of DB_KINDS) {
         expect(await coreWhen(stored.get(tier.id)!.when!, ITEM_PATH, ITEMS[5], adapterOracle)).to.equal('throw');
         expect(missing.get(`6/${tier.id}`)).to.equal(true);
         expect(got.get(`1/${tier.id}`)).to.equal(true);
+
+        // Below an adapter attribute: the adapter's meta.a is 2, the default 1. The core reads 2; the SQL faults rather than read the default.
+        const metaA = rules.find((r) => JSON.stringify(r.when) === JSON.stringify({ attr: 'scope.org.meta.a', eq: 2 }))!;
+        expect(await coreWhen(stored.get(metaA.id)!.when!, ITEM_PATH, ITEMS[0], adapterOracle)).to.equal(true);
+        expect(got.get(`1/${metaA.id}`)).to.equal(null);
+        expect(missing.get(`1/${metaA.id}`)).to.equal(true);
+        // A name an adapter name only starts is no adapter attribute: decided from the default.
+        for (const [path, literal] of [
+          ['scope.org.lockedX', 'lx'],
+          ['scope.org.metaX', 'mx'],
+        ] as const) {
+          const rule = rules.find((r) => JSON.stringify(r.when) === JSON.stringify({ attr: path, eq: literal }))!;
+          expect(await coreWhen(stored.get(rule.id)!.when!, ITEM_PATH, ITEMS[0], adapterOracle), path).to.equal(true);
+          expect(got.get(`1/${rule.id}`), path).to.equal(true);
+          expect(missing.get(`1/${rule.id}`), path).to.equal(false);
+        }
 
         // Without `exists` an adapter-backed type cannot be read at all.
         const blind = await whenTable(db.driver, storedWhenMissing(RULE, p, RbacScopeDefaults.of(ORG_SCHEMAS, { org: { kind: 'adapter', attributes: ['locked'] } }), dialect));

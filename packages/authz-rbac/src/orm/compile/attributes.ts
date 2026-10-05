@@ -34,8 +34,8 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
  *   of them is a fault here (the SQL cannot read that layer; narrower). Any other read needs `exists`, TRUE for a
  *   node whose row the adapter finds (it answers null for a missing row and the engine faults); without
  *   `exists` every read is a fault.
- * Until L4's registry supplies the attribute names and the node-row test, callers declare them; an undeclared
- * type reads as a fault. GLOBAL is `store` unless declared.
+ * `ormRbacScopeLayers` gives the layers of the types authz-orm's adapter serves; callers declare the others.
+ * An undeclared type reads as a fault. GLOBAL is `store` unless declared.
  */
 export type RbacScopeLayer = { readonly kind: 'store' } | { readonly kind: 'adapter'; readonly attributes: readonly string[]; readonly exists?: (nodeId: RbacSql) => RbacSql };
 
@@ -162,7 +162,11 @@ function listCopies(list: readonly unknown[], depth: number, walk: Walk): boolea
 
 /** The scope attribute a block reads, for each row (and rule row) of the query. */
 export interface RbacAttrSql {
-  /** Two-valued: the engine reads a value there that is not null (a scalar, an object or a list). */
+  /**
+   * Two-valued: the engine reads a value there that is not null (a scalar, an object or a list). FALSE also
+   * where the SQL cannot read the type's layer (`RbacScopeLayer`): the core may decide there, and refusing is
+   * narrower.
+   */
   readonly present: RbacSql;
   /** The scalar's JSON text (what `value_json` holds); NULL when not present or not a scalar. */
   readonly json: RbacSql;

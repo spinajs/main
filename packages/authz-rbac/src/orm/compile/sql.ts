@@ -1,9 +1,11 @@
 import { AuthzConfigError } from '@spinajs/authz';
+import { identifier, isNativeBuilder, outerColumn, sql, whereSqlWithAliases } from '@spinajs/authz-orm/native';
+import type { SqlFragment } from '@spinajs/authz-orm/native';
 import { DatetimeValueConverter, IdentifierQuoter, QueryStatement } from '@spinajs/orm';
 import type { IQueryStatement, IQueryStatementResult, IWhereBuilder, OrmDriver, SelectQueryBuilder } from '@spinajs/orm';
 
 // The part kinds map 1:1 onto `@spinajs/authz-orm/native` (`outerColumn`, `identifier`, bound
-// values, nested `sql` fragments), so the blocks move to its `whereSql` without a rewrite.
+// values, nested `sql` fragments): `toNativeSql` converts a fragment part by part.
 
 /** The filtered row's column (authz-orm: `outerColumn`), named by `renderSql`'s `outer` callback. */
 export class RbacOuterColumn {
@@ -14,6 +16,9 @@ export class RbacOuterColumn {
 export class RbacIdentifier {
   constructor(readonly names: readonly string[]) {}
 }
+
+/** A collation name: quoted as an identifier, but no table or alias, so it shadows no row. */
+export class RbacCollationName extends RbacIdentifier {}
 
 /** What a fragment binds. */
 export type RbacSqlValue = string | number | bigint | Date;
@@ -123,6 +128,12 @@ export function ident(...names: string[]): RbacIdentifier {
   return new RbacIdentifier(names);
 }
 
+/** A collation's quoted name, as after `COLLATE` (a fragment's text holds no double quote). */
+export function collation(name: string): RbacCollationName {
+  if (typeof name !== 'string' || name === '') throw refuse('collation() takes a non-empty name');
+  return new RbacCollationName([name]);
+}
+
 export const TRUE_SQL: RbacSql = rsql`1 = 1`;
 export const FALSE_SQL: RbacSql = rsql`1 = 0`;
 
@@ -222,7 +233,7 @@ export function renderSql(fragment: RbacSql, options: RbacRenderOptions): RbacRe
       if (typeof p === 'string') return p;
       if (p instanceof RbacOuterColumn) return options.outer(p.column);
       if (p instanceof RbacIdentifier) {
-        if (options.outerName !== undefined && sameName(p.names[0], options.outerName)) throw refuse(`the name "${p.names[0]}" is the filtered row's "${options.outerName}"; give the other table another alias`);
+        if (options.outerName !== undefined && !(p instanceof RbacCollationName) && sameName(p.names[0], options.outerName)) throw refuse(`the name "${p.names[0]}" is the filtered row's "${options.outerName}"; give the other table another alias`);
         return p.names.map((n) => quoter.quote(n)).join('.');
       }
       bindings.push(bindingOf(p.value, options.driver));
@@ -272,10 +283,12 @@ function markSub(sub: SelectQueryBuilder): SelectQueryBuilder {
 /**
  * `SELECT * FROM <table> <alias>` correlated with `builder` (a query, a where group in one, or another
  * rbacSubQuery sub), for `whereExist(...)` / `whereNotExists(...)` on it. In it `whereRbacSql`'s
- * `outer()` still names the row `builder` filters. Stands in for authz-orm's `correlatedQuery`.
+ * `outer()` still names the row `builder` filters. Outside authz-orm only: in a native compilation it is
+ * refused (write the nested SELECT into the fragment, or use authz-orm's `correlatedQuery`).
  */
 export function rbacSubQuery(builder: IWhereBuilder<unknown>, table: string, alias: string): SelectQueryBuilder {
   if (!table || !alias) throw refuse('rbacSubQuery() takes a table and an alias');
+  if (isNativeBuilder(builder)) throw refuse("rbacSubQuery() is not for an authz-orm native compilation; write the nested SELECT into the fragment, or use authz-orm's correlatedQuery");
   const sub = queryOf(builder).Driver!.select().from(table, alias).correlateWith(builder);
   return markSub(sub as SelectQueryBuilder);
 }
@@ -299,6 +312,8 @@ class RbacSqlStatement extends QueryStatement {
   }
 
   build(): IQueryStatementResult {
+    // A correlation given after whereRbacSql ran.
+    if (reachesNative(this.holder)) throw refuseNative();
     const chain = queryChain(this.holder);
     const filtered = chain[chain.length - 1];
     const driver = chain[0].Driver!;
@@ -322,12 +337,56 @@ class RbacSqlStatement extends QueryStatement {
 }
 
 /**
- * Adds `(fragment)` as an AND condition of `w`: the filtered query, an rbacSubQuery sub of it (at any
- * depth), or a where group in either. `outer()` names the filtered row under the alias it has when the
- * SQL is built. Any other query, even one correlated with a parent (an orm relation query), is the
- * filtered row itself. Stands in for authz-orm's `whereSql` until that merges.
+ * The fragment as an authz-orm `sql` fragment for `builder` (the builder an OrmNativeCompiler is handed,
+ * or a where group in it): bound values stay bound, `outer(c)` becomes `outerColumn(builder, c)` (which
+ * refuses a column the model does not have), `ident(...)` `identifier(...)`, and the text stays text.
+ */
+export function toNativeSql(fragment: RbacSql, builder: IWhereBuilder<unknown>): SqlFragment {
+  const strings: string[] = [''];
+  const values: unknown[] = [];
+  for (const p of fragment.parts) {
+    if (typeof p === 'string') {
+      strings[strings.length - 1] += p;
+      continue;
+    }
+    values.push(p instanceof RbacOuterColumn ? outerColumn(builder, p.column) : p instanceof RbacIdentifier ? identifier(...p.names) : p.value);
+    strings.push('');
+  }
+  return sql(Object.assign(strings, { raw: [...strings] }) as unknown as TemplateStringsArray, ...values);
+}
+
+/** The first names of the fragment's identifiers: the tables and aliases its nested SELECTs name. */
+const identifierHeads = (fragment: RbacSql): string[] => [...new Set(fragment.parts.filter((p): p is RbacIdentifier => p instanceof RbacIdentifier && !(p instanceof RbacCollationName)).map((p) => p.names[0]))];
+
+/** Whether a native builder is reachable through `b`'s where groups and correlations: its row is not this query's. */
+function reachesNative(b: unknown): boolean {
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [b];
+  while (queue.length > 0 && seen.size < MAX_HOPS) {
+    const x = queue.shift();
+    if (x == null || seen.has(x)) continue;
+    seen.add(x);
+    if (isNativeBuilder(x)) return true;
+    const links = x as BuilderLinks;
+    queue.push(links.Parent, links.CorrelationSource);
+  }
+  return false;
+}
+
+const refuseNative = (): AuthzConfigError => refuse('the builder is correlated with an authz-orm native compilation; add the fragment to the native builder (or a where group in it), not to a sub-query of it');
+
+/**
+ * Adds `(fragment)` as an AND condition of `w`. In an authz-orm native compilation (`w` is the builder an
+ * OrmNativeCompiler is handed, or a where group in it) through authz-orm's `whereSql`, converted by
+ * `toNativeSql`; otherwise `w` is the filtered query, an rbacSubQuery sub of it (at any depth), or a where
+ * group in either. Either way `outer()` names the filtered row under the alias it has when the SQL is
+ * built, and a filtered row that goes by the first name of one of the fragment's identifiers is refused
+ * then: the nested SELECT would shadow it. Outside a native compilation any other query, even one
+ * correlated with a parent (an orm relation query), is the filtered row itself.
  */
 export function whereRbacSql<B extends IWhereBuilder<unknown>>(w: B, fragment: RbacSql): B {
+  if (isNativeBuilder(w)) return whereSqlWithAliases(w, toNativeSql(fragment, w), identifierHeads(fragment));
+  if (reachesNative(w)) throw refuseNative();
   queryOf(w);
   (w as unknown as { pushStatement(s: IQueryStatement): unknown }).pushStatement(new RbacSqlStatement(w, fragment));
   return w;

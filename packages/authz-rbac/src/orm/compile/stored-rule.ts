@@ -86,7 +86,9 @@ export function storedWhen(r: string, path: RbacPathSql, defaults: RbacScopeDefa
 /**
  * Two-valued: the rule's `when` reads an attribute the core cannot read, so the core faults (B39): the row has
  * no node of the type, the value is missing with no default or is null; also a path below a list default. A
- * faulting rule refuses the row in L1b's evaluation (route term FALSE, threshold term TRUE).
+ * faulting rule refuses the row in L1b's evaluation (route term FALSE, threshold term TRUE). TRUE also where the
+ * SQL cannot read the type's layer (`RbacScopeLayer`): the core may decide there, and refusing is narrower, so
+ * this is no exact copy of B39.
  */
 export function storedWhenMissing(r: string, path: RbacPathSql, defaults: RbacScopeDefaults, dialect: RbacSqlDialect): RbacSql {
   const whenPath = column(r, 'when_path');

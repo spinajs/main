@@ -168,7 +168,25 @@ as authz-rbac's `native:rbac.assignment` does), import the helpers from
   parameter name runs on over `::`; PG's `::type`, `@>` and `<@` are fine), an
   unclosed quote, and a backslash, a `?` or a value inside a quoted literal, also where a nested
   fragment meets the text around it. Its NULL handling (Kleene) is the compiler's job;
-- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first.
+- `whereSqlWithAliases(holder, fragment, aliases)`: as `whereSql`, for a fragment whose nested
+  SELECTs name their tables by `aliases`; when the query compiles, a filtered row that goes by one of
+  them (in any letter case) is refused, as the nested SELECT would shadow it;
+- `isNativeBuilder(builder)`: whether `builder` is the native builder, a where group in it or a
+  correlatedQuery sub-query of it (code that also builds SQL outside authz-orm picks `whereSql` by
+  it);
+- `scopeColumnsOf(model)`: the model's `@ScopeColumn`s, nearest ancestor first;
+- `scopePathOf(model)`: how the adapter reads a registered model's rows (null for any other model):
+  its type and table, its primary key and its `@ScopeColumn`s, each with the `IdMode` the adapter
+  reads ids by (`string`, `number`, `text`, or `none` for a column the orm does not know and for
+  every column of a model on a driver other than SQLite or Postgres), and its `@AccessResource`
+  attributes, and the keys of the models of its type registered before it (`before`: `findRow`
+  tries them first; null for one on another connection or without a readable table or key). For an
+  unregistered subclass it gives the registered class's key mode and scope columns, which `findRow`
+  and `ancestors` read, and key mode `none` when the subclass reads another table. With it a compiler
+  matches `ancestors`, `findRow` and `scopeAttributes`;
+- `accessResourceModels(type?)`: the registered model classes (of `type`), in registration order,
+  the order `findRow` tries them in;
+- `accessResourceTypeOf(model)`: the type a class is registered as (undefined for any other class).
 
 Every name is resolved when the query compiles, so an alias given later (`populate()`,
 `setAlias()`), clones, counts of clones and subs nested in subs always name the filtered row; a
@@ -176,7 +194,8 @@ correlation that cannot find that row throws `AuthzConfigError` rather than rend
 `NOT EXISTS` FALSE would allow the row).
 
 authz does not scope these sub-queries: read the principal from the `principal` argument, and read
-only tables that are not `@AccessResource` models (L4b reads `authz_*` tables). A sub-query over a
+only tables that are not `@AccessResource` models (L4b reads `authz_*` tables, and a scope type's
+model table only to test that the node row exists, as the adapter does as SYSTEM). A sub-query over a
 scoped model's table, or its name in an `sql` fragment, sees every row of it. Lazy statements (the
 orm's deferred `EXISTS`) are refused, because the orm moves them after the other conditions and
 would change the grouping.
