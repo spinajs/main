@@ -12,7 +12,7 @@ export function registerConfigurationSchema(schema: IConfigurationSchema, contai
   container.register(schema).asValue('__configurationSchema__');
 
   let owner: IContainer | undefined = container;
-  while (owner && !owner.hasRegistered(Configuration, false)) owner = owner.Parent;
+  while (owner && !owner.Registry.ownsRegistration(Configuration)) owner = owner.Parent;
 
   const resolved = owner?.get(Configuration, false);
   if (resolved instanceof FrameworkConfiguration) resolved.validateModule(schema);

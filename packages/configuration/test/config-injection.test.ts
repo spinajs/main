@@ -1,33 +1,11 @@
 import 'mocha';
 import { expect } from 'chai';
 import { DI, IContainer, PerChildInstance } from '@spinajs/di';
-import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { Config } from '../src/decorators.js';
-
-function configurationOf(values: Record<string, unknown>) {
-  const json = JSON.stringify(values);
-  return class extends FrameworkConfiguration {
-    protected loadSources(): void {
-      this.Sources = [];
-    }
-
-    protected onLoad(): unknown {
-      return JSON.parse(json) as unknown;
-    }
-  };
-}
-
-class NoSource extends ConfigurationSource {
-  public get Order() {
-    return 0;
-  }
-
-  public Load(): Promise<IConfigLike> {
-    return Promise.resolve({} as IConfigLike);
-  }
-}
+import { configurationOf, NoSource } from './fixtures.js';
 
 @PerChildInstance()
 class PerChild {
@@ -46,7 +24,7 @@ class Plain {
 }
 
 describe('@Config reads the Configuration of the container that built the instance', () => {
-  let root: IContainer;
+  let root: IContainer | undefined;
   const children: IContainer[] = [];
 
   const child = (values?: Record<string, unknown>, parent: IContainer = root ?? DI.RootContainer) => {
@@ -59,14 +37,16 @@ describe('@Config reads the Configuration of the container that built the instan
 
   beforeEach(async () => {
     // The root of the scenarios: a child of the global container, so nothing leaks into other test files.
-    root = child({ feature: { value: 'root' } });
+    const scenario = child({ feature: { value: 'root' } }, DI.RootContainer);
     // Registered in the root scenario container: an unregistered type would be created in the resolving child.
-    root.register(PerChild).asSelf();
-    root.register(RootSingleton).asSelf();
-    await root.resolve(Configuration);
+    scenario.register(PerChild).asSelf();
+    scenario.register(RootSingleton).asSelf();
+    await scenario.resolve(Configuration);
+    root = scenario;
   });
 
   afterEach(async () => {
+    root = undefined;
     for (const c of children.splice(0).reverse()) await c.dispose();
   });
 

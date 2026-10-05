@@ -34,32 +34,29 @@ import { default as ajvKeywords } from 'ajv-keywords';
 const PROTOCOL_REGEXP = /^([a-zA-Z0-9\-]+:\/\/)+(.+)$/gm;
 const COMMON_WEB_PROTOCOLS = ['http://', 'https://', 'ws://', 'wss://', 'ftp://', 'ftps://', 'file://', 'data://', 'blob://', 'mailto:'];
 
-/**
- * HACK:
- * Becouse of ajv not supporting esm default exports we need to
- * check for default export module property and if not provided use module itself
- */
-
 const decodePointer = (segment: string) => segment.replace(/~1/g, '/').replace(/~0/g, '~');
 
-// Keywords that report the parent object, with the offending key in `params`.
-const KEY_PARAMS: Record<string, string> = { propertyNames: 'propertyName', required: 'missingProperty', additionalProperties: 'additionalProperty' };
+// Ajv tags the sub-errors of a propertyNames check with `propertyName`; the check itself reports the key in `params`.
+const isNameError = (e: ErrorObject) => e.propertyName !== undefined;
+
+const keyOf = (e: ErrorObject) => {
+  const p = e.params as Record<string, unknown>;
+  return p.missingProperty ?? p.additionalProperty ?? p.propertyName;
+};
 
 function toViolations(module: string, schema: string, errors: ErrorObject[]): ConfigurationViolation[] {
-  const isNameError = (e: ErrorObject) => e.keyword !== 'propertyNames' && (e.propertyName !== undefined || e.schemaPath.includes('/propertyNames/'));
   const violations: ConfigurationViolation[] = [];
 
   for (const e of errors) {
     if (isNameError(e)) continue;
 
     const segments = e.instancePath.split('/').filter((p) => p !== '').map(decodePointer);
-    const keyParam = KEY_PARAMS[e.keyword];
-    const key = keyParam ? (e.params as Record<string, unknown>)[keyParam] : undefined;
+    const key = keyOf(e);
     if (key !== undefined) segments.push(String(key));
 
     let message = e.message ?? e.keyword;
     if (e.keyword === 'propertyNames') {
-      const detail = errors.filter((n) => n !== e && isNameError(n) && n.instancePath === e.instancePath && n.propertyName === key).map((n) => n.message ?? n.keyword);
+      const detail = errors.filter((n) => isNameError(n) && n.instancePath === e.instancePath && n.propertyName === key).map((n) => n.message ?? n.keyword);
       message = `property name is invalid${detail.length ? `: ${detail.join(', ')}` : ''}`;
     }
 
@@ -68,6 +65,12 @@ function toViolations(module: string, schema: string, errors: ErrorObject[]): Co
 
   return violations;
 }
+
+/**
+ * HACK:
+ * Becouse of ajv not supporting esm default exports we need to
+ * check for default export module property and if not provided use module itself
+ */
 
 @Injectable(Configuration)
 export class FrameworkConfiguration extends Configuration {
@@ -432,7 +435,12 @@ export class FrameworkConfiguration extends Configuration {
 
     const errors: ErrorObject[] = this.Validator.errors ?? [];
     const schema = (s as { $id?: string }).$id ?? s.$configurationModule;
-    return { errors, violations: toViolations(s.$configurationModule, schema, errors) };
+    let violations = toViolations(s.$configurationModule, schema, errors);
+    if (violations.length === 0) {
+      // An invalid configuration must never pass, whatever shape Ajv reported.
+      violations = errors.map((e) => ({ path: [s.$configurationModule, ...e.instancePath.split('/').filter((p) => p !== '').map(decodePointer)].join('.'), schema, message: e.message ?? e.keyword }));
+    }
+    return { errors, violations };
   }
 
   protected initValidator() {
@@ -483,12 +491,6 @@ export class FrameworkConfiguration extends Configuration {
     // we use $configurationModule keyword to identify
     // to match config module with config schema
     this.Validator.addKeyword('$configurationModule');
-
-    /**
-     * load all registered configuration json schemas
-     * for config value validation
-     */
-    this.ValidationSchemas = this.schemasOfLineage();
   }
 
   // A child that registers a schema of its own must not hide the schemas of its ancestors.

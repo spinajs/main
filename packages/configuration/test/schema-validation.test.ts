@@ -2,27 +2,15 @@ import 'mocha';
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import { DI, IContainer } from '@spinajs/di';
-import { Configuration, ConfigurationSource, IConfigLike } from '@spinajs/configuration-common';
+import { Configuration, ConfigurationSource } from '@spinajs/configuration-common';
 
+import { configurationOf, NoSource } from './fixtures.js';
 import { FrameworkConfiguration } from '../src/configuration.js';
 import { InvalidConfiguration } from '../src/exception.js';
 import { registerConfigurationSchema } from '../src/schemas.js';
 
 chai.use(chaiAsPromised);
 const expect = chai.expect;
-
-function configurationOf(values: Record<string, unknown>) {
-  const json = JSON.stringify(values);
-  return class extends FrameworkConfiguration {
-    protected loadSources(): void {
-      this.Sources = [];
-    }
-
-    protected onLoad(): unknown {
-      return JSON.parse(json) as unknown;
-    }
-  };
-}
 
 const WITH_DEFAULTS = {
   $id: 'test-with-defaults',
@@ -63,22 +51,19 @@ const NAMED_ROLES = {
   propertyNames: { enum: ['a'] },
 };
 
+const FIELD_NAMED_AFTER_KEYWORD = {
+  $id: 'test-keyword-field',
+  $configurationModule: 'keywordField',
+  type: 'object',
+  properties: { propertyNames: { type: 'integer', minimum: 5 } },
+};
+
 const ESCAPED = {
   $id: 'test-escaped',
   $configurationModule: 'escaped',
   type: 'object',
   properties: { 'a/b': { type: 'integer', minimum: 5 }, 'c~d': { type: 'integer', minimum: 5 } },
 };
-
-class NoSource extends ConfigurationSource {
-  public get Order() {
-    return 0;
-  }
-
-  public Load(): Promise<IConfigLike> {
-    return Promise.resolve({} as IConfigLike);
-  }
-}
 
 const booted: IContainer[] = [];
 
@@ -171,6 +156,11 @@ describe('configuration schema validation', () => {
     expect(violations.map((v) => v.path)).to.deep.equal(['requiresHost.host']);
   });
 
+  it('does not mistake a field named propertyNames for a name check', async () => {
+    const violations = await violationsOf({ keywordField: { propertyNames: 1 } }, FIELD_NAMED_AFTER_KEYWORD);
+    expect(violations.map((v) => v.path)).to.deep.equal(['keywordField.propertyNames']);
+  });
+
   it('decodes JSON Pointer escapes in the path', async () => {
     const violations = await violationsOf({ escaped: { 'a/b': 1, 'c~d': 1 } }, ESCAPED);
     expect(violations.map((v) => v.path)).to.have.members(['escaped.a/b', 'escaped.c~d']);
@@ -222,11 +212,25 @@ describe('configuration schema validation', () => {
   });
 
   it('leaves the parent Configuration alone when the container has its own, unresolved one', async () => {
-    const { child } = await boot({ range: { min: 10, max: 5 } });
+    const C = configurationOf({ range: { min: 10, max: 5 } });
+    const child = DI.child();
+    booted.push(child);
+    child.register(NoSource).as(ConfigurationSource);
+    child.register(C).as(Configuration);
+    await child.resolve(Configuration);
+
     const own = child.child();
     booted.push(own);
-    own.register(configurationOf({})).as(Configuration);
+    own.register(C).as(Configuration);
 
     expect(() => registerConfigurationSchema(RANGE, own)).to.not.throw();
+  });
+
+  it('validates against the Configuration of the nearest ancestor that has one', async () => {
+    const { child } = await boot({ range: { min: 10, max: 5 } });
+    const grandchild = child.child();
+    booted.push(grandchild);
+
+    expect(() => registerConfigurationSchema(RANGE, grandchild)).to.throw(InvalidConfiguration);
   });
 });
