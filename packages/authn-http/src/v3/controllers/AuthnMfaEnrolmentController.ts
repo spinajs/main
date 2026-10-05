@@ -3,7 +3,7 @@ import type { IContainer } from '@spinajs/di';
 import { BaseController, BasePath, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 
-import { TotpServiceRegistered, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
+import { TotpEnrolmentOn, codeField, reauthOf, totpRefusal, totpServiceOf } from '../../mfa/index.js';
 import { refused, unauthenticated } from '../../policies/v3/errors.js';
 import { Authenticated, NoImpersonationPolicy, NoTokenAuthPolicy, PendingMfaEnrolment } from '../index.js';
 import { NO_STORE, authnFailureResponse } from '../responses.js';
@@ -11,8 +11,9 @@ import { contextOf } from '../routes.js';
 import type { Restored } from '../routes.js';
 
 /**
- * The owner's TOTP enrolment over authn-totp's TotpService (design §22.8, §22.11; A09, A10, A13). Off (404) while no
- * TotpService is registered. Every route acts on the identity of the caller's own session: a token or key caller gets
+ * The owner's TOTP enrolment over authn-totp's TotpService (design §22.8, §22.11; A09, A10, A13). Off (404) unless
+ * login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep, authn.mfa.encryptionKey is set and the
+ * TotpService of authn-totp is registered (`totpServiceOf`; the DI name `TotpService` is taken). Every route acts on the identity of the caller's own session: a token or key caller gets
  * 403 `session_required`, an impersonation 403 `impersonating` (a factor enrolled there would lock the owner out).
  * Begin and confirm also take a pending session that the MFA policy forces to enrol, while its identity is enrolled in
  * no step; every other route needs a full login.
@@ -25,7 +26,7 @@ import type { Restored } from '../routes.js';
  * @tags Authentication
  */
 @BasePath('user')
-@Policy(TotpServiceRegistered)
+@Policy(TotpEnrolmentOn)
 export class AuthnMfaEnrolmentController extends BaseController {
   @Autoinject(Container)
   protected Container!: IContainer;
@@ -62,7 +63,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
     const result = await (await totpServiceOf(this.Container)).begin(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
-    if (!result.ok) return totpRefusal(result.code, { reauthTried: triedOn(session, reauth.credentials) });
+    if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ provisioning: result.provisioning }, { Headers: [NO_STORE] });
   }
 
@@ -97,7 +98,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const code = codeField(req);
     if (code === null) return authnFailureResponse();
     const result = await (await totpServiceOf(this.Container)).disable(session.handle, code, contextOf(req, 'reauth', session.handle), reauth.credentials);
-    if (!result.ok) return totpRefusal(result.code, { reauthTried: triedOn(session, reauth.credentials), retryAfterSeconds: result.retryAfterSeconds });
+    if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined, retryAfterSeconds: result.retryAfterSeconds });
     return new Ok(null, { Headers: [NO_STORE] });
   }
 
@@ -113,7 +114,7 @@ export class AuthnMfaEnrolmentController extends BaseController {
     const reauth = await reauthOf(this.Container, req, session);
     if ('answer' in reauth) return reauth.answer;
     const result = await (await totpServiceOf(this.Container)).regenerateRecoveryCodes(session.handle, contextOf(req, 'reauth', session.handle), reauth.credentials);
-    if (!result.ok) return totpRefusal(result.code, { reauthTried: triedOn(session, reauth.credentials) });
+    if (!result.ok) return totpRefusal(result.code, { reauthTried: reauth.credentials !== undefined });
     return new Ok({ recoveryCodes: [...result.recoveryCodes] }, { Headers: [NO_STORE] });
   }
 }
@@ -130,6 +131,3 @@ function activeSession(req: Request): Restored {
   if (session.handle.state !== 'active') throw refused('session_required', 'this route needs a session');
   return session;
 }
-
-/** TotpService re-authenticates only an active session, so a pending one that sent a password was never checked. */
-const triedOn = (session: Restored, credentials: unknown): boolean => credentials !== undefined && session.handle.state === 'active';

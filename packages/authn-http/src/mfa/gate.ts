@@ -1,5 +1,6 @@
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
+import { Configuration } from '@spinajs/configuration';
 import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import type { TotpService } from '@spinajs/authn-totp/service';
@@ -7,15 +8,39 @@ import type { TotpService } from '@spinajs/authn-totp/service';
 import { notFound } from '../policies/v3/errors.js';
 
 /**
- * The DI key of authn-totp's TotpService (`@Injectable()` registers a class under its name). Only its type is imported:
- * loading the class loads TotpMfaStep, which registers itself as an MfaStep, and scanning these routes must not do that.
+ * The DI key of authn-totp's TotpService (`@Injectable()` registers a class under its name). authn-totp is never
+ * imported at module load: it loads TotpMfaStep, which registers itself as an MfaStep, and scanning these routes must
+ * not do that.
  */
 export const TOTP_SERVICE = 'TotpService';
 
-export const totpServiceOf = async (container: IContainer): Promise<TotpService> => await container.resolve<TotpService>(TOTP_SERVICE);
+const off = () => notFound('not_found', 'the MFA enrolment routes are off');
 
-/** 404 while no TotpService is registered: the MFA enrolment routes are off (design §22.11). The first policy of the controller. */
-export class TotpServiceRegistered extends BasePolicy {
+/**
+ * authn-totp's TotpService while login asks for TOTP: authn.mfa.steps lists authn-totp's TotpMfaStep and
+ * authn.mfa.encryptionKey.secret is set (what authn-totp calls "Turning TOTP on"). Otherwise 404 `not_found`: a factor
+ * enrolled here that login never asks for would only look like a second factor (design §22.11).
+ */
+export async function totpServiceOf(container: IContainer): Promise<TotpService> {
+  if (!container.hasRegistered(TOTP_SERVICE)) throw off();
+  const key = (await container.resolve(Configuration)).get<unknown>('authn.mfa.encryptionKey.secret');
+  if (typeof key !== 'string' || key === '') throw off();
+  // Loaded here, not at module load: the @spinajs/authn root registers its services in every app that imports it.
+  const { MfaStepRegistry } = await import('@spinajs/authn');
+  const steps = (await container.resolve(MfaStepRegistry)).steps();
+  // The name check first, so an app that lists no such step never loads authn-totp here.
+  if (!steps.some((s) => s.constructor.name === 'TotpMfaStep')) throw off();
+  // Already loaded where the real classes registered. DI keeps the first class of a name, so a foreign TotpService or
+  // TotpMfaStep stays what resolves and fails the instanceof checks.
+  const totp = await import('@spinajs/authn-totp/service');
+  if (!steps.some((s) => s instanceof totp.TotpMfaStep)) throw off();
+  const service = await container.resolve<unknown>(TOTP_SERVICE);
+  if (!(service instanceof totp.TotpService)) throw off();
+  return service;
+}
+
+/** The first policy of the MFA enrolment controller: 404 `not_found` unless `totpServiceOf` finds the service. */
+export class TotpEnrolmentOn extends BasePolicy {
   @Autoinject(Container)
   protected Container!: IContainer;
 
@@ -24,6 +49,6 @@ export class TotpServiceRegistered extends BasePolicy {
   }
 
   public async execute(_req: Request, _action: IRoute, _instance: IController): Promise<void> {
-    if (!this.Container.hasRegistered(TOTP_SERVICE)) throw notFound('not_found', 'the MFA enrolment routes are off: no TotpService is registered');
+    await totpServiceOf(this.Container);
   }
 }

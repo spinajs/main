@@ -1,16 +1,18 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 import { Container, DI } from '@spinajs/di';
+import type { IContainer } from '@spinajs/di';
+import { IdentityStore } from '@spinajs/authn/contracts';
 import type { IController, IRoute, Request } from '@spinajs/http';
 import { FakeClock, parseOtpauth, totpFromProvisioning } from '@spinajs/authn-testing';
 import type { ConfigOverrides, Harness, HttpRequest, HttpResponse } from '@spinajs/authn-testing';
 
-import { TOTP_SERVICE, TotpServiceRegistered } from '../../../src/mfa/index.js';
+import { TOTP_SERVICE, TotpEnrolmentOn } from '../../../src/mfa/index.js';
 import { AUTHN_FAILURE_BODY, PASSWORD_HARD_CAP } from '../../../src/v3/index.js';
 import { AUTHN_PROBE_PATH } from '../../v3/probe.js';
-import { Client, clearLog, logLines, loggedIn, seedUser } from '../app.js';
+import { Client, clearLog, config, logLines, loggedIn, seedUser } from '../app.js';
 import { ROUTES } from '../behaviour/harness.js';
-import { failMfaStore, laneEvents, laneTotpServiceClass, n8bHarness } from '../behaviour/n8b-harness.js';
+import { failMfaStore, laneEvents, laneMfaConfig, laneTotpServiceClass, n8bHarness } from '../behaviour/n8b-harness.js';
 import { mountedRoutes } from './route-table.js';
 
 export const MFA_ROUTES_V3 = ['GET /user/mfa', 'POST /user/mfa', 'POST /user/mfa/confirm', 'POST /user/mfa/disable', 'POST /user/mfa/recovery-codes'];
@@ -39,23 +41,40 @@ export function mfaEnrolmentGateSuite(): void {
     }
   });
 
-  it('the gate asks the container it resolves from, by the DI key of TotpService', async () => {
-    const empty = new Container();
-    const route = {} as IRoute;
-    const ctrl = {} as IController;
-    const req = { storage: {} } as unknown as Request;
-    const gate = new TotpServiceRegistered();
-    (gate as unknown as { Container: unknown }).Container = empty;
-    expect(gate.isEnabled(route, ctrl)).to.eq(true);
-    await gate.execute(req, route, ctrl).then(
-      () => expect.fail('the gate passed without a TotpService'),
-      (e: { constructor: { name: string } }) => expect(e.constructor.name).to.eq('ResourceNotFound'),
-    );
-    const child = empty.child();
+  it('the gate asks the container it resolves from: a class named TotpService and a step named totp do not open it', async () => {
+    const child = DI.RootContainer.child();
     child.register({ TotpService: class {} }.TotpService).asSelf();
-    (gate as unknown as { Container: unknown }).Container = child;
-    await gate.execute(req, route, ctrl);
+    // The app lists the kit's fake step under the name totp; with a key set only the step check is left to refuse.
+    config().set('authn.mfa.encryptionKey', { secret: 'a'.repeat(64) });
+    try {
+      for (const container of [new Container(), child]) await expectGateClosed(container);
+    } finally {
+      delete config().get<Record<string, unknown>>('authn.mfa').encryptionKey;
+    }
+    expect(DI.RootContainer.hasRegistered(TOTP_SERVICE), 'the gate loaded no authn-totp').to.eq(false);
   });
+}
+
+/** What the gate of the MFA enrolment routes answers when it resolves from `container`. */
+async function gateOn(container: IContainer): Promise<'open' | 'not_found'> {
+  const route = {} as IRoute;
+  const ctrl = {} as IController;
+  const req = { storage: {} } as unknown as Request;
+  const gate = new TotpEnrolmentOn();
+  (gate as unknown as { Container: unknown }).Container = container;
+  expect(gate.isEnabled(route, ctrl)).to.eq(true);
+  try {
+    await gate.execute(req, route, ctrl);
+    return 'open';
+  } catch (e) {
+    expect((e as object).constructor.name).to.eq('ResourceNotFound');
+    expect((e as { error?: unknown }).error).to.eq('not_found');
+    return 'not_found';
+  }
+}
+
+async function expectGateClosed(container: IContainer): Promise<void> {
+  expect(await gateOn(container)).to.eq('not_found');
 }
 
 /** A browser on the lane harness: keeps the session cookie and sends the app's Origin. */
@@ -161,6 +180,13 @@ export function mfaEnrolmentRoutesSuite(): void {
       const TotpService = laneTotpServiceClass();
       expect(TotpService.name).to.eq(TOTP_SERVICE);
       expect(await DI.resolve(TOTP_SERVICE)).to.be.instanceOf(TotpService);
+    });
+
+    it('the gate opens on the TotpService of authn-totp only: a foreign class registered under its name closes it', async () => {
+      expect(await gateOn(DI.RootContainer)).to.eq('open');
+      const child = DI.RootContainer.child();
+      child.register({ TotpService: class {} }.TotpService).asSelf();
+      await expectGateClosed(child);
     });
 
     it('GET /user/mfa reports each configured step and whether the caller is enrolled, with no-store (LEDGER two-factor-self-service 1-3)', async () => {
@@ -352,9 +378,27 @@ export function mfaEnrolmentRoutesSuite(): void {
         expectFailureBody(await c.recoveryCodes({ reauthPassword: 'Not-The-Password-1' }));
         expectFailureBody(await c.begin({ reauthPassword: 'Not-The-Password-1' }));
       });
-      const reauths = h.events!.all().filter((e) => e.type === 'reauth' || e.type === 'throttle.block');
-      expect(reauths.length, 'each refusal went through the reauth flow').to.be.greaterThan(0);
-      expect(reauths.some((e) => e.outcome === 'success')).to.eq(false);
+      const events = h.events!.all();
+      expect(events.filter((e) => e.type === 'reauth').map((e) => e.outcome), 'one re-authentication per request').to.deep.eq(['failure', 'failure', 'failure']);
+      expect(events.filter((e) => e.type === 'throttle.block')).to.deep.eq([]);
+      expect(await h.mfa!.step.enrolled(u.ref)).to.eq(true);
+      expect((await c.disable(recoveryCodes[0])).status, 'the old recovery codes still hold').to.eq(200);
+    });
+
+    it('SR-20 a throttled re-authentication on an MFA route answers the login failure body without Retry-After, also to the right password', async () => {
+      const u = await user();
+      const c = await login(u);
+      const { code, recoveryCodes } = await enrolled(c);
+      const blocks = () => h.events!.all().filter((e) => e.type === 'throttle.block').length;
+      await later(331, async () => {
+        for (let i = 0; i < 10 && blocks() === 0; i++) expectFailureBody(await c.recoveryCodes({ reauthPassword: 'Not-The-Password-1' }));
+        expect(blocks(), 'the reauth throttle blocked').to.eq(1);
+        expectFailureBody(await c.recoveryCodes({ reauthPassword: u.password }));
+        expectFailureBody(await c.begin({ reauthPassword: u.password }));
+        expectFailureBody(await c.disable(code(331), { reauthPassword: u.password }));
+      });
+      expect(blocks(), 'each MFA route asked the throttled re-authentication').to.eq(4);
+      expect(h.events!.all().filter((e) => e.type === 'reauth' && e.outcome === 'success'), 'the right password was never checked').to.deep.eq([]);
       expect(await h.mfa!.step.enrolled(u.ref)).to.eq(true);
       expect((await c.disable(recoveryCodes[0])).status, 'the old recovery codes still hold').to.eq(200);
     });
@@ -394,6 +438,59 @@ export function mfaEnrolmentRoutesSuite(): void {
       const verified = await later(30, () => c.send(ROUTES.mfaVerify!(code(30))));
       expect(verified.status, JSON.stringify(verified.body)).to.eq(200);
       expect((await c.status()).body).to.deep.eq({ steps: [{ name: 'totp', enrolled: true }] });
+    });
+  });
+
+  describe('under authn.mfa.policy.force, a pending session sending reauthPassword', () => {
+    beforeEach(() => open({ authn: { mfa: { policy: { force: true } } } }));
+
+    it('is not looked up, since TotpService never re-authenticates a pending session; over the cap it still answers the login failure body', async () => {
+      const u = await user();
+      const c = await login(u);
+      const display = sinon.spy(await DI.resolve(IdentityStore), 'display');
+      try {
+        expect((await c.begin()).status).to.eq(200);
+        const withoutPassword = display.callCount;
+        display.resetHistory();
+        const res = await c.begin({ reauthPassword: u.password });
+        expect(res.status, JSON.stringify(res.body)).to.eq(200);
+        expect(display.callCount, 'no identity lookup for the password').to.eq(withoutPassword);
+        expectFailureBody(await c.begin({ reauthPassword: 'x'.repeat(PASSWORD_HARD_CAP + 1) }));
+      } finally {
+        display.restore();
+      }
+      expect(h.events!.all().filter((e) => e.type === 'reauth').map((e) => e.reason)).to.deep.eq(['password_too_long']);
+    });
+  });
+
+  describe('while login asks for no TOTP step', () => {
+    beforeEach(() => open());
+
+    /** Every route answers 404 not_found to `c`, and nothing reached TotpService. */
+    const expectOff = async (c: LaneClient) => {
+      for (const [method, path, payload] of everyRoute()) expectRefused(await c.send({ method: method as 'GET' | 'POST', path, ...(payload ? { body: payload } : {}) }), 404, 'not_found');
+      expect(enrolmentEvents()).to.deep.eq([]);
+    };
+
+    it('with authn.mfa.steps empty every route answers 404 not_found, although TotpService is registered', async () => {
+      await laneMfaConfig({ steps: [] });
+      expect(DI.RootContainer.hasRegistered(TOTP_SERVICE)).to.eq(true);
+      const u = await user();
+      await expectOff(await login(u));
+      await expectOff(new LaneClient(h));
+      expect(await h.mfa!.step.enrolled(u.ref)).to.eq(false);
+    });
+
+    it('a listed step named totp that is not the TotpMfaStep of authn-totp keeps every route at 404 not_found', async () => {
+      await laneMfaConfig({ steps: [{ name: 'totp', service: 'V3AppMfaStep' }] });
+      await expectOff(await login(await user()));
+    });
+
+    it('without authn.mfa.encryptionKey every route answers 404 not_found, not 500', async () => {
+      const c = await login(await user());
+      await laneMfaConfig({ encryptionKey: undefined });
+      await expectOff(c);
+      await expectOff(new LaneClient(h));
     });
   });
 

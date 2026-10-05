@@ -17,10 +17,10 @@ import type { Restored } from '../v3/routes.js';
 export const codeField = (req: Request): string | null => boundedString(bodyField(req, 'code'), PASSWORD_HARD_CAP);
 
 /**
- * The inline re-authentication of an MFA route (A13): no credentials without `reauthPassword` (TotpService then needs
- * a fresh session), the password credentials of the session's identity, or the login failure answer for a password
- * that can never verify. The field leaves the body, as FreshAuth removes it, and TotpService verifies the credentials
- * only when the session is not fresh: one check, counted in the reauth throttle.
+ * The inline re-authentication of an MFA route (A13): no credentials without `reauthPassword` or for a pending session
+ * (TotpService then needs a fresh session), the password credentials of the session's identity, or the login failure
+ * answer for a password that can never verify. The field leaves the body, as FreshAuth removes it, and TotpService
+ * verifies the credentials only when an active session is not fresh: one check, counted in the reauth throttle.
  */
 export async function reauthOf(container: IContainer, req: Request, session: Restored): Promise<{ credentials?: Credentials } | { answer: Response }> {
   const password = bodyField(req, REAUTH_PASSWORD_FIELD);
@@ -31,6 +31,7 @@ export async function reauthOf(container: IContainer, req: Request, session: Res
   if (typeof password !== 'string' || password === '') return {};
   let reason = 'password_too_long';
   if (password.length <= PASSWORD_HARD_CAP) {
+    if (session.handle.state !== 'active') return {};
     // As assertFreshAuth: IdentityStore.findByLogin takes an email, so display's email names the identity.
     const { email } = await (await container.resolve(IdentityStore)).display(session.identity);
     if (typeof email === 'string' && email !== '') return { credentials: { kind: 'password', login: email, password } };

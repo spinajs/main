@@ -254,7 +254,8 @@ interface TotpState {
   failing: boolean;
   readonly provisioning: Map<string, string>;
   readonly recoveryCodes: Map<string, readonly string[]>;
-  readonly restore: () => void;
+  /** Run in reverse when the case closes. */
+  readonly undo: (() => void)[];
 }
 
 let totp: TotpModules | undefined;
@@ -311,6 +312,15 @@ export async function laneTotpStep(): Promise<TotpStepLike> {
 /** The TotpService class the subpath export registered. */
 export const laneTotpServiceClass = (): TotpModules['TotpService'] => loaded(totp, 'authn-totp').TotpService;
 
+/** Replaces authn.mfa.steps or authn.mfa.encryptionKey (undefined removes it) until the case ends. */
+export async function laneMfaConfig(over: { steps?: unknown; encryptionKey?: unknown }): Promise<void> {
+  const state = totpNow();
+  for (const [key, value] of Object.entries(over)) state.undo.push(setConfig(`authn.mfa.${key}`, value));
+  // It lists the steps once per resolve.
+  const { MfaStepRegistry } = await import('@spinajs/authn');
+  DI.uncache(MfaStepRegistry as unknown as Class<unknown>);
+}
+
 /** Puts the lane's TOTP store out of order (code checks throw) until the case ends. */
 export function failMfaStore(): void {
   totpNow().failing = true;
@@ -346,7 +356,7 @@ export const totpPart: LanePart = {
     for (const table of ['authn_mfa', 'authn_recovery_code']) await db.del().from(table);
     laneEvents.length = 0;
     const undo = [setConfig('authn.mfa.steps', MFA_STEPS), setConfig('authn.mfa.encryptionKey', MFA_ENCRYPTION_KEY)];
-    totpState = { db: new t.DbMfaStore(db), failing: false, provisioning: new Map(), recoveryCodes: new Map(), restore: () => undo.reverse().forEach((u) => u()) };
+    totpState = { db: new t.DbMfaStore(db), failing: false, provisioning: new Map(), recoveryCodes: new Map(), undo };
   },
   async addPorts() {
     const state = totpNow();
@@ -372,7 +382,7 @@ export const totpPart: LanePart = {
     };
   },
   async close() {
-    totpState?.restore();
+    totpState?.undo.reverse().forEach((u) => u());
     totpState = undefined;
   },
 };
