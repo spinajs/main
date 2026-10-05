@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DI, Injectable } from '@spinajs/di';
+import { InvalidOperation } from '@spinajs/exceptions';
 import { Log, Logger } from '@spinajs/log';
 import { AuthenticationStrategy, IdentityStore, PasswordCredentialStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, IdentityRef, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
@@ -60,9 +61,12 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
 
   /** Resolves the hasher, which makes its dummy hash, at boot (D4). */
   public async resolve(): Promise<void> {
-    this._hasher = this.Deps ? this.Deps.hasher : await DI.resolve(PasswordHasher);
-    await this._hasher.resolve();
-    if (!this.Deps) {
+    if (this.Deps) {
+      // A hasher handed in by a test is not resolved by DI.
+      this._hasher = this.Deps.hasher;
+      await this._hasher.resolve();
+    } else {
+      this._hasher = await DI.resolve(PasswordHasher);
       // Boot resolves the strategies (authn.strategies) but not PasswordService, which takes the policy lazily; resolving the
       // policy here makes a bad authn.local.policy fail at boot instead of on the first password change.
       await DI.resolve(LocalPasswordPolicy);
@@ -119,10 +123,8 @@ export class LocalPasswordStrategy extends AuthenticationStrategy {
   }
 
   protected async hasher(): Promise<PasswordHasher> {
-    if (!this._hasher) {
-      await this.resolve();
-    }
-    return this._hasher!;
+    if (!this._hasher) throw new InvalidOperation('LocalPasswordStrategy is not resolved');
+    return this._hasher;
   }
 
   protected identities(): IdentityStore {

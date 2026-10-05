@@ -44,7 +44,6 @@ export class FreshAuthCheck extends AsyncService {
   private maxAge = DEFAULT_FRESH_AUTH_MAX_AGE_SECONDS;
   private authn!: AuthnService;
   private sessions!: SessionIssuer;
-  private ready = false;
 
   constructor(private readonly container: IContainer) {
     super();
@@ -55,7 +54,6 @@ export class FreshAuthCheck extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    if (this.ready) return;
     const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('FreshAuthCheck: the resolved Configuration has no get()');
@@ -64,7 +62,6 @@ export class FreshAuthCheck extends AsyncService {
     if (!this.container.hasRegistered(SessionIssuer as unknown as Class<SessionIssuer>)) throw new InvalidOperation('FreshAuthCheck: no SessionIssuer is registered');
     this.sessions = (await this.container.resolve(SessionIssuer as unknown as Class<SessionIssuer>)) as SessionIssuer;
     this.authn = (await this.container.resolve(AuthnService as unknown as Class<AuthnService>)) as AuthnService;
-    this.ready = true;
     await super.resolve();
   }
 

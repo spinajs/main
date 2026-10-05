@@ -119,7 +119,6 @@ export class DefaultAuthzService extends AuthzService {
   }
 
   async resolve(): Promise<void> {
-    if (this.booted) return;
     if (this.disposed) throw new AuthzConfigError(`AuthzService of domain ${q(this.name)} is disposed`);
     const claimed: AuthorizationModel[] = [];
     const fresh: AuthorizationModel[] = [];

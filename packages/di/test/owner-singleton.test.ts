@@ -574,4 +574,60 @@ describe('owner-container singletons (DI-2)', () => {
       expect(child.child().resolve(Plain)).to.equal(fromRoot);
     });
   });
+
+  // Services rely on this: their resolve() holds no "already resolved" guard.
+  describe('an AsyncService instance runs resolve() once', () => {
+    class Counted extends AsyncService {
+      public static Calls = 0;
+
+      public async resolve(): Promise<void> {
+        Counted.Calls++;
+        await new Promise((res) => setTimeout(res, 5));
+        await super.resolve();
+      }
+    }
+    class CountedImpl extends Counted {}
+
+    @PerChildInstance()
+    class PerChildCounted extends AsyncService {
+      public static Calls = 0;
+
+      public async resolve(): Promise<void> {
+        PerChildCounted.Calls++;
+        await new Promise((res) => setTimeout(res, 5));
+        await super.resolve();
+      }
+    }
+
+    beforeEach(() => {
+      Counted.Calls = 0;
+      PerChildCounted.Calls = 0;
+    });
+
+    it('a singleton, over concurrent and repeated resolves through every key and container', async () => {
+      DI.register(CountedImpl).as(Counted);
+      DI.register(CountedImpl).asSelf();
+      const child = DI.child();
+
+      const first = await Promise.all([DI.resolve(Counted), DI.resolve(CountedImpl), child.resolve(Counted), child.resolve(Array.chainOf(Counted))]);
+      await DI.resolve(Counted);
+      await child.resolve(CountedImpl);
+      await DI.resolve(Array.ofType(Counted));
+
+      expect(Counted.Calls).to.equal(1);
+      expect(first[1]).to.equal(first[0]);
+      expect(first[2]).to.equal(first[0]);
+    });
+
+    it('a PerChildContainer service, once in every container', async () => {
+      DI.register(PerChildCounted).asSelf();
+      const child = DI.child();
+
+      await Promise.all([DI.resolve(PerChildCounted), DI.resolve(PerChildCounted), child.resolve(PerChildCounted), child.resolve(PerChildCounted)]);
+      await DI.resolve(PerChildCounted);
+      await child.resolve(PerChildCounted);
+
+      expect(PerChildCounted.Calls).to.equal(2);
+    });
+  });
 });

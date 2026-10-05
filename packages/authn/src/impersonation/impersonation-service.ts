@@ -129,14 +129,12 @@ export class AuthnImpersonationService extends AsyncService {
   private fresh!: FreshAuthCheck;
   private auditor!: AuthnAudit;
   private settings!: Settings;
-  private ready = false;
 
   constructor(private readonly container: IContainer) {
     super();
   }
 
   public async resolve(): Promise<void> {
-    if (this.ready) return;
     const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('AuthnImpersonationService: the resolved Configuration has no get()');
@@ -148,7 +146,6 @@ export class AuthnImpersonationService extends AsyncService {
     this.guard = await this.neighbour(ImpersonationGuard, 'ImpersonationGuard', false);
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
-    this.ready = true;
     await super.resolve();
   }
 

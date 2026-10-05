@@ -171,14 +171,12 @@ export class DefaultAuthnService extends AuthnService {
   private steps: MfaStepRegistry | undefined;
   private linking: Linking = { jit: false, byVerifiedEmail: false };
   private globalGate = false;
-  private ready = false;
 
   constructor(private readonly container: IContainer) {
     super();
   }
 
   public async resolve(): Promise<void> {
-    if (this.ready) return;
     const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('DefaultAuthnService: the resolved Configuration has no get()');
@@ -201,7 +199,6 @@ export class DefaultAuthnService extends AuthnService {
     this.throttle = await this.selectThrottle(configuration.get('authn.throttle.service'));
     if (canPeek(this.throttle)) this.peeker = this.throttle;
     else if (this.registry.strategies().some((s) => !s.interactive)) warnOnce(NO_PEEK_WARNING);
-    this.ready = true;
     await super.resolve();
   }
 

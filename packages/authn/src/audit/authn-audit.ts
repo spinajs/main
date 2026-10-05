@@ -65,7 +65,6 @@ export class AuthnAudit extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    if (this.active) return;
     const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('AuthnAudit: the resolved Configuration has no get()');

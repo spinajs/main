@@ -39,7 +39,6 @@ export class MfaStepRegistry extends AsyncService {
   }
 
   public async resolve(): Promise<void> {
-    if (this.listed) return;
     const configuration = (await this.container.resolve(Configuration)) as Configuration | null;
     if (configuration === null || typeof configuration !== 'object' || typeof configuration.get !== 'function') {
       throw new InvalidOperation('MfaStepRegistry: the resolved Configuration has no get()');

@@ -86,14 +86,12 @@ export class AccountLinkService extends AsyncService {
   private auditor!: AuthnAudit;
   private passwords: PasswordCredentialStore | undefined;
   private keys: KeyRegistry | undefined;
-  private ready = false;
 
   constructor(private readonly container: IContainer) {
     super();
   }
 
   public async resolve(): Promise<void> {
-    if (this.ready) return;
     this.links = (await this.neighbour(IdentityLinkStore, 'IdentityLinkStore', true))!;
     this.sessions = (await this.neighbour(SessionIssuer, 'SessionIssuer', true))!;
     this.identities = (await this.neighbour(IdentityStore, 'IdentityStore', true))!;
@@ -101,7 +99,6 @@ export class AccountLinkService extends AsyncService {
     this.keys = await this.neighbour(KeyRegistry, 'KeyRegistry', false);
     this.fresh = await this.container.resolve(FreshAuthCheck);
     this.auditor = await this.container.resolve(AuthnAudit);
-    this.ready = true;
     await super.resolve();
   }
 
