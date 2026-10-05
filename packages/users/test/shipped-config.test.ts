@@ -190,5 +190,29 @@ describe('the configuration users ships', function () {
       expect(await authz.can(me, 'user:read', { type: 'user', id: other.Uuid }, other)).to.eq(false);
       expect(await authz.can(me, 'user:impersonate')).to.eq(false);
     });
+
+    it('gives guest no wider fields than user, held alone or with user, in a check and in the summary', async () => {
+      const authz = (await DI.resolve(AuthzService)) as AuthzService;
+      const factory = (await DI.resolve(UserPrincipalFactory)) as UserPrincipalFactory;
+      const readFields = async (roles: string[], login: string) => {
+        const { User: created } = await create({ Email: `${login}@spinajs.pl`, Login: login, Password: 'passw0rd123' }, roles);
+        await activate(created);
+        const own = await User.query().where('Uuid', created.Uuid).populate('Metadata').firstOrFail();
+        const principal = await factory.principalOf(own);
+        const read = await authz.check({ principal, permission: 'user:read', resource: { type: 'user', id: own.Uuid }, subject: own });
+        expect(read.allowed, login).to.eq(true);
+        const summary = (await authz.summary(principal)).permissions.find((p) => p.name === 'user:read');
+        return { check: read.fields.read, summary: summary?.fields?.read };
+      };
+
+      for (const [roles, login] of [
+        [['guest'], 'guest-only'],
+        [['guest', 'user'], 'guest-and-user'],
+      ] as const) {
+        const fields = await readFields([...roles], login);
+        expect(fields.check, login).to.have.members(['Email', 'Login']);
+        expect(fields.summary, login).to.have.members(['Email', 'Login']);
+      }
+    });
   });
 });
