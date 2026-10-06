@@ -38,7 +38,7 @@ class TestConfiguration extends FrameworkConfiguration {
         // AutoinjectService('authn.local.hasher') will resolve a service whose
         // constructor.name matches this string. Same for auth / session.
         local: { hasher: { service: 'TestPasswordProvider' } },
-        session: { service: 'TestSessionProvider' },
+        session: { service: 'TestSessionProvider', cookie: { hostPrefix: false } },
       },
       authz: {
         principals: { roleSwitch: { requirePassword: ['root'] } },

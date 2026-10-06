@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware, parseTrustProxy } from '@spinajs/http';
@@ -93,9 +94,11 @@ function expectRefused(s: Sent): void {
   expect(s.ran, 'the refused request never reached the handler').to.eq(false);
 }
 
+const BASE = { 'authn.http.csrf.enabled': true, 'authn.http.csrf.allowedOrigins': [], 'authn.session.cookie': { name: 'ssid' }, 'authn.http.trustProxy': null, 'http.trustProxy': null };
+
 function unitGuard(values: Record<string, unknown>): CsrfOriginGuard {
   const mw = new CsrfOriginGuard();
-  Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path in values ? values[path] : def) } });
+  Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ ...BASE, ...values }) });
   return mw;
 }
 
@@ -199,8 +202,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expectPass(await send('POST', { Origin: EVIL }));
     });
 
-    it('A22 the guard is on when authn.http.csrf is not configured', async () => {
-      await restartWith({ ...DEFAULTS, 'authn.http.csrf.enabled': undefined, 'authn.http.csrf.allowedOrigins': undefined });
+    it('A22 the guard is on with the schema defaults', async () => {
+      await restartWith({ ...DEFAULTS, 'authn.http.csrf.allowedOrigins': [] });
       expectRefused(await send('POST', { Origin: EVIL }));
       expectRefused(await send('POST', { Origin: PARTNER }));
       expectPass(await send('POST', { Origin: OWN }));
@@ -284,13 +287,8 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
       expect(run(guard, 'POST', { origin: PARTNER }).passed).to.eq(true);
     });
 
-    it('a bad allowedOrigins entry fails when the middleware is built, naming the key', () => {
-      const bad = ['*', 'null', '', 'partner.example.org', 'https://partner.example.org/app', 'https://*.example.org', 'https://user@partner.example.org', 42];
-      for (const entry of bad) {
-        expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': [entry] }).before(), String(entry)).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
-      }
-      expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': PARTNER }).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
-      expect(unitGuard({ 'authn.http.csrf.allowedOrigins': null }).before()).to.be.a('function');
+    it('an allowed origin the schema pattern cannot judge fails when the middleware is built, naming the key', () => {
+      expect(() => unitGuard({ 'authn.http.csrf.allowedOrigins': ['https://partner.example.org:99999'] }).before()).to.throw(InvalidOption, 'authn.http.csrf.allowedOrigins');
     });
 
     it('a bad trust setting fails when the middleware is built, naming the key', () => {
@@ -300,17 +298,7 @@ describe('CsrfOriginGuard (A22, SR-12)', function () {
     it('is off only for enabled: false', () => {
       expect(unitGuard({ 'authn.http.csrf.enabled': false }).before()).to.eq(null);
       expect(unitGuard({ 'authn.http.csrf.enabled': true }).before()).to.be.a('function');
-      expect(unitGuard({ 'authn.http.csrf.enabled': null }).before()).to.be.a('function');
       expect(unitGuard({}).after()).to.eq(null);
-    });
-
-    it('a non-boolean enabled or a non-object authn.http.csrf fails when the middleware is built, naming the key', () => {
-      for (const enabled of ['false', 'true', 0, 1, {}]) {
-        expect(() => unitGuard({ 'authn.http.csrf.enabled': enabled }).before(), JSON.stringify(enabled)).to.throw(InvalidOption, 'authn.http.csrf.enabled');
-      }
-      for (const csrf of [false, true, 'off', []]) {
-        expect(() => unitGuard({ 'authn.http.csrf': csrf }).before(), JSON.stringify(csrf)).to.throw(InvalidOption, 'authn.http.csrf');
-      }
     });
 
     it('checks the configured cookie name, bare and with __Host-', () => {

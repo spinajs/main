@@ -178,6 +178,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     session: {
       type: 'object',
+      default: {},
       properties: {
         service: { type: 'string', minLength: 1 },
         expiration: {
@@ -192,12 +193,13 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         pendingTtlSeconds: { type: 'integer', minimum: 1, description: 'Pre-MFA session (D25).' },
         cookie: {
           type: 'object',
+          default: {},
           description: "'auto': on unless the env is development or test.",
           properties: {
-            name: { type: 'string', minLength: 1 },
+            name: { type: 'string', minLength: 1, default: 'ssid' },
             // No `type`, so nothing is coerced: with coerceTypes a null would become false. String booleans (env values) are kept as given.
-            hostPrefix: { enum: [true, false, 'auto', 'true', 'false'] },
-            secure: { enum: [true, false, 'auto', 'true', 'false'] },
+            hostPrefix: { enum: [true, false, 'auto', 'true', 'false'], default: 'auto' },
+            secure: { enum: [true, false, 'auto', 'true', 'false'], default: 'auto' },
             // What the 2.x cookie builder and express accept: booleans and any letter case.
             sameSite: { anyOf: [{ enum: [true, false] }, { type: 'string', pattern: '^([Ss][Tt][Rr][Ii][Cc][Tt]|[Ll][Aa][Xx]|[Nn][Oo][Nn][Ee])$' }], default: 'strict' },
           },
@@ -386,6 +388,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     http: {
       type: 'object',
+      default: {},
       properties: {
         publicOrigin: {
           type: 'string',
@@ -402,9 +405,11 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
         },
         csrf: {
           type: 'object',
+          default: {},
           properties: {
-            enabled: { type: 'boolean', default: true },
-            allowedOrigins: { ...stringList, default: [], description: 'Besides the same origin, which is always allowed.' },
+            // Not `type: 'boolean'`: coerceTypes would turn a null into false and switch the guard off.
+            enabled: { enum: [true, false], default: true },
+            allowedOrigins: { type: 'array', default: [], items: { type: 'string', pattern: ORIGIN_PATTERN }, description: 'Besides the same origin, which is always allowed.' },
           },
         },
         routes: {

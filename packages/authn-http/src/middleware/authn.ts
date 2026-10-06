@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as cs from 'cookie-signature';
 import { Autoinject, Container } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Config, Configuration } from '@spinajs/configuration';
 import { Log, Logger } from '@spinajs/log';
 import { ServerMiddleware } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
@@ -53,8 +53,18 @@ function bodyOf(req: Request): Uint8Array | undefined {
  * RbacMiddleware both read the same cookie, and the issuer migrates a 2.x row away from under it.
  */
 export class AuthnMiddleware extends ServerMiddleware {
+  // Stays an injected Configuration: appEnvOf reads its Env for the SR-16 "no env named" rule, which @Config cannot express.
   @Autoinject(Configuration)
   protected Configuration!: Configuration;
+
+  @Config('http.cookie.secret')
+  protected ConfiguredCookieSecret: string;
+
+  @Config('authn.session.cookie')
+  protected SessionCookie: ISessionCookieConfig;
+
+  @Config('authn.http.publicOrigin')
+  protected PublicOrigin: string | null | undefined;
 
   @Autoinject(Container)
   protected Container!: IContainer;
@@ -75,16 +85,16 @@ export class AuthnMiddleware extends ServerMiddleware {
 
   public async resolve(): Promise<void> {
     const env = appEnvOf(this.Configuration);
-    const secret = this.Configuration.get<string>('http.cookie.secret');
+    const secret = this.ConfiguredCookieSecret;
     assertSessionCookieSecret(secret, env);
     if (secret === PUBLIC_DEFAULT_COOKIE_SECRET) {
       this.Log.warn('http.cookie.secret is the public default shipped with @spinajs/http; session cookies can be forged. Set a secret of your own');
     }
-    if (publicOriginOf(this.Configuration.get<string | null | undefined>('authn.http.publicOrigin')) === undefined) {
+    if (publicOriginOf(this.PublicOrigin) === undefined) {
       this.Log.warn('authn.http.publicOrigin is not set: requests signed with HTTP message signatures get no principal');
     }
     this.CookieSecret = secret;
-    this.CookieName = sessionCookieName(this.Configuration.get<ISessionCookieConfig>('authn.session.cookie', {}) ?? {}, env);
+    this.CookieName = sessionCookieName(this.SessionCookie, env);
     this.Sessions = await this.Container.resolve(SessionIssuer);
     this.Extractors = [...(await this.Container.resolve(Array.ofType(CredentialExtractor)))].sort(byOrder);
     this.Resolvers = [...(await this.Container.resolve(Array.ofType(AuthnPrincipalResolver)))].sort(byOrder);

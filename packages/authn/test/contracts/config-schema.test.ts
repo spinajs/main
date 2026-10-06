@@ -66,6 +66,8 @@ const LOCAL_DEFAULTS = {
   invite: { ttlSeconds: 900 },
   expiration: { enabled: false, maxAgeDays: 31 },
 };
+const SESSION_COOKIE_DEFAULTS = { name: 'ssid', hostPrefix: 'auto', secure: 'auto', sameSite: 'strict' };
+const HTTP_DEFAULTS = { csrf: { enabled: true, allowedOrigins: [] } };
 const KEYS_DEFAULTS = { algorithms: ['EdDSA', 'ES256'], challenge: { ttlSeconds: 120, audience: null }, assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 }, httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } };
 const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
 
@@ -278,7 +280,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS, http: HTTP_DEFAULTS, session: { cookie: SESSION_COOKIE_DEFAULTS, hashIds: true } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -291,7 +293,7 @@ describe('authn.* configuration schema', () => {
       expect(r.errors).to.deep.eq([]);
       expect(r.config).to.deep.eq({
         local: LOCAL_DEFAULTS,
-        session: { cookie: { sameSite: 'strict' }, hashIds: true },
+        session: { cookie: SESSION_COOKIE_DEFAULTS, hashIds: true },
         token: TOKEN_DEFAULTS,
         jwt: { issuers: [] },
         keys: KEYS_DEFAULTS,

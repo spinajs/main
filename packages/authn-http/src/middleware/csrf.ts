@@ -1,14 +1,13 @@
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { InvalidOption } from '@spinajs/exceptions';
 import { HTTP_STATUS_CODE, ServerMiddleware, parseOrigin, requestOrigin } from '@spinajs/http';
 import type { ProxyTrust, Request } from '@spinajs/http';
-import { SESSION_COOKIE_BASE_NAME } from '@spinajs/authn-session';
 import type { ISessionCookieConfig } from '@spinajs/authn-session';
 import { Log, Logger } from '@spinajs/log';
 import type * as express from 'express';
 
-import { authnProxyTrust } from './client-ip.js';
+import { proxyTrustOf } from './client-ip.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const ALLOWED_ORIGINS_KEY = 'authn.http.csrf.allowedOrigins';
@@ -22,29 +21,17 @@ export function ownOrigin(req: Parameters<typeof requestOrigin>[0], trust: Proxy
   return parseOrigin(requestOrigin(req, trust));
 }
 
-function allowedOrigins(value: unknown): ReadonlySet<string> {
-  if (value === undefined || value === null) return new Set();
-  if (!Array.isArray(value)) throw new InvalidOption(`${ALLOWED_ORIGINS_KEY} must be a list of origins (scheme://host[:port])`);
+/** The schema judges the shape of each entry; `parseOrigin` normalises it and still refuses what a pattern cannot (a port above 65535). */
+function normalisedOrigins(list: readonly string[]): ReadonlySet<string> {
   return new Set(
-    value.map((entry: unknown) => {
+    list.map((entry) => {
       const origin = parseOrigin(entry);
-      if (origin === undefined) throw new InvalidOption(`${ALLOWED_ORIGINS_KEY} entry ${JSON.stringify(entry) ?? String(entry)} is not an origin (scheme://host[:port])`);
+      if (origin === undefined) throw new InvalidOption(`${ALLOWED_ORIGINS_KEY} entry ${JSON.stringify(entry)} is not an origin (scheme://host[:port])`);
       return origin;
     }),
   );
 }
 
-function isEnabled(config: Configuration): boolean {
-  const csrf = config.get<unknown>('authn.http.csrf');
-  if (csrf !== undefined && csrf !== null && (typeof csrf !== 'object' || Array.isArray(csrf))) {
-    throw new InvalidOption('authn.http.csrf must be an object ({ enabled, allowedOrigins })');
-  }
-  const enabled = config.get<unknown>('authn.http.csrf.enabled');
-  if (enabled !== undefined && enabled !== null && typeof enabled !== 'boolean') {
-    throw new InvalidOption(`authn.http.csrf.enabled must be true or false; got ${JSON.stringify(enabled)}`);
-  }
-  return enabled !== false;
-}
 
 const WARN_INTERVAL_MS = 60_000;
 const WARN_KEYS_MAX = 256;
@@ -99,8 +86,20 @@ function carriesCookie(header: string | undefined, names: readonly string[]): bo
  */
 @Injectable(ServerMiddleware)
 export class CsrfOriginGuard extends ServerMiddleware {
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('authn.http.csrf.enabled')
+  protected Enabled: boolean;
+
+  @Config('authn.http.csrf.allowedOrigins')
+  protected AllowedOrigins: string[];
+
+  @Config('authn.http.trustProxy')
+  protected OwnTrust: unknown;
+
+  @Config('http.trustProxy')
+  protected SharedTrust: unknown;
+
+  @Config('authn.session.cookie')
+  protected SessionCookie: ISessionCookieConfig;
 
   @Logger('authn-http')
   protected Log!: Log;
@@ -111,14 +110,14 @@ export class CsrfOriginGuard extends ServerMiddleware {
   }
 
   public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    const enabled = isEnabled(this.Configuration);
-    const allowed = allowedOrigins(this.Configuration.get<unknown>(ALLOWED_ORIGINS_KEY));
-    const trust = authnProxyTrust(this.Configuration);
-    if (!enabled) return null;
+    // Built before the enabled check, so a bad setting fails the boot even while the guard is off.
+    const allowed = normalisedOrigins(this.AllowedOrigins);
+    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
+    if (!this.Enabled) return null;
 
     // Until AuthnMiddleware replaces the 2.x session code, that code and authn-session can disagree on the
     // __Host- prefix, so both forms count as the session cookie.
-    const base = this.Configuration.get<ISessionCookieConfig>('authn.session.cookie', {})?.name ?? SESSION_COOKIE_BASE_NAME;
+    const base = this.SessionCookie.name as string;
     const sessionCookies = [base, `__Host-${base}`];
     const warnings = new RefusalWarnings(() => this.Log);
 

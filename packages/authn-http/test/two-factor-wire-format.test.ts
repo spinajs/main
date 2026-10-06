@@ -63,6 +63,9 @@ class TwoFactorDisabledConfiguration extends TestConfiguration {
 
     // The one value this suite is actually about: system-wide 2FA switched off.
     cfg.rbac = { twoFactorAuth: { enabled: false, service: 'Default2FaToken' } };
+
+    // The base class replaces the validated tree, so the schema defaults of the authn http middlewares are lost.
+    cfg.authn = { ...cfg.authn, http: { ...cfg.authn?.http, csrf: { enabled: true, allowedOrigins: [] } }, session: { service: 'MemorySessionStore', ...cfg.authn?.session, cookie: { name: 'ssid' } } };
   }
 }
 

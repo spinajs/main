@@ -717,6 +717,7 @@ describe('AuthnMiddleware units', () => {
     const mw = new AuthnMiddleware();
     const l = log();
     Object.defineProperty(mw, 'Configuration', { value: config(values) });
+    Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ 'authn.session.cookie': { name: 'ssid' }, ...values }) });
     Object.defineProperty(mw, 'Log', { value: l });
     Object.defineProperty(mw, 'Container', {
       value: {

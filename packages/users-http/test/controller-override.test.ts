@@ -40,6 +40,9 @@ class OverrideTestConfiguration extends TestConfiguration {
     // cookie ). No request in this suite carries a session, so the value only
     // has to exist.
     cfg.http.cookie = { secret: 'controller-override-test-secret' };
+
+    // The base class replaces the validated tree, so the schema defaults of the authn http middlewares are lost.
+    cfg.authn = { ...cfg.authn, http: { csrf: { enabled: true, allowedOrigins: [] } }, session: { service: 'MemorySessionStore', ...cfg.authn?.session, cookie: { name: 'ssid' } } };
   }
 }
 

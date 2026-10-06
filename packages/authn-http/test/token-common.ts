@@ -12,6 +12,7 @@ import chaiAsPromised from 'chai-as-promised';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 
+import { registerRootSchemas } from './support/root-schemas.js';
 import { dropOwnCompiledDirs } from './token-db-common.js';
 import { SessionCookieFactory } from '../src/account/services/SessionCookies.js';
 
@@ -67,6 +68,7 @@ export function restoreHttpErrorMap() {
  */
 export class TestConfiguration extends FrameworkConfiguration {
   public async resolve(): Promise<void> {
+    registerRootSchemas();
     await super.resolve();
 
     // see `dropOwnCompiledDirs` - without it this package's shipped config adds

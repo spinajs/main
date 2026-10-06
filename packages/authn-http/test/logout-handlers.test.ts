@@ -34,7 +34,7 @@ class LogoutTestConfiguration extends FrameworkConfiguration {
       },
       authn: {
         local: { hasher: { service: 'LogoutTestPasswordProvider' } },
-        session: { service: 'LogoutTestSessionProvider' },
+        session: { service: 'LogoutTestSessionProvider', cookie: { hostPrefix: false } },
       },
       rbac: {
         auth: { service: 'LogoutTestAuthProvider' },

@@ -1,13 +1,15 @@
-import { Autoinject, Injectable } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { ServerMiddleware, parseTrustProxy, trustedClientAddress } from '@spinajs/http';
 import type { ProxyTrust, Request } from '@spinajs/http';
 import type * as express from 'express';
 
-/** authn.http.trustProxy, else http.trustProxy (only when the former is null or absent); a bad value throws. */
-export function authnProxyTrust(config: Configuration): ProxyTrust {
-  const own = config.get<unknown>('authn.http.trustProxy');
-  return own === null || own === undefined ? parseTrustProxy(config.get<unknown>('http.trustProxy'), 'http.trustProxy') : parseTrustProxy(own, 'authn.http.trustProxy');
+/**
+ * authn.http.trustProxy, else http.trustProxy (only when the former is null or absent). The schemas judge the types;
+ * `parseTrustProxy` compiles the setting and throws, naming the key, for an entry that is no address or CIDR.
+ */
+export function proxyTrustOf(own: unknown, shared: unknown): ProxyTrust {
+  return own === null || own === undefined ? parseTrustProxy(shared, 'http.trustProxy') : parseTrustProxy(own, 'authn.http.trustProxy');
 }
 
 /**
@@ -16,8 +18,11 @@ export function authnProxyTrust(config: Configuration): ProxyTrust {
  */
 @Injectable(ServerMiddleware)
 export class ClientIp extends ServerMiddleware {
-  @Autoinject(Configuration)
-  protected Configuration!: Configuration;
+  @Config('authn.http.trustProxy')
+  protected OwnTrust: unknown;
+
+  @Config('http.trustProxy')
+  protected SharedTrust: unknown;
 
   constructor() {
     super();
@@ -25,7 +30,7 @@ export class ClientIp extends ServerMiddleware {
   }
 
   public before(): ((req: Request, res: express.Response, next: express.NextFunction) => void) | null {
-    const trust = authnProxyTrust(this.Configuration);
+    const trust = proxyTrustOf(this.OwnTrust, this.SharedTrust);
     return (req: Request, _res: express.Response, next: express.NextFunction) => {
       req.storage.ClientIp = trustedClientAddress(req.socket?.remoteAddress, req.headers['x-forwarded-for'], trust);
       next();

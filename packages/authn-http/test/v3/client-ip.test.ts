@@ -2,7 +2,8 @@ import 'mocha';
 import { expect } from 'chai';
 import { Bootstrapper, DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Configuration } from '@spinajs/configuration';
+import { fakeContainer } from '../support/config-boot.js';
 import { InvalidOption } from '@spinajs/exceptions';
 import { Orm } from '@spinajs/orm';
 import { BaseController, Controllers, HttpServer, ServerMiddleware } from '@spinajs/http';
@@ -50,9 +51,11 @@ async function clientIp(xff?: string): Promise<string | null> {
   return res.body.clientIp;
 }
 
+const BASE = { 'authn.http.trustProxy': null, 'http.trustProxy': null };
+
 function unitClientIp(values: Record<string, unknown>): ClientIp {
   const mw = new ClientIp();
-  Object.defineProperty(mw, 'Configuration', { value: { get: (path: string, def?: unknown) => (path in values ? values[path] : def) } });
+  Object.defineProperty(mw, CONFIGURATION_CONTAINER_KEY, { value: fakeContainer({ ...BASE, ...values }) });
   return mw;
 }
 
