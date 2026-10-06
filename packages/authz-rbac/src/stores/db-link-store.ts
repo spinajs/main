@@ -1,6 +1,6 @@
 import { AuthzAdminFailure, AuthzClock, AuthzConfigError, GLOBAL, principalKey } from '@spinajs/authz';
 import type { AuthzTx, LinkDef, PrincipalRef, ResourceRef } from '@spinajs/authz';
-import { Configuration } from '@spinajs/configuration';
+import { CONFIGURATION_CONTAINER_KEY, Config } from '@spinajs/configuration';
 import { Container, Inject, Injectable, PerChildInstance } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import type { OrmDriver } from '@spinajs/orm';
@@ -74,8 +74,14 @@ export class DbLinkStore extends AdminLinkStore {
 
   protected readonly maxListLimit: number = LINK_LIST_MAX_LIMIT;
 
+  // Optional here: only a domain that uses DbLinkStore needs a secret, which only DI knows; the schema checks its length.
+  @Config(LINK_SECRET_KEY)
+  protected Secret: string | undefined;
+
   constructor(protected readonly container: IContainer) {
     super();
+    // Built with `new`, the store reads the Configuration of the container it is given, as when DI builds it there.
+    (this as unknown as Record<string, unknown>)[CONFIGURATION_CONTAINER_KEY] = container;
   }
 
   /**
@@ -244,12 +250,11 @@ export class DbLinkStore extends AdminLinkStore {
 
   /** Read on every use, so the store can be resolved before the secret is configured. */
   protected async secret(): Promise<string> {
-    const configuration = this.container.hasRegistered(Configuration) ? await this.container.resolve(Configuration) : undefined;
-    const secret = configuration?.get<unknown>(LINK_SECRET_KEY);
+    const secret = this.Secret;
 
+    // Floor for a secret that bypassed the schema (a runtime set): a weak key would let links be forged.
     if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
-      const found = secret === undefined || secret === null ? 'it is not set' : typeof secret !== 'string' ? `it is a ${typeof secret}` : `it has ${secret.length} characters`;
-      throw new AuthzConfigError(`${LINK_SECRET_KEY} must be a string of at least ${MIN_SECRET_LENGTH} characters to hash share link tokens; ${found}`);
+      throw new AuthzConfigError(`${LINK_SECRET_KEY} must be set to hash share link tokens: a string of at least ${MIN_SECRET_LENGTH} characters`);
     }
 
     return secret;
