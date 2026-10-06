@@ -162,6 +162,9 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
       if (providers.has(issuer.provider)) {
         throw new Error(`${at}: provider ${issuer.provider} is used by another issuer`);
       }
+      if (issuers.has(issuer.issuer)) {
+        throw new Error(`${at}: issuer ${issuer.issuer} is configured twice`);
+      }
       issuers.set(issuer.issuer, issuer);
       providers.add(issuer.provider);
     });
@@ -169,6 +172,13 @@ export class JwtBearerStrategy extends AuthenticationStrategy {
   }
 
   protected issuerOf(o: ConfiguredIssuer, at: string): Issuer {
+    // The schema is the gate; this floor holds for values that never went through it (jose skips the aud check without an audience).
+    if (typeof o.audience !== 'string' || o.audience.length === 0) {
+      throw new Error(`${at}.audience must be a non-empty string`);
+    }
+    if (!(Number.isInteger(o.clockSkewSeconds) && o.clockSkewSeconds >= 0 && o.clockSkewSeconds <= 60)) {
+      throw new Error(`${at}.clockSkewSeconds must be an integer from 0 to 60`);
+    }
     const provider = o.provider ?? `jwt:${o.issuer}`;
     // The schema bounds an explicit provider; a derived one is the issuer plus a prefix.
     if (provider.length > MAX_PROVIDER) {

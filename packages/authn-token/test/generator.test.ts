@@ -43,6 +43,8 @@ describe('SecureRandomTokenProvider', () => {
     const rows: Array<[unknown, unknown]> = [
       [undefined, 32],
       ['spt_', undefined],
+      ['spt_', 16],
+      ['spt_', 32.5],
       // 4 + 1023 characters: TokenStrategy would never accept it
       ['spt_', 767],
     ];
@@ -53,6 +55,10 @@ describe('SecureRandomTokenProvider', () => {
       Object.defineProperty(p, 'Length', { value: length, writable: true });
       const err = await p.generate().catch((e: unknown) => e);
       expect(err, `prefix ${String(prefix)}, length ${String(length)}`).to.be.instanceOf(Error);
+      if (typeof prefix === 'string') {
+        expect((err as Error).constructor).to.equal(Error);
+        expect((err as Error).message).to.match(/authn\.token\.length|authn\.token\.prefix and/);
+      }
     }
   });
 });

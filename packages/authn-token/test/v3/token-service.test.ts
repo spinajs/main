@@ -487,6 +487,17 @@ describe('DbTokenService', function () {
     });
   });
 
+  describe('a TTL cap the schema never saw', () => {
+    it('refuses every expiry when the cap is not finite', async () => {
+      const a = await owner();
+      setToken('maxTtlDays', Infinity);
+      await refused(a, { name: 'x', kind: 'pat', expiresAt: at(DAY) }, 'invalid_expiry');
+      setToken('maxTtlDays', 90);
+      setToken('agentMaxTtlMinutes', Infinity);
+      await refused(a, { name: 'x', kind: 'agent', scope: { agent: true }, expiresAt: at(60 * MINUTE) }, 'invalid_expiry');
+    });
+  });
+
   describe('an invalid ctx.now', () => {
     const bad: Array<[string, unknown]> = [
       ['NaN date', new Date(Number.NaN)],

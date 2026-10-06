@@ -270,6 +270,37 @@ describe('JwtBearerStrategy', function () {
     });
   });
 
+  describe('floors for values the schema never saw', () => {
+    const base = (over: Record<string, unknown> = {}) => remote({ clockSkewSeconds: 30, ...over });
+    const unvalidated = async (issuers: unknown[]): Promise<unknown> => {
+      const s = new JwtBearerStrategy();
+      Object.defineProperty(s, 'Issuers', { value: issuers });
+      return s.resolve().then(
+        () => null,
+        (e: unknown) => e,
+      );
+    };
+
+    const rows: Array<[string, () => unknown[]]> = [
+      ['an issuer without an audience', () => [without(base(), 'audience')]],
+      ['an issuer with an empty audience', () => [base({ audience: '' })]],
+      ['a skew of 86400', () => [base({ clockSkewSeconds: 86400 })]],
+      ['a skew without a value', () => [without(base(), 'clockSkewSeconds')]],
+      ['a duplicate issuer', () => [base(), base({ provider: 'jwt:other' })]],
+    ];
+    for (const [label, issuers] of rows) {
+      it(`refuses ${label}`, async () => {
+        const err = await unvalidated(issuers());
+        expect(err, label).to.be.instanceOf(Error);
+        expect((err as Error).message, label).to.match(/authn\.jwt\.issuers\[\d\]/);
+      });
+    }
+
+    it('accepts a valid issuer without the schema', async () => {
+      expect(await unvalidated([base()])).to.equal(null);
+    });
+  });
+
   describe('linking switches (K6)', () => {
     it('allows JIT only for an issuer whose linking.jit is on, and never linking by email', async () => {
       const s = await make([remote({ linking: { jit: true } }), remote({ issuer: 'https://other.unit.test', provider: 'jwt:other' })]);

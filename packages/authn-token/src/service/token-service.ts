@@ -206,8 +206,8 @@ export class DbTokenService extends TokenService {
     }
     const patCap = now + this.MaxTtlDays * DAY_MS;
     const cap = agent ? Math.min(patCap, now + this.AgentMaxTtlMinutes * MINUTE_MS) : patCap;
-    // Written to fail closed: a cap that is not a number (a Configuration.set the schema never saw) refuses every expiry.
-    if (!(expiresAt > now && expiresAt <= cap)) {
+    // The schema is the gate; this floor holds for values that never went through it.
+    if (!(Number.isFinite(cap) && expiresAt > now && expiresAt <= cap)) {
       return INVALID_EXPIRY;
     }
 
