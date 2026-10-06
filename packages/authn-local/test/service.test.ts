@@ -1,5 +1,6 @@
 import 'mocha';
 import { expect } from 'chai';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { DI } from '@spinajs/di';
 import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
@@ -583,6 +584,7 @@ describe('LocalPasswordService DI wiring', function () {
 
   before(async () => {
     DI.setESMModuleSupport();
+    DI.register(AUTHN_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
     DI.register(ServiceTestConfiguration).as(Configuration);
     DI.register(FakeIdentityStore).as(IdentityStore);
     DI.register(MemoryPasswordCredentialStore).as(PasswordCredentialStore);
@@ -647,7 +649,7 @@ describe('LocalPasswordService DI wiring', function () {
     expect((await service.change(alice, OLD, NEW, session, ctx())).status).to.equal('changed');
     expect(await service.set(alice, 'Another-Pass-4', ctx())).to.deep.equal({ status: 'set' });
     expect(tokens.calls).to.deep.equal([]);
-    const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+    const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
     expect(sink.ofType('password.change').map((e) => e.outcome)).to.deep.equal(['success', 'success']);
   });
 

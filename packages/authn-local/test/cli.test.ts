@@ -163,7 +163,7 @@ describe('authn-local cli commands', function () {
       const identities = DI.resolve(IdentityStore) as FakeIdentityStore;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
       const hasher = (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher;
-      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
       const id = identities.add({ login });
       const hash = await hasher.hash(OLD);
       await passwords.set(id, hash);
@@ -300,7 +300,7 @@ describe('authn-local cli commands', function () {
     it('an unknown login fails the command without calling set or naming the login', async () => {
       const service = (await DI.resolve(PasswordService)) as LocalPasswordService;
       const passwords = DI.resolve(PasswordCredentialStore) as MemoryPasswordCredentialStore;
-      const sink = DI.resolve(Array.ofType(AuthnEventSink))[0] as RecordingEventSink;
+      const sink = (DI.resolve(Array.ofType(AuthnEventSink)) as unknown[]).find((s) => s instanceof RecordingEventSink) as RecordingEventSink;
       const writes = passwords.writes.length;
       const events = sink.all().length;
       const original = service.set;

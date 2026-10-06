@@ -74,25 +74,23 @@ export function isLoginLength(password: string): boolean {
 /** `check`, `policy` and the generator behind `PasswordService` (A04, SR-14). Passwords are never trimmed or normalised. */
 @Injectable()
 export class LocalPasswordPolicy extends SyncService {
-  @Config('authn.local.policy.minLength', { defaultValue: PASSWORD_MIN_LENGTH })
+  @Config('authn.local.policy.minLength')
   protected MinLength: number;
 
-  @Config('authn.local.policy.maxLength', { defaultValue: PASSWORD_MAX_LENGTH })
+  @Config('authn.local.policy.maxLength')
   protected MaxLength: number;
 
-  @Config('authn.local.policy.rule', { defaultValue: null })
+  @Config('authn.local.policy.rule')
   protected Rule: object | null;
 
-  @Config('authn.local.policy.description', { defaultValue: undefined as string | undefined })
+  @Config('authn.local.policy.description')
   protected Description: string | undefined;
 
-  // Code default instead of a shipped config value: @spinajs/users still ships this key, and its `characters` array would be
-  // concatenated with ours by the config merge.
-  @Config('authn.local.generator', { defaultValue: DEFAULT_GENERATOR })
+  @Config('authn.local.generator')
   protected Generator: GeneratorConfig;
 
   // A name read here and resolved below rather than @AutoinjectService, which logs a warning on every boot for the default null.
-  @Config('authn.local.policy.blocklist', { defaultValue: null })
+  @Config('authn.local.policy.blocklist')
   protected BlocklistName: string | null;
 
   private _settings?: PolicySettings;

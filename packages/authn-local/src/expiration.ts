@@ -42,11 +42,10 @@ export interface PasswordExpirationJobDeps {
  */
 @Injectable()
 export class PasswordExpirationJob {
-  // Code defaults: @spinajs/users still ships `authn.local.expiration` with its 2.x keys.
-  @Config('authn.local.expiration.enabled', { defaultValue: false })
+  @Config('authn.local.expiration.enabled')
   protected Enabled: boolean;
 
-  @Config('authn.local.expiration.maxAgeDays', { defaultValue: 31 })
+  @Config('authn.local.expiration.maxAgeDays')
   protected MaxAgeDays: number;
 
   @Logger('authn-local')

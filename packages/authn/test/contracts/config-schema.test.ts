@@ -57,6 +57,15 @@ function refused(config: Json, instancePath: string): void {
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 const TOTP_DEFAULTS = { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 };
+const LOCAL_DEFAULTS = {
+  hasher: { maxConcurrent: 8 },
+  pepper: { secret: null, version: 1 },
+  policy: { minLength: 8, maxLength: 128, rule: null, blocklist: null },
+  generator: { length: 16, characters: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'] },
+  reset: { ttlSeconds: 3600, url: '', revokeTokens: true },
+  invite: { ttlSeconds: 900 },
+  expiration: { enabled: false, maxAgeDays: 31 },
+};
 const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
 
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
@@ -268,7 +277,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
+      expect(check({}).config).to.deep.eq({ local: LOCAL_DEFAULTS, strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -280,7 +289,7 @@ describe('authn.* configuration schema', () => {
       const r = check({ local: { hasher: {}, policy: {}, reset: {} }, session: { cookie: {} }, token: {}, impersonation: {}, audit: {}, http: { csrf: {} } });
       expect(r.errors).to.deep.eq([]);
       expect(r.config).to.deep.eq({
-        local: { hasher: { maxConcurrent: 8 }, policy: { minLength: 8, maxLength: 128 }, reset: { revokeTokens: true } },
+        local: LOCAL_DEFAULTS,
         session: { cookie: { sameSite: 'strict' }, hashIds: true },
         token: TOKEN_DEFAULTS,
         jwt: { issuers: [] },

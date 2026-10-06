@@ -96,9 +96,11 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     strategies: { ...named, description: 'Strategy services by name, each name once. Config files concatenate arrays, so packages ship no entry and the app lists each strategy in one file.' },
     local: {
       type: 'object',
+      default: {},
       properties: {
         hasher: {
           type: 'object',
+          default: {},
           description: 'No argon2 cost keys: the cost is the library default (H30).',
           propertyNames: { enum: ['service', 'maxConcurrent'] },
           properties: {
@@ -106,7 +108,8 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
             maxConcurrent: { type: 'integer', minimum: 1, default: 8, description: 'Argon2 operations at once; the rest queue.' },
           },
         },
-        pepper: secretRef('HMAC-SHA256 pepper applied before argon2.', {
+        pepper: {
+          ...secretRef('HMAC-SHA256 pepper applied before argon2.', {
           version: { type: 'integer', minimum: 1, maximum: 999999999, default: 1, description: 'Stored in the hash prefix so the pepper can rotate.' },
           previous: {
             type: 'array',
@@ -122,42 +125,50 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
               required: ['secret', 'version'],
             },
           },
-        }),
+          }),
+          default: { secret: null, version: 1 },
+        },
         policy: {
           type: 'object',
+          default: {},
           properties: {
             minLength: { type: 'integer', minimum: 8, maximum: 128, default: 8, description: 'Passwords are 8–128 characters everywhere (A04).' },
-            maxLength: { type: 'integer', minimum: 8, maximum: 128, default: 128 },
-            rule: { type: ['object', 'null'], description: 'A JSON schema the password must match.' },
-            blocklist: { type: ['string', 'null'], description: 'PasswordBlocklist service.' },
+            maxLength: { type: 'integer', minimum: { $data: '1/minLength' }, maximum: 128, default: 128 },
+            rule: { type: ['object', 'null'], default: null, description: 'A JSON schema the password must match.' },
+            description: { type: 'string' },
+            blocklist: { type: ['string', 'null'], default: null, description: 'PasswordBlocklist service.' },
           },
         },
         generator: {
           type: 'object',
+          default: {},
           properties: {
-            length: { type: 'integer', minimum: 1 },
-            characters: { ...stringList, minItems: 1, description: 'Concatenated into one pool.' },
+            length: { type: 'integer', minimum: 1, default: 16 },
+            characters: { ...stringList, minItems: 1, default: ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789'], description: 'Concatenated into one pool.' },
           },
         },
         reset: {
           type: 'object',
+          default: {},
           properties: {
-            ttlSeconds: { type: 'integer', minimum: 1 },
-            url: { type: 'string' },
+            ttlSeconds: { type: 'integer', minimum: 1, default: 3600 },
+            url: { type: 'string', default: '' },
             revokeTokens: { type: 'boolean', default: true },
           },
         },
         invite: {
           type: 'object',
+          default: {},
           properties: {
-            ttlSeconds: { type: 'integer', minimum: 1 },
+            ttlSeconds: { type: 'integer', minimum: 1, default: 900 },
           },
         },
         expiration: {
           type: 'object',
+          default: {},
           properties: {
-            enabled: { type: 'boolean' },
-            maxAgeDays: { type: 'integer', minimum: 1 },
+            enabled: { type: 'boolean', default: false },
+            maxAgeDays: { type: 'number', exclusiveMinimum: 0, default: 31 },
           },
         },
       },

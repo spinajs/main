@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DI } from '@spinajs/di';
 import { Configuration } from '@spinajs/configuration';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
 import { AuthenticationStrategy, AuthnEventSink, AuthnThrottle, IdentityStore, PasswordCredentialStore, PasswordService, SecretStore, SessionIssuer, TokenService } from '@spinajs/authn/contracts';
 import type { AuthnContext, IdentityRef, PrincipalRef, TokenCreateOptions, TokenCreateResult, TokenRecord, TokenValidation } from '@spinajs/authn/contracts';
 import {
@@ -69,6 +70,35 @@ const BLACK_HOLE_LOGGER = {
   rules: [{ name: '*', level: 'trace', target: 'Empty' }],
 };
 
+type SchemaNode = { default?: unknown; properties?: Record<string, SchemaNode> };
+
+/** What the schema would fill for this node: the defaults of its members over its own default. */
+function schemaDefaults(node: SchemaNode | undefined): unknown {
+  if (!node) return undefined;
+  if (!node.properties) return node.default;
+  const out: Record<string, unknown> = { ...((node.default as object | undefined) ?? {}) };
+  for (const [key, member] of Object.entries(node.properties)) {
+    const value = schemaDefaults(member);
+    if (value !== undefined && !(key in out)) out[key] = value;
+  }
+  return out;
+}
+
+function withDefaults(value: unknown, defaults: unknown): unknown {
+  const plain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!plain(value) || !plain(defaults)) return value === undefined ? defaults : value;
+  const out: Record<string, unknown> = { ...defaults };
+  for (const [key, v] of Object.entries(value)) out[key] = withDefaults(v, defaults[key]);
+  return out;
+}
+
+/** The harness reads no schema through a Configuration, so it fills the schema defaults itself. */
+function schemaDefaultAt(parts: string[]): unknown {
+  let node = parts[0] === 'authn' ? (AUTHN_CONFIGURATION_SCHEMA as SchemaNode) : undefined;
+  for (const part of parts.slice(1)) node = node?.properties?.[part];
+  return schemaDefaults(node);
+}
+
 /**
  * The case's values over this package's own `authn` config, then the code defaults. A FrameworkConfiguration would also merge
  * every installed package's config, and @spinajs/users still ships 2.x `authn.local` keys (a policy rule,
@@ -83,11 +113,13 @@ class HarnessConfiguration extends Configuration {
     let node: unknown = current.values;
     for (const p of parts) {
       if (node === null || typeof node !== 'object' || !(p in node)) {
-        return defaultValue as T;
+        node = undefined;
+        break;
       }
       node = (node as Record<string, unknown>)[p];
     }
-    return node === undefined ? (defaultValue as T) : (node as T);
+    const filled = withDefaults(node, schemaDefaultAt(parts));
+    return filled === undefined ? (defaultValue as T) : (filled as T);
   }
   public set(): void {}
   public merge(): void {}
@@ -307,7 +339,7 @@ async function buildParts(config: ConfigOverrides): Promise<LocalParts> {
     sessions: DI.resolve(SessionIssuer) as HarnessSessionIssuer,
     secrets: DI.resolve(SecretStore) as HarnessSecretStore,
     throttle: DI.resolve(AuthnThrottle) as HarnessThrottle,
-    sinks: (await DI.resolve(Array.ofType(AuthnEventSink))) as RecordingEventSink[],
+    sinks: ((await DI.resolve(Array.ofType(AuthnEventSink))) as unknown[]).filter((s): s is RecordingEventSink => s instanceof RecordingEventSink),
     tokens: DI.resolve(TokenService) as HarnessTokenService,
     mailer: DI.resolve(PasswordMailer) as HarnessMailer,
     hasher: (await DI.resolve(PasswordHasher)) as Argon2PasswordHasher,

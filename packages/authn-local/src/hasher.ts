@@ -49,7 +49,7 @@ interface HasherSettings {
   readonly peppers: ReadonlyMap<number, PepperEntry>;
 }
 
-const DEFAULT_MAX_CONCURRENT = 8;
+const DEFAULT_MAX_CONCURRENT = 8; // The Options seam's fallback; equals the schema default.
 
 /**
  * argon2id at the argon2 library defaults (H30, SR-13): no option and no config key sets a cost, so the stored hash starts with
@@ -57,10 +57,10 @@ const DEFAULT_MAX_CONCURRENT = 8;
  */
 @Injectable(PasswordHasher)
 export class Argon2PasswordHasher extends PasswordHasher {
-  @Config('authn.local.hasher.maxConcurrent', { defaultValue: DEFAULT_MAX_CONCURRENT })
+  @Config('authn.local.hasher.maxConcurrent')
   protected MaxConcurrent: number;
 
-  @Config('authn.local.pepper', { defaultValue: { secret: null, version: 1 } })
+  @Config('authn.local.pepper')
   protected Pepper: PepperConfig;
 
   private _settings?: HasherSettings;

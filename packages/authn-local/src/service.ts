@@ -80,17 +80,16 @@ function reauthKeys(id: IdentityRef, ctx: AuthnContext): ThrottleKey[] {
  */
 @Injectable(PasswordService)
 export class LocalPasswordService extends PasswordService {
-  @Config('authn.local.reset.revokeTokens', { defaultValue: true })
+  @Config('authn.local.reset.revokeTokens')
   protected RevokeTokens: boolean;
 
-  // Code defaults: @spinajs/users still ships these keys with its 2.x values.
-  @Config('authn.local.reset.ttlSeconds', { defaultValue: 3600 })
+  @Config('authn.local.reset.ttlSeconds')
   protected ResetTtlSeconds: number;
 
-  @Config('authn.local.reset.url', { defaultValue: '' })
+  @Config('authn.local.reset.url')
   protected ResetUrl: string;
 
-  @Config('authn.local.invite.ttlSeconds', { defaultValue: 900 })
+  @Config('authn.local.invite.ttlSeconds')
   protected InviteTtlSeconds: number;
 
   @Logger('authn-local')
@@ -347,7 +346,7 @@ export class LocalPasswordService extends PasswordService {
   }
 
   protected async revokeTokensOf(id: IdentityRef, ctx: AuthnContext, actor?: PrincipalRef): Promise<void> {
-    const enabled = this.Deps ? (this.Deps.revokeTokens ?? true) : this.RevokeTokens;
+    const enabled = this.Deps ? (this.Deps.revokeTokens ?? true) : this.RevokeTokens !== false;
     const tokens = enabled ? await this.tokens() : null;
     if (tokens) {
       await tokens.revokeAllFor(id, ctx, actor ? { actor } : undefined);
