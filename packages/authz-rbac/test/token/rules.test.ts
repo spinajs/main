@@ -219,6 +219,24 @@ describe('authz-rbac token: role rules', () => {
       });
     }
 
+    const failOpenPolicy: [string, unknown][] = [
+      ['a rolePolicy that is a string', 'RefuseAdminTokenRolePolicy'],
+      ['a rolePolicy that is null', null],
+      ['a rolePolicy that is an array', ['RefuseAdminTokenRolePolicy']],
+      ['a service that is not a string', { service: 3 }],
+      ['an empty service', { service: '' }],
+    ];
+    for (const [title, value] of failOpenPolicy) {
+      it(`refuses ${title} on a configuration no schema validated`, async () => {
+        const err = await loadTokenRoleRules(config({ rolePolicy: value }), container).then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+        expect(err).to.be.instanceOf(AuthzConfigError);
+        expect((err as Error).message).to.contain('authz.token.rolePolicy.service');
+      });
+    }
+
     it('refuses a service name no TokenRolePolicy class carries, naming the key and the service', async () => {
       const err = await loadTokenRoleRules(config({ rolePolicy: { service: 'NoSuchPolicy' } }), container).then(
         () => undefined,

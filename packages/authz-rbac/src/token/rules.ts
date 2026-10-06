@@ -5,11 +5,9 @@ import { ResolveType, isFactory } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 
 import { OwnRolesTokenRolePolicy, TokenRolePolicy } from './policy.js';
+import { ROLE_OR_PREFIX } from './role-pattern.js';
 
 export const DEFAULT_TOKEN_ROLE_POLICY = 'OwnRolesTokenRolePolicy';
-
-// A role name, or a 'prefix.*' pattern: a full glob in a security list is refused on purpose.
-export const ROLE_OR_PREFIX = /^[^*]+(\.\*)?$/;
 
 const EXCLUDED_KEY = 'authz.token.excludedRoles';
 const SERVICE_KEY = 'authz.token.rolePolicy.service';
@@ -79,9 +77,15 @@ export class TokenRoleRules {
  */
 export async function loadTokenRoleRules(configuration: Pick<Configuration, 'get'>, container: IContainer): Promise<TokenRoleRules> {
   const excluded = configuration.get<readonly string[]>(['authz', 'token', 'excludedRoles'], []);
-  // Floor for a configuration no schema validated: a pattern that matches nothing would leave its role un-excluded.
-  if (!Array.isArray(excluded) || excluded.some((e) => typeof e !== 'string' || !ROLE_OR_PREFIX.test(e))) throw new AuthzConfigError(`${EXCLUDED_KEY} must be an array of role names or 'prefix.*' patterns`);
-  const service = configuration.get<string>(['authz', 'token', 'rolePolicy', 'service'], DEFAULT_TOKEN_ROLE_POLICY);
+  // Floors for a configuration no schema validated: a malformed entry would exclude nothing, and a malformed policy
+  // would fall back to the broader default.
+  const at = Array.isArray(excluded) ? excluded.findIndex((e) => typeof e !== 'string' || !ROLE_OR_PREFIX.test(e)) : -1;
+  if (!Array.isArray(excluded) || at >= 0) throw new AuthzConfigError(`${EXCLUDED_KEY} must be an array of role names or 'prefix.*' patterns; got ${JSON.stringify(Array.isArray(excluded) ? excluded[at] : excluded)}`);
+  const policy = configuration.get<unknown>(['authz', 'token', 'rolePolicy'], undefined);
+  const named = (policy as { service?: unknown } | null | undefined)?.service;
+  const policyOk = policy === undefined || (policy !== null && typeof policy === 'object' && !Array.isArray(policy) && (named === undefined || (typeof named === 'string' && named !== '')));
+  if (!policyOk) throw new AuthzConfigError(`${SERVICE_KEY} must be a non-empty class name inside an object; got ${JSON.stringify(policy)}`);
+  const service = typeof named === 'string' ? named : DEFAULT_TOKEN_ROLE_POLICY;
   return new TokenRoleRules(excluded, await resolvePolicy(container, service));
 }
 
