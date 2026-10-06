@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
+import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_ASSIGNMENTS_TTL_SECONDS, DEFAULT_GROUP_PRINCIPAL, DEFAULT_MAX_CACHED_SUBJECTS, DEFAULT_ROLES_CHECK_SECONDS, RoleStore, compileGrants, compileImplies, compileLadders, compileRoles, ladderEdges } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 import { AUTHZ_RBAC_CONFIGURATION_SCHEMA, ConfigRoleStore, RBAC_STORE_DEFAULTS, RbacConfigBootstrapper, rbacStoreNames } from '../../src/stores/index.js';
 import rbacStores from '../../src/config/rbac-stores.js';
@@ -506,15 +506,15 @@ describe('authz-rbac stores: config fragment', function () {
 
 describe('authz-rbac stores: schema registration', function () {
   this.timeout(30000);
-  it('the bootstrapper registers the schema as a __configurationSchema__ value', () => {
+  it('the bootstrapper registers the rbac and token schemas as __configurationSchema__ values', () => {
     const KEY = '__configurationSchema__';
     const had = DI.RootContainer.Cache.has(KEY);
     new RbacConfigBootstrapper().bootstrap();
     try {
-      expect(DI.RootContainer.Cache.get(KEY)).to.include(AUTHZ_RBAC_CONFIGURATION_SCHEMA);
+      expect(DI.RootContainer.Cache.get(KEY)).to.include.members([AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_TOKEN_CONFIGURATION_SCHEMA]);
     } finally {
       const list = DI.RootContainer.Cache.get(KEY) as unknown[];
-      list.splice(list.indexOf(AUTHZ_RBAC_CONFIGURATION_SCHEMA), 1);
+      for (const schema of [AUTHZ_RBAC_CONFIGURATION_SCHEMA, AUTHZ_TOKEN_CONFIGURATION_SCHEMA]) list.splice(list.indexOf(schema), 1);
       if (!had && list.length === 0) DI.uncache(KEY);
     }
   });

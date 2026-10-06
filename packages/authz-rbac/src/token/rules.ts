@@ -8,8 +8,10 @@ import { OwnRolesTokenRolePolicy, TokenRolePolicy } from './policy.js';
 
 export const DEFAULT_TOKEN_ROLE_POLICY = 'OwnRolesTokenRolePolicy';
 
+// A role name, or a 'prefix.*' pattern: a full glob in a security list is refused on purpose.
+export const ROLE_OR_PREFIX = /^[^*]+(\.\*)?$/;
+
 const EXCLUDED_KEY = 'authz.token.excludedRoles';
-const POLICY_KEY = 'authz.token.rolePolicy';
 const SERVICE_KEY = 'authz.token.rolePolicy.service';
 
 /**
@@ -71,34 +73,16 @@ export class TokenRoleRules {
 }
 
 /**
- * Reads `authz.token.excludedRoles` and `authz.token.rolePolicy.service`, and resolves the policy
- * from `container`: the TokenRolePolicy registration whose class name is the service name.
- * @throws (rejects) AuthzConfigError naming the key for a malformed value or an unknown service
+ * Reads `authz.token.excludedRoles` and `authz.token.rolePolicy.service` (AUTHZ_TOKEN_CONFIGURATION_SCHEMA checks
+ * them) and resolves the policy from `container`: the TokenRolePolicy registration whose class name is the service name.
+ * @throws (rejects) AuthzConfigError for a service no registered TokenRolePolicy class carries
  */
 export async function loadTokenRoleRules(configuration: Pick<Configuration, 'get'>, container: IContainer): Promise<TokenRoleRules> {
-  const excluded = excludedRoles(configuration.get<unknown>(['authz', 'token', 'excludedRoles'], undefined));
-  const service = serviceName(configuration.get<unknown>(['authz', 'token', 'rolePolicy'], undefined));
+  const excluded = configuration.get<readonly string[]>(['authz', 'token', 'excludedRoles'], []);
+  // Floor for a configuration no schema validated: a pattern that matches nothing would leave its role un-excluded.
+  if (!Array.isArray(excluded) || excluded.some((e) => typeof e !== 'string' || !ROLE_OR_PREFIX.test(e))) throw new AuthzConfigError(`${EXCLUDED_KEY} must be an array of role names or 'prefix.*' patterns`);
+  const service = configuration.get<string>(['authz', 'token', 'rolePolicy', 'service'], DEFAULT_TOKEN_ROLE_POLICY);
   return new TokenRoleRules(excluded, await resolvePolicy(container, service));
-}
-
-function excludedRoles(value: unknown): readonly string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw new AuthzConfigError(`${EXCLUDED_KEY} must be an array of role names or 'prefix.*' patterns`);
-  for (const entry of value as unknown[]) {
-    if (typeof entry !== 'string' || entry === '') throw new AuthzConfigError(`${EXCLUDED_KEY} must hold non-empty strings; got ${JSON.stringify(entry)}`);
-    // Only a trailing '.*' after a non-empty prefix: a full glob in a security list is refused on purpose.
-    if (entry.includes('*') && !/^[^*]+\.\*$/.test(entry)) throw new AuthzConfigError(`${EXCLUDED_KEY}: ${JSON.stringify(entry)} is not a role name or a 'prefix.*' pattern`);
-  }
-  return value as string[];
-}
-
-function serviceName(value: unknown): string {
-  if (value === undefined) return DEFAULT_TOKEN_ROLE_POLICY;
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new AuthzConfigError(`${POLICY_KEY} must be an object such as { service: '${DEFAULT_TOKEN_ROLE_POLICY}' }`);
-  const service = (value as { service?: unknown }).service;
-  if (service === undefined) return DEFAULT_TOKEN_ROLE_POLICY;
-  if (typeof service !== 'string' || service === '') throw new AuthzConfigError(`${SERVICE_KEY} must be a non-empty class name`);
-  return service;
 }
 
 async function resolvePolicy(container: IContainer, service: string): Promise<TokenRolePolicy> {

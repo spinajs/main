@@ -2,11 +2,12 @@ import { AuthzConfigError, GLOBAL, PermissionRegistryImpl } from '@spinajs/authz
 import type { Assignment, Principal } from '@spinajs/authz';
 import { Container, DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
-import { fakeModelInitContext, userPrincipal } from '@spinajs/authz-testing';
+import { bootConfiguration, fakeModelInitContext, userPrincipal, violationPaths } from '@spinajs/authz-testing';
+import type { Configuration } from '@spinajs/configuration';
 import * as chai from 'chai';
 import 'mocha';
 
-import { MemoryAssignmentStore, MemoryRoleStore, OwnRolesTokenRolePolicy, RbacModel, RbacService, TokenRolePolicy, TokenRoleRules, isTokenPrincipal, loadTokenRoleRules, roleExcluded } from '../../src/index.js';
+import { AUTHZ_TOKEN_CONFIGURATION_SCHEMA, DEFAULT_TOKEN_ROLE_POLICY, MemoryAssignmentStore, MemoryRoleStore, OwnRolesTokenRolePolicy, RbacModel, RbacService, TokenRolePolicy, TokenRoleRules, isTokenPrincipal, loadTokenRoleRules, roleExcluded } from '../../src/index.js';
 import type { RoleDef } from '../../src/index.js';
 
 const expect = chai.expect;
@@ -201,41 +202,20 @@ describe('authz-rbac token: role rules', () => {
       expect(rules.trivial).to.equal(false);
     });
 
-    const badExcluded: [string, unknown][] = [
+    const failOpen: [string, unknown][] = [
       ['not an array', 'route.*'],
-      ['null', null],
-      ['an empty name', ['']],
       ['a non-string entry', [1]],
       ['a full glob', ['*']],
-      ['a star inside a name', ['route*']],
       ['a star before the end', ['route.*.admin']],
-      ['two stars', ['route.*.*']],
-      ['an empty prefix', ['.*']],
     ];
-    for (const [title, value] of badExcluded) {
-      it(`refuses authz.token.excludedRoles with ${title}`, async () => {
+    for (const [title, value] of failOpen) {
+      it(`refuses authz.token.excludedRoles with ${title} on a configuration no schema validated`, async () => {
         const err = await loadTokenRoleRules(config({ excludedRoles: value }), container).then(
           () => undefined,
           (e: unknown) => e,
         );
         expect(err).to.be.instanceOf(AuthzConfigError);
         expect((err as Error).message).to.contain('authz.token.excludedRoles');
-      });
-    }
-
-    const badService: [string, unknown, string][] = [
-      ['a rolePolicy that is not an object', 'OwnRolesTokenRolePolicy', 'authz.token.rolePolicy'],
-      ['an empty service name', { service: '' }, 'authz.token.rolePolicy.service'],
-      ['a service name that is not a string', { service: 3 }, 'authz.token.rolePolicy.service'],
-    ];
-    for (const [title, value, key] of badService) {
-      it(`refuses ${title}`, async () => {
-        const err = await loadTokenRoleRules(config({ rolePolicy: value }), container).then(
-          () => undefined,
-          (e: unknown) => e,
-        );
-        expect(err).to.be.instanceOf(AuthzConfigError);
-        expect((err as Error).message).to.contain(key);
       });
     }
 
@@ -274,6 +254,52 @@ describe('authz-rbac token: role rules', () => {
         (e: unknown) => e,
       );
       expect(err).to.be.instanceOf(AuthzConfigError);
+    });
+
+    describe('the authz.token schema', () => {
+      const children: IContainer[] = [];
+
+      afterEach(async () => {
+        for (const c of children.splice(0)) await c.dispose();
+      });
+
+      async function boot(token: unknown): Promise<Configuration> {
+        const booted = await bootConfiguration({ authz: { token } }, [AUTHZ_TOKEN_CONFIGURATION_SCHEMA]);
+        children.push(booted.child);
+        return booted.configuration;
+      }
+
+      const refused = (token: unknown) => violationPaths(boot(token));
+
+      it('defaults to no excluded roles and OwnRolesTokenRolePolicy', async () => {
+        expect((await boot(undefined)).get('authz.token')).to.deep.equal({ excludedRoles: [], rolePolicy: { service: DEFAULT_TOKEN_ROLE_POLICY } });
+      });
+
+      it('feeds loadTokenRoleRules', async () => {
+        const rules = await loadTokenRoleRules(await boot({ excludedRoles: ['route.*'] }), container);
+        expect(rules.excludedRoles).to.deep.equal(['route.*']);
+        expect(rules.policy).to.be.instanceOf(OwnRolesTokenRolePolicy);
+      });
+
+      const badExcluded: [string, unknown][] = [
+        ['not an array', 'route.*'],
+        ['an empty name', ['']],
+        ['a full glob', ['*']],
+        ['a star inside a name', ['route*']],
+        ['a star before the end', ['route.*.admin']],
+        ['two stars', ['route.*.*']],
+        ['an empty prefix', ['.*']],
+      ];
+      for (const [title, value] of badExcluded) {
+        it(`refuses authz.token.excludedRoles with ${title} at boot`, async () => {
+          expect((await refused({ excludedRoles: value })).some((p) => p.startsWith('authz.token.excludedRoles'))).to.equal(true);
+        });
+      }
+
+      it('refuses a rolePolicy that is not an object, or an empty service name, at boot', async () => {
+        expect(await refused({ rolePolicy: 'OwnRolesTokenRolePolicy' })).to.include('authz.token.rolePolicy');
+        expect(await refused({ rolePolicy: { service: '' } })).to.include('authz.token.rolePolicy.service');
+      });
     });
   });
 });
