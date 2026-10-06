@@ -7,14 +7,15 @@ import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { DbMfaSecretStore } from '../../src/db.js';
 import { identityKey, MemoryMfaSecretStore } from '../../src/store/index.js';
 import type { MfaSecretStore } from '../../src/store/index.js';
-import { DEFAULT_TOTP_OPTIONS, TotpMfaStep, totpOptions } from '../../src/step/index.js';
-import type { TotpOptionsInput } from '../../src/step/index.js';
+import { TotpMfaStep } from '../../src/step/index.js';
+import type { TotpOptions } from '../../src/step/index.js';
+import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 import { bootSqlite, clearMfaTables, rawQuery } from './support/sqlite.js';
 import type { SqliteDb } from './support/sqlite.js';
 
 export type StoreKind = 'memory' | 'sqlite';
 
-const SUPPORTED = ['authn.throttle', ...Object.keys(DEFAULT_TOTP_OPTIONS).map((k) => `authn.mfa.totp.${k}`)];
+const SUPPORTED = ['authn.throttle', ...Object.keys(TOTP_DEFAULTS).map((k) => `authn.mfa.totp.${k}`)];
 
 function leafKeys(o: unknown, prefix = ''): string[] {
   if (o === null || typeof o !== 'object' || Array.isArray(o)) {
@@ -26,7 +27,7 @@ function leafKeys(o: unknown, prefix = ''): string[] {
 function checkConfig(config: ConfigOverrides): void {
   const unsupported = leafKeys(config).filter((k) => k !== '' && !SUPPORTED.some((s) => k === s || k.startsWith(`${s}.`)));
   // mfa.enrol confirms with the previous time step, which only a window of 1 or more accepts.
-  if (config.authn?.mfa?.totp && (config.authn.mfa.totp as TotpOptionsInput).window === 0) {
+  if (config.authn?.mfa?.totp && (config.authn.mfa.totp as Partial<TotpOptions>).window === 0) {
     unsupported.push('authn.mfa.totp.window');
   }
   if (unsupported.length > 0) {
@@ -73,7 +74,7 @@ export async function disposeTotpHarnessDb(): Promise<void> {
 /** The real TotpMfaStep over the kit fakes (design §10.3), on the memory store or DbMfaSecretStore on sqlite. */
 export async function totpHarness(ctx: HarnessContext, kind: StoreKind = 'memory'): Promise<Harness> {
   checkConfig(ctx.config);
-  const options = totpOptions((ctx.config.authn?.mfa?.totp ?? {}) as TotpOptionsInput);
+  const options = totpOpts((ctx.config.authn?.mfa?.totp ?? {}) as Partial<TotpOptions>);
   const { store, storage } = kind === 'sqlite' ? await sqliteStore() : memoryStore();
   const identities = new FakeIdentityStore();
   const passwords = new MemoryPasswordCredentialStore();

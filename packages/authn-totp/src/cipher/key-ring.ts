@@ -35,17 +35,14 @@ export class MfaKeyRing {
   }
 }
 
-export function mfaKeyRingFrom(options: MfaEncryptionKeyOptions): MfaKeyRing {
-  if (typeof options !== 'object' || options === null || typeof options.secret !== 'string' || options.secret.length === 0) {
+export function mfaKeyRingFrom(options: MfaEncryptionKeyOptions | undefined): MfaKeyRing {
+  // Only an error when a TOTP step runs, which the schema cannot know.
+  if (typeof options?.secret !== 'string' || options.secret.length === 0) {
     throw new InvalidOption('authn.mfa.encryptionKey.secret is not set');
-  }
-  const previous = options.previous ?? [];
-  if (!Array.isArray(previous)) {
-    throw new InvalidOption('authn.mfa.encryptionKey.previous must be a list of keys');
   }
   return new MfaKeyRing(
     mfaKeyFrom(options.secret),
-    previous.map((p, i) => {
+    (options.previous ?? []).map((p, i) => {
       try {
         return mfaKeyFrom(p);
       } catch {

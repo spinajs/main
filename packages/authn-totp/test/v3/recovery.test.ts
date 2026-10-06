@@ -7,7 +7,8 @@ import { FakeClock, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
 import type { MfaRecord } from '../../src/store/index.js';
-import { TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { TotpMfaStep } from '../../src/step/index.js';
+import { totpOpts } from './support/totp-defaults.js';
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ALICE: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000001' };
@@ -32,7 +33,7 @@ describe('v3 step: recovery codes', () => {
   let clock: FakeClock;
   let store: CountingStore;
 
-  const make = (recoveryCodes?: number) => new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(recoveryCodes === undefined ? {} : { recoveryCodes }), identities: null });
+  const make = (recoveryCodes?: number) => new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(recoveryCodes === undefined ? {} : { recoveryCodes }), identities: null });
 
   async function enrol(step: TotpMfaStep): Promise<{ provisioning: string; codes: readonly string[] }> {
     const { provisioning } = await step.beginEnrolment(ALICE);

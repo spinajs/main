@@ -6,7 +6,8 @@ import { base32Decode, FakeClock, parseOtpauth, totpFromProvisioning } from '@sp
 import { DbMfaStore, mfaKeyFrom } from '@spinajs/authn-orm';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { DbMfaSecretStore } from '../../src/db.js';
-import { TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { TotpMfaStep } from '../../src/step/index.js';
+import { totpOpts } from './support/totp-defaults.js';
 import { bootSqlite, clearMfaTables, rawQuery } from './support/sqlite.js';
 import type { SqliteDb } from './support/sqlite.js';
 
@@ -33,7 +34,7 @@ describe('v3 step: TotpMfaStep on DbMfaSecretStore (sqlite)', function () {
     await clearMfaTables(db.driver);
     clock = new FakeClock(START);
     clock.install();
-    step = new TotpMfaStep({ store: new DbMfaSecretStore(new DbMfaStore(db.driver)), keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
+    step = new TotpMfaStep({ store: new DbMfaSecretStore(new DbMfaStore(db.driver)), keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
   });
 
   afterEach(() => {

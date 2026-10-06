@@ -1,12 +1,11 @@
-import { Configuration } from '@spinajs/configuration';
+import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
 import { InvalidOperation } from '@spinajs/exceptions';
-import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer } from '@spinajs/authn/contracts';
+import { AuthnEventSink, AuthnService, AuthnThrottle, MfaStep, SessionIssuer, isFresh } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, PrincipalRef, SessionHandle, ThrottleKey } from '@spinajs/authn/contracts';
 import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpNotEnrolled, TotpRecoveryCodesNotIssued } from '../step/errors.js';
 import { TotpMfaStep } from '../step/totp-step.js';
 import { registered } from '../support/registered.js';
-import { freshAuthMaxAge, isFresh } from './fresh-auth.js';
 
 export type TotpBeginResult = { readonly ok: true; readonly provisioning: string } | { readonly ok: false; readonly code: 'no_session' | 'not_fresh' | 'enrolled' };
 /** `enrolled`: already enrolled, another confirmation won, or the codes could not be issued; the owner regenerates the codes. */
@@ -56,11 +55,11 @@ interface Current {
 @Injectable()
 export class TotpService {
   private readonly cache: { -readonly [K in keyof Resolved]?: Resolved[K] } = {};
-  private readonly maxAgeSeconds: number | undefined;
 
-  constructor(private readonly deps: TotpServiceDeps = {}) {
-    this.maxAgeSeconds = deps.maxAgeSeconds === undefined ? undefined : freshAuthMaxAge(deps.maxAgeSeconds);
-  }
+  @Config('authn.freshAuth.maxAgeSeconds')
+  protected MaxAgeSeconds: number;
+
+  constructor(private readonly deps: TotpServiceDeps = {}) {}
 
   async begin(session: SessionHandle, ctx: AuthnContext, reauth?: Credentials): Promise<TotpBeginResult> {
     const step = await this.need('step');
@@ -281,7 +280,7 @@ export class TotpService {
       case 'sinks':
         return d.sinks ?? (registered(AuthnEventSink) ? await DI.resolve(Array.ofType(AuthnEventSink)) : []);
       case 'maxAgeSeconds':
-        return this.maxAgeSeconds ?? freshAuthMaxAge(DI.get(Configuration)?.get<unknown>(['authn', 'freshAuth', 'maxAgeSeconds']));
+        return d.maxAgeSeconds ?? this.MaxAgeSeconds;
     }
   }
 }

@@ -31,6 +31,10 @@ function flow(account: BackoffParams, ip?: BackoffParams) {
   };
 }
 
+// 32 bytes as 64 hex characters, base64 (44 characters, or 43 unpadded) or base64url (43). The cipher also refuses a
+// base64 text with non-zero unused bits in its last character, which a pattern cannot express.
+const MFA_KEY_PATTERN = '^([0-9a-fA-F]{64}|[A-Za-z0-9+/]{43}=?|[A-Za-z0-9_-]{43})$';
+
 function secretRef(description: string, extra: Record<string, object> = {}) {
   return {
     type: 'object',
@@ -201,16 +205,20 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
           },
         },
         steps: { ...named, items: { ...named.items, properties: { ...named.items.properties, name: { type: 'string', minLength: 1, not: { enum: ['recovery'] }, description: "'recovery' is reserved for recovery codes (AuthnService.completeMfa)." } } } },
-        encryptionKey: secretRef('AES-256-GCM key for stored MFA secrets; required when any step stores secrets.'),
+        encryptionKey: secretRef('AES-256-GCM key for stored MFA secrets; required when any step stores secrets.', {
+          secret: { type: ['string', 'null'], pattern: MFA_KEY_PATTERN, description: '32 bytes as 64 hex characters, base64 or base64url.' },
+          previous: { type: 'array', items: { type: 'string', pattern: MFA_KEY_PATTERN }, description: 'Earlier keys, so rows written under them still decrypt after a rotation.' },
+        }),
         totp: {
           type: 'object',
+          default: {},
           properties: {
-            issuer: { type: 'string', minLength: 1 },
-            algorithm: { type: 'string', minLength: 1, description: 'Any name otpauth accepts, e.g. SHA1 (authenticator apps), SHA256, SHA512.' },
-            digits: { type: 'integer', minimum: 6, maximum: 10 },
-            period: { type: 'integer', minimum: 1 },
-            window: { type: 'integer', minimum: 0 },
-            recoveryCodes: { type: 'integer', minimum: 0 },
+            issuer: { type: 'string', minLength: 1, default: 'SpinaJS', description: 'Shown by authenticator apps; set your app name.' },
+            algorithm: { type: 'string', enum: ['SHA1', 'SHA256', 'SHA512'], default: 'SHA1', description: 'SHA1 is what authenticator apps support.' },
+            digits: { type: 'integer', minimum: 6, maximum: 10, default: 6 },
+            period: { type: 'integer', minimum: 1, maximum: 300, default: 30, description: 'Seconds. A longer period lets one stolen code cover too much time (SR-15).' },
+            window: { type: 'integer', minimum: 0, maximum: 10, default: 1, description: 'Time steps accepted on each side of the current one.' },
+            recoveryCodes: { type: 'integer', minimum: 0, maximum: 100, default: 10, description: 'Issued at confirmation; every confirmation and regeneration hashes the whole set.' },
           },
         },
       },

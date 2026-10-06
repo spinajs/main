@@ -1,28 +1,13 @@
 import { AsyncService, Container, Inject, PerChildInstance } from '@spinajs/di';
 import type { Class, IContainer } from '@spinajs/di';
 import { Config } from '@spinajs/configuration';
-import { InvalidArgument, InvalidOperation } from '@spinajs/exceptions';
+import { InvalidOperation } from '@spinajs/exceptions';
 
 import type { AuthnContext, Credentials } from '../contracts/credentials.js';
-import type { AuthnFacts } from '../contracts/principal.js';
+import { isFresh } from '../contracts/fresh.js';
 import { AuthnService } from '../contracts/service.js';
 import { SessionIssuer } from '../contracts/session.js';
 import type { SessionHandle } from '../contracts/session.js';
-
-/**
- * True when `authenticatedAt` lies within `maxAgeSeconds` before `now`, the boundary included. A time after `now` or
- * an invalid one is not fresh, nor is an impersonation: the impersonator must not act on the target's credentials (M6).
- */
-export function isFresh(facts: Pick<AuthnFacts, 'authenticatedAt' | 'impersonator'>, now: Date, maxAgeSeconds: number): boolean {
-  if (typeof maxAgeSeconds !== 'number' || !Number.isFinite(maxAgeSeconds) || maxAgeSeconds <= 0) {
-    throw new InvalidArgument('isFresh: maxAgeSeconds must be a positive number');
-  }
-  if (facts?.impersonator !== undefined) return false;
-  const at = facts?.authenticatedAt;
-  if (!(at instanceof Date) || !(now instanceof Date)) return false;
-  const age = now.getTime() - at.getTime();
-  return age >= 0 && age <= maxAgeSeconds * 1000;
-}
 
 /**
  * Fresh authentication for sensitive actions (A13): the active session authenticated within

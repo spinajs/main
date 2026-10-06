@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { META_COMMAND } from '@spinajs/cli';
 import type { ICommand } from '@spinajs/cli';
 import { DI } from '@spinajs/di';
+import type { Class } from '@spinajs/di';
 import { Orm } from '@spinajs/orm';
 import { DbAuthnAuditSink, DbAuthnThrottle } from '@spinajs/authn-orm';
 import { AuthnEventSink, AuthnService, AuthnThrottle, IdentityStore, SessionIssuer } from '@spinajs/authn/contracts';
@@ -10,7 +11,8 @@ import type { AuthnEvent, IdentityRef } from '@spinajs/authn/contracts';
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, MemoryLinkStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
-import { TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { TotpMfaStep } from '../../src/step/index.js';
+import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 import { TotpService } from '../../src/service/index.js';
 import { MfaReset } from '../../src/cli/index.js';
 import { CLI_ACTOR } from '../../src/cli/common.js';
@@ -52,7 +54,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     identities = new FakeIdentityStore();
     alice = identities.add({ login: 'alice', email: 'alice@example.com' });
     store = new MemoryMfaSecretStore();
-    step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
+    step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     events = new RecordingEventSink();
     const sessions = new MemorySessionIssuer();
     const throttle = new FakeBackoffThrottle(throttleParams());
@@ -128,7 +130,7 @@ describe('v3 cli: authn:mfa-reset', () => {
     assert.strictEqual(mfa.encryptionKey, undefined, 'every app loads this file; a null key would stand in for an unset one');
     assert.strictEqual(mfa.totp.recoveryCodes, 10);
     assert.strictEqual(mfa.totp.issuer, 'SpinaJS');
-    assert.deepStrictEqual({ ...totpOptions(mfa.totp as never) }, { ...totpOptions(), issuer: 'SpinaJS' }, 'the config passes the options reader');
+    assert.deepStrictEqual(mfa.totp, { ...TOTP_DEFAULTS });
   });
 
   describe('under DI', () => {
@@ -150,6 +152,10 @@ describe('v3 cli: authn:mfa-reset', () => {
         super({ step });
       }
     }
+    // Its @Config reads the root Configuration, which this file never boots.
+    const logSinks: Class<unknown>[] = [];
+    // Another file of the run loads the @spinajs/authn root, which registers its service as a side effect.
+    const rootRegistered: [Class<unknown>, Class<unknown>][] = [];
     /** RbacCliCommand autoinjects the Orm; the reset never touches it. */
     class KitOrm {}
 
@@ -157,6 +163,16 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.clearCache();
       // Other files in this run load @spinajs/authn-totp/db, which registers authn-orm's DB defaults; the reset needs none.
       DI.unregister(DbAuthnAuditSink);
+      logSinks.splice(0, logSinks.length, ...DI.RootContainer.Registry.getTypes(AuthnEventSink).filter((t) => t.name === 'LogAuthnAuditSink'));
+      logSinks.forEach((t) => DI.unregister(t));
+      rootRegistered.length = 0;
+      for (const service of [AuthnService, AuthnThrottle] as unknown as Class<unknown>[]) {
+        for (const t of DI.RootContainer.Registry.getTypes(service) as Class<unknown>[]) {
+          if (t === DbAuthnThrottle) continue;
+          rootRegistered.push([service, t]);
+          DI.unregister(t);
+        }
+      }
       DI.unregister(DbAuthnThrottle);
       DI.register(KitSink).as(AuthnEventSink);
       DI.register(KitIdentities).as(IdentityStore);
@@ -170,6 +186,8 @@ describe('v3 cli: authn:mfa-reset', () => {
       DI.unregister(KitTotp);
       DI.unregister(KitOrm);
       DI.register(DbAuthnAuditSink).as(AuthnEventSink);
+      logSinks.forEach((t) => DI.register(t).as(AuthnEventSink));
+      rootRegistered.forEach(([service, t]) => DI.register(t).as(service as never));
       DI.register(DbAuthnThrottle).as(AuthnThrottle);
       DI.clearCache();
     });

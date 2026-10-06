@@ -4,7 +4,8 @@ import type { AuthnContext, AuthnEvent, AuthnFacts, Credentials, IdentityRef, Pr
 import { base32Decode, EnrolledMfaPolicy, FakeAuthnService, FakeBackoffThrottle, FakeClock, FakeIdentityStore, FakeMfaStep, FakeStrategy, fakeSeedPort, MemoryLinkStore, MemoryPasswordCredentialStore, MemorySessionIssuer, parseOtpauth, RecordingEventSink, RecordingPrincipalFactory, throttleParams, totpFromProvisioning } from '@spinajs/authn-testing';
 import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { MemoryMfaSecretStore } from '../../src/store/index.js';
-import { TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { TotpMfaStep } from '../../src/step/index.js';
+import { totpOpts } from './support/totp-defaults.js';
 import { TotpService } from '../../src/service/index.js';
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
@@ -93,7 +94,7 @@ describe('v3 service: TotpService', () => {
     throttle = new CountingThrottle(throttleParams());
     events = new RecordingEventSink();
     store = new HookStore();
-    step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
+    step = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
     authn = new CountingAuthn({
       strategies: [FakeStrategy.password({ identities, passwords })],
       throttle,

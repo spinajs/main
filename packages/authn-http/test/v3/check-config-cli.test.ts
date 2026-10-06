@@ -21,7 +21,7 @@ class InProcessCheckConfig extends AuthnCheckConfig {
   }
 }
 
-const STRONG = 'k'.repeat(64);
+const STRONG = 'a'.repeat(64);
 const PUBLIC_SECRET = '1234adreewD';
 
 type Values = Record<string, unknown>;

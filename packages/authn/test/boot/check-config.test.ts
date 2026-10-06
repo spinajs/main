@@ -14,7 +14,7 @@ const expect = chai.expect;
 
 type Values = Record<string, unknown>;
 
-const STRONG = 'k'.repeat(64);
+const STRONG = 'a'.repeat(64);
 
 /** A production app with every check satisfied: one listed strategy, strong secrets, a proxy and CORS set. */
 function sound(): Values {

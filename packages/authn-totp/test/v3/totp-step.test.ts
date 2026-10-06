@@ -13,7 +13,11 @@ import { mfaKeyRingFrom } from '../../src/cipher/index.js';
 import { DbMfaSecretStore } from '../../src/db.js';
 import { MemoryMfaSecretStore, MfaSecretStore } from '../../src/store/index.js';
 import type { MfaRecord } from '../../src/store/index.js';
-import { DEFAULT_TOTP_OPTIONS, TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep, totpOptions } from '../../src/step/index.js';
+import { TotpAlreadyEnrolled, TotpEnrolmentChanged, TotpInvalidCode, TotpNotBegun, TotpMfaStep } from '../../src/step/index.js';
+import type { TotpOptions } from '../../src/step/index.js';
+import { AUTHN_CONFIGURATION_SCHEMA } from '@spinajs/authn';
+import { boot, disposeBooted, readingFrom } from '../support/config-boot.js';
+import { TOTP_DEFAULTS, totpOpts } from './support/totp-defaults.js';
 
 const KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const ALICE: IdentityRef = { type: 'user', id: '00000000-0000-4000-8000-000000000001' };
@@ -120,30 +124,11 @@ class StubConfiguration extends Configuration {
   }
 }
 
-describe('v3 step: totpOptions', () => {
-  it('has the design defaults', () => {
-    assert.deepStrictEqual({ ...totpOptions() }, { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 });
-  });
-
-  it('takes valid values', () => {
-    const o = totpOptions({ issuer: 'Acme', algorithm: 'SHA512', digits: 10, period: 1, window: 0, recoveryCodes: 0 });
-    assert.deepStrictEqual({ ...o }, { issuer: 'Acme', algorithm: 'SHA512', digits: 10, period: 1, window: 0, recoveryCodes: 0 });
-    assert.deepStrictEqual({ ...totpOptions({ period: 300, window: 10, recoveryCodes: 100 }) }, { ...DEFAULT_TOTP_OPTIONS, period: 300, window: 10, recoveryCodes: 100 });
-  });
-
-  it('refuses values out of range', () => {
-    const bad = [{ digits: 5 }, { digits: 11 }, { digits: 6.5 }, { period: 0 }, { period: 301 }, { period: '30' }, { window: -1 }, { window: 0.5 }, { window: 11 }, { algorithm: 'MD5' }, { algorithm: 'sha1' }, { recoveryCodes: -1 }, { recoveryCodes: 101 }, { issuer: '' }, { issuer: 7 }];
-    for (const input of bad) {
-      assert.throws(() => totpOptions(input as never), InvalidOption, JSON.stringify(input));
-    }
-  });
-});
-
 describe('v3 step: TotpMfaStep', () => {
   let clock: FakeClock;
   let store: MemoryMfaSecretStore;
 
-  const make = (over: { totp?: Parameters<typeof totpOptions>[0]; identities?: IdentityStore; store?: MemoryMfaSecretStore } = {}) => new TotpMfaStep({ store: over.store ?? store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(over.totp), identities: over.identities ?? null });
+  const make = (over: { totp?: Partial<TotpOptions>; identities?: IdentityStore; store?: MemoryMfaSecretStore } = {}) => new TotpMfaStep({ store: over.store ?? store, keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(over.totp), identities: over.identities ?? null });
 
   /** Begins and confirms, returning the provisioning URI; leaves the clock at START. */
   async function enrol(step: TotpMfaStep): Promise<string> {
@@ -348,12 +333,6 @@ describe('v3 step: TotpMfaStep', () => {
     assert.strictEqual(decodeURIComponent(new URL(bare.provisioning).pathname), `/SpinaJS:${ALICE.id}`);
   });
 
-  it('validates options given to the constructor', () => {
-    for (const bad of [{ digits: 3 }, { window: 50 }, { period: 86400 }, { algorithm: 'MD5' }]) {
-      assert.throws(() => new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY }), options: { ...DEFAULT_TOTP_OPTIONS, ...bad } as never, identities: null }), InvalidOption, JSON.stringify(bad));
-    }
-  });
-
   it('a row that does not decrypt is a server fault, not a wrong code', async () => {
     const step = make();
     const provisioning = await enrol(step);
@@ -502,7 +481,7 @@ describe('v3 step: TotpMfaStep', () => {
     DI.unregister(DbMfaSecretStore);
     DI.clearCache();
     try {
-      const step = new TotpMfaStep({ keys: mfaKeyRingFrom({ secret: KEY }), options: totpOptions(), identities: null });
+      const step = new TotpMfaStep({ keys: mfaKeyRingFrom({ secret: KEY }), options: totpOpts(), identities: null });
       await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOperation && /MfaSecretStore/.test(e.message) && e.message.includes('@spinajs/authn-totp/db'));
       await assert.rejects(step.verify(ALICE, '123456'), /MfaSecretStore/);
     } finally {
@@ -512,37 +491,50 @@ describe('v3 step: TotpMfaStep', () => {
   });
 
   it('refuses to work without an encryption key', async () => {
-    const step = new TotpMfaStep({ store, options: totpOptions(), identities: null });
-    await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOption && /authn\.mfa\.encryptionKey/.test(e.message));
+    const { child } = await boot([AUTHN_CONFIGURATION_SCHEMA], {});
+    const step = readingFrom(new TotpMfaStep({ store, options: totpOpts(), identities: null }), child);
+    try {
+      await assert.rejects(step.beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOption && /authn\.mfa\.encryptionKey/.test(e.message));
+    } finally {
+      await disposeBooted();
+    }
     assert.strictEqual(await store.get(ALICE, 'totp'), null);
   });
 
   it('decrypts a row written under a previous key after rotation', async () => {
     const OLD = 'ff'.repeat(32);
-    const before = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: OLD }), options: totpOptions(), identities: null });
+    const before = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: OLD }), options: totpOpts(), identities: null });
     const { provisioning } = await before.beginEnrolment(ALICE);
     await before.confirmEnrolment(ALICE, totpFromProvisioning(provisioning, clock.now()));
-    const after = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY, previous: [OLD] }), options: totpOptions(), identities: null });
+    const after = new TotpMfaStep({ store, keys: mfaKeyRingFrom({ secret: KEY, previous: [OLD] }), options: totpOpts(), identities: null });
     clock.tick(30 * SECOND);
     assert.strictEqual(await after.verify(ALICE, totpFromProvisioning(provisioning, clock.now())), true);
   });
 });
 
 describe('v3 step: TotpMfaStep through DI', () => {
+  class NoIdentities extends Identities {
+    constructor() {
+      super({});
+    }
+  }
+
   const DI_KEY = 'ab'.repeat(32);
   let clock: FakeClock;
 
   before(async () => {
     DI.clearCache();
-    StubConfiguration.data = { authn: { mfa: { totp: { issuer: 'Acme', digits: 8 }, encryptionKey: { secret: DI_KEY } } } };
+    StubConfiguration.data = { authn: { mfa: { totp: { ...TOTP_DEFAULTS, issuer: 'Acme', digits: 8 }, encryptionKey: { secret: DI_KEY } } } };
     DI.register(StubConfiguration).as(Configuration);
     DI.register(MemoryMfaSecretStore).as(MfaSecretStore);
+    DI.register(NoIdentities).as(IdentityStore);
     await DI.resolve(Configuration);
   });
 
   after(() => {
     DI.unregister(StubConfiguration);
     DI.unregister(MemoryMfaSecretStore);
+    DI.unregister(NoIdentities);
     DI.clearCache();
   });
 

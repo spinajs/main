@@ -56,6 +56,7 @@ function refused(config: Json, instancePath: string): void {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+const TOTP_DEFAULTS = { issuer: 'SpinaJS', algorithm: 'SHA1', digits: 6, period: 30, window: 1, recoveryCodes: 10 };
 const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
 
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
@@ -248,8 +249,8 @@ describe('authn.* configuration schema', () => {
       }
     });
 
-    it('accepts any otpauth algorithm name', () => {
-      expect(check({ mfa: { totp: { algorithm: 'sha-256' } } }).errors).to.deep.eq([]);
+    it('accepts the three TOTP algorithms', () => {
+      expect(check({ mfa: { totp: { algorithm: 'SHA256' } } }).errors).to.deep.eq([]);
     });
 
     it('takes tokens of at least 32 random bytes with a non-empty prefix (A14)', () => {
@@ -267,7 +268,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
+      expect(check({}).config).to.deep.eq({ strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -287,7 +288,7 @@ describe('authn.* configuration schema', () => {
         audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
         strategies: [],
-        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [] },
+        mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS },
         config: { rejectLegacyKeys: false },
         freshAuth: { maxAgeSeconds: 300 },
         linking: { jit: false, byVerifiedEmail: false },
@@ -361,6 +362,7 @@ describe('authn.* configuration schema', () => {
       refused({ jwt: { issuers: [{ ...issuer, algorithms: ['none'] }] } }, '/jwt/issuers/0/algorithms/0');
       refused({ keys: { algorithms: ['RS256'] } }, '/keys/algorithms/0');
       refused({ mfa: { totp: { algorithm: '' } } }, '/mfa/totp/algorithm');
+      refused({ mfa: { totp: { algorithm: 'sha-256' } } }, '/mfa/totp/algorithm');
     });
 
     it('refuses a jwt issuer without keys, with both key sources, or with a skew over 60 s', () => {

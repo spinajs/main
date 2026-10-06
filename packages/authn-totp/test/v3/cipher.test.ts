@@ -113,7 +113,7 @@ describe('v3 cipher: key ring', () => {
   });
 
   it('refuses a missing secret or a malformed previous list', () => {
-    for (const bad of [undefined, null, {}, { secret: '' }, { secret: 'short' }, { secret: HEX, previous: 'x' }, { secret: HEX, previous: ['short'] }, { secret: HEX, previous: [42] }]) {
+    for (const bad of [undefined, null, {}, { secret: '' }, { secret: 'short' }, { secret: HEX, previous: ['short'] }, { secret: HEX, previous: [42] }]) {
       assert.throws(() => mfaKeyRingFrom(bad as never), InvalidOption, inspect(bad));
     }
   });
