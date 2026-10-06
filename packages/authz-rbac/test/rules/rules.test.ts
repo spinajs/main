@@ -191,6 +191,17 @@ describe('authz-rbac rules (B35)', () => {
       const m = await model([assignment('a1', 'viewer', P1)], [{ ...exportRule, expiresAt: new Date(NOW.getTime() + HOUR) }]);
       expect((await vote(m, 'file:read', f1)).validUntil).to.deep.equal(new Date(NOW.getTime() + HOUR));
     });
+
+    it('a rank selector that skips one threshold never skips another of the same id, or of none', async () => {
+      const plain = { ...exportRule, reason: { code: 'plain' } };
+      const adminsOnly = { ...exportRule, minRole: 'maintainer', reason: { code: 'admins' }, subjects: { rank: { ladder: 'org', at: 'org', gte: 'org.admin' } } };
+      const rows = [assignment('a1', 'viewer', P1), assignment('a2', 'org.member', O1)];
+      const noId = (r: typeof plain) => ({ ...r, id: undefined }) as unknown as Omit<RuleDef, 'source'>;
+      for (const rules of [[plain, adminsOnly], [adminsOnly, plain], [noId(plain), noId(adminsOnly)], [noId(adminsOnly), noId(plain)]]) {
+        const m = await model(rows, rules);
+        expect((await vote(m, 'file:read', f1)).denies!.map((d) => d.reason.code)).to.deep.equal(['plain']);
+      }
+    });
   });
 
   describe('type-level requests fail closed where rules would differ per row', () => {
@@ -317,7 +328,7 @@ describe('authz-rbac rules (B35)', () => {
         [{ id: 'c', kind: 'cap', scope: GLOBAL, maxRole: 'viewer' }, 'a cap with maxRole needs the ladder'],
       ];
       for (const [def, message] of cases) {
-        // Not a ConfigRuleStore, which refuses the rule when it reads it.
+        // A remote store: the rule reaches the compile at the check, not at init as a ConfigRuleStore's would.
         const store: RuleStore = { name: 'remote', forPath: async () => [{ ...def, source: 'db' }], version: async () => '1' };
         const m = new RbacModel({ roles: new MemoryRoleStore(ROLES, LADDERS), assignments: new MemoryAssignmentStore([assignment('a1', 'editor')]), rules: store, log: { warn: () => undefined } });
         await m.init(fakeModelInitContext({ model: 'rbac', permissions: registry() }));

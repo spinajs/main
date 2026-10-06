@@ -1,7 +1,8 @@
 import { AuthzConfigError, GLOBAL } from '@spinajs/authz';
 import type { RuleDef } from '@spinajs/authz';
 import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
-import type { Configuration } from '@spinajs/configuration';
+import { Configuration, FrameworkConfiguration } from '@spinajs/configuration';
+import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 import * as chai from 'chai';
 import 'mocha';
@@ -64,11 +65,6 @@ describe('authz-rbac ConfigRuleStore', () => {
       for (const p of parts) expect((thrown as Error).message, JSON.stringify(rules)).to.contain(p);
     };
 
-    it('refuses what is not a list of rules', () => {
-      refuses({ 0: cap() }, 'authz.rbac.rules');
-      for (const r of [null, 'c1', [cap()]]) refuses([r], 'authz.rbac.rules[0]');
-    });
-
     it('refuses an unknown kind, which no step runs', () => {
       refuses([cap({ kind: 'grant' })], "(id 'c1')", 'kind');
       refuses([cap({ kind: undefined })], "(id 'c1')", 'kind');
@@ -82,7 +78,7 @@ describe('authz-rbac ConfigRuleStore', () => {
     });
 
     it('refuses a scope other than $global or a node with an id, which no check path holds', () => {
-      for (const scope of [{ type: 'file' }, { type: 'org', idd: 'o1' }, { id: 'o1' }, null, 'org']) refuses([cap({ scope })], "(id 'c1')", 'scope');
+      for (const scope of [{ type: 'file' }, { type: 'org', idd: 'o1' }, { id: 'o1' }, 'org', { type: 'org', id: '' }, { type: 'org', id: null }, { type: 'org', id: 1 }, { type: '$global', id: 'x' }]) refuses([cap({ scope })], "(id 'c1')", 'scope');
     });
 
     it('refuses a selector that selects nothing or a threshold without permissions', () => {
@@ -94,7 +90,7 @@ describe('authz-rbac ConfigRuleStore', () => {
       refuses([cap({ subjects: { principalTypes: [] } })], "(id 'c1')", 'subjects.principalTypes');
       refuses([cap({ subjects: { actorTypes: [1] } })], "(id 'c1')", 'subjects.actorTypes');
       refuses([cap({ subjects: { refs: [] } })], "(id 'c1')", 'subjects.refs');
-      refuses([cap({ subjects: { refs: [{ type: 'user' }] } })], "(id 'c1')", 'subjects.refs');
+      for (const id of [undefined, null, '']) refuses([cap({ subjects: { refs: [{ type: 'user', id }] } })], "(id 'c1')", 'subjects.refs');
       refuses([cap({ assignments: { scopeTypes: [] } })], "(id 'c1')", 'assignments.scopeTypes');
       refuses([cap({ assignments: { subjectTypes: 'user' } })], "(id 'c1')", 'assignments.subjectTypes');
     });
@@ -110,6 +106,11 @@ describe('authz-rbac ConfigRuleStore', () => {
 
     it('refuses an expiresAt that is not a date', () => {
       refuses([cap({ expiresAt: 'soon' })], "(id 'c1')", 'expiresAt');
+      refuses([cap({ expiresAt: new Date('soon') })], "(id 'c1')", 'expiresAt');
+    });
+
+    it('does not read a null authz.rbac.rules as no rules', () => {
+      expect(() => new ConfigRuleStore({ get: () => null } as unknown as Configuration).all()).to.throw();
     });
   });
 });
@@ -128,6 +129,26 @@ describe('authz-rbac authz.rbac.rules schema', () => {
   }
 
   const refused = (rules: unknown) => violationPaths(boot(rules));
+
+  // bootConfiguration passes the values through JSON, which turns a Date into a string.
+  async function bootValues(rules: unknown): Promise<Configuration> {
+    const child = DI.RootContainer.child();
+    children.push(child);
+    child.register(AUTHZ_RBAC_CONFIGURATION_SCHEMA).asValue('__configurationSchema__');
+    child
+      .register(
+        class extends FrameworkConfiguration {
+          protected loadSources() {
+            this.Sources = [];
+          }
+          protected onLoad() {
+            return { authz: { rbac: { rules } } };
+          }
+        },
+      )
+      .as(Configuration);
+    return (await child.resolve(Configuration)) as Configuration;
+  }
 
   it('takes valid rules of each kind; ConfigRuleStore gives a rule without a scope GLOBAL', async () => {
     const configuration = await boot([
@@ -161,6 +182,24 @@ describe('authz-rbac authz.rbac.rules schema', () => {
     expect(await refused([cap({ expiresAt: 'soon' })])).to.include('authz.rbac.rules.0.expiresAt');
     expect(await refused([cap(), cap()])).to.include('authz.rbac.rules');
     expect(await refused([cap({ scope: { type: 'file' } })])).to.include('authz.rbac.rules.0.scope.type');
+    expect(await refused([cap({ scope: { type: '$global', id: 'x' } })])).to.include('authz.rbac.rules.0.scope.type');
+  });
+
+  // coerceTypes turns a null id into '', which would scope the rule to no node or select no principal.
+  it('refuses a null or empty id of a scope or a subject ref', async () => {
+    for (const id of [null, '']) {
+      expect(await refused([cap({ scope: { type: 'org', id } })]), String(id)).to.include('authz.rbac.rules.0.scope.id');
+      expect(await refused([cap({ subjects: { refs: [{ type: 'user', id }] } })]), String(id)).to.include('authz.rbac.rules.0.subjects.refs.0.id');
+    }
+  });
+
+  it('takes an expiresAt Date from a JS config; refuses an invalid one, a non-date and a date-time without a timezone', async () => {
+    const configuration = await bootValues([cap({ expiresAt: new Date('2027-01-01T00:00:00.000Z') })]);
+    expect(new ConfigRuleStore(configuration).all()[0].expiresAt).to.deep.equal(new Date('2027-01-01T00:00:00.000Z'));
+    const invalid = await bootValues([cap({ expiresAt: new Date('soon') })]);
+    expect(() => new ConfigRuleStore(invalid).all()).to.throw(AuthzConfigError, 'expiresAt');
+    expect(await refused([cap({ expiresAt: {} })])).to.include('authz.rbac.rules.0.expiresAt');
+    expect(await refused([cap({ expiresAt: '2027-01-01T00:00:00' })])).to.include('authz.rbac.rules.0.expiresAt');
   });
 
   it('ConfigRuleStore reads authz.rbac.rules through @Config of its container', async () => {

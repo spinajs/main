@@ -19,6 +19,7 @@ import { applyCaps, applyRestrict, applyThresholds } from './rules/steps.js';
 import { nativeListVote } from './rules/native.js';
 import type { NativeListInput } from './rules/native.js';
 import type { ActiveRule } from './rules/steps.js';
+import type { CompiledRule } from './rules/compile.js';
 import { applyMemberships, setsExtension, usableSubjects } from './sets/extension.js';
 import type { SetMemberships } from './sets/resolver.js';
 import { aggregateRanks, rankAssignments, reachableGrants, roleTooLow } from './ladder/steps.js';
@@ -172,8 +173,8 @@ export interface RbacState {
   cacheable: boolean;
   /** rankAt[ladder, types] of step 4, filled on first use (ladder/checks.ts rankAt). */
   readonly rankAt: Map<string, number | undefined>;
-  /** cap: whether each threshold rule's `subjects.rank` selects the principal (ranks after restrict, before cap), by rule id. */
-  readonly ruleSubjects: Map<string, boolean>;
+  /** cap: whether each threshold rule's `subjects.rank` selects the principal (ranks after restrict, before cap). Keyed by the rule: ids may repeat or be missing. */
+  readonly ruleSubjects: Map<CompiledRule, boolean>;
 }
 
 const collect: RbacStep = (s) => {

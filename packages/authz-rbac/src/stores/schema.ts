@@ -50,16 +50,16 @@ const role = closed({
 });
 
 const ruleNames = { type: 'array', items: name, minItems: 1 };
-const ref = closed({ type: name, id: { type: 'string' } }, ['type']);
-const principalRef = closed({ type: name, id: { type: 'string' } }, ['type', 'id']);
+const ref = closed({ type: name, id: name }, ['type']);
+const principalRef = closed({ type: name, id: name }, ['type', 'id']);
 const valueRef = closed({ ref: name }, ['ref']);
 // Conditions are checked by the condition parser, which knows the registered functions.
 const condition = { type: 'object' };
 const RULE_KINDS = ['restrict', 'cap', 'threshold'];
 
 // A rule without a scope applies at $global (ConfigRuleStore fills it in). A bare type is on the path of a list only,
-// never of a check, so lists and checks would disagree.
-const ruleScope = { ...ref, if: { not: { required: ['id'] } }, then: { properties: { type: { const: '$global' } } } };
+// never of a check, so lists and checks would disagree; $global with an id is no node at all.
+const ruleScope = { ...ref, if: { not: { required: ['id'] } }, then: { properties: { type: { const: '$global' } } }, else: { properties: { type: { not: { const: '$global' } } } } };
 
 const ruleSubjects = closed({
   principalTypes: ruleNames,
@@ -76,7 +76,8 @@ const ruleCommon = {
   resourceTypes: ruleNames,
   subjects: ruleSubjects,
   when: condition,
-  expiresAt: { type: ['string', 'null'], format: 'date-time' },
+  // ajv-formats 2 takes a date-time without a timezone, which Date.parse reads as local time.
+  expiresAt: { anyOf: [{ type: ['string', 'null'], format: 'date-time', pattern: '(?:[zZ]|[+-]\\d\\d:?\\d\\d)$' }, { instanceof: 'Date' }] },
   source: { type: 'string' },
 };
 

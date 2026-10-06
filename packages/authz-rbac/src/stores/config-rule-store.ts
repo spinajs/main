@@ -17,7 +17,8 @@ const RULE_KEYS: ReadonlyMap<unknown, readonly string[]> = new Map([
 ]);
 
 const isPlain = (v: unknown): v is Raw => v !== null && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
-const isNames = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string' && s !== '');
+const isId = (v: unknown): boolean => typeof v === 'string' && v !== '';
+const isNames = (v: unknown): boolean => Array.isArray(v) && v.length > 0 && v.every(isId);
 
 function refuse(bad: boolean, at: string, what: string): void {
   if (bad) throw new AuthzConfigError(`${at}: ${what}`);
@@ -25,23 +26,24 @@ function refuse(bad: boolean, at: string, what: string): void {
 
 /*
  * Floors for rules the schema never saw (Configuration.set, the constructor seam). Each refuses a rule that would apply
- * to fewer requests than it says, which reads as broader access: a kind no step runs, a misspelt key, a bare-type scope
- * (on no check path), a selector that selects nothing, a rank without exactly one bound, a cap that does nothing.
- * The model compile refuses the other malformed values.
+ * to fewer requests than it says, which reads as broader access: a kind no step runs, a misspelt key, a scope on no
+ * check path (a bare type, an empty id), a selector that selects nothing, a rank without exactly one bound, a cap that
+ * does nothing. The model compile refuses the other malformed values.
  */
 function floor(r: Raw, scope: unknown, at: string): void {
   const keys = RULE_KEYS.get(r.kind);
   refuse(keys === undefined, at, `kind must be one of ${[...RULE_KEYS.keys()].join(', ')}`);
   const unknown = Object.keys(r).find((k) => !keys!.includes(k));
   refuse(unknown !== undefined, at, `'${unknown}' is not a key of a ${r.kind as string} rule`);
-  refuse(!isPlain(scope) || typeof scope.type !== 'string' || (scope.id == null && scope.type !== GLOBAL.type), at, 'scope must be $global or a node with an id');
+  const { type, id } = scope as Raw;
+  refuse(typeof type !== 'string' || (type === GLOBAL.type ? id !== undefined : !isId(id)), at, 'scope must be $global or a node with an id');
   const subjects = isPlain(r.subjects) ? r.subjects : {};
   const assignments = isPlain(r.assignments) ? r.assignments : {};
   const lists = { resourceTypes: r.resourceTypes, permissions: r.permissions, 'subjects.principalTypes': subjects.principalTypes, 'subjects.actorTypes': subjects.actorTypes, 'assignments.scopeTypes': assignments.scopeTypes, 'assignments.subjectTypes': assignments.subjectTypes };
   for (const [key, v] of Object.entries(lists)) refuse(v !== undefined && !isNames(v), at, `${key} must be a non-empty list of names`);
   refuse(r.kind === 'threshold' && r.permissions === undefined, at, 'a threshold needs permissions');
   const refs = subjects.refs;
-  refuse(refs !== undefined && !(Array.isArray(refs) && refs.length > 0 && refs.every((p) => isPlain(p) && typeof p.type === 'string' && typeof p.id === 'string')), at, 'subjects.refs must be a non-empty list of { type, id }');
+  refuse(refs !== undefined && !(Array.isArray(refs) && refs.length > 0 && refs.every((p) => isPlain(p) && typeof p.type === 'string' && isId(p.id))), at, 'subjects.refs must be a non-empty list of { type, id }');
   const rank = subjects.rank;
   refuse(rank !== undefined && (!isPlain(rank) || ['lt', 'eq', 'gte'].filter((k) => rank[k] !== undefined).length !== 1), at, 'subjects.rank needs exactly one of lt, eq, gte');
   refuse(r.kind === 'cap' && r.maxRole === undefined && r.stripTags !== true, at, 'a cap needs maxRole or stripTags: true');
@@ -55,12 +57,10 @@ function floor(r: Raw, scope: unknown, at: string): void {
  *   that is not a date (a list given to ConfigRuleStore skips the schema)
  */
 export function readRuleDefs(rules: readonly unknown[], source = 'config'): readonly RuleDef[] {
-  refuse(!Array.isArray(rules), 'authz.rbac.rules', 'must be a list of rules');
   return Object.freeze(
     rules.map((given, i) => {
       const r = given as RuleDef;
       const at = `authz.rbac.rules[${i}]${typeof r?.id === 'string' ? ` (id '${r.id}')` : ''}`;
-      refuse(!isPlain(given), at, 'must be an object');
       const scope = r.scope === undefined ? GLOBAL : r.scope;
       floor(given as Raw, scope, at);
       return deepFreeze({ ...r, scope, source: r.source ?? source, ...expiry(r.expiresAt, at) });
@@ -96,7 +96,7 @@ export class ConfigRuleStore extends RuleStore {
 
   /** Every rule, expired ones included; the model reads them without IO. */
   all(): readonly RuleDef[] {
-    this.loaded ??= readRuleDefs(this.configured() ?? []);
+    this.loaded ??= readRuleDefs(this.configured());
     return this.loaded;
   }
 
@@ -115,10 +115,11 @@ export class ConfigRuleStore extends RuleStore {
     return this.hash;
   }
 
-  private configured(): readonly unknown[] | undefined {
+  private configured(): readonly unknown[] {
     if (Array.isArray(this.source)) return this.source as readonly RuleDef[];
     const configuration = this.source as Pick<Configuration, 'get'> | undefined;
-    return configuration ? configuration.get<readonly unknown[] | undefined>(['authz', 'rbac', 'rules']) : this.Rules;
+    const rules = configuration ? configuration.get<readonly unknown[] | undefined>(['authz', 'rbac', 'rules']) : this.Rules;
+    return rules === undefined ? [] : rules;
   }
 }
 

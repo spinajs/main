@@ -1,12 +1,9 @@
 import { AuthzConfigError, AUTHZ_CONFIGURATION_SCHEMA, PermissionRegistryImpl } from '@spinajs/authz';
-import { bootConfiguration } from '@spinajs/authz-testing';
+import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
 import { Configuration, FrameworkConfiguration, InvalidConfiguration } from '@spinajs/configuration';
 import type { ConfigurationSource, IConfigLike } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { Class } from '@spinajs/di';
-import Ajv from 'ajv';
-import ajvFormats from 'ajv-formats';
-import ajvKeywords from 'ajv-keywords';
 import { expect } from 'chai';
 import _ from 'lodash';
 import 'mocha';
@@ -412,21 +409,17 @@ describe('authz-rbac stores: ConfigRoleStore in DI', function () {
   });
 });
 
-function newAjv(): any {
-  const AjvCtor: any = (Ajv as any).default ?? Ajv;
-  // the options of FrameworkConfiguration.initValidator
-  const ajv: any = new AjvCtor({ allErrors: true, removeAdditional: true, useDefaults: true, coerceTypes: true });
-  (ajvFormats as any).default(ajv);
-  (ajvKeywords as any).default(ajv);
-  ajv.addKeyword('$configurationModule');
-  return ajv;
-}
+const bootRbac = (rbac: unknown) => bootConfiguration({ authz: { rbac } }, [AUTHZ_RBAC_CONFIGURATION_SCHEMA]);
 
-const validate = (cfg: unknown) => {
-  const ajv = newAjv();
-  const ok = ajv.validate(AUTHZ_RBAC_CONFIGURATION_SCHEMA, cfg) as boolean;
-  return { ok, errors: ajv.errors as any[] | null };
-};
+/** authz.rbac as the configuration holds it after the boot validated it. */
+async function configured(rbac: unknown): Promise<Record<string, unknown>> {
+  const { child, configuration } = await bootRbac(rbac);
+  try {
+    return configuration.get(['authz', 'rbac']);
+  } finally {
+    await child.dispose();
+  }
+}
 
 describe('authz-rbac stores: authz.rbac schema', function () {
   this.timeout(30000);
@@ -441,56 +434,45 @@ describe('authz-rbac stores: authz.rbac schema', function () {
     expect(hasDefault(AUTHZ_RBAC_CONFIGURATION_SCHEMA)).to.equal(false);
   });
 
-  it('accepts the §8.2 and §8.5 samples unchanged', () => {
+  it('accepts the §8.2 and §8.5 samples unchanged', async () => {
     for (const sample of [SAMPLE_8_2(), SAMPLE_8_5(), {}]) {
-      const copy = _.cloneDeep(sample);
-      const r = validate(sample);
-      expect(r.ok, JSON.stringify(r.errors)).to.equal(true);
-      expect(sample).to.deep.equal(copy);
+      expect(await configured(sample)).to.deep.equal(sample);
     }
   });
 
-  it('accepts connection, migration.idColumn and keeps keys of other lanes', () => {
-    const cfg: any = { connection: 'authz', migration: { roleColumn: 'Role', idColumn: 'Uuid' }, admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } };
-    expect(validate(cfg).ok).to.equal(true);
+  it('accepts connection, migration.idColumn and keeps keys of other lanes', async () => {
+    const cfg = await configured({ connection: 'authz', migration: { roleColumn: 'Role', idColumn: 'Uuid' }, admin: { x: 1 }, future: { y: true }, stores: { roles: ['A'], policies: ['B'] } });
     expect(cfg.admin).to.deep.equal({ x: 1 });
     expect(cfg.future).to.deep.equal({ y: true });
-    expect(cfg.stores.policies).to.deep.equal(['B']);
+    expect((cfg.stores as Record<string, unknown>).policies).to.deep.equal(['B']);
   });
 
-  it('rejects bad shapes, each for its own reason', () => {
-    const fails = (cfg: unknown, instancePath: string, keyword?: string) => {
-      const r = validate(cfg);
-      expect(r.ok, JSON.stringify(cfg)).to.equal(false);
-      expect(
-        r.errors!.some((e) => e.instancePath === instancePath && (keyword === undefined || e.keyword === keyword)),
-        JSON.stringify(r.errors),
-      ).to.equal(true);
-    };
+  it('rejects bad shapes, naming the full path', async () => {
+    const fails = async (rbac: unknown, path: string) => expect(await violationPaths(bootRbac(rbac)), JSON.stringify(rbac)).to.include(`authz.rbac.${path}`);
     // coerceTypes turns numbers and booleans into strings, so only arrays and null stay non-grants
-    fails({ roles: { a: { grants: [['x']] } } }, '/roles/a/grants/0', 'anyOf');
-    fails({ roles: { a: { grants: [null] } } }, '/roles/a/grants/0', 'anyOf');
-    fails({ roles: { a: { grants: [{ relation: 'self' }] } } }, '/roles/a/grants/0', 'anyOf');
-    fails({ roles: { a: { assignable: 'yes' } } }, '/roles/a/assignable', 'type');
-    fails({ roles: { a: { subjectSet: 'maybe' } } }, '/roles/a/subjectSet', 'type');
-    fails({ roles: { a: { grant: [] } } }, '/roles/a', 'propertyNames');
-    fails({ roles: { a: { implies: [{ role: 'b', at: 'up' }] } } }, '/roles/a/implies/0/at', 'enum');
-    fails({ roles: { a: { implies: [{ role: 'b' }] } } }, '/roles/a/implies/0', 'required');
-    fails({ roles: { a: { revoke: 'x' } } }, '/roles/a/revoke', 'type');
-    fails({ roles: [] }, '/roles', 'type');
-    fails({ ladders: { project: { roles: 'viewer' } } }, '/ladders/project/roles', 'type');
-    fails({ ladders: { project: {} } }, '/ladders/project', 'required');
-    fails({ rules: [1] }, '/rules/0', 'type');
-    fails({ rules: {} }, '/rules', 'type');
-    fails({ groupPrincipal: { role: 'g' } }, '/groupPrincipal', 'required');
-    fails({ defaultRoles: 'user' }, '/defaultRoles', 'type');
-    fails({ anonymousRoles: [['guest']] }, '/anonymousRoles/0', 'type');
-    fails({ serviceRoles: { 'service:x': 'a' } }, '/serviceRoles/service:x', 'type');
-    fails({ stores: { roles: 'ConfigRoleStore' } }, '/stores/roles', 'type');
-    fails({ stores: { links: [''] } }, '/stores/links/0', 'minLength');
-    fails({ cache: { assignmentsTtlSeconds: -1 } }, '/cache/assignmentsTtlSeconds', 'minimum');
-    fails({ migration: { roleColumn: '' } }, '/migration/roleColumn', 'minLength');
-    fails({ connection: '' }, '/connection', 'minLength');
+    await fails({ roles: { a: { grants: [['x']] } } }, 'roles.a.grants.0');
+    await fails({ roles: { a: { grants: [null] } } }, 'roles.a.grants.0');
+    await fails({ roles: { a: { grants: [{ relation: 'self' }] } } }, 'roles.a.grants.0');
+    await fails({ roles: { a: { assignable: 'yes' } } }, 'roles.a.assignable');
+    await fails({ roles: { a: { subjectSet: 'maybe' } } }, 'roles.a.subjectSet');
+    await fails({ roles: { a: { grant: [] } } }, 'roles.a.grant');
+    await fails({ roles: { a: { implies: [{ role: 'b', at: 'up' }] } } }, 'roles.a.implies.0.at');
+    await fails({ roles: { a: { implies: [{ role: 'b' }] } } }, 'roles.a.implies.0.at');
+    await fails({ roles: { a: { revoke: 'x' } } }, 'roles.a.revoke');
+    await fails({ roles: [] }, 'roles');
+    await fails({ ladders: { project: { roles: 'viewer' } } }, 'ladders.project.roles');
+    await fails({ ladders: { project: {} } }, 'ladders.project.roles');
+    await fails({ rules: [1] }, 'rules.0');
+    await fails({ rules: {} }, 'rules');
+    await fails({ groupPrincipal: { role: 'g' } }, 'groupPrincipal.scopeType');
+    await fails({ defaultRoles: 'user' }, 'defaultRoles');
+    await fails({ anonymousRoles: [['guest']] }, 'anonymousRoles.0');
+    await fails({ serviceRoles: { 'service:x': 'a' } }, 'serviceRoles.service:x');
+    await fails({ stores: { roles: 'ConfigRoleStore' } }, 'stores.roles');
+    await fails({ stores: { links: [''] } }, 'stores.links.0');
+    await fails({ cache: { assignmentsTtlSeconds: -1 } }, 'cache.assignmentsTtlSeconds');
+    await fails({ migration: { roleColumn: '' } }, 'migration.roleColumn');
+    await fails({ connection: '' }, 'connection');
   });
 });
 
@@ -506,8 +488,8 @@ describe('authz-rbac stores: config fragment', function () {
     });
   });
 
-  it('passes the schema', () => {
-    expect(validate(_.cloneDeep(rbacStores.authz.rbac)).ok).to.equal(true);
+  it('passes the schema', async () => {
+    expect(await configured(rbacStores.authz.rbac)).to.deep.equal(rbacStores.authz.rbac);
   });
 
   it('compiles to a file the configuration loads (lib/<mode>/config, no dot in the base name)', () => {
@@ -601,8 +583,8 @@ describe('authz-rbac stores: store names', function () {
     expect(rbacStoreNames(cfg({ rules: [] }), 'rules')).to.deep.equal([]);
   });
 
-  it('the schema takes a links secret of at least 32 characters', () => {
-    expect(validate({ links: { secret: 'x'.repeat(32) } }).ok).to.equal(true);
-    expect(validate({ links: { secret: 'short' } }).ok).to.equal(false);
+  it('the schema takes a links secret of at least 32 characters', async () => {
+    expect(await configured({ links: { secret: 'x'.repeat(32) } })).to.deep.equal({ links: { secret: 'x'.repeat(32) } });
+    expect(await violationPaths(bootRbac({ links: { secret: 'short' } }))).to.include('authz.rbac.links.secret');
   });
 });

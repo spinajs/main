@@ -131,7 +131,7 @@ export const applyCaps: RbacStep = (s) => {
     return false;
   });
   // Thresholds select their subjects on the same ranks.
-  for (const a of rulesOf(s, 'threshold')) s.ruleSubjects.set(a.rule.def.id, rankSelects(s, a.rule));
+  for (const a of rulesOf(s, 'threshold')) s.ruleSubjects.set(a.rule, rankSelects(s, a.rule));
   if (selected.length === 0) return;
   const dropped = new Set<LiveAssignment>();
   const capOne = (l: LiveAssignment): boolean => {
@@ -180,7 +180,7 @@ export const applyThresholds: RbacStep = (s) => {
   const ladders = s.input.ladders;
   for (const a of rulesOf(s, 'threshold')) {
     const def = a.rule.def;
-    if (!a.rule.permissions!.has(s.permission) || s.ruleSubjects.get(def.id) === false) continue;
+    if (!a.rule.permissions!.has(s.permission) || s.ruleSubjects.get(a.rule) === false) continue;
     // An undecided threshold whose rank is met cannot deny; otherwise it could, and the vote fails (B39).
     const min = a.minRole ?? (typeof def.minRole === 'string' ? def.minRole : undefined);
     if (min === undefined) throw new Error(a.indeterminate);

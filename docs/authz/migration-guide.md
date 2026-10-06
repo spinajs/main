@@ -1320,6 +1320,9 @@ so. The rest is for the lane report.
 > that adopt them need this. L2 hand-off: `ConfigRuleStore` (the default of `authz.rbac.stores.rules`)
 > and `linkPrincipal` over `DbLinkStore.byToken` are L1b's; an expired link comes back with its
 > `expiresAt`, and the ceiling denies it.
+>
+> A rule's `expiresAt` in `authz.rbac.rules` is a `Date` (in a JS or TS config file) or a date-time string
+> with a timezone, such as `2027-01-01T00:00:00Z`. A string without a timezone fails the boot.
 
 ### L4 and L4b: ORM adapter
 
