@@ -53,10 +53,14 @@ export class RbacRoleSource extends RoleSource {
   }
 
   private passwordRule(): (role: string) => boolean {
-    const listed = this.RequirePassword ?? this.legacyList();
+    const listed: unknown = this.RequirePassword ?? this.legacyList();
+    // The schema is the gate; this floor is for values set at runtime that never went through it (a bare string would spread into characters and fail open).
+    if (listed !== undefined && listed !== null && (!Array.isArray(listed) || !listed.every((r) => typeof r === 'string'))) {
+      throw new AuthzConfigError(`${ROLE_SWITCH_PASSWORD_KEY} must be a list of role names, got ${JSON.stringify(listed)}`);
+    }
     // Fail safe, as the 2.x switch: no list configured means every switch re-verifies the password.
     if (listed === undefined) return () => true;
-    const set = new Set<string>(listed);
+    const set = new Set<string>(listed as string[]);
     return (role) => set.has(role);
   }
 

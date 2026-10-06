@@ -35,6 +35,10 @@ describe('users access domain and impersonation configuration', () => {
       ['protectedRoles that is not a list', { authz: { impersonation: { protectedRoles: 'admin' } } }, 'authz.impersonation.protectedRoles'],
       ['an empty role name', { authz: { impersonation: { protectedRoles: ['admin', ''] } } }, 'authz.impersonation.protectedRoles.1'],
       ['a role name that is not a string', { authz: { impersonation: { protectedRoles: [{}] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a number that coerces to a role name', { authz: { impersonation: { protectedRoles: [5] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['a boolean that coerces to a role name', { authz: { impersonation: { protectedRoles: [true] } } }, 'authz.impersonation.protectedRoles.0'],
+      ['protectedRoles set to null', { authz: { impersonation: { protectedRoles: null } } }, 'authz.impersonation.protectedRoles'],
+      ['impersonation set to null', { authz: { impersonation: null } }, 'authz.impersonation'],
       ['an empty access domain', { authz: { http: { access: { domain: '' } } } }, 'authz.http.access.domain'],
       ['an access domain that is not a string', { authz: { http: { access: { domain: [] } } } }, 'authz.http.access.domain'],
     ];

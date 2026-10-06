@@ -8,6 +8,8 @@ const stringList = { type: 'array', items: { type: 'string' } };
 
 /** What AuthzDomains.create accepts as a domain name. */
 const DOMAIN_NAME = '^[A-Za-z0-9_.-]{1,64}$';
+// No shared role-name pattern exists. No leading digit and not true/false, so coerceTypes cannot turn [5] or [true] into a role name.
+const ROLE_NAME = { type: 'string', pattern: '^(?!true$|false$)[^0-9\\s]\\S*$' };
 
 // A default only at the root: inside authz.domains.<n> an unset key must stay unset, or the domain would stop inheriting it from its parent.
 const rootDefault = (root: boolean, value: unknown): { default?: unknown } => (root ? { default: value } : {});
@@ -177,19 +179,19 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
         roleSwitch: {
           type: 'object',
           properties: {
-            // null counts as unset (the 2.x key then applies); an empty role name used to be rejected.
-            requirePassword: { anyOf: [{ type: 'array', items: { type: 'string', minLength: 1 } }, { type: 'null' }] },
+            // null counts as unset: the 2.x key then applies.
+            requirePassword: { anyOf: [{ type: 'array', items: ROLE_NAME }, { type: 'null' }] },
           },
         },
       },
     },
-    // Read by users, which has no AUTHZ_DEFAULTS entry, so the defaults are here; they equal the code defaults users used before.
+    // Read by users, which has no AUTHZ_DEFAULTS entry, so the defaults are here.
     impersonation: {
       type: 'object',
       default: {},
       properties: {
         permission: { type: 'string', minLength: 1, default: 'user:impersonate' },
-        protectedRoles: { type: 'array', items: { type: 'string', minLength: 1 }, default: ['admin'] },
+        protectedRoles: { type: 'array', items: ROLE_NAME, default: ['admin'] },
       },
     },
     scopes,

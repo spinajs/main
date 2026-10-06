@@ -157,6 +157,14 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
       expect(await flags(ref)).to.deep.eq({ member: false, support: false });
     });
 
+    it('rejects a malformed 3.0 key set at runtime, instead of reading it as no role needing the password', async () => {
+      const ref = await user('member');
+      for (const bad of ['support', { support: true }, 5, [1]]) {
+        await setConfig(PASSWORD_KEY, bad);
+        await expect(source.rolesOf(await signedIn(ref)), JSON.stringify(bad)).to.be.rejectedWith(AuthzConfigError, /authz\.principals\.roleSwitch\.requirePassword/);
+      }
+    });
+
     it('takes a null 3.0 key as unset', async () => {
       const ref = await user('support', 'member');
       await setConfig(PASSWORD_KEY, null);
