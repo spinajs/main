@@ -512,7 +512,21 @@ describe('v3 step: TotpMfaStep', () => {
   });
 });
 
+describe('v3 step: TotpMfaStep range floor', () => {
+  const stepWith = (over: Record<string, unknown>) =>
+    new TotpMfaStep({ store: new MemoryMfaSecretStore(), keys: mfaKeyRingFrom({ secret: 'ab'.repeat(32) }), options: { ...TOTP_DEFAULTS, ...over } as TotpOptions, identities: null });
+  const rejects = (over: Record<string, unknown>) => assert.rejects(stepWith(over).beginEnrolment(ALICE), (e: Error) => e instanceof InvalidOption && /authn\.mfa\.totp/.test(e.message));
+
+  it('rejects a window beyond the floor', () => rejects({ window: 50 }));
+  it('rejects digits below the floor', () => rejects({ digits: 4 }));
+  it('rejects a non-numeric window', () => rejects({ window: '3' }));
+  it('accepts the defaults', async () => {
+    await stepWith({}).beginEnrolment(ALICE);
+  });
+});
+
 describe('v3 step: TotpMfaStep through DI', () => {
+  // @spinajs/users' UserIdentityStore, registered by this package's src import, needs a booted Orm.
   class NoIdentities extends Identities {
     constructor() {
       super({});

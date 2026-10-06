@@ -1,7 +1,7 @@
 import * as OTPAuth from 'otpauth';
 import { Config } from '@spinajs/configuration';
 import { DI, Injectable } from '@spinajs/di';
-import { InvalidOperation, UnexpectedServerError } from '@spinajs/exceptions';
+import { InvalidOperation, InvalidOption, UnexpectedServerError } from '@spinajs/exceptions';
 import { IdentityStore, MfaStep } from '@spinajs/authn/contracts';
 import type { IdentityRef } from '@spinajs/authn/contracts';
 import { mfaKeyRingFrom } from '../cipher/key-ring.js';
@@ -208,8 +208,18 @@ export class TotpMfaStep extends MfaStep {
     }
     const keys = this.deps.keys ?? mfaKeyRingFrom(this.EncryptionKey);
     const options = this.deps.options ?? this.TotpConfig;
+    assertTotpRange(options);
     const identities = this.deps.identities !== undefined ? this.deps.identities : registered(IdentityStore) ? await DI.resolve(IdentityStore) : null;
     this.resolved = { store, keys, options, identities };
     return this.resolved;
+  }
+}
+
+const inRange = (value: unknown, min: number, max: number) => Number.isInteger(value) && (value as number) >= min && (value as number) <= max;
+
+// The schema is the gate; this floor holds for values that never went through it (deps.options, runtime Configuration.set).
+function assertTotpRange(o: TotpOptions): void {
+  if (!inRange(o?.digits, 6, 10) || !inRange(o.period, 1, 300) || !inRange(o.window, 0, 10) || !inRange(o.recoveryCodes, 0, 100)) {
+    throw new InvalidOption('authn.mfa.totp: digits, period, window or recoveryCodes outside the allowed range');
   }
 }
