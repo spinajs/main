@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { AuthenticationStrategy, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { challengeSecretPurpose, challengeSigningInput, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { decodeB64url } from '../jwk/base64url.js';
 import { dummyVerify } from '../jwk/signature.js';
-import { configuredKeysOptions } from '../options/options.js';
-import type { KeysOptions } from '../options/options.js';
+import { keysOptionsOf } from '../options/options.js';
+import type { KeysConfig, KeysOptions } from '../options/options.js';
 import { loginChallengeIdentity } from '../registry/registry.js';
 import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
 
@@ -22,15 +23,24 @@ export class KeyChallengeStrategy extends AuthenticationStrategy {
   readonly kinds = ['key-challenge'];
   readonly interactive = true;
 
-  protected readonly audience: string;
+  @Config('authn.keys')
+  protected KeysConfig: KeysConfig;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly secrets: SecretStore, options?: KeysOptions) {
+  constructor(protected readonly registry: KeyRegistry, protected readonly secrets: SecretStore, protected readonly Options?: KeysOptions) {
     super();
-    const audience = (options ?? configuredKeysOptions()).challenge.audience;
+  }
+
+  protected get audience(): string {
+    const audience = (this.Options ?? keysOptionsOf(this.KeysConfig)).challenge.audience;
     if (audience === null) {
       throw new Error('authn.keys.challenge.audience (or authn.keys.assertion.audience) must be set for key challenge logins');
     }
-    this.audience = audience;
+    return audience;
+  }
+
+  public async resolve(): Promise<void> {
+    void this.audience;
+    await super.resolve();
   }
 
   /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */

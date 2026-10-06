@@ -1,7 +1,12 @@
-import { DI } from '@spinajs/di';
-import { Configuration } from '@spinajs/configuration';
 import type { KeyAlgorithm } from '@spinajs/authn/contracts';
-import { KEY_ALGORITHMS } from '../jwk/keys.js';
+
+/** `authn.keys` as the schema validates and defaults it. */
+export interface KeysConfig {
+  readonly algorithms: readonly KeyAlgorithm[];
+  readonly challenge: { readonly ttlSeconds: number; readonly audience: string | null };
+  readonly assertion: { readonly typ: string; readonly audience: string | null; readonly maxLifetimeSeconds: number; readonly skewSeconds: number };
+  readonly httpSignature: { readonly maxAgeSeconds: number; readonly skewSeconds: number; readonly requiredComponents: readonly string[] };
+}
 
 /** `authn.keys` (design §22.5) after defaults. */
 export interface KeysOptions {
@@ -25,71 +30,19 @@ export interface KeysOptions {
   };
 }
 
-/** A18 and A17 cap both lifetimes at 300 s; config may only lower them. */
-export const MAX_LIFETIME_SECONDS = 300;
+const derived = new WeakMap<object, KeysOptions>();
 
-export const DEFAULT_KEYS_OPTIONS: KeysOptions = Object.freeze({
-  algorithms: KEY_ALGORITHMS,
-  challenge: Object.freeze({ ttlSeconds: 120, audience: null }),
-  assertion: Object.freeze({ typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: MAX_LIFETIME_SECONDS, skewSeconds: 30 }),
-  httpSignature: Object.freeze({ maxAgeSeconds: MAX_LIFETIME_SECONDS, skewSeconds: 30, requiredComponents: Object.freeze(['@method', '@target-uri', 'content-digest']) }),
-});
-
-export type KeysOptionsInput = {
-  readonly algorithms?: readonly KeyAlgorithm[];
-  readonly challenge?: Partial<KeysOptions['challenge']>;
-  readonly assertion?: Partial<KeysOptions['assertion']>;
-  readonly httpSignature?: Partial<KeysOptions['httpSignature']>;
-};
-
-const fail = (what: string): never => {
-  throw new Error(`authn.keys: ${what}`);
-};
-
-const seconds = (v: number, name: string, min: number, max = Number.MAX_SAFE_INTEGER): number => (Number.isInteger(v) && v >= min && v <= max ? v : fail(`${name} must be an integer from ${min} to ${max}`));
-
-/** Defaults merged under `input` (arrays replace); throws on a value the design does not allow, so boot fails. */
-export function keysOptions(input: KeysOptionsInput = {}): KeysOptions {
-  const d = DEFAULT_KEYS_OPTIONS;
-  const algorithms = input.algorithms ?? d.algorithms;
-  if (!Array.isArray(algorithms) || algorithms.length === 0 || algorithms.some((a) => !KEY_ALGORITHMS.includes(a))) {
-    fail(`algorithms must be a non-empty list of ${KEY_ALGORITHMS.join(', ')}`);
+/** The options of a validated `authn.keys`: frozen, with the challenge audience falling back to the assertion audience. Cached per config object, so a reloaded configuration gives fresh options. */
+export function keysOptionsOf(config: KeysConfig): KeysOptions {
+  let options = derived.get(config);
+  if (!options) {
+    options = Object.freeze({
+      algorithms: Object.freeze([...config.algorithms]),
+      challenge: Object.freeze({ ttlSeconds: config.challenge.ttlSeconds, audience: config.challenge.audience ?? config.assertion.audience }),
+      assertion: Object.freeze({ ...config.assertion }),
+      httpSignature: Object.freeze({ ...config.httpSignature, requiredComponents: Object.freeze([...config.httpSignature.requiredComponents]) }),
+    });
+    derived.set(config, options);
   }
-  const assertion = { ...d.assertion, ...input.assertion };
-  const httpSignature = { ...d.httpSignature, ...input.httpSignature };
-  const challenge = { ...d.challenge, ...input.challenge };
-  if (typeof assertion.typ !== 'string' || assertion.typ.length === 0) {
-    fail('assertion.typ must be a non-empty string');
-  }
-  for (const [name, v] of [
-    ['assertion.audience', assertion.audience],
-    ['challenge.audience', challenge.audience],
-  ] as const) {
-    if (v !== null && (typeof v !== 'string' || v.length === 0)) {
-      fail(`${name} must be a non-empty string or null`);
-    }
-  }
-  if (!Array.isArray(httpSignature.requiredComponents) || httpSignature.requiredComponents.some((c) => typeof c !== 'string')) {
-    fail('httpSignature.requiredComponents must be a list of strings');
-  }
-  return Object.freeze({
-    algorithms: Object.freeze([...new Set(algorithms)]),
-    challenge: Object.freeze({ ttlSeconds: seconds(challenge.ttlSeconds, 'challenge.ttlSeconds', 1, 3600), audience: challenge.audience ?? assertion.audience }),
-    assertion: Object.freeze({
-      typ: assertion.typ,
-      audience: assertion.audience,
-      maxLifetimeSeconds: seconds(assertion.maxLifetimeSeconds, 'assertion.maxLifetimeSeconds', 1, MAX_LIFETIME_SECONDS),
-      skewSeconds: seconds(assertion.skewSeconds, 'assertion.skewSeconds', 0, MAX_LIFETIME_SECONDS),
-    }),
-    httpSignature: Object.freeze({
-      maxAgeSeconds: seconds(httpSignature.maxAgeSeconds, 'httpSignature.maxAgeSeconds', 1, MAX_LIFETIME_SECONDS),
-      skewSeconds: seconds(httpSignature.skewSeconds, 'httpSignature.skewSeconds', 0, MAX_LIFETIME_SECONDS),
-      requiredComponents: Object.freeze([...httpSignature.requiredComponents]),
-    }),
-  });
-}
-
-/** `authn.keys` from the app configuration when one is registered, else the defaults. */
-export function configuredKeysOptions(): KeysOptions {
-  return keysOptions(DI.get(Configuration)?.get<KeysOptionsInput>(['authn', 'keys'], {}) ?? {});
+  return options;
 }

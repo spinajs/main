@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { AuthenticationStrategy, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, Credentials, KeyAlgorithm, SignedRequest, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { dummyVerify, verifySignature } from '../jwk/signature.js';
@@ -6,8 +7,8 @@ import { digestMatches, lowerCaseHeaders, signatureBase } from '../httpsig/base.
 import { parseByteSequenceDictionary, parseSignatureInput } from '../httpsig/fields.js';
 import type { SignatureInput } from '../httpsig/fields.js';
 import { KeyNonceStore, nonceKey } from '../nonce/store.js';
-import { configuredKeysOptions } from '../options/options.js';
-import type { KeysOptions } from '../options/options.js';
+import { keysOptionsOf } from '../options/options.js';
+import type { KeysConfig, KeysOptions } from '../options/options.js';
 import { MAX_CREDENTIAL_LENGTH, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
 
 /** RFC 9421 algorithm names; the `alg` parameter is optional and, when sent, must name the key's algorithm. */
@@ -41,11 +42,15 @@ export class HttpSignatureStrategy extends AuthenticationStrategy {
   readonly name = 'keys-httpsig';
   readonly kinds = ['http-signature'];
   readonly interactive = false;
-  protected readonly options: KeysOptions;
+  @Config('authn.keys')
+  protected KeysConfig: KeysConfig;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly nonces: KeyNonceStore, options?: KeysOptions) {
+  constructor(protected readonly registry: KeyRegistry, protected readonly nonces: KeyNonceStore, protected readonly Options?: KeysOptions) {
     super();
-    this.options = options ?? configuredKeysOptions();
+  }
+
+  protected get options(): KeysOptions {
+    return this.Options ?? keysOptionsOf(this.KeysConfig);
   }
 
   /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */

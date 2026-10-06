@@ -5,7 +5,7 @@ import type { AuthnContext, Credentials, KeyAlgorithm, KeyChallenge, KeyOwner } 
 import { FakeClock, generateKeyPair, runStrategyConformance } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSigningInput, signChallenge } from '../src/challenge/index.js';
-import { keysOptions } from '../src/options/index.js';
+import { keysOptionsFor } from './support/keys-options.js';
 import { KeyChallengeStrategy } from '../src/strategies/index.js';
 import { KIT_AUDIENCE, keysParts } from './harness.js';
 
@@ -98,7 +98,7 @@ describe('KeyChallengeStrategy', () => {
 
   it('cannot be built without an audience, and does the signature work for unknown keys only', async () => {
     const w = await world();
-    assert.throws(() => new KeyChallengeStrategy(w.p.registry, w.p.secrets, keysOptions()), /audience/);
+    await assert.rejects(new KeyChallengeStrategy(w.p.registry, w.p.secrets, keysOptionsFor()).resolve(), /audience/);
     let work = 0;
     class Counting extends KeyChallengeStrategy {
       protected unknownKeyWork(alg: KeyAlgorithm, data: Uint8Array, signature: Uint8Array): void {

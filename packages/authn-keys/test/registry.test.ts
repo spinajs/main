@@ -6,7 +6,7 @@ import type { AuthnContext, KeyChallenge, KeyOwner, KeyRegistration } from '@spi
 import { FakeBackoffThrottle, FakeClock, MemorySecretStore, RecordingEventSink, generateKeyPair, throttleParams } from '@spinajs/authn-testing';
 import type { KitKeyPair } from '@spinajs/authn-testing';
 import { challengeSecretPurpose, parseChallengeId, signChallenge } from '../src/challenge/index.js';
-import { keysOptions } from '../src/options/index.js';
+import { keysOptionsFor } from './support/keys-options.js';
 import { DefaultKeyRegistry, KeyStore, MemoryKeyStore } from '../src/registry/index.js';
 
 const ALICE: KeyOwner & { type: 'user' } = { type: 'user', id: 'alice' };
@@ -16,7 +16,7 @@ const ADMIN = { type: 'user', id: 'admin' };
 
 const AUD = 'https://keys.kit.test';
 
-function world(options = keysOptions({ assertion: { audience: AUD } })) {
+function world(options = keysOptionsFor({ assertion: { audience: AUD } })) {
   const clock = new FakeClock();
   const secrets = new MemorySecretStore();
   const events = new RecordingEventSink();
@@ -38,7 +38,7 @@ const userReg = (kp: KitKeyPair, proof: unknown, owner = ALICE, over: object = {
 
 describe('DefaultKeyRegistry', () => {
   it('refuses a kid outside the grammar and keys outside the configured algorithms', async () => {
-    const w = world(keysOptions({ algorithms: ['EdDSA'], assertion: { audience: AUD } }));
+    const w = world(keysOptionsFor({ algorithms: ['EdDSA'], assertion: { audience: AUD } }));
     const kp = generateKeyPair('EdDSA');
     for (const kid of ['', 'a b', 'x'.repeat(65), 'ä']) {
       assert.deepStrictEqual(await w.registry.register({ owner: SVC, actor: ADMIN, jwk: kp.publicJwk, kid }, w.ctx()), { ok: false, code: 'invalid_key' }, kid);
@@ -181,7 +181,7 @@ describe('DefaultKeyRegistry', () => {
   });
 
   it('issues no challenge without an audience, or with a SecretStore whose secrets are not base64url', async () => {
-    const noAudience = world(keysOptions());
+    const noAudience = world(keysOptionsFor());
     await assert.rejects(noAudience.registry.challenge({ purpose: 'register', owner: ALICE }, noAudience.ctx()), /audience/);
     const kp = generateKeyPair('EdDSA');
     assert.deepStrictEqual(await noAudience.registry.register(userReg(kp, { challengeId: 'x', signature: 'y' }), noAudience.ctx()), { ok: false, code: 'invalid_proof' });
@@ -191,7 +191,7 @@ describe('DefaultKeyRegistry', () => {
         return 'abc:def:ghi-jkl-mno-pqr-stu';
       }
     }
-    const registry = new DefaultKeyRegistry(new MemoryKeyStore(), new ColonSecrets(), new FakeBackoffThrottle(throttleParams()), [], keysOptions({ assertion: { audience: AUD } }));
+    const registry = new DefaultKeyRegistry(new MemoryKeyStore(), new ColonSecrets(), new FakeBackoffThrottle(throttleParams()), [], keysOptionsFor({ assertion: { audience: AUD } }));
     await assert.rejects(registry.challenge({ purpose: 'login', kid: 'k' }, new FakeClock().ctx()), /base64url/);
   });
 

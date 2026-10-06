@@ -317,22 +317,34 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
     },
     keys: {
       type: 'object',
+      default: {},
       properties: {
-        algorithms: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['EdDSA', 'ES256'] } },
+        algorithms: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['EdDSA', 'ES256'] }, default: ['EdDSA', 'ES256'] },
+        challenge: {
+          type: 'object',
+          default: {},
+          properties: {
+            ttlSeconds: { type: 'integer', minimum: 1, maximum: 3600, default: 120 },
+            audience: { type: ['string', 'null'], minLength: 1, default: null, description: "What clients put in a challenge's signing input; default: assertion.audience. Challenges need one of them." },
+          },
+        },
         assertion: {
           type: 'object',
+          default: {},
           properties: {
-            typ: { type: 'string', minLength: 1 },
-            audience: { type: ['string', 'null'] },
-            maxLifetimeSeconds: { type: 'integer', minimum: 1, maximum: 300 },
-            skewSeconds: { type: 'integer', minimum: 0 },
+            typ: { type: 'string', minLength: 1, default: 'spinajs-client+jwt' },
+            audience: { type: ['string', 'null'], minLength: 1, default: null, description: 'Required once a strategy that reads assertions is listed.' },
+            maxLifetimeSeconds: { type: 'integer', minimum: 1, maximum: 300, default: 300 },
+            skewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
           },
         },
         httpSignature: {
           type: 'object',
+          default: {},
           properties: {
-            maxAgeSeconds: { type: 'integer', minimum: 1, maximum: 300 },
-            requiredComponents: stringList,
+            maxAgeSeconds: { type: 'integer', minimum: 1, maximum: 300, default: 300 },
+            skewSeconds: { type: 'integer', minimum: 0, maximum: 300, default: 30 },
+            requiredComponents: { ...stringList, default: ['@method', '@target-uri', 'content-digest'] },
           },
         },
       },

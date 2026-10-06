@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { AuthenticationStrategy, JwsVerifier, KeyRegistry } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnFailure, Credentials, JwsClaims, KeyAlgorithm, KeyRecord, StrategyOutcome, ThrottleKey } from '@spinajs/authn/contracts';
 import { decodeB64url } from '../jwk/base64url.js';
@@ -6,8 +7,8 @@ import { KEY_ALGORITHMS } from '../jwk/keys.js';
 import { dummyVerify } from '../jwk/signature.js';
 import { isJsonObject, parseStrictJson } from '../jws/json.js';
 import { KeyNonceStore, nonceKey } from '../nonce/store.js';
-import { configuredKeysOptions } from '../options/options.js';
-import type { KeysOptions } from '../options/options.js';
+import { keysOptionsOf } from '../options/options.js';
+import type { KeysConfig, KeysOptions } from '../options/options.js';
 import { MAX_CREDENTIAL_LENGTH, assertionIssuer, failure, keySuccess, keyThrottleKeys, usableKey } from './keys.js';
 
 const MAX_JTI = 128;
@@ -37,16 +38,29 @@ export class JwsAssertionStrategy extends AuthenticationStrategy {
   readonly name = 'keys-jws';
   readonly kinds = ['jws-assertion'];
   readonly interactive = false;
-  protected readonly options: KeysOptions;
-  protected readonly audience: string;
+  @Config('authn.keys')
+  protected KeysConfig: KeysConfig;
 
-  constructor(protected readonly registry: KeyRegistry, protected readonly verifier: JwsVerifier, protected readonly nonces: KeyNonceStore, options?: KeysOptions) {
+  constructor(protected readonly registry: KeyRegistry, protected readonly verifier: JwsVerifier, protected readonly nonces: KeyNonceStore, protected readonly Options?: KeysOptions) {
     super();
-    this.options = options ?? configuredKeysOptions();
-    if (this.options.assertion.audience === null) {
+  }
+
+  protected get options(): KeysOptions {
+    return this.Options ?? keysOptionsOf(this.KeysConfig);
+  }
+
+  /** The audience the assertions name; which strategies are listed decides that one is required, so this is a boot check, not a schema rule. */
+  protected get audience(): string {
+    const audience = this.options.assertion.audience;
+    if (audience === null) {
       throw new Error('authn.keys.assertion.audience must be set to accept JWS assertions');
     }
-    this.audience = this.options.assertion.audience;
+    return audience;
+  }
+
+  public async resolve(): Promise<void> {
+    void this.audience;
+    await super.resolve();
   }
 
   /** The signature work an unknown, revoked or expired key costs, so it answers in the time a known key does (A02). */

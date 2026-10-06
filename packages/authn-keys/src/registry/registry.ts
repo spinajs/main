@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import { AuthnEventSink, AuthnThrottle, KeyRegistry, SecretStore } from '@spinajs/authn/contracts';
 import type { AuthnContext, AuthnEvent, Ceiling, IdentityRef, KeyChallengeRequest, KeyChallengeResult, KeyMaterial, KeyOwner, KeyRecord, KeyRegisterResult, KeyRegistration, PrincipalRef } from '@spinajs/authn/contracts';
 import { challengeId, challengeSecretPurpose, isChallengeNonce, newChallengeRid, parseChallengeId, verifyChallengeSignature } from '../challenge/challenge.js';
 import { checkPublicJwk, isValidKid, thumbprint } from '../jwk/keys.js';
-import { configuredKeysOptions } from '../options/options.js';
-import type { KeysOptions } from '../options/options.js';
+import { keysOptionsOf } from '../options/options.js';
+import type { KeysConfig, KeysOptions } from '../options/options.js';
 import { decodeCeiling, encodeCeiling, encodePrincipalRef, KeyStore } from './store.js';
 
 const OWNER_TYPES: readonly string[] = ['user', 'service', 'agent'];
@@ -59,7 +60,9 @@ export const loginChallengeIdentity = (kid: string): IdentityRef => ({ type: 'ke
 @Injectable(KeyRegistry)
 @Inject(KeyStore, SecretStore, AuthnThrottle, Array.ofType(AuthnEventSink))
 export class DefaultKeyRegistry extends KeyRegistry {
-  protected readonly options: KeysOptions;
+  @Config('authn.keys')
+  protected KeysConfig: KeysConfig;
+
   private readonly stamped = new Map<string, number>();
 
   constructor(
@@ -68,10 +71,14 @@ export class DefaultKeyRegistry extends KeyRegistry {
     protected readonly throttle: AuthnThrottle,
     /** Read at publish time, so a sink may be added after the registry is built. */
     protected readonly sinks: readonly AuthnEventSink[],
-    options?: KeysOptions,
+    /** A test seam: complete options that bypass the configuration. */
+    protected readonly Options?: KeysOptions,
   ) {
     super();
-    this.options = options ?? configuredKeysOptions();
+  }
+
+  protected get options(): KeysOptions {
+    return this.Options ?? keysOptionsOf(this.KeysConfig);
   }
 
   protected async publish(ctx: AuthnContext, e: Omit<AuthnEvent, 'at' | 'ip' | 'userAgent'>): Promise<void> {

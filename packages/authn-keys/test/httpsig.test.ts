@@ -6,7 +6,7 @@ import { FakeClock, contentDigest, generateKeyPair, runStrategyConformance, sign
 import type { HttpSigParams, KitKeyPair } from '@spinajs/authn-testing';
 import { digestMatches, parseByteSequenceDictionary, parseSignatureInput } from '../src/httpsig/index.js';
 import { signRaw } from '../src/jwk/index.js';
-import { keysOptions } from '../src/options/index.js';
+import { keysOptionsFor } from './support/keys-options.js';
 import { HttpSignatureStrategy } from '../src/strategies/index.js';
 import { keysParts } from './harness.js';
 
@@ -125,14 +125,14 @@ describe('HttpSignatureStrategy', () => {
     const lying = { ...covered, headers: { ...covered.headers, 'content-digest': contentDigest(BODY) } };
     assert.strictEqual((await w.strategy.verify(w.cred(lying), w.ctx())).ok, false);
 
-    const strict = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptions({ httpSignature: { requiredComponents: ['@method', '@target-uri', 'content-digest', '@authority'] } }));
+    const strict = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri', 'content-digest', '@authority'] } }));
     assert.strictEqual((await strict.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok, false, '@authority not covered');
   });
 
   it('requires content-digest with a body even when the config does not list it; the method and window edges hold', async () => {
     const w = await world();
     const { kp, kid } = await w.add();
-    const lax = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptions({ httpSignature: { requiredComponents: ['@method', '@target-uri'] } }));
+    const lax = new HttpSignatureStrategy(w.p.registry, w.p.nonces, keysOptionsFor({ httpSignature: { requiredComponents: ['@method', '@target-uri'] } }));
     assert.strictEqual((await lax.verify(w.cred(w.signed(kp, kid, { components: ['@method', '@target-uri'] })), w.ctx())).ok, false, 'a body without a covered digest');
     assert.ok((await lax.verify(w.cred(w.signed(kp, kid)), w.ctx())).ok);
     const post = w.signed(kp, kid);

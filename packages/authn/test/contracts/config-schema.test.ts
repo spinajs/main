@@ -66,6 +66,7 @@ const LOCAL_DEFAULTS = {
   invite: { ttlSeconds: 900 },
   expiration: { enabled: false, maxAgeDays: 31 },
 };
+const KEYS_DEFAULTS = { algorithms: ['EdDSA', 'ES256'], challenge: { ttlSeconds: 120, audience: null }, assertion: { typ: 'spinajs-client+jwt', audience: null, maxLifetimeSeconds: 300, skewSeconds: 30 }, httpSignature: { maxAgeSeconds: 300, skewSeconds: 30, requiredComponents: ['@method', '@target-uri', 'content-digest'] } };
 const TOKEN_DEFAULTS = { prefix: 'spt_', length: 32, maxTtlDays: 90, defaultTtlDays: 30, agentMaxTtlMinutes: 1440, headerName: 'x-api-key', lastUsedUpdateInterval: 60 };
 
 const LOGIN_ACCOUNT = { free: 5, baseDelayMs: 1000, maxDelayMs: 60000 };
@@ -212,7 +213,7 @@ describe('authn.* configuration schema', () => {
     it('accepts the design §22.5 example and keeps every value', () => {
       const r = check(example());
       expect(r.errors).to.deep.eq([]);
-      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 } });
+      expect(r.config).to.deep.eq({ ...example(), audit: { ...example().audit, sinkTimeoutMs: 2000 }, keys: KEYS_DEFAULTS });
     });
 
     it('accepts the keys F0b put in the tree and keeps every value', () => {
@@ -277,7 +278,7 @@ describe('authn.* configuration schema', () => {
 
   describe('defaults', () => {
     it('fills the throttle with the design §22.5 backoff and the audit defaults when they are missing', () => {
-      expect(check({}).config).to.deep.eq({ local: LOCAL_DEFAULTS, strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] } });
+      expect(check({}).config).to.deep.eq({ local: LOCAL_DEFAULTS, strategies: [], mfa: { policy: { service: 'DefaultMfaPolicy', force: false, forceForRoles: [] }, steps: [], totp: TOTP_DEFAULTS }, config: { rejectLegacyKeys: false }, freshAuth: { maxAgeSeconds: 300 }, linking: { jit: false, byVerifiedEmail: false }, impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 }, throttle: THROTTLE_DEFAULTS, audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 }, token: TOKEN_DEFAULTS, jwt: { issuers: [] }, keys: KEYS_DEFAULTS });
     });
 
     it('fills a missing flow or key of a given throttle', () => {
@@ -293,6 +294,7 @@ describe('authn.* configuration schema', () => {
         session: { cookie: { sameSite: 'strict' }, hashIds: true },
         token: TOKEN_DEFAULTS,
         jwt: { issuers: [] },
+        keys: KEYS_DEFAULTS,
         impersonation: { requirePassword: true, requireMfa: true, maxMinutes: 60 },
         audit: { sampleUse: 0.01, hashIdentifiers: true, sinkTimeoutMs: 2000 },
         http: { csrf: { enabled: true, allowedOrigins: [] } },
