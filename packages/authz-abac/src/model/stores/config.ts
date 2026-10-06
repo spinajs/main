@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { AuthzConfigError } from '@spinajs/authz';
 import type { Policy } from '@spinajs/authz';
 
 import { PolicyStore } from '../../contracts.js';
@@ -13,9 +12,8 @@ export class ConfigPolicyStore extends PolicyStore {
   private readonly policies: readonly Policy[];
   private readonly hash: string;
 
-  constructor(policies: unknown = []) {
+  constructor(policies: readonly unknown[] = []) {
     super();
-    if (!Array.isArray(policies)) throw new AuthzConfigError('authz.abac.policies must be a list');
     this.policies = Object.freeze([...(policies as Policy[])]);
     this.hash = createHash('sha256')
       .update(JSON.stringify(this.policies, (_k, v: unknown) => (v instanceof Date ? v.toISOString() : v)) ?? '')

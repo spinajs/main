@@ -7,6 +7,7 @@ import type { AuthzContribution, CompiledCondition, ConditionPath, DecisionReque
 import { PolicyStore } from '../contracts.js';
 import { PolicyIndex, loadPolicy, scopeFilter, targets, targetsPrincipal } from './policies.js';
 import type { LoadedPolicy } from './policies.js';
+import { ABAC_DEFAULT_CONNECTION, ABAC_DEFAULT_STORES, ABAC_STORE_NAMES } from './schema.js';
 import { ConfigPolicyStore } from './stores/config.js';
 import { DbPolicyStore } from './stores/db.js';
 
@@ -493,24 +494,21 @@ async function registeredFunctions(): Promise<readonly ConditionFunction[]> {
   return list.length > 0 ? list : BUILTIN_CONDITION_FUNCTIONS;
 }
 
-const STORE_NAMES = ['ConfigPolicyStore', 'DbPolicyStore'];
-
 /** The stores `authz.<model>.stores` names (design §8.3); DbPolicyStore resolves its connection on first use. */
 export function storesFromConfig(model: string, ctx: Pick<ModelInitContext, 'config'>): PolicyStore[] {
-  const names = ctx.config<unknown>('stores', undefined);
-  const policies = ctx.config<unknown[]>('policies', []);
-  if (names === undefined) return [new ConfigPolicyStore(policies)];
-  if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) throw new AuthzConfigError(`authz.${model}.stores must be a list of store names (${STORE_NAMES.join(', ')})`);
-  return (names as string[]).map((name) => {
+  const names = ctx.config<readonly string[]>('stores', ABAC_DEFAULT_STORES);
+  const policies = ctx.config<readonly unknown[]>('policies', []);
+  return names.map((name) => {
     if (name === 'ConfigPolicyStore') return new ConfigPolicyStore(policies);
     if (name === 'DbPolicyStore') {
-      const connection = ctx.config<string>('connection', 'default');
+      const connection = ctx.config<string>('connection', ABAC_DEFAULT_CONNECTION);
       return new DbPolicyStore(async () => {
         const driver = (await DI.resolve(Orm)).Connections.get(connection);
         if (!driver) throw new AuthzConfigError(`authz.${model}.connection: no ORM connection named ${JSON.stringify(connection)}`);
         return driver;
       });
     }
-    throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${STORE_NAMES.join(', ')})`);
+    // AUTHZ_ABAC_CONFIGURATION_SCHEMA covers authz.abac only; a model under another name reads an unchecked section.
+    throw new AuthzConfigError(`authz.${model}.stores names ${JSON.stringify(name)}, which is not a policy store (${ABAC_STORE_NAMES.join(', ')})`);
   });
 }
