@@ -2,11 +2,12 @@ import * as chai from 'chai';
 import 'mocha';
 
 import { AuthzConfigError } from '@spinajs/authz';
+import { bootConfiguration, violationPaths } from '@spinajs/authz-testing';
 import { Configuration } from '@spinajs/configuration';
 import { DI } from '@spinajs/di';
 import type { IContainer } from '@spinajs/di';
 
-import { fsAccessConfig, parseFsAccessConfig } from '../src/index.js';
+import { AUTHZ_FS_CONFIGURATION_SCHEMA, AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA, fsAccessConfig, parseFsAccessConfig } from '../src/index.js';
 import { configuredChild } from './helpers.js';
 
 const expect = chai.expect;
@@ -77,38 +78,19 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     expect(parseFsAccessConfig('uploads', { mode: 'enforce', signedUrl: {} }).signedUrl).to.deep.equal({});
   });
 
-  const bad: [string, unknown, string][] = [
-    ['an entry that is not an object', 'enforce', 'authz.fs.uploads'],
-    ['an array entry', [], 'authz.fs.uploads'],
+  // Floors for an entry no schema checked (a Configuration.set, an unvalidated test configuration).
+  const unchecked: [string, unknown, string][] = [
+    ['an entry that is not an object', 'enforce', 'authz.fs.uploads.mode'],
+    ['a null entry', null, 'authz.fs.uploads.mode'],
     ['a missing mode', { domain: 'fs' }, 'authz.fs.uploads.mode'],
     ['an unknown mode', { mode: 'strict' }, 'authz.fs.uploads.mode'],
-    ['an unknown key', { mode: 'enforce', Mode: 'off' }, 'authz.fs.uploads.Mode'],
-    ['an empty domain', { mode: 'enforce', domain: '' }, 'authz.fs.uploads.domain'],
-    ['a non-string metadata', { mode: 'enforce', metadata: 1 }, 'authz.fs.uploads.metadata'],
-    ['a non-boolean stampOwner', { mode: 'enforce', stampOwner: 'yes' }, 'authz.fs.uploads.stampOwner'],
-    ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.stampOwner'],
-    ['an empty resolver', { mode: 'enforce', resolver: '' }, 'authz.fs.uploads.resolver'],
-    ['an inherit list', { mode: 'enforce', inherit: ['fs:read'] }, 'authz.fs.uploads.inherit'],
-    ['an inherit key that is no permission', { mode: 'enforce', inherit: { read: 'read' } }, 'authz.fs.uploads.inherit.read'],
-    ['an inherit action that is not a string', { mode: 'enforce', inherit: { 'fs:read': 1 } }, 'authz.fs.uploads.inherit.fs:read'],
-    ['an inherit key that is no fs permission', { mode: 'enforce', inherit: { 'task:read': 'read' } }, 'authz.fs.uploads.inherit.task:read'],
-    ['an inherit action that is no action name', { mode: 'enforce', inherit: { 'fs:read': 'task:read' } }, 'authz.fs.uploads.inherit.fs:read'],
-    ['a signedUrl that is not an object', { mode: 'enforce', signedUrl: 900 }, 'authz.fs.uploads.signedUrl'],
-    ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
-    ['an infinite maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
-    ['an unknown signedUrl key', { mode: 'enforce', signedUrl: { ttl: 5 } }, 'authz.fs.uploads.signedUrl.ttl'],
-    ['a zero defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
+    ['an operation with an empty list', { mode: 'enforce', operations: { read: [] } }, 'authz.fs.uploads.operations.read'],
     ['an infinite defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
-    ['a string defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: '900' } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
-    ['policies that are not a list', { mode: 'enforce', policies: {} }, 'authz.fs.uploads.policies'],
-    ['a policy that is not an object', { mode: 'enforce', policies: ['x'] }, 'authz.fs.uploads.policies[0]'],
-    ['operations that are a list', { mode: 'enforce', operations: ['fs:read'] }, 'authz.fs.uploads.operations'],
-    ['an operation naming no permission', { mode: 'enforce', operations: { thumbnail: 'read' } }, 'authz.fs.uploads.operations.thumbnail'],
-    ['an operation with an empty list', { mode: 'enforce', operations: { thumbnail: [] } }, 'authz.fs.uploads.operations.thumbnail'],
-    ['an unknown list mode', { mode: 'enforce', list: 'all' }, 'authz.fs.uploads.list'],
+    ['a NaN maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: NaN } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
+    ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
   ];
-  for (const [what, entry, key] of bad) {
-    it(`refuses ${what}, naming ${key}`, () => {
+  for (const [what, entry, key] of unchecked) {
+    it(`fails closed on ${what} that no schema checked, naming ${key}`, () => {
       expect(() => parseFsAccessConfig('uploads', entry))
         .to.throw(AuthzConfigError)
         .with.property('message')
@@ -130,16 +112,6 @@ describe('authz-fs config: parseFsAccessConfig', () => {
     expect(Object.getPrototypeOf(cfg.inherit)).to.equal(null);
     expect((cfg.operations as Record<string, unknown>).toString).to.equal(undefined);
   });
-
-  for (const key of ['__proto__', 'constructor', 'prototype']) {
-    it(`refuses the operations key ${key}`, () => {
-      const entry = { mode: 'enforce', operations: JSON.parse(`{ ${JSON.stringify(key)}: ["fs:read"] }`) as unknown };
-      expect(() => parseFsAccessConfig('uploads', entry))
-        .to.throw(AuthzConfigError)
-        .with.property('message')
-        .that.includes(`authz.fs.uploads.operations.${key}`);
-    });
-  }
 });
 
 describe('authz-fs config: fsAccessConfig', () => {
@@ -183,4 +155,87 @@ describe('authz-fs config: fsAccessConfig', () => {
     child = DI.child();
     expect(() => fsAccessConfig('uploads', child)).to.throw(AuthzConfigError, /Configuration/);
   });
+});
+
+describe('authz-fs config: the authz.fs and authz.fsMetadata schemas', () => {
+  const children: IContainer[] = [];
+
+  afterEach(async () => {
+    for (const c of children.splice(0)) await c.dispose();
+  });
+
+  async function boot(authz: Record<string, unknown>): Promise<Configuration> {
+    const booted = await bootConfiguration({ authz }, [AUTHZ_FS_CONFIGURATION_SCHEMA, AUTHZ_FS_METADATA_CONFIGURATION_SCHEMA]);
+    children.push(booted.child);
+    return booted.configuration;
+  }
+
+  const refused = (entry: unknown) => violationPaths(boot({ fs: { uploads: entry } }));
+
+  const ENTRY = {
+    mode: 'enforce',
+    domain: 'fs',
+    metadata: 'OrmFileMetadataStore',
+    stampOwner: true,
+    resolver: 'TaskAttachmentPathResolver',
+    inherit: { 'fs:read': 'read', 'fs:write': 'update', 'fs:delete': 'update' },
+    signedUrl: { maxTtlSeconds: 900, defaultTtlSeconds: 300 },
+    policies: [{ id: 'public', effect: 'permit', permissions: ['fs:read', 'fs:stat'], when: { attr: 'resource.id', glob: 'uploads:public/**' } }],
+    operations: { thumbnail: 'fs:read', publish: ['fs:read', 'fs:share'] },
+    list: 'each',
+  };
+
+  it('takes every documented key unchanged', async () => {
+    expect((await boot({ fs: { uploads: ENTRY } })).get('authz.fs.uploads')).to.deep.equal(ENTRY);
+  });
+
+  it('an unset authz.fs has no entries; authz.fsMetadata.connection defaults to the default connection', async () => {
+    const configuration = await boot({});
+    expect(configuration.get('authz.fs')).to.deep.equal({});
+    expect(configuration.get('authz.fsMetadata.connection')).to.equal('default');
+  });
+
+  it('refuses an authz.fs that is not an object', async () => {
+    expect(await violationPaths(boot({ fs: ['uploads'] }))).to.include('authz.fs');
+  });
+
+  const BAD: [string, unknown, string][] = [
+    ['an entry that is not an object', 'enforce', 'authz.fs.uploads'],
+    ['an array entry', [], 'authz.fs.uploads'],
+    ['a missing mode', { domain: 'fs' }, 'authz.fs.uploads.mode'],
+    ['an unknown mode', { mode: 'strict' }, 'authz.fs.uploads.mode'],
+    ['an unknown key', { mode: 'enforce', Mode: 'off' }, 'authz.fs.uploads.Mode'],
+    ['an empty domain', { mode: 'enforce', domain: '' }, 'authz.fs.uploads.domain'],
+    ['an object metadata', { mode: 'enforce', metadata: {} }, 'authz.fs.uploads.metadata'],
+    ['a non-boolean stampOwner', { mode: 'enforce', stampOwner: 'yes' }, 'authz.fs.uploads.stampOwner'],
+    ['stampOwner without a metadata store', { mode: 'enforce', stampOwner: true }, 'authz.fs.uploads.metadata'],
+    ['an empty resolver', { mode: 'enforce', resolver: '' }, 'authz.fs.uploads.resolver'],
+    ['an inherit list', { mode: 'enforce', inherit: ['fs:read'] }, 'authz.fs.uploads.inherit'],
+    ['an inherit key that is no permission', { mode: 'enforce', inherit: { read: 'read' } }, 'authz.fs.uploads.inherit.read'],
+    ['an inherit key that is no fs permission', { mode: 'enforce', inherit: { 'task:read': 'read' } }, 'authz.fs.uploads.inherit.task:read'],
+    ['an inherit action that is no action name', { mode: 'enforce', inherit: { 'fs:read': 'task:read' } }, 'authz.fs.uploads.inherit.fs:read'],
+    ['a signedUrl that is not an object', { mode: 'enforce', signedUrl: 900 }, 'authz.fs.uploads.signedUrl'],
+    ['a zero maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
+    ['an infinite maxTtlSeconds', { mode: 'enforce', signedUrl: { maxTtlSeconds: Infinity } }, 'authz.fs.uploads.signedUrl.maxTtlSeconds'],
+    ['a zero defaultTtlSeconds', { mode: 'enforce', signedUrl: { defaultTtlSeconds: 0 } }, 'authz.fs.uploads.signedUrl.defaultTtlSeconds'],
+    ['an unknown signedUrl key', { mode: 'enforce', signedUrl: { ttl: 5 } }, 'authz.fs.uploads.signedUrl.ttl'],
+    ['policies that are not a list', { mode: 'enforce', policies: {} }, 'authz.fs.uploads.policies'],
+    ['a policy that is not an object', { mode: 'enforce', policies: ['x'] }, 'authz.fs.uploads.policies.0'],
+    ['a policy with a non-fs permission', { mode: 'enforce', policies: [{ id: 'staff', permissions: ['fs:read', 'task:read'] }] }, 'authz.fs.uploads.policies.0.permissions.1'],
+    ['a policy with the * permission glob', { mode: 'enforce', policies: [{ id: 'staff', permissions: ['*'] }] }, 'authz.fs.uploads.policies.0.permissions.0'],
+    ['a policy with a permission glob over every resource', { mode: 'enforce', policies: [{ id: 'staff', permissions: ['*:read'] }] }, 'authz.fs.uploads.policies.0.permissions.0'],
+    ['a policy whose permissions are not a list', { mode: 'enforce', policies: [{ id: 'staff', permissions: 'fs:read' }] }, 'authz.fs.uploads.policies.0.permissions'],
+    ['a policy with a resource type outside fs, dir and file', { mode: 'enforce', policies: [{ id: 'staff', permissions: ['fs:read'], resourceTypes: ['file', 'task'] }] }, 'authz.fs.uploads.policies.0.resourceTypes.1'],
+    ['operations that are a list', { mode: 'enforce', operations: ['fs:read'] }, 'authz.fs.uploads.operations'],
+    ['an operation naming no permission', { mode: 'enforce', operations: { thumbnail: 'read' } }, 'authz.fs.uploads.operations.thumbnail'],
+    ['an operation with an empty list', { mode: 'enforce', operations: { thumbnail: [] } }, 'authz.fs.uploads.operations.thumbnail'],
+    ['the operations key constructor', { mode: 'enforce', operations: { constructor: ['fs:read'] } }, 'authz.fs.uploads.operations.constructor'],
+    ['the operations key prototype', { mode: 'enforce', operations: { prototype: ['fs:read'] } }, 'authz.fs.uploads.operations.prototype'],
+    ['an unknown list mode', { mode: 'enforce', list: 'all' }, 'authz.fs.uploads.list'],
+  ];
+  for (const [what, entry, path] of BAD) {
+    it(`refuses ${what} at boot, naming ${path}`, async () => {
+      expect(await refused(entry)).to.include(path);
+    });
+  }
 });
