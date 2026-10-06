@@ -92,6 +92,15 @@ describe('LinkPrincipalSource (B38 http)', function () {
     expect(calls[0].companion).to.deep.include({ type: 'user', id: 'alice' });
   });
 
+  it('produces no link principal when authz.http.links was never configured', async () => {
+    testHost.config().set(['authz', 'http', 'links'], undefined);
+    const res = await app.request().get('/links?link=tok-l1').set('x-user', 'alice');
+
+    expect(res.status).to.eq(200);
+    expect(res.body.principal).to.deep.include({ type: 'user', id: 'alice' });
+    expect(calls).to.deep.eq([]);
+  });
+
   it('without a token the other sources decide', async () => {
     const res = await app.request().get('/links').set('x-user', 'alice');
 

@@ -69,6 +69,8 @@ export class LinkPrincipalSource extends PrincipalSource {
   }
 
   protected token(req: Request): string | undefined {
+    // A links section the schema never saw (an app whose Configuration did not validate authz.http) yields no link principal.
+    if (typeof this.Links !== 'object' || this.Links === null) return undefined;
     const { query, header, cookie } = this.Links;
     const pick = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined);
     return (
