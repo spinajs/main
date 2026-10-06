@@ -2,9 +2,9 @@ import { DI, Injectable } from '@spinajs/di';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
+import { Config } from '@spinajs/configuration';
 
 import { PrincipalSource } from '../api.js';
-import { Config } from '@spinajs/configuration';
 import type { LinksConfig } from '../http-config.js';
 import '../storage.js';
 

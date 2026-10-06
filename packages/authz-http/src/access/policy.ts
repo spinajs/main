@@ -159,7 +159,10 @@ export class AccessPolicy extends BasePolicy {
 
     const permission = this.ExplainPermission;
     // Only an unconditional grant: a residual on the explain permission would not be enforced here.
-    const held = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }).catch(() => undefined);
+    // A permission that never went through the schema (unset, malformed) must stay a denial, not a 500.
+    const held = await Promise.resolve()
+      .then(() => authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }))
+      .catch(() => undefined);
     if (!held?.allowed || held.residual.op !== 'true') return undefined;
 
     return (await authz.explain({ principal, permission: denied.permission, resource: denied.resource })).trace;

@@ -69,7 +69,6 @@ describe('ServicePrincipalSource', () => {
     expect(await source.authenticate(request({ 'x-telemetry-token': 's3cret' }))).to.eq(null);
   });
 
-
   it('has a configuration schema for authz.http', () => {
     expect(AUTHZ_HTTP_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authz.http');
   });

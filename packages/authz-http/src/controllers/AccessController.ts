@@ -3,9 +3,9 @@ import type { Decision, Permission, ResourceRef } from '@spinajs/authz';
 import { BaseController, BasePath, Body, Get, Ok, Policy, Post, Req } from '@spinajs/http';
 import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
+import { Config } from '@spinajs/configuration';
 
 import { domainService } from '../domains.js';
-import { Config } from '@spinajs/configuration';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
 import '../storage.js';
 

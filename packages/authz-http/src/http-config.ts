@@ -84,7 +84,8 @@ export class AuthzHttpConfigBootstrapper extends Bootstrapper {
 
 /** The configured services as ServicePrincipalSource matches them. */
 export function servicePrincipals(services: readonly ServiceEntry[]): ServicePrincipalConfig[] {
-  return services.map((s) => ({
+  // The schema requires a name; a nameless entry from an unvalidated configuration must not authenticate.
+  return services.filter((s) => typeof s.name === 'string' && s.name !== '').map((s) => ({
     name: s.name,
     header: s.header.toLowerCase(),
     tokens: typeof s.token === 'string' ? [s.token] : s.token,

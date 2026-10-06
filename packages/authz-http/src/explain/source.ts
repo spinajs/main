@@ -23,7 +23,8 @@ export class ExplainControllerSource extends ControllerSource {
   protected IsProduction: boolean | undefined;
 
   public async getControllers(): Promise<ClassInfo<BaseController>[]> {
-    if (!this.ExplainEnabled) return [];
+    // The schema is the gate; this holds for a value that never went through it ('false', 1).
+    if (this.ExplainEnabled !== true) return [];
     if (isProduction(this.IsProduction)) {
       this.Log.warn('authz.http.explainRoute.enabled is true in production; the explain route is not registered');
       return [];
