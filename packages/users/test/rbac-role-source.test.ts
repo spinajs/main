@@ -128,13 +128,6 @@ describe('RbacRoleSource (users DB, root authz host)', function () {
     ]);
   });
 
-  it('rejects a malformed authz.principals.roleSwitch.requirePassword', async () => {
-    const principal = await signedIn(await user('member'));
-    await setConfig(['authz', 'principals', 'roleSwitch', 'requirePassword'], 'support');
-
-    await expect(source.rolesOf(principal)).to.be.rejectedWith(AuthzConfigError, /requirePassword/);
-  });
-
   describe('which roles need the password (N8a-D9)', () => {
     const flags = async (ref: IdentityRef) => Object.fromEntries((await source.rolesOf(await signedIn(ref))).map((r) => [r.role, r.requirePassword]));
 

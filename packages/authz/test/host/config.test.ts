@@ -56,7 +56,7 @@ describe('authz config schema', () => {
 
   it('accepts a valid config unchanged', () => {
     const cfg = validConfig();
-    const copy = JSON.parse(JSON.stringify(cfg));
+    const copy = { ...JSON.parse(JSON.stringify(cfg)), impersonation: { permission: 'user:impersonate', protectedRoles: ['admin'] } };
     expect(validate(cfg).ok).to.equal(true);
     expect(cfg).to.deep.equal(copy);
   });

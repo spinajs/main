@@ -174,7 +174,13 @@ export const AUTHZ_CONFIGURATION_SCHEMA = {
       properties: {
         // No default: the deprecated 2.x guest factory reads this key with its own false default, 3.x readers fall back to true.
         anonymous: { type: 'object', properties: { enabled: { type: 'boolean' } } },
-        roleSwitch: { type: 'object', properties: { requirePassword: stringList } },
+        roleSwitch: {
+          type: 'object',
+          properties: {
+            // null counts as unset (the 2.x key then applies); an empty role name used to be rejected.
+            requirePassword: { anyOf: [{ type: 'array', items: { type: 'string', minLength: 1 } }, { type: 'null' }] },
+          },
+        },
       },
     },
     // Read by users, which has no AUTHZ_DEFAULTS entry, so the defaults are here; they equal the code defaults users used before.

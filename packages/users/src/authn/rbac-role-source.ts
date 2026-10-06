@@ -2,8 +2,8 @@ import { AuthzConfigError } from '@spinajs/authz';
 import { RoleSource } from '@spinajs/authn/contracts';
 import type { Principal } from '@spinajs/authn/contracts';
 import { RbacService } from '@spinajs/authz-rbac';
-import { Config, Configuration } from '@spinajs/configuration';
-import { DI, Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
+import { Injectable } from '@spinajs/di';
 
 import { DEFAULT_ACCESS_DOMAIN } from './access-schema.js';
 import { ACCESS_DOMAIN_KEY, accessDomain, heldRoles, registeredInDomain, signedInInteractively } from './target-guard.js';
@@ -27,12 +27,18 @@ type RoleOffer = Awaited<ReturnType<RoleSource['rolesOf']>>[number];
  * Empty for a sign-in that is not interactive (`authn` not an object, or a method other than password, oidc, ldap,
  * saml), an agent or delegate, and any principal that is not a user. A principal without authn facts (authn-token's
  * owner check) gets all its roles. An impersonation session gets the target's roles, which are the session's.
- * @throws AuthzConfigError when the access domain has no RbacService of its own, or the config is malformed
+ * @throws AuthzConfigError when the access domain has no RbacService of its own, or the 2.x key is malformed
  */
 @Injectable(RoleSource)
 export class RbacRoleSource extends RoleSource {
   @Config(ACCESS_DOMAIN_KEY, { defaultValue: DEFAULT_ACCESS_DOMAIN })
   protected AccessDomain: string;
+
+  @Config(ROLE_SWITCH_PASSWORD_KEY)
+  protected RequirePassword: readonly string[] | null | undefined;
+
+  @Config(LEGACY_ROLE_SWITCH_PASSWORD_KEY)
+  protected LegacyRequirePassword: unknown;
 
   public async rolesOf(principal: Principal): Promise<readonly RoleOffer[]> {
     if (principal.type !== 'user' || principal.onBehalfOf || (principal.authn != null && !signedInInteractively(principal.authn))) {
@@ -41,25 +47,25 @@ export class RbacRoleSource extends RoleSource {
 
     const domain = await accessDomain(this.AccessDomain);
     const rbac = await registeredInDomain(domain, RbacService);
-    const requiresPassword = await passwordRule();
+    const requiresPassword = this.passwordRule();
     const names = [...new Set(await heldRoles(rbac, domain.name, principal))].sort();
     return names.map((role) => ({ role, requirePassword: requiresPassword(role) }));
   }
-}
 
-async function passwordRule(): Promise<(role: string) => boolean> {
-  const config = (await DI.resolve(Configuration)) as Configuration;
-  for (const key of [ROLE_SWITCH_PASSWORD_KEY, LEGACY_ROLE_SWITCH_PASSWORD_KEY]) {
-    const value = config.get<unknown>(key);
-    if (value === undefined || value === null) {
-      continue;
-    }
-    if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r !== '')) {
-      throw new AuthzConfigError(`${key} must be a list of role names, got ${JSON.stringify(value)}`);
-    }
-    const listed = new Set<string>(value);
-    return (role) => listed.has(role);
+  private passwordRule(): (role: string) => boolean {
+    const listed = this.RequirePassword ?? this.legacyList();
+    // Fail safe, as the 2.x switch: no list configured means every switch re-verifies the password.
+    if (listed === undefined) return () => true;
+    const set = new Set<string>(listed);
+    return (role) => set.has(role);
   }
-  // Fail safe, as the 2.x switch: no list configured means every switch re-verifies the password.
-  return () => true;
+
+  private legacyList(): readonly string[] | undefined {
+    const value = this.LegacyRequirePassword;
+    if (value === undefined || value === null) return undefined;
+    if (!Array.isArray(value) || !value.every((r) => typeof r === 'string' && r !== '')) {
+      throw new AuthzConfigError(`${LEGACY_ROLE_SWITCH_PASSWORD_KEY} must be a list of role names, got ${JSON.stringify(value)}`);
+    }
+    return value as string[];
+  }
 }
