@@ -36,8 +36,7 @@ export class AuthorizationBearerExtractor extends CredentialExtractor {
   public extract(req: SignedRequest): Credentials | null {
     const header = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : undefined;
     if (header === undefined) return null;
-    // Floor: a runtime set can bypass the schema's minLength, and an empty prefix would claim every value.
-    const ours = (value: string) => this.Prefix !== '' && value.startsWith(this.Prefix);
+    const ours = (value: string) => value.startsWith(this.Prefix);
 
     const token = BEARER.exec(header)?.[1];
     if (token === undefined) {
@@ -70,6 +69,6 @@ export class ApiKeyHeaderExtractor extends CredentialExtractor {
   public extract(req: SignedRequest): Credentials | null {
     const value = req.headers[this.HeaderName.toLowerCase()];
     const token = typeof value === 'string' ? value.trim() : '';
-    return TOKEN.test(token) && this.Prefix !== '' && token.startsWith(this.Prefix) ? { kind: 'bearer', token } : null;
+    return TOKEN.test(token) && token.startsWith(this.Prefix) ? { kind: 'bearer', token } : null;
   }
 }

@@ -391,7 +391,7 @@ export const AUTHN_CONFIGURATION_SCHEMA = {
       default: {},
       properties: {
         publicOrigin: {
-          type: 'string',
+          type: ['string', 'null'],
           pattern: ORIGIN_PATTERN,
           description: "The origin clients put in an HTTP message signature's @target-uri (scheme://host[:port]); never taken from Host. Unset: signed requests get no principal.",
         },

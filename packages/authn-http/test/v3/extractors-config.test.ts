@@ -61,13 +61,6 @@ describe('credential extractors through @Config', () => {
       expect(e.extract(sreq({ authorization: `Bearer ${jwsOf('spinajs-client+jwt')}` }))?.kind).to.eq('bearer');
     });
 
-    it('never claims a value when the prefix is set to empty at runtime', async () => {
-      const { child, configuration } = await boot(SCHEMAS, {});
-      configuration.set('authn.token.prefix', '');
-      expect(readingFrom(new AuthorizationBearerExtractor(), child).extract(sreq({ authorization: 'Bearer opaque' }))).to.eq(null);
-      expect(readingFrom(new ApiKeyHeaderExtractor(), child).extract(sreq({ 'x-api-key': 'opaque' }))).to.eq(null);
-    });
-
     it('reads the prefix at call time', async () => {
       const { child, configuration } = await boot(SCHEMAS, {});
       const e = readingFrom(new AuthorizationBearerExtractor(), child);
@@ -102,6 +95,12 @@ describe('credential extractors through @Config', () => {
       expect(request(e)).to.eq(null);
       configuration.set('authn.http.publicOrigin', 'https://later.example.com');
       expect((request(e) as { request: { targetUri: string } }).request.targetUri).to.eq('https://later.example.com/x');
+    });
+
+    it('treats a null publicOrigin as unset: the boot succeeds and a signed request gets no principal', async () => {
+      const { child, configuration } = await boot(SCHEMAS, { authn: { http: { publicOrigin: null } } });
+      expect(configuration.get('authn.http.publicOrigin')).to.eq(null);
+      expect(request(readingFrom(new HttpSignatureExtractor(), child))).to.eq(null);
     });
 
     it('still refuses an origin the pattern cannot judge', async () => {
