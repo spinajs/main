@@ -1,11 +1,12 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@spinajs/di';
+import { Config } from '@spinajs/configuration';
 import type { Principal } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 
 import { PrincipalSource } from '../api.js';
-import { httpConfig } from '../http-config.js';
-import type { ServicePrincipalConfig } from '../http-config.js';
+import { servicePrincipals } from '../http-config.js';
+import type { ServiceEntry, ServicePrincipalConfig } from '../http-config.js';
 
 const digest = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
@@ -27,8 +28,11 @@ export class ServicePrincipalSource extends PrincipalSource {
   public readonly name = 'service';
   public readonly order = 40;
 
+  @Config('authz.http.services')
+  protected Services: readonly ServiceEntry[];
+
   public async authenticate(req: Request): Promise<Principal | null> {
-    for (const service of httpConfig().services) {
+    for (const service of servicePrincipals(this.Services)) {
       const presented = req.headers?.[service.header];
       if (typeof presented !== 'string' || presented.length === 0) {
         continue;

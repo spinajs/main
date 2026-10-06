@@ -4,7 +4,8 @@ import type { Request } from '@spinajs/http';
 import { Log, Logger } from '@spinajs/log';
 
 import { PrincipalSource } from '../api.js';
-import { httpConfig } from '../http-config.js';
+import { Config } from '@spinajs/configuration';
+import type { LinksConfig } from '../http-config.js';
 import '../storage.js';
 
 /**
@@ -44,6 +45,9 @@ export class LinkPrincipalSource extends PrincipalSource {
   @Logger('authz-http')
   protected Log: Log;
 
+  @Config('authz.http.links')
+  protected Links: LinksConfig;
+
   // Warned once: any request can carry a token, so a warning per request would let anyone flood the log.
   private warned = false;
 
@@ -65,7 +69,7 @@ export class LinkPrincipalSource extends PrincipalSource {
   }
 
   protected token(req: Request): string | undefined {
-    const { query, header, cookie } = httpConfig().links;
+    const { query, header, cookie } = this.Links;
     const pick = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined);
     return (
       (query !== null ? pick(req.query?.[query]) : undefined) ??

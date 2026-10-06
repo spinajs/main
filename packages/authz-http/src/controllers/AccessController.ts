@@ -5,7 +5,7 @@ import type { Request } from '@spinajs/http';
 import { InvalidArgument } from '@spinajs/exceptions';
 
 import { domainService } from '../domains.js';
-import { httpConfig } from '../http-config.js';
+import { Config } from '@spinajs/configuration';
 import { HasPrincipal, IsAuthenticated } from '../access/principal-policies.js';
 import '../storage.js';
 
@@ -41,10 +41,13 @@ function withoutTrace(d: Decision): Omit<Decision, 'trace'> {
 /** The caller's own access (design §11.4, B25), in the domain `authz.http.access.domain` (default root). */
 @BasePath('user/access')
 export class AccessController extends BaseController {
+  @Config('authz.http.access.domain')
+  protected AccessDomain: string;
+
   @Get('/')
   @Policy(HasPrincipal)
   public async summary(@Req() req: Request) {
-    const authz = await domainService(httpConfig().access.domain);
+    const authz = await domainService(this.AccessDomain);
     return new Ok(await authz.summary(req.storage.Principal!));
   }
 
@@ -52,7 +55,7 @@ export class AccessController extends BaseController {
   @Policy(IsAuthenticated)
   public async check(@Req() req: Request, @Body() checks: unknown[]) {
     const list = readChecks(checks);
-    const authz = await domainService(httpConfig().access.domain);
+    const authz = await domainService(this.AccessDomain);
     const principal = req.storage.Principal!;
     const decisions: Omit<Decision, 'trace'>[] = [];
 

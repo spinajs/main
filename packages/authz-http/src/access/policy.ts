@@ -7,7 +7,6 @@ import { BasePolicy } from '@spinajs/http';
 import type { IController, IRoute, Request } from '@spinajs/http';
 
 import { domainService } from '../domains.js';
-import { httpConfig } from '../http-config.js';
 import { routeAccess, routeDomain } from './descriptor.js';
 import { isUnloadedModel } from './extractors.js';
 import type { IAccessRule } from './descriptor.js';
@@ -48,6 +47,9 @@ const isRef = (v: unknown): v is ResourceRef => typeof v === 'object' && v !== n
  */
 @NewInstance()
 export class AccessPolicy extends BasePolicy {
+  @Config('authz.http.explainRoute.permission')
+  protected ExplainPermission: Permission;
+
   @Config('configuration.isProduction')
   protected IsProduction: boolean | undefined;
 
@@ -153,7 +155,7 @@ export class AccessPolicy extends BasePolicy {
     const configuration = DI.get(Configuration);
     if (!readDomainConfig(configuration?.get(['authz']), domains.lineage(domain)).engine.explain) return undefined;
 
-    const permission: Permission = httpConfig().explainRoute.permission;
+    const permission = this.ExplainPermission;
     // Only an unconditional grant: a residual on the explain permission would not be enforced here.
     const held = await authz.check({ principal, permission, resource: { type: parsePermission(permission).resource } }).catch(() => undefined);
     if (!held?.allowed || held.residual.op !== 'true') return undefined;

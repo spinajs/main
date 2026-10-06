@@ -124,7 +124,11 @@ export function testConfig(): Record<string, unknown> {
       middlewares: [express.json({ limit: '5mb' }), express.urlencoded({ extended: true })],
       AcceptHeaders: 1 | 2,
     },
-    authz: { permissions: configurationHttpConfig.authz.permissions },
+    authz: {
+      permissions: configurationHttpConfig.authz.permissions,
+      // This in-memory configuration applies no schema defaults.
+      http: { services: [], explainRoute: { enabled: false, permission: 'authz:explain' }, links: { query: 'link', header: 'X-Authz-Link', cookie: null }, access: { domain: 'root' }, admin: { domain: 'root' } },
+    },
     db: {
       DefaultConnection: 'default',
       Connections: [

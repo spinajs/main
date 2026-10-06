@@ -53,7 +53,8 @@ describe('LinkPrincipalSource (B38 http)', function () {
     calls.length = 0;
   });
 
-  afterEach(() => testHost.config().unset(['authz', 'http', 'links']));
+  // Back to the schema defaults: the in-memory test configuration applies no schema.
+  afterEach(() => testHost.config().set(['authz', 'http', 'links'], { query: 'link', header: 'X-Authz-Link', cookie: null }));
 
   it('is the link source at order 110, after the authn principal', () => {
     const link = new LinkPrincipalSource();

@@ -102,8 +102,12 @@ export function testConfig(): Record<string, any> {
         version: '1.0.0',
       },
     },
-    // As an app merges the telemetry config fragment.
-    authz: structuredClone(fragment.authz),
+    // As an app merges the telemetry and authz-http config fragments; this in-memory configuration applies no schema defaults.
+    authz: {
+      ...structuredClone(fragment.authz),
+      http: { services: [], explainRoute: { enabled: false, permission: 'authz:explain' }, links: { query: 'link', header: 'X-Authz-Link', cookie: null }, access: { domain: 'root' }, admin: { domain: 'root' } },
+      principals: { anonymous: { enabled: true } },
+    },
     telemetry: {
       auth: {
         ...structuredClone(fragment.telemetry.auth),

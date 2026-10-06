@@ -1,9 +1,19 @@
-import { Bootstrapper, DI, Injectable } from '@spinajs/di';
-import { Configuration, registerConfigurationSchema } from '@spinajs/configuration';
-import { AuthzConfigError } from '@spinajs/authz';
+import { Bootstrapper, Injectable } from '@spinajs/di';
+import { registerConfigurationSchema } from '@spinajs/configuration';
 
+/** One `authz.http.services` entry as configured. */
+export interface ServiceEntry {
+  readonly name: string;
+  readonly header: string;
+  /** Several for rotation. */
+  readonly token: string | readonly string[];
+  readonly attributes?: Readonly<Record<string, unknown>>;
+}
+
+/** A service entry as ServicePrincipalSource matches it. */
 export interface ServicePrincipalConfig {
   readonly name: string;
+  /** Lower-cased: node lower-cases the names of `req.headers`. */
   readonly header: string;
   readonly tokens: readonly string[];
   readonly attributes: Readonly<Record<string, unknown>>;
@@ -15,17 +25,20 @@ export interface LinksConfig {
   readonly cookie: string | null;
 }
 
-/** `authz.http.*`, read and checked. */
+/** `authz.http.*` as AUTHZ_HTTP_CONFIGURATION_SCHEMA leaves it: every key set. */
 export interface AuthzHttpConfig {
-  readonly services: readonly ServicePrincipalConfig[];
+  readonly services: readonly ServiceEntry[];
   readonly explainRoute: { readonly enabled: boolean; readonly permission: string };
   readonly links: LinksConfig;
   /** The domain GET /user/access and POST /user/access/check answer for. */
   readonly access: { readonly domain: string };
+  /** The domain whose AuthzAdmin the authz-http-admin routes use. */
+  readonly admin: { readonly domain: string };
 }
 
 const nonEmpty = { type: 'string', minLength: 1 };
-const nullableName = { anyOf: [nonEmpty, { type: 'null' }] };
+// One type list, not an anyOf with a null branch: coerceTypes would turn '' into null there and accept it.
+const nullableName = { type: ['string', 'null'], minLength: 1 };
 
 export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
   $id: 'spinajs/authz-http.configuration.schema.json',
@@ -35,6 +48,7 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
   properties: {
     services: {
       type: 'array',
+      default: [],
       items: {
         type: 'object',
         required: ['name', 'header', 'token'],
@@ -46,9 +60,18 @@ export const AUTHZ_HTTP_CONFIGURATION_SCHEMA = {
         },
       },
     },
-    explainRoute: { type: 'object', properties: { enabled: { type: 'boolean' }, permission: nonEmpty } },
-    links: { type: 'object', properties: { query: nullableName, header: nullableName, cookie: nullableName } },
-    access: { type: 'object', properties: { domain: nonEmpty } },
+    explainRoute: {
+      type: 'object',
+      default: {},
+      properties: { enabled: { type: 'boolean', default: false }, permission: { ...nonEmpty, default: 'authz:explain' } },
+    },
+    links: {
+      type: 'object',
+      default: {},
+      properties: { query: { ...nullableName, default: 'link' }, header: { ...nullableName, default: 'X-Authz-Link' }, cookie: { ...nullableName, default: null } },
+    },
+    access: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
+    admin: { type: 'object', default: {}, properties: { domain: { ...nonEmpty, default: 'root' } } },
   },
 };
 
@@ -59,51 +82,12 @@ export class AuthzHttpConfigBootstrapper extends Bootstrapper {
   }
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const isName = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-
-function fail(path: string, what: string): never {
-  throw new AuthzConfigError(`authz.http.${path} must be ${what}`);
-}
-
-function service(raw: unknown, i: number): ServicePrincipalConfig {
-  if (!isRecord(raw)) fail(`services[${i}]`, 'an object { name, header, token }');
-  const { name, header, token, attributes } = raw;
-  if (!isName(name)) fail(`services[${i}].name`, 'a non-empty string');
-  if (!isName(header)) fail(`services[${i}].header`, 'a non-empty string');
-  const tokens = typeof token === 'string' ? [token] : token;
-  if (!Array.isArray(tokens) || tokens.length === 0 || !tokens.every(isName)) fail(`services[${i}].token`, 'a non-empty string or a non-empty list of them');
-  if (attributes !== undefined && !isRecord(attributes)) fail(`services[${i}].attributes`, 'an object');
-  return { name, header: header.toLowerCase(), tokens, attributes: Object.freeze({ ...(attributes ?? {}) }) };
-}
-
-function optionalName(raw: Record<string, unknown>, key: keyof LinksConfig, fallback: string | null): string | null {
-  const v = raw[key];
-  if (v === undefined) return fallback;
-  if (v === null || isName(v)) return v;
-  return fail(`links.${key}`, 'a non-empty string or null');
-}
-
-/** Reads `authz.http.*` from the DI Configuration on each call; throws AuthzConfigError on a malformed value. */
-export function httpConfig(): AuthzHttpConfig {
-  const raw = DI.get(Configuration)?.get<unknown>(['authz', 'http']);
-  const http = isRecord(raw) ? raw : {};
-
-  const services = http.services ?? [];
-  if (!Array.isArray(services)) fail('services', 'a list');
-
-  const explain = isRecord(http.explainRoute) ? http.explainRoute : {};
-  if (explain.enabled !== undefined && typeof explain.enabled !== 'boolean') fail('explainRoute.enabled', 'a boolean');
-  if (explain.permission !== undefined && !isName(explain.permission)) fail('explainRoute.permission', 'a non-empty string');
-
-  const links = isRecord(http.links) ? http.links : {};
-  const access = isRecord(http.access) ? http.access : {};
-  if (access.domain !== undefined && !isName(access.domain)) fail('access.domain', 'a non-empty string');
-
-  return {
-    services: services.map(service),
-    explainRoute: { enabled: explain.enabled === true, permission: (explain.permission as string | undefined) ?? 'authz:explain' },
-    links: { query: optionalName(links, 'query', 'link'), header: optionalName(links, 'header', 'X-Authz-Link'), cookie: optionalName(links, 'cookie', null) },
-    access: { domain: (access.domain as string | undefined) ?? 'root' },
-  };
+/** The configured services as ServicePrincipalSource matches them. */
+export function servicePrincipals(services: readonly ServiceEntry[]): ServicePrincipalConfig[] {
+  return services.map((s) => ({
+    name: s.name,
+    header: s.header.toLowerCase(),
+    tokens: typeof s.token === 'string' ? [s.token] : s.token,
+    attributes: Object.freeze({ ...(s.attributes ?? {}) }),
+  }));
 }

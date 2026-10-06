@@ -1,10 +1,9 @@
 import 'mocha';
 import { expect } from 'chai';
-import { AuthzConfigError } from '@spinajs/authz';
 import type { Request } from '@spinajs/http';
 import { testHost } from '@spinajs/authz-testing';
 
-import { AUTHZ_HTTP_CONFIGURATION_SCHEMA, ServicePrincipalSource, httpConfig } from '../src/index.js';
+import { AUTHZ_HTTP_CONFIGURATION_SCHEMA, ServicePrincipalSource } from '../src/index.js';
 
 const request = (headers: Record<string, string | string[] | undefined>) => ({ headers, storage: {} }) as unknown as Request;
 
@@ -27,7 +26,7 @@ describe('ServicePrincipalSource', () => {
 
   const configure = (services: unknown) => testHost.config().set(['authz', 'http', 'services'], services);
 
-  afterEach(() => testHost.config().unset(['authz', 'http', 'services']));
+  beforeEach(() => configure([]));
 
   it('is the service source at order 40, before the authn principal (50)', () => {
     expect(source).to.include({ name: 'service', order: 40 });
@@ -66,16 +65,10 @@ describe('ServicePrincipalSource', () => {
     expect(await source.authenticate(request({ 'x-token': 'two', 'x-api-token': 'two' }))).to.deep.include({ id: 'api-v2' });
   });
 
-  it('yields nothing without authz.http.services', async () => {
+  it('yields nothing while no service is configured', async () => {
     expect(await source.authenticate(request({ 'x-telemetry-token': 's3cret' }))).to.eq(null);
   });
 
-  it('refuses a malformed entry with AuthzConfigError', () => {
-    for (const bad of [[{ header: 'X', token: 't' }], [{ name: 'a', token: 't' }], [{ name: 'a', header: 'X', token: '' }], [{ name: 'a', header: 'X', token: [] }], [{ name: 'a', header: 'X', token: 't', attributes: 1 }], 'x']) {
-      configure(bad);
-      expect(() => httpConfig(), JSON.stringify(bad)).to.throw(AuthzConfigError, /authz\.http\.services/);
-    }
-  });
 
   it('has a configuration schema for authz.http', () => {
     expect(AUTHZ_HTTP_CONFIGURATION_SCHEMA.$configurationModule).to.eq('authz.http');
